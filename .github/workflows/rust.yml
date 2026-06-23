@@ -87,9 +87,9 @@ jobs:
       matrix:
         include:
           - image: aperio-server
-            context: ./aperio-server
+            dockerfile: ./aperio-server/Dockerfile
           - image: aperio-client
-            context: ./aperio-client
+            dockerfile: ./aperio-client/Dockerfile
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -117,7 +117,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
+          context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

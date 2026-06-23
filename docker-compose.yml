@@ -3,8 +3,8 @@ version: "3.8"
 services:
   server:
     build:
-      context: ./aperio-server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: aperio-server/Dockerfile
     ports:
       - "8080:8080"
     environment:
@@ -16,8 +16,8 @@ services:
 
   client:
     build:
-      context: ./aperio-client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: aperio-client/Dockerfile
     environment:
       - APERIO_SERVER_TOKEN=supersecrettoken123
       # Connect to the server container within the compose network
