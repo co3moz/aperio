@@ -63,8 +63,10 @@ async fn main() {
 
   let server_addr =
     std::env::var("APERIO_SERVER").unwrap_or_else(|_| "http://localhost:8080".to_string());
-  let target =
-    std::env::var("APERIO_CLIENT_TARGET").unwrap_or_else(|_| "http://127.0.0.1".to_string());
+  let target = std::env::var("APERIO_CLIENT_TARGET").unwrap_or_else(|_| {
+    error!("CRITICAL ERROR: APERIO_CLIENT_TARGET environment variable must be set!");
+    std::process::exit(1);
+  });
   let pass_hostname_val =
     std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_else(|_| "0".to_string());
   let pass_hostname = pass_hostname_val == "1";

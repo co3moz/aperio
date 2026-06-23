@@ -102,7 +102,7 @@ The client receives requests from the server and forwards them to a local backen
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------- | -------- | -------------- |
 | `APERIO_SERVER_TOKEN`         | Secret security token matching the server's token.                                                                    | _(None)_                | **Yes**  | String         |
 | `APERIO_SERVER`               | Address of your public-facing `aperio-server`. Supports `http`/`https` or `ws`/`wss` protocols.                       | `http://localhost:8080` | No       | String         |
-| `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | `http://127.0.0.1`      | No       | String         |
+| `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
 
 ---
