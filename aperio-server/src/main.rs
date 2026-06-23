@@ -1073,6 +1073,7 @@ async fn log_request_failure(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use base64::Engine;
   use std::net::Ipv4Addr;
 
   #[test]
@@ -1225,9 +1226,10 @@ mod tests {
 
     let state_clone = state.clone();
     tokio::spawn(async move {
-      if let Some(Message::Text(text)) = rx_write.recv().await {
-        if let Ok(TunnelMessage::Request { id, .. }) = serde_json::from_str::<TunnelMessage>(&text)
-        {
+      if let Some(Message::Text(text)) = rx_write.recv().await
+        && let Ok(TunnelMessage::Request { id, .. }) =
+          serde_json::from_str::<TunnelMessage>(&text)
+      {
           let mut pending = state_clone.pending_requests.lock().await;
           if let Some(req) = pending.remove(&id) {
             let mut headers = HashMap::new();
@@ -1239,7 +1241,6 @@ mod tests {
             });
           }
         }
-      }
     });
 
     let response = proxy_handler(
