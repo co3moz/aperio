@@ -321,7 +321,7 @@ async fn main() {
         }
 
         let mut dash_router = Router::new()
-            .route("/dashboard", get(dashboard_handler))
+            .route("/", get(dashboard_handler))
             .route("/api/stats", get(stats_handler))
             .route("/api/logs", get(logs_handler))
             .route("/health", get(health_handler));

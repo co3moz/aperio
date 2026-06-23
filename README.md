@@ -83,7 +83,7 @@ The server is configured entirely through environment variables.
 
 - **`/*` (Fallback)**: Any path not matching `/aperio` routes is proxied to the active tunnel clients.
 - **`GET /aperio/ws`**: Secure WebSocket endpoint where the client connects. Requires authentication (HTTP `Authorization: Bearer <token>` or `x-auth-token: <token>`).
-- **`GET /aperio/dashboard`**: HTML admin dashboard interface (available when `APERIO_DASHBOARD` is enabled).
+- **`GET /aperio`**: HTML admin dashboard interface (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/stats`**: JSON stats endpoint displaying connection counters, byte counters, and uptime info (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/logs`**: JSON endpoint returning the last 100 request logs (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/health`**: Simple server health verification endpoint (available when `APERIO_DASHBOARD` is enabled).
@@ -134,7 +134,7 @@ The client receives requests from the server and forwards them to a local backen
    ```
 
 3. **Access the Dashboard:**
-   Open a browser at `http://localhost:8080/aperio/dashboard`. Log in using user `aperio` and password `dashboard-password`.
+   Open a browser at `http://localhost:8080/aperio`. Log in using user `aperio` and password `dashboard-password`.
 
 ---
 
