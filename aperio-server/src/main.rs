@@ -215,11 +215,10 @@ impl AppState {
 /// Sets up logging, reads env config, registers paths/middleware, and binds the TCP listener.
 async fn main() {
   // Initialize tracing with structured JSON output (pino.js style)
-  let log_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-    .unwrap_or_else(|_| {
-      let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-      tracing_subscriber::EnvFilter::new(level)
-    });
+  let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+    let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    tracing_subscriber::EnvFilter::new(level)
+  });
 
   tracing_subscriber::fmt()
     .json()
@@ -1227,20 +1226,19 @@ mod tests {
     let state_clone = state.clone();
     tokio::spawn(async move {
       if let Some(Message::Text(text)) = rx_write.recv().await
-        && let Ok(TunnelMessage::Request { id, .. }) =
-          serde_json::from_str::<TunnelMessage>(&text)
+        && let Ok(TunnelMessage::Request { id, .. }) = serde_json::from_str::<TunnelMessage>(&text)
       {
-          let mut pending = state_clone.pending_requests.lock().await;
-          if let Some(req) = pending.remove(&id) {
-            let mut headers = HashMap::new();
-            headers.insert("content-type".to_string(), "application/json".to_string());
-            let _ = req.tx.send(TunnelResponse {
-              status: 200,
-              headers,
-              body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),
-            });
-          }
+        let mut pending = state_clone.pending_requests.lock().await;
+        if let Some(req) = pending.remove(&id) {
+          let mut headers = HashMap::new();
+          headers.insert("content-type".to_string(), "application/json".to_string());
+          let _ = req.tx.send(TunnelResponse {
+            status: 200,
+            headers,
+            body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),
+          });
         }
+      }
     });
 
     let response = proxy_handler(
