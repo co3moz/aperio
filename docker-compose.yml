@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./aperio-server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - APERIO_SERVER_TOKEN=supersecrettoken123
+      - APERIO_DASHBOARD=true
+      - APERIO_DASHBOARD_AUTH=password123
+      - RUST_LOG=info,aperio_server=debug
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./aperio-client
+      dockerfile: Dockerfile
+    environment:
+      - APERIO_SERVER_TOKEN=supersecrettoken123
+      # Connect to the server container within the compose network
+      - APERIO_SERVER=http://server:8080
+      # By default, attempt to forward to the host machine's port 80.
+      # On Windows/macOS, use host.docker.internal to access host machine services.
+      - APERIO_CLIENT_TARGET=http://host.docker.internal:80
+      - APERIO_CLIENT_PASS_HOSTNAME=0
+      - RUST_LOG=info,aperio_client=debug
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - server
+    restart: unless-stopped

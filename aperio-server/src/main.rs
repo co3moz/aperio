@@ -1,26 +1,26 @@
 use axum::{
+    Json, Router,
     body::Body,
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
     routing::{any, get},
-    Json, Router,
 };
 use chrono::Local;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, oneshot, watch, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
-// Message structure exchanged over WebSocket
+/// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum TunnelMessage {
@@ -46,6 +46,7 @@ pub enum TunnelMessage {
     },
 }
 
+/// Configuration settings for the Aperio server.
 #[derive(Clone)]
 struct ServerConfig {
     token: String,
@@ -119,6 +120,7 @@ struct RateLimitState {
     last_updated: Instant,
 }
 
+/// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 struct AppState {
     clients: Mutex<HashMap<String, ClientHandle>>,
     client_connected: watch::Sender<bool>,
@@ -134,11 +136,12 @@ struct AppState {
 }
 
 impl AppState {
-    // In-memory thread-safe Per-IP Token Bucket Rate Limiter
+    /// In-memory thread-safe Per-IP Token Bucket Rate Limiter.
+    /// Returns `true` if request is allowed, `false` if rate-limited.
     async fn check_rate_limit(&self, ip: IpAddr) -> bool {
         let mut limit_map = self.rate_limiter.lock().await;
         let now = Instant::now();
-        
+
         // Inline garbage collection to avoid memory leak if client IPs grow indefinitely
         if limit_map.len() > 2000 {
             limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(3600));
@@ -166,6 +169,8 @@ impl AppState {
 }
 
 #[tokio::main]
+/// Entry point for the Aperio server.
+/// Sets up logging, reads env config, registers paths/middleware, and binds the TCP listener.
 async fn main() {
     // Initialize tracing
     tracing_subscriber::fmt()
@@ -178,11 +183,10 @@ async fn main() {
     info!("Starting Aperio Server...");
 
     // Enforce APERIO_SERVER_TOKEN environment variable
-    let token = std::env::var("APERIO_SERVER_TOKEN")
-        .unwrap_or_else(|_| {
-            error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
-            std::process::exit(1);
-        });
+    let token = std::env::var("APERIO_SERVER_TOKEN").unwrap_or_else(|_| {
+        error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
+        std::process::exit(1);
+    });
     if token.trim().is_empty() {
         error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN cannot be empty!");
         std::process::exit(1);
@@ -192,7 +196,7 @@ async fn main() {
         .ok()
         .and_then(|val| val.parse::<u64>().ok())
         .unwrap_or(10);
-        
+
     let gateway_response_timeout_secs = std::env::var("APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT")
         .ok()
         .and_then(|val| val.parse::<u64>().ok())
@@ -269,7 +273,9 @@ async fn main() {
     if dashboard_enabled {
         let dashboard_auth = std::env::var("APERIO_DASHBOARD_AUTH").ok();
         if dashboard_auth.is_none() || dashboard_auth.as_ref().unwrap().trim().is_empty() {
-            warn!("CRITICAL SECURITY WARNING: APERIO_DASHBOARD is enabled but APERIO_DASHBOARD_AUTH is not set! The admin dashboard is exposed publicly without protection!");
+            warn!(
+                "CRITICAL SECURITY WARNING: APERIO_DASHBOARD is enabled but APERIO_DASHBOARD_AUTH is not set! The admin dashboard is exposed publicly without protection!"
+            );
         }
 
         let mut dash_router = Router::new()
@@ -282,39 +288,41 @@ async fn main() {
             let trimmed = auth_pass.trim().to_string();
             if !trimmed.is_empty() {
                 let auth_pass_arc = Arc::new(trimmed);
-                dash_router = dash_router.layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-                    let auth_pass = auth_pass_arc.clone();
-                    async move {
-                        let headers: &HeaderMap = req.headers();
-                        let mut authenticated = false;
-                        if let Some(auth_header) = headers.get("authorization") {
-                            if let Ok(auth_str) = auth_header.to_str() {
-                                if auth_str.starts_with("Basic ") {
-                                    use base64::prelude::*;
-                                    if let Ok(decoded) = BASE64_STANDARD.decode(&auth_str[6..]) {
-                                        if let Ok(decoded_str) = String::from_utf8(decoded) {
-                                            if let Some((user, pass)) = decoded_str.split_once(':') {
-                                                if user == "aperio" && pass == *auth_pass {
-                                                    authenticated = true;
-                                                }
-                                            }
-                                        }
-                                    }
+                dash_router = dash_router.layer(axum::middleware::from_fn(
+                    move |req: axum::extract::Request, next: axum::middleware::Next| {
+                        let auth_pass = auth_pass_arc.clone();
+                        async move {
+                            let headers: &HeaderMap = req.headers();
+                            let mut authenticated = false;
+                            if let Some(auth_header) = headers.get("authorization")
+                                && let Ok(auth_str) = auth_header.to_str()
+                                && let Some(stripped) = auth_str.strip_prefix("Basic ")
+                            {
+                                use base64::prelude::*;
+                                if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
+                                    && let Ok(decoded_str) = String::from_utf8(decoded)
+                                    && let Some((user, pass)) = decoded_str.split_once(':')
+                                    && user == "aperio"
+                                    && pass == *auth_pass
+                                {
+                                    authenticated = true;
                                 }
                             }
-                        }
 
-                        if authenticated {
-                            next.run(req).await
-                        } else {
-                            Response::builder()
-                                .status(StatusCode::UNAUTHORIZED)
-                                .header("WWW-Authenticate", "Basic realm=\"Aperio Dashboard\"")
-                                .body(Body::from("401 Unauthorized - Basic authentication required"))
-                                .unwrap()
+                            if authenticated {
+                                next.run(req).await
+                            } else {
+                                Response::builder()
+                                    .status(StatusCode::UNAUTHORIZED)
+                                    .header("WWW-Authenticate", "Basic realm=\"Aperio Dashboard\"")
+                                    .body(Body::from(
+                                        "401 Unauthorized - Basic authentication required",
+                                    ))
+                                    .unwrap()
+                            }
                         }
-                    }
-                }));
+                    },
+                ));
             }
         }
 
@@ -328,13 +336,16 @@ async fn main() {
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8080);
-    
+
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .unwrap();
-    
-    info!("Server listening on port {} with connection info tracing enabled", port);
-    
+
+    info!(
+        "Server listening on port {} with connection info tracing enabled",
+        port
+    );
+
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -367,7 +378,7 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-    
+
     info!("Shutdown signal received, closing Aperio Server connections...");
 }
 
@@ -380,7 +391,7 @@ async fn dashboard_handler() -> Html<&'static str> {
 async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
     let raw_stats = state.stats.lock().await.clone();
     let clients = state.clients.lock().await;
-    
+
     let active_clients = clients
         .iter()
         .map(|(id, handle)| ClientDetail {
@@ -434,19 +445,17 @@ async fn ws_handler(
     State(state): State<Arc<AppState>>,
 ) -> Response {
     let mut token_opt = None;
-    if let Some(auth_header) = headers.get("authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                token_opt = Some(auth_str[7..].to_string());
-            }
-        }
+    if let Some(auth_header) = headers.get("authorization")
+        && let Ok(auth_str) = auth_header.to_str()
+        && let Some(stripped) = auth_str.strip_prefix("Bearer ")
+    {
+        token_opt = Some(stripped.to_string());
     }
-    if token_opt.is_none() {
-        if let Some(x_token) = headers.get("x-auth-token") {
-            if let Ok(x_token_str) = x_token.to_str() {
-                token_opt = Some(x_token_str.to_string());
-            }
-        }
+    if token_opt.is_none()
+        && let Some(x_token) = headers.get("x-auth-token")
+        && let Ok(x_token_str) = x_token.to_str()
+    {
+        token_opt = Some(x_token_str.to_string());
     }
 
     let authenticated = match token_opt {
@@ -491,7 +500,10 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     let writer_task = tokio::spawn(async move {
         while let Some(msg) = rx_write.recv().await {
             if let Err(e) = ws_sender.send(msg).await {
-                error!("Error writing to websocket client {}: {:?}", writer_client_id, e);
+                error!(
+                    "Error writing to websocket client {}: {:?}",
+                    writer_client_id, e
+                );
                 break;
             }
         }
@@ -520,26 +532,44 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     while let Some(result) = ws_receiver.next().await {
         match result {
             Ok(msg) => {
-                if let Message::Text(text) = msg {
-                    if let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text) {
-                        match tunnel_msg {
-                            TunnelMessage::Response { id, status, headers, body } => {
-                                let mut pending = state.pending_requests.lock().await;
-                                if let Some(req) = pending.remove(&id) {
-                                    if let Err(_) = req.tx.send(TunnelResponse { status, headers, body }) {
-                                        warn!("Pending request oneshot receiver was dropped for request ID: {}", id);
-                                    }
-                                }
+                if let Message::Text(text) = msg
+                    && let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text)
+                {
+                    match tunnel_msg {
+                        TunnelMessage::Response {
+                            id,
+                            status,
+                            headers,
+                            body,
+                        } => {
+                            let mut pending = state.pending_requests.lock().await;
+                            if let Some(req) = pending.remove(&id)
+                                && req
+                                    .tx
+                                    .send(TunnelResponse {
+                                        status,
+                                        headers,
+                                        body,
+                                    })
+                                    .is_err()
+                            {
+                                warn!(
+                                    "Pending request oneshot receiver was dropped for request ID: {}",
+                                    id
+                                );
                             }
-                            TunnelMessage::Ping { client_id: cid, timestamp } => {
-                                debug!("Heartbeat from client {}: {}", cid, timestamp);
-                                let pong = TunnelMessage::Pong { timestamp };
-                                if let Ok(pong_str) = serde_json::to_string(&pong) {
-                                    let _ = tx_write.send(Message::Text(pong_str)).await;
-                                }
-                            }
-                            _ => {}
                         }
+                        TunnelMessage::Ping {
+                            client_id: cid,
+                            timestamp,
+                        } => {
+                            debug!("Heartbeat from client {}: {}", cid, timestamp);
+                            let pong = TunnelMessage::Pong { timestamp };
+                            if let Ok(pong_str) = serde_json::to_string(&pong) {
+                                let _ = tx_write.send(Message::Text(pong_str)).await;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -572,11 +602,14 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
             .filter(|(_, req)| req.client_id == client_id)
             .map(|(k, _)| k.clone())
             .collect();
-            
+
         for k in keys_to_remove {
             if let Some(_req) = pending.remove(&k) {
                 // Drop the sender channel, triggering an immediate channel cancellation / 502 Bad Gateway
-                debug!("Aborted pending request ID {} due to active client connection loss", k);
+                debug!(
+                    "Aborted pending request ID {} due to active client connection loss",
+                    k
+                );
                 // The oneshot channel dropping will wake the handler thread to reply immediately.
             }
         }
@@ -711,7 +744,9 @@ async fn proxy_handler(
         } else {
             let idx = state.request_counter.fetch_add(1, Ordering::SeqCst) as usize % keys.len();
             let chosen_id = &keys[idx];
-            clients.get(chosen_id).map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+            clients
+                .get(chosen_id)
+                .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
         }
     };
 
@@ -814,7 +849,7 @@ async fn proxy_handler(
         }
     };
 
-    if let Err(_) = client_tx.send(Message::Text(req_json)).await {
+    if client_tx.send(Message::Text(req_json)).await.is_err() {
         state.pending_requests.lock().await.remove(&request_id);
         log_request_failure(
             &state,
@@ -946,7 +981,11 @@ async fn log_request_success(
     });
     info!(
         "Proxy SUCCESS: ID={} Method={} URI={} Status={} Duration={}ms",
-        id, method, uri, status, duration.as_millis()
+        id,
+        method,
+        uri,
+        status,
+        duration.as_millis()
     );
 }
 
@@ -975,6 +1014,59 @@ async fn log_request_failure(
     });
     warn!(
         "Proxy FAILURE: ID={} Method={} URI={} Status={} Duration={}ms Error={:?}",
-        id, method, uri, status, duration.as_millis(), error
+        id,
+        method,
+        uri,
+        status,
+        duration.as_millis(),
+        error
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[tokio::test]
+    async fn test_rate_limiting() {
+        let config = ServerConfig {
+            token: "test".to_string(),
+            gateway_timeout: Duration::from_secs(1),
+            gateway_response_timeout: Duration::from_secs(1),
+            max_body_size: 1024,
+            max_tunnels: 1,
+            ip_limit_max: 2.0,
+            ip_limit_refill: 0.0, // No refill for testing strict burst limit
+        };
+
+        let (client_connected_tx, _) = watch::channel(false);
+        let state = AppState {
+            clients: Mutex::new(HashMap::new()),
+            client_connected: client_connected_tx,
+            last_disconnect_time: Mutex::new(None),
+            server_start_time: Instant::now(),
+            pending_requests: Mutex::new(HashMap::new()),
+            stats: Mutex::new(ServerStats {
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                total_bytes_transferred: 0,
+            }),
+            recent_logs: Mutex::new(VecDeque::new()),
+            config,
+            concurrency_semaphore: Semaphore::new(10),
+            request_counter: AtomicU64::new(0),
+            rate_limiter: Mutex::new(HashMap::new()),
+        };
+
+        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
+        // First request should pass
+        assert!(state.check_rate_limit(ip).await);
+        // Second request should pass
+        assert!(state.check_rate_limit(ip).await);
+        // Third request should be rate limited (max burst is 2.0)
+        assert!(!state.check_rate_limit(ip).await);
+    }
 }

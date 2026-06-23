@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "aperio-server",
+    "aperio-client",
+]
+resolver = "2"

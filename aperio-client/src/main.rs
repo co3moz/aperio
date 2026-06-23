@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message},
 };
 use tracing::{debug, error, info, warn};
 
-// Message structure exchanged over WebSocket
+/// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum TunnelMessage {
@@ -38,6 +38,8 @@ pub enum TunnelMessage {
 }
 
 #[tokio::main]
+/// Entry point for the Aperio client.
+/// Loads configuration from environment variables, sets up logging, and initiates the reconnect loop.
 async fn main() {
     // Initialize logging
     tracing_subscriber::fmt()
@@ -50,22 +52,21 @@ async fn main() {
     info!("Starting Aperio Client...");
 
     // Enforce APERIO_SERVER_TOKEN environment variable
-    let token = std::env::var("APERIO_SERVER_TOKEN")
-        .unwrap_or_else(|_| {
-            error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
-            std::process::exit(1);
-        });
+    let token = std::env::var("APERIO_SERVER_TOKEN").unwrap_or_else(|_| {
+        error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
+        std::process::exit(1);
+    });
     if token.trim().is_empty() {
         error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN cannot be empty!");
         std::process::exit(1);
     }
 
-    let server_addr = std::env::var("APERIO_SERVER")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-    let target = std::env::var("APERIO_CLIENT_TARGET")
-        .unwrap_or_else(|_| "http://127.0.0.1".to_string());
-    let pass_hostname_val = std::env::var("APERIO_CLIENT_PASS_HOSTNAME")
-        .unwrap_or_else(|_| "0".to_string());
+    let server_addr =
+        std::env::var("APERIO_SERVER").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let target =
+        std::env::var("APERIO_CLIENT_TARGET").unwrap_or_else(|_| "http://127.0.0.1".to_string());
+    let pass_hostname_val =
+        std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_else(|_| "0".to_string());
     let pass_hostname = pass_hostname_val == "1";
 
     let client_id = uuid::Uuid::new_v4().to_string();
@@ -87,7 +88,7 @@ async fn main() {
     // Reconnection Loop
     loop {
         info!("Connecting to Aperio Server at: {}...", server_addr);
-        
+
         let ws_req_result = ws_url.clone().into_client_request();
         let ws_req = match ws_req_result {
             Ok(mut req) => {
@@ -134,7 +135,7 @@ async fn main() {
                         let client_id_ping = client_id.clone();
                         let last_pong_time_ping = last_pong_time.clone();
                         let abort_tx_ping = abort_tx.clone();
-                        
+
                         let ping_task = tokio::spawn(async move {
                             loop {
                                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -160,10 +161,10 @@ async fn main() {
                                         .unwrap_or_default()
                                         .as_secs(),
                                 };
-                                if let Ok(ping_str) = serde_json::to_string(&ping_msg) {
-                                    if let Err(_) = tx_ping.send(Message::Text(ping_str)).await {
-                                        break;
-                                    }
+                                if let Ok(ping_str) = serde_json::to_string(&ping_msg)
+                                    && tx_ping.send(Message::Text(ping_str)).await.is_err()
+                                {
+                                    break;
                                 }
                             }
                         });
@@ -184,9 +185,10 @@ async fn main() {
                                 msg_res = ws_receiver.next() => {
                                     match msg_res {
                                         Some(Ok(msg)) => {
-                                            if let Message::Text(text) = msg {
-                                                if let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text) {
-                                                    match tunnel_msg {
+                                            if let Message::Text(text) = msg
+                                                && let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text)
+                                            {
+                                                match tunnel_msg {
                                                         TunnelMessage::Request {
                                                             id,
                                                             method,
@@ -197,7 +199,7 @@ async fn main() {
                                                             let tx_resp = tx_write.clone();
                                                             let req_client = reqwest_client.clone();
                                                             let target_url = target.clone();
-                                                            
+
                                                             // Handle incoming request concurrently
                                                             tokio::spawn(async move {
                                                                 let response = handle_incoming_request(
@@ -226,7 +228,6 @@ async fn main() {
                                                     }
                                                 }
                                             }
-                                        }
                                         Some(Err(e)) => {
                                             error!("Error reading from server socket: {:?}", e);
                                             break;
@@ -260,7 +261,8 @@ async fn main() {
     }
 }
 
-// Builds correct WebSocket connection URL from HTTP or WS address
+/// Builds the correct WebSocket connection URL from an HTTP or WS address.
+/// Ensures the scheme is set to `ws` or `wss` and appends the tunnel path `/aperio/ws`.
 fn build_ws_url(server: &str) -> Result<String, String> {
     let mut server_clean = server.to_string();
     if !server_clean.contains("://") {
@@ -283,7 +285,10 @@ fn build_ws_url(server: &str) -> Result<String, String> {
     Ok(parsed.to_string())
 }
 
-// Forwards proxy request to local target and returns TunnelMessage::Response
+/// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
+/// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request, and returns
+/// the response mapped back into a `TunnelMessage`.
+#[allow(clippy::too_many_arguments)]
 async fn handle_incoming_request(
     client: reqwest::Client,
     id: String,
@@ -294,7 +299,10 @@ async fn handle_incoming_request(
     target: &str,
     pass_hostname: bool,
 ) -> TunnelMessage {
-    info!("Forwarding tunnel request ID {}: {} {}", id, method_str, uri_str);
+    info!(
+        "Forwarding tunnel request ID {}: {} {}",
+        id, method_str, uri_str
+    );
     let target_parsed = match url::Url::parse(target) {
         Ok(url) => url,
         Err(e) => {
@@ -340,7 +348,7 @@ async fn handle_incoming_request(
     let mut host_header_val = None;
     for (k, v) in headers.iter() {
         let k_lower = k.to_lowercase();
-        
+
         // CRITICAL: Strip connection control, upgrade, and websocket headers
         if k_lower == "connection"
             || k_lower == "keep-alive"
@@ -368,12 +376,11 @@ async fn handle_incoming_request(
         }
     }
 
-    if pass_hostname {
-        if let Some(host) = host_header_val {
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(&host) {
-                builder = builder.header(reqwest::header::HOST, val);
-            }
-        }
+    if pass_hostname
+        && let Some(host) = host_header_val
+        && let Ok(val) = reqwest::header::HeaderValue::from_str(&host)
+    {
+        builder = builder.header(reqwest::header::HOST, val);
     }
 
     // Map Body
@@ -404,7 +411,10 @@ async fn handle_incoming_request(
             let body_bytes = match res.bytes().await {
                 Ok(bytes) => bytes,
                 Err(e) => {
-                    error!("Failed to retrieve response body from target backend: {:?}", e);
+                    error!(
+                        "Failed to retrieve response body from target backend: {:?}",
+                        e
+                    );
                     return make_error_response(id, 502);
                 }
             };
@@ -431,7 +441,7 @@ async fn handle_incoming_request(
     }
 }
 
-// Formats a generic masked error response (avoids leaking internal structure details like raw OS socket error messages)
+/// Formats a generic masked error response, avoiding leaking raw socket error details.
 fn make_error_response(id: String, status: u16) -> TunnelMessage {
     let mut headers = HashMap::new();
     headers.insert("content-type".to_string(), "text/plain".to_string());
@@ -441,7 +451,7 @@ fn make_error_response(id: String, status: u16) -> TunnelMessage {
         400 => "400 Bad Request - Invalid request payload data.",
         _ => "500 Internal Server Error - Tunnel client failed to process request.",
     };
-    
+
     let body = BASE64_STANDARD.encode(user_error.as_bytes());
 
     TunnelMessage::Response {
@@ -449,5 +459,52 @@ fn make_error_response(id: String, status: u16) -> TunnelMessage {
         status,
         headers,
         body: Some(body),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_ws_url() {
+        assert_eq!(
+            build_ws_url("http://localhost:8080").unwrap(),
+            "ws://localhost:8080/aperio/ws"
+        );
+        assert_eq!(
+            build_ws_url("https://example.com").unwrap(),
+            "wss://example.com/aperio/ws"
+        );
+        assert_eq!(
+            build_ws_url("ws://localhost:8080").unwrap(),
+            "ws://localhost:8080/aperio/ws"
+        );
+        assert_eq!(
+            build_ws_url("localhost:8080").unwrap(),
+            "ws://localhost:8080/aperio/ws"
+        );
+        assert!(build_ws_url("ftp://localhost").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_make_error_response() {
+        let response = make_error_response("req-123".to_string(), 502);
+        if let TunnelMessage::Response {
+            id,
+            status,
+            headers,
+            body,
+        } = response
+        {
+            assert_eq!(id, "req-123");
+            assert_eq!(status, 502);
+            assert_eq!(headers.get("content-type").unwrap(), "text/plain");
+            let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+            let decoded_str = String::from_utf8(decoded).unwrap();
+            assert!(decoded_str.contains("502 Bad Gateway"));
+        } else {
+            panic!("Expected Response variant");
+        }
     }
 }

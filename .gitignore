@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+
+# IDE configurations
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Sub-target directories
+**/target/

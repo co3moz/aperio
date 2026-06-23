@@ -1,0 +1,4 @@
+edition = "2024"
+newline_style = "Unix"
+max_width = 100
+use_field_init_shorthand = true
