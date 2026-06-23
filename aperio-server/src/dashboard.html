@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aperio Tunnel Dashboard 🛡️</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(22, 28, 45, 0.65);
+            --card-border: rgba(255, 255, 255, 0.05);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.15);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
+            --warning: #f59e0b;
+            --warning-glow: rgba(245, 158, 11, 0.15);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--card-border);
+            backdrop-filter: blur(12px);
+            background-color: rgba(11, 15, 25, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.25rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 700;
+            font-size: 1.5rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.active {
+            background-color: var(--success);
+            box-shadow: 0 0 12px var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.inactive {
+            background-color: var(--danger);
+            box-shadow: 0 0 12px var(--danger);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+
+        main {
+            flex: 1;
+            max-width: 1200px;
+            width: 100%;
+            margin: 2rem auto;
+            padding: 0 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(16px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99, 102, 241, 0.2);
+            box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.4);
+        }
+
+        .card-title {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .card-subtext {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .logs-section, .active-clients-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        .filter-input {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            outline: none;
+            width: 250px;
+            transition: border-color 0.2s;
+        }
+
+        .filter-input:focus {
+            border-color: var(--accent);
+        }
+
+        .table-container {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+            backdrop-filter: blur(16px);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9375rem;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.02);
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--card-border);
+            font-size: 0.8125rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            color: var(--text-primary);
+            font-family: inherit;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-get { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.2); }
+        .badge-post { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2); }
+        .badge-put { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.2); }
+        .badge-delete { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+        .badge-other { background: rgba(156, 163, 175, 0.15); color: #d1d5db; border: 1px solid rgba(156, 163, 175, 0.2); }
+
+        .status-2xx { background: rgba(16, 185, 129, 0.1); color: #34d399; }
+        .status-3xx { background: rgba(99, 102, 241, 0.1); color: #818cf8; }
+        .status-4xx { background: rgba(245, 158, 11, 0.1); color: #fbbf24; }
+        .status-5xx { background: rgba(239, 68, 68, 0.1); color: #f87171; }
+
+        .text-mono {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.875rem;
+        }
+
+        .empty-logs {
+            padding: 3rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        footer {
+            margin-top: auto;
+            border-top: 1px solid var(--card-border);
+            padding: 1.5rem;
+            text-align: center;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="logo">
+                <span>Aperio 🛡️</span>
+            </div>
+            <div class="status-badge">
+                <span id="header-status-dot" class="status-dot inactive"></span>
+                <span id="header-status-text">Disconnected</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="card">
+                <div class="card-title">Tunnel Clients</div>
+                <div class="card-value" id="stat-clients">0</div>
+                <div class="card-subtext" id="stat-clients-sub">No active web socket client</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Queue Status</div>
+                <div class="card-value" id="stat-queue">0</div>
+                <div class="card-subtext">Requests pending reconnection</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Total Requests</div>
+                <div class="card-value" id="stat-requests">0</div>
+                <div class="card-subtext" id="stat-success-details">0 of 0 successful</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Data Transferred</div>
+                <div class="card-value" id="stat-bytes">0 B</div>
+                <div class="card-subtext">Payload bytes transferred</div>
+            </div>
+        </div>
+
+        <!-- Activity Chart -->
+        <div class="card" style="padding: 1rem 1.5rem;">
+            <div class="card-title" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Live Request Activity</span>
+                <span style="font-size: 0.75rem; color: var(--text-secondary);">Requests / second (Last 60 seconds)</span>
+            </div>
+            <div style="height: 120px; width: 100%; position: relative;">
+                <canvas id="activity-chart" style="width: 100%; height: 100%; display: block;"></canvas>
+            </div>
+        </div>
+
+        <!-- Active Clients Section -->
+        <div class="active-clients-section">
+            <h2 class="section-title">Active Tunnel Connections</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Client ID</th>
+                            <th>IP Address</th>
+                            <th>Connected For</th>
+                            <th>Requests Handled</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clients-body">
+                        <tr>
+                            <td colspan="4" class="empty-logs">No active client sessions</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Logs Section -->
+        <div class="logs-section">
+            <div class="section-header">
+                <h2 class="section-title">Live Tunnel Traffic</h2>
+                <input type="text" id="filter-input" class="filter-input" placeholder="Filter by path/method...">
+            </div>
+            <div class="table-container">
+                <table id="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Method</th>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Latency</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-body">
+                        <tr>
+                            <td colspan="6" class="empty-logs">Connecting to server data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        Aperio Reverse Tunneling System • Server Uptime: <span id="server-uptime">0s</span>
+    </footer>
+
+    <script>
+        let logsData = [];
+        const canvas = document.getElementById('activity-chart');
+        const ctx = canvas.getContext('2d');
+        let requestHistory = new Array(30).fill(0);
+        let lastRequestCount = 0;
+        let isFirstFetch = true;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            drawChart();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        function drawChart() {
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+
+            if (requestHistory.length === 0) return;
+
+            const maxVal = Math.max(...requestHistory, 1);
+            const stepX = w / (requestHistory.length - 1);
+
+            // Draw subtle grids
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 4; i++) {
+                const y = h * (i / 3);
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // Draw sparkline curve
+            ctx.beginPath();
+            for (let i = 0; i < requestHistory.length; i++) {
+                const x = i * stepX;
+                const y = h - (requestHistory[i] / maxVal) * (h - 24) - 12;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = '#6366f1';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            // Draw Area gradient
+            ctx.lineTo(w, h);
+            ctx.lineTo(0, h);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, 'rgba(99, 102, 241, 0.15)');
+            grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            let parts = [];
+            if (h > 0) parts.push(`${h}h`);
+            if (m > 0) parts.push(`${m}m`);
+            parts.push(`${s}s`);
+            return parts.join(' ');
+        }
+
+        function getMethodBadge(method) {
+            const m = method.toUpperCase();
+            if (m === 'GET') return `<span class="badge badge-get">GET</span>`;
+            if (m === 'POST') return `<span class="badge badge-post">POST</span>`;
+            if (m === 'PUT') return `<span class="badge badge-put">PUT</span>`;
+            if (m === 'DELETE') return `<span class="badge badge-delete">DELETE</span>`;
+            return `<span class="badge badge-other">${m}</span>`;
+        }
+
+        function getStatusBadge(status, error) {
+            if (error) {
+                return `<span class="badge status-5xx">ERR</span>`;
+            }
+            if (!status) return `<span class="badge badge-other">-</span>`;
+            const s = parseInt(status);
+            let cls = 'badge-other';
+            if (s >= 200 && s < 300) cls = 'status-2xx';
+            else if (s >= 300 && s < 400) cls = 'status-3xx';
+            else if (s >= 400 && s < 500) cls = 'status-4xx';
+            else if (s >= 500) cls = 'status-5xx';
+            return `<span class="badge ${cls}">${s}</span>`;
+        }
+
+        function updateLogsTable() {
+            const filterText = document.getElementById('filter-input').value.toLowerCase();
+            const body = document.getElementById('logs-body');
+            body.innerHTML = '';
+
+            const filtered = logsData.filter(log => {
+                return log.uri.toLowerCase().includes(filterText) || log.method.toLowerCase().includes(filterText);
+            });
+
+            if (filtered.length === 0) {
+                body.innerHTML = `<tr><td colspan="6" class="empty-logs">No requests matching filter</td></tr>`;
+                return;
+            }
+
+            const sortedLogs = [...filtered].reverse();
+
+            sortedLogs.forEach(log => {
+                const tr = document.createElement('tr');
+                const errorText = log.error ? `<span style="color: var(--danger); font-size: 0.75rem;">${log.error}</span>` : 'Success';
+                
+                tr.innerHTML = `
+                    <td class="text-mono" style="color: var(--text-secondary);">${log.timestamp}</td>
+                    <td>${getMethodBadge(log.method)}</td>
+                    <td class="text-mono" style="word-break: break-all; max-width: 400px;">${log.uri}</td>
+                    <td>${getStatusBadge(log.status, log.error)}</td>
+                    <td class="text-mono">${log.duration_ms} ms</td>
+                    <td>${errorText}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        async function fetchStats() {
+            try {
+                const res = await fetch('/aperio/api/stats');
+                if (!res.ok) throw new Error();
+                const stats = await res.json();
+
+                // Update metric cards
+                document.getElementById('stat-clients').innerText = stats.connected_clients_count;
+                document.getElementById('stat-clients-sub').innerText = stats.connected_clients_count > 0 
+                    ? `${stats.connected_clients_count} tunnel client(s) active`
+                    : 'No active web socket client';
+
+                document.getElementById('stat-queue').innerText = stats.pending_requests_count;
+                document.getElementById('stat-requests').innerText = stats.total_requests;
+                document.getElementById('stat-bytes').innerText = formatBytes(stats.total_bytes_transferred);
+
+                // Success rate calculation
+                const total = stats.successful_requests + stats.failed_requests;
+                document.getElementById('stat-success-details').innerText = `${stats.successful_requests} of ${total} successful`;
+
+                document.getElementById('server-uptime').innerText = formatUptime(stats.uptime_seconds);
+
+                // Update active clients table
+                const clientsBody = document.getElementById('clients-body');
+                clientsBody.innerHTML = '';
+                if (stats.active_clients.length === 0) {
+                    clientsBody.innerHTML = `<tr><td colspan="4" class="empty-logs">No active client sessions</td></tr>`;
+                } else {
+                    stats.active_clients.forEach(c => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="text-mono">${c.id}</td>
+                            <td class="text-mono">${c.ip}</td>
+                            <td>${formatUptime(c.connected_for_seconds)}</td>
+                            <td class="text-mono">${c.request_count}</td>
+                        `;
+                        clientsBody.appendChild(tr);
+                    });
+                }
+
+                // Update header connection state
+                const headerDot = document.getElementById('header-status-dot');
+                const headerText = document.getElementById('header-status-text');
+                if (stats.connected_clients_count > 0) {
+                    headerDot.className = 'status-dot active';
+                    headerText.innerText = 'Connected & Active';
+                } else {
+                    headerDot.className = 'status-dot inactive';
+                    headerText.innerText = 'Offline (Waiting for Client)';
+                }
+
+                // Update activity history graph
+                const currentTotal = stats.total_requests;
+                if (isFirstFetch) {
+                    lastRequestCount = currentTotal;
+                    isFirstFetch = false;
+                } else {
+                    const diff = currentTotal - lastRequestCount;
+                    const rps = diff / 2; // Poll interval is 2s, calculate rate per sec
+                    requestHistory.push(rps);
+                    requestHistory.shift();
+                    lastRequestCount = currentTotal;
+                    drawChart();
+                }
+            } catch (e) {
+                console.error("Failed to fetch stats", e);
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/aperio/api/logs');
+                if (!res.ok) throw new Error();
+                logsData = await res.json();
+                updateLogsTable();
+            } catch (e) {
+                console.error("Failed to fetch logs", e);
+            }
+        }
+
+        document.getElementById('filter-input').addEventListener('input', updateLogsTable);
+
+        function update() {
+            fetchStats();
+            fetchLogs();
+        }
+
+        update();
+        // Poll every 2 seconds to optimize server utilization
+        setInterval(update, 2000);
+    </script>
+</body>
+</html>
