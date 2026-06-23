@@ -11,7 +11,7 @@ services:
       - PORT=8080
       - APERIO_SERVER_TOKEN=supersecrettoken123
       - APERIO_DASHBOARD=1
-      - RUST_LOG=info,aperio_server=debug
+      - LOG_LEVEL=debug
     restart: unless-stopped
 
   client:
@@ -26,7 +26,7 @@ services:
       # On Windows/macOS, use host.docker.internal to access host machine services.
       - APERIO_CLIENT_TARGET=http://host.docker.internal:80
       - APERIO_CLIENT_PASS_HOSTNAME=0
-      - RUST_LOG=info,aperio_client=debug
+      - LOG_LEVEL=debug
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

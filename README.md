@@ -80,6 +80,7 @@ The server is configured entirely through environment variables.
 | `APERIO_MAX_TUNNELS`                     | Maximum number of concurrent active tunnel client connections.                                                                | `10`              | No       | usize   |
 | `APERIO_IP_LIMIT_MAX`                    | The burst size capacity for the per-IP Token Bucket rate limiter.                                                             | `100.0`           | No       | f64     |
 | `APERIO_IP_LIMIT_REFILL`                 | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min).                       | `5.0`             | No       | f64     |
+| `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `debug`           | No       | String  |
 
 ### Endpoints
 
@@ -104,6 +105,7 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_SERVER_URL`           | Public URL of the Aperio proxy server. Supports `http`/`https` or `ws`/`wss` protocols.                                | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
+| `LOG_LEVEL`                  | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `debug`                 | No       | String         |
 
 ---
 
