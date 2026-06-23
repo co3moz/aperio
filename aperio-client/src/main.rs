@@ -42,9 +42,11 @@ pub enum TunnelMessage {
 /// Loads configuration from environment variables, sets up logging, and initiates the reconnect loop.
 async fn main() {
   // Initialize logging with structured JSON output (pino.js style)
-  let log_filter = std::env::var("RUST_LOG").ok().unwrap_or_else(|| {
-    std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string())
-  });
+  let log_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+    .unwrap_or_else(|_| {
+      let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+      tracing_subscriber::EnvFilter::new(level)
+    });
 
   tracing_subscriber::fmt()
     .json()
