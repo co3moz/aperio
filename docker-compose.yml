@@ -21,7 +21,7 @@ services:
     environment:
       - APERIO_SERVER_TOKEN=supersecrettoken123
       # Connect to the server container within the compose network
-      - APERIO_SERVER=http://server:8080
+      - APERIO_SERVER_URL=http://server:8080
       # By default, attempt to forward to the host machine's port 80.
       # On Windows/macOS, use host.docker.internal to access host machine services.
       - APERIO_CLIENT_TARGET=http://host.docker.internal:80

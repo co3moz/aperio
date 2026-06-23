@@ -61,8 +61,10 @@ async fn main() {
     std::process::exit(1);
   }
 
-  let server_addr =
-    std::env::var("APERIO_SERVER").unwrap_or_else(|_| "http://localhost:8080".to_string());
+  let server_addr = std::env::var("APERIO_SERVER_URL").unwrap_or_else(|_| {
+    error!("CRITICAL ERROR: APERIO_SERVER_URL environment variable must be set!");
+    std::process::exit(1);
+  });
   let target = std::env::var("APERIO_CLIENT_TARGET").unwrap_or_else(|_| {
     error!("CRITICAL ERROR: APERIO_CLIENT_TARGET environment variable must be set!");
     std::process::exit(1);

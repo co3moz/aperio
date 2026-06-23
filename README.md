@@ -101,7 +101,7 @@ The client receives requests from the server and forwards them to a local backen
 | Variable Name                 | Description                                                                                                           | Default Value           | Required | Type           |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------- | -------- | -------------- |
 | `APERIO_SERVER_TOKEN`         | Secret security token matching the server's token.                                                                    | _(None)_                | **Yes**  | String         |
-| `APERIO_SERVER`               | Address of your public-facing `aperio-server`. Supports `http`/`https` or `ws`/`wss` protocols.                       | `http://localhost:8080` | No       | String         |
+| `APERIO_SERVER_URL`           | Public URL of the Aperio proxy server. Supports `http`/`https` or `ws`/`wss` protocols.                                | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
 
@@ -128,12 +128,12 @@ The client receives requests from the server and forwards them to a local backen
    ```bash
    # On Windows (PowerShell)
    $env:APERIO_SERVER_TOKEN="super-secret-token"
-   $env:APERIO_SERVER="http://localhost:8080"
+   $env:APERIO_SERVER_URL="http://localhost:8080"
    $env:APERIO_CLIENT_TARGET="http://localhost:3000"
    ./aperio-client
 
    # On Linux/macOS
-   APERIO_SERVER_TOKEN="super-secret-token" APERIO_SERVER="http://localhost:8080" APERIO_CLIENT_TARGET="http://localhost:3000" ./aperio-client
+   APERIO_SERVER_TOKEN="super-secret-token" APERIO_SERVER_URL="http://localhost:8080" APERIO_CLIENT_TARGET="http://localhost:3000" ./aperio-client
    ```
 
 3. **Access the Dashboard:**
@@ -163,7 +163,7 @@ docker build -t aperio-client ./aperio-client
 docker run -d \
   --network="host" \
   -e APERIO_SERVER_TOKEN="your-secure-token" \
-  -e APERIO_SERVER="http://your-server-ip:8080" \
+  -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_CLIENT_TARGET="http://localhost:3000" \
   aperio-client
 ```
