@@ -275,7 +275,7 @@ async fn main() {
     .unwrap_or(5.0);
 
   let config = ServerConfig {
-    token,
+    token: token.clone(),
     gateway_timeout: Duration::from_secs(gateway_timeout_secs),
     gateway_response_timeout: Duration::from_secs(gateway_response_timeout_secs),
     max_body_size,
