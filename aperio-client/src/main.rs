@@ -507,4 +507,63 @@ mod tests {
             panic!("Expected Response variant");
         }
     }
+
+    #[tokio::test]
+    async fn test_handle_incoming_request() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let target_url = format!("http://127.0.0.1:{}", port);
+
+        // Spawn a mock target server
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0; 1024];
+                let n = socket.read(&mut buf).await.unwrap();
+                let req_str = String::from_utf8_lossy(&buf[..n]);
+
+                // Check that request contains original path and custom header
+                assert!(req_str.contains("GET /test-path"));
+                assert!(req_str.contains("x-custom-header: custom-value"));
+
+                // Write back a simple HTTP response
+                let response = "HTTP/1.1 200 OK\r\nContent-Length: 16\r\nContent-Type: text/plain\r\n\r\nhello from local";
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let mut headers = HashMap::new();
+        headers.insert("x-custom-header".to_string(), "custom-value".to_string());
+
+        let result = handle_incoming_request(
+            client,
+            "req-id-123".to_string(),
+            "GET".to_string(),
+            "/test-path".to_string(),
+            headers,
+            None,
+            &target_url,
+            false,
+        )
+        .await;
+
+        if let TunnelMessage::Response {
+            id,
+            status,
+            headers,
+            body,
+        } = result
+        {
+            assert_eq!(id, "req-id-123");
+            assert_eq!(status, 200);
+            assert_eq!(headers.get("content-type").unwrap(), "text/plain");
+            let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+            assert_eq!(String::from_utf8(decoded).unwrap(), "hello from local");
+        } else {
+            panic!("Expected response variant");
+        }
+    }
 }

@@ -58,65 +58,107 @@ struct ServerConfig {
     ip_limit_refill: f64,
 }
 
+/// In-memory server-wide traffic statistics.
 #[derive(Serialize, Clone)]
 struct ServerStats {
+    /// Total count of incoming proxied requests.
     total_requests: u64,
+    /// Count of successful request forwards.
     successful_requests: u64,
+    /// Count of failed request forwards.
     failed_requests: u64,
+    /// Total bytes of payloads transferred through the server.
     total_bytes_transferred: u64,
 }
 
+/// Details of an active tunnel client connection.
 #[derive(Serialize, Clone)]
 struct ClientDetail {
+    /// Unique client UUID.
     id: String,
+    /// Remote socket IP address of the client connection.
     ip: String,
+    /// Number of seconds elapsed since connection establishment.
     connected_for_seconds: u64,
+    /// Total request count processed by this client connection.
     request_count: u64,
 }
 
+/// Enhanced metrics stats combined with active client details.
 #[derive(Serialize, Clone)]
 struct EnhancedServerStats {
+    /// Total incoming request count.
     total_requests: u64,
+    /// Successful requests count.
     successful_requests: u64,
+    /// Failed requests count.
     failed_requests: u64,
+    /// Total bytes transferred.
     total_bytes_transferred: u64,
+    /// Current count of connected tunnel clients.
     connected_clients_count: usize,
+    /// Uptime in seconds.
     uptime_seconds: u64,
+    /// Request count waiting in the reconnection buffer.
     pending_requests_count: usize,
+    /// List of client connection details.
     active_clients: Vec<ClientDetail>,
 }
 
+/// Structure representing a logged HTTP transaction.
 #[derive(Serialize, Clone)]
 struct RequestLog {
+    /// Request UUID.
     id: String,
+    /// Timestamp formatted as string.
     timestamp: String,
+    /// HTTP method (GET, POST, etc.).
     method: String,
+    /// Request URI path.
     uri: String,
+    /// Status code returned.
     status: Option<u16>,
+    /// Duration of processing in milliseconds.
     duration_ms: u128,
+    /// Reason string if request failed.
     error: Option<String>,
 }
 
+/// Handle tracking active WebSocket sender channel and metadata.
 struct ClientHandle {
+    /// Sender channel to push messages to the client.
     tx: mpsc::Sender<Message>,
+    /// Instant when client connection was established.
     connected_at: Instant,
+    /// Client remote IP address.
     client_ip: String,
+    /// Total request count processed by this specific client connection.
     request_count: Arc<AtomicU64>,
 }
 
+/// Standard response payload returned by tunnel client.
 struct TunnelResponse {
+    /// HTTP status code.
     status: u16,
+    /// Map of response headers.
     headers: HashMap<String, String>,
+    /// Base64 encoded payload body.
     body: Option<String>,
 }
 
+/// Structure tracking requests waiting for client execution.
 struct PendingRequest {
+    /// Oneshot channel sender to return client response to proxy handler thread.
     tx: oneshot::Sender<TunnelResponse>,
+    /// Target client UUID.
     client_id: String,
 }
 
+/// Bucket tracking current tokens and refill state for rate limiting.
 struct RateLimitState {
+    /// Current token balance.
     tokens: f64,
+    /// Last instant when tokens were updated.
     last_updated: Instant,
 }
 
@@ -355,7 +397,7 @@ async fn main() {
     .unwrap();
 }
 
-// Graceful shutdown listener
+/// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
@@ -382,12 +424,12 @@ async fn shutdown_signal() {
     info!("Shutdown signal received, closing Aperio Server connections...");
 }
 
-// Handler for the embedded dashboard
+/// Handler serving the embedded HTML dashboard dashboard.
 async fn dashboard_handler() -> Html<&'static str> {
     Html(include_str!("dashboard.html"))
 }
 
-// Handler for server stats and active clients list
+/// Handler returning live statistics and active connections detail in JSON.
 async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
     let raw_stats = state.stats.lock().await.clone();
     let clients = state.clients.lock().await;
@@ -416,13 +458,13 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
     })
 }
 
-// Handler for recent logs
+/// Handler returning the list of recent HTTP logs in JSON.
 async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec<RequestLog>> {
     let logs = state.recent_logs.lock().await;
     Json(logs.iter().cloned().collect())
 }
 
-// Health check endpoint for orchestration
+/// Health check endpoint returning status, active connection counts, and uptime.
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let clients_count = state.clients.lock().await.len();
     let stats = state.stats.lock().await;
@@ -437,13 +479,9 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     (StatusCode::OK, Json(health_info))
 }
 
-// Upgrade WebSocket endpoint
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    headers: HeaderMap,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(state): State<Arc<AppState>>,
-) -> Response {
+/// Helper function to extract Bearer token or `x-auth-token` from header values
+/// and verify if it matches the configured server security token.
+fn extract_and_verify_token(headers: &HeaderMap, server_token: &str) -> bool {
     let mut token_opt = None;
     if let Some(auth_header) = headers.get("authorization")
         && let Ok(auth_str) = auth_header.to_str()
@@ -458,10 +496,20 @@ async fn ws_handler(
         token_opt = Some(x_token_str.to_string());
     }
 
-    let authenticated = match token_opt {
-        Some(tok) => tok == state.config.token,
+    match token_opt {
+        Some(tok) => tok == server_token,
         None => false,
-    };
+    }
+}
+
+/// Upgrade WebSocket endpoint. Extracts and verifies security tokens.
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let authenticated = extract_and_verify_token(&headers, &state.config.token);
 
     if !authenticated {
         info!("Unauthorized connection attempt blocked.");
@@ -487,7 +535,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state))
 }
 
-// WebSocket processing logic
+/// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
 async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState>) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let client_id = uuid::Uuid::new_v4().to_string();
@@ -616,7 +664,9 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     }
 }
 
-// Proxy handler for forwarding all incoming HTTP requests to active client
+/// Proxy handler for forwarding all incoming HTTP requests to active client.
+/// Validates rate-limits, handles connection buffering and timeout limits, load-balances requests,
+/// and maps response formats.
 async fn proxy_handler(
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -1026,7 +1076,23 @@ async fn log_request_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_token_authentication() {
+        let mut headers = HeaderMap::new();
+        assert!(!extract_and_verify_token(&headers, "secret"));
+
+        headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
+        assert!(extract_and_verify_token(&headers, "secret"));
+        assert!(!extract_and_verify_token(&headers, "wrong_secret"));
+
+        headers.clear();
+        headers.insert("x-auth-token", HeaderValue::from_static("secret"));
+        assert!(extract_and_verify_token(&headers, "secret"));
+        assert!(!extract_and_verify_token(&headers, "wrong_secret"));
+    }
 
     #[tokio::test]
     async fn test_rate_limiting() {
@@ -1068,5 +1134,137 @@ mod tests {
         assert!(state.check_rate_limit(ip).await);
         // Third request should be rate limited (max burst is 2.0)
         assert!(!state.check_rate_limit(ip).await);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_handler_gateway_timeout_offline() {
+        let config = ServerConfig {
+            token: "test".to_string(),
+            gateway_timeout: Duration::from_millis(100),
+            gateway_response_timeout: Duration::from_millis(100),
+            max_body_size: 1024,
+            max_tunnels: 1,
+            ip_limit_max: 100.0,
+            ip_limit_refill: 10.0,
+        };
+
+        let (client_connected_tx, _) = watch::channel(false);
+        let state = Arc::new(AppState {
+            clients: Mutex::new(HashMap::new()),
+            client_connected: client_connected_tx,
+            last_disconnect_time: Mutex::new(None),
+            // Set start time to 2 minutes ago to trigger immediate timeout
+            server_start_time: Instant::now() - Duration::from_secs(120),
+            pending_requests: Mutex::new(HashMap::new()),
+            stats: Mutex::new(ServerStats {
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                total_bytes_transferred: 0,
+            }),
+            recent_logs: Mutex::new(VecDeque::new()),
+            config,
+            concurrency_semaphore: Semaphore::new(10),
+            request_counter: AtomicU64::new(0),
+            rate_limiter: Mutex::new(HashMap::new()),
+        });
+
+        let response = proxy_handler(
+            State(state),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
+            Method::GET,
+            Uri::from_static("/test-path"),
+            HeaderMap::new(),
+            Body::empty(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_handler_success() {
+        let config = ServerConfig {
+            token: "test".to_string(),
+            gateway_timeout: Duration::from_millis(200),
+            gateway_response_timeout: Duration::from_millis(500),
+            max_body_size: 1024,
+            max_tunnels: 2,
+            ip_limit_max: 100.0,
+            ip_limit_refill: 10.0,
+        };
+
+        let (client_connected_tx, _) = watch::channel(true);
+        let state = Arc::new(AppState {
+            clients: Mutex::new(HashMap::new()),
+            client_connected: client_connected_tx,
+            last_disconnect_time: Mutex::new(None),
+            server_start_time: Instant::now(),
+            pending_requests: Mutex::new(HashMap::new()),
+            stats: Mutex::new(ServerStats {
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                total_bytes_transferred: 0,
+            }),
+            recent_logs: Mutex::new(VecDeque::new()),
+            config,
+            concurrency_semaphore: Semaphore::new(10),
+            request_counter: AtomicU64::new(0),
+            rate_limiter: Mutex::new(HashMap::new()),
+        });
+
+        let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
+        let client_req_count = Arc::new(AtomicU64::new(0));
+
+        state.clients.lock().await.insert(
+            "mock-client-1".to_string(),
+            ClientHandle {
+                tx: tx_write,
+                connected_at: Instant::now(),
+                client_ip: "127.0.0.1".to_string(),
+                request_count: client_req_count,
+            },
+        );
+
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            if let Some(Message::Text(text)) = rx_write.recv().await
+                && let Ok(TunnelMessage::Request { id, .. }) =
+                    serde_json::from_str::<TunnelMessage>(&text)
+            {
+                let mut pending = state_clone.pending_requests.lock().await;
+                if let Some(req) = pending.remove(&id) {
+                    let mut headers = HashMap::new();
+                    headers.insert("content-type".to_string(), "application/json".to_string());
+                    let _ = req.tx.send(TunnelResponse {
+                        status: 200,
+                        headers,
+                        body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),
+                    });
+                }
+            }
+        });
+
+        let response = proxy_handler(
+            State(state),
+            ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
+            Method::GET,
+            Uri::from_static("/test-path"),
+            HeaderMap::new(),
+            Body::empty(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "application/json"
+        );
     }
 }
