@@ -7,6 +7,7 @@ Aperio is a secure, high-performance, and lightweight HTTP reverse tunneling sys
 ## Architecture Overview
 
 Aperio is split into two components:
+
 1. **`aperio-server`**: A public-facing proxy server built with Axum. It handles public HTTP requests and routes them to the connected client(s) via WebSockets. It includes a built-in admin dashboard, rate limiter, and load balancer.
 2. **`aperio-client`**: A client agent that runs inside your private network. It connects to the server via WebSockets, receives incoming forwarded HTTP requests, dispatches them to your local server, and pipes the response back.
 
@@ -54,6 +55,7 @@ cargo build --release
 ```
 
 The compiled binaries will be located at:
+
 - `aperio-server/target/release/aperio-server`
 - `aperio-client/target/release/aperio-client`
 
@@ -65,19 +67,18 @@ The server is configured entirely through environment variables.
 
 ### Environment Variables
 
-| Variable Name | Description | Default Value | Required | Type |
-|---|---|---|---|---|
-| `APERIO_SERVER_TOKEN` | Secret security token required for websocket clients to connect. Used as a Bearer Token. | *(None)* | **Yes** | String |
-| `PORT` | The TCP port the proxy server listens on. | `8080` | No | u16 |
-| `APERIO_DASHBOARD` | Enables the built-in admin web dashboard, statistics, and log APIs. Set to `1` or `true`. | `false` | No | Boolean |
-| `APERIO_DASHBOARD_AUTH` | Password protecting the admin dashboard. Username is always `aperio`. If enabled but empty, dashboard is public. | *(None)* | No | String |
-| `APERIO_SERVER_GATEWAY_TIMEOUT` | Time (in seconds) to wait for a tunnel client to connect if a request comes in while offline (grace period for reconnecting). | `10` | No | u64 |
-| `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Maximum time (in seconds) to wait for a connected client to process a request and reply. | `30` | No | u64 |
-| `APERIO_MAX_BODY_SIZE` | Maximum request body payload size allowed in bytes to protect against OOM attacks. | `10485760` (10MB) | No | usize |
-| `APERIO_MAX_CONCURRENT_REQUESTS` | Limit on max concurrent in-flight requests processed across all tunnels. | `100` | No | usize |
-| `APERIO_MAX_TUNNELS` | Maximum number of concurrent active tunnel client connections. | `10` | No | usize |
-| `APERIO_IP_LIMIT_MAX` | The burst size capacity for the per-IP Token Bucket rate limiter. | `100.0` | No | f64 |
-| `APERIO_IP_LIMIT_REFILL` | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min). | `5.0` | No | f64 |
+| Variable Name                            | Description                                                                                                                   | Default Value     | Required | Type    |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------- | ------- |
+| `APERIO_SERVER_TOKEN`                    | Secret security token required for websocket clients to connect. Used as a Bearer Token.                                      | _(None)_          | **Yes**  | String  |
+| `PORT`                                   | The TCP port the proxy server listens on.                                                                                     | `8080`            | No       | u16     |
+| `APERIO_DASHBOARD`                       | Enables the built-in admin web dashboard, statistics, and log APIs. Set to `1` or `true`.                                     | `false`           | No       | Boolean |
+| `APERIO_SERVER_GATEWAY_TIMEOUT`          | Time (in seconds) to wait for a tunnel client to connect if a request comes in while offline (grace period for reconnecting). | `10`              | No       | u64     |
+| `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Maximum time (in seconds) to wait for a connected client to process a request and reply.                                      | `30`              | No       | u64     |
+| `APERIO_MAX_BODY_SIZE`                   | Maximum request body payload size allowed in bytes to protect against OOM attacks.                                            | `10485760` (10MB) | No       | usize   |
+| `APERIO_MAX_CONCURRENT_REQUESTS`         | Limit on max concurrent in-flight requests processed across all tunnels.                                                      | `100`             | No       | usize   |
+| `APERIO_MAX_TUNNELS`                     | Maximum number of concurrent active tunnel client connections.                                                                | `10`              | No       | usize   |
+| `APERIO_IP_LIMIT_MAX`                    | The burst size capacity for the per-IP Token Bucket rate limiter.                                                             | `100.0`           | No       | f64     |
+| `APERIO_IP_LIMIT_REFILL`                 | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min).                       | `5.0`             | No       | f64     |
 
 ### Endpoints
 
@@ -96,12 +97,12 @@ The client receives requests from the server and forwards them to a local backen
 
 ### Environment Variables
 
-| Variable Name | Description | Default Value | Required | Type |
-|---|---|---|---|---|
-| `APERIO_SERVER_TOKEN` | Secret security token matching the server's token. | *(None)* | **Yes** | String |
-| `APERIO_SERVER` | Address of your public-facing `aperio-server`. Supports `http`/`https` or `ws`/`wss` protocols. | `http://localhost:8080` | No | String |
-| `APERIO_CLIENT_TARGET` | Address of the local target backend to forward proxy traffic to. | `http://127.0.0.1` | No | String |
-| `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default) | No | Boolean/String |
+| Variable Name                 | Description                                                                                                           | Default Value           | Required | Type           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------- | -------- | -------------- |
+| `APERIO_SERVER_TOKEN`         | Secret security token matching the server's token.                                                                    | _(None)_                | **Yes**  | String         |
+| `APERIO_SERVER`               | Address of your public-facing `aperio-server`. Supports `http`/`https` or `ws`/`wss` protocols.                       | `http://localhost:8080` | No       | String         |
+| `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | `http://127.0.0.1`      | No       | String         |
+| `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
 
 ---
 
@@ -110,18 +111,19 @@ The client receives requests from the server and forwards them to a local backen
 ### Quick Start (Local Development)
 
 1. **Start the Server:**
+
    ```bash
    # On Windows (PowerShell)
    $env:APERIO_SERVER_TOKEN="super-secret-token"
-   $env:APERIO_DASHBOARD="true"
-   $env:APERIO_DASHBOARD_AUTH="dashboard-password"
+   $env:APERIO_DASHBOARD="1"
    ./aperio-server
 
    # On Linux/macOS
-   APERIO_SERVER_TOKEN="super-secret-token" APERIO_DASHBOARD="true" APERIO_DASHBOARD_AUTH="dashboard-password" ./aperio-server
+   APERIO_SERVER_TOKEN="super-secret-token" APERIO_DASHBOARD="1"  ./aperio-server
    ```
 
 2. **Start the Client (forwarding to local port 3000):**
+
    ```bash
    # On Windows (PowerShell)
    $env:APERIO_SERVER_TOKEN="super-secret-token"
@@ -143,17 +145,18 @@ The client receives requests from the server and forwards them to a local backen
 Both server and client include Docker support.
 
 ### Server Docker Run
+
 ```bash
 docker build -t aperio-server ./aperio-server
 docker run -d \
   -p 8080:8080 \
   -e APERIO_SERVER_TOKEN="your-secure-token" \
-  -e APERIO_DASHBOARD="true" \
-  -e APERIO_DASHBOARD_AUTH="dashboard-pass" \
+  -e APERIO_DASHBOARD="1" \
   aperio-server
 ```
 
 ### Client Docker Run
+
 ```bash
 docker build -t aperio-client ./aperio-client
 docker run -d \

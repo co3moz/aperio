@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   server:
@@ -10,8 +10,7 @@ services:
     environment:
       - PORT=8080
       - APERIO_SERVER_TOKEN=supersecrettoken123
-      - APERIO_DASHBOARD=true
-      - APERIO_DASHBOARD_AUTH=password123
+      - APERIO_DASHBOARD=1
       - RUST_LOG=info,aperio_server=debug
     restart: unless-stopped
 
