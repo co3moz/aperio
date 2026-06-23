@@ -214,8 +214,12 @@ impl AppState {
 /// Entry point for the Aperio server.
 /// Sets up logging, reads env config, registers paths/middleware, and binds the TCP listener.
 async fn main() {
-  // Initialize tracing
+  // Initialize tracing with structured JSON output (pino.js style)
   tracing_subscriber::fmt()
+    .json()
+    .with_current_span(false)
+    .with_span_list(false)
+    .flatten_event(true)
     .with_env_filter(
       tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,aperio_server=debug".into()),

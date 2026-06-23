@@ -41,8 +41,12 @@ pub enum TunnelMessage {
 /// Entry point for the Aperio client.
 /// Loads configuration from environment variables, sets up logging, and initiates the reconnect loop.
 async fn main() {
-  // Initialize logging
+  // Initialize logging with structured JSON output (pino.js style)
   tracing_subscriber::fmt()
+    .json()
+    .with_current_span(false)
+    .with_span_list(false)
+    .flatten_event(true)
     .with_env_filter(
       tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,aperio_client=debug".into()),
