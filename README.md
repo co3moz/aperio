@@ -70,6 +70,7 @@ The server is configured entirely through environment variables.
 | Variable Name                            | Description                                                                                                                   | Default Value     | Required | Type    |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------- | ------- |
 | `APERIO_SERVER_TOKEN`                    | Secret security token required for websocket clients to connect. Used as a Bearer Token.                                      | _(None)_          | **Yes**  | String  |
+| `HOST`                                   | The network address the server binds to.                                                                                      | `0.0.0.0`         | No       | String  |
 | `PORT`                                   | The TCP port the proxy server listens on.                                                                                     | `8080`            | No       | u16     |
 | `APERIO_DASHBOARD`                       | Enables the built-in admin web dashboard, statistics, and log APIs. Set to `1` or `true`.                                     | `false`           | No       | Boolean |
 | `APERIO_SERVER_GATEWAY_TIMEOUT`          | Time (in seconds) to wait for a tunnel client to connect if a request comes in while offline (grace period for reconnecting). | `10`              | No       | u64     |

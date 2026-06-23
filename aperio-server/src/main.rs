@@ -362,18 +362,20 @@ async fn main() {
   app = app.route("/aperio/ws", get(ws_handler));
   let app = app.with_state(state);
 
+  let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+
   let port = std::env::var("PORT")
     .ok()
     .and_then(|p| p.parse::<u16>().ok())
     .unwrap_or(8080);
 
-  let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+  let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
     .await
     .unwrap();
 
   info!(
-    "Server listening on port {} with connection info tracing enabled",
-    port
+    "Server listening on {}:{} with connection info tracing enabled",
+    host, port
   );
 
   axum::serve(
