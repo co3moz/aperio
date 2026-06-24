@@ -139,7 +139,16 @@
     <script>
         const form = document.getElementById('login-form');
         const errorMsg = document.getElementById('error-msg');
-        const redirect = new URLSearchParams(window.location.search).get('redirect') || '/';
+        const rawRedirect = new URLSearchParams(window.location.search).get('redirect') || '/';
+        // Only allow same-origin relative redirects to prevent open redirect abuse.
+        // Reject protocol-relative URLs (//evil.com) and backslash-based bypasses.
+        function safeRedirect(url) {
+            if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\')) {
+                return url;
+            }
+            return '/';
+        }
+        const redirect = safeRedirect(rawRedirect);
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();

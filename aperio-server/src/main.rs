@@ -12,10 +12,11 @@ use axum::{
 use chrono::Local;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
@@ -36,13 +37,13 @@ pub enum TunnelMessage {
     id: String,
     method: String,
     uri: String,
-    headers: HashMap<String, String>,
+    headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
   Response {
     id: String,
     status: u16,
-    headers: HashMap<String, String>,
+    headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
 }
@@ -144,8 +145,8 @@ struct ClientHandle {
 struct TunnelResponse {
   /// HTTP status code.
   status: u16,
-  /// Map of response headers.
-  headers: HashMap<String, String>,
+  /// List of response headers (preserves duplicates like Set-Cookie).
+  headers: Vec<(String, String)>,
   /// Base64 encoded payload body.
   body: Option<String>,
 }
@@ -171,11 +172,17 @@ struct SessionInfo {
   expires_at: Instant,
 }
 
+/// Connection liveness state, kept under a single lock for consistent snapshots.
+struct ConnectionState {
+  connected: bool,
+  last_disconnect: Option<Instant>,
+}
+
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 struct AppState {
   clients: Mutex<HashMap<String, ClientHandle>>,
   client_connected: watch::Sender<bool>,
-  last_disconnect_time: Mutex<Option<Instant>>,
+  connection_state: Mutex<ConnectionState>,
   server_start_time: Instant,
   pending_requests: Mutex<HashMap<String, PendingRequest>>,
   stats: Mutex<ServerStats>,
@@ -185,6 +192,9 @@ struct AppState {
   path_rr: Mutex<HashMap<Option<String>, usize>>,
   sessions: Mutex<HashMap<String, SessionInfo>>,
   rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
+  last_session_gc: Mutex<Instant>,
+  last_rate_gc: Mutex<Instant>,
+  active_tunnel_count: AtomicUsize,
 }
 
 impl AppState {
@@ -194,9 +204,19 @@ impl AppState {
     let mut limit_map = self.rate_limiter.lock().await;
     let now = Instant::now();
 
-    // Inline garbage collection to avoid memory leak if client IPs grow indefinitely
-    if limit_map.len() > 2000 {
-      limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(3600));
+    // Periodic garbage collection of stale IP buckets to prevent memory leak.
+    // Runs at most once per 5 minutes; evicts entries untouched for over 10 minutes.
+    {
+      let mut last_gc = self.last_rate_gc.lock().await;
+      if last_gc.elapsed() > Duration::from_secs(300) {
+        limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+        *last_gc = now;
+      }
+    }
+
+    // Failsafe: if the map still grew too large between GC runs, trim aggressively.
+    if limit_map.len() > 1000 {
+      limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
     }
 
     let max_tokens = self.config.ip_limit_max;
@@ -309,7 +329,10 @@ async fn main() {
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
     client_connected: client_connected_tx,
-    last_disconnect_time: Mutex::new(None),
+    connection_state: Mutex::new(ConnectionState {
+      connected: false,
+      last_disconnect: None,
+    }),
     server_start_time: Instant::now(),
     pending_requests: Mutex::new(HashMap::new()),
     stats: Mutex::new(ServerStats {
@@ -324,6 +347,9 @@ async fn main() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    last_session_gc: Mutex::new(Instant::now()),
+    last_rate_gc: Mutex::new(Instant::now()),
+    active_tunnel_count: AtomicUsize::new(0),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -493,8 +519,14 @@ async fn auth_page_handler() -> Html<&'static str> {
 /// Handles login form submission. Validates credentials and sets a session cookie.
 async fn auth_login_handler(
   State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+  // Rate limit login attempts per IP to mitigate brute-force attacks.
+  if !state.check_rate_limit(addr.ip()).await {
+    return Err(StatusCode::TOO_MANY_REQUESTS);
+  }
+
   let mut authenticated = false;
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
@@ -506,18 +538,20 @@ async fn auth_login_handler(
     {
       // Allow APERIO_SERVER_AUTH credentials if configured
       if let Some(ref creds) = state.config.auth_credentials
-        && decoded_str == *creds
+        && constant_time_eq_str(&decoded_str, creds)
       {
         authenticated = true;
       }
       // Always allow token as password with username "aperio"
-      if !authenticated && decoded_str == format!("aperio:{}", state.config.token) {
+      if !authenticated
+        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", state.config.token))
+      {
         authenticated = true;
       }
       // Allow APERIO_DASHBOARD_AUTH as password with username "aperio"
       if !authenticated
         && let Ok(dash_pass) = std::env::var("APERIO_DASHBOARD_AUTH")
-        && decoded_str == format!("aperio:{}", dash_pass)
+        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", dash_pass))
       {
         authenticated = true;
       }
@@ -569,9 +603,46 @@ fn extract_and_verify_token(headers: &HeaderMap, server_token: &str) -> bool {
   }
 
   match token_opt {
-    Some(tok) => tok == server_token,
+    Some(tok) => constant_time_eq_str(&tok, server_token),
     None => false,
   }
+}
+
+/// Constant-time string comparison to mitigate timing attacks on secrets.
+/// Hashes both inputs with SHA-256 first so that length differences do not
+/// leak through the comparison timing, then compares the digests using
+/// `subtle::ConstantTimeEq`.
+fn constant_time_eq_str(a: &str, b: &str) -> bool {
+  use subtle::ConstantTimeEq;
+  let mut ha = Sha256::default();
+  ha.update(a.as_bytes());
+  let mut hb = Sha256::default();
+  hb.update(b.as_bytes());
+  let da = ha.finalize();
+  let db = hb.finalize();
+  da.ct_eq(&db).into()
+}
+
+/// Normalizes a path bind by ensuring it starts with `/` and stripping any
+/// trailing slashes. Returns `None` for the empty/root bind.
+fn normalize_path_bind(bind: &str) -> Option<String> {
+  let trimmed = bind.trim().trim_end_matches('/');
+  if trimmed.is_empty() || trimmed == "/" {
+    None
+  } else {
+    let with_slash = if trimmed.starts_with('/') {
+      trimmed.to_string()
+    } else {
+      format!("/{}", trimmed)
+    };
+    Some(with_slash)
+  }
+}
+
+/// Checks whether `uri_path` matches a path `bind` on a segment boundary,
+/// preventing `/apixyz` from matching a bind of `/api`.
+fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
+  uri_path == bind || uri_path.starts_with(&format!("{}/", bind))
 }
 
 /// Upgrade WebSocket endpoint. Extracts and verifies security tokens.
@@ -588,13 +659,14 @@ async fn ws_handler(
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   }
 
-  // Validate maximum active tunnels limit (protects against file descriptor exhaustion)
-  {
-    let current_clients = state.clients.lock().await.len();
-    if current_clients >= state.config.max_tunnels {
+  // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
+  // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
+  loop {
+    let current = state.active_tunnel_count.load(Ordering::SeqCst);
+    if current >= state.config.max_tunnels {
       warn!(
         "WebSocket upgrade connection rejected from {}: Maximum tunnels count reached ({}/{})",
-        addr, current_clients, state.config.max_tunnels
+        addr, current, state.config.max_tunnels
       );
       return (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -602,9 +674,19 @@ async fn ws_handler(
       )
         .into_response();
     }
+    // Atomically reserve our slot; retry if another connection raced ahead.
+    if state
+      .active_tunnel_count
+      .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+      .is_ok()
+    {
+      break;
+    }
   }
 
-  ws.on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state))
+  ws.max_message_size(state.config.max_body_size * 2)
+    .max_frame_size(state.config.max_body_size)
+    .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state))
 }
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
@@ -646,6 +728,10 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
         path_bind: None,
       },
     );
+    drop(clients);
+    let mut conn = state.connection_state.lock().await;
+    conn.connected = true;
+    conn.last_disconnect = None;
     state.client_connected.send_replace(true);
   }
 
@@ -686,11 +772,12 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
               path_bind,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
-              // Update client's path_bind from first Ping
-              if path_bind.is_some() {
+              // Update client's path_bind from first Ping (normalized to segment boundary)
+              let normalized = path_bind.and_then(|b| normalize_path_bind(&b));
+              if normalized.is_some() {
                 let mut clients = state.clients.lock().await;
                 if let Some(handle) = clients.get_mut(&cid) {
-                  handle.path_bind = path_bind;
+                  handle.path_bind = normalized;
                 }
               }
               let pong = TunnelMessage::Pong { timestamp };
@@ -716,12 +803,19 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     let mut clients = state.clients.lock().await;
     clients.remove(&client_id);
 
-    if clients.is_empty() {
+    let now_empty = clients.is_empty();
+    drop(clients);
+
+    if now_empty {
+      let mut conn = state.connection_state.lock().await;
+      conn.connected = false;
+      conn.last_disconnect = Some(Instant::now());
+      drop(conn);
       state.client_connected.send_replace(false);
-      let mut last_disc = state.last_disconnect_time.lock().await;
-      *last_disc = Some(Instant::now());
     }
   }
+  // Release the reserved tunnel slot.
+  state.active_tunnel_count.fetch_sub(1, Ordering::SeqCst);
 
   // Instantly abort pending requests that were routed to the disconnected client
   {
@@ -747,6 +841,17 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
 
 /// Validates the `aperio_session` cookie and returns true if the session is still active.
 async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
+  // Lazy garbage collection of expired sessions (runs at most once per 5 minutes).
+  {
+    let mut last_gc = state.last_session_gc.lock().await;
+    if last_gc.elapsed() > Duration::from_secs(300) {
+      let mut sessions = state.sessions.lock().await;
+      let now = Instant::now();
+      sessions.retain(|_, info| info.expires_at > now);
+      *last_gc = now;
+    }
+  }
+
   if let Some(cookie_header) = headers.get("cookie")
     && let Ok(cookie_str) = cookie_header.to_str()
   {
@@ -811,10 +916,13 @@ async fn proxy_handler(
       .unwrap();
   }
 
-  // 3. Wait for connection if client is disconnected
-  let is_connected = *state.client_connected.borrow();
+  // 3. Wait for connection if client is disconnected.
+  // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
+  let (is_connected, last_disc) = {
+    let conn = state.connection_state.lock().await;
+    (conn.connected, conn.last_disconnect)
+  };
   if !is_connected {
-    let last_disc = *state.last_disconnect_time.lock().await;
     let uptime = state.server_start_time.elapsed();
 
     let should_timeout = match last_disc {
@@ -906,12 +1014,12 @@ async fn proxy_handler(
     } else {
       let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
 
-      // Collect clients whose path_bind matches the request URI prefix
+      // Collect clients whose path_bind matches the request URI prefix on a segment boundary
       let matched: Vec<(&String, Option<String>)> = clients
         .iter()
         .filter(|(_, c)| {
           if let Some(ref bind) = c.path_bind {
-            uri_path.starts_with(bind.as_str())
+            path_matches_bind(uri_path, bind)
           } else {
             false
           }
@@ -1001,11 +1109,11 @@ async fn proxy_handler(
     Some(BASE64_STANDARD.encode(&body_bytes))
   };
 
-  // Map headers
-  let mut serialized_headers = HashMap::new();
+  // Map headers (preserve duplicates by collecting into a Vec)
+  let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
-      serialized_headers.insert(k.to_string(), val_str.to_string());
+      serialized_headers.push((k.to_string(), val_str.to_string()));
     }
   }
 
@@ -1122,10 +1230,12 @@ async fn proxy_handler(
 
                   {
                       let mut stats = state.stats.lock().await;
-                      if status_code.is_success() {
-                          stats.successful_requests += 1;
-                      } else {
+                      // Only count server errors (5xx) as failed. 2xx/3xx/4xx are
+                      // legitimate responses successfully proxied through the tunnel.
+                      if status_code.is_server_error() {
                           stats.failed_requests += 1;
+                      } else {
+                          stats.successful_requests += 1;
                       }
                       stats.total_bytes_transferred += body_len;
                   }
@@ -1261,7 +1371,10 @@ mod tests {
     let state = AppState {
       clients: Mutex::new(HashMap::new()),
       client_connected: client_connected_tx,
-      last_disconnect_time: Mutex::new(None),
+      connection_state: Mutex::new(ConnectionState {
+        connected: false,
+        last_disconnect: None,
+      }),
       server_start_time: Instant::now(),
       pending_requests: Mutex::new(HashMap::new()),
       stats: Mutex::new(ServerStats {
@@ -1276,6 +1389,9 @@ mod tests {
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
+      last_session_gc: Mutex::new(Instant::now()),
+      last_rate_gc: Mutex::new(Instant::now()),
+      active_tunnel_count: AtomicUsize::new(0),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -1305,7 +1421,10 @@ mod tests {
     let state = Arc::new(AppState {
       clients: Mutex::new(HashMap::new()),
       client_connected: client_connected_tx,
-      last_disconnect_time: Mutex::new(None),
+      connection_state: Mutex::new(ConnectionState {
+        connected: false,
+        last_disconnect: None,
+      }),
       // Set start time to 2 minutes ago to trigger immediate timeout
       server_start_time: Instant::now() - Duration::from_secs(120),
       pending_requests: Mutex::new(HashMap::new()),
@@ -1321,6 +1440,9 @@ mod tests {
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
+      last_session_gc: Mutex::new(Instant::now()),
+      last_rate_gc: Mutex::new(Instant::now()),
+      active_tunnel_count: AtomicUsize::new(0),
     });
 
     let response = proxy_handler(
@@ -1353,7 +1475,10 @@ mod tests {
     let state = Arc::new(AppState {
       clients: Mutex::new(HashMap::new()),
       client_connected: client_connected_tx,
-      last_disconnect_time: Mutex::new(None),
+      connection_state: Mutex::new(ConnectionState {
+        connected: true,
+        last_disconnect: None,
+      }),
       server_start_time: Instant::now(),
       pending_requests: Mutex::new(HashMap::new()),
       stats: Mutex::new(ServerStats {
@@ -1368,6 +1493,9 @@ mod tests {
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
+      last_session_gc: Mutex::new(Instant::now()),
+      last_rate_gc: Mutex::new(Instant::now()),
+      active_tunnel_count: AtomicUsize::new(0),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -1391,8 +1519,7 @@ mod tests {
       {
         let mut pending = state_clone.pending_requests.lock().await;
         if let Some(req) = pending.remove(&id) {
-          let mut headers = HashMap::new();
-          headers.insert("content-type".to_string(), "application/json".to_string());
+          let headers = vec![("content-type".to_string(), "application/json".to_string())];
           let _ = req.tx.send(TunnelResponse {
             status: 200,
             headers,

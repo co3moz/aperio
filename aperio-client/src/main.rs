@@ -1,7 +1,6 @@
 use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
@@ -27,13 +26,13 @@ pub enum TunnelMessage {
     id: String,
     method: String,
     uri: String,
-    headers: HashMap<String, String>,
+    headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
   Response {
     id: String,
     status: u16,
-    headers: HashMap<String, String>,
+    headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
 }
@@ -323,7 +322,7 @@ async fn handle_incoming_request(
   id: String,
   method_str: String,
   uri_str: String,
-  headers: HashMap<String, String>,
+  headers: Vec<(String, String)>,
   body_base64: Option<String>,
   target: &str,
   pass_hostname: bool,
@@ -442,10 +441,10 @@ async fn handle_incoming_request(
     Ok(res) => {
       let status = res.status().as_u16();
 
-      let mut res_headers = HashMap::new();
+      let mut res_headers: Vec<(String, String)> = Vec::new();
       for (k, v) in res.headers().iter() {
         if let Ok(v_str) = v.to_str() {
-          res_headers.insert(k.to_string(), v_str.to_string());
+          res_headers.push((k.to_string(), v_str.to_string()));
         }
       }
 
@@ -484,8 +483,7 @@ async fn handle_incoming_request(
 
 /// Formats a generic masked error response, avoiding leaking raw socket error details.
 fn make_error_response(id: String, status: u16) -> TunnelMessage {
-  let mut headers = HashMap::new();
-  headers.insert("content-type".to_string(), "text/plain".to_string());
+  let headers = vec![("content-type".to_string(), "text/plain".to_string())];
 
   let user_error = match status {
     502 => "502 Bad Gateway - Target server connection failed.",
@@ -540,7 +538,12 @@ mod tests {
     {
       assert_eq!(id, "req-123");
       assert_eq!(status, 502);
-      assert_eq!(headers.get("content-type").unwrap(), "text/plain");
+      let ct = headers
+        .iter()
+        .find(|(k, _)| k == "content-type")
+        .map(|(_, v)| v)
+        .unwrap();
+      assert_eq!(ct, "text/plain");
       let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
       let decoded_str = String::from_utf8(decoded).unwrap();
       assert!(decoded_str.contains("502 Bad Gateway"));
@@ -576,8 +579,7 @@ mod tests {
     });
 
     let client = reqwest::Client::new();
-    let mut headers = HashMap::new();
-    headers.insert("x-custom-header".to_string(), "custom-value".to_string());
+    let headers = vec![("x-custom-header".to_string(), "custom-value".to_string())];
 
     let result = handle_incoming_request(
       client,
@@ -602,7 +604,12 @@ mod tests {
     {
       assert_eq!(id, "req-id-123");
       assert_eq!(status, 200);
-      assert_eq!(headers.get("content-type").unwrap(), "text/plain");
+      let ct = headers
+        .iter()
+        .find(|(k, _)| k == "content-type")
+        .map(|(_, v)| v)
+        .unwrap();
+      assert_eq!(ct, "text/plain");
       let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
       assert_eq!(String::from_utf8(decoded).unwrap(), "hello from local");
     } else {

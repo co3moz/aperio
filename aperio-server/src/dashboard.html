@@ -448,6 +448,15 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function formatUptime(seconds) {
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
@@ -460,7 +469,7 @@
         }
 
         function getMethodBadge(method) {
-            const m = method.toUpperCase();
+            const m = escapeHtml(method.toUpperCase());
             if (m === 'GET') return `<span class="badge badge-get">GET</span>`;
             if (m === 'POST') return `<span class="badge badge-post">POST</span>`;
             if (m === 'PUT') return `<span class="badge badge-put">PUT</span>`;
@@ -479,7 +488,7 @@
             else if (s >= 300 && s < 400) cls = 'status-3xx';
             else if (s >= 400 && s < 500) cls = 'status-4xx';
             else if (s >= 500) cls = 'status-5xx';
-            return `<span class="badge ${cls}">${s}</span>`;
+            return `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
         }
 
         function updateLogsTable() {
@@ -500,14 +509,14 @@
 
             sortedLogs.forEach(log => {
                 const tr = document.createElement('tr');
-                const errorText = log.error ? `<span style="color: var(--danger); font-size: 0.75rem;">${log.error}</span>` : 'Success';
+                const errorText = log.error ? `<span style="color: var(--danger); font-size: 0.75rem;">${escapeHtml(log.error)}</span>` : 'Success';
                 
                 tr.innerHTML = `
-                    <td class="text-mono" style="color: var(--text-secondary);">${log.timestamp}</td>
+                    <td class="text-mono" style="color: var(--text-secondary);">${escapeHtml(log.timestamp)}</td>
                     <td>${getMethodBadge(log.method)}</td>
-                    <td class="text-mono" style="word-break: break-all; max-width: 400px;">${log.uri}</td>
+                    <td class="text-mono" style="word-break: break-all; max-width: 400px;">${escapeHtml(log.uri)}</td>
                     <td>${getStatusBadge(log.status, log.error)}</td>
-                    <td class="text-mono">${log.duration_ms} ms</td>
+                    <td class="text-mono">${escapeHtml(log.duration_ms)} ms</td>
                     <td>${errorText}</td>
                 `;
                 body.appendChild(tr);
@@ -545,10 +554,10 @@
                     stats.active_clients.forEach(c => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td class="text-mono">${c.id}</td>
-                            <td class="text-mono">${c.ip}</td>
+                            <td class="text-mono">${escapeHtml(c.id)}</td>
+                            <td class="text-mono">${escapeHtml(c.ip)}</td>
                             <td>${formatUptime(c.connected_for_seconds)}</td>
-                            <td class="text-mono">${c.request_count}</td>
+                            <td class="text-mono">${escapeHtml(c.request_count)}</td>
                         `;
                         clientsBody.appendChild(tr);
                     });
