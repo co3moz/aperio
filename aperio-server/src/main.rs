@@ -59,6 +59,10 @@ struct ServerConfig {
   ip_limit_max: f64,
   ip_limit_refill: f64,
   auth_credentials: Option<String>,
+  /// When true, the server trusts `X-Forwarded-For` / `X-Real-IP` headers for
+  /// client IP resolution. Only enable when running behind a trusted reverse
+  /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
+  trust_proxy: bool,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -313,6 +317,13 @@ async fn main() {
   // Optional Basic Auth credentials for proxied requests ("username:password")
   let auth_credentials = std::env::var("APERIO_SERVER_AUTH").ok();
 
+  // Trust proxy headers (X-Forwarded-For / X-Real-IP) for client IP resolution.
+  // Only enable when running behind a trusted reverse proxy that overwrites
+  // these headers; otherwise clients can spoof them to bypass rate limiting.
+  let trust_proxy = std::env::var("APERIO_TRUST_PROXY")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+
   let config = ServerConfig {
     token: token.clone(),
     gateway_timeout: Duration::from_secs(gateway_timeout_secs),
@@ -322,6 +333,7 @@ async fn main() {
     ip_limit_max,
     ip_limit_refill,
     auth_credentials,
+    trust_proxy,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -526,7 +538,7 @@ async fn auth_login_handler(
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
   // Rate limit login attempts per IP to mitigate brute-force attacks.
-  let client_ip = extract_client_ip(&headers, addr.ip());
+  let client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
   if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
@@ -676,22 +688,25 @@ fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
   uri_path == bind || uri_path.starts_with(&format!("{}/", bind))
 }
 
-/// Resolves the real client IP, honoring `X-Forwarded-For` when the request
-/// arrives through a reverse proxy. Falls back to the direct socket address.
-/// The left-most address in `X-Forwarded-For` is the original client.
-fn extract_client_ip(headers: &HeaderMap, fallback: IpAddr) -> IpAddr {
-  if let Some(xff) = headers.get("x-forwarded-for")
-    && let Ok(xff_str) = xff.to_str()
-    && let Some(first) = xff_str.split(',').next()
-    && let Ok(parsed) = first.trim().parse::<IpAddr>()
-  {
-    return parsed;
-  }
-  if let Some(real_ip) = headers.get("x-real-ip")
-    && let Ok(real_str) = real_ip.to_str()
-    && let Ok(parsed) = real_str.trim().parse::<IpAddr>()
-  {
-    return parsed;
+/// Resolves the real client IP, honoring `X-Forwarded-For` / `X-Real-IP` only
+/// when `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
+/// proxy). Otherwise the direct socket address is used, since clients could
+/// otherwise spoof these headers to bypass rate limiting.
+fn extract_client_ip(headers: &HeaderMap, fallback: IpAddr, trust_proxy: bool) -> IpAddr {
+  if trust_proxy {
+    if let Some(xff) = headers.get("x-forwarded-for")
+      && let Ok(xff_str) = xff.to_str()
+      && let Some(first) = xff_str.split(',').next()
+      && let Ok(parsed) = first.trim().parse::<IpAddr>()
+    {
+      return parsed;
+    }
+    if let Some(real_ip) = headers.get("x-real-ip")
+      && let Ok(real_str) = real_ip.to_str()
+      && let Ok(parsed) = real_str.trim().parse::<IpAddr>()
+    {
+      return parsed;
+    }
   }
   fallback
 }
@@ -954,7 +969,7 @@ async fn proxy_handler(
   let start_time = Instant::now();
   let method_str = method.to_string();
   let uri_str = uri.to_string();
-  let caller_ip = extract_client_ip(&headers, addr.ip());
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
 
   // 1. Per-IP Rate Limiting (Token Bucket)
   if !state.check_rate_limit(caller_ip).await {
@@ -1419,6 +1434,7 @@ mod tests {
       ip_limit_max: 2.0,
       ip_limit_refill: 0.0, // No refill for testing strict burst limit
       auth_credentials: None,
+      trust_proxy: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1469,6 +1485,7 @@ mod tests {
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
       auth_credentials: None,
+      trust_proxy: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1523,6 +1540,7 @@ mod tests {
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
       auth_credentials: None,
+      trust_proxy: false,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -1656,18 +1674,18 @@ mod tests {
   }
 
   #[test]
-  fn test_extract_client_ip() {
+  fn test_extract_client_ip_trusted() {
     let direct = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5));
 
     // No headers → fallback to socket address
     let headers = HeaderMap::new();
-    assert_eq!(extract_client_ip(&headers, direct), direct);
+    assert_eq!(extract_client_ip(&headers, direct, true), direct);
 
     // X-Forwarded-For with single IP
     let mut headers = HeaderMap::new();
     headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
     assert_eq!(
-      extract_client_ip(&headers, direct),
+      extract_client_ip(&headers, direct, true),
       "198.51.100.10".parse::<IpAddr>().unwrap()
     );
 
@@ -1678,7 +1696,7 @@ mod tests {
       HeaderValue::from_static("198.51.100.10, 10.0.0.1, 10.0.0.2"),
     );
     assert_eq!(
-      extract_client_ip(&headers, direct),
+      extract_client_ip(&headers, direct, true),
       "198.51.100.10".parse::<IpAddr>().unwrap()
     );
 
@@ -1686,13 +1704,32 @@ mod tests {
     let mut headers = HeaderMap::new();
     headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
     assert_eq!(
-      extract_client_ip(&headers, direct),
+      extract_client_ip(&headers, direct, true),
       "198.51.100.20".parse::<IpAddr>().unwrap()
     );
 
     // Malformed X-Forwarded-For → fallback
     let mut headers = HeaderMap::new();
     headers.insert("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
-    assert_eq!(extract_client_ip(&headers, direct), direct);
+    assert_eq!(extract_client_ip(&headers, direct, true), direct);
+  }
+
+  #[test]
+  fn test_extract_client_ip_untrusted_ignores_headers() {
+    let direct = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5));
+
+    // When trust_proxy is false, spoofed X-Forwarded-For must be ignored.
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
+    assert_eq!(extract_client_ip(&headers, direct, false), direct);
+
+    // Spoofed X-Real-IP must also be ignored.
+    let mut headers = HeaderMap::new();
+    headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
+    assert_eq!(extract_client_ip(&headers, direct, false), direct);
+
+    // No headers → fallback to socket address
+    let headers = HeaderMap::new();
+    assert_eq!(extract_client_ip(&headers, direct, false), direct);
   }
 }
