@@ -113,6 +113,47 @@ The client receives requests from the server and forwards them to a local backen
 
 ---
 
+## Client Path Binding & Routing
+
+Aperio supports advanced path-based routing, allowing you to direct public traffic to different clients depending on the URL path prefix of the incoming request. This is controlled via two environment variables on the client side: `APERIO_PATH_BIND` and `APERIO_CLIENT_TRIM_BIND`.
+
+```
+           Public HTTP Requests
+                 |
+                 +---> GET /api/v1/users  --> [ Client A (Path Bind: /api) ]  --> Local Target A (Forwarded as: /v1/users)
+                 |
+                 +---> GET /app/index.js  --> [ Client B (Path Bind: /app) ]  --> Local Target B (Forwarded as: /app/index.js)
+                 |
+                 +---> GET /about.html    --> [ Client C (No Path Bind) ]     --> Local Target C (Fallback client)
+```
+
+### How Routing Decisions are Made
+
+1. **Specific Matches (Boundary-Aware)**:
+   When a request comes in, the server evaluates the path prefix against all registered path-bound clients. Binds are matched on segment boundaries, meaning a bind of `/api` will match `/api` or `/api/v1`, but will **not** match `/apixyz`.
+2. **Round-Robin Load Balancing**:
+   If multiple clients register the *exact same* `APERIO_PATH_BIND` prefix, the server automatically distributes traffic between them using round-robin load balancing.
+3. **Fallback to Unbound Clients**:
+   If no path-bound client matches the incoming request, the server routes the request to any connected clients that **do not** have a path bind set (acting as catch-all / fallback handlers).
+4. **Gateway Timeout**:
+   If there are no matching path-bound clients and no unbound fallback clients connected, the server returns a `504 Gateway Timeout` response.
+
+### Prefix Trimming (`APERIO_CLIENT_TRIM_BIND`)
+
+By default, when a client has a path bind configured, it strips the bind prefix from the URL path before forwarding the request to your local backend server.
+
+- **With `APERIO_CLIENT_TRIM_BIND=1` (Default)**:
+  * Public Request: `GET /api/v1/users`
+  * Client Bind: `/api`
+  * Request received by Local Target: `GET /v1/users`
+
+- **With `APERIO_CLIENT_TRIM_BIND=0`**:
+  * Public Request: `GET /api/v1/users`
+  * Client Bind: `/api`
+  * Request received by Local Target: `GET /api/v1/users`
+
+---
+
 ## Run and Usage Examples
 
 ### Quick Start (Local Development)
