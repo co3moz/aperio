@@ -9,12 +9,12 @@ COPY aperio-server/Cargo.toml ./aperio-server/
 
 RUN mkdir -p aperio-client/src && echo "fn main() {}" > aperio-client/src/main.rs
 RUN mkdir -p aperio-server/src && echo "fn main() {}" > aperio-server/src/main.rs
-RUN cargo build --release -p aperio-client
+RUN cargo build --locked --release -p aperio-client
 RUN rm -rf aperio-client/src
 
 COPY aperio-client/src/ ./aperio-client/src/
 RUN touch aperio-client/src/main.rs
-RUN cargo build --release -p aperio-client
+RUN cargo build --locked --release -p aperio-client
 
 # Runtime Stage
 FROM alpine:latest
