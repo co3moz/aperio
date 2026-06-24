@@ -56,6 +56,7 @@ struct ServerConfig {
   max_tunnels: usize,
   ip_limit_max: f64,
   ip_limit_refill: f64,
+  basic_auth: Option<String>,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -280,6 +281,9 @@ async fn main() {
     .and_then(|val| val.parse::<f64>().ok())
     .unwrap_or(5.0);
 
+  // Optional Basic Auth credentials for proxied requests ("username:password")
+  let basic_auth = std::env::var("APERIO_SERVER_BASIC_AUTH").ok();
+
   let config = ServerConfig {
     token: token.clone(),
     gateway_timeout: Duration::from_secs(gateway_timeout_secs),
@@ -288,6 +292,7 @@ async fn main() {
     max_tunnels,
     ip_limit_max,
     ip_limit_refill,
+    basic_auth,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -694,7 +699,40 @@ async fn proxy_handler(
       .into_response();
   }
 
-  // 2. Wait for connection if client is disconnected
+  // 2. Basic Auth check (if configured)
+  if let Some(ref credentials) = state.config.basic_auth {
+    let mut authenticated = false;
+    if let Some(auth_header) = headers.get("authorization")
+      && let Ok(auth_str) = auth_header.to_str()
+      && let Some(stripped) = auth_str.strip_prefix("Basic ")
+    {
+      use base64::prelude::*;
+      if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
+        && let Ok(decoded_str) = String::from_utf8(decoded)
+      {
+        authenticated = decoded_str == *credentials;
+      }
+    }
+
+    if !authenticated {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        401,
+        start_time.elapsed(),
+        Some("Basic auth required"),
+      )
+      .await;
+      return Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("WWW-Authenticate", "Basic realm=\"Aperio\"")
+        .body(Body::from("401 Unauthorized"))
+        .unwrap();
+    }
+  }
+
+  // 3. Wait for connection if client is disconnected
   let is_connected = *state.client_connected.borrow();
   if !is_connected {
     let last_disc = *state.last_disconnect_time.lock().await;
@@ -1100,6 +1138,7 @@ mod tests {
       max_tunnels: 1,
       ip_limit_max: 2.0,
       ip_limit_refill: 0.0, // No refill for testing strict burst limit
+      basic_auth: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1142,6 +1181,7 @@ mod tests {
       max_tunnels: 1,
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
+      basic_auth: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1188,6 +1228,7 @@ mod tests {
       max_tunnels: 2,
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
+      basic_auth: None,
     };
 
     let (client_connected_tx, _) = watch::channel(true);

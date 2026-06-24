@@ -80,6 +80,7 @@ The server is configured entirely through environment variables.
 | `APERIO_MAX_TUNNELS`                     | Maximum number of concurrent active tunnel client connections.                                                                | `10`              | No       | usize   |
 | `APERIO_IP_LIMIT_MAX`                    | The burst size capacity for the per-IP Token Bucket rate limiter.                                                             | `100.0`           | No       | f64     |
 | `APERIO_IP_LIMIT_REFILL`                 | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min).                       | `5.0`             | No       | f64     |
+| `APERIO_SERVER_BASIC_AUTH`              | If set to `username:password`, requires Basic Auth on all proxied requests.                                                    | _(None)_          | No       | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `debug`           | No       | String  |
 
 ### Endpoints
