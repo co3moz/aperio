@@ -63,6 +63,10 @@ struct ServerConfig {
   /// client IP resolution. Only enable when running behind a trusted reverse
   /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
   trust_proxy: bool,
+  /// When true, session cookies include the `Secure` flag so browsers only
+  /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
+  /// (i.e. enabled when running behind a TLS-terminating reverse proxy).
+  secure_cookies: bool,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -324,6 +328,12 @@ async fn main() {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
 
+  // When true, session cookies include the `Secure` flag (HTTPS-only).
+  // Defaults to `trust_proxy` since a TLS-terminating reverse proxy implies HTTPS.
+  let secure_cookies = std::env::var("APERIO_SECURE_COOKIES")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(trust_proxy);
+
   let config = ServerConfig {
     token: token.clone(),
     gateway_timeout: Duration::from_secs(gateway_timeout_secs),
@@ -334,6 +344,7 @@ async fn main() {
     ip_limit_refill,
     auth_credentials,
     trust_proxy,
+    secure_cookies,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -395,7 +406,10 @@ async fn main() {
             return next.run(req).await;
           }
           // Redirect to login page, preserving the original path
-          let redirect_url = format!("/aperio/auth?redirect={}", req.uri().path());
+          let redirect_url = format!(
+            "/aperio/auth?redirect={}",
+            safe_redirect_path(req.uri().path())
+          );
           Response::builder()
             .status(StatusCode::FOUND)
             .header("Location", redirect_url)
@@ -587,9 +601,14 @@ async fn auth_login_handler(
     },
   );
 
+  let secure_flag = if state.config.secure_cookies {
+    "; Secure"
+  } else {
+    ""
+  };
   let cookie = format!(
-    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
-    session_token
+    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+    session_token, secure_flag
   );
 
   Ok(
@@ -750,7 +769,8 @@ async fn ws_handler(
     }
   }
 
-  ws.max_message_size(state.config.max_body_size * 2)
+  // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
+  ws.max_message_size(state.config.max_body_size.saturating_mul(2))
     .max_frame_size(state.config.max_body_size)
     .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state))
 }
@@ -816,7 +836,20 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
               body,
             } => {
               let mut pending = state.pending_requests.lock().await;
-              if let Some(req) = pending.remove(&id)
+              // Verify that this response originates from the client that was
+              // assigned the request. Prevents a malicious tunnel client from
+              // injecting spoofed responses for another client's requests.
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "Response for request ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id)
                 && req
                   .tx
                   .send(TunnelResponse {
@@ -991,7 +1024,7 @@ async fn proxy_handler(
 
   // 2. Session/Auth check (if configured)
   if state.config.auth_credentials.is_some() && !validate_session(&state, &headers).await {
-    let redirect_url = format!("/aperio/auth?redirect={}", uri_str);
+    let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&uri_str));
     return Response::builder()
       .status(StatusCode::FOUND)
       .header("Location", redirect_url)
@@ -1170,10 +1203,24 @@ async fn proxy_handler(
     Some(BASE64_STANDARD.encode(&body_bytes))
   };
 
-  // Map headers (preserve duplicates by collecting into a Vec)
+  // Map headers (preserve duplicates by collecting into a Vec).
+  // Filter out internal aperio session cookies to prevent leaking dashboard
+  // session tokens to tunnel clients.
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
+      if k.as_str() == "cookie" {
+        let filtered: String = val_str
+          .split(';')
+          .filter(|part| !part.trim().starts_with("aperio_session="))
+          .map(|part| part.trim())
+          .collect::<Vec<&str>>()
+          .join("; ");
+        if !filtered.is_empty() {
+          serialized_headers.push((k.to_string(), filtered));
+        }
+        continue;
+      }
       serialized_headers.push((k.to_string(), val_str.to_string()));
     }
   }
@@ -1328,6 +1375,17 @@ async fn proxy_handler(
   }
 }
 
+/// Validates a redirect path to prevent open redirect attacks.
+/// Only allows same-origin relative paths (starting with `/`) and rejects
+/// protocol-relative URLs (`//evil.com`) and backslash-based bypasses (`/\`).
+fn safe_redirect_path(uri: &str) -> &str {
+  if uri.starts_with('/') && !uri.starts_with("//") && !uri.starts_with("/\\") {
+    uri
+  } else {
+    "/"
+  }
+}
+
 /// Strips the query string from a URI to avoid logging sensitive data
 /// (API keys, tokens, PII) that may be carried in query parameters.
 fn sanitize_uri(uri: &str) -> &str {
@@ -1435,6 +1493,7 @@ mod tests {
       ip_limit_refill: 0.0, // No refill for testing strict burst limit
       auth_credentials: None,
       trust_proxy: false,
+      secure_cookies: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1486,6 +1545,7 @@ mod tests {
       ip_limit_refill: 10.0,
       auth_credentials: None,
       trust_proxy: false,
+      secure_cookies: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1541,6 +1601,7 @@ mod tests {
       ip_limit_refill: 10.0,
       auth_credentials: None,
       trust_proxy: false,
+      secure_cookies: false,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -1731,5 +1792,29 @@ mod tests {
     // No headers → fallback to socket address
     let headers = HeaderMap::new();
     assert_eq!(extract_client_ip(&headers, direct, false), direct);
+  }
+
+  #[test]
+  fn test_safe_redirect_path() {
+    // Normal relative paths should pass through
+    assert_eq!(safe_redirect_path("/"), "/");
+    assert_eq!(safe_redirect_path("/dashboard"), "/dashboard");
+    assert_eq!(
+      safe_redirect_path("/api/v1/users?page=1"),
+      "/api/v1/users?page=1"
+    );
+
+    // Protocol-relative URLs must be rejected (open redirect to external host)
+    assert_eq!(safe_redirect_path("//evil.com"), "/");
+    assert_eq!(safe_redirect_path("//evil.com/phishing"), "/");
+
+    // Backslash-based bypass attempts must be rejected
+    assert_eq!(safe_redirect_path("/\\evil.com"), "/");
+
+    // Non-path values must be rejected
+    assert_eq!(safe_redirect_path("https://evil.com"), "/");
+    assert_eq!(safe_redirect_path("javascript:alert(1)"), "/");
+    assert_eq!(safe_redirect_path(""), "/");
+    assert_eq!(safe_redirect_path("evil.com"), "/");
   }
 }

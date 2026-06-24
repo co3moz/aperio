@@ -394,6 +394,20 @@ async fn handle_incoming_request(
   dest_url.set_path(&combined_path);
   dest_url.set_query(incoming_parsed.query());
 
+  // SSRF defence-in-depth: verify the constructed URL still resolves to the
+  // original target host and port. This guards against subtle URL-parsing
+  // edge-cases that could redirect tunnel traffic to unintended internal services.
+  if dest_url.scheme() != target_parsed.scheme()
+    || dest_url.host_str() != target_parsed.host_str()
+    || dest_url.port_or_known_default() != target_parsed.port_or_known_default()
+  {
+    error!(
+      "SSRF protection triggered: constructed URL diverges from target for request ID {}",
+      id
+    );
+    return make_error_response(id, 400);
+  }
+
   let method = match reqwest::Method::from_bytes(method_str.as_bytes()) {
     Ok(m) => m,
     Err(e) => {
