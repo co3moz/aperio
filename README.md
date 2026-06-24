@@ -29,6 +29,7 @@ Aperio is split into two components:
 - **Per-IP Rate Limiting**: Built-in, high-performance in-memory Token Bucket rate limiter to protect your tunnels from abuse.
 - **Concurrency Limiting**: Prevents resource starvation using token-based concurrency controls (semaphores).
 - **Round-Robin Load Balancing**: Seamlessly load-balances incoming traffic across multiple active tunnel clients.
+- **WebSocket / Socket.io Pass-Through**: Proxies WebSocket upgrade requests end-to-end — public WS connections are tunneled to your local backend in real time, enabling Socket.io, GraphQL subscriptions, and raw WebSocket endpoints.
 - **Graceful Shutdowns**: Handles OS signals (`SIGINT`, `SIGTERM`) to release connections cleanly.
 
 ---
@@ -151,6 +152,38 @@ By default, when a client has a path bind configured, it strips the bind prefix 
   * Public Request: `GET /api/v1/users`
   * Client Bind: `/api`
   * Request received by Local Target: `GET /api/v1/users`
+
+---
+
+## WebSocket / Socket.io Pass-Through
+
+Aperio automatically detects and proxies WebSocket upgrade requests. When a public client sends an HTTP request with `Connection: Upgrade` and `Upgrade: websocket` headers, the server performs the upgrade handshake and establishes a persistent bidirectional relay between the public client, the tunnel, and your local backend.
+
+```
+    Public WS Client                    Tunnel                   Local Backend
+[ Browser (socket.io) ] ---WSS---> [ aperio-server ] <==WS==> [ aperio-client ] ---WS---> [ localhost:3000 ]
+         |                               |                          |                        |
+         +------ bidirectional frames ---+---- WsData frames ------+--- bidirectional frames -+
+```
+
+### How It Works
+
+1. Public client sends `GET /ws HTTP/1.1` with `Upgrade: websocket` headers.
+2. Server detects the upgrade, selects a tunnel client (same path-binding rules apply), and sends an `UpgradeRequest` through the tunnel.
+3. Client connects to the local backend via WebSocket, preserving the original `Sec-WebSocket-*` headers.
+4. Once the backend accepts the upgrade, a `101 Switching Protocols` response flows back, and the server upgrades the public connection.
+5. All subsequent WebSocket frames (text, binary, close) are relayed bidirectionally through the tunnel in real time.
+
+### Supported Use Cases
+
+| Technology            | Works? | Notes                                   |
+| --------------------- | ------ | --------------------------------------- |
+| Raw WebSocket (ws://) | Yes    | Full pass-through of text/binary frames |
+| Socket.io             | Yes    | WebSocket transport mode is supported   |
+| GraphQL Subscriptions | Yes    | If backend uses WS transport            |
+| HTTP Long-Polling     | Yes    | Regular HTTP request/response (unchanged) |
+
+No additional configuration is required — the server and client handle upgrade detection automatically.
 
 ---
 

@@ -346,10 +346,10 @@ async fn main() {
                                               let streams = active_ws_streams.lock().await;
                                               if let Some(handle) = streams.get(&stream_id) {
                                                   let ws_msg = if is_text {
-                                                      Message::Text(data.into())
+                                                      Message::Text(data)
                                                   } else {
                                                       match BASE64_STANDARD.decode(&data) {
-                                                          Ok(bytes) => Message::Binary(bytes.into()),
+                                                          Ok(bytes) => Message::Binary(bytes),
                                                           Err(_) => {
                                                               warn!("Failed to decode Base64 WsData for stream {}", stream_id);
                                                               continue;
@@ -715,16 +715,16 @@ async fn handle_upgrade_request(
           continue;
         }
         // Keep upgrade-related headers for the backend WS handshake
-        if k_lower == "upgrade"
-          || k_lower.starts_with("sec-websocket-")
-          || k_lower == "origin"
-        {
-          if let (Ok(name), Ok(val)) = (
+        let is_upgrade_header =
+          k_lower == "upgrade" || k_lower.starts_with("sec-websocket-") || k_lower == "origin";
+
+        if is_upgrade_header
+          && let (Ok(name), Ok(val)) = (
             TungsteniteHeaderName::from_bytes(k.as_bytes()),
             HeaderValue::from_str(v),
-          ) {
-            req.headers_mut().insert(name, val);
-          }
+          )
+        {
+          req.headers_mut().insert(name, val);
         }
       }
       Ok(req)
@@ -735,7 +735,10 @@ async fn handle_upgrade_request(
   let ws_req = match ws_req {
     Ok(r) => r,
     Err(e) => {
-      error!("WebSocket request building error for stream {}: {}", stream_id, e);
+      error!(
+        "WebSocket request building error for stream {}: {}",
+        stream_id, e
+      );
       send_upgrade_error(&stream_id, &tunnel_tx, 400).await;
       return;
     }
@@ -774,11 +777,11 @@ async fn handle_upgrade_request(
     ],
   };
 
-  if let Ok(json) = serde_json::to_string(&upgrade_resp) {
-    if tunnel_tx.send(Message::Text(json)).await.is_err() {
-      error!("Failed to send UpgradeResponse for stream {}", stream_id);
-      return;
-    }
+  if let Ok(json) = serde_json::to_string(&upgrade_resp)
+    && tunnel_tx.send(Message::Text(json)).await.is_err()
+  {
+    error!("Failed to send UpgradeResponse for stream {}", stream_id);
+    return;
   }
 
   // Split the backend WebSocket
@@ -822,7 +825,7 @@ async fn handle_upgrade_request(
                 data: BASE64_STANDARD.encode(&data),
                 is_text: false,
               }
-            },
+            }
             Message::Close(frame) => TunnelMessage::WsClose {
               stream_id: stream_id_clone.clone(),
               code: frame.as_ref().map(|f| f.code.into()).unwrap_or(1000),
@@ -837,14 +840,17 @@ async fn handle_upgrade_request(
             }
           };
 
-          if let Ok(json) = serde_json::to_string(&tunnel_msg) {
-            if tunnel_tx_clone.send(Message::Text(json)).await.is_err() {
-              break;
-            }
+          if let Ok(json) = serde_json::to_string(&tunnel_msg)
+            && tunnel_tx_clone.send(Message::Text(json)).await.is_err()
+          {
+            break;
           }
         }
         Err(e) => {
-          debug!("Backend WS read error for stream {}: {:?}", stream_id_clone, e);
+          debug!(
+            "Backend WS read error for stream {}: {:?}",
+            stream_id_clone, e
+          );
           break;
         }
       }

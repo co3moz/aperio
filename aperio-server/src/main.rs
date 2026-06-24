@@ -964,11 +964,11 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
               let streams = state.ws_streams.lock().await;
               if let Some(tx) = streams.get(&stream_id) {
                 let ws_msg = if is_text {
-                  Message::Text(data.into())
+                  Message::Text(data)
                 } else {
                   use base64::prelude::*;
                   match BASE64_STANDARD.decode(&data) {
-                    Ok(bytes) => Message::Binary(bytes.into()),
+                    Ok(bytes) => Message::Binary(bytes),
                     Err(_) => {
                       warn!("Failed to decode Base64 WsData for stream {}", stream_id);
                       continue;
@@ -1894,13 +1894,11 @@ async fn relay_ws_stream(
       match result {
         Ok(msg) => {
           let tunnel_msg = match msg {
-            Message::Text(text) => {
-              TunnelMessage::WsData {
-                stream_id: stream_id_clone.clone(),
-                data: text.to_string(),
-                is_text: true,
-              }
-            }
+            Message::Text(text) => TunnelMessage::WsData {
+              stream_id: stream_id_clone.clone(),
+              data: text.to_string(),
+              is_text: true,
+            },
             Message::Binary(data) => {
               use base64::prelude::*;
               TunnelMessage::WsData {
@@ -1909,30 +1907,31 @@ async fn relay_ws_stream(
                 is_text: false,
               }
             }
-            Message::Close(frame) => {
-              TunnelMessage::WsClose {
-                stream_id: stream_id_clone.clone(),
-                code: frame.as_ref().map(|f| f.code.into()).unwrap_or(1000),
-                reason: frame
-                  .as_ref()
-                  .map(|f| f.reason.to_string())
-                  .unwrap_or_default(),
-              }
-            }
+            Message::Close(frame) => TunnelMessage::WsClose {
+              stream_id: stream_id_clone.clone(),
+              code: frame.as_ref().map(|f| f.code).unwrap_or(1000),
+              reason: frame
+                .as_ref()
+                .map(|f| f.reason.to_string())
+                .unwrap_or_default(),
+            },
             Message::Ping(_) | Message::Pong(_) => {
               // Auto-handled by Axum, no need to forward
               continue;
             }
           };
 
-          if let Ok(json) = serde_json::to_string(&tunnel_msg) {
-            if tunnel_tx_clone.send(Message::Text(json)).await.is_err() {
-              break;
-            }
+          if let Ok(json) = serde_json::to_string(&tunnel_msg)
+            && tunnel_tx_clone.send(Message::Text(json)).await.is_err()
+          {
+            break;
           }
         }
         Err(e) => {
-          debug!("Public WS read error for stream {}: {:?}", stream_id_clone, e);
+          debug!(
+            "Public WS read error for stream {}: {:?}",
+            stream_id_clone, e
+          );
           break;
         }
       }
