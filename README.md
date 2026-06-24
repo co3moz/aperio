@@ -78,7 +78,8 @@ The server is configured entirely through environment variables.
 | `APERIO_SERVER_AUTH`                      | If set to `username:password`, requires login via web form before proxied requests are allowed.                              | _(None)_          | No       | String  |
 | `APERIO_DASHBOARD_AUTH`                  | Password for dashboard-only login with username `aperio`. Falls back to `APERIO_SERVER_TOKEN` if not set.                   | _(None)_          | No       | String  |
 | `APERIO_TRUST_PROXY`                     | Set to `1` or `true` to trust `X-Forwarded-For` / `X-Real-IP` headers for client IP resolution.                             | `false`           | No       | Boolean |
-| `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `debug`           | No       | String  |
+| `APERIO_SECURE_COOKIES`                  | Set to `1` or `true` to add the `Secure` flag to session cookies (HTTPS-only). Defaults to `APERIO_TRUST_PROXY` value.      | `false`           | No       | Boolean |
+| `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
 
 ### Endpoints
 
@@ -108,7 +109,7 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
 | `APERIO_CLIENT_MAX_RESPONSE_BODY` | Maximum response body size in bytes accepted from the backend. Protects against OOM.                                  | `52428800` (50MB)       | No       | usize          |
 | `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
-| `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `debug`                 | No       | String         |
+| `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `info`                  | No       | String         |
 
 ---
 
