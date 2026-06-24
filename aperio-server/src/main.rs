@@ -328,51 +328,42 @@ async fn main() {
 
   let mut app = Router::new().fallback(any(proxy_handler));
 
-  // Enable dashboard endpoints conditionally based on environment variable
-  let dashboard_enabled = std::env::var("APERIO_DASHBOARD")
-    .map(|val| val == "1" || val.to_lowercase() == "true")
+  // Dashboard defaults to enabled. Set APERIO_DASHBOARD=0 to disable.
+  let dashboard_enabled = !std::env::var("APERIO_DASHBOARD")
+    .map(|val| val == "0" || val.to_lowercase() == "false")
     .unwrap_or(false);
 
   if dashboard_enabled {
+    let dashboard_auth = std::env::var("APERIO_DASHBOARD_AUTH").ok();
+    if dashboard_auth.is_none() || dashboard_auth.as_ref().unwrap().trim().is_empty() {
+      warn!(
+        "APERIO_DASHBOARD is enabled but APERIO_DASHBOARD_AUTH is not set! \
+           The dashboard can still be accessed using aperio:<APERIO_SERVER_TOKEN>."
+      );
+    }
+
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
       .route("/api/logs", get(logs_handler))
       .route("/health", get(health_handler));
 
-    let token_arc = Arc::new(token);
+    let state_clone = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
       move |req: axum::extract::Request, next: axum::middleware::Next| {
-        let token = token_arc.clone();
+        let state = state_clone.clone();
         async move {
-          let headers: &HeaderMap = req.headers();
-          let mut authenticated = false;
-          if let Some(auth_header) = headers.get("authorization")
-            && let Ok(auth_str) = auth_header.to_str()
-            && let Some(stripped) = auth_str.strip_prefix("Basic ")
-          {
-            use base64::prelude::*;
-            if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
-              && let Ok(decoded_str) = String::from_utf8(decoded)
-              && let Some((user, pass)) = decoded_str.split_once(':')
-              && user == "aperio"
-              && pass == *token
-            {
-              authenticated = true;
-            }
+          // Check for valid session cookie
+          if validate_session(&state, req.headers()).await {
+            return next.run(req).await;
           }
-
-          if authenticated {
-            next.run(req).await
-          } else {
-            Response::builder()
-              .status(StatusCode::UNAUTHORIZED)
-              .header("WWW-Authenticate", "Basic realm=\"Aperio Dashboard\"")
-              .body(Body::from(
-                "401 Unauthorized - Basic authentication required",
-              ))
-              .unwrap()
-          }
+          // Redirect to login page, preserving the original path
+          let redirect_url = format!("/aperio/auth?redirect={}", req.uri().path());
+          Response::builder()
+            .status(StatusCode::FOUND)
+            .header("Location", redirect_url)
+            .body(Body::empty())
+            .unwrap()
         }
       },
     ));
@@ -504,13 +495,6 @@ async fn auth_login_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-  // Extract Basic Auth credentials
-  let credentials = state
-    .config
-    .auth_credentials
-    .as_ref()
-    .ok_or(StatusCode::NOT_FOUND)?;
-
   let mut authenticated = false;
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
@@ -520,8 +504,23 @@ async fn auth_login_handler(
     if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
       && let Ok(decoded_str) = String::from_utf8(decoded)
     {
-      authenticated =
-        decoded_str == *credentials || decoded_str == format!("aperio:{}", state.config.token);
+      // Allow APERIO_SERVER_AUTH credentials if configured
+      if let Some(ref creds) = state.config.auth_credentials
+        && decoded_str == *creds
+      {
+        authenticated = true;
+      }
+      // Always allow token as password with username "aperio"
+      if !authenticated && decoded_str == format!("aperio:{}", state.config.token) {
+        authenticated = true;
+      }
+      // Allow APERIO_DASHBOARD_AUTH as password with username "aperio"
+      if !authenticated
+        && let Ok(dash_pass) = std::env::var("APERIO_DASHBOARD_AUTH")
+        && decoded_str == format!("aperio:{}", dash_pass)
+      {
+        authenticated = true;
+      }
     }
   }
 
