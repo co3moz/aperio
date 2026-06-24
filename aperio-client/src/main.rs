@@ -87,6 +87,22 @@ async fn main() {
     false
   };
 
+  // Maximum response body size (in bytes) accepted from the target backend.
+  // Protects the client (and the tunnel) from OOM when a misbehaving backend
+  // streams an unbounded response. Defaults to 50 MB.
+  let max_response_body_size = std::env::var("APERIO_CLIENT_MAX_RESPONSE_BODY")
+    .ok()
+    .and_then(|val| val.parse::<usize>().ok())
+    .unwrap_or(50 * 1024 * 1024);
+
+  // Per-request timeout (in seconds) for calls to the local target backend.
+  // Prevents the client from hanging indefinitely if the backend stalls.
+  // Defaults to 30 seconds.
+  let client_timeout_secs = std::env::var("APERIO_CLIENT_TIMEOUT")
+    .ok()
+    .and_then(|val| val.parse::<u64>().ok())
+    .unwrap_or(30);
+
   let client_id = uuid::Uuid::new_v4().to_string();
 
   let ws_url = match build_ws_url(&server_addr) {
@@ -196,6 +212,7 @@ async fn main() {
             // Reqwest Client to make local forwarding requests
             let reqwest_client = reqwest::Client::builder()
               .redirect(reqwest::redirect::Policy::none()) // Let backend determine redirect loops
+              .timeout(Duration::from_secs(client_timeout_secs))
               .build()
               .unwrap_or_default();
 
@@ -225,6 +242,7 @@ async fn main() {
                                               let target_url = target.clone();
                                               let path_bind_val = path_bind.clone();
                                               let trim_bind_val = trim_bind;
+                                              let max_resp_size = max_response_body_size;
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {
@@ -239,6 +257,7 @@ async fn main() {
                                                       pass_hostname,
                                                       path_bind_val,
                                                       trim_bind_val,
+                                                      max_resp_size,
                                                   )
                                                   .await;
 
@@ -328,6 +347,7 @@ async fn handle_incoming_request(
   pass_hostname: bool,
   path_bind: Option<String>,
   trim_bind: bool,
+  max_response_body_size: usize,
 ) -> TunnelMessage {
   info!(
     "Forwarding tunnel request ID {}: {} {}",
@@ -448,9 +468,16 @@ async fn handle_incoming_request(
         }
       }
 
-      let body_bytes = match res.bytes().await {
+      let body_bytes = match collect_body_limited(res, max_response_body_size).await {
         Ok(bytes) => bytes,
-        Err(e) => {
+        Err(BodyError::TooLarge) => {
+          warn!(
+            "Target backend response body exceeded limit ({} bytes) for request ID {}",
+            max_response_body_size, id
+          );
+          return make_error_response(id, 502);
+        }
+        Err(BodyError::Io(e)) => {
           error!(
             "Failed to retrieve response body from target backend: {:?}",
             e
@@ -479,6 +506,33 @@ async fn handle_incoming_request(
       make_error_response(id, 502)
     }
   }
+}
+
+/// Error returned by [`collect_body_limited`].
+enum BodyError {
+  /// Response body exceeded the configured maximum size.
+  TooLarge,
+  /// Underlying transport error while streaming the body.
+  Io(reqwest::Error),
+}
+
+/// Reads a response body fully into a `Vec<u8>`, aborting once it exceeds
+/// `max_size` bytes to protect against OOM from unbounded backend responses.
+async fn collect_body_limited(
+  res: reqwest::Response,
+  max_size: usize,
+) -> Result<Vec<u8>, BodyError> {
+  use futures_util::StreamExt;
+  let mut stream = res.bytes_stream();
+  let mut buf: Vec<u8> = Vec::new();
+  while let Some(chunk) = stream.next().await {
+    let chunk = chunk.map_err(BodyError::Io)?;
+    if buf.len() + chunk.len() > max_size {
+      return Err(BodyError::TooLarge);
+    }
+    buf.extend_from_slice(&chunk);
+  }
+  Ok(buf)
 }
 
 /// Formats a generic masked error response, avoiding leaking raw socket error details.
@@ -592,6 +646,7 @@ mod tests {
       false,
       None,
       false,
+      1024 * 1024,
     )
     .await;
 
@@ -615,5 +670,114 @@ mod tests {
     } else {
       panic!("Expected response variant");
     }
+  }
+
+  #[tokio::test]
+  async fn test_handle_incoming_request_trim_bind() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let target_url = format!("http://127.0.0.1:{}", port);
+
+    // Channel to receive the observed request line from the mock server.
+    let (tx, rx) = oneshot::channel::<String>();
+
+    tokio::spawn(async move {
+      let _tx = tx;
+      if let Ok((mut socket, _)) = listener.accept().await {
+        let mut buf = [0; 1024];
+        let n = socket.read(&mut buf).await.unwrap();
+        let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+        let request_line = req_str.lines().next().unwrap_or("").to_string();
+        // Send the observed request line back, then write a minimal response.
+        let _ = _tx.send(request_line);
+        let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        let _ = socket.write_all(response.as_bytes()).await;
+      }
+    });
+
+    let client = reqwest::Client::new();
+    // path_bind = "/api", trim_bind = true → /api/hello should become /hello
+    let result = handle_incoming_request(
+      client,
+      "req-trim-1".to_string(),
+      "GET".to_string(),
+      "/api/hello".to_string(),
+      vec![],
+      None,
+      &target_url,
+      false,
+      Some("/api".to_string()),
+      true,
+      1024 * 1024,
+    )
+    .await;
+
+    let observed = rx.await.unwrap();
+    // The mock server should have received the trimmed path "/hello".
+    assert!(
+      observed.contains("GET /hello"),
+      "expected trimmed path '/hello' in request line, got: {}",
+      observed
+    );
+
+    if let TunnelMessage::Response { status, .. } = result {
+      assert_eq!(status, 200);
+    } else {
+      panic!("Expected response variant");
+    }
+  }
+
+  #[tokio::test]
+  async fn test_handle_incoming_request_trim_bind_disabled() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let target_url = format!("http://127.0.0.1:{}", port);
+
+    let (tx, rx) = oneshot::channel::<String>();
+
+    tokio::spawn(async move {
+      let _tx = tx;
+      if let Ok((mut socket, _)) = listener.accept().await {
+        let mut buf = [0; 1024];
+        let n = socket.read(&mut buf).await.unwrap();
+        let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+        let request_line = req_str.lines().next().unwrap_or("").to_string();
+        let _ = _tx.send(request_line);
+        let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        let _ = socket.write_all(response.as_bytes()).await;
+      }
+    });
+
+    let client = reqwest::Client::new();
+    // path_bind = "/api", trim_bind = false → path should NOT be stripped
+    let _result = handle_incoming_request(
+      client,
+      "req-trim-2".to_string(),
+      "GET".to_string(),
+      "/api/hello".to_string(),
+      vec![],
+      None,
+      &target_url,
+      false,
+      Some("/api".to_string()),
+      false,
+      1024 * 1024,
+    )
+    .await;
+
+    let observed = rx.await.unwrap();
+    assert!(
+      observed.contains("GET /api/hello"),
+      "expected untrimmed path '/api/hello' in request line, got: {}",
+      observed
+    );
   }
 }

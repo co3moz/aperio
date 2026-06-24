@@ -371,8 +371,7 @@ async fn main() {
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
-      .route("/api/logs", get(logs_handler))
-      .route("/health", get(health_handler));
+      .route("/api/logs", get(logs_handler));
 
     let state_clone = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
@@ -397,6 +396,10 @@ async fn main() {
     app = app.nest("/aperio", dash_router);
   }
 
+  // Health endpoint is intentionally registered outside the dashboard auth
+  // middleware so that external load balancers / monitoring tools can probe
+  // server liveness without dashboard credentials.
+  app = app.route("/aperio/health", get(health_handler));
   app = app.route(
     "/aperio/auth",
     get(auth_page_handler).post(auth_login_handler),
@@ -523,7 +526,8 @@ async fn auth_login_handler(
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
   // Rate limit login attempts per IP to mitigate brute-force attacks.
-  if !state.check_rate_limit(addr.ip()).await {
+  let client_ip = extract_client_ip(&headers, addr.ip());
+  if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
 
@@ -624,25 +628,72 @@ fn constant_time_eq_str(a: &str, b: &str) -> bool {
 }
 
 /// Normalizes a path bind by ensuring it starts with `/` and stripping any
-/// trailing slashes. Returns `None` for the empty/root bind.
+/// trailing slashes. Returns `None` for the empty/root bind or for values
+/// that fail validation (too long, path traversal, or unsafe characters).
 fn normalize_path_bind(bind: &str) -> Option<String> {
+  const MAX_PATH_BIND_LEN: usize = 256;
+
   let trimmed = bind.trim().trim_end_matches('/');
   if trimmed.is_empty() || trimmed == "/" {
-    None
-  } else {
-    let with_slash = if trimmed.starts_with('/') {
-      trimmed.to_string()
-    } else {
-      format!("/{}", trimmed)
-    };
-    Some(with_slash)
+    return None;
   }
+  if trimmed.len() > MAX_PATH_BIND_LEN {
+    warn!(
+      "Rejected path_bind exceeding maximum length ({} > {})",
+      trimmed.len(),
+      MAX_PATH_BIND_LEN
+    );
+    return None;
+  }
+  // Reject path traversal segments and require URL-safe path characters only.
+  for segment in trimmed.split('/') {
+    if segment.is_empty() {
+      continue;
+    }
+    if segment == ".." || segment == "." {
+      warn!("Rejected path_bind containing traversal segment: {}", bind);
+      return None;
+    }
+    if !segment
+      .chars()
+      .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
+    {
+      warn!("Rejected path_bind with unsafe characters: {}", bind);
+      return None;
+    }
+  }
+  let with_slash = if trimmed.starts_with('/') {
+    trimmed.to_string()
+  } else {
+    format!("/{}", trimmed)
+  };
+  Some(with_slash)
 }
 
 /// Checks whether `uri_path` matches a path `bind` on a segment boundary,
 /// preventing `/apixyz` from matching a bind of `/api`.
 fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
   uri_path == bind || uri_path.starts_with(&format!("{}/", bind))
+}
+
+/// Resolves the real client IP, honoring `X-Forwarded-For` when the request
+/// arrives through a reverse proxy. Falls back to the direct socket address.
+/// The left-most address in `X-Forwarded-For` is the original client.
+fn extract_client_ip(headers: &HeaderMap, fallback: IpAddr) -> IpAddr {
+  if let Some(xff) = headers.get("x-forwarded-for")
+    && let Ok(xff_str) = xff.to_str()
+    && let Some(first) = xff_str.split(',').next()
+    && let Ok(parsed) = first.trim().parse::<IpAddr>()
+  {
+    return parsed;
+  }
+  if let Some(real_ip) = headers.get("x-real-ip")
+    && let Ok(real_str) = real_ip.to_str()
+    && let Ok(parsed) = real_str.trim().parse::<IpAddr>()
+  {
+    return parsed;
+  }
+  fallback
 }
 
 /// Upgrade WebSocket endpoint. Extracts and verifies security tokens.
@@ -801,9 +852,20 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
   info!("Tunnel client disconnected: {}", client_id);
   {
     let mut clients = state.clients.lock().await;
-    clients.remove(&client_id);
-
+    let removed = clients.remove(&client_id);
     let now_empty = clients.is_empty();
+
+    // Clean up the round-robin index for this client's path group if no other
+    // client remains in the same group (prevents unbounded growth of path_rr).
+    if let Some(handle) = &removed {
+      let group_key = handle.path_bind.clone();
+      let group_has_clients = clients.values().any(|c| c.path_bind == group_key);
+      if !group_has_clients {
+        let mut rr_map = state.path_rr.lock().await;
+        rr_map.remove(&group_key);
+      }
+    }
+
     drop(clients);
 
     if now_empty {
@@ -858,6 +920,12 @@ async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
     for part in cookie_str.split(';') {
       let kv: Vec<&str> = part.trim().splitn(2, '=').collect();
       if kv.len() == 2 && kv[0] == "aperio_session" {
+        // Reject cookie values that are not valid UUIDs (session tokens are
+        // always generated with uuid::Uuid::new_v4). This avoids unnecessary
+        // HashMap lookups and prevents injection of malformed keys.
+        if uuid::Uuid::parse_str(kv[1]).is_err() {
+          return false;
+        }
         let mut sessions = state.sessions.lock().await;
         if let Some(info) = sessions.get(kv[1]) {
           if info.expires_at > Instant::now() {
@@ -886,7 +954,7 @@ async fn proxy_handler(
   let start_time = Instant::now();
   let method_str = method.to_string();
   let uri_str = uri.to_string();
-  let caller_ip = addr.ip();
+  let caller_ip = extract_client_ip(&headers, addr.ip());
 
   // 1. Per-IP Rate Limiting (Token Bucket)
   if !state.check_rate_limit(caller_ip).await {
@@ -918,36 +986,14 @@ async fn proxy_handler(
 
   // 3. Wait for connection if client is disconnected.
   // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
-  let (is_connected, last_disc) = {
+  let (is_connected, _last_disc) = {
     let conn = state.connection_state.lock().await;
     (conn.connected, conn.last_disconnect)
   };
   if !is_connected {
-    let uptime = state.server_start_time.elapsed();
-
-    let should_timeout = match last_disc {
-      Some(disc_time) => disc_time.elapsed() > Duration::from_secs(60),
-      None => uptime > Duration::from_secs(60),
-    };
-
-    if should_timeout {
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        504,
-        start_time.elapsed(),
-        Some("No active tunnel client (offline > 1m)"),
-      )
-      .await;
-      return (
-        StatusCode::GATEWAY_TIMEOUT,
-        "504 Gateway Timeout - Tunnel client is offline for more than 1 minute",
-      )
-        .into_response();
-    }
-
-    // Wait for client to reconnect
+    // Wait for a client to reconnect, bounded by the configured gateway timeout.
+    // Previously a hard-coded 60s rule caused surprising immediate 504s that
+    // bypassed the configured `APERIO_SERVER_GATEWAY_TIMEOUT`.
     let mut rx = state.client_connected.subscribe();
     let timeout_fut = tokio::time::sleep(state.config.gateway_timeout);
     tokio::pin!(timeout_fut);
@@ -1267,6 +1313,12 @@ async fn proxy_handler(
   }
 }
 
+/// Strips the query string from a URI to avoid logging sensitive data
+/// (API keys, tokens, PII) that may be carried in query parameters.
+fn sanitize_uri(uri: &str) -> &str {
+  uri.split('?').next().unwrap_or(uri)
+}
+
 async fn log_request_success(
   state: &Arc<AppState>,
   id: String,
@@ -1275,6 +1327,7 @@ async fn log_request_success(
   status: u16,
   duration: Duration,
 ) {
+  let safe_uri = sanitize_uri(uri);
   let mut logs = state.recent_logs.lock().await;
   if logs.len() >= 100 {
     logs.pop_front();
@@ -1284,7 +1337,7 @@ async fn log_request_success(
     id: id.clone(),
     timestamp,
     method: method.to_string(),
-    uri: uri.to_string(),
+    uri: safe_uri.to_string(),
     status: Some(status),
     duration_ms: duration.as_millis(),
     error: None,
@@ -1293,7 +1346,7 @@ async fn log_request_success(
     "Proxy SUCCESS: ID={} Method={} URI={} Status={} Duration={}ms",
     id,
     method,
-    uri,
+    safe_uri,
     status,
     duration.as_millis()
   );
@@ -1307,6 +1360,7 @@ async fn log_request_failure(
   duration: Duration,
   error: Option<&str>,
 ) {
+  let safe_uri = sanitize_uri(uri);
   let mut logs = state.recent_logs.lock().await;
   if logs.len() >= 100 {
     logs.pop_front();
@@ -1317,7 +1371,7 @@ async fn log_request_failure(
     id: id.clone(),
     timestamp,
     method: method.to_string(),
-    uri: uri.to_string(),
+    uri: safe_uri.to_string(),
     status: Some(status),
     duration_ms: duration.as_millis(),
     error: error.map(|s| s.to_string()),
@@ -1326,7 +1380,7 @@ async fn log_request_failure(
     "Proxy FAILURE: ID={} Method={} URI={} Status={} Duration={}ms Error={:?}",
     id,
     method,
-    uri,
+    safe_uri,
     status,
     duration.as_millis(),
     error
@@ -1549,5 +1603,96 @@ mod tests {
         .unwrap(),
       "application/json"
     );
+  }
+
+  #[test]
+  fn test_path_matches_bind_segment_boundary() {
+    // Exact match
+    assert!(path_matches_bind("/api", "/api"));
+    // Segment boundary: trailing slash should match
+    assert!(path_matches_bind("/api/users", "/api"));
+    // Non-boundary prefix must NOT match (the original bug)
+    assert!(!path_matches_bind("/apixyz", "/api"));
+    assert!(!path_matches_bind("/api-v2", "/api"));
+    // Empty bind semantics
+    assert!(!path_matches_bind("/", "/api"));
+  }
+
+  #[test]
+  fn test_normalize_path_bind() {
+    // Empty / root → None
+    assert_eq!(normalize_path_bind(""), None);
+    assert_eq!(normalize_path_bind("/"), None);
+    assert_eq!(normalize_path_bind("   "), None);
+    // Adds leading slash
+    assert_eq!(normalize_path_bind("api"), Some("/api".to_string()));
+    // Strips trailing slashes
+    assert_eq!(normalize_path_bind("/api/"), Some("/api".to_string()));
+    assert_eq!(normalize_path_bind("/api///"), Some("/api".to_string()));
+    // Nested paths preserved
+    assert_eq!(normalize_path_bind("/api/v2"), Some("/api/v2".to_string()));
+    // Path traversal rejected
+    assert_eq!(normalize_path_bind("/api/../etc"), None);
+    assert_eq!(normalize_path_bind("/.."), None);
+    assert_eq!(normalize_path_bind("/./api"), None);
+    // Unsafe characters rejected
+    assert_eq!(normalize_path_bind("/api;rm -rf"), None);
+    assert_eq!(normalize_path_bind("/api?x=1"), None);
+    // Allowed special characters
+    assert_eq!(
+      normalize_path_bind("/api_v2.1"),
+      Some("/api_v2.1".to_string())
+    );
+    assert_eq!(normalize_path_bind("/a-b~c"), Some("/a-b~c".to_string()));
+  }
+
+  #[test]
+  fn test_sanitize_uri_strips_query() {
+    assert_eq!(sanitize_uri("/api/users?id=42&token=secret"), "/api/users");
+    assert_eq!(sanitize_uri("/api"), "/api");
+    assert_eq!(sanitize_uri("/api?"), "/api");
+    // Multiple '?' → first split wins
+    assert_eq!(sanitize_uri("/api?a=1?b=2"), "/api");
+  }
+
+  #[test]
+  fn test_extract_client_ip() {
+    let direct = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5));
+
+    // No headers → fallback to socket address
+    let headers = HeaderMap::new();
+    assert_eq!(extract_client_ip(&headers, direct), direct);
+
+    // X-Forwarded-For with single IP
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
+    assert_eq!(
+      extract_client_ip(&headers, direct),
+      "198.51.100.10".parse::<IpAddr>().unwrap()
+    );
+
+    // X-Forwarded-For with chained proxies → leftmost (original client)
+    let mut headers = HeaderMap::new();
+    headers.insert(
+      "x-forwarded-for",
+      HeaderValue::from_static("198.51.100.10, 10.0.0.1, 10.0.0.2"),
+    );
+    assert_eq!(
+      extract_client_ip(&headers, direct),
+      "198.51.100.10".parse::<IpAddr>().unwrap()
+    );
+
+    // X-Real-IP fallback when X-Forwarded-For absent
+    let mut headers = HeaderMap::new();
+    headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
+    assert_eq!(
+      extract_client_ip(&headers, direct),
+      "198.51.100.20".parse::<IpAddr>().unwrap()
+    );
+
+    // Malformed X-Forwarded-For → fallback
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
+    assert_eq!(extract_client_ip(&headers, direct), direct);
   }
 }
