@@ -711,6 +711,11 @@ async fn proxy_handler(
         && let Ok(decoded_str) = String::from_utf8(decoded)
       {
         authenticated = decoded_str == *credentials;
+
+        if !authenticated {
+          // Also allow auth using the token directly as password (e.g. for the dashboard)
+          authenticated = decoded_str == format!("aperio:{}", state.config.token);
+        }
       }
     }
 
