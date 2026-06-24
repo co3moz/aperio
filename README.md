@@ -106,6 +106,8 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_SERVER_URL`           | Public URL of the Aperio proxy server. Supports `http`/`https` or `ws`/`wss` protocols.                                | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
+| `APERIO_PATH_BIND`           | Path prefix to bind this client to (e.g. `/api`). Unbound clients serve as fallback.                                   | _(None)_                | No       | String         |
+| `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
 | `LOG_LEVEL`                  | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `debug`                 | No       | String         |
 
 ---

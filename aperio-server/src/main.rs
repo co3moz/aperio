@@ -27,6 +27,7 @@ pub enum TunnelMessage {
   Ping {
     client_id: String,
     timestamp: u64,
+    path_bind: Option<String>,
   },
   Pong {
     timestamp: u64,
@@ -135,6 +136,8 @@ struct ClientHandle {
   client_ip: String,
   /// Total request count processed by this specific client connection.
   request_count: Arc<AtomicU64>,
+  /// Path prefix this client is bound to (from APERIO_PATH_BIND).
+  path_bind: Option<String>,
 }
 
 /// Standard response payload returned by tunnel client.
@@ -174,7 +177,7 @@ struct AppState {
   recent_logs: Mutex<VecDeque<RequestLog>>,
   config: ServerConfig,
   concurrency_semaphore: Semaphore,
-  request_counter: AtomicU64,
+  path_rr: Mutex<HashMap<Option<String>, usize>>,
   rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
 }
 
@@ -312,7 +315,7 @@ async fn main() {
     recent_logs: Mutex::new(VecDeque::with_capacity(100)),
     config,
     concurrency_semaphore: Semaphore::new(max_concurrent_requests),
-    request_counter: AtomicU64::new(0),
+    path_rr: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
   });
 
@@ -572,6 +575,7 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
         connected_at: Instant::now(),
         client_ip: client_ip.clone(),
         request_count: client_req_count.clone(),
+        path_bind: None,
       },
     );
     state.client_connected.send_replace(true);
@@ -611,8 +615,16 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
             TunnelMessage::Ping {
               client_id: cid,
               timestamp,
+              path_bind,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
+              // Update client's path_bind from first Ping
+              if path_bind.is_some() {
+                let mut clients = state.clients.lock().await;
+                if let Some(handle) = clients.get_mut(&cid) {
+                  handle.path_bind = path_bind;
+                }
+              }
               let pong = TunnelMessage::Pong { timestamp };
               if let Ok(pong_str) = serde_json::to_string(&pong) {
                 let _ = tx_write.send(Message::Text(pong_str)).await;
@@ -824,18 +836,55 @@ async fn proxy_handler(
     }
   };
 
-  // 4. Get an active client using Round-Robin load-balancing
+  // 4. Get an active client, preferring path-bound matches with per-group round-robin
   let client_info = {
     let clients = state.clients.lock().await;
-    let keys: Vec<String> = clients.keys().cloned().collect();
-    if keys.is_empty() {
+    if clients.is_empty() {
       None
     } else {
-      let idx = state.request_counter.fetch_add(1, Ordering::SeqCst) as usize % keys.len();
-      let chosen_id = &keys[idx];
-      clients
-        .get(chosen_id)
-        .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+      let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
+
+      // Collect clients whose path_bind matches the request URI prefix
+      let matched: Vec<(&String, Option<String>)> = clients
+        .iter()
+        .filter(|(_, c)| {
+          if let Some(ref bind) = c.path_bind {
+            uri_path.starts_with(bind.as_str())
+          } else {
+            false
+          }
+        })
+        .map(|(id, c)| (id, c.path_bind.clone()))
+        .collect();
+
+      let (pool, group_key): (Vec<&String>, Option<String>) = if !matched.is_empty() {
+        let key = matched
+          .iter()
+          .filter_map(|(_, b)| b.clone())
+          .max_by_key(|b| b.len());
+        let ids: Vec<&String> = matched.iter().map(|(id, _)| *id).collect();
+        (ids, key)
+      } else {
+        // Fallback to clients without any path_bind
+        let ids: Vec<&String> = clients
+          .iter()
+          .filter(|(_, c)| c.path_bind.is_none())
+          .map(|(id, _)| id)
+          .collect();
+        (ids, None)
+      };
+
+      if pool.is_empty() {
+        None
+      } else {
+        let mut rr_map = state.path_rr.lock().await;
+        let idx = rr_map.entry(group_key).or_insert(0);
+        let chosen_id = pool[*idx % pool.len()];
+        *idx = (*idx + 1) % pool.len();
+        clients
+          .get(chosen_id)
+          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+      }
     }
   };
 
@@ -1162,7 +1211,7 @@ mod tests {
       recent_logs: Mutex::new(VecDeque::new()),
       config,
       concurrency_semaphore: Semaphore::new(10),
-      request_counter: AtomicU64::new(0),
+      path_rr: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     };
 
@@ -1206,7 +1255,7 @@ mod tests {
       recent_logs: Mutex::new(VecDeque::new()),
       config,
       concurrency_semaphore: Semaphore::new(10),
-      request_counter: AtomicU64::new(0),
+      path_rr: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     });
 
@@ -1252,7 +1301,7 @@ mod tests {
       recent_logs: Mutex::new(VecDeque::new()),
       config,
       concurrency_semaphore: Semaphore::new(10),
-      request_counter: AtomicU64::new(0),
+      path_rr: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     });
 
@@ -1266,6 +1315,7 @@ mod tests {
         connected_at: Instant::now(),
         client_ip: "127.0.0.1".to_string(),
         request_count: client_req_count,
+        path_bind: None,
       },
     );
 

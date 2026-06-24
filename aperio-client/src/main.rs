@@ -18,6 +18,7 @@ pub enum TunnelMessage {
   Ping {
     client_id: String,
     timestamp: u64,
+    path_bind: Option<String>,
   },
   Pong {
     timestamp: u64,
@@ -79,6 +80,14 @@ async fn main() {
     std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_else(|_| "0".to_string());
   let pass_hostname = pass_hostname_val == "1";
 
+  let path_bind = std::env::var("APERIO_PATH_BIND").ok();
+
+  let trim_bind = if path_bind.is_some() {
+    std::env::var("APERIO_CLIENT_TRIM_BIND").unwrap_or_else(|_| "1".to_string()) == "1"
+  } else {
+    false
+  };
+
   let client_id = uuid::Uuid::new_v4().to_string();
 
   let ws_url = match build_ws_url(&server_addr) {
@@ -93,6 +102,10 @@ async fn main() {
   info!("- Client ID: {}", client_id);
   info!("- Target: {}", target);
   info!("- Pass Hostname: {}", pass_hostname);
+  if let Some(ref bind) = path_bind {
+    info!("- Path Bind: {}", bind);
+    info!("- Trim Bind: {}", trim_bind);
+  }
   info!("- WebSocket URL: {}", ws_url);
 
   // Reconnection Loop
@@ -143,6 +156,7 @@ async fn main() {
             // Spawn task for heartbeat (Ping every 5 seconds & liveness check)
             let tx_ping = tx_write.clone();
             let client_id_ping = client_id.clone();
+            let path_bind_ping = path_bind.clone();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
 
@@ -170,6 +184,7 @@ async fn main() {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
+                  path_bind: path_bind_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -209,6 +224,8 @@ async fn main() {
                                               let tx_resp = tx_write.clone();
                                               let req_client = reqwest_client.clone();
                                               let target_url = target.clone();
+                                              let path_bind_val = path_bind.clone();
+                                              let trim_bind_val = trim_bind;
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {
@@ -221,6 +238,8 @@ async fn main() {
                                                       body,
                                                       &target_url,
                                                       pass_hostname,
+                                                      path_bind_val,
+                                                      trim_bind_val,
                                                   )
                                                   .await;
 
@@ -308,6 +327,8 @@ async fn handle_incoming_request(
   body_base64: Option<String>,
   target: &str,
   pass_hostname: bool,
+  path_bind: Option<String>,
+  trim_bind: bool,
 ) -> TunnelMessage {
   info!(
     "Forwarding tunnel request ID {}: {} {}",
@@ -332,9 +353,19 @@ async fn handle_incoming_request(
 
   let mut dest_url = target_parsed.clone();
 
-  // Map URI path
+  // Map URI path, optionally stripping the path_bind prefix
   let target_path = target_parsed.path().trim_end_matches('/');
-  let incoming_path = incoming_parsed.path().trim_start_matches('/');
+  let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
+
+  if trim_bind && let Some(ref bind) = path_bind {
+    let bind_trimmed = bind.trim_matches('/');
+    if incoming_path.starts_with(bind_trimmed) {
+      incoming_path = incoming_path[bind_trimmed.len()..]
+        .trim_start_matches('/')
+        .to_string();
+    }
+  }
+
   let combined_path = if target_path.is_empty() {
     format!("/{}", incoming_path)
   } else {
@@ -556,6 +587,8 @@ mod tests {
       headers,
       None,
       &target_url,
+      false,
+      None,
       false,
     )
     .await;
