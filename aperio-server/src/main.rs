@@ -57,7 +57,7 @@ struct ServerConfig {
   max_tunnels: usize,
   ip_limit_max: f64,
   ip_limit_refill: f64,
-  basic_auth: Option<String>,
+  auth_credentials: Option<String>,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -167,6 +167,11 @@ struct RateLimitState {
 }
 
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
+struct SessionInfo {
+  expires_at: Instant,
+}
+
+/// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 struct AppState {
   clients: Mutex<HashMap<String, ClientHandle>>,
   client_connected: watch::Sender<bool>,
@@ -178,6 +183,7 @@ struct AppState {
   config: ServerConfig,
   concurrency_semaphore: Semaphore,
   path_rr: Mutex<HashMap<Option<String>, usize>>,
+  sessions: Mutex<HashMap<String, SessionInfo>>,
   rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
 }
 
@@ -285,7 +291,7 @@ async fn main() {
     .unwrap_or(5.0);
 
   // Optional Basic Auth credentials for proxied requests ("username:password")
-  let basic_auth = std::env::var("APERIO_SERVER_BASIC_AUTH").ok();
+  let auth_credentials = std::env::var("APERIO_SERVER_AUTH").ok();
 
   let config = ServerConfig {
     token: token.clone(),
@@ -295,7 +301,7 @@ async fn main() {
     max_tunnels,
     ip_limit_max,
     ip_limit_refill,
-    basic_auth,
+    auth_credentials,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -316,6 +322,7 @@ async fn main() {
     config,
     concurrency_semaphore: Semaphore::new(max_concurrent_requests),
     path_rr: Mutex::new(HashMap::new()),
+    sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
   });
 
@@ -373,6 +380,10 @@ async fn main() {
     app = app.nest("/aperio", dash_router);
   }
 
+  app = app.route(
+    "/aperio/auth",
+    get(auth_page_handler).post(auth_login_handler),
+  );
   app = app.route("/aperio/ws", get(ws_handler));
   let app = app.with_state(state);
 
@@ -481,6 +492,64 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
   health_info.insert("total_requests", serde_json::json!(stats.total_requests));
 
   (StatusCode::OK, Json(health_info))
+}
+
+/// Serves the login page.
+async fn auth_page_handler() -> Html<&'static str> {
+  Html(include_str!("authentication.html"))
+}
+
+/// Handles login form submission. Validates credentials and sets a session cookie.
+async fn auth_login_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+  // Extract Basic Auth credentials
+  let credentials = state
+    .config
+    .auth_credentials
+    .as_ref()
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+  let mut authenticated = false;
+  if let Some(auth_header) = headers.get("authorization")
+    && let Ok(auth_str) = auth_header.to_str()
+    && let Some(stripped) = auth_str.strip_prefix("Basic ")
+  {
+    use base64::prelude::*;
+    if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
+      && let Ok(decoded_str) = String::from_utf8(decoded)
+    {
+      authenticated =
+        decoded_str == *credentials || decoded_str == format!("aperio:{}", state.config.token);
+    }
+  }
+
+  if !authenticated {
+    return Err(StatusCode::UNAUTHORIZED);
+  }
+
+  // Create session
+  let session_token = uuid::Uuid::new_v4().to_string();
+  state.sessions.lock().await.insert(
+    session_token.clone(),
+    SessionInfo {
+      expires_at: Instant::now() + Duration::from_secs(86400),
+    },
+  );
+
+  let cookie = format!(
+    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
+    session_token
+  );
+
+  Ok(
+    Response::builder()
+      .status(StatusCode::OK)
+      .header("Set-Cookie", cookie)
+      .body(Body::empty())
+      .unwrap(),
+  )
 }
 
 /// Helper function to extract Bearer token or `x-auth-token` from header values
@@ -677,6 +746,28 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
   }
 }
 
+/// Validates the `aperio_session` cookie and returns true if the session is still active.
+async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
+  if let Some(cookie_header) = headers.get("cookie")
+    && let Ok(cookie_str) = cookie_header.to_str()
+  {
+    for part in cookie_str.split(';') {
+      let kv: Vec<&str> = part.trim().splitn(2, '=').collect();
+      if kv.len() == 2 && kv[0] == "aperio_session" {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(info) = sessions.get(kv[1]) {
+          if info.expires_at > Instant::now() {
+            return true;
+          }
+          sessions.remove(kv[1]);
+        }
+        return false;
+      }
+    }
+  }
+  false
+}
+
 /// Proxy handler for forwarding all incoming HTTP requests to active client.
 /// Validates rate-limits, handles connection buffering and timeout limits, load-balances requests,
 /// and maps response formats.
@@ -711,42 +802,14 @@ async fn proxy_handler(
       .into_response();
   }
 
-  // 2. Basic Auth check (if configured)
-  if let Some(ref credentials) = state.config.basic_auth {
-    let mut authenticated = false;
-    if let Some(auth_header) = headers.get("authorization")
-      && let Ok(auth_str) = auth_header.to_str()
-      && let Some(stripped) = auth_str.strip_prefix("Basic ")
-    {
-      use base64::prelude::*;
-      if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
-        && let Ok(decoded_str) = String::from_utf8(decoded)
-      {
-        authenticated = decoded_str == *credentials;
-
-        if !authenticated {
-          // Also allow auth using the token directly as password (e.g. for the dashboard)
-          authenticated = decoded_str == format!("aperio:{}", state.config.token);
-        }
-      }
-    }
-
-    if !authenticated {
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        401,
-        start_time.elapsed(),
-        Some("Basic auth required"),
-      )
-      .await;
-      return Response::builder()
-        .status(StatusCode::UNAUTHORIZED)
-        .header("WWW-Authenticate", "Basic realm=\"Aperio\"")
-        .body(Body::from("401 Unauthorized"))
-        .unwrap();
-    }
+  // 2. Session/Auth check (if configured)
+  if state.config.auth_credentials.is_some() && !validate_session(&state, &headers).await {
+    let redirect_url = format!("/aperio/auth?redirect={}", uri_str);
+    return Response::builder()
+      .status(StatusCode::FOUND)
+      .header("Location", redirect_url)
+      .body(Body::empty())
+      .unwrap();
   }
 
   // 3. Wait for connection if client is disconnected
@@ -1192,7 +1255,7 @@ mod tests {
       max_tunnels: 1,
       ip_limit_max: 2.0,
       ip_limit_refill: 0.0, // No refill for testing strict burst limit
-      basic_auth: None,
+      auth_credentials: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1212,6 +1275,7 @@ mod tests {
       config,
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
+      sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     };
 
@@ -1235,7 +1299,7 @@ mod tests {
       max_tunnels: 1,
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
-      basic_auth: None,
+      auth_credentials: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -1256,6 +1320,7 @@ mod tests {
       config,
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
+      sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     });
 
@@ -1282,7 +1347,7 @@ mod tests {
       max_tunnels: 2,
       ip_limit_max: 100.0,
       ip_limit_refill: 10.0,
-      basic_auth: None,
+      auth_credentials: None,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -1302,6 +1367,7 @@ mod tests {
       config,
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
+      sessions: Mutex::new(HashMap::new()),
       rate_limiter: Mutex::new(HashMap::new()),
     });
 
