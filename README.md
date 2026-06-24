@@ -25,7 +25,7 @@ Aperio is split into two components:
 
 - **Written in Rust**: Blazing fast, memory-safe, and low resource overhead.
 - **Robust Connection Liveness**: Employs continuous heartbeat ping/pong signals to detect socket drops and automatically reconnects in seconds.
-- **Basic Auth Protected Admin Dashboard**: A clean, responsive dark-mode dashboard showing server health, active connections, total traffic, and real-time request logs.
+- **Session-Based Auth Login**: A clean dark-mode login page protects both dashboard and proxied traffic with cookie-based sessions.
 - **Per-IP Rate Limiting**: Built-in, high-performance in-memory Token Bucket rate limiter to protect your tunnels from abuse.
 - **Concurrency Limiting**: Prevents resource starvation using token-based concurrency controls (semaphores).
 - **Round-Robin Load Balancing**: Seamlessly load-balances incoming traffic across multiple active tunnel clients.
@@ -42,22 +42,17 @@ Aperio is split into two components:
 
 ### Building from Source
 
-Build the release binaries for both server and client:
+Build the release binaries from the workspace root:
 
 ```bash
-# Build Server
-cd aperio-server
-cargo build --release
-
-# Build Client
-cd ../aperio-client
-cargo build --release
+cargo build --release -p aperio-server
+cargo build --release -p aperio-client
 ```
 
 The compiled binaries will be located at:
 
-- `aperio-server/target/release/aperio-server`
-- `aperio-client/target/release/aperio-client`
+- `target/release/aperio-server`
+- `target/release/aperio-client`
 
 ---
 
@@ -80,7 +75,9 @@ The server is configured entirely through environment variables.
 | `APERIO_MAX_TUNNELS`                     | Maximum number of concurrent active tunnel client connections.                                                                | `10`              | No       | usize   |
 | `APERIO_IP_LIMIT_MAX`                    | The burst size capacity for the per-IP Token Bucket rate limiter.                                                             | `100.0`           | No       | f64     |
 | `APERIO_IP_LIMIT_REFILL`                 | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min).                       | `5.0`             | No       | f64     |
-| `APERIO_SERVER_AUTH`                    | If set to `username:password`, requires login via web form before proxied requests are allowed.                                 | _(None)_          | No       | String  |
+| `APERIO_SERVER_AUTH`                      | If set to `username:password`, requires login via web form before proxied requests are allowed.                              | _(None)_          | No       | String  |
+| `APERIO_DASHBOARD_AUTH`                  | Password for dashboard-only login with username `aperio`. Falls back to `APERIO_SERVER_TOKEN` if not set.                   | _(None)_          | No       | String  |
+| `APERIO_TRUST_PROXY`                     | Set to `1` or `true` to trust `X-Forwarded-For` / `X-Real-IP` headers for client IP resolution.                             | `false`           | No       | Boolean |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `debug`           | No       | String  |
 
 ### Endpoints
@@ -90,7 +87,8 @@ The server is configured entirely through environment variables.
 - **`GET /aperio`**: HTML admin dashboard interface (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/stats`**: JSON stats endpoint displaying connection counters, byte counters, and uptime info (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/logs`**: JSON endpoint returning the last 100 request logs (available when `APERIO_DASHBOARD` is enabled).
-- **`GET /aperio/health`**: Simple server health verification endpoint (available when `APERIO_DASHBOARD` is enabled).
+- **`GET /aperio/health`**: Simple server health verification endpoint (always available, no auth required).
+- **`GET /POST /aperio/auth`**: Login page and authentication endpoint. Always available regardless of dashboard setting.
 
 ---
 
@@ -108,7 +106,9 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
 | `APERIO_PATH_BIND`           | Path prefix to bind this client to (e.g. `/api`). Unbound clients serve as fallback.                                   | _(None)_                | No       | String         |
 | `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
-| `LOG_LEVEL`                  | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `debug`                 | No       | String         |
+| `APERIO_CLIENT_MAX_RESPONSE_BODY` | Maximum response body size in bytes accepted from the backend. Protects against OOM.                                  | `52428800` (50MB)       | No       | usize          |
+| `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
+| `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `debug`                 | No       | String         |
 
 ---
 
@@ -142,7 +142,7 @@ The client receives requests from the server and forwards them to a local backen
    ```
 
 3. **Access the Dashboard:**
-   Open a browser at `http://localhost:8080/aperio`. Log in using user `aperio` and password `dashboard-password`.
+   Open a browser at `http://localhost:8080/aperio`. Log in using `aperio` as the username and your `APERIO_SERVER_TOKEN` as the password (or the value of `APERIO_DASHBOARD_AUTH` if configured).
 
 ---
 
@@ -153,18 +153,17 @@ Both server and client include Docker support.
 ### Server Docker Run
 
 ```bash
-docker build -t aperio-server ./aperio-server
+docker build -t aperio-server -f aperio-server/Dockerfile .
 docker run -d \
   -p 8080:8080 \
   -e APERIO_SERVER_TOKEN="your-secure-token" \
-  -e APERIO_DASHBOARD="1" \
   aperio-server
 ```
 
 ### Client Docker Run
 
 ```bash
-docker build -t aperio-client ./aperio-client
+docker build -t aperio-client -f aperio-client/Dockerfile .
 docker run -d \
   --network="host" \
   -e APERIO_SERVER_TOKEN="your-secure-token" \
