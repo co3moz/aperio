@@ -2,7 +2,7 @@ use axum::{
   Json, Router,
   body::Body,
   extract::{
-    ConnectInfo, State,
+    ConnectInfo, FromRequest, State,
     ws::{Message, WebSocket, WebSocketUpgrade},
   },
   http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri},
@@ -45,6 +45,31 @@ pub enum TunnelMessage {
     status: u16,
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
+  },
+  /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
+  UpgradeRequest {
+    id: String,
+    method: String,
+    uri: String,
+    headers: Vec<(String, String)>,
+  },
+  /// Sent by client after the backend WebSocket upgrade handshake completes (or fails).
+  UpgradeResponse {
+    id: String,
+    status: u16,
+    headers: Vec<(String, String)>,
+  },
+  /// Bidirectional WebSocket frame relayed through the tunnel.
+  WsData {
+    stream_id: String,
+    data: String, // Base64 for binary frames, plain text for text frames
+    is_text: bool,
+  },
+  /// Signals that a WebSocket stream has been closed.
+  WsClose {
+    stream_id: String,
+    code: u16,
+    reason: String,
   },
 }
 
@@ -167,6 +192,14 @@ struct PendingRequest {
   client_id: String,
 }
 
+/// A WebSocket frame relayed from the tunnel client, to be forwarded to the public WS.
+enum WsStreamMessage {
+  /// A data frame (text or binary) to forward to the public WebSocket.
+  Data(Message),
+  /// Close the public WebSocket stream.
+  Close,
+}
+
 /// Bucket tracking current tokens and refill state for rate limiting.
 struct RateLimitState {
   /// Current token balance.
@@ -203,6 +236,10 @@ struct AppState {
   last_session_gc: Mutex<Instant>,
   last_rate_gc: Mutex<Instant>,
   active_tunnel_count: AtomicUsize,
+  /// Active WebSocket proxy streams: stream_id → sender to relay tunnel WsData to public WS.
+  ws_streams: Mutex<HashMap<String, mpsc::Sender<WsStreamMessage>>>,
+  /// Pending WebSocket upgrade responses: upgrade_id → oneshot to resolve when client responds.
+  pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
 }
 
 impl AppState {
@@ -373,6 +410,8 @@ async fn main() {
     last_session_gc: Mutex::new(Instant::now()),
     last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),
+    ws_streams: Mutex::new(HashMap::new()),
+    pending_upgrades: Mutex::new(HashMap::new()),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -884,6 +923,73 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
                 let _ = tx_write.send(Message::Text(pong_str)).await;
               }
             }
+            TunnelMessage::UpgradeResponse {
+              id,
+              status,
+              headers,
+            } => {
+              let mut pending = state.pending_upgrades.lock().await;
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "UpgradeResponse for stream ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id)
+                && req
+                  .tx
+                  .send(TunnelResponse {
+                    status,
+                    headers,
+                    body: None,
+                  })
+                  .is_err()
+              {
+                warn!(
+                  "Pending upgrade oneshot receiver was dropped for stream ID: {}",
+                  id
+                );
+              }
+            }
+            TunnelMessage::WsData {
+              stream_id,
+              data,
+              is_text,
+            } => {
+              // Relay WebSocket frame to the public WS via the registered channel
+              let streams = state.ws_streams.lock().await;
+              if let Some(tx) = streams.get(&stream_id) {
+                let ws_msg = if is_text {
+                  Message::Text(data.into())
+                } else {
+                  use base64::prelude::*;
+                  match BASE64_STANDARD.decode(&data) {
+                    Ok(bytes) => Message::Binary(bytes.into()),
+                    Err(_) => {
+                      warn!("Failed to decode Base64 WsData for stream {}", stream_id);
+                      continue;
+                    }
+                  }
+                };
+                if tx.send(WsStreamMessage::Data(ws_msg)).await.is_err() {
+                  debug!("WsStream channel closed for stream {}", stream_id);
+                }
+              }
+            }
+            TunnelMessage::WsClose {
+              stream_id,
+              code: _,
+              reason: _,
+            } => {
+              let streams = state.ws_streams.lock().await;
+              if let Some(tx) = streams.get(&stream_id) {
+                let _ = tx.send(WsStreamMessage::Close).await;
+              }
+            }
             _ => {}
           }
         }
@@ -947,6 +1053,19 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
       }
     }
   }
+
+  // Abort pending upgrade responses routed to the disconnected client
+  {
+    let mut pending = state.pending_upgrades.lock().await;
+    let keys_to_remove: Vec<String> = pending
+      .iter()
+      .filter(|(_, req)| req.client_id == client_id)
+      .map(|(k, _)| k.clone())
+      .collect();
+    for k in keys_to_remove {
+      pending.remove(&k);
+    }
+  }
 }
 
 /// Validates the `aperio_session` cookie and returns true if the session is still active.
@@ -988,21 +1107,45 @@ async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
   false
 }
 
+/// Checks if an HTTP request is a WebSocket upgrade request.
+fn is_websocket_upgrade(method: &Method, headers: &HeaderMap) -> bool {
+  if method != Method::GET {
+    return false;
+  }
+  let has_upgrade_header = headers
+    .get("upgrade")
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+  let has_connection_upgrade = headers
+    .get("connection")
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|v| v.to_lowercase().contains("upgrade"));
+  has_upgrade_header && has_connection_upgrade
+}
+
 /// Proxy handler for forwarding all incoming HTTP requests to active client.
-/// Validates rate-limits, handles connection buffering and timeout limits, load-balances requests,
-/// and maps response formats.
+/// Also detects WebSocket upgrade requests and proxies them as persistent streams.
 async fn proxy_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
-  method: Method,
-  uri: Uri,
-  headers: HeaderMap,
-  body: Body,
+  req: axum::extract::Request<Body>,
 ) -> Response {
-  let start_time = Instant::now();
+  let method = req.method().clone();
+  let uri = req.uri().clone();
+  let headers = req.headers().clone();
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+
+  // Detect WebSocket upgrade requests and handle separately
+  if is_websocket_upgrade(&method, &headers) {
+    return handle_ws_proxy(state, req, method, uri, headers, addr, caller_ip).await;
+  }
+
+  // --- Normal HTTP proxy below ---
+
   let method_str = method.to_string();
   let uri_str = uri.to_string();
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let body = req.into_body();
+  let start_time = Instant::now();
 
   // 1. Per-IP Rate Limiting (Token Bucket)
   if !state.check_rate_limit(caller_ip).await {
@@ -1040,8 +1183,6 @@ async fn proxy_handler(
   };
   if !is_connected {
     // Wait for a client to reconnect, bounded by the configured gateway timeout.
-    // Previously a hard-coded 60s rule caused surprising immediate 504s that
-    // bypassed the configured `APERIO_SERVER_GATEWAY_TIMEOUT`.
     let mut rx = state.client_connected.subscribe();
     let timeout_fut = tokio::time::sleep(state.config.gateway_timeout);
     tokio::pin!(timeout_fut);
@@ -1079,7 +1220,7 @@ async fn proxy_handler(
     }
   }
 
-  // 3. Limit concurrency to prevent resource starvation / DoS
+  // 4. Limit concurrency to prevent resource starvation / DoS
   let _permit = match state.concurrency_semaphore.try_acquire() {
     Ok(p) => p,
     Err(_) => {
@@ -1375,6 +1516,482 @@ async fn proxy_handler(
   }
 }
 
+/// Handles a WebSocket upgrade request from a public client.
+/// Performs the same rate-limiting, auth, and client selection as normal HTTP proxy,
+/// then establishes a bidirectional relay between the public WebSocket and the tunnel.
+async fn handle_ws_proxy(
+  state: Arc<AppState>,
+  req: axum::extract::Request<Body>,
+  method: Method,
+  uri: Uri,
+  headers: HeaderMap,
+  _addr: SocketAddr,
+  caller_ip: IpAddr,
+) -> Response {
+  let method_str = method.to_string();
+  let uri_str = uri.to_string();
+  let start_time = Instant::now();
+
+  // 1. Per-IP Rate Limiting
+  if !state.check_rate_limit(caller_ip).await {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      429,
+      start_time.elapsed(),
+      Some(&format!("Rate Limit Exceeded for IP {}", caller_ip)),
+    )
+    .await;
+    return (
+      StatusCode::TOO_MANY_REQUESTS,
+      "429 Too Many Requests - IP rate limit exceeded",
+    )
+      .into_response();
+  }
+
+  // 2. Session/Auth check
+  if state.config.auth_credentials.is_some() && !validate_session(&state, &headers).await {
+    let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&uri_str));
+    return Response::builder()
+      .status(StatusCode::FOUND)
+      .header("Location", redirect_url)
+      .body(Body::empty())
+      .unwrap();
+  }
+
+  // 3. Wait for connection
+  let (is_connected, _last_disc) = {
+    let conn = state.connection_state.lock().await;
+    (conn.connected, conn.last_disconnect)
+  };
+  if !is_connected {
+    let mut rx = state.client_connected.subscribe();
+    let timeout_fut = tokio::time::sleep(state.config.gateway_timeout);
+    tokio::pin!(timeout_fut);
+
+    let mut reconnected = false;
+    loop {
+      tokio::select! {
+          _ = &mut timeout_fut => {
+              break;
+          }
+          res = rx.changed() => {
+              if res.is_ok() && *rx.borrow() {
+                  reconnected = true;
+                  break;
+              }
+          }
+      }
+    }
+
+    if !reconnected {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        504,
+        start_time.elapsed(),
+        Some("Gateway Timeout - Reconnect wait expired"),
+      )
+      .await;
+      return (
+        StatusCode::GATEWAY_TIMEOUT,
+        "504 Gateway Timeout - No client connected in time",
+      )
+        .into_response();
+    }
+  }
+
+  // 4. Select a tunnel client
+  let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
+  let client_info = {
+    let clients = state.clients.lock().await;
+    if clients.is_empty() {
+      None
+    } else {
+      let matched: Vec<(&String, Option<String>)> = clients
+        .iter()
+        .filter(|(_, c)| {
+          if let Some(ref bind) = c.path_bind {
+            path_matches_bind(uri_path, bind)
+          } else {
+            false
+          }
+        })
+        .map(|(id, c)| (id, c.path_bind.clone()))
+        .collect();
+
+      let (pool, group_key): (Vec<&String>, Option<String>) = if !matched.is_empty() {
+        let key = matched
+          .iter()
+          .filter_map(|(_, b)| b.clone())
+          .max_by_key(|b| b.len());
+        let ids: Vec<&String> = matched.iter().map(|(id, _)| *id).collect();
+        (ids, key)
+      } else {
+        let ids: Vec<&String> = clients
+          .iter()
+          .filter(|(_, c)| c.path_bind.is_none())
+          .map(|(id, _)| id)
+          .collect();
+        (ids, None)
+      };
+
+      if pool.is_empty() {
+        None
+      } else {
+        let mut rr_map = state.path_rr.lock().await;
+        let idx = rr_map.entry(group_key).or_insert(0);
+        let chosen_id = pool[*idx % pool.len()];
+        *idx = (*idx + 1) % pool.len();
+        clients
+          .get(chosen_id)
+          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+      }
+    }
+  };
+
+  let (chosen_client_id, client_tx, client_req_counter) = match client_info {
+    Some(info) => info,
+    None => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        504,
+        start_time.elapsed(),
+        Some("No active client for WebSocket upgrade"),
+      )
+      .await;
+      return (
+        StatusCode::GATEWAY_TIMEOUT,
+        "504 Gateway Timeout - No client available for WebSocket upgrade",
+      )
+        .into_response();
+    }
+  };
+
+  client_req_counter.fetch_add(1, Ordering::SeqCst);
+
+  // Serialize headers (same filtering as normal proxy)
+  let mut serialized_headers: Vec<(String, String)> = Vec::new();
+  for (k, v) in headers.iter() {
+    if let Ok(val_str) = v.to_str() {
+      if k.as_str() == "cookie" {
+        let filtered: String = val_str
+          .split(';')
+          .filter(|part| !part.trim().starts_with("aperio_session="))
+          .map(|part| part.trim())
+          .collect::<Vec<&str>>()
+          .join("; ");
+        if !filtered.is_empty() {
+          serialized_headers.push((k.to_string(), filtered));
+        }
+        continue;
+      }
+      serialized_headers.push((k.to_string(), val_str.to_string()));
+    }
+  }
+
+  let stream_id = uuid::Uuid::new_v4().to_string();
+  let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
+
+  // Register pending upgrade response
+  {
+    let mut pending = state.pending_upgrades.lock().await;
+    pending.insert(
+      stream_id.clone(),
+      PendingRequest {
+        tx: tx_response,
+        client_id: chosen_client_id.clone(),
+      },
+    );
+  }
+
+  // Send UpgradeRequest to client via tunnel
+  let upgrade_req = TunnelMessage::UpgradeRequest {
+    id: stream_id.clone(),
+    method: method_str.clone(),
+    uri: uri_str.clone(),
+    headers: serialized_headers,
+  };
+
+  let req_json = match serde_json::to_string(&upgrade_req) {
+    Ok(json) => json,
+    Err(e) => {
+      state.pending_upgrades.lock().await.remove(&stream_id);
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        500,
+        start_time.elapsed(),
+        Some(&format!("UpgradeRequest serialization failed: {}", e)),
+      )
+      .await;
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
+    }
+  };
+
+  if client_tx.send(Message::Text(req_json)).await.is_err() {
+    state.pending_upgrades.lock().await.remove(&stream_id);
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      502,
+      start_time.elapsed(),
+      Some("Failed to send UpgradeRequest to client"),
+    )
+    .await;
+    return (
+      StatusCode::BAD_GATEWAY,
+      "502 Bad Gateway - Client socket error",
+    )
+      .into_response();
+  }
+
+  {
+    let mut stats = state.stats.lock().await;
+    stats.total_requests += 1;
+  }
+
+  // Await UpgradeResponse from client
+  let timeout_fut = tokio::time::sleep(state.config.gateway_response_timeout);
+  tokio::pin!(timeout_fut);
+
+  let client_response = tokio::select! {
+      _ = &mut timeout_fut => {
+          state.pending_upgrades.lock().await.remove(&stream_id);
+          log_request_failure(
+              &state,
+              &method_str,
+              &uri_str,
+              504,
+              start_time.elapsed(),
+              Some("WebSocket upgrade response timeout"),
+          )
+          .await;
+          return (StatusCode::GATEWAY_TIMEOUT, "504 Gateway Timeout - Upgrade response timeout").into_response();
+      }
+      res = rx_response => {
+          match res {
+              Ok(r) => r,
+              Err(_) => {
+                  log_request_failure(
+                      &state,
+                      &method_str,
+                      &uri_str,
+                      502,
+                      start_time.elapsed(),
+                      Some("Client disconnected during WebSocket upgrade"),
+                  )
+                  .await;
+                  return (StatusCode::BAD_GATEWAY, "502 Bad Gateway - Client lost during upgrade").into_response();
+              }
+          }
+      }
+  };
+
+  if client_response.status != 101 {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      client_response.status,
+      start_time.elapsed(),
+      Some("Client failed to establish backend WebSocket"),
+    )
+    .await;
+    return (
+      StatusCode::from_u16(client_response.status).unwrap_or(StatusCode::BAD_GATEWAY),
+      "Backend WebSocket connection failed",
+    )
+      .into_response();
+  }
+
+  // Client confirmed upgrade. Now perform the public-side WebSocket upgrade.
+  let (parts, body) = req.into_parts();
+  let req = axum::extract::Request::from_parts(parts, body);
+
+  let upgrade_result: Result<WebSocketUpgrade, _> =
+    WebSocketUpgrade::from_request(req, &state).await;
+
+  match upgrade_result {
+    Ok(ws) => {
+      let state_clone = state.clone();
+      let stream_id_clone = stream_id.clone();
+      let client_tx_clone = client_tx.clone();
+      let method_clone = method_str.clone();
+      let uri_clone = uri_str.clone();
+      let start_time_clone = start_time;
+
+      ws.on_upgrade(move |public_ws| {
+        relay_ws_stream(
+          state_clone,
+          stream_id_clone,
+          public_ws,
+          client_tx_clone,
+          method_clone,
+          uri_clone,
+          start_time_clone,
+        )
+      })
+    }
+    Err(rejection) => {
+      // Send WsClose so the client tears down its backend connection
+      let close_msg = TunnelMessage::WsClose {
+        stream_id: stream_id.clone(),
+        code: 1011,
+        reason: "Server upgrade rejected".to_string(),
+      };
+      if let Ok(json) = serde_json::to_string(&close_msg) {
+        let _ = client_tx.send(Message::Text(json)).await;
+      }
+      state.ws_streams.lock().await.remove(&stream_id);
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        400,
+        start_time.elapsed(),
+        Some(&format!("WebSocket upgrade rejected: {:?}", rejection)),
+      )
+      .await;
+      rejection.into_response()
+    }
+  }
+}
+
+/// Relays WebSocket frames bidirectionally between the public WebSocket and the tunnel.
+async fn relay_ws_stream(
+  state: Arc<AppState>,
+  stream_id: String,
+  public_ws: WebSocket,
+  tunnel_tx: mpsc::Sender<Message>,
+  method: String,
+  uri: String,
+  start_time: Instant,
+) {
+  let (mut ws_sender, mut ws_receiver) = public_ws.split();
+
+  // Channel for relaying frames from tunnel → public WS
+  let (relay_tx, mut relay_rx) = mpsc::channel::<WsStreamMessage>(64);
+
+  // Register the relay channel so handle_socket can push WsData frames to us
+  {
+    let mut streams = state.ws_streams.lock().await;
+    streams.insert(stream_id.clone(), relay_tx);
+  }
+
+  let stream_id_clone = stream_id.clone();
+  let tunnel_tx_clone = tunnel_tx.clone();
+
+  // Task: read from public WS → send WsData through tunnel
+  let ws_to_tunnel = tokio::spawn(async move {
+    while let Some(result) = ws_receiver.next().await {
+      match result {
+        Ok(msg) => {
+          let tunnel_msg = match msg {
+            Message::Text(text) => {
+              TunnelMessage::WsData {
+                stream_id: stream_id_clone.clone(),
+                data: text.to_string(),
+                is_text: true,
+              }
+            }
+            Message::Binary(data) => {
+              use base64::prelude::*;
+              TunnelMessage::WsData {
+                stream_id: stream_id_clone.clone(),
+                data: BASE64_STANDARD.encode(&data),
+                is_text: false,
+              }
+            }
+            Message::Close(frame) => {
+              TunnelMessage::WsClose {
+                stream_id: stream_id_clone.clone(),
+                code: frame.as_ref().map(|f| f.code.into()).unwrap_or(1000),
+                reason: frame
+                  .as_ref()
+                  .map(|f| f.reason.to_string())
+                  .unwrap_or_default(),
+              }
+            }
+            Message::Ping(_) | Message::Pong(_) => {
+              // Auto-handled by Axum, no need to forward
+              continue;
+            }
+          };
+
+          if let Ok(json) = serde_json::to_string(&tunnel_msg) {
+            if tunnel_tx_clone.send(Message::Text(json)).await.is_err() {
+              break;
+            }
+          }
+        }
+        Err(e) => {
+          debug!("Public WS read error for stream {}: {:?}", stream_id_clone, e);
+          break;
+        }
+      }
+    }
+
+    // Send WsClose to tunnel when public WS disconnects
+    let close_msg = TunnelMessage::WsClose {
+      stream_id: stream_id_clone.clone(),
+      code: 1000,
+      reason: String::new(),
+    };
+    if let Ok(json) = serde_json::to_string(&close_msg) {
+      let _ = tunnel_tx_clone.send(Message::Text(json)).await;
+    }
+  });
+
+  // Task: read from relay channel (tunnel → public WS) → write to public WS
+  let ws_writer = tokio::spawn(async move {
+    while let Some(msg) = relay_rx.recv().await {
+      match msg {
+        WsStreamMessage::Data(ws_msg) => {
+          if ws_sender.send(ws_msg).await.is_err() {
+            break;
+          }
+        }
+        WsStreamMessage::Close => {
+          let _ = ws_sender.send(Message::Close(None)).await;
+          break;
+        }
+      }
+    }
+  });
+
+  let ws_to_tunnel_abort = ws_to_tunnel.abort_handle();
+  let ws_writer_abort = ws_writer.abort_handle();
+
+  // Wait for either task to finish; abort the other
+  tokio::select! {
+      _ = ws_to_tunnel => {
+          ws_writer_abort.abort();
+      }
+      _ = ws_writer => {
+          ws_to_tunnel_abort.abort();
+      }
+  }
+
+  state.ws_streams.lock().await.remove(&stream_id);
+
+  let duration = start_time.elapsed();
+  let safe_uri = sanitize_uri(&uri);
+  info!(
+    "WebSocket stream {} closed: {} {} after {}ms",
+    stream_id,
+    method,
+    safe_uri,
+    duration.as_millis()
+  );
+}
+
 /// Validates a redirect path to prevent open redirect attacks.
 /// Only allows same-origin relative paths (starting with `/`) and rejects
 /// protocol-relative URLs (`//evil.com`) and backslash-based bypasses (`/\`).
@@ -1521,6 +2138,8 @@ mod tests {
       last_session_gc: Mutex::new(Instant::now()),
       last_rate_gc: Mutex::new(Instant::now()),
       active_tunnel_count: AtomicUsize::new(0),
+      ws_streams: Mutex::new(HashMap::new()),
+      pending_upgrades: Mutex::new(HashMap::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -1574,15 +2193,14 @@ mod tests {
       last_session_gc: Mutex::new(Instant::now()),
       last_rate_gc: Mutex::new(Instant::now()),
       active_tunnel_count: AtomicUsize::new(0),
+      ws_streams: Mutex::new(HashMap::new()),
+      pending_upgrades: Mutex::new(HashMap::new()),
     });
 
     let response = proxy_handler(
       State(state),
       ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
-      Method::GET,
-      Uri::from_static("/test-path"),
-      HeaderMap::new(),
-      Body::empty(),
+      axum::extract::Request::new(Body::empty()),
     )
     .await;
 
@@ -1629,6 +2247,8 @@ mod tests {
       last_session_gc: Mutex::new(Instant::now()),
       last_rate_gc: Mutex::new(Instant::now()),
       active_tunnel_count: AtomicUsize::new(0),
+      ws_streams: Mutex::new(HashMap::new()),
+      pending_upgrades: Mutex::new(HashMap::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -1665,10 +2285,7 @@ mod tests {
     let response = proxy_handler(
       State(state),
       ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
-      Method::GET,
-      Uri::from_static("/test-path"),
-      HeaderMap::new(),
-      Body::empty(),
+      axum::extract::Request::new(Body::empty()),
     )
     .await;
 
