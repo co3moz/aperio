@@ -372,7 +372,7 @@ async fn main() {
   // Configuration precedence: CLI arguments > environment variables > aperio.yaml.
   let file_cfg = load_file_config(cli.config.as_deref());
 
-  let token = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token.clone())
+  let mut token = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token.clone())
     .unwrap_or_else(|| {
       error!("CRITICAL SECURITY ERROR: a tunnel token is required (APERIO_SERVER_TOKEN, --token, or yaml: token)!");
       std::process::exit(1);
@@ -382,7 +382,7 @@ async fn main() {
     std::process::exit(1);
   }
 
-  let server_addr = resolve(
+  let mut server_addr = resolve(
     cli.server.clone(),
     "APERIO_SERVER_URL",
     file_cfg.server.clone(),
@@ -401,7 +401,7 @@ async fn main() {
     return;
   }
 
-  let target = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target.clone())
+  let mut target = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target.clone())
     .unwrap_or_else(|| {
       error!("CRITICAL ERROR: the target is required (APERIO_CLIENT_TARGET, 'http <port>', or yaml: target)!");
       std::process::exit(1);
@@ -410,11 +410,11 @@ async fn main() {
     || std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_default() == "1"
     || file_cfg.pass_hostname.unwrap_or(false);
 
-  let path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path.clone());
+  let mut path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path.clone());
 
   // Hostname this client wants to serve (e.g. "a.example.com"). The server
   // routes requests whose Host header matches this value to this client.
-  let hostname_bind = resolve(
+  let mut hostname_bind = resolve(
     cli.hostname.clone(),
     "APERIO_HOSTNAME_BIND",
     file_cfg.hostname.clone(),
@@ -466,7 +466,7 @@ async fn main() {
   // Load-balancing priority tier announced to the server: 0 = primary
   // (default), higher numbers are standbys that only receive traffic when
   // the server runs the primary-standby strategy and no lower tier is up.
-  let priority = cli
+  let mut priority = cli
     .priority
     .or_else(|| {
       std::env::var("APERIO_CLIENT_PRIORITY")
@@ -604,13 +604,47 @@ async fn main() {
     });
   }
 
-  let ws_url = match build_ws_url(&server_addr) {
+  let mut ws_url = match build_ws_url(&server_addr) {
     Ok(url) => url,
     Err(e) => {
       error!("Failed to build WebSocket URL: {}", e);
       std::process::exit(1);
     }
   };
+
+  // Config hot-reload: when the yaml config file changes on disk, the client
+  // drops the current connection and reconnects with freshly resolved values
+  // (token, server, target, binds, priority). CLI arguments and environment
+  // variables keep their precedence over the file.
+  let config_path = cli
+    .config
+    .clone()
+    .unwrap_or_else(|| "aperio.yaml".to_string());
+  let config_dirty = Arc::new(AtomicBool::new(false));
+  if std::path::Path::new(&config_path).exists() {
+    let dirty = config_dirty.clone();
+    let watch_path = config_path.clone();
+    let mut last_mtime = std::fs::metadata(&watch_path)
+      .ok()
+      .and_then(|m| m.modified().ok());
+    info!("- Watching {} for configuration changes", watch_path);
+    tokio::spawn(async move {
+      loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let mtime = std::fs::metadata(&watch_path)
+          .ok()
+          .and_then(|m| m.modified().ok());
+        if mtime != last_mtime {
+          last_mtime = mtime;
+          info!(
+            "Configuration file {} changed; reconnecting to apply it",
+            watch_path
+          );
+          dirty.store(true, Ordering::SeqCst);
+        }
+      }
+    });
+  }
 
   info!("Configuration loaded:");
   info!("- Client ID: {}", client_id);
@@ -639,6 +673,62 @@ async fn main() {
   // counter resets once a connection proves stable.
   let mut reconnect_attempt: u32 = 0;
   loop {
+    // Apply a pending config file change before (re)connecting. A file that
+    // no longer parses keeps the previous configuration.
+    if config_dirty.swap(false, Ordering::SeqCst) {
+      let reloaded = std::fs::read_to_string(&config_path)
+        .map_err(|e| e.to_string())
+        .and_then(|raw| serde_yaml::from_str::<FileConfig>(&raw).map_err(|e| e.to_string()));
+      match reloaded {
+        Ok(file_cfg) => {
+          if let Some(t) = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token) {
+            token = t;
+          }
+          if let Some(s) = resolve(cli.server.clone(), "APERIO_SERVER_URL", file_cfg.server) {
+            match build_ws_url(&s) {
+              Ok(url) => {
+                server_addr = s;
+                ws_url = url;
+              }
+              Err(e) => warn!(
+                "Reloaded server URL {} is invalid ({}); keeping previous",
+                s, e
+              ),
+            }
+          }
+          if let Some(t) = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target) {
+            target = t;
+          }
+          path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path);
+          hostname_bind = resolve(
+            cli.hostname.clone(),
+            "APERIO_HOSTNAME_BIND",
+            file_cfg.hostname,
+          )
+          .map(|h| h.trim().to_ascii_lowercase())
+          .filter(|h| !h.is_empty());
+          priority = cli
+            .priority
+            .or_else(|| {
+              std::env::var("APERIO_CLIENT_PRIORITY")
+                .ok()
+                .and_then(|val| val.parse::<u32>().ok())
+            })
+            .or(file_cfg.priority)
+            .unwrap_or(0);
+          reconnect_attempt = 0;
+          info!(
+            "Configuration reloaded from {} (target: {}, hostname bind: {:?}, path bind: {:?})",
+            config_path, target, hostname_bind, path_bind
+          );
+        }
+        Err(e) => warn!(
+          "Config reload from {} failed ({}); keeping previous configuration",
+          config_path, e
+        ),
+      }
+    }
+
     info!("Connecting to Aperio Server at: {}...", server_addr);
 
     let ws_req_result = ws_url.clone().into_client_request();
@@ -715,10 +805,19 @@ async fn main() {
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
             let backend_healthy_ping = backend_healthy.clone();
+            let config_dirty_ping = config_dirty.clone();
 
             let ping_task = tokio::spawn(async move {
               loop {
                 tokio::time::sleep(Duration::from_secs(5)).await;
+
+                // A pending config change drops the connection so the
+                // reconnect loop can re-resolve and apply it.
+                if config_dirty_ping.load(Ordering::SeqCst) {
+                  info!("Dropping connection to apply the configuration change...");
+                  let _ = abort_tx_ping.send(()).await;
+                  break;
+                }
 
                 // Check last Pong receipt time (max 15s limit)
                 let elapsed = {
