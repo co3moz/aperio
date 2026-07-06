@@ -453,6 +453,28 @@
             </div>
         </div>
 
+        <!-- Audit Log Section -->
+        <div class="active-clients-section">
+            <h2 class="section-title">Audit Log</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Event</th>
+                            <th>Actor IP</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-body">
+                        <tr>
+                            <td colspan="4" class="empty-logs">No audit events</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Logs Section -->
         <div class="logs-section">
             <div class="section-header">
@@ -890,6 +912,33 @@
         });
         document.getElementById('inspector-replay-btn').addEventListener('click', replayRequest);
 
+        // --- Audit Log ---
+        async function fetchAudit() {
+            try {
+                const res = await fetch('/aperio/api/audit');
+                if (!res.ok) throw new Error();
+                const events = await res.json();
+                const body = document.getElementById('audit-body');
+                body.innerHTML = '';
+                if (events.length === 0) {
+                    body.innerHTML = `<tr><td colspan="4" class="empty-logs">No audit events</td></tr>`;
+                    return;
+                }
+                [...events].reverse().forEach(ev => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="text-mono" style="color: var(--text-secondary);">${escapeHtml(ev.timestamp)}</td>
+                        <td><span class="badge badge-other">${escapeHtml(ev.event)}</span></td>
+                        <td class="text-mono">${escapeHtml(ev.actor_ip)}</td>
+                        <td class="text-mono" style="word-break: break-all;">${escapeHtml(ev.details)}</td>
+                    `;
+                    body.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Failed to fetch audit log', e);
+            }
+        }
+
         // --- API Token management ---
         function formatExpiry(t) {
             if (!t.expires_at) return 'never';
@@ -990,8 +1039,10 @@
 
         update();
         fetchTokens();
-        // Tokens change rarely; refresh on a slower cadence.
+        fetchAudit();
+        // Tokens/audit change rarely; refresh on a slower cadence.
         setInterval(fetchTokens, 10000);
+        setInterval(fetchAudit, 10000);
         // Poll every 2 seconds to optimize server utilization
         setInterval(update, 2000);
     </script>

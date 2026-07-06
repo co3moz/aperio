@@ -21,7 +21,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
+mod audit;
 mod tokens;
+use audit::AuditLog;
 use tokens::TokenStore;
 
 /// Message structure exchanged over the WebSocket reverse tunnel.
@@ -458,6 +460,15 @@ struct AppState {
   response_streams: Mutex<HashMap<String, ResponseStreamHandle>>,
   /// Recently captured HTTP transactions for the dashboard inspector.
   captured_requests: Mutex<VecDeque<CapturedRequest>>,
+  /// Persistent audit log of administrative/security events.
+  audit: Mutex<AuditLog>,
+}
+
+impl AppState {
+  /// Records an audit event (file + in-memory ring).
+  async fn audit(&self, event: &str, actor_ip: &str, details: &str) {
+    self.audit.lock().await.record(event, actor_ip, details);
+  }
 }
 
 impl AppState {
@@ -721,6 +732,7 @@ async fn main() {
     token_store: Mutex::new(token_store),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
+    audit: Mutex::new(AuditLog::load(&data_dir)),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -759,7 +771,8 @@ async fn main() {
       .route(
         "/api/requests/:id/replay",
         axum::routing::post(request_replay_handler),
-      );
+      )
+      .route("/api/audit", get(audit_handler));
 
     let state_clone = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
@@ -931,8 +944,11 @@ struct ClientOverrideRequest {
 async fn client_override_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
   Json(payload): Json<ClientOverrideRequest>,
 ) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
   // Validate before mutating: reject invalid values with 400.
   let new_hostname = match payload.hostname_bind.as_deref() {
     None | Some("") => None,
@@ -953,19 +969,41 @@ async fn client_override_handler(
     },
   };
 
-  let mut clients = state.clients.lock().await;
-  match clients.get_mut(&client_id) {
-    Some(handle) => {
-      handle.override_hostname_bind = new_hostname.clone();
-      handle.override_path_bind = new_path.clone();
-      info!(
-        "Dashboard overrule applied to client {}: hostname_bind={:?} path_bind={:?}",
-        client_id, new_hostname, new_path
-      );
-      (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+  let found = {
+    let mut clients = state.clients.lock().await;
+    match clients.get_mut(&client_id) {
+      Some(handle) => {
+        handle.override_hostname_bind = new_hostname.clone();
+        handle.override_path_bind = new_path.clone();
+        true
+      }
+      None => false,
     }
-    None => (StatusCode::NOT_FOUND, "Client not found").into_response(),
+  };
+  if found {
+    info!(
+      "Dashboard overrule applied to client {}: hostname_bind={:?} path_bind={:?}",
+      client_id, new_hostname, new_path
+    );
+    state
+      .audit(
+        "client_overrule",
+        &actor_ip,
+        &format!(
+          "client={} hostname={:?} path={:?}",
+          client_id, new_hostname, new_path
+        ),
+      )
+      .await;
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+  } else {
+    (StatusCode::NOT_FOUND, "Client not found").into_response()
   }
+}
+
+/// Returns recent audit events (dashboard).
+async fn audit_handler(State(state): State<Arc<AppState>>) -> Json<Vec<audit::AuditEvent>> {
+  Json(state.audit.lock().await.recent())
 }
 
 /// Public view of a dynamic token record (never includes hash or secret).
@@ -1018,8 +1056,11 @@ struct TokenCreateRequest {
 /// Creates a dynamic token. The plaintext secret is returned exactly once.
 async fn tokens_create_handler(
   State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
   Json(payload): Json<TokenCreateRequest>,
 ) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
     return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
@@ -1069,12 +1110,24 @@ async fn tokens_create_handler(
     }
   }
 
-  let mut store = state.token_store.lock().await;
-  let (record, secret) = store.create(name, hostnames, paths, payload.ttl_seconds);
+  let (record, secret) = {
+    let mut store = state.token_store.lock().await;
+    store.create(name, hostnames, paths, payload.ttl_seconds)
+  };
   info!(
     "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, expires_at={:?})",
     record.name, record.id, record.hostnames, record.paths, record.expires_at
   );
+  state
+    .audit(
+      "token_created",
+      &actor_ip,
+      &format!(
+        "name={} id={} hostnames={:?} paths={:?} expires_at={:?}",
+        record.name, record.id, record.hostnames, record.paths, record.expires_at
+      ),
+    )
+    .await;
   (
     StatusCode::OK,
     Json(serde_json::json!({
@@ -1094,10 +1147,16 @@ async fn tokens_create_handler(
 async fn tokens_revoke_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
 ) -> Response {
-  let mut store = state.token_store.lock().await;
-  if store.revoke(&id) {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let revoked = state.token_store.lock().await.revoke(&id);
+  if revoked {
     info!("Dynamic token revoked: {}", id);
+    state
+      .audit("token_revoked", &actor_ip, &format!("id={}", id))
+      .await;
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {
     (StatusCode::NOT_FOUND, "Token not found").into_response()
@@ -1124,7 +1183,10 @@ async fn request_detail_handler(
 async fn request_replay_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
 ) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
   let captured = {
     let store = state.captured_requests.lock().await;
     store.iter().find(|c| c.id == id).cloned()
@@ -1238,6 +1300,16 @@ async fn request_replay_handler(
         tunnel_res.status,
         start.elapsed().as_millis()
       );
+      state
+        .audit(
+          "request_replayed",
+          &actor_ip,
+          &format!(
+            "id={} {} {} -> {}",
+            id, captured.method, captured.uri, tunnel_res.status
+          ),
+        )
+        .await;
       Json(serde_json::json!({
         "replayed_id": id,
         "status": tunnel_res.status,
@@ -1403,8 +1475,14 @@ async fn auth_login_handler(
   }
 
   if !authenticated {
+    state
+      .audit("login_failed", &client_ip.to_string(), "invalid credentials")
+      .await;
     return Err(StatusCode::UNAUTHORIZED);
   }
+  state
+    .audit("login_success", &client_ip.to_string(), "session created")
+    .await;
 
   // Create session
   let session_token = uuid::Uuid::new_v4().to_string();
@@ -1762,6 +1840,17 @@ async fn handle_socket(
   });
 
   info!("Tunnel client connected: {} (IP: {})", client_id, client_ip);
+  state
+    .audit(
+      "client_connected",
+      &client_ip,
+      &format!(
+        "client={} token={}",
+        client_id,
+        perms.token_name.as_deref().unwrap_or("master")
+      ),
+    )
+    .await;
 
   let client_req_count = Arc::new(AtomicU64::new(0));
 
@@ -2113,6 +2202,13 @@ async fn handle_socket(
   // Client cleanup
   writer_task.abort();
   info!("Tunnel client disconnected: {}", client_id);
+  state
+    .audit(
+      "client_disconnected",
+      &client_ip,
+      &format!("client={}", client_id),
+    )
+    .await;
   {
     let mut clients = state.clients.lock().await;
     let removed = clients.remove(&client_id);
@@ -3307,6 +3403,7 @@ mod tests {
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
+      audit: Mutex::new(test_audit_log()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -3368,6 +3465,7 @@ mod tests {
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
+      audit: Mutex::new(test_audit_log()),
     });
 
     let response = proxy_handler(
@@ -3428,6 +3526,7 @@ mod tests {
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
+      audit: Mutex::new(test_audit_log()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -3603,6 +3702,12 @@ mod tests {
   fn test_token_store() -> TokenStore {
     let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
     TokenStore::load(&dir.to_string_lossy())
+  }
+
+  fn test_audit_log() -> AuditLog {
+    let dir = std::env::temp_dir().join(format!("aperio-test-audit-{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&dir);
+    AuditLog::load(&dir.to_string_lossy())
   }
 
   fn mock_client(
