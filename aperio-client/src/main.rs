@@ -88,6 +88,11 @@ pub enum TunnelMessage {
     code: u16,
     reason: String,
   },
+  /// Server → client: informs the client of a hostname automatically
+  /// assigned to it (random subdomain feature).
+  HostnameAssigned {
+    hostname: String,
+  },
 }
 
 /// Handle to an active WebSocket proxy stream connected to the local backend.
@@ -446,6 +451,9 @@ async fn main() {
                                                   let _ = handle.abort_tx.send(()).await;
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
+                                          }
+                                          TunnelMessage::HostnameAssigned { hostname } => {
+                                              info!("Server assigned hostname to this client: {}", hostname);
                                           }
                                           TunnelMessage::Pong { timestamp } => {
                                               debug!("Pong received: {}", timestamp);

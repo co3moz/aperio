@@ -82,6 +82,7 @@ The server is configured entirely through environment variables.
 | `APERIO_SECURE_COOKIES`                  | Set to `1` or `true` to add the `Secure` flag to session cookies (HTTPS-only). Defaults to `APERIO_TRUST_PROXY` value.      | `false`           | No       | Boolean |
 | `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
 | `APERIO_DATA_DIR`                        | Directory for persisted server state (dynamic API tokens). Mount a volume here in Docker.                                    | `./data`          | No       | String  |
+| `APERIO_RANDOM_SUBDOMAIN`                | E.g. `*.example.com`: every connecting client automatically gets a random hostname bind under this suffix (ngrok-style), in addition to any token-granted or declared hostnames. | _(None)_ | No | String |
 | `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
 | `APERIO_METRICS_TOKEN`                   | Token required to scrape `/aperio/metrics` — pass as `?token=<value>` or `Authorization: Bearer`. If unset while metrics are enabled, a random token is generated once and persisted in `APERIO_DATA_DIR/metrics_token` (logged on first generation). The endpoint is never public. | _(auto-generated)_ | No      | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
@@ -188,6 +189,14 @@ services:
     volumes:
       - ./data:/app/data
 ```
+
+### Random Subdomains (ngrok-style)
+
+With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (and a wildcard DNS/route pointing at it), every connecting client is automatically assigned a random hostname such as `a1b2c3d4e5.example.com`. The assignment is sent to the client (logged as `Server assigned hostname to this client: …`) and shown in the dashboard. Rules:
+
+- The random hostname is **additive**: a client whose token is bound to `a.example.com` serves both `a.example.com` *and* its random subdomain.
+- Clients on the master token can still declare any `APERIO_HOSTNAME_BIND` they want — the declaration is honored alongside the random subdomain.
+- Assignments are per-connection: a reconnect gets a fresh random hostname.
 
 ### Dashboard Overrule (Temporary Bind Overrides)
 

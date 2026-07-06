@@ -97,6 +97,11 @@ pub enum TunnelMessage {
     code: u16,
     reason: String,
   },
+  /// Server → client: informs the client of a hostname automatically
+  /// assigned to it (random subdomain feature).
+  HostnameAssigned {
+    hostname: String,
+  },
 }
 
 /// Configuration settings for the Aperio server.
@@ -124,6 +129,11 @@ struct ServerConfig {
   require_hostname_bind: bool,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   metrics_token: Option<String>,
+  /// Domain suffix for automatic random subdomains (from
+  /// `APERIO_RANDOM_SUBDOMAIN="*.example.com"`). When set, every connecting
+  /// client is assigned `<random>.<suffix>` in addition to any token-granted
+  /// or declared hostname binds.
+  random_subdomain_suffix: Option<String>,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -561,6 +571,31 @@ async fn main() {
     .ok()
     .filter(|t| !t.trim().is_empty());
 
+  // Random subdomain assignment: APERIO_RANDOM_SUBDOMAIN="*.example.com"
+  // gives every connecting client a random hostname under that suffix.
+  let random_subdomain_suffix = std::env::var("APERIO_RANDOM_SUBDOMAIN")
+    .ok()
+    .and_then(|val| {
+      let trimmed = val.trim();
+      let suffix = trimmed.strip_prefix("*.").unwrap_or(trimmed);
+      match normalize_hostname_bind(suffix) {
+        Some(s) => Some(s),
+        None => {
+          error!(
+            "Invalid APERIO_RANDOM_SUBDOMAIN value '{}' (expected e.g. \"*.example.com\"); ignoring",
+            val
+          );
+          None
+        }
+      }
+    });
+  if let Some(ref suffix) = random_subdomain_suffix {
+    info!(
+      "Random subdomain assignment enabled: every client gets <random>.{}",
+      suffix
+    );
+  }
+
   // Data directory for persisted state (dynamic tokens, etc.). In Docker,
   // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
   let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
@@ -613,6 +648,7 @@ async fn main() {
     secure_cookies,
     require_hostname_bind,
     metrics_token,
+    random_subdomain_suffix,
   };
 
   if require_hostname_bind {
@@ -1542,6 +1578,18 @@ async fn handle_socket(
 
   let client_req_count = Arc::new(AtomicU64::new(0));
 
+  // Token-granted binds apply immediately, before the first Ping. When the
+  // random subdomain feature is on, the random hostname is added on top of
+  // any token-granted hostnames — the client serves both.
+  let mut assigned_hostnames = perms.granted_hostnames();
+  let random_hostname = state.config.random_subdomain_suffix.as_ref().map(|suffix| {
+    let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
+    format!("{}.{}", label, suffix)
+  });
+  if let Some(ref h) = random_hostname {
+    assigned_hostnames.push(h.clone());
+  }
+
   // Register active client
   {
     let mut clients = state.clients.lock().await;
@@ -1553,10 +1601,9 @@ async fn handle_socket(
         client_ip: client_ip.clone(),
         request_count: client_req_count.clone(),
         declared_path: None,
-        // Token-granted binds apply immediately, before the first Ping.
         assigned_path: perms.granted_path(),
         declared_hostname: None,
-        assigned_hostnames: perms.granted_hostnames(),
+        assigned_hostnames,
         override_path_bind: None,
         override_hostname_bind: None,
         last_ping_at: None,
@@ -1570,6 +1617,18 @@ async fn handle_socket(
     conn.connected = true;
     conn.last_disconnect = None;
     state.client_connected.send_replace(true);
+  }
+
+  // Inform the client of its randomly assigned hostname (if any).
+  if let Some(hostname) = random_hostname {
+    info!(
+      "Assigned random hostname {} to client {}",
+      hostname, client_id
+    );
+    let msg = TunnelMessage::HostnameAssigned { hostname };
+    if let Ok(json) = serde_json::to_string(&msg) {
+      let _ = tx_write.send(Message::Text(json)).await;
+    }
   }
 
   // Read loop
@@ -2979,6 +3038,7 @@ mod tests {
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
+      random_subdomain_suffix: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -3037,6 +3097,7 @@ mod tests {
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
+      random_subdomain_suffix: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -3096,6 +3157,7 @@ mod tests {
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
+      random_subdomain_suffix: None,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
