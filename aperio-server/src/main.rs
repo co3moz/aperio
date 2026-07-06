@@ -216,6 +216,39 @@ struct RequestLog {
   error: Option<String>,
 }
 
+/// A fully captured HTTP transaction for the dashboard inspector. Bodies are
+/// capped at [`CAPTURE_BODY_LIMIT`] bytes; larger bodies are truncated for
+/// display and cannot be replayed.
+#[derive(Serialize, Clone)]
+struct CapturedRequest {
+  /// Request UUID (matches the RequestLog id).
+  id: String,
+  /// Timestamp formatted as string.
+  timestamp: String,
+  method: String,
+  /// Full request URI including query string.
+  uri: String,
+  /// Request headers as forwarded to the tunnel client.
+  req_headers: Vec<(String, String)>,
+  /// Base64 request body (possibly truncated).
+  req_body: Option<String>,
+  /// True when the request body exceeded the capture limit.
+  req_body_truncated: bool,
+  status: u16,
+  resp_headers: Vec<(String, String)>,
+  /// Base64 response body (buffered responses only, possibly truncated).
+  resp_body: Option<String>,
+  resp_body_truncated: bool,
+  /// True when the response body was streamed (not captured).
+  resp_streamed: bool,
+  duration_ms: u128,
+}
+
+/// Maximum number of captured requests kept in memory.
+const CAPTURE_MAX_ENTRIES: usize = 50;
+/// Maximum captured body size per direction (decoded bytes).
+const CAPTURE_BODY_LIMIT: usize = 64 * 1024;
+
 /// Handle tracking active WebSocket sender channel and metadata.
 struct ClientHandle {
   /// Sender channel to push messages to the client.
@@ -423,6 +456,8 @@ struct AppState {
   token_store: Mutex<TokenStore>,
   /// In-flight streamed response bodies: request_id → chunk sender.
   response_streams: Mutex<HashMap<String, ResponseStreamHandle>>,
+  /// Recently captured HTTP transactions for the dashboard inspector.
+  captured_requests: Mutex<VecDeque<CapturedRequest>>,
 }
 
 impl AppState {
@@ -685,6 +720,7 @@ async fn main() {
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(token_store),
     response_streams: Mutex::new(HashMap::new()),
+    captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -718,6 +754,11 @@ async fn main() {
       .route(
         "/api/tokens/:id",
         axum::routing::delete(tokens_revoke_handler),
+      )
+      .route("/api/requests/:id", get(request_detail_handler))
+      .route(
+        "/api/requests/:id/replay",
+        axum::routing::post(request_replay_handler),
       );
 
     let state_clone = state.clone();
@@ -1060,6 +1101,152 @@ async fn tokens_revoke_handler(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {
     (StatusCode::NOT_FOUND, "Token not found").into_response()
+  }
+}
+
+/// Returns the full captured detail of a recent request (dashboard inspector).
+async fn request_detail_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+  let captured = state.captured_requests.lock().await;
+  match captured.iter().find(|c| c.id == id) {
+    Some(entry) => Json(entry.clone()).into_response(),
+    None => (
+      StatusCode::NOT_FOUND,
+      "Request not captured (only recent proxied requests are kept)",
+    )
+      .into_response(),
+  }
+}
+
+/// Replays a captured request through the tunnel and returns the new outcome.
+async fn request_replay_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+  let captured = {
+    let store = state.captured_requests.lock().await;
+    store.iter().find(|c| c.id == id).cloned()
+  };
+  let captured = match captured {
+    Some(c) => c,
+    None => return (StatusCode::NOT_FOUND, "Request not captured").into_response(),
+  };
+  if captured.req_body_truncated {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Request body was truncated at capture time; replay would be incomplete",
+    )
+      .into_response();
+  }
+
+  // Select a tunnel client with the same routing rules as live traffic.
+  let uri_path = captured.uri.split('?').next().unwrap_or(&captured.uri);
+  let request_host = captured
+    .req_headers
+    .iter()
+    .find(|(k, _)| k.eq_ignore_ascii_case("host"))
+    .and_then(|(_, v)| {
+      let lower = v.trim().to_ascii_lowercase();
+      lower.split(':').next().map(|s| s.to_string())
+    });
+  let client_info = {
+    let clients = state.clients.lock().await;
+    match select_client_pool(
+      &clients,
+      uri_path,
+      request_host.as_deref(),
+      state.config.require_hostname_bind,
+    ) {
+      None => None,
+      Some((pool, group_key)) => {
+        let mut rr_map = state.path_rr.lock().await;
+        let idx = rr_map.entry(group_key).or_insert(0);
+        let chosen_id = &pool[*idx % pool.len()];
+        *idx = (*idx + 1) % pool.len();
+        clients
+          .get(chosen_id)
+          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+      }
+    }
+  };
+  let (chosen_client_id, client_tx, client_req_counter) = match client_info {
+    Some(info) => info,
+    None => {
+      return (
+        StatusCode::GATEWAY_TIMEOUT,
+        "No tunnel client available for replay",
+      )
+        .into_response();
+    }
+  };
+
+  let replay_id = uuid::Uuid::new_v4().to_string();
+  let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
+  state.pending_requests.lock().await.insert(
+    replay_id.clone(),
+    PendingRequest {
+      tx: tx_response,
+      client_id: chosen_client_id,
+    },
+  );
+
+  let tunnel_req = TunnelMessage::Request {
+    id: replay_id.clone(),
+    method: captured.method.clone(),
+    uri: captured.uri.clone(),
+    headers: captured.req_headers.clone(),
+    body: captured.req_body.clone(),
+  };
+  let req_json = match serde_json::to_string(&tunnel_req) {
+    Ok(json) => json,
+    Err(_) => {
+      state.pending_requests.lock().await.remove(&replay_id);
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed").into_response();
+    }
+  };
+  if client_tx.send(Message::Text(req_json)).await.is_err() {
+    state.pending_requests.lock().await.remove(&replay_id);
+    return (StatusCode::BAD_GATEWAY, "Tunnel client socket error").into_response();
+  }
+  client_req_counter.fetch_add(1, Ordering::SeqCst);
+  {
+    let mut stats = state.stats.lock().await;
+    stats.total_requests += 1;
+  }
+
+  let start = Instant::now();
+  let result = tokio::time::timeout(state.config.gateway_response_timeout, rx_response).await;
+  state.pending_requests.lock().await.remove(&replay_id);
+
+  match result {
+    Ok(Ok(tunnel_res)) => {
+      // Streamed replay bodies are discarded: dropping stream_rx makes the
+      // tunnel read loop clean the stream up on the next chunk.
+      {
+        let mut stats = state.stats.lock().await;
+        if tunnel_res.status >= 500 {
+          stats.failed_requests += 1;
+        } else {
+          stats.successful_requests += 1;
+        }
+      }
+      info!(
+        "Replayed request {} → {} ({} ms)",
+        id,
+        tunnel_res.status,
+        start.elapsed().as_millis()
+      );
+      Json(serde_json::json!({
+        "replayed_id": id,
+        "status": tunnel_res.status,
+        "duration_ms": start.elapsed().as_millis() as u64,
+      }))
+      .into_response()
+    }
+    Ok(Err(_)) => (StatusCode::BAD_GATEWAY, "Client connection lost during replay").into_response(),
+    Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Replay response timeout").into_response(),
   }
 }
 
@@ -2306,6 +2493,23 @@ async fn proxy_handler(
     }
   }
 
+  // Capture (truncated) request data for the dashboard inspector before the
+  // originals are moved into the tunnel message.
+  let capture_req_headers = serialized_headers.clone();
+  let (capture_req_body, capture_req_truncated) = {
+    use base64::prelude::*;
+    if body_bytes.is_empty() {
+      (None, false)
+    } else if body_bytes.len() > CAPTURE_BODY_LIMIT {
+      (
+        Some(BASE64_STANDARD.encode(&body_bytes[..CAPTURE_BODY_LIMIT])),
+        true,
+      )
+    } else {
+      (Some(BASE64_STANDARD.encode(&body_bytes)), false)
+    }
+  };
+
   let request_id = uuid::Uuid::new_v4().to_string();
   let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
 
@@ -2430,7 +2634,39 @@ async fn proxy_handler(
                       stats.total_bytes_transferred += body_len;
                   }
 
-                  log_request_success(&state, request_id, &method_str, &uri_str, tunnel_res.status, duration).await;
+                  log_request_success(&state, request_id.clone(), &method_str, &uri_str, tunnel_res.status, duration).await;
+
+                  // Capture the transaction for the dashboard inspector.
+                  {
+                      use base64::prelude::*;
+                      let resp_streamed = tunnel_res.stream_rx.is_some();
+                      let (resp_body_cap, resp_truncated) = if resp_streamed || res_bytes.is_empty() {
+                          (None, false)
+                      } else if res_bytes.len() > CAPTURE_BODY_LIMIT {
+                          (Some(BASE64_STANDARD.encode(&res_bytes[..CAPTURE_BODY_LIMIT])), true)
+                      } else {
+                          (Some(BASE64_STANDARD.encode(&res_bytes)), false)
+                      };
+                      let mut captured = state.captured_requests.lock().await;
+                      if captured.len() >= CAPTURE_MAX_ENTRIES {
+                          captured.pop_front();
+                      }
+                      captured.push_back(CapturedRequest {
+                          id: request_id.clone(),
+                          timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                          method: method_str.clone(),
+                          uri: uri_str.clone(),
+                          req_headers: capture_req_headers,
+                          req_body: capture_req_body,
+                          req_body_truncated: capture_req_truncated,
+                          status: tunnel_res.status,
+                          resp_headers: tunnel_res.headers.clone(),
+                          resp_body: resp_body_cap,
+                          resp_body_truncated: resp_truncated,
+                          resp_streamed,
+                          duration_ms: duration.as_millis(),
+                      });
+                  }
 
                   // Streamed response: forward chunks as they arrive without buffering.
                   let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
@@ -3070,6 +3306,7 @@ mod tests {
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
+      captured_requests: Mutex::new(VecDeque::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -3130,6 +3367,7 @@ mod tests {
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
+      captured_requests: Mutex::new(VecDeque::new()),
     });
 
     let response = proxy_handler(
@@ -3189,6 +3427,7 @@ mod tests {
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
       response_streams: Mutex::new(HashMap::new()),
+      captured_requests: Mutex::new(VecDeque::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);

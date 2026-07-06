@@ -278,6 +278,63 @@
             background: rgba(99, 102, 241, 0.3);
         }
 
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            z-index: 200;
+            padding: 4rem 1rem 2rem;
+            overflow-y: auto;
+        }
+
+        .modal-backdrop.open { display: flex; }
+
+        .modal {
+            background: #131a2c;
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            max-width: 820px;
+            width: 100%;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .modal h3 {
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal pre {
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.8125rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+
+        .modal .modal-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        #logs-table tbody tr { cursor: pointer; }
+
         .empty-logs {
             padding: 3rem;
             text-align: center;
@@ -423,6 +480,28 @@
             </div>
         </div>
     </main>
+
+    <!-- Request Inspector Modal -->
+    <div class="modal-backdrop" id="inspector-backdrop">
+        <div class="modal">
+            <h3>
+                <span id="inspector-title">Request Detail</span>
+                <span>
+                    <button class="overrule-btn" id="inspector-replay-btn">▶ Replay</button>
+                    <button class="overrule-btn" id="inspector-close-btn">✕ Close</button>
+                </span>
+            </h3>
+            <div id="inspector-replay-result" style="display:none; font-size:0.85rem;"></div>
+            <div class="modal-label">Request Headers</div>
+            <pre id="inspector-req-headers"></pre>
+            <div class="modal-label">Request Body</div>
+            <pre id="inspector-req-body"></pre>
+            <div class="modal-label" id="inspector-resp-title">Response</div>
+            <pre id="inspector-resp-headers"></pre>
+            <div class="modal-label">Response Body</div>
+            <pre id="inspector-resp-body"></pre>
+        </div>
+    </div>
 
     <footer>
         Aperio Reverse Tunneling System • Server Uptime: <span id="server-uptime">0s</span>
@@ -628,6 +707,8 @@
                     <td class="text-mono">${escapeHtml(log.duration_ms)} ms</td>
                     <td>${errorText}</td>
                 `;
+                tr.title = 'Click to inspect & replay';
+                tr.addEventListener('click', () => openInspector(log.id));
                 body.appendChild(tr);
             });
         }
@@ -720,6 +801,94 @@
                 console.error("Failed to fetch logs", e);
             }
         }
+
+        // --- Request Inspector & Replay ---
+        let inspectorRequestId = null;
+
+        function decodeBodyPreview(b64, truncated, streamed) {
+            if (streamed) return '(streamed body — not captured)';
+            if (!b64) return '(empty)';
+            try {
+                const bin = atob(b64);
+                // Show as text when mostly printable; otherwise note binary.
+                let printable = 0;
+                for (let i = 0; i < bin.length; i++) {
+                    const c = bin.charCodeAt(i);
+                    if (c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127) || c > 127) printable++;
+                }
+                const suffix = truncated ? '\n… (truncated at 64 KB)' : '';
+                if (bin.length === 0) return '(empty)';
+                if (printable / bin.length > 0.9) {
+                    // Decode as UTF-8
+                    const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+                    return new TextDecoder().decode(bytes) + suffix;
+                }
+                return `(binary body, ${bin.length} bytes${truncated ? ', truncated' : ''})`;
+            } catch (e) {
+                return '(unable to decode body)';
+            }
+        }
+
+        function formatHeaderList(headers) {
+            return headers.map(([k, v]) => `${k}: ${v}`).join('\n') || '(none)';
+        }
+
+        async function openInspector(id) {
+            try {
+                const res = await fetch(`/aperio/api/requests/${encodeURIComponent(id)}`);
+                if (!res.ok) {
+                    alert(res.status === 404
+                        ? 'Detail not available for this request (only recent successful requests are captured).'
+                        : `Failed to load request detail: ${res.status}`);
+                    return;
+                }
+                const d = await res.json();
+                inspectorRequestId = d.id;
+                document.getElementById('inspector-title').textContent =
+                    `${d.method} ${d.uri} → ${d.status} (${d.duration_ms} ms)`;
+                document.getElementById('inspector-req-headers').textContent = formatHeaderList(d.req_headers);
+                document.getElementById('inspector-req-body').textContent =
+                    decodeBodyPreview(d.req_body, d.req_body_truncated, false);
+                document.getElementById('inspector-resp-headers').textContent = formatHeaderList(d.resp_headers);
+                document.getElementById('inspector-resp-body').textContent =
+                    decodeBodyPreview(d.resp_body, d.resp_body_truncated, d.resp_streamed);
+                const replayBtn = document.getElementById('inspector-replay-btn');
+                replayBtn.disabled = d.req_body_truncated;
+                replayBtn.title = d.req_body_truncated ? 'Body truncated at capture; cannot replay' : '';
+                const resultEl = document.getElementById('inspector-replay-result');
+                resultEl.style.display = 'none';
+                resultEl.textContent = '';
+                document.getElementById('inspector-backdrop').classList.add('open');
+            } catch (e) {
+                alert('Failed to load request detail: ' + e);
+            }
+        }
+
+        async function replayRequest() {
+            if (!inspectorRequestId) return;
+            const resultEl = document.getElementById('inspector-replay-result');
+            resultEl.style.display = 'block';
+            resultEl.textContent = 'Replaying…';
+            try {
+                const res = await fetch(`/aperio/api/requests/${encodeURIComponent(inspectorRequestId)}/replay`, { method: 'POST' });
+                if (!res.ok) {
+                    resultEl.textContent = `Replay failed: ${res.status} ${await res.text()}`;
+                    return;
+                }
+                const r = await res.json();
+                resultEl.textContent = `✔ Replayed: status ${r.status} in ${r.duration_ms} ms`;
+            } catch (e) {
+                resultEl.textContent = 'Replay failed: ' + e;
+            }
+        }
+
+        document.getElementById('inspector-close-btn').addEventListener('click', () => {
+            document.getElementById('inspector-backdrop').classList.remove('open');
+        });
+        document.getElementById('inspector-backdrop').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+        });
+        document.getElementById('inspector-replay-btn').addEventListener('click', replayRequest);
 
         // --- API Token management ---
         function formatExpiry(t) {

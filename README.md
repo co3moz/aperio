@@ -95,6 +95,8 @@ The server is configured entirely through environment variables.
 - **`GET /aperio/api/stats`**: JSON stats endpoint displaying connection counters, byte counters, and uptime info (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/logs`**: JSON endpoint returning the last 100 request logs (available when `APERIO_DASHBOARD` is enabled).
 - **`POST /aperio/api/clients/:id/override`**: Applies a temporary (in-memory) hostname/path bind overrule to a connected client (available when `APERIO_DASHBOARD` is enabled).
+- **`GET/POST /aperio/api/tokens`, `DELETE /aperio/api/tokens/:id`**: Dynamic API token management (dashboard auth).
+- **`GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay`**: Request inspector detail & replay (dashboard auth). Click any row in the dashboard's *Live Tunnel Traffic* table to inspect headers/bodies and replay the request. The last 50 requests are captured in memory; bodies over 64 KB are truncated (truncated requests cannot be replayed), streamed response bodies are not captured.
 - **`GET /aperio/metrics`**: Prometheus text-format metrics (available when `APERIO_METRICS` is enabled; optionally protected with `APERIO_METRICS_TOKEN`).
 - **`GET /aperio/health`**: Simple server health verification endpoint (always available, no auth required).
 - **`GET /POST /aperio/auth`**: Login page and authentication endpoint. Always available regardless of dashboard setting.
