@@ -387,6 +387,16 @@
                 <div class="card-value" id="stat-bytes">0 B</div>
                 <div class="card-subtext">Payload bytes transferred</div>
             </div>
+            <div class="card">
+                <div class="card-title">Avg Response</div>
+                <div class="card-value" id="stat-avg">—</div>
+                <div class="card-subtext" id="stat-avg-sub">All-time (persisted)</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Today</div>
+                <div class="card-value" id="stat-today">0</div>
+                <div class="card-subtext" id="stat-today-sub">Requests today</div>
+            </div>
         </div>
 
         <!-- Activity Chart -->
@@ -776,6 +786,15 @@
                 document.getElementById('stat-success-details').innerText = `${stats.successful_requests} of ${total} successful`;
 
                 document.getElementById('server-uptime').innerText = formatUptime(stats.uptime_seconds);
+
+                // Persistent (restart-surviving) stats
+                document.getElementById('stat-avg').innerText =
+                    stats.persistent.total_requests > 0 ? `${stats.avg_response_ms.toFixed(1)} ms` : '—';
+                document.getElementById('stat-avg-sub').innerText =
+                    `${stats.persistent.total_requests} lifetime requests • ${formatBytes(stats.persistent.total_bytes_sent)} sent`;
+                document.getElementById('stat-today').innerText = stats.today.requests;
+                document.getElementById('stat-today-sub').innerText =
+                    `${stats.today.success} ok / ${stats.today.failed} failed • ${formatBytes(stats.today.bytes_sent)} sent today`;
 
                 // Update active clients table
                 const clientsBody = document.getElementById('clients-body');

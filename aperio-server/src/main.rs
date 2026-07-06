@@ -22,8 +22,10 @@ use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
 mod audit;
+mod stats;
 mod tokens;
 use audit::AuditLog;
+use stats::StatsStore;
 use tokens::TokenStore;
 
 /// Message structure exchanged over the WebSocket reverse tunnel.
@@ -209,6 +211,12 @@ struct EnhancedServerStats {
   pending_requests_count: usize,
   /// List of client connection details.
   active_clients: Vec<ClientDetail>,
+  /// Restart-surviving counters and period buckets.
+  persistent: stats::PersistentStats,
+  /// All-time average response time in milliseconds.
+  avg_response_ms: f64,
+  /// Today.s traffic bucket.
+  today: stats::PeriodStats,
 }
 
 /// Structure representing a logged HTTP transaction.
@@ -487,6 +495,8 @@ struct AppState {
   captured_requests: Mutex<VecDeque<CapturedRequest>>,
   /// Persistent audit log of administrative/security events.
   audit: Mutex<AuditLog>,
+  /// Restart-surviving traffic statistics (all-time + period buckets).
+  persistent_stats: Mutex<StatsStore>,
 }
 
 impl AppState {
@@ -767,6 +777,7 @@ async fn main() {
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
     audit: Mutex::new(AuditLog::load(&data_dir)),
+    persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -855,6 +866,20 @@ async fn main() {
     info!("Prometheus metrics endpoint enabled at /aperio/metrics");
   }
 
+  // Flush persistent stats periodically and once more on shutdown.
+  let stats_flush_state = state.clone();
+  tokio::spawn(async move {
+    loop {
+      tokio::time::sleep(Duration::from_secs(30)).await;
+      stats_flush_state
+        .persistent_stats
+        .lock()
+        .await
+        .save_if_dirty();
+    }
+  });
+  let shutdown_state = state.clone();
+
   let app = app.with_state(state);
 
   let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -880,6 +905,9 @@ async fn main() {
   .with_graceful_shutdown(shutdown_signal())
   .await
   .unwrap();
+
+  // Final stats flush so nothing recorded since the last tick is lost.
+  shutdown_state.persistent_stats.lock().await.save_if_dirty();
 }
 
 /// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.
@@ -951,6 +979,13 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
     .collect();
 
   let pending_count = state.pending_requests.lock().await.len();
+  let persistent = state.persistent_stats.lock().await.snapshot();
+  let avg_response_ms = persistent.avg_response_ms();
+  let today = persistent
+    .periods
+    .get(&stats::period_keys()[0])
+    .cloned()
+    .unwrap_or_default();
 
   Json(EnhancedServerStats {
     total_requests: raw_stats.total_requests,
@@ -961,6 +996,9 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
     uptime_seconds: state.server_start_time.elapsed().as_secs(),
     pending_requests_count: pending_count,
     active_clients,
+    persistent,
+    avg_response_ms,
+    today,
   })
 }
 
@@ -2321,6 +2359,8 @@ async fn handle_socket(
                       Ok(Ok(())) => {
                         let mut stats = state.stats.lock().await;
                         stats.total_bytes_transferred += len;
+                        drop(stats);
+                        state.persistent_stats.lock().await.record_bytes_sent(len);
                       }
                       _ => {
                         debug!(
@@ -2991,6 +3031,7 @@ async fn proxy_handler(
               Some("Client response timeout expired"),
           )
           .await;
+          state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
           (StatusCode::GATEWAY_TIMEOUT, "504 Gateway Timeout - Gateway response timeout expired").into_response()
       }
       res_opt = rx_response => {
@@ -3032,6 +3073,17 @@ async fn proxy_handler(
                       }
                       // Streamed bodies are counted chunk-by-chunk as they arrive.
                       stats.total_bytes_transferred += body_len;
+                  }
+
+                  // Persistent (restart-surviving) counters.
+                  {
+                      let mut ps = state.persistent_stats.lock().await;
+                      ps.record_request(
+                          !status_code.is_server_error(),
+                          body_bytes.len() as u64,
+                          body_len,
+                          duration.as_millis() as u64,
+                      );
                   }
 
                   log_request_success(&state, request_id.clone(), &method_str, &uri_str, tunnel_res.status, duration).await;
@@ -3096,6 +3148,7 @@ async fn proxy_handler(
                       Some("Communication channel with client closed abruptly"),
                   )
                   .await;
+                  state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, duration.as_millis() as u64);
                   (StatusCode::BAD_GATEWAY, "502 Bad Gateway - Client connection lost in flight").into_response()
               }
           }
@@ -3710,6 +3763,7 @@ mod tests {
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
+      persistent_stats: Mutex::new(test_stats_store()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -3773,6 +3827,7 @@ mod tests {
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
+      persistent_stats: Mutex::new(test_stats_store()),
     });
 
     let response = proxy_handler(
@@ -3835,6 +3890,7 @@ mod tests {
       response_streams: Mutex::new(HashMap::new()),
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
+      persistent_stats: Mutex::new(test_stats_store()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -4021,6 +4077,12 @@ mod tests {
     let dir = std::env::temp_dir().join(format!("aperio-test-audit-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&dir);
     AuditLog::load(&dir.to_string_lossy())
+  }
+
+  fn test_stats_store() -> StatsStore {
+    let dir = std::env::temp_dir().join(format!("aperio-test-stats-{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&dir);
+    StatsStore::load(&dir.to_string_lossy())
   }
 
   fn mock_client(
