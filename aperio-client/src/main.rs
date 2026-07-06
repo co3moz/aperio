@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc};
 use tokio_tungstenite::{
-  connect_async,
+  connect_async, connect_async_with_config,
   tungstenite::{
     client::IntoClientRequest,
     http::{HeaderName as TungsteniteHeaderName, HeaderValue},
-    protocol::Message,
+    protocol::{Message, WebSocketConfig},
   },
 };
 use tracing::{debug, error, info, warn};
@@ -45,6 +45,23 @@ pub enum TunnelMessage {
     status: u16,
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
+  },
+  /// Start of a streamed response: status and headers only. The body follows
+  /// as `ResponseChunk` messages terminated by `ResponseEnd`. Used for large
+  /// bodies so neither side buffers the full payload in memory.
+  ResponseStart {
+    id: String,
+    status: u16,
+    headers: Vec<(String, String)>,
+  },
+  /// A chunk of a streamed response body (Base64 encoded).
+  ResponseChunk {
+    id: String,
+    data: String,
+  },
+  /// Marks the end of a streamed response body.
+  ResponseEnd {
+    id: String,
   },
   /// Server instructs the client to open a WebSocket connection to the local backend.
   UpgradeRequest {
@@ -165,6 +182,14 @@ async fn main() {
   let local_limiter: Option<Arc<Semaphore>> =
     max_concurrent.map(|n| Arc::new(Semaphore::new(n as usize)));
 
+  // Cap on individual tunnel WebSocket messages accepted from the server.
+  // The client must not fully trust the server, so bound memory per frame.
+  // Defaults to 32 MB (requests bodies are limited server-side anyway).
+  let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
+    .ok()
+    .and_then(|val| val.parse::<usize>().ok())
+    .unwrap_or(32 * 1024 * 1024);
+
   let client_id = uuid::Uuid::new_v4().to_string();
 
   let ws_url = match build_ws_url(&server_addr) {
@@ -212,7 +237,12 @@ async fn main() {
 
     match ws_req {
       Ok(req) => {
-        match connect_async(req).await {
+        let ws_config = WebSocketConfig {
+          max_message_size: Some(max_message_size),
+          max_frame_size: Some(max_message_size),
+          ..Default::default()
+        };
+        match connect_async_with_config(req, Some(ws_config), false).await {
           Ok((ws_stream, _)) => {
             info!("Successfully connected to Aperio Server!");
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
@@ -325,10 +355,7 @@ async fn main() {
                                                   // Local concurrency guard: even a misbehaving server
                                                   // cannot push more parallel work onto the backend.
                                                   let _permit = match limiter {
-                                                      Some(sem) => match sem.acquire_owned().await {
-                                                          Ok(p) => Some(p),
-                                                          Err(_) => None,
-                                                      },
+                                                      Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
                                                   let response = handle_incoming_request(
@@ -343,10 +370,14 @@ async fn main() {
                                                       path_bind_val,
                                                       trim_bind_val,
                                                       max_resp_size,
+                                                      tx_resp.clone(),
                                                   )
                                                   .await;
 
-                                                  if let Ok(resp_str) = serde_json::to_string(&response) {
+                                                  // None = the response was streamed through the tunnel already.
+                                                  if let Some(response) = response
+                                                      && let Ok(resp_str) = serde_json::to_string(&response)
+                                                  {
                                                       let _ = tx_resp.send(Message::Text(resp_str)).await;
                                                   }
                                               });
@@ -482,9 +513,28 @@ fn build_ws_url(server: &str) -> Result<String, String> {
   Ok(parsed.to_string())
 }
 
+/// Serializes and sends a tunnel message; returns Err(()) when the tunnel
+/// write channel is closed.
+async fn send_tunnel_msg(tx: &mpsc::Sender<Message>, msg: &TunnelMessage) -> Result<(), ()> {
+  match serde_json::to_string(msg) {
+    Ok(json) => tx.send(Message::Text(json)).await.map_err(|_| ()),
+    Err(_) => Err(()),
+  }
+}
+
+/// Response bodies larger than this are streamed through the tunnel in
+/// chunks instead of being buffered and sent as one message.
+const STREAM_THRESHOLD: usize = 256 * 1024;
+/// Size of individual streamed body chunks.
+const STREAM_CHUNK_SIZE: usize = 128 * 1024;
+
 /// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
 /// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request, and returns
 /// the response mapped back into a `TunnelMessage`.
+///
+/// Small responses are returned as `Some(TunnelMessage::Response)` for the
+/// caller to send. Large responses are streamed directly through `tunnel_tx`
+/// (ResponseStart/Chunk/End) and `None` is returned.
 #[allow(clippy::too_many_arguments)]
 async fn handle_incoming_request(
   client: reqwest::Client,
@@ -498,7 +548,8 @@ async fn handle_incoming_request(
   path_bind: Option<String>,
   trim_bind: bool,
   max_response_body_size: usize,
-) -> TunnelMessage {
+  tunnel_tx: mpsc::Sender<Message>,
+) -> Option<TunnelMessage> {
   info!(
     "Forwarding tunnel request ID {}: {} {}",
     id, method_str, uri_str
@@ -507,7 +558,7 @@ async fn handle_incoming_request(
     Ok(url) => url,
     Err(e) => {
       error!("Failed to parse local target URL: {:?}", e);
-      return make_error_response(id, 502);
+      return Some(make_error_response(id, 502));
     }
   };
 
@@ -516,7 +567,7 @@ async fn handle_incoming_request(
     Ok(url) => url,
     Err(e) => {
       error!("Failed to parse incoming proxy URI path: {:?}", e);
-      return make_error_response(id, 400);
+      return Some(make_error_response(id, 400));
     }
   };
 
@@ -555,14 +606,14 @@ async fn handle_incoming_request(
       "SSRF protection triggered: constructed URL diverges from target for request ID {}",
       id
     );
-    return make_error_response(id, 400);
+    return Some(make_error_response(id, 400));
   }
 
   let method = match reqwest::Method::from_bytes(method_str.as_bytes()) {
     Ok(m) => m,
     Err(e) => {
       error!("Invalid HTTP method representation: {:?}", e);
-      return make_error_response(id, 400);
+      return Some(make_error_response(id, 400));
     }
   };
 
@@ -615,7 +666,7 @@ async fn handle_incoming_request(
       }
       Err(e) => {
         error!("Base64 decoding failed for request body payload: {:?}", e);
-        return make_error_response(id, 400);
+        return Some(make_error_response(id, 400));
       }
     }
   }
@@ -632,42 +683,106 @@ async fn handle_incoming_request(
         }
       }
 
-      let body_bytes = match collect_body_limited(res, max_response_body_size).await {
-        Ok(bytes) => bytes,
-        Err(BodyError::TooLarge) => {
-          warn!(
-            "Target backend response body exceeded limit ({} bytes) for request ID {}",
-            max_response_body_size, id
-          );
-          return make_error_response(id, 502);
-        }
-        Err(BodyError::Io(e)) => {
-          error!(
-            "Failed to retrieve response body from target backend: {:?}",
-            e
-          );
-          return make_error_response(id, 502);
-        }
-      };
+      // Read the body incrementally. Bodies up to the stream threshold are
+      // buffered and returned as a single Response message; larger bodies
+      // switch to chunked streaming so memory usage stays bounded.
+      let threshold = STREAM_THRESHOLD.min(max_response_body_size);
+      let mut stream = res.bytes_stream();
+      let mut buf: Vec<u8> = Vec::new();
+      let mut streaming = false;
+      let mut total: usize = 0;
 
-      let body_encoded = if body_bytes.is_empty() {
+      loop {
+        match stream.next().await {
+          Some(Ok(chunk)) => {
+            total += chunk.len();
+            if !streaming {
+              buf.extend_from_slice(&chunk);
+              if buf.len() > threshold {
+                // Switch to streaming: send head + buffered data as chunks.
+                let start = TunnelMessage::ResponseStart {
+                  id: id.clone(),
+                  status,
+                  headers: res_headers.clone(),
+                };
+                if send_tunnel_msg(&tunnel_tx, &start).await.is_err() {
+                  return None;
+                }
+                for part in buf.chunks(STREAM_CHUNK_SIZE) {
+                  let msg = TunnelMessage::ResponseChunk {
+                    id: id.clone(),
+                    data: BASE64_STANDARD.encode(part),
+                  };
+                  if send_tunnel_msg(&tunnel_tx, &msg).await.is_err() {
+                    return None;
+                  }
+                }
+                buf = Vec::new();
+                streaming = true;
+              }
+            } else {
+              if total > max_response_body_size {
+                warn!(
+                  "Streamed response for request ID {} exceeded limit ({} bytes); truncating",
+                  id, max_response_body_size
+                );
+                break;
+              }
+              let msg = TunnelMessage::ResponseChunk {
+                id: id.clone(),
+                data: BASE64_STANDARD.encode(&chunk),
+              };
+              if send_tunnel_msg(&tunnel_tx, &msg).await.is_err() {
+                return None;
+              }
+            }
+          }
+          Some(Err(e)) => {
+            if streaming {
+              error!(
+                "Body stream error from backend for request ID {}: {:?}; ending stream",
+                id, e
+              );
+              break;
+            }
+            error!(
+              "Failed to retrieve response body from target backend: {:?}",
+              e
+            );
+            return Some(make_error_response(id, 502));
+          }
+          None => break,
+        }
+      }
+
+      if streaming {
+        let end = TunnelMessage::ResponseEnd { id: id.clone() };
+        let _ = send_tunnel_msg(&tunnel_tx, &end).await;
+        info!(
+          "Tunnel request SUCCESS (streamed): ID={} Status={} Bytes={}",
+          id, status, total
+        );
+        return None;
+      }
+
+      let body_encoded = if buf.is_empty() {
         None
       } else {
-        Some(BASE64_STANDARD.encode(&body_bytes))
+        Some(BASE64_STANDARD.encode(&buf))
       };
 
       info!("Tunnel request SUCCESS: ID={} Status={}", id, status);
 
-      TunnelMessage::Response {
+      Some(TunnelMessage::Response {
         id,
         status,
         headers: res_headers,
         body: body_encoded,
-      }
+      })
     }
     Err(e) => {
       warn!("Tunnel request FAILURE: ID={} Error={:?}", id, e);
-      make_error_response(id, 502)
+      Some(make_error_response(id, 502))
     }
   }
 }
@@ -968,33 +1083,6 @@ async fn send_upgrade_error(stream_id: &str, tunnel_tx: &mpsc::Sender<Message>, 
   }
 }
 
-/// Error returned by [`collect_body_limited`].
-enum BodyError {
-  /// Response body exceeded the configured maximum size.
-  TooLarge,
-  /// Underlying transport error while streaming the body.
-  Io(reqwest::Error),
-}
-
-/// Reads a response body fully into a `Vec<u8>`, aborting once it exceeds
-/// `max_size` bytes to protect against OOM from unbounded backend responses.
-async fn collect_body_limited(
-  res: reqwest::Response,
-  max_size: usize,
-) -> Result<Vec<u8>, BodyError> {
-  use futures_util::StreamExt;
-  let mut stream = res.bytes_stream();
-  let mut buf: Vec<u8> = Vec::new();
-  while let Some(chunk) = stream.next().await {
-    let chunk = chunk.map_err(BodyError::Io)?;
-    if buf.len() + chunk.len() > max_size {
-      return Err(BodyError::TooLarge);
-    }
-    buf.extend_from_slice(&chunk);
-  }
-  Ok(buf)
-}
-
 /// Formats a generic masked error response, avoiding leaking raw socket error details.
 fn make_error_response(id: String, status: u16) -> TunnelMessage {
   let headers = vec![("content-type".to_string(), "text/plain".to_string())];
@@ -1018,6 +1106,14 @@ fn make_error_response(id: String, status: u16) -> TunnelMessage {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// Tunnel sender whose receiver is drained in the background, for tests
+  /// that exercise the buffered (non-streaming) response path.
+  fn test_tunnel_tx() -> mpsc::Sender<Message> {
+    let (tx, mut rx) = mpsc::channel::<Message>(64);
+    tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    tx
+  }
 
   #[test]
   fn test_build_ws_url() {
@@ -1107,8 +1203,10 @@ mod tests {
       None,
       false,
       1024 * 1024,
+      test_tunnel_tx(),
     )
-    .await;
+    .await
+    .expect("expected buffered response");
 
     if let TunnelMessage::Response {
       id,
@@ -1130,6 +1228,78 @@ mod tests {
     } else {
       panic!("Expected response variant");
     }
+  }
+
+  #[tokio::test]
+  async fn test_handle_incoming_request_streams_large_body() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let target_url = format!("http://127.0.0.1:{}", port);
+
+    // Body larger than STREAM_THRESHOLD (256 KB) → must be streamed.
+    let body_size = 600 * 1024;
+
+    tokio::spawn(async move {
+      if let Ok((mut socket, _)) = listener.accept().await {
+        let mut buf = [0; 1024];
+        let _ = socket.read(&mut buf).await.unwrap();
+        let header = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n\r\n",
+          body_size
+        );
+        socket.write_all(header.as_bytes()).await.unwrap();
+        let payload = vec![0xABu8; body_size];
+        socket.write_all(&payload).await.unwrap();
+      }
+    });
+
+    let (tx, mut rx) = mpsc::channel::<Message>(256);
+    let client = reqwest::Client::new();
+    let result = handle_incoming_request(
+      client,
+      "req-stream-1".to_string(),
+      "GET".to_string(),
+      "/big".to_string(),
+      vec![],
+      None,
+      &target_url,
+      false,
+      None,
+      false,
+      10 * 1024 * 1024,
+      tx,
+    )
+    .await;
+
+    // Streamed responses return None; the messages went through the channel.
+    assert!(result.is_none(), "large body should be streamed");
+
+    let mut got_start = false;
+    let mut got_end = false;
+    let mut total_bytes = 0usize;
+    while let Some(Message::Text(json)) = rx.recv().await {
+      match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+        TunnelMessage::ResponseStart { id, status, .. } => {
+          assert_eq!(id, "req-stream-1");
+          assert_eq!(status, 200);
+          got_start = true;
+        }
+        TunnelMessage::ResponseChunk { data, .. } => {
+          assert!(got_start, "chunk before start");
+          total_bytes += BASE64_STANDARD.decode(data).unwrap().len();
+        }
+        TunnelMessage::ResponseEnd { .. } => {
+          got_end = true;
+          break;
+        }
+        other => panic!("unexpected message: {:?}", other),
+      }
+    }
+    assert!(got_start && got_end);
+    assert_eq!(total_bytes, body_size);
   }
 
   #[tokio::test]
@@ -1173,8 +1343,10 @@ mod tests {
       Some("/api".to_string()),
       true,
       1024 * 1024,
+      test_tunnel_tx(),
     )
-    .await;
+    .await
+    .expect("expected buffered response");
 
     let observed = rx.await.unwrap();
     // The mock server should have received the trimmed path "/hello".
@@ -1230,6 +1402,7 @@ mod tests {
       Some("/api".to_string()),
       false,
       1024 * 1024,
+      test_tunnel_tx(),
     )
     .await;
 

@@ -55,6 +55,23 @@ pub enum TunnelMessage {
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
+  /// Start of a streamed response: status and headers only. The body follows
+  /// as `ResponseChunk` messages terminated by `ResponseEnd`. Used by clients
+  /// for large bodies so neither side buffers the full payload in memory.
+  ResponseStart {
+    id: String,
+    status: u16,
+    headers: Vec<(String, String)>,
+  },
+  /// A chunk of a streamed response body (Base64 encoded).
+  ResponseChunk {
+    id: String,
+    data: String,
+  },
+  /// Marks the end of a streamed response body.
+  ResponseEnd {
+    id: String,
+  },
   /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,
@@ -322,8 +339,18 @@ struct TunnelResponse {
   status: u16,
   /// List of response headers (preserves duplicates like Set-Cookie).
   headers: Vec<(String, String)>,
-  /// Base64 encoded payload body.
+  /// Base64 encoded payload body (buffered responses only).
   body: Option<String>,
+  /// For streamed responses: receiver of decoded body chunks. The proxy
+  /// handler turns this into a streaming HTTP body.
+  stream_rx: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
+}
+
+/// Sender half of an in-flight streamed response body, kept so the tunnel
+/// read loop can push chunks and so disconnect cleanup can drop it.
+struct ResponseStreamHandle {
+  tx: mpsc::Sender<Result<Vec<u8>, std::io::Error>>,
+  client_id: String,
 }
 
 /// Structure tracking requests waiting for client execution.
@@ -384,6 +411,8 @@ struct AppState {
   pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
   /// Persistent store of dashboard-created dynamic API tokens.
   token_store: Mutex<TokenStore>,
+  /// In-flight streamed response bodies: request_id → chunk sender.
+  response_streams: Mutex<HashMap<String, ResponseStreamHandle>>,
 }
 
 impl AppState {
@@ -619,6 +648,7 @@ async fn main() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(token_store),
+    response_streams: Mutex::new(HashMap::new()),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -1577,6 +1607,7 @@ async fn handle_socket(
                     status,
                     headers,
                     body,
+                    stream_rx: None,
                   })
                   .is_err()
               {
@@ -1584,6 +1615,115 @@ async fn handle_socket(
                   "Pending request oneshot receiver was dropped for request ID: {}",
                   id
                 );
+              }
+            }
+            TunnelMessage::ResponseStart {
+              id,
+              status,
+              headers,
+            } => {
+              let mut pending = state.pending_requests.lock().await;
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "ResponseStart for request ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id) {
+                // Register the chunk channel before resolving the head so no
+                // ResponseChunk can race past an unregistered stream.
+                let (chunk_tx, chunk_rx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+                state.response_streams.lock().await.insert(
+                  id.clone(),
+                  ResponseStreamHandle {
+                    tx: chunk_tx,
+                    client_id: client_id.clone(),
+                  },
+                );
+                if req
+                  .tx
+                  .send(TunnelResponse {
+                    status,
+                    headers,
+                    body: None,
+                    stream_rx: Some(chunk_rx),
+                  })
+                  .is_err()
+                {
+                  warn!(
+                    "Pending request oneshot receiver was dropped for streamed request ID: {}",
+                    id
+                  );
+                  state.response_streams.lock().await.remove(&id);
+                }
+              }
+            }
+            TunnelMessage::ResponseChunk { id, data } => {
+              // Look up the stream and verify the sender owns it.
+              let chunk_tx = {
+                let streams = state.response_streams.lock().await;
+                match streams.get(&id) {
+                  Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
+                  Some(_) => {
+                    warn!(
+                      "ResponseChunk for request ID {} rejected: not owned by client {}",
+                      id, client_id
+                    );
+                    None
+                  }
+                  None => None,
+                }
+              };
+              if let Some(chunk_tx) = chunk_tx {
+                use base64::prelude::*;
+                match BASE64_STANDARD.decode(&data) {
+                  Ok(bytes) => {
+                    let len = bytes.len() as u64;
+                    // Bounded send with timeout: if the public consumer stalls
+                    // for too long, drop the stream instead of blocking the
+                    // whole tunnel read loop forever.
+                    let send_res = tokio::time::timeout(
+                      state.config.gateway_response_timeout,
+                      chunk_tx.send(Ok(bytes)),
+                    )
+                    .await;
+                    match send_res {
+                      Ok(Ok(())) => {
+                        let mut stats = state.stats.lock().await;
+                        stats.total_bytes_transferred += len;
+                      }
+                      _ => {
+                        debug!(
+                          "Dropping streamed response {} (consumer gone or stalled)",
+                          id
+                        );
+                        state.response_streams.lock().await.remove(&id);
+                      }
+                    }
+                  }
+                  Err(_) => {
+                    warn!("Failed to decode Base64 ResponseChunk for request {}", id);
+                    state.response_streams.lock().await.remove(&id);
+                  }
+                }
+              }
+            }
+            TunnelMessage::ResponseEnd { id } => {
+              // Dropping the sender ends the public body stream.
+              let removed = state.response_streams.lock().await.remove(&id);
+              if let Some(handle) = removed
+                && handle.client_id != client_id
+              {
+                // Ownership violation: re-insert and ignore.
+                warn!(
+                  "ResponseEnd for request ID {} rejected: not owned by client {}",
+                  id, client_id
+                );
+                state.response_streams.lock().await.insert(id, handle);
               }
             }
             TunnelMessage::Ping {
@@ -1668,6 +1808,7 @@ async fn handle_socket(
                     status,
                     headers,
                     body: None,
+                    stream_rx: None,
                   })
                   .is_err()
               {
@@ -1792,6 +1933,13 @@ async fn handle_socket(
     for k in keys_to_remove {
       pending.remove(&k);
     }
+  }
+
+  // Terminate in-flight streamed response bodies from the disconnected client
+  // (dropping the senders ends the corresponding public HTTP bodies).
+  {
+    let mut streams = state.response_streams.lock().await;
+    streams.retain(|_, handle| handle.client_id != client_id);
   }
 }
 
@@ -2185,7 +2333,7 @@ async fn proxy_handler(
       res_opt = rx_response => {
           let duration = start_time.elapsed();
           match res_opt {
-              Ok(tunnel_res) => {
+              Ok(mut tunnel_res) => {
                   let status_code = StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
                   let res_bytes = if let Some(ref encoded_body) = tunnel_res.body {
@@ -2219,12 +2367,23 @@ async fn proxy_handler(
                       } else {
                           stats.successful_requests += 1;
                       }
+                      // Streamed bodies are counted chunk-by-chunk as they arrive.
                       stats.total_bytes_transferred += body_len;
                   }
 
                   log_request_success(&state, request_id, &method_str, &uri_str, tunnel_res.status, duration).await;
 
-                  match response_builder.body(Body::from(res_bytes)) {
+                  // Streamed response: forward chunks as they arrive without buffering.
+                  let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
+                      let stream = futures_util::stream::unfold(chunk_rx, |mut rx| async move {
+                          rx.recv().await.map(|item| (item, rx))
+                      });
+                      Body::from_stream(stream)
+                  } else {
+                      Body::from(res_bytes)
+                  };
+
+                  match response_builder.body(body) {
                       Ok(r) => r,
                       Err(e) => {
                           error!("Error constructing response: {:?}", e);
@@ -2850,6 +3009,7 @@ mod tests {
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
+      response_streams: Mutex::new(HashMap::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -2908,6 +3068,7 @@ mod tests {
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
+      response_streams: Mutex::new(HashMap::new()),
     });
 
     let response = proxy_handler(
@@ -2965,6 +3126,7 @@ mod tests {
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
       token_store: Mutex::new(test_token_store()),
+      response_streams: Mutex::new(HashMap::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -3002,6 +3164,7 @@ mod tests {
             status: 200,
             headers,
             body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),
+            stream_rx: None,
           });
         }
       }
