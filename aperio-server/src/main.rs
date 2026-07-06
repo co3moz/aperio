@@ -191,6 +191,9 @@ struct ServerConfig {
   /// Custom HTML page served on 504 gateway-timeout responses
   /// (loaded once from APERIO_504_PAGE at startup).
   custom_504_page: Option<String>,
+  /// Custom HTML page served while a hostname is in maintenance mode
+  /// (loaded once from APERIO_503_PAGE at startup).
+  custom_503_page: Option<String>,
   /// How a client is picked from the routed pool (APERIO_LB_STRATEGY).
   lb_strategy: LbStrategy,
 }
@@ -601,6 +604,10 @@ struct AppState {
   oidc_states: Mutex<HashMap<String, (String, Instant)>>,
   /// Active experimental TCP tunnel streams: stream_id → consumer sender.
   tcp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
+  /// Hostnames currently in maintenance mode (`*` = every hostname).
+  /// Requests to them get a 503 page even while clients are connected.
+  /// In-memory only, like bind overrides: cleared by a server restart.
+  maintenance: Mutex<std::collections::HashSet<String>>,
 }
 
 impl AppState {
@@ -790,6 +797,24 @@ async fn main() {
         }
       });
 
+  // Optional custom maintenance page (APERIO_503_PAGE=/app/maintenance.html).
+  let custom_503_page =
+    std::env::var("APERIO_503_PAGE")
+      .ok()
+      .and_then(|path| match std::fs::read_to_string(&path) {
+        Ok(html) => {
+          info!("Custom 503 maintenance page loaded from {}", path);
+          Some(html)
+        }
+        Err(e) => {
+          error!(
+            "Failed to read APERIO_503_PAGE {}: {} — using default 503 text",
+            path, e
+          );
+          None
+        }
+      });
+
   // Load-balancing strategy applied after routing narrows the pool.
   let lb_strategy = match std::env::var("APERIO_LB_STRATEGY")
     .unwrap_or_default()
@@ -904,6 +929,7 @@ async fn main() {
     client_down_threshold: Duration::from_secs(client_down_threshold_secs),
     tunnel_compression,
     custom_504_page,
+    custom_503_page,
     lb_strategy,
   };
 
@@ -953,6 +979,7 @@ async fn main() {
     oidc: oidc_runtime,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
+    maintenance: Mutex::new(std::collections::HashSet::new()),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -997,6 +1024,10 @@ async fn main() {
         axum::routing::post(request_replay_handler),
       )
       .route("/api/audit", get(audit_handler))
+      .route(
+        "/api/maintenance",
+        get(maintenance_list_handler).post(maintenance_set_handler),
+      )
       .route(
         "/api/webhooks",
         get(webhooks_list_handler).post(webhooks_create_handler),
@@ -1755,6 +1786,80 @@ async fn tokens_revoke_handler(
   } else {
     (StatusCode::NOT_FOUND, "Token not found").into_response()
   }
+}
+
+/// Payload for toggling maintenance mode on a hostname (dashboard).
+#[derive(Deserialize)]
+struct MaintenanceRequest {
+  /// Hostname to toggle, or `*` for every hostname.
+  hostname: String,
+  enabled: bool,
+}
+
+/// Lists hostnames currently in maintenance mode.
+async fn maintenance_list_handler(State(state): State<Arc<AppState>>) -> Json<Vec<String>> {
+  let set = state.maintenance.lock().await;
+  let mut list: Vec<String> = set.iter().cloned().collect();
+  list.sort();
+  Json(list)
+}
+
+/// Enables/disables maintenance mode for a hostname. In-memory only, like
+/// bind overrides: a server restart clears all maintenance flags.
+async fn maintenance_set_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<MaintenanceRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let raw = payload.hostname.trim();
+  let hostname = if raw == "*" {
+    "*".to_string()
+  } else {
+    match normalize_hostname_bind(raw) {
+      Some(h) => h,
+      None => {
+        return (
+          StatusCode::BAD_REQUEST,
+          format!("Invalid hostname: {}", raw),
+        )
+          .into_response();
+      }
+    }
+  };
+
+  let changed = {
+    let mut set = state.maintenance.lock().await;
+    if payload.enabled {
+      set.insert(hostname.clone())
+    } else {
+      set.remove(&hostname)
+    }
+  };
+  if changed {
+    let event = if payload.enabled {
+      "maintenance_on"
+    } else {
+      "maintenance_off"
+    };
+    info!(
+      "Maintenance mode {} for {}",
+      if payload.enabled {
+        "enabled"
+      } else {
+        "disabled"
+      },
+      hostname
+    );
+    state
+      .audit(event, &actor_ip, &format!("hostname={}", hostname))
+      .await;
+    state
+      .emit_event(event, serde_json::json!({"hostname": hostname}))
+      .await;
+  }
+  (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }
 
 /// Payload for the programmatic tunnel provisioning endpoint
@@ -3502,6 +3607,37 @@ fn gateway_timeout_response(state: &AppState, fallback: &str) -> Response {
   }
 }
 
+/// True when the request's hostname is currently in maintenance mode
+/// (either listed explicitly or covered by the `*` wildcard entry).
+async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
+  let set = state.maintenance.lock().await;
+  if set.is_empty() {
+    return false;
+  }
+  set.contains("*") || request_host.is_some_and(|h| set.contains(h))
+}
+
+/// Builds the 503 maintenance response (custom APERIO_503_PAGE or plain text).
+fn maintenance_response(state: &AppState) -> Response {
+  let mut resp = match state.config.custom_503_page {
+    Some(ref html) => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      [("content-type", "text/html; charset=utf-8")],
+      html.clone(),
+    )
+      .into_response(),
+    None => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      "503 Service Unavailable - This site is temporarily down for maintenance",
+    )
+      .into_response(),
+  };
+  resp
+    .headers_mut()
+    .insert("retry-after", HeaderValue::from_static("300"));
+  resp
+}
+
 /// Checks if an HTTP request is a WebSocket upgrade request.
 fn is_websocket_upgrade(method: &Method, headers: &HeaderMap) -> bool {
   if method != Method::GET {
@@ -3529,6 +3665,12 @@ async fn proxy_handler(
   let uri = req.uri().clone();
   let headers = req.headers().clone();
   let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+
+  // Maintenance mode wins over everything else (including WS upgrades):
+  // visitors get the 503 page even while tunnel clients stay connected.
+  if in_maintenance(&state, extract_request_host(&headers).as_deref()).await {
+    return maintenance_response(&state);
+  }
 
   // Detect WebSocket upgrade requests and handle separately
   if is_websocket_upgrade(&method, &headers) {
@@ -4945,6 +5087,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
     };
 
@@ -4984,6 +5127,7 @@ mod tests {
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
+      maintenance: Mutex::new(std::collections::HashSet::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -5015,6 +5159,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
     };
 
@@ -5055,6 +5200,7 @@ mod tests {
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
+      maintenance: Mutex::new(std::collections::HashSet::new()),
     });
 
     let response = proxy_handler(
@@ -5086,6 +5232,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
     };
 
@@ -5125,6 +5272,7 @@ mod tests {
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
+      maintenance: Mutex::new(std::collections::HashSet::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);

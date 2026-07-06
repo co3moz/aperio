@@ -193,4 +193,7 @@ export const api = {
     mutate('/webhooks', json('POST', payload)),
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   audit: () => request<AuditEvent[]>('/audit'),
+  maintenance: () => request<string[]>('/maintenance'),
+  setMaintenance: (hostname: string, enabled: boolean) =>
+    mutate('/maintenance', json('POST', { hostname, enabled })),
 }

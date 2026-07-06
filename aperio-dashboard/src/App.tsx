@@ -5,6 +5,7 @@ import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
 import { InspectorDialog } from './components/InspectorDialog'
+import { MaintenanceSection } from './components/MaintenanceSection'
 import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
 import { TrafficSection } from './components/TrafficSection'
@@ -78,6 +79,7 @@ export default function App() {
           <StatsCards stats={stats} />
           <ActivityChart history={history} />
           <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+          <MaintenanceSection />
           <TokensSection />
           <WebhooksSection />
           <AuditSection />
