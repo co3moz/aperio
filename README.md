@@ -2,12 +2,12 @@
 
 Aperio is a secure, self-hosted reverse tunneling system written in Rust. It exposes HTTP services (and experimentally, raw TCP services) running behind NATs, firewalls, or private networks to the public internet — through a single outbound WebSocket connection, with no inbound ports opened on your network.
 
-Think of it as a self-hosted ngrok with multi-tenant routing, scoped access tokens, SSO protection, and a built-in dashboard.
+It ships with multi-tenant routing, scoped access tokens, SSO protection, and a built-in admin dashboard.
 
 **Highlights**
 
 - Hostname- and path-based routing with round-robin load balancing across clients
-- ngrok-style random subdomains (`a1b2c3.example.com`) under a wildcard domain
+- Automatic random subdomains (`a1b2c3.example.com`) under a wildcard domain
 - Scoped, revocable API tokens with hostname/path/IP restrictions and TTLs
 - OIDC / SSO protection for proxied traffic (Cloudflare Access style)
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
@@ -322,7 +322,7 @@ c.example.com  ──▶  client C (no hostname bind — fallback)
 
 Set `APERIO_CLIENT_TRIM_BIND=0` to forward the full original path.
 
-### Random Subdomains (ngrok-style)
+### Random Subdomains
 
 With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server, every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. The client logs it on connect and the dashboard shows it. Assignments are per-connection (a reconnect gets a fresh one) and *additive* — token-granted and declared binds keep working alongside.
 
@@ -334,7 +334,7 @@ The dashboard can temporarily override any client's hostname/path binds ("Overru
 
 ## Dynamic API Tokens
 
-Besides the master token, you can mint scoped tokens from the dashboard (*API Tokens* section) — similar to InfluxDB's token model. Each token carries permissions:
+Besides the master token, you can mint scoped tokens from the dashboard (*API Tokens* section). Each token carries permissions:
 
 - **Hostnames** — which hostname binds the token may claim. `*` = any. Specific entries are **auto-bound** on connect (the client doesn't even need `--host`).
 - **Paths** — which path binds it may claim. `*` = any.
