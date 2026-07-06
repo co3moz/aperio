@@ -1,323 +1,283 @@
 # Aperio 🛡️
 
-Aperio is a secure, high-performance, and lightweight HTTP reverse tunneling system written in Rust. It exposes local servers behind NATs, firewalls, or private networks to the public internet through a secure, persistent WebSocket connection.
+Aperio is a secure, self-hosted reverse tunneling system written in Rust. It exposes HTTP services (and experimentally, raw TCP services) running behind NATs, firewalls, or private networks to the public internet — through a single outbound WebSocket connection, with no inbound ports opened on your network.
+
+Think of it as a self-hosted ngrok with multi-tenant routing, scoped access tokens, SSO protection, and a built-in dashboard.
+
+**Highlights**
+
+- Hostname- and path-based routing with round-robin load balancing across clients
+- ngrok-style random subdomains (`a1b2c3.example.com`) under a wildcard domain
+- Scoped, revocable API tokens with hostname/path/IP restrictions and TTLs
+- OIDC / SSO protection for proxied traffic (Cloudflare Access style)
+- WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
+- Admin dashboard: live traffic, request inspector & replay, client kill switch, audit log, webhooks
+- Prometheus metrics, persistent statistics, health-aware load balancing, graceful drain
+- Single static binary per side; official multi-arch Docker images
 
 ---
 
-## Architecture Overview
+## How It Works
 
-Aperio is split into two components:
+Aperio has two components:
 
-1. **`aperio-server`**: A public-facing proxy server built with Axum. It handles public HTTP requests and routes them to the connected client(s) via WebSockets. It includes a built-in admin dashboard, rate limiter, and load balancer.
-2. **`aperio-client`**: A client agent that runs inside your private network. It connects to the server via WebSockets, receives incoming forwarded HTTP requests, dispatches them to your local server, and pipes the response back.
+- **`aperio-server`** — the public-facing side. It terminates public HTTP(S) traffic (usually behind a TLS-terminating proxy such as Traefik, Caddy, or nginx) and forwards requests over persistent WebSocket tunnels to connected clients.
+- **`aperio-client`** — runs inside your private network. It dials out to the server, keeps the tunnel alive with heartbeats, and forwards incoming requests to your local backend.
 
 ```
-       Public HTTP Request                       Secure WebSocket
-[ User ] -----------------> [ aperio-server ] <=====================> [ aperio-client ]
-                                     |                                       |
-                                     v                                       v
-                             Admin Dashboard (Optional)               [ Local Server ]
+        Public request                        Outbound WebSocket tunnel
+[ Visitor ] ────────────▶ [ aperio-server ] ◀═══════════════════════ [ aperio-client ]
+                                 │                                          │
+                                 ▼                                          ▼
+                        Admin dashboard /aperio                     [ Local backend ]
 ```
 
----
-
-## Features
-
-- **Written in Rust**: Blazing fast, memory-safe, and low resource overhead.
-- **Robust Connection Liveness**: Employs continuous heartbeat ping/pong signals to detect socket drops and automatically reconnects in seconds.
-- **Session-Based Auth Login**: A clean dark-mode login page protects both dashboard and proxied traffic with cookie-based sessions.
-- **Per-IP Rate Limiting**: Built-in, high-performance in-memory Token Bucket rate limiter to protect your tunnels from abuse.
-- **Concurrency Limiting**: Prevents resource starvation using token-based concurrency controls (semaphores).
-- **Round-Robin Load Balancing**: Seamlessly load-balances incoming traffic across multiple active tunnel clients.
-- **WebSocket / Socket.io Pass-Through**: Proxies WebSocket upgrade requests end-to-end — public WS connections are tunneled to your local backend in real time, enabling Socket.io, GraphQL subscriptions, and raw WebSocket endpoints.
-- **Graceful Shutdowns**: Handles OS signals (`SIGINT`, `SIGTERM`) to release connections cleanly.
+Because the client always dials *out*, nothing on your private network needs to accept inbound connections.
 
 ---
 
-## Getting Started
+## Quick Start
 
-### Prerequisites
-
-- **Rust toolchain** (Rust 2024 edition / v1.75+)
-- Or **Docker** / **Docker Compose**
-
-### Building from Source
-
-Build the release binaries from the workspace root:
+### With Docker
 
 ```bash
-cargo build --release -p aperio-server
-cargo build --release -p aperio-client
+# 1. Start the server (public side)
+docker run -d --name aperio-server \
+  -p 8080:8080 \
+  -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
+  -v ./data:/app/data \
+  ghcr.io/co3moz/aperio-server:latest
+
+# 2. Start a client next to the service you want to expose
+docker run -d --name aperio-client \
+  --network host \
+  -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
+  -e APERIO_SERVER_URL="http://your-server-ip:8080" \
+  -e APERIO_CLIENT_TARGET="http://localhost:3000" \
+  ghcr.io/co3moz/aperio-client:latest
+
+# 3. Open http://your-server-ip:8080 — requests are proxied to localhost:3000
+#    Dashboard: http://your-server-ip:8080/aperio  (user: aperio, password: your token)
 ```
 
-The compiled binaries will be located at:
+### With the CLI
 
-- `target/release/aperio-server`
-- `target/release/aperio-client`
+```bash
+# Expose local port 3000 in one line
+aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx
 
----
-
-## Server Configuration (`aperio-server`)
-
-The server is configured entirely through environment variables.
-
-### Environment Variables
-
-| Variable Name                            | Description                                                                                                                   | Default Value     | Required | Type    |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------- | ------- |
-| `APERIO_SERVER_TOKEN`                    | Secret security token required for websocket clients to connect. Used as a Bearer Token.                                      | _(None)_          | **Yes**  | String  |
-| `HOST`                                   | The network address the server binds to.                                                                                      | `0.0.0.0`         | No       | String  |
-| `PORT`                                   | The TCP port the proxy server listens on.                                                                                     | `8080`            | No       | u16     |
-| `APERIO_DASHBOARD`                       | Set to `0` or `false` to disable the admin dashboard. Enabled by default.                                                     | `true`            | No       | Boolean |
-| `APERIO_SERVER_GATEWAY_TIMEOUT`          | Time (in seconds) to wait for a tunnel client to connect if a request comes in while offline (grace period for reconnecting). | `10`              | No       | u64     |
-| `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Maximum time (in seconds) to wait for a connected client to process a request and reply.                                      | `30`              | No       | u64     |
-| `APERIO_MAX_BODY_SIZE`                   | Maximum request body payload size allowed in bytes to protect against OOM attacks.                                            | `10485760` (10MB) | No       | usize   |
-| `APERIO_MAX_CONCURRENT_REQUESTS`         | Limit on max concurrent in-flight requests processed across all tunnels.                                                      | `100`             | No       | usize   |
-| `APERIO_MAX_TUNNELS`                     | Maximum number of concurrent active tunnel client connections.                                                                | `10`              | No       | usize   |
-| `APERIO_IP_LIMIT_MAX`                    | The burst size capacity for the per-IP Token Bucket rate limiter.                                                             | `100.0`           | No       | f64     |
-| `APERIO_IP_LIMIT_REFILL`                 | Token bucket refill rate (tokens per second) for rate limiting (e.g. `5.0` allows average 300 req/min).                       | `5.0`             | No       | f64     |
-| `APERIO_SERVER_AUTH`                      | If set to `username:password`, requires login via web form before proxied requests are allowed.                              | _(None)_          | No       | String  |
-| `APERIO_DASHBOARD_AUTH`                  | Password for dashboard-only login with username `aperio`. Falls back to `APERIO_SERVER_TOKEN` if not set.                   | _(None)_          | No       | String  |
-| `APERIO_TRUST_PROXY`                     | Set to `1` or `true` to trust `X-Forwarded-For` / `X-Real-IP` headers for client IP resolution.                             | `false`           | No       | Boolean |
-| `APERIO_SECURE_COOKIES`                  | Set to `1` or `true` to add the `Secure` flag to session cookies (HTTPS-only). Defaults to `APERIO_TRUST_PROXY` value.      | `false`           | No       | Boolean |
-| `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
-| `APERIO_DATA_DIR`                        | Directory for persisted server state (dynamic API tokens). Mount a volume here in Docker.                                    | `./data`          | No       | String  |
-| `APERIO_RANDOM_SUBDOMAIN`                | E.g. `*.example.com`: every connecting client automatically gets a random hostname bind under this suffix (ngrok-style), in addition to any token-granted or declared hostnames. | _(None)_ | No | String |
-| `APERIO_CLIENT_DOWN_THRESHOLD`           | Seconds without a heartbeat before a client is treated as down and dropped from the routing pool (rejoins on the next ping). | `15` | No | u64 |
-| `APERIO_TUNNEL_COMPRESSION`              | Set to `1` to offer per-message zlib compression to clients; enabled per connection once the client acknowledges. | `false` | No | Boolean |
-| `APERIO_504_PAGE`                        | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | _(None)_ | No | String |
-| `APERIO_OIDC_ISSUER`                     | OIDC issuer URL (e.g. `https://accounts.google.com`). Setting this requires SSO login for all proxied traffic. | _(None)_ | No | String |
-| `APERIO_OIDC_CLIENT_ID` / `APERIO_OIDC_CLIENT_SECRET` | OAuth client credentials registered at the issuer (redirect URI: `https://<your-host>/aperio/oidc/callback`). | _(None)_ | With issuer | String |
-| `APERIO_OIDC_ALLOWED_EMAILS`             | Comma-separated allowlist: exact addresses, `*@domain`, or `*`. Required when OIDC is enabled. | _(None)_ | With issuer | String |
-| `APERIO_OIDC_SCOPES`                     | OAuth scopes requested during login. | `openid email profile` | No | String |
-| `APERIO_OIDC_REDIRECT_URL`               | Fixed callback URL override (otherwise derived from the request Host / X-Forwarded-Proto). | _(derived)_ | No | String |
-| `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
-| `APERIO_METRICS_TOKEN`                   | Token required to scrape `/aperio/metrics` — pass as `?token=<value>` or `Authorization: Bearer`. If unset while metrics are enabled, a random token is generated once and persisted in `APERIO_DATA_DIR/metrics_token` (logged on first generation). The endpoint is never public. | _(auto-generated)_ | No      | String  |
-| `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
-
-### Endpoints
-
-- **`/*` (Fallback)**: Any path not matching `/aperio` routes is proxied to the active tunnel clients.
-- **`GET /aperio/ws`**: Secure WebSocket endpoint where the client connects. Requires authentication (HTTP `Authorization: Bearer <token>` or `x-auth-token: <token>`).
-- **`GET /aperio`**: HTML admin dashboard interface (available when `APERIO_DASHBOARD` is enabled).
-- **`GET /aperio/api/stats`**: JSON stats endpoint displaying connection counters, byte counters, and uptime info (available when `APERIO_DASHBOARD` is enabled).
-- **`GET /aperio/api/logs`**: JSON endpoint returning the last 100 request logs (available when `APERIO_DASHBOARD` is enabled).
-- **`POST /aperio/api/clients/:id/override`**: Applies a temporary (in-memory) hostname/path bind overrule to a connected client (available when `APERIO_DASHBOARD` is enabled).
-- **`GET/POST /aperio/api/tokens`, `DELETE /aperio/api/tokens/:id`**: Dynamic API token management (dashboard auth).
-- **`GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay`**: Request inspector detail & replay (dashboard auth). Click any row in the dashboard's *Live Tunnel Traffic* table to inspect headers/bodies and replay the request. The last 50 requests are captured in memory; bodies over 64 KB are truncated (truncated requests cannot be replayed), streamed response bodies are not captured.
-- **`GET /aperio/metrics`**: Prometheus text-format metrics (available when `APERIO_METRICS` is enabled; optionally protected with `APERIO_METRICS_TOKEN`).
-- **`GET /aperio/health`**: Simple server health verification endpoint (always available, no auth required).
-- **`GET /POST /aperio/auth`**: Login page and authentication endpoint. Always available regardless of dashboard setting.
-
----
-
-## Client Configuration (`aperio-client`)
-
-The client receives requests from the server and forwards them to a local backend server.
-
-### Environment Variables
-
-| Variable Name                 | Description                                                                                                           | Default Value           | Required | Type           |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------- | -------- | -------------- |
-| `APERIO_SERVER_TOKEN`         | Secret security token matching the server's token.                                                                    | _(None)_                | **Yes**  | String         |
-| `APERIO_SERVER_URL`           | Public URL of the Aperio proxy server. Supports `http`/`https` or `ws`/`wss` protocols.                                | _(None)_                | **Yes**  | String         |
-| `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
-| `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
-| `APERIO_PATH_BIND`           | Path prefix to bind this client to (e.g. `/api`). Unbound clients serve as fallback.                                   | _(None)_                | No       | String         |
-| `APERIO_HOSTNAME_BIND`       | Hostname to bind this client to (e.g. `a.example.com`). The server routes requests whose `Host` header matches.        | _(None)_                | No       | String         |
-| `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
-| `APERIO_CLIENT_MAX_RESPONSE_BODY` | Maximum response body size in bytes accepted from the backend. Bodies over 256 KB are streamed through the tunnel in chunks (bounded memory); larger than this limit are truncated. | `52428800` (50MB)       | No       | usize          |
-| `APERIO_CLIENT_MAX_MESSAGE_SIZE` | Maximum size of a single tunnel WebSocket message accepted from the server (memory protection).                        | `33554432` (32MB)       | No       | usize          |
-| `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
-| `APERIO_CLIENT_MAX_CONCURRENT` | Maximum concurrent requests this client processes. Announced to the server, which queues excess requests (up to the gateway timeout) instead of flooding the backend; also enforced locally. `0`/unset = unlimited. | _(unlimited)_ | No | u32 |
-| `APERIO_CLIENT_TCP_TARGET` | `host:port` for experimental raw TCP tunneling. The client only ever connects to this exact address, no matter what the server requests. | _(None)_ | No | String |
-| `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `info`                  | No       | String         |
-
----
-
-## Client Path Binding & Routing
-
-Aperio supports advanced path-based routing, allowing you to direct public traffic to different clients depending on the URL path prefix of the incoming request. This is controlled via two environment variables on the client side: `APERIO_PATH_BIND` and `APERIO_CLIENT_TRIM_BIND`.
-
-```
-           Public HTTP Requests
-                 |
-                 +---> GET /api/v1/users  --> [ Client A (Path Bind: /api) ]  --> Local Target A (Forwarded as: /v1/users)
-                 |
-                 +---> GET /app/index.js  --> [ Client B (Path Bind: /app) ]  --> Local Target B (Forwarded as: /app/index.js)
-                 |
-                 +---> GET /about.html    --> [ Client C (No Path Bind) ]     --> Local Target C (Fallback client)
+# Claim a specific hostname while doing it
+aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx --host app.example.com
 ```
 
-### How Routing Decisions are Made
-
-1. **Specific Matches (Boundary-Aware)**:
-   When a request comes in, the server evaluates the path prefix against all registered path-bound clients. Binds are matched on segment boundaries, meaning a bind of `/api` will match `/api` or `/api/v1`, but will **not** match `/apixyz`.
-2. **Round-Robin Load Balancing**:
-   If multiple clients register the *exact same* `APERIO_PATH_BIND` prefix, the server automatically distributes traffic between them using round-robin load balancing.
-3. **Fallback to Unbound Clients**:
-   If no path-bound client matches the incoming request, the server routes the request to any connected clients that **do not** have a path bind set (acting as catch-all / fallback handlers).
-4. **Gateway Timeout**:
-   If there are no matching path-bound clients and no unbound fallback clients connected, the server returns a `504 Gateway Timeout` response.
-
-### Hostname Binding (`APERIO_HOSTNAME_BIND`)
-
-When you expose the Aperio server behind a wildcard domain (e.g. Traefik routing `*.example.com` to it), each client can claim a specific hostname:
-
-```
-           Public HTTP Requests (Host header)
-                 |
-                 +---> a.example.com  --> [ Client A (Hostname Bind: a.example.com) ]
-                 |
-                 +---> b.example.com  --> [ Client B (Hostname Bind: b.example.com) ]
-                 |
-                 +---> c.example.com  --> [ Client C (No Hostname Bind, fallback) ]
-```
-
-Routing order: the server first selects the hostname group (exact match on the request's `Host` header, case-insensitive, port ignored), then applies path-bind routing *within* that group. Clients without a hostname bind act as the fallback pool for unmatched hosts.
-
-With `APERIO_REQUIRE_HOSTNAME_BIND=1` on the server, the fallback is disabled: clients that did not declare a hostname bind never receive proxied traffic. Use this in strict multi-tenant setups where every client must claim its own subdomain.
-
-### Dynamic API Tokens (Scoped Client Tokens)
-
-Besides the master `APERIO_SERVER_TOKEN` (which grants unrestricted access to both tunnels and the dashboard), you can create **dynamic tokens** from the dashboard's *API Tokens* section — similar to InfluxDB's token model. Each dynamic token carries permissions:
-
-- **Hostnames**: the hostname binds this token may claim. `*` = any hostname. Specific entries (e.g. `a.example.com`) are **automatically bound** to the client on connect — the client doesn't even need to set `APERIO_HOSTNAME_BIND`.
-- **Paths**: the path binds this token may claim. `*` = any path. The first specific entry is auto-bound when the client declares none.
-- **Lifetime (TTL)**: optional. Expired tokens are rejected at connection time — the client can no longer connect.
-
-A client declaring a bind not permitted by its token gets the declaration ignored (logged on the server). Revoking a token rejects *new* connections; existing tunnels stay connected until they drop.
-
-Endpoints (behind dashboard auth): `GET/POST /aperio/api/tokens`, `DELETE /aperio/api/tokens/:id`. The token secret is returned **only once** at creation.
-
-**Persistence:** tokens are stored in `<APERIO_DATA_DIR>/tokens.json` (default `./data`). In Docker you **must** mount a volume for this directory, otherwise tokens are lost when the container is recreated:
+### With Docker Compose
 
 ```yaml
 services:
   server:
+    image: ghcr.io/co3moz/aperio-server:latest
+    ports:
+      - "8080:8080"
     environment:
+      - APERIO_SERVER_TOKEN=change-me
       - APERIO_DATA_DIR=/app/data
     volumes:
+      # Persist dynamic tokens, stats, audit log and webhooks across restarts.
       - ./data:/app/data
+    restart: unless-stopped
+
+  client:
+    image: ghcr.io/co3moz/aperio-client:latest
+    environment:
+      - APERIO_SERVER_TOKEN=change-me
+      - APERIO_SERVER_URL=http://server:8080
+      - APERIO_CLIENT_TARGET=http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - server
+    restart: unless-stopped
 ```
 
-### Random Subdomains (ngrok-style)
+See [docker-compose.yml.example](docker-compose.yml.example) for a commented version.
 
-With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (and a wildcard DNS/route pointing at it), every connecting client is automatically assigned a random hostname such as `a1b2c3d4e5.example.com`. The assignment is sent to the client (logged as `Server assigned hostname to this client: …`) and shown in the dashboard. Rules:
+### Building from Source
 
-- The random hostname is **additive**: a client whose token is bound to `a.example.com` serves both `a.example.com` *and* its random subdomain.
-- Clients on the master token can still declare any `APERIO_HOSTNAME_BIND` they want — the declaration is honored alongside the random subdomain.
-- Assignments are per-connection: a reconnect gets a fresh random hostname.
-
-### Dashboard Overrule (Temporary Bind Overrides)
-
-The dashboard's *Active Tunnel Connections* table shows each client's hostname bind, path bind, and last heartbeat. The **Overrule** button lets you set a temporary hostname/path bind for a connected client — useful to route traffic to a client that connected without binds, or to redirect a hostname live. Overrides live only in server memory: they disappear when the client reconnects or the server restarts, and the client's own configuration is never modified.
-
-### Prefix Trimming (`APERIO_CLIENT_TRIM_BIND`)
-
-By default, when a client has a path bind configured, it strips the bind prefix from the URL path before forwarding the request to your local backend server.
-
-- **With `APERIO_CLIENT_TRIM_BIND=1` (Default)**:
-  * Public Request: `GET /api/v1/users`
-  * Client Bind: `/api`
-  * Request received by Local Target: `GET /v1/users`
-
-- **With `APERIO_CLIENT_TRIM_BIND=0`**:
-  * Public Request: `GET /api/v1/users`
-  * Client Bind: `/api`
-  * Request received by Local Target: `GET /api/v1/users`
-
----
-
-## WebSocket / Socket.io Pass-Through
-
-Aperio automatically detects and proxies WebSocket upgrade requests. When a public client sends an HTTP request with `Connection: Upgrade` and `Upgrade: websocket` headers, the server performs the upgrade handshake and establishes a persistent bidirectional relay between the public client, the tunnel, and your local backend.
-
-```
-    Public WS Client                    Tunnel                   Local Backend
-[ Browser (socket.io) ] ---WSS---> [ aperio-server ] <==WS==> [ aperio-client ] ---WS---> [ localhost:3000 ]
-         |                               |                          |                        |
-         +------ bidirectional frames ---+---- WsData frames ------+--- bidirectional frames -+
-```
-
-### How It Works
-
-1. Public client sends `GET /ws HTTP/1.1` with `Upgrade: websocket` headers.
-2. Server detects the upgrade, selects a tunnel client (same path-binding rules apply), and sends an `UpgradeRequest` through the tunnel.
-3. Client connects to the local backend via WebSocket, preserving the original `Sec-WebSocket-*` headers.
-4. Once the backend accepts the upgrade, a `101 Switching Protocols` response flows back, and the server upgrades the public connection.
-5. All subsequent WebSocket frames (text, binary, close) are relayed bidirectionally through the tunnel in real time.
-
-### Supported Use Cases
-
-| Technology            | Works? | Notes                                   |
-| --------------------- | ------ | --------------------------------------- |
-| Raw WebSocket (ws://) | Yes    | Full pass-through of text/binary frames |
-| Socket.io             | Yes    | WebSocket transport mode is supported   |
-| GraphQL Subscriptions | Yes    | If backend uses WS transport            |
-| HTTP Long-Polling     | Yes    | Regular HTTP request/response (unchanged) |
-
-No additional configuration is required — the server and client handle upgrade detection automatically.
-
----
-
-## OIDC / SSO Protection (Cloudflare Access style)
-
-Set `APERIO_OIDC_ISSUER`, `APERIO_OIDC_CLIENT_ID`, `APERIO_OIDC_CLIENT_SECRET` and `APERIO_OIDC_ALLOWED_EMAILS` to put an identity-provider login in front of all proxied traffic. Unauthenticated visitors are redirected to the provider; after login their verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist (`user@x.com`, `*@x.com`, `*`). Sessions reuse the standard `aperio_session` cookie (24h). Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup — a misconfigured SSO setup is a fatal error, never a silently open proxy. Grants and denials appear in the audit log.
-
----
-
-## Audit Log, Webhooks & Persistent Stats
-
-- **Audit log**: administrative/security events (logins, OIDC grants/denials, token create/update/revoke, client connect/disconnect/drain, overrules, replays, TCP streams) are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP and details. The dashboard shows the last 200 events (`GET /aperio/api/audit`).
-- **Webhooks**: define webhooks from the dashboard (name, URL, subscribed events, `*` = all). Events (`client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`) are delivered as JSON POSTs (`{"event", "timestamp", "data"}`) fire-and-forget with a 10s timeout. Stored in `APERIO_DATA_DIR/webhooks.json`.
-- **Persistent stats**: lifetime counters (`total_requests`, success/failed, bytes sent/received, summed duration) plus daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/stats.json`. The dashboard shows the all-time average response time and today's traffic.
-
----
-
-## Health, Drain & Client Toggle
-
-- A client whose last heartbeat is older than `APERIO_CLIENT_DOWN_THRESHOLD` (15s default) is automatically removed from load balancing and rejoins on its next ping (shown as a red DOWN dot in the dashboard).
-- On SIGINT/SIGTERM the client announces **draining**: the server immediately stops routing new requests to it, in-flight requests finish (up to 30s), then the client exits.
-- The dashboard's **Enable/Disable** toggle removes a healthy, connected client from routing without disconnecting it — in-flight requests always complete.
-
----
-
-## Experimental TCP Tunneling
-
-Give the client a TCP target and bridge a local port through the tunnel:
+Requires the Rust toolchain (2024 edition, 1.85+):
 
 ```bash
-# Side A (inside the private network): expose a TCP service
-APERIO_CLIENT_TCP_TARGET=localhost:5432 ./aperio-client
-
-# Side B (anywhere): bridge a local port through the server
-./aperio-client tcp 15432 --server https://tunnel.example.com --token <token>
-# now: psql -h 127.0.0.1 -p 15432
+cargo build --release -p aperio-server -p aperio-client
+# binaries: target/release/aperio-server, target/release/aperio-client
 ```
-
-Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dynamic-token IP allowlists apply). The client only ever connects to its configured `APERIO_CLIENT_TCP_TARGET`, regardless of what the server asks. No additional public ports are opened.
 
 ---
 
-## Client CLI & aperio.yaml
+## Server Guide
 
-The client keeps its env-driven Docker mode (no arguments = old behavior) and adds CLI commands:
+The server is configured entirely through environment variables.
+
+### Core Settings
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_SERVER_TOKEN` | **Required.** Master token: authenticates tunnel clients and doubles as the dashboard admin password (`aperio:<token>`). | — |
+| `HOST` | Bind address. | `0.0.0.0` |
+| `PORT` | Listen port. | `8080` |
+| `APERIO_DATA_DIR` | Directory for persisted state (tokens, stats, audit log, webhooks). **Mount a volume here in Docker.** | `./data` |
+| `LOG_LEVEL` | `error`, `warn`, `info`, `debug`, `trace`. | `info` |
+
+### Routing & Load Balancing
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
+| `APERIO_RANDOM_SUBDOMAIN` | e.g. `*.example.com` — every connecting client gets a random hostname under this suffix, in addition to its other binds. | — |
+| `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |
+
+### Limits & Protection
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_MAX_BODY_SIZE` | Max request body size in bytes. | `10485760` (10 MB) |
+| `APERIO_MAX_CONCURRENT_REQUESTS` | Max in-flight proxied requests across all tunnels. | `100` |
+| `APERIO_MAX_TUNNELS` | Max simultaneously connected tunnel clients. | `10` |
+| `APERIO_IP_LIMIT_MAX` | Per-IP token bucket burst capacity. | `100` |
+| `APERIO_IP_LIMIT_REFILL` | Per-IP refill rate (requests/second). | `5` |
+| `APERIO_SERVER_GATEWAY_TIMEOUT` | Seconds to wait for a client to (re)connect before failing a request. | `10` |
+| `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Seconds to wait for a client to answer a dispatched request. | `30` |
+| `APERIO_TRUST_PROXY` | `1` = trust `X-Forwarded-For` / `X-Real-IP` for client IPs. Enable **only** behind a trusted reverse proxy. | `0` |
+| `APERIO_SECURE_COOKIES` | `1` = set the `Secure` flag on session cookies. Defaults to the `APERIO_TRUST_PROXY` value. | — |
+| `APERIO_TUNNEL_COMPRESSION` | `1` = offer per-message zlib compression to clients (enabled per connection once acknowledged; old clients keep plain frames). | `0` |
+| `APERIO_504_PAGE` | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | — |
+
+### Authentication Layers
+
+Aperio has several independent auth layers; use the ones you need:
+
+1. **Master token** (`APERIO_SERVER_TOKEN`) — full access: tunnel connections, dashboard login, TCP endpoint.
+2. **Dynamic tokens** — created from the dashboard, scoped and revocable. See [Dynamic API Tokens](#dynamic-api-tokens).
+3. **Visitor password** (`APERIO_SERVER_AUTH=user:password`) — a login form in front of all proxied traffic.
+4. **OIDC / SSO** — identity-provider login in front of all proxied traffic. See [OIDC / SSO Protection](#oidc--sso-protection).
+5. **Dashboard password** (`APERIO_DASHBOARD_AUTH`) — a separate dashboard-only password (username `aperio`), so you don't have to share the master token with dashboard users. Set `APERIO_DASHBOARD=0` to disable the dashboard entirely.
+
+### OIDC / SSO Protection
+
+Put an identity-provider login (Google, Keycloak, Authentik, ...) in front of everything the tunnel serves:
 
 ```bash
-aperio-client http 3000 --host a.example.com --server https://tunnel.example.com --token apr_xxx
-aperio-client run --config ./aperio.yaml
-aperio-client tcp 15432 --server ... --token ...
+APERIO_OIDC_ISSUER=https://accounts.google.com
+APERIO_OIDC_CLIENT_ID=xxxx.apps.googleusercontent.com
+APERIO_OIDC_CLIENT_SECRET=xxxx
+APERIO_OIDC_ALLOWED_EMAILS=me@corp.com,*@team.example.com
+```
+
+Unauthenticated visitors are redirected to the provider. After login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist — exact addresses, `*@domain`, or `*`. Sessions last 24h and reuse the standard `aperio_session` cookie.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_OIDC_ISSUER` | Issuer URL. Setting it enables SSO enforcement. | — |
+| `APERIO_OIDC_CLIENT_ID` / `APERIO_OIDC_CLIENT_SECRET` | OAuth client registered at the issuer. Redirect URI: `https://<your-host>/aperio/oidc/callback`. | — |
+| `APERIO_OIDC_ALLOWED_EMAILS` | Comma-separated allowlist (required with issuer). | — |
+| `APERIO_OIDC_SCOPES` | Requested scopes. | `openid email profile` |
+| `APERIO_OIDC_REDIRECT_URL` | Fixed callback URL; otherwise derived from the request `Host` (and `X-Forwarded-Proto` when `APERIO_TRUST_PROXY=1`). Recommended to set explicitly. | derived |
+
+Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup. A misconfigured SSO setup is a **fatal error** — the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
+
+### Metrics (Prometheus)
+
+Enable with `APERIO_METRICS=1`. The endpoint always requires a token: set `APERIO_METRICS_TOKEN`, or let the server generate a random one on first start (persisted in `APERIO_DATA_DIR/metrics_token`, printed to the log once).
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: aperio
+    metrics_path: /aperio/metrics
+    params:
+      token: ["<your-metrics-token>"]
+    static_configs:
+      - targets: ["tunnel.example.com"]
+```
+
+Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`, `aperio_requests_failed_total`, `aperio_bytes_transferred_total`, `aperio_connected_clients`, `aperio_pending_requests`, `aperio_ws_streams_active`, `aperio_uptime_seconds`, and per-client `aperio_client_requests_total{client_id=...}`.
+
+### HTTP Endpoints
+
+| Endpoint | Description | Auth |
+| --- | --- | --- |
+| `/*` (fallback) | Proxied to tunnel clients. | visitor password / OIDC if configured |
+| `GET /aperio/ws` | Tunnel endpoint for clients. | master or dynamic token (Bearer / `x-auth-token`) |
+| `GET /aperio/tcp` | Experimental TCP tunnel endpoint (WebSocket, binary frames = raw bytes). | master or dynamic token |
+| `GET /aperio` | Admin dashboard. | dashboard session |
+| `GET /aperio/api/stats`, `/api/logs`, `/api/audit` | Live stats, request log, audit events. | dashboard session |
+| `GET/POST /aperio/api/tokens`, `PUT/DELETE /aperio/api/tokens/:id` | Dynamic token management. | dashboard session |
+| `GET/POST /aperio/api/webhooks`, `DELETE /aperio/api/webhooks/:id` | Webhook management. | dashboard session |
+| `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
+| `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
+| `GET+POST /aperio/auth` | Login page / login API. | — |
+| `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
+| `GET /aperio/metrics` | Prometheus metrics. | metrics token |
+| `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
+
+---
+
+## Client Guide
+
+The client can be configured three ways, with this precedence:
+
+**CLI arguments  >  environment variables  >  `aperio.yaml`**
+
+With no CLI arguments the client is fully environment-driven — existing Docker setups keep working unchanged.
+
+### CLI
+
+```
+aperio-client                          Run with environment variables (Docker mode)
+aperio-client http <port> [options]    Expose http://localhost:<port>
+aperio-client run [--config FILE]      Run from aperio.yaml
+aperio-client tcp <local_port>         Bridge a local TCP port to the server's /aperio/tcp endpoint
 aperio-client --help
 ```
 
-Precedence: **CLI arguments > environment variables > `aperio.yaml`** (auto-loaded from the working directory). Example `aperio.yaml`:
+| Option | Meaning |
+| --- | --- |
+| `--server URL` | Aperio server URL |
+| `--token TOKEN` | Tunnel token (master or dynamic) |
+| `--host HOSTNAME` | Hostname bind (e.g. `app.example.com`) |
+| `--path PREFIX` | Path bind (e.g. `/api`) |
+| `--concurrency N` | Local max concurrent requests |
+| `--pass-hostname` | Forward the original `Host` header to the backend |
+| `--config FILE` | Config file path (default: `./aperio.yaml`) |
+
+### Configuration Reference
+
+| Env variable | CLI | yaml key | Description | Default |
+| --- | --- | --- | --- | --- |
+| `APERIO_SERVER_TOKEN` | `--token` | `token` | **Required.** Tunnel token. | — |
+| `APERIO_SERVER_URL` | `--server` | `server` | **Required.** Server URL (`http/https/ws/wss`). | — |
+| `APERIO_CLIENT_TARGET` | `http <port>` | `target` | **Required.** Local backend to forward to. | — |
+| `APERIO_HOSTNAME_BIND` | `--host` | `hostname` | Hostname this client serves. | — |
+| `APERIO_PATH_BIND` | `--path` | `path` | Path prefix this client serves. | — |
+| `APERIO_CLIENT_TRIM_BIND` | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
+| `APERIO_CLIENT_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
+| `APERIO_CLIENT_MAX_CONCURRENT` | `--concurrency` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
+| `APERIO_CLIENT_TCP_TARGET` | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
+| `APERIO_CLIENT_TIMEOUT` | — | `timeout` | Per-request backend timeout (seconds). | `30` |
+| `APERIO_CLIENT_MAX_RESPONSE_BODY` | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
+| `APERIO_CLIENT_MAX_MESSAGE_SIZE` | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
+| `LOG_LEVEL` | — | — | Log verbosity. | `info` |
+
+### aperio.yaml
+
+If an `aperio.yaml` exists in the working directory (or is passed with `--config`), its values are used as defaults:
 
 ```yaml
+# Aperio client configuration
 server: https://tunnel.example.com
 token: apr_xxxxxxxxxxxxxxxx
 target: http://localhost:3000
-hostname: a.example.com
+
+# optional
+hostname: app.example.com
 path: /api
 trim_bind: true
 pass_hostname: false
@@ -325,67 +285,142 @@ max_concurrent: 8
 tcp_target: localhost:5432
 ```
 
----
+### Graceful Shutdown
 
-## Run and Usage Examples
-
-### Quick Start (Local Development)
-
-1. **Start the Server:**
-
-   ```bash
-   # On Windows (PowerShell)
-   $env:APERIO_SERVER_TOKEN="super-secret-token"
-   $env:APERIO_DASHBOARD="1"
-   ./aperio-server
-
-   # On Linux/macOS
-   APERIO_SERVER_TOKEN="super-secret-token" APERIO_DASHBOARD="1"  ./aperio-server
-   ```
-
-2. **Start the Client (forwarding to local port 3000):**
-
-   ```bash
-   # On Windows (PowerShell)
-   $env:APERIO_SERVER_TOKEN="super-secret-token"
-   $env:APERIO_SERVER_URL="http://localhost:8080"
-   $env:APERIO_CLIENT_TARGET="http://localhost:3000"
-   ./aperio-client
-
-   # On Linux/macOS
-   APERIO_SERVER_TOKEN="super-secret-token" APERIO_SERVER_URL="http://localhost:8080" APERIO_CLIENT_TARGET="http://localhost:3000" ./aperio-client
-   ```
-
-3. **Access the Dashboard:**
-   Open a browser at `http://localhost:8080/aperio`. Log in using `aperio` as the username and your `APERIO_SERVER_TOKEN` as the password (or the value of `APERIO_DASHBOARD_AUTH` if configured).
+On `SIGINT`/`SIGTERM` the client tells the server it is **draining**: the server immediately stops routing new requests to it, in-flight requests finish (up to 30 s), then the process exits. This plays well with `docker stop` and rolling deployments.
 
 ---
 
-## Docker Usage
+## Routing
 
-Both server and client include Docker support.
+When a request arrives, the server picks a client in this order:
 
-### Server Docker Run
+1. **Eligibility** — clients that are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`), draining, or disabled from the dashboard are skipped. In-flight requests always finish.
+2. **Hostname** — clients whose hostname binds contain the request's `Host` (case-insensitive, port ignored) win. If none match, clients *without* any hostname bind act as the fallback pool — unless `APERIO_REQUIRE_HOSTNAME_BIND=1`, in which case the request fails with 504.
+3. **Path** — within the hostname pool, the longest matching path bind wins. Binds match on segment boundaries: `/api` matches `/api` and `/api/v1`, never `/apixyz`. Clients without a path bind are the fallback.
+4. **Round-robin** — multiple clients with identical binds share traffic evenly.
 
-```bash
-docker build -t aperio-server -f aperio-server/Dockerfile .
-docker run -d \
-  -p 8080:8080 \
-  -e APERIO_SERVER_TOKEN="your-secure-token" \
-  aperio-server
+A client can hold several hostname binds at once: its declared `--host`, hostnames granted by its token, and a random subdomain.
+
+### Hostname Binding
+
+Run the server behind a wildcard domain (e.g. Traefik routing `*.example.com` to it) and let each client claim a subdomain:
+
+```
+a.example.com  ──▶  client A (--host a.example.com)
+b.example.com  ──▶  client B (--host b.example.com)
+c.example.com  ──▶  client C (no hostname bind — fallback)
 ```
 
-### Client Docker Run
+### Path Binding & Prefix Trimming
+
+```
+/api/v1/users  ──▶  client bound to /api   (forwarded as /v1/users, trim_bind default)
+/app/index.js  ──▶  client bound to /app
+/about.html    ──▶  fallback client
+```
+
+Set `APERIO_CLIENT_TRIM_BIND=0` to forward the full original path.
+
+### Random Subdomains (ngrok-style)
+
+With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server, every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. The client logs it on connect and the dashboard shows it. Assignments are per-connection (a reconnect gets a fresh one) and *additive* — token-granted and declared binds keep working alongside.
+
+### Dashboard Overrule
+
+The dashboard can temporarily override any client's hostname/path binds ("Overrule" button) — useful for redirecting a hostname live or giving binds to a client that connected without them. Overrides live only in server memory: a client reconnect or server restart reverts to the client's own configuration.
+
+---
+
+## Dynamic API Tokens
+
+Besides the master token, you can mint scoped tokens from the dashboard (*API Tokens* section) — similar to InfluxDB's token model. Each token carries permissions:
+
+- **Hostnames** — which hostname binds the token may claim. `*` = any. Specific entries are **auto-bound** on connect (the client doesn't even need `--host`).
+- **Paths** — which path binds it may claim. `*` = any.
+- **Allowed IPs** — source IPs/CIDRs that may connect with this token (`0.0.0.0/0` = any, the default).
+- **Lifetime** — optional TTL; expired tokens are rejected at connect time.
+
+A client declaring a bind its token doesn't permit gets the declaration ignored (logged). Tokens can be **edited in place** (scope, IPs, expiry — the secret never changes) or revoked; revocation rejects new connections while existing tunnels stay up until they drop.
+
+Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown exactly once at creation.
+
+> **Docker note:** dynamic tokens (plus stats, audit log, and webhooks) live in `APERIO_DATA_DIR`. Without a volume (`- ./data:/app/data`) they are lost when the container is recreated.
+
+---
+
+## Dashboard
+
+Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUTH`):
+
+- **Live overview** — connected clients, request rate chart, lifetime average response time, today's traffic (persisted across restarts).
+- **Clients table** — binds, health dot, last heartbeat, announced concurrency limit, per-client **Enable/Disable** kill switch (disabled clients stay connected but receive no new traffic), and bind overrule.
+- **Request inspector** — click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests), and **replay** the request through the tunnel with one click.
+- **API Tokens / Webhooks** — create, edit, revoke.
+- **Audit log** — the last 200 administrative/security events.
+
+---
+
+## Observability & Events
+
+### Audit Log
+
+Logins (password and OIDC), token create/update/revoke, client connect/disconnect/drain, kill-switch toggles, overrules, replays and TCP streams are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details — and shown in the dashboard.
+
+### Webhooks
+
+Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). Events are delivered as fire-and-forget JSON POSTs with a 10 s timeout:
+
+```json
+{ "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
+```
+
+Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`.
+
+### Persistent Statistics
+
+Lifetime counters (total requests, success/failure, bytes sent/received, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/stats.json` (flushed every 30 s and on shutdown; pruned to 60 days / 26 weeks / 24 months / 10 years).
+
+---
+
+## Advanced
+
+### WebSocket / Socket.io Pass-Through
+
+WebSocket upgrade requests are detected automatically and proxied end-to-end — the public WS connection is relayed through the tunnel to your backend in real time. Socket.io (WebSocket transport), GraphQL subscriptions, and raw `ws://` endpoints all work with zero configuration. The same hostname/path routing rules apply.
+
+### Large Bodies & Compression
+
+Response bodies over 256 KB are streamed through the tunnel in chunks with backpressure, so memory usage stays bounded on both sides regardless of response size. With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compression; clients that support it acknowledge and both directions switch to compressed frames (older clients keep working uncompressed).
+
+### Experimental TCP Tunneling
+
+Expose a raw TCP service (database, SSH, ...) through the same tunnel port:
 
 ```bash
-docker build -t aperio-client -f aperio-client/Dockerfile .
-docker run -d \
-  --network="host" \
-  -e APERIO_SERVER_TOKEN="your-secure-token" \
-  -e APERIO_SERVER_URL="http://your-server-ip:8080" \
-  -e APERIO_CLIENT_TARGET="http://localhost:3000" \
-  aperio-client
+# Private network side: allow TCP streams to exactly one target
+APERIO_CLIENT_TCP_TARGET=localhost:5432 aperio-client http 3000 --server ... --token ...
+
+# Consumer side (your laptop): bridge a local port through the server
+aperio-client tcp 15432 --server https://tunnel.example.com --token apr_xxxxxxxx
+psql -h 127.0.0.1 -p 15432
 ```
+
+Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dynamic-token IP allowlists apply). The client only ever connects to its configured `tcp_target`, regardless of what the server asks — the TCP analogue of the HTTP SSRF guard. No extra public ports are opened.
+
+### Custom Error Page
+
+`APERIO_504_PAGE=/app/error_504.html` serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page.
+
+---
+
+## Security Notes
+
+- Always front the server with TLS (Traefik/Caddy/nginx) and set `APERIO_TRUST_PROXY=1` behind it; clients should use `https://`/`wss://` URLs so tokens never travel in plaintext.
+- Prefer **dynamic tokens** over sharing the master token: scope them to a hostname, pin them to source IPs, give them a TTL. Treat the master token as root.
+- The client deliberately does not fully trust the server: it only connects to its configured HTTP/TCP targets (SSRF guards), caps tunnel message sizes, bounds decompression output, and enforces its own concurrency limit.
+- Constant-time comparison is used for all secrets; dashboard sessions are `HttpOnly` + `SameSite=Lax` cookies; query strings are stripped from logs.
+- The metrics endpoint is never public — it always requires a token.
 
 ---
 
