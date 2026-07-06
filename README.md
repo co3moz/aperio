@@ -42,6 +42,8 @@ Because the client always dials *out*, nothing on your private network needs to 
 
 ## Quick Start
 
+> 📖 Step-by-step walkthrough: [docs/getting-started.md](docs/getting-started.md)
+
 ### With Docker
 
 ```bash
@@ -178,6 +180,8 @@ The server is configured through environment variables; most settings can also b
 
 ### Authentication Layers
 
+> 📖 In depth: [docs/tokens-and-auth.md](docs/tokens-and-auth.md)
+
 Aperio has several independent auth layers; use the ones you need:
 
 1. **Master token** (`APERIO_SERVER_TOKEN`) — full access: tunnel connections, dashboard login, TCP endpoint.
@@ -252,6 +256,8 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 ---
 
 ## Client Guide
+
+> 📖 Resilience features (backoff, health probing, hot-reload, drain): [docs/client-resilience.md](docs/client-resilience.md)
 
 The client can be configured three ways, with this precedence:
 
@@ -344,6 +350,8 @@ On `SIGINT`/`SIGTERM` the client tells the server it is **draining**: the server
 
 ## Routing
 
+> 📖 In depth: [docs/routing-and-load-balancing.md](docs/routing-and-load-balancing.md) · [docs/failover.md](docs/failover.md)
+
 When a request arrives, the server picks a client in this order:
 
 1. **Eligibility** — clients that are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`), whose own backend health probe failed, draining, or disabled from the dashboard are skipped. In-flight requests always finish.
@@ -401,6 +409,8 @@ The dashboard can temporarily override any client's hostname/path binds ("Overru
 
 ## Dynamic API Tokens
 
+> 📖 In depth: [docs/tokens-and-auth.md](docs/tokens-and-auth.md)
+
 Besides the master token, you can mint scoped tokens from the dashboard (*API Tokens* section). Each token carries permissions:
 
 - **Hostnames** — which hostname binds the token may claim. `*` = any. Specific entries are **auto-bound** on connect (the client doesn't even need `--host`).
@@ -418,6 +428,8 @@ Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown 
 
 ## Share Links
 
+> 📖 In depth: [docs/share-links.md](docs/share-links.md)
+
 When a proxied site is protected (`APERIO_SERVER_AUTH` or OIDC), you can hand out **temporary access** without creating accounts: the dashboard's *Share Links* section generates a URL like
 
 ```
@@ -431,6 +443,8 @@ Links are **stateless**: the signing key is derived from the master token, nothi
 ---
 
 ## Ephemeral Tunnels (CI / Preview Environments)
+
+> 📖 In depth: [docs/ephemeral-tunnels.md](docs/ephemeral-tunnels.md)
 
 `POST /aperio/api/tunnels` mints a **short-lived, hostname-scoped token** in one call — designed for automation such as per-PR preview environments. It authenticates with the master token in a header (no browser login), and works even when the dashboard is disabled:
 
@@ -472,6 +486,8 @@ See [aperio-tunnel-action/README.md](aperio-tunnel-action/README.md) for all inp
 
 ## Dashboard
 
+> 📖 In depth: [docs/dashboard.md](docs/dashboard.md)
+
 Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUTH`):
 
 - **Live overview** — connected clients, request rate chart, lifetime average response time, today's traffic (persisted across restarts).
@@ -487,6 +503,8 @@ Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUT
 ---
 
 ## Observability & Events
+
+> 📖 In depth: [docs/observability.md](docs/observability.md)
 
 ### Audit Log
 
@@ -515,6 +533,8 @@ Traffic is additionally attributed **per token** (`master` for the master token)
 ---
 
 ## Advanced
+
+> 📖 In depth: [docs/tunnel-protocol.md](docs/tunnel-protocol.md)
 
 ### WebSocket / Socket.io Pass-Through
 
