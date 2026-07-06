@@ -1,0 +1,55 @@
+name: 'Aperio Tunnel'
+description: >-
+  Exposes a local port of the runner to the public internet through an Aperio
+  tunnel. Provisions an ephemeral, hostname-scoped token via the Aperio server
+  API, runs the tunnel client for the rest of the job, and revokes the token
+  when the job finishes. Ideal for per-PR preview environments.
+author: 'co3moz'
+branding:
+  icon: 'globe'
+  color: 'purple'
+
+inputs:
+  server-url:
+    description: 'Base URL of the Aperio server, e.g. https://tunnel.example.com'
+    required: true
+  server-token:
+    description: 'Master server token (APERIO_SERVER_TOKEN) used to provision the ephemeral tunnel. Store it as a repository secret.'
+    required: true
+  port:
+    description: 'Local port to expose; the tunnel target becomes http://127.0.0.1:<port>'
+    required: false
+  target:
+    description: 'Full target URL to forward requests to. Overrides port.'
+    required: false
+  hostname:
+    description: 'Hostname to bind, e.g. pr-123.example.com. Omit to get a random subdomain (requires APERIO_RANDOM_SUBDOMAIN on the server).'
+    required: false
+  name:
+    description: 'Label for the ephemeral token, shown in the dashboard. Defaults to <repo>-run-<run id>.'
+    required: false
+  ttl-seconds:
+    description: 'Tunnel token lifetime in seconds (safety net in case cleanup never runs).'
+    required: false
+    default: '3600'
+  client-image:
+    description: 'Docker image of the aperio-client to run.'
+    required: false
+    default: 'ghcr.io/co3moz/aperio-client:latest'
+  wait-timeout:
+    description: 'Seconds to wait for the tunnel client to connect before failing.'
+    required: false
+    default: '60'
+
+outputs:
+  url:
+    description: 'Public URL of the tunnel (https://<hostname>)'
+  hostname:
+    description: 'Hostname bound to the tunnel'
+  tunnel-id:
+    description: 'ID of the provisioned tunnel (ephemeral token id)'
+
+runs:
+  using: 'node20'
+  main: 'main.js'
+  post: 'post.js'

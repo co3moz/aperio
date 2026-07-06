@@ -215,6 +215,7 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 | `GET/POST /aperio/api/webhooks`, `DELETE /aperio/api/webhooks/:id` | Webhook management. | dashboard session |
 | `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
 | `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
+| `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](#ephemeral-tunnels-ci--preview-environments). | master token (Bearer) or dashboard session |
 | `GET+POST /aperio/auth` | Login page / login API. | — |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
@@ -229,6 +230,8 @@ The client can be configured three ways, with this precedence:
 **CLI arguments  >  environment variables  >  `aperio.yaml`**
 
 With no CLI arguments the client is fully environment-driven — existing Docker setups keep working unchanged.
+
+On connection loss the client reconnects with **exponential backoff and jitter** (1 s doubling up to 60 s, randomized) so a restarted server is not stampeded by its whole client fleet at once; the backoff resets after a connection stays up for 30 s.
 
 ### CLI
 
@@ -351,6 +354,46 @@ Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown 
 
 ---
 
+## Ephemeral Tunnels (CI / Preview Environments)
+
+`POST /aperio/api/tunnels` mints a **short-lived, hostname-scoped token** in one call — designed for automation such as per-PR preview environments. It authenticates with the master token in a header (no browser login), and works even when the dashboard is disabled:
+
+```bash
+curl -X POST https://tunnel.example.com/aperio/api/tunnels \
+  -H "Authorization: Bearer $APERIO_SERVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "pr-123", "hostname": "pr-123.example.com", "ttl_seconds": 3600}'
+# → {"id": "…", "hostname": "pr-123.example.com", "url": "https://pr-123.example.com",
+#    "token": "apr_…", "expires_at": 1700000000}
+```
+
+- Omit `hostname` to get a **random subdomain** (requires `APERIO_RANDOM_SUBDOMAIN`).
+- `ttl_seconds` defaults to 1 hour, capped at 7 days; `allowed_ips` restricts who may connect.
+- The minted token's hostname is **auto-bound** on connect — run the client with just the server URL, token, and target.
+- `DELETE /aperio/api/tunnels/:id` revokes the token (same auth), e.g. from a CI cleanup step.
+- Events appear in the audit log as `tunnel_created` / `tunnel_deleted` and are delivered to webhooks.
+
+### GitHub Action
+
+[`aperio-tunnel-action`](aperio-tunnel-action/) wraps the flow for GitHub Actions: it provisions a tunnel, runs the client container for the rest of the job, and revokes the token afterwards.
+
+```yaml
+- name: Open tunnel
+  id: tunnel
+  uses: co3moz/aperio/aperio-tunnel-action@master
+  with:
+    server-url: https://tunnel.example.com
+    server-token: ${{ secrets.APERIO_SERVER_TOKEN }}
+    port: 3000
+    hostname: pr-${{ github.event.number }}.example.com
+
+- run: echo "Preview at ${{ steps.tunnel.outputs.url }}"
+```
+
+See [aperio-tunnel-action/README.md](aperio-tunnel-action/README.md) for all inputs and outputs.
+
+---
+
 ## Dashboard
 
 Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUTH`):
@@ -359,6 +402,7 @@ Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUT
 - **Clients table** — binds, health dot, last heartbeat, announced concurrency limit, per-client **Enable/Disable** kill switch (disabled clients stay connected but receive no new traffic), and bind overrule.
 - **Request inspector** — click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests), and **replay** the request through the tunnel with one click.
 - **API Tokens / Webhooks** — create, edit, revoke.
+- **Add Client wizard** — pick a token strategy (placeholder or mint a scoped token on the spot), describe the local service, and copy a ready-to-run `docker run` / CLI / `aperio.yaml` snippet.
 - **Audit log** — the last 200 administrative/security events.
 
 ---

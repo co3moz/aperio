@@ -512,7 +512,10 @@ async fn main() {
   }
   info!("- WebSocket URL: {}", ws_url);
 
-  // Reconnection Loop
+  // Reconnection Loop. Retries use exponential backoff with jitter so that a
+  // fleet of clients does not stampede the server after a restart; the
+  // counter resets once a connection proves stable.
+  let mut reconnect_attempt: u32 = 0;
   loop {
     info!("Connecting to Aperio Server at: {}...", server_addr);
 
@@ -541,6 +544,7 @@ async fn main() {
         match connect_async_with_config(req, Some(ws_config), false).await {
           Ok((ws_stream, _)) => {
             info!("Successfully connected to Aperio Server!");
+            let connected_at = Instant::now();
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
             // Channel to write messages to the WebSocket
@@ -864,6 +868,12 @@ async fn main() {
             writer_task.abort();
             ping_task.abort();
             warn!("Connection to server lost.");
+
+            // A connection that survived for a while counts as healthy:
+            // start the next retry sequence from the base delay again.
+            if connected_at.elapsed() >= Duration::from_secs(RECONNECT_STABLE_SECS) {
+              reconnect_attempt = 0;
+            }
           }
           Err(e) => {
             error!("Failed to connect to server: {:?}.", e);
@@ -880,9 +890,38 @@ async fn main() {
       info!("Shutdown requested while disconnected; exiting.");
       std::process::exit(0);
     }
-    info!("Retrying connection in 5 seconds...");
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    reconnect_attempt = reconnect_attempt.saturating_add(1);
+    let delay = reconnect_delay(reconnect_attempt);
+    info!(
+      "Retrying connection in {:.1} seconds (attempt {})...",
+      delay.as_secs_f64(),
+      reconnect_attempt
+    );
+    tokio::time::sleep(delay).await;
   }
+}
+
+/// First retry delay of the reconnect backoff.
+const RECONNECT_BASE_DELAY_MS: u64 = 1_000;
+/// Upper bound for the reconnect backoff.
+const RECONNECT_MAX_DELAY_MS: u64 = 60_000;
+/// A connection lasting at least this long resets the backoff counter.
+const RECONNECT_STABLE_SECS: u64 = 30;
+
+/// Exponential reconnect backoff with jitter: the deterministic delay doubles
+/// per attempt (1s, 2s, 4s, ... capped at 60s) and the returned value is
+/// drawn from [cap/2, cap] so simultaneously disconnected clients spread out
+/// instead of reconnecting in lockstep. The jitter is derived from the clock
+/// to avoid pulling in a RNG dependency.
+fn reconnect_delay(attempt: u32) -> Duration {
+  let doublings = attempt.saturating_sub(1).min(6); // 2^6 * 1s covers the 60s cap
+  let cap = (RECONNECT_BASE_DELAY_MS << doublings).min(RECONNECT_MAX_DELAY_MS);
+  let nanos = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .subsec_nanos() as u64;
+  let jitter = nanos % (cap / 2 + 1);
+  Duration::from_millis(cap / 2 + jitter)
 }
 
 /// Opens a TCP connection to the configured local target and relays bytes
@@ -1746,6 +1785,28 @@ mod tests {
     let (tx, mut rx) = mpsc::channel::<Message>(64);
     tokio::spawn(async move { while rx.recv().await.is_some() {} });
     tx
+  }
+
+  #[test]
+  fn test_reconnect_delay_bounds() {
+    // Deterministic cap doubles per attempt: 1s, 2s, 4s ... 60s max; the
+    // jittered result must stay within [cap/2, cap].
+    for (attempt, cap_ms) in [
+      (1u32, 1_000u64),
+      (2, 2_000),
+      (3, 4_000),
+      (7, 60_000),
+      (100, 60_000),
+    ] {
+      for _ in 0..50 {
+        let d = reconnect_delay(attempt).as_millis() as u64;
+        assert!(
+          d >= cap_ms / 2 && d <= cap_ms,
+          "attempt {attempt}: delay {d}ms outside [{}ms, {cap_ms}ms]",
+          cap_ms / 2
+        );
+      }
+    }
   }
 
   #[test]

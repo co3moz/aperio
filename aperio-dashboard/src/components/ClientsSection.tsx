@@ -15,6 +15,7 @@ import {
 import { useState, type ReactNode } from 'react'
 import { api, ApiError, type ClientDetail } from '../lib/api'
 import { formatLastPing, formatUptime } from '../lib/format'
+import { AddClientWizard } from './AddClientWizard'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
 // set and is shown highlighted with the client-reported values struck through.
@@ -218,7 +219,10 @@ export function ClientsSection({
 }) {
   return (
     <Flex direction="column" gap="3">
-      <Heading size="4">Active Tunnel Connections</Heading>
+      <Flex justify="between" align="center">
+        <Heading size="4">Active Tunnel Connections</Heading>
+        <AddClientWizard />
+      </Flex>
       <Table.Root variant="surface">
         <Table.Header>
           <Table.Row>
