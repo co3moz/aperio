@@ -17,6 +17,8 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 - Prometheus metrics, structured JSON access log, persistent statistics, backend health probing, graceful drain
 - Single static binary per side: one-line installer, prebuilt releases, official multi-arch Docker images
 
+Feature-by-feature articles live in [docs/](docs/README.md); this README is the single-page overview and configuration reference.
+
 ---
 
 ## How It Works
@@ -422,7 +424,7 @@ When a proxied site is protected (`APERIO_SERVER_AUTH` or OIDC), you can hand ou
 https://app.example.com/docs?aperio_share=eyJob3N0IjoiYXBwLuKApiJ9.9f2c…
 ```
 
-The token is JWT-style — `base64url(claims).base64url(HMAC-SHA256)` — carrying the hostname, an optional path prefix, and an expiry (default 3 days, max 30). Opening the link validates the token, answers with a redirect to the clean URL, and sets an `aperio_share` cookie (`HttpOnly`, `SameSite=Lax`, expiring with the token) that authorizes subsequent requests — including the page's WebSockets. Out-of-scope paths still redirect to the login page.
+The token is JWT-style — `base64url(claims).base64url(HMAC-SHA256)` — carrying the hostname, an optional path prefix, and an expiry (default 3 days; the dashboard offers presets from 30 minutes up to 1 month, plus a never-expires option). Opening the link validates the token, answers with a redirect to the clean URL, and sets an `aperio_share` cookie (`HttpOnly`, `SameSite=Lax`, expiring with the token) that authorizes subsequent requests — including the page's WebSockets. Out-of-scope paths still redirect to the login page.
 
 Links are **stateless**: the signing key is derived from the master token, nothing is stored server-side, and links simply expire (rotating `APERIO_SERVER_TOKEN` invalidates all of them at once). Creation is audited (`share_created`) and emitted to webhooks; the internal cookie is stripped before requests are forwarded to backends.
 
@@ -445,7 +447,7 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 - `ttl_seconds` defaults to 1 hour, capped at 7 days; `allowed_ips` restricts who may connect.
 - The minted token's hostname is **auto-bound** on connect — run the client with just the server URL, token, and target.
 - `DELETE /aperio/api/tunnels/:id` revokes the token (same auth), e.g. from a CI cleanup step.
-- Events appear in the audit log as `tunnel_created` / `tunnel_deleted` and are delivered to webhooks.
+- Events appear in the audit log as `tunnel_created` / `tunnel_deleted`; webhooks receive `tunnel_created` on creation and `token_revoked` on deletion.
 
 ### GitHub Action
 
