@@ -266,9 +266,12 @@ aperio-client                          Run with environment variables (Docker mo
 aperio-client http <port> [options]    Expose http://localhost:<port>
 aperio-client run [--config FILE]      Run from aperio.yaml
 aperio-client tcp <local_port>         Bridge a local TCP port to the server's /aperio/tcp endpoint
+aperio-client check                    Diagnose configuration and connectivity
 aperio-client --version
 aperio-client --help
 ```
+
+`aperio-client check` resolves the configuration with the usual precedence and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), the local target, and its health endpoint when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
 
 | Option | Meaning |
 | --- | --- |
