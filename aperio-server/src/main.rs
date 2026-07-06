@@ -24,9 +24,11 @@ use tracing::{debug, error, info, warn};
 mod audit;
 mod stats;
 mod tokens;
+mod webhooks;
 use audit::AuditLog;
 use stats::StatsStore;
 use tokens::TokenStore;
+use webhooks::WebhookStore;
 
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -497,12 +499,20 @@ struct AppState {
   audit: Mutex<AuditLog>,
   /// Restart-surviving traffic statistics (all-time + period buckets).
   persistent_stats: Mutex<StatsStore>,
+  /// Persistent webhook definitions for the event system.
+  webhook_store: Mutex<WebhookStore>,
 }
 
 impl AppState {
   /// Records an audit event (file + in-memory ring).
   async fn audit(&self, event: &str, actor_ip: &str, details: &str) {
     self.audit.lock().await.record(event, actor_ip, details);
+  }
+
+  /// Delivers an event to all subscribed webhooks (fire-and-forget).
+  async fn emit_event(&self, event: &str, data: serde_json::Value) {
+    let subs = self.webhook_store.lock().await.subscribers(event);
+    webhooks::dispatch(subs, event, data);
   }
 }
 
@@ -778,6 +788,7 @@ async fn main() {
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
     audit: Mutex::new(AuditLog::load(&data_dir)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
+    webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -821,7 +832,15 @@ async fn main() {
         "/api/requests/:id/replay",
         axum::routing::post(request_replay_handler),
       )
-      .route("/api/audit", get(audit_handler));
+      .route("/api/audit", get(audit_handler))
+      .route(
+        "/api/webhooks",
+        get(webhooks_list_handler).post(webhooks_create_handler),
+      )
+      .route(
+        "/api/webhooks/:id",
+        axum::routing::delete(webhooks_delete_handler),
+      );
 
     let state_clone = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
@@ -1085,6 +1104,74 @@ async fn audit_handler(State(state): State<Arc<AppState>>) -> Json<Vec<audit::Au
   Json(state.audit.lock().await.recent())
 }
 
+/// Payload for creating a webhook definition.
+#[derive(Deserialize)]
+struct WebhookCreateRequest {
+  name: String,
+  url: String,
+  /// Subscribed events; `["*"]` (or empty) = all events.
+  #[serde(default)]
+  events: Vec<String>,
+}
+
+/// Lists webhook definitions.
+async fn webhooks_list_handler(State(state): State<Arc<AppState>>) -> Json<Vec<webhooks::Webhook>> {
+  Json(state.webhook_store.lock().await.list().to_vec())
+}
+
+/// Creates a webhook definition. Only http/https URLs are accepted.
+async fn webhooks_create_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<WebhookCreateRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let name = payload.name.trim().to_string();
+  if name.is_empty() || name.len() > 64 {
+    return (StatusCode::BAD_REQUEST, "Webhook name must be 1-64 characters").into_response();
+  }
+  let url = payload.url.trim().to_string();
+  if !(url.starts_with("http://") || url.starts_with("https://")) {
+    return (StatusCode::BAD_REQUEST, "Webhook URL must be http(s)").into_response();
+  }
+  let events: Vec<String> = payload
+    .events
+    .iter()
+    .map(|e| e.trim().to_string())
+    .filter(|e| !e.is_empty())
+    .collect();
+
+  let hook = state.webhook_store.lock().await.create(name, url, events);
+  info!("Webhook created: {} -> {}", hook.name, hook.url);
+  state
+    .audit(
+      "webhook_created",
+      &actor_ip,
+      &format!("name={} url={} events={:?}", hook.name, hook.url, hook.events),
+    )
+    .await;
+  Json(serde_json::json!({"status": "ok", "id": hook.id})).into_response()
+}
+
+/// Deletes a webhook definition.
+async fn webhooks_delete_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  if state.webhook_store.lock().await.delete(&id) {
+    state
+      .audit("webhook_deleted", &actor_ip, &format!("id={}", id))
+      .await;
+    Json(serde_json::json!({"status": "ok"})).into_response()
+  } else {
+    (StatusCode::NOT_FOUND, "Webhook not found").into_response()
+  }
+}
+
 /// Payload for the client enable/disable toggle.
 #[derive(Deserialize)]
 struct ClientEnabledRequest {
@@ -1289,6 +1376,12 @@ async fn tokens_create_handler(
       ),
     )
     .await;
+  state
+    .emit_event(
+      "token_created",
+      serde_json::json!({"id": record.id, "name": record.name}),
+    )
+    .await;
   (
     StatusCode::OK,
     Json(serde_json::json!({
@@ -1385,6 +1478,9 @@ async fn tokens_revoke_handler(
     info!("Dynamic token revoked: {}", id);
     state
       .audit("token_revoked", &actor_ip, &format!("id={}", id))
+      .await;
+    state
+      .emit_event("token_revoked", serde_json::json!({"id": id}))
       .await;
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {
@@ -2178,6 +2274,16 @@ async fn handle_socket(
       ),
     )
     .await;
+  state
+    .emit_event(
+      "client_connected",
+      serde_json::json!({
+        "client_id": client_id,
+        "ip": client_ip,
+        "token": perms.token_name.as_deref().unwrap_or("master"),
+      }),
+    )
+    .await;
 
   let client_req_count = Arc::new(AtomicU64::new(0));
 
@@ -2403,6 +2509,12 @@ async fn handle_socket(
               state
                 .audit("client_draining", &client_ip, &format!("client={}", client_id))
                 .await;
+              state
+                .emit_event(
+                  "client_draining",
+                  serde_json::json!({"client_id": client_id, "ip": client_ip}),
+                )
+                .await;
             }
             TunnelMessage::Ping {
               client_id: cid,
@@ -2550,6 +2662,12 @@ async fn handle_socket(
       "client_disconnected",
       &client_ip,
       &format!("client={}", client_id),
+    )
+    .await;
+  state
+    .emit_event(
+      "client_disconnected",
+      serde_json::json!({"client_id": client_id, "ip": client_ip}),
     )
     .await;
   {
@@ -3764,6 +3882,7 @@ mod tests {
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
+      webhook_store: Mutex::new(test_webhook_store()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -3828,6 +3947,7 @@ mod tests {
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
+      webhook_store: Mutex::new(test_webhook_store()),
     });
 
     let response = proxy_handler(
@@ -3891,6 +4011,7 @@ mod tests {
       captured_requests: Mutex::new(VecDeque::new()),
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
+      webhook_store: Mutex::new(test_webhook_store()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -4083,6 +4204,12 @@ mod tests {
     let dir = std::env::temp_dir().join(format!("aperio-test-stats-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&dir);
     StatsStore::load(&dir.to_string_lossy())
+  }
+
+  fn test_webhook_store() -> WebhookStore {
+    let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&dir);
+    WebhookStore::load(&dir.to_string_lossy())
   }
 
   fn mock_client(

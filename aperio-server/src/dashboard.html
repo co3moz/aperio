@@ -464,6 +464,31 @@
             </div>
         </div>
 
+        <!-- Webhooks Section -->
+        <div class="active-clients-section">
+            <div class="section-header">
+                <h2 class="section-title">Webhooks</h2>
+                <button class="overrule-btn" id="create-webhook-btn">+ Add Webhook</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>URL</th>
+                            <th>Events</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="webhooks-body">
+                        <tr>
+                            <td colspan="4" class="empty-logs">No webhooks defined</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Audit Log Section -->
         <div class="active-clients-section">
             <h2 class="section-title">Audit Log</h2>
@@ -967,6 +992,84 @@
         });
         document.getElementById('inspector-replay-btn').addEventListener('click', replayRequest);
 
+        // --- Webhooks ---
+        async function fetchWebhooks() {
+            try {
+                const res = await fetch('/aperio/api/webhooks');
+                if (!res.ok) throw new Error();
+                const hooks = await res.json();
+                const body = document.getElementById('webhooks-body');
+                body.innerHTML = '';
+                if (hooks.length === 0) {
+                    body.innerHTML = `<tr><td colspan="4" class="empty-logs">No webhooks defined</td></tr>`;
+                    return;
+                }
+                hooks.forEach(h => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${escapeHtml(h.name)}</td>
+                        <td class="text-mono" style="word-break: break-all;">${escapeHtml(h.url)}</td>
+                        <td>${(h.events.length ? h.events : ['*']).map(e => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(e)}</span>`).join('')}</td>
+                        <td></td>
+                    `;
+                    const btn = document.createElement('button');
+                    btn.className = 'overrule-btn';
+                    btn.textContent = 'Delete';
+                    btn.addEventListener('click', () => deleteWebhook(h));
+                    tr.lastElementChild.appendChild(btn);
+                    body.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Failed to fetch webhooks', e);
+            }
+        }
+
+        async function createWebhook() {
+            const name = prompt('Webhook name:');
+            if (!name) return;
+            const url = prompt('Webhook URL (http(s)://…):');
+            if (!url) return;
+            const events = prompt(
+                'Events (comma separated, * = all):\nclient_connected, client_disconnected, client_draining, token_created, token_revoked',
+                '*'
+            );
+            if (events === null) return;
+            try {
+                const res = await fetch('/aperio/api/webhooks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name.trim(),
+                        url: url.trim(),
+                        events: events.split(',').map(s => s.trim()).filter(Boolean),
+                    })
+                });
+                if (!res.ok) {
+                    alert(`Webhook creation failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchWebhooks();
+            } catch (e) {
+                alert('Webhook creation failed: ' + e);
+            }
+        }
+
+        async function deleteWebhook(h) {
+            if (!confirm(`Delete webhook "${h.name}"?`)) return;
+            try {
+                const res = await fetch(`/aperio/api/webhooks/${encodeURIComponent(h.id)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    alert(`Delete failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchWebhooks();
+            } catch (e) {
+                alert('Delete failed: ' + e);
+            }
+        }
+
+        document.getElementById('create-webhook-btn').addEventListener('click', createWebhook);
+
         // --- Audit Log ---
         async function fetchAudit() {
             try {
@@ -1143,6 +1246,7 @@
         // Tokens/audit change rarely; refresh on a slower cadence.
         setInterval(fetchTokens, 10000);
         setInterval(fetchAudit, 10000);
+        setInterval(fetchWebhooks, 15000);
         // Poll every 2 seconds to optimize server utilization
         setInterval(update, 2000);
     </script>
