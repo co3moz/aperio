@@ -372,9 +372,7 @@ impl ClientPerms {
   }
 
   fn hostname_allowed(&self, host: &str) -> bool {
-    self.master
-      || self.hostnames.is_empty()
-      || self.hostnames.iter().any(|h| h == "*" || h == host)
+    self.master || self.hostnames.is_empty() || self.hostnames.iter().any(|h| h == "*" || h == host)
   }
 
   fn path_allowed(&self, path: &str) -> bool {
@@ -426,7 +424,10 @@ impl ClientHandle {
   }
 
   fn matches_host(&self, host: &str) -> bool {
-    self.effective_hostnames().iter().any(|h| h.as_str() == host)
+    self
+      .effective_hostnames()
+      .iter()
+      .any(|h| h.as_str() == host)
   }
 
   fn has_hostname_bind(&self) -> bool {
@@ -722,18 +723,22 @@ async fn main() {
 
   // Optional custom 504 error page (e.g. APERIO_504_PAGE=/app/error_504.html).
   // Loaded once at startup; on read failure the default plain-text 504 is kept.
-  let custom_504_page = std::env::var("APERIO_504_PAGE").ok().and_then(|path| {
-    match std::fs::read_to_string(&path) {
-      Ok(html) => {
-        info!("Custom 504 page loaded from {}", path);
-        Some(html)
-      }
-      Err(e) => {
-        error!("Failed to read APERIO_504_PAGE {}: {} — using default 504 text", path, e);
-        None
-      }
-    }
-  });
+  let custom_504_page =
+    std::env::var("APERIO_504_PAGE")
+      .ok()
+      .and_then(|path| match std::fs::read_to_string(&path) {
+        Ok(html) => {
+          info!("Custom 504 page loaded from {}", path);
+          Some(html)
+        }
+        Err(e) => {
+          error!(
+            "Failed to read APERIO_504_PAGE {}: {} — using default 504 text",
+            path, e
+          );
+          None
+        }
+      });
 
   // Heartbeat-based health: clients whose last Ping is older than this many
   // seconds are treated as down and excluded from load balancing.
@@ -793,7 +798,10 @@ async fn main() {
       None => {
         let tok = format!("mtr_{}", uuid::Uuid::new_v4().simple());
         if let Err(e) = std::fs::write(&path, &tok) {
-          error!("Failed to persist generated metrics token to {:?}: {}", path, e);
+          error!(
+            "Failed to persist generated metrics token to {:?}: {}",
+            path, e
+          );
         }
         warn!(
           "APERIO_METRICS_TOKEN not set; generated a random metrics token: {} (persisted in {:?}). \
@@ -827,7 +835,9 @@ async fn main() {
   };
 
   if require_hostname_bind {
-    info!("Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic.");
+    info!(
+      "Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic."
+    );
   }
 
   // OIDC SSO configuration (optional).
@@ -1213,7 +1223,11 @@ async fn webhooks_create_handler(
   let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
-    return (StatusCode::BAD_REQUEST, "Webhook name must be 1-64 characters").into_response();
+    return (
+      StatusCode::BAD_REQUEST,
+      "Webhook name must be 1-64 characters",
+    )
+      .into_response();
   }
   let url = payload.url.trim().to_string();
   if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -1232,7 +1246,10 @@ async fn webhooks_create_handler(
     .audit(
       "webhook_created",
       &actor_ip,
-      &format!("name={} url={} events={:?}", hook.name, hook.url, hook.events),
+      &format!(
+        "name={} url={} events={:?}",
+        hook.name, hook.url, hook.events
+      ),
     )
     .await;
   Json(serde_json::json!({"status": "ok", "id": hook.id})).into_response()
@@ -1286,7 +1303,11 @@ async fn client_enabled_handler(
     info!(
       "Client {} {} via dashboard",
       client_id,
-      if payload.enabled { "enabled" } else { "disabled" }
+      if payload.enabled {
+        "enabled"
+      } else {
+        "disabled"
+      }
     );
     state
       .audit(
@@ -1436,7 +1457,11 @@ async fn tokens_create_handler(
   let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
-    return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
+    return (
+      StatusCode::BAD_REQUEST,
+      "Token name must be 1-64 characters",
+    )
+      .into_response();
   }
 
   let (hostnames, paths, allowed_ips) =
@@ -1459,7 +1484,12 @@ async fn tokens_create_handler(
       &actor_ip,
       &format!(
         "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
-        record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
+        record.name,
+        record.id,
+        record.hostnames,
+        record.paths,
+        record.allowed_ips,
+        record.expires_at
       ),
     )
     .await;
@@ -1498,7 +1528,11 @@ async fn tokens_update_handler(
   if let Some(ref n) = payload.name {
     let n = n.trim();
     if n.is_empty() || n.len() > 64 {
-      return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
+      return (
+        StatusCode::BAD_REQUEST,
+        "Token name must be 1-64 characters",
+      )
+        .into_response();
     }
   }
   let (hostnames, paths, allowed_ips) = match validate_token_perms(
@@ -1528,7 +1562,12 @@ async fn tokens_update_handler(
     Some(record) => {
       info!(
         "Dynamic token updated: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
-        record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
+        record.name,
+        record.id,
+        record.hostnames,
+        record.paths,
+        record.allowed_ips,
+        record.expires_at
       );
       state
         .audit(
@@ -1730,7 +1769,11 @@ async fn request_replay_handler(
       }))
       .into_response()
     }
-    Ok(Err(_)) => (StatusCode::BAD_GATEWAY, "Client connection lost during replay").into_response(),
+    Ok(Err(_)) => (
+      StatusCode::BAD_GATEWAY,
+      "Client connection lost during replay",
+    )
+      .into_response(),
     Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Replay response timeout").into_response(),
   }
 }
@@ -1780,7 +1823,9 @@ async fn metrics_handler(
     "aperio_requests_success_total {}\n",
     stats.successful_requests
   ));
-  out.push_str("# HELP aperio_requests_failed_total Failed proxied requests (5xx / gateway errors).\n");
+  out.push_str(
+    "# HELP aperio_requests_failed_total Failed proxied requests (5xx / gateway errors).\n",
+  );
   out.push_str("# TYPE aperio_requests_failed_total counter\n");
   out.push_str(&format!(
     "aperio_requests_failed_total {}\n",
@@ -1804,7 +1849,9 @@ async fn metrics_handler(
   out.push_str("# HELP aperio_uptime_seconds Server uptime in seconds.\n");
   out.push_str("# TYPE aperio_uptime_seconds gauge\n");
   out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
-  out.push_str("# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n");
+  out.push_str(
+    "# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n",
+  );
   out.push_str("# TYPE aperio_client_requests_total counter\n");
   for (id, count) in per_client {
     out.push_str(&format!(
@@ -1815,10 +1862,7 @@ async fn metrics_handler(
 
   (
     StatusCode::OK,
-    [(
-      "content-type",
-      "text/plain; version=0.0.4; charset=utf-8",
-    )],
+    [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
     out,
   )
     .into_response()
@@ -1889,7 +1933,11 @@ async fn auth_login_handler(
 
   if !authenticated {
     state
-      .audit("login_failed", &client_ip.to_string(), "invalid credentials")
+      .audit(
+        "login_failed",
+        &client_ip.to_string(),
+        "invalid credentials",
+      )
       .await;
     return Err(StatusCode::UNAUTHORIZED);
   }
@@ -1999,7 +2047,9 @@ fn ip_allowed(ip: IpAddr, allowed: &[String]) -> bool {
         };
         cidr_contains(base_ip, bits, ip)
       }
-      None => entry.parse::<IpAddr>().is_ok_and(|allowed_ip| allowed_ip == ip),
+      None => entry
+        .parse::<IpAddr>()
+        .is_ok_and(|allowed_ip| allowed_ip == ip),
     }
   })
 }
@@ -2646,7 +2696,10 @@ async fn handle_socket(
                 match streams.get(&stream_id) {
                   Some(h) if h.client_id == client_id => Some(h.tx.clone()),
                   Some(_) => {
-                    warn!("TcpData for stream {} rejected: not owned by client {}", stream_id, client_id);
+                    warn!(
+                      "TcpData for stream {} rejected: not owned by client {}",
+                      stream_id, client_id
+                    );
                     None
                   }
                   None => None,
@@ -2681,7 +2734,10 @@ async fn handle_socket(
               compress_out.store(true, Ordering::SeqCst);
             }
             TunnelMessage::Draining {} => {
-              info!("Client {} is draining: no new requests will be routed to it", client_id);
+              info!(
+                "Client {} is draining: no new requests will be routed to it",
+                client_id
+              );
               {
                 let mut clients = state.clients.lock().await;
                 if let Some(handle) = clients.get_mut(&client_id) {
@@ -2689,7 +2745,11 @@ async fn handle_socket(
                 }
               }
               state
-                .audit("client_draining", &client_ip, &format!("client={}", client_id))
+                .audit(
+                  "client_draining",
+                  &client_ip,
+                  &format!("client={}", client_id),
+                )
                 .await;
               state
                 .emit_event(
@@ -3944,7 +4004,6 @@ async fn relay_ws_stream(
   );
 }
 
-
 /// Experimental TCP tunneling endpoint (`GET /aperio/tcp`, WebSocket).
 /// Consumers authenticate with a tunnel token (master or dynamic) and get a
 /// raw byte relay to the TCP target configured on a TCP-enabled client.
@@ -4020,11 +4079,11 @@ async fn relay_tcp_consumer(
   let open = TunnelMessage::TcpOpen {
     stream_id: stream_id.clone(),
   };
-  if let Ok(json) = serde_json::to_string(&open) {
-    if client_tx.send(Message::Text(json)).await.is_err() {
-      state.tcp_streams.lock().await.remove(&stream_id);
-      return;
-    }
+  if let Ok(json) = serde_json::to_string(&open)
+    && client_tx.send(Message::Text(json)).await.is_err()
+  {
+    state.tcp_streams.lock().await.remove(&stream_id);
+    return;
   }
 
   let (mut ws_sender, mut ws_receiver) = consumer_ws.split();
@@ -4161,7 +4220,11 @@ async fn oidc_login_handler(
       .unwrap(),
     Err(e) => {
       error!("Failed to build OIDC authorize URL: {}", e);
-      (StatusCode::INTERNAL_SERVER_ERROR, "OIDC configuration error").into_response()
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "OIDC configuration error",
+      )
+        .into_response()
     }
   }
 }
@@ -4885,8 +4948,14 @@ mod tests {
     // CIDR ranges
     assert!(ip_allowed(ip("10.1.2.3"), &["10.0.0.0/8".to_string()]));
     assert!(!ip_allowed(ip("11.1.2.3"), &["10.0.0.0/8".to_string()]));
-    assert!(ip_allowed(ip("192.168.1.77"), &["192.168.1.0/24".to_string()]));
-    assert!(!ip_allowed(ip("192.168.2.77"), &["192.168.1.0/24".to_string()]));
+    assert!(ip_allowed(
+      ip("192.168.1.77"),
+      &["192.168.1.0/24".to_string()]
+    ));
+    assert!(!ip_allowed(
+      ip("192.168.2.77"),
+      &["192.168.1.0/24".to_string()]
+    ));
 
     // Multiple entries: any match wins
     assert!(ip_allowed(
@@ -4977,14 +5046,18 @@ mod tests {
     assert_eq!(key, (Some("a.example.com".to_string()), None));
 
     // Unknown host → falls back to unbound client
-    let (pool, key) = select_client_pool(&clients, "/", Some("c.example.com"), false, TEST_THRESHOLD).unwrap();
+    let (pool, key) =
+      select_client_pool(&clients, "/", Some("c.example.com"), false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["unbound".to_string()]);
     assert_eq!(key, (None, None));
 
     // Strict mode: unknown host → no client at all
-    assert!(select_client_pool(&clients, "/", Some("c.example.com"), true, TEST_THRESHOLD).is_none());
+    assert!(
+      select_client_pool(&clients, "/", Some("c.example.com"), true, TEST_THRESHOLD).is_none()
+    );
     // Strict mode: matching host still works
-    let (pool, _) = select_client_pool(&clients, "/", Some("b.example.com"), true, TEST_THRESHOLD).unwrap();
+    let (pool, _) =
+      select_client_pool(&clients, "/", Some("b.example.com"), true, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["b".to_string()]);
     // Strict mode: no Host header → no client
     assert!(select_client_pool(&clients, "/", None, true, TEST_THRESHOLD).is_none());
@@ -5003,20 +5076,29 @@ mod tests {
     );
 
     // Path under /api on the bound host → path-bound client wins
-    let (pool, key) =
-      select_client_pool(&clients, "/api/users", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
+    let (pool, key) = select_client_pool(
+      &clients,
+      "/api/users",
+      Some("a.example.com"),
+      false,
+      TEST_THRESHOLD,
+    )
+    .unwrap();
     assert_eq!(pool, vec!["host-api".to_string()]);
     assert_eq!(
       key,
-      (
-        Some("a.example.com".to_string()),
-        Some("/api".to_string())
-      )
+      (Some("a.example.com".to_string()), Some("/api".to_string()))
     );
 
     // Other paths on the bound host → unbound-path client
-    let (pool, _) =
-      select_client_pool(&clients, "/other", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
+    let (pool, _) = select_client_pool(
+      &clients,
+      "/other",
+      Some("a.example.com"),
+      false,
+      TEST_THRESHOLD,
+    )
+    .unwrap();
     assert_eq!(pool, vec!["host-root".to_string()]);
   }
 
@@ -5034,7 +5116,9 @@ mod tests {
     assert_eq!(pool, vec!["overruled".to_string()]);
 
     // With the override active, the client is no longer an unbound fallback
-    assert!(select_client_pool(&clients, "/", Some("x.example.com"), false, TEST_THRESHOLD).is_none());
+    assert!(
+      select_client_pool(&clients, "/", Some("x.example.com"), false, TEST_THRESHOLD).is_none()
+    );
   }
 
   #[test]
@@ -5049,11 +5133,13 @@ mod tests {
       mock_client(None, Some("/api/v2"), None, None),
     );
 
-    let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
+    let (pool, key) =
+      select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["long".to_string()]);
     assert_eq!(key, (None, Some("/api/v2".to_string())));
 
-    let (pool, _) = select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
+    let (pool, _) =
+      select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["short".to_string()]);
   }
 

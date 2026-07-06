@@ -64,14 +64,21 @@ impl TokenStore {
       Ok(raw) => match serde_json::from_str::<TokenFile>(&raw) {
         Ok(file) => file.tokens,
         Err(e) => {
-          error!("Failed to parse {:?}: {} — starting with empty token store", path, e);
+          error!(
+            "Failed to parse {:?}: {} — starting with empty token store",
+            path, e
+          );
           Vec::new()
         }
       },
       Err(_) => Vec::new(),
     };
     if !tokens.is_empty() {
-      info!("Loaded {} dynamic API token(s) from {:?}", tokens.len(), path);
+      info!(
+        "Loaded {} dynamic API token(s) from {:?}",
+        tokens.len(),
+        path
+      );
     }
     TokenStore { path, tokens }
   }

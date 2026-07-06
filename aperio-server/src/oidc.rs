@@ -116,9 +116,7 @@ pub fn email_allowed(email: &str, patterns: &[String]) -> bool {
       return true;
     }
     if let Some(domain) = p.strip_prefix("*@") {
-      return email
-        .rsplit_once('@')
-        .is_some_and(|(_, d)| d == domain);
+      return email.rsplit_once('@').is_some_and(|(_, d)| d == domain);
     }
     p == &email
   })
@@ -130,15 +128,15 @@ mod tests {
 
   #[test]
   fn test_email_allowed() {
-    let patterns = vec![
-      "ceo@corp.com".to_string(),
-      "*@team.example.com".to_string(),
-    ];
+    let patterns = vec!["ceo@corp.com".to_string(), "*@team.example.com".to_string()];
     assert!(email_allowed("ceo@corp.com", &patterns));
     assert!(email_allowed("CEO@Corp.com", &patterns));
     assert!(email_allowed("dev@team.example.com", &patterns));
     assert!(!email_allowed("dev@corp.com", &patterns));
-    assert!(!email_allowed("dev@evil-team.example.com.attacker.io", &patterns));
+    assert!(!email_allowed(
+      "dev@evil-team.example.com.attacker.io",
+      &patterns
+    ));
     assert!(!email_allowed("", &patterns));
 
     // Wildcard-all

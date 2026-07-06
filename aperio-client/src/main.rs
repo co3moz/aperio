@@ -351,11 +351,17 @@ async fn main() {
     std::process::exit(1);
   }
 
-  let server_addr = resolve(cli.server.clone(), "APERIO_SERVER_URL", file_cfg.server.clone())
-    .unwrap_or_else(|| {
-      error!("CRITICAL ERROR: the server URL is required (APERIO_SERVER_URL, --server, or yaml: server)!");
-      std::process::exit(1);
-    });
+  let server_addr = resolve(
+    cli.server.clone(),
+    "APERIO_SERVER_URL",
+    file_cfg.server.clone(),
+  )
+  .unwrap_or_else(|| {
+    error!(
+      "CRITICAL ERROR: the server URL is required (APERIO_SERVER_URL, --server, or yaml: server)!"
+    );
+    std::process::exit(1);
+  });
 
   // TCP bridge mode short-circuits the tunnel client entirely.
   if let CliMode::TcpBridge = cli.mode {
@@ -458,7 +464,9 @@ async fn main() {
       };
       #[cfg(unix)]
       let terminate = async {
-        if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut sig) =
+          tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
           sig.recv().await;
         } else {
           std::future::pending::<()>().await;
@@ -1052,7 +1060,10 @@ async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
       std::process::exit(1);
     }
   };
-  let bound = listener.local_addr().map(|a| a.port()).unwrap_or(local_port);
+  let bound = listener
+    .local_addr()
+    .map(|a| a.port())
+    .unwrap_or(local_port);
   info!(
     "TCP bridge listening on 127.0.0.1:{} -> {} (remote client's TCP target)",
     bound, ws_url
@@ -1101,7 +1112,11 @@ async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
           match tcp_read.read(&mut buf).await {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-              if ws_tx.send(Message::Binary(buf[..n].to_vec())).await.is_err() {
+              if ws_tx
+                .send(Message::Binary(buf[..n].to_vec()))
+                .await
+                .is_err()
+              {
                 break;
               }
             }

@@ -43,7 +43,11 @@ impl AuditLog {
       }
     }
     if !recent.is_empty() {
-      info!("Loaded {} recent audit events from {:?}", recent.len(), path);
+      info!(
+        "Loaded {} recent audit events from {:?}",
+        recent.len(),
+        path
+      );
     }
     AuditLog { path, recent }
   }
