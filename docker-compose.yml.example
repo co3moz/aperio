@@ -11,7 +11,12 @@ services:
       - PORT=8080
       - APERIO_SERVER_TOKEN=supersecrettoken123
       - APERIO_DASHBOARD=1
+      - APERIO_DATA_DIR=/app/data
       - LOG_LEVEL=debug
+    volumes:
+      # Persist dynamic API tokens (and other server state) across restarts.
+      # Without this volume, dashboard-created tokens are lost on container recreation.
+      - ./data:/app/data
     restart: unless-stopped
 
   client:

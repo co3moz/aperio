@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
+mod tokens;
+use tokens::TokenStore;
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -126,10 +129,12 @@ struct ClientDetail {
   connected_for_seconds: u64,
   /// Total request count processed by this client connection.
   request_count: u64,
-  /// Path prefix the client itself reported (APERIO_PATH_BIND).
+  /// Path bind in effect (declared by the client or granted by its token).
   path_bind: Option<String>,
-  /// Hostname the client itself reported (APERIO_HOSTNAME_BIND).
-  hostname_bind: Option<String>,
+  /// Hostnames in effect (declared, token-granted, and random-subdomain).
+  hostname_binds: Vec<String>,
+  /// Name of the dynamic token this client authenticated with (None = master).
+  token_name: Option<String>,
   /// Temporary server-side path bind override (dashboard overrule).
   override_path_bind: Option<String>,
   /// Temporary server-side hostname bind override (dashboard overrule).
@@ -188,10 +193,17 @@ struct ClientHandle {
   client_ip: String,
   /// Total request count processed by this specific client connection.
   request_count: Arc<AtomicU64>,
-  /// Path prefix this client is bound to (from APERIO_PATH_BIND).
-  path_bind: Option<String>,
-  /// Hostname this client is bound to (from APERIO_HOSTNAME_BIND).
-  hostname_bind: Option<String>,
+  /// Path prefix the client declared via Ping (from APERIO_PATH_BIND),
+  /// validated against the token permissions.
+  declared_path: Option<String>,
+  /// Path bind granted by the token permissions when the client declared none.
+  assigned_path: Option<String>,
+  /// Hostname the client declared via Ping (from APERIO_HOSTNAME_BIND),
+  /// validated against the token permissions.
+  declared_hostname: Option<String>,
+  /// Hostnames granted automatically: token-bound hostnames and/or the
+  /// randomly assigned subdomain.
+  assigned_hostnames: Vec<String>,
   /// Temporary path bind override set from the dashboard. Not persisted:
   /// lost when the client reconnects or the server restarts.
   override_path_bind: Option<String>,
@@ -199,22 +211,93 @@ struct ClientHandle {
   override_hostname_bind: Option<String>,
   /// Instant of the last heartbeat Ping received from this client.
   last_ping_at: Option<Instant>,
+  /// Permissions attached to the token this client authenticated with.
+  perms: ClientPerms,
+}
+
+/// Permissions resolved at connection time from the presented token.
+#[derive(Clone)]
+struct ClientPerms {
+  /// True for the master `APERIO_SERVER_TOKEN`: no restrictions.
+  master: bool,
+  /// Allowed hostname binds. Empty or containing "*" = unrestricted.
+  hostnames: Vec<String>,
+  /// Allowed path binds. Empty or containing "*" = unrestricted.
+  paths: Vec<String>,
+  /// Name of the dynamic token used (None for the master token).
+  token_name: Option<String>,
+}
+
+impl ClientPerms {
+  fn master() -> Self {
+    ClientPerms {
+      master: true,
+      hostnames: Vec::new(),
+      paths: Vec::new(),
+      token_name: None,
+    }
+  }
+
+  fn hostname_allowed(&self, host: &str) -> bool {
+    self.master
+      || self.hostnames.is_empty()
+      || self.hostnames.iter().any(|h| h == "*" || h == host)
+  }
+
+  fn path_allowed(&self, path: &str) -> bool {
+    self.master || self.paths.is_empty() || self.paths.iter().any(|p| p == "*" || p == path)
+  }
+
+  /// Specific (non-wildcard) hostnames granted by the token; these are
+  /// auto-bound to the client on connect.
+  fn granted_hostnames(&self) -> Vec<String> {
+    self
+      .hostnames
+      .iter()
+      .filter(|h| *h != "*")
+      .cloned()
+      .collect()
+  }
+
+  /// First specific path granted by the token, used as the automatic path
+  /// bind when the client did not declare one.
+  fn granted_path(&self) -> Option<String> {
+    self.paths.iter().find(|p| *p != "*").cloned()
+  }
 }
 
 impl ClientHandle {
-  /// Path bind used for routing: dashboard override wins over the
-  /// client-reported value.
+  /// Path bind used for routing: dashboard override wins over the declared
+  /// value, which wins over the token-granted value.
   fn effective_path_bind(&self) -> Option<&String> {
-    self.override_path_bind.as_ref().or(self.path_bind.as_ref())
+    self
+      .override_path_bind
+      .as_ref()
+      .or(self.declared_path.as_ref())
+      .or(self.assigned_path.as_ref())
   }
 
-  /// Hostname bind used for routing: dashboard override wins over the
-  /// client-reported value.
-  fn effective_hostname_bind(&self) -> Option<&String> {
-    self
-      .override_hostname_bind
-      .as_ref()
-      .or(self.hostname_bind.as_ref())
+  /// Hostnames used for routing. A dashboard override replaces the whole
+  /// set; otherwise the union of assigned and declared hostnames applies.
+  fn effective_hostnames(&self) -> Vec<&String> {
+    if let Some(o) = &self.override_hostname_bind {
+      return vec![o];
+    }
+    let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
+    if let Some(d) = &self.declared_hostname
+      && !set.contains(&d)
+    {
+      set.push(d);
+    }
+    set
+  }
+
+  fn matches_host(&self, host: &str) -> bool {
+    self.effective_hostnames().iter().any(|h| h.as_str() == host)
+  }
+
+  fn has_hostname_bind(&self) -> bool {
+    !self.effective_hostnames().is_empty()
   }
 }
 
@@ -287,6 +370,8 @@ struct AppState {
   ws_streams: Mutex<HashMap<String, mpsc::Sender<WsStreamMessage>>>,
   /// Pending WebSocket upgrade responses: upgrade_id → oneshot to resolve when client responds.
   pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
+  /// Persistent store of dashboard-created dynamic API tokens.
+  token_store: Mutex<TokenStore>,
 }
 
 impl AppState {
@@ -451,6 +536,11 @@ async fn main() {
     info!("Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic.");
   }
 
+  // Data directory for persisted state (dynamic tokens, etc.). In Docker,
+  // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
+  let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+  let token_store = TokenStore::load(&data_dir);
+
   let (client_connected_tx, _) = watch::channel(false);
 
   let state = Arc::new(AppState {
@@ -479,6 +569,7 @@ async fn main() {
     active_tunnel_count: AtomicUsize::new(0),
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
+    token_store: Mutex::new(token_store),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -504,6 +595,14 @@ async fn main() {
       .route(
         "/api/clients/:id/override",
         axum::routing::post(client_override_handler),
+      )
+      .route(
+        "/api/tokens",
+        get(tokens_list_handler).post(tokens_create_handler),
+      )
+      .route(
+        "/api/tokens/:id",
+        axum::routing::delete(tokens_revoke_handler),
       );
 
     let state_clone = state.clone();
@@ -620,8 +719,20 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       ip: handle.client_ip.clone(),
       connected_for_seconds: handle.connected_at.elapsed().as_secs(),
       request_count: handle.request_count.load(Ordering::SeqCst),
-      path_bind: handle.path_bind.clone(),
-      hostname_bind: handle.hostname_bind.clone(),
+      path_bind: handle
+        .declared_path
+        .clone()
+        .or_else(|| handle.assigned_path.clone()),
+      hostname_binds: {
+        let mut set = handle.assigned_hostnames.clone();
+        if let Some(d) = &handle.declared_hostname
+          && !set.contains(d)
+        {
+          set.push(d.clone());
+        }
+        set
+      },
+      token_name: handle.perms.token_name.clone(),
       override_path_bind: handle.override_path_bind.clone(),
       override_hostname_bind: handle.override_hostname_bind.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
@@ -697,6 +808,142 @@ async fn client_override_handler(
       (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
     }
     None => (StatusCode::NOT_FOUND, "Client not found").into_response(),
+  }
+}
+
+/// Public view of a dynamic token record (never includes hash or secret).
+#[derive(Serialize)]
+struct TokenView {
+  id: String,
+  name: String,
+  token_prefix: String,
+  hostnames: Vec<String>,
+  paths: Vec<String>,
+  created_at: u64,
+  expires_at: Option<u64>,
+  expired: bool,
+}
+
+/// Lists dynamic API tokens (metadata only, secrets are never returned).
+async fn tokens_list_handler(State(state): State<Arc<AppState>>) -> Json<Vec<TokenView>> {
+  let store = state.token_store.lock().await;
+  let views = store
+    .list()
+    .iter()
+    .map(|t| TokenView {
+      id: t.id.clone(),
+      name: t.name.clone(),
+      token_prefix: t.token_prefix.clone(),
+      hostnames: t.hostnames.clone(),
+      paths: t.paths.clone(),
+      created_at: t.created_at,
+      expires_at: t.expires_at,
+      expired: t.is_expired(),
+    })
+    .collect();
+  Json(views)
+}
+
+/// Payload for creating a dynamic token from the dashboard.
+#[derive(Deserialize)]
+struct TokenCreateRequest {
+  name: String,
+  /// Allowed hostnames; `["*"]` (or empty) = all hostnames.
+  #[serde(default)]
+  hostnames: Vec<String>,
+  /// Allowed path binds; `["*"]` (or empty) = all paths.
+  #[serde(default)]
+  paths: Vec<String>,
+  /// Optional lifetime in seconds; omitted = never expires.
+  ttl_seconds: Option<u64>,
+}
+
+/// Creates a dynamic token. The plaintext secret is returned exactly once.
+async fn tokens_create_handler(
+  State(state): State<Arc<AppState>>,
+  Json(payload): Json<TokenCreateRequest>,
+) -> Response {
+  let name = payload.name.trim().to_string();
+  if name.is_empty() || name.len() > 64 {
+    return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
+  }
+
+  // Validate permission entries ("*" allowed as wildcard).
+  let mut hostnames = Vec::new();
+  for h in &payload.hostnames {
+    let trimmed = h.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if trimmed == "*" {
+      hostnames.push("*".to_string());
+      continue;
+    }
+    match normalize_hostname_bind(trimmed) {
+      Some(valid) => hostnames.push(valid),
+      None => {
+        return (
+          StatusCode::BAD_REQUEST,
+          format!("Invalid hostname permission: {}", trimmed),
+        )
+          .into_response();
+      }
+    }
+  }
+  let mut paths = Vec::new();
+  for p in &payload.paths {
+    let trimmed = p.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if trimmed == "*" {
+      paths.push("*".to_string());
+      continue;
+    }
+    match normalize_path_bind(trimmed) {
+      Some(valid) => paths.push(valid),
+      None => {
+        return (
+          StatusCode::BAD_REQUEST,
+          format!("Invalid path permission: {}", trimmed),
+        )
+          .into_response();
+      }
+    }
+  }
+
+  let mut store = state.token_store.lock().await;
+  let (record, secret) = store.create(name, hostnames, paths, payload.ttl_seconds);
+  info!(
+    "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, expires_at={:?})",
+    record.name, record.id, record.hostnames, record.paths, record.expires_at
+  );
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({
+      "id": record.id,
+      "name": record.name,
+      "token": secret,
+      "hostnames": record.hostnames,
+      "paths": record.paths,
+      "expires_at": record.expires_at,
+    })),
+  )
+    .into_response()
+}
+
+/// Revokes (deletes) a dynamic token. Existing tunnel connections that used
+/// the token stay connected; only new connections are rejected.
+async fn tokens_revoke_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+  let mut store = state.token_store.lock().await;
+  if store.revoke(&id) {
+    info!("Dynamic token revoked: {}", id);
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+  } else {
+    (StatusCode::NOT_FOUND, "Token not found").into_response()
   }
 }
 
@@ -876,27 +1123,47 @@ async fn auth_login_handler(
   )
 }
 
-/// Helper function to extract Bearer token or `x-auth-token` from header values
-/// and verify if it matches the configured server security token.
-fn extract_and_verify_token(headers: &HeaderMap, server_token: &str) -> bool {
-  let mut token_opt = None;
+/// Extracts a Bearer token or `x-auth-token` value from request headers.
+fn extract_token(headers: &HeaderMap) -> Option<String> {
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
     && let Some(stripped) = auth_str.strip_prefix("Bearer ")
   {
-    token_opt = Some(stripped.to_string());
+    return Some(stripped.to_string());
   }
-  if token_opt.is_none()
-    && let Some(x_token) = headers.get("x-auth-token")
+  if let Some(x_token) = headers.get("x-auth-token")
     && let Ok(x_token_str) = x_token.to_str()
   {
-    token_opt = Some(x_token_str.to_string());
+    return Some(x_token_str.to_string());
   }
+  None
+}
 
-  match token_opt {
+/// Helper function to extract Bearer token or `x-auth-token` from header values
+/// and verify if it matches the configured server security token.
+#[cfg(test)]
+fn extract_and_verify_token(headers: &HeaderMap, server_token: &str) -> bool {
+  match extract_token(headers) {
     Some(tok) => constant_time_eq_str(&tok, server_token),
     None => false,
   }
+}
+
+/// Resolves the permissions for a presented tunnel token: the master token
+/// grants unrestricted access; otherwise the dynamic token store is consulted
+/// (rejecting unknown and expired tokens).
+async fn authorize_tunnel_token(state: &AppState, headers: &HeaderMap) -> Option<ClientPerms> {
+  let presented = extract_token(headers)?;
+  if constant_time_eq_str(&presented, &state.config.token) {
+    return Some(ClientPerms::master());
+  }
+  let store = state.token_store.lock().await;
+  store.verify(&presented).map(|t| ClientPerms {
+    master: false,
+    hostnames: t.hostnames.clone(),
+    paths: t.paths.clone(),
+    token_name: Some(t.name.clone()),
+  })
 }
 
 /// Constant-time string comparison to mitigate timing attacks on secrets.
@@ -1025,7 +1292,7 @@ fn select_client_pool(
   let host_matched: Vec<(&String, &ClientHandle)> = match request_host {
     Some(host) => clients
       .iter()
-      .filter(|(_, c)| c.effective_hostname_bind().is_some_and(|b| b == host))
+      .filter(|(_, c)| c.matches_host(host))
       .collect(),
     None => Vec::new(),
   };
@@ -1039,7 +1306,7 @@ fn select_client_pool(
     } else {
       let unbound: Vec<(&String, &ClientHandle)> = clients
         .iter()
-        .filter(|(_, c)| c.effective_hostname_bind().is_none())
+        .filter(|(_, c)| !c.has_hostname_bind())
         .collect();
       (unbound, None)
     };
@@ -1117,12 +1384,13 @@ async fn ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let authenticated = extract_and_verify_token(&headers, &state.config.token);
-
-  if !authenticated {
-    info!("Unauthorized connection attempt blocked.");
-    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
-  }
+  let perms = match authorize_tunnel_token(&state, &headers).await {
+    Some(p) => p,
+    None => {
+      info!("Unauthorized connection attempt blocked.");
+      return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+  };
 
   // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
   // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
@@ -1152,11 +1420,16 @@ async fn ws_handler(
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
   ws.max_message_size(state.config.max_body_size.saturating_mul(2))
     .max_frame_size(state.config.max_body_size)
-    .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state))
+    .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state, perms))
 }
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
-async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState>) {
+async fn handle_socket(
+  socket: WebSocket,
+  client_ip: String,
+  state: Arc<AppState>,
+  perms: ClientPerms,
+) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let client_id = uuid::Uuid::new_v4().to_string();
 
@@ -1191,11 +1464,15 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
         connected_at: Instant::now(),
         client_ip: client_ip.clone(),
         request_count: client_req_count.clone(),
-        path_bind: None,
-        hostname_bind: None,
+        declared_path: None,
+        // Token-granted binds apply immediately, before the first Ping.
+        assigned_path: perms.granted_path(),
+        declared_hostname: None,
+        assigned_hostnames: perms.granted_hostnames(),
         override_path_bind: None,
         override_hostname_bind: None,
         last_ping_at: None,
+        perms: perms.clone(),
       },
     );
     drop(clients);
@@ -1265,11 +1542,26 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
               {
                 let mut clients = state.clients.lock().await;
                 if let Some(handle) = clients.get_mut(&client_id) {
-                  if normalized_path.is_some() {
-                    handle.path_bind = normalized_path;
+                  // Declared binds must be permitted by the token used to connect.
+                  if let Some(p) = normalized_path {
+                    if handle.perms.path_allowed(&p) {
+                      handle.declared_path = Some(p);
+                    } else {
+                      warn!(
+                        "Client {} declared path bind {} not permitted by its token; ignored",
+                        client_id, p
+                      );
+                    }
                   }
-                  if normalized_host.is_some() {
-                    handle.hostname_bind = normalized_host;
+                  if let Some(h) = normalized_host {
+                    if handle.perms.hostname_allowed(&h) {
+                      handle.declared_hostname = Some(h);
+                    } else {
+                      warn!(
+                        "Client {} declared hostname bind {} not permitted by its token; ignored",
+                        client_id, h
+                      );
+                    }
                   }
                   handle.last_ping_at = Some(Instant::now());
                 }
@@ -1365,21 +1657,20 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     let removed = clients.remove(&client_id);
     let now_empty = clients.is_empty();
 
-    // Clean up the round-robin index for this client's routing group if no
-    // other client remains in the same group (prevents unbounded growth).
-    if let Some(handle) = &removed {
-      let group_key: RouteGroupKey = (
-        handle.effective_hostname_bind().cloned(),
-        handle.effective_path_bind().cloned(),
-      );
-      let group_has_clients = clients.values().any(|c| {
-        c.effective_hostname_bind() == group_key.0.as_ref()
-          && c.effective_path_bind() == group_key.1.as_ref()
+    // Prune round-robin indices for routing groups that no longer have any
+    // matching client (prevents unbounded growth of the rr map). Clients can
+    // belong to multiple hostname groups, so re-evaluate all keys.
+    if removed.is_some() {
+      let mut rr_map = state.path_rr.lock().await;
+      rr_map.retain(|(host_key, path_key), _| {
+        clients.values().any(|c| {
+          let host_ok = match host_key {
+            Some(h) => c.matches_host(h),
+            None => !c.has_hostname_bind(),
+          };
+          host_ok && c.effective_path_bind() == path_key.as_ref()
+        })
       });
-      if !group_has_clients {
-        let mut rr_map = state.path_rr.lock().await;
-        rr_map.remove(&group_key);
-      }
     }
 
     drop(clients);
@@ -2452,6 +2743,7 @@ mod tests {
       active_tunnel_count: AtomicUsize::new(0),
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
+      token_store: Mutex::new(test_token_store()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -2509,6 +2801,7 @@ mod tests {
       active_tunnel_count: AtomicUsize::new(0),
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
+      token_store: Mutex::new(test_token_store()),
     });
 
     let response = proxy_handler(
@@ -2565,6 +2858,7 @@ mod tests {
       active_tunnel_count: AtomicUsize::new(0),
       ws_streams: Mutex::new(HashMap::new()),
       pending_upgrades: Mutex::new(HashMap::new()),
+      token_store: Mutex::new(test_token_store()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -2577,11 +2871,14 @@ mod tests {
         connected_at: Instant::now(),
         client_ip: "127.0.0.1".to_string(),
         request_count: client_req_count,
-        path_bind: None,
-        hostname_bind: None,
+        declared_path: None,
+        assigned_path: None,
+        declared_hostname: None,
+        assigned_hostnames: Vec::new(),
         override_path_bind: None,
         override_hostname_bind: None,
         last_ping_at: None,
+        perms: ClientPerms::master(),
       },
     );
 
@@ -2731,6 +3028,11 @@ mod tests {
     assert_eq!(extract_client_ip(&headers, direct, false), direct);
   }
 
+  fn test_token_store() -> TokenStore {
+    let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
+    TokenStore::load(&dir.to_string_lossy())
+  }
+
   fn mock_client(
     hostname_bind: Option<&str>,
     path_bind: Option<&str>,
@@ -2743,11 +3045,14 @@ mod tests {
       connected_at: Instant::now(),
       client_ip: "127.0.0.1".to_string(),
       request_count: Arc::new(AtomicU64::new(0)),
-      path_bind: path_bind.map(|s| s.to_string()),
-      hostname_bind: hostname_bind.map(|s| s.to_string()),
+      declared_path: path_bind.map(|s| s.to_string()),
+      assigned_path: None,
+      declared_hostname: hostname_bind.map(|s| s.to_string()),
+      assigned_hostnames: Vec::new(),
       override_path_bind: override_path.map(|s| s.to_string()),
       override_hostname_bind: override_hostname.map(|s| s.to_string()),
       last_ping_at: None,
+      perms: ClientPerms::master(),
     }
   }
 

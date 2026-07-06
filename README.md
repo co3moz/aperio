@@ -81,6 +81,7 @@ The server is configured entirely through environment variables.
 | `APERIO_TRUST_PROXY`                     | Set to `1` or `true` to trust `X-Forwarded-For` / `X-Real-IP` headers for client IP resolution.                             | `false`           | No       | Boolean |
 | `APERIO_SECURE_COOKIES`                  | Set to `1` or `true` to add the `Secure` flag to session cookies (HTTPS-only). Defaults to `APERIO_TRUST_PROXY` value.      | `false`           | No       | Boolean |
 | `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
+| `APERIO_DATA_DIR`                        | Directory for persisted server state (dynamic API tokens). Mount a volume here in Docker.                                    | `./data`          | No       | String  |
 | `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
 | `APERIO_METRICS_TOKEN`                   | Optional bearer token required to scrape `/aperio/metrics` (`Authorization: Bearer <token>`). Unset = no auth on metrics.    | _(None)_          | No       | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
@@ -162,6 +163,29 @@ When you expose the Aperio server behind a wildcard domain (e.g. Traefik routing
 Routing order: the server first selects the hostname group (exact match on the request's `Host` header, case-insensitive, port ignored), then applies path-bind routing *within* that group. Clients without a hostname bind act as the fallback pool for unmatched hosts.
 
 With `APERIO_REQUIRE_HOSTNAME_BIND=1` on the server, the fallback is disabled: clients that did not declare a hostname bind never receive proxied traffic. Use this in strict multi-tenant setups where every client must claim its own subdomain.
+
+### Dynamic API Tokens (Scoped Client Tokens)
+
+Besides the master `APERIO_SERVER_TOKEN` (which grants unrestricted access to both tunnels and the dashboard), you can create **dynamic tokens** from the dashboard's *API Tokens* section — similar to InfluxDB's token model. Each dynamic token carries permissions:
+
+- **Hostnames**: the hostname binds this token may claim. `*` = any hostname. Specific entries (e.g. `a.example.com`) are **automatically bound** to the client on connect — the client doesn't even need to set `APERIO_HOSTNAME_BIND`.
+- **Paths**: the path binds this token may claim. `*` = any path. The first specific entry is auto-bound when the client declares none.
+- **Lifetime (TTL)**: optional. Expired tokens are rejected at connection time — the client can no longer connect.
+
+A client declaring a bind not permitted by its token gets the declaration ignored (logged on the server). Revoking a token rejects *new* connections; existing tunnels stay connected until they drop.
+
+Endpoints (behind dashboard auth): `GET/POST /aperio/api/tokens`, `DELETE /aperio/api/tokens/:id`. The token secret is returned **only once** at creation.
+
+**Persistence:** tokens are stored in `<APERIO_DATA_DIR>/tokens.json` (default `./data`). In Docker you **must** mount a volume for this directory, otherwise tokens are lost when the container is recreated:
+
+```yaml
+services:
+  server:
+    environment:
+      - APERIO_DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data
+```
 
 ### Dashboard Overrule (Temporary Bind Overrides)
 

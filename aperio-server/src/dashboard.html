@@ -369,6 +369,33 @@
             </div>
         </div>
 
+        <!-- API Tokens Section -->
+        <div class="active-clients-section">
+            <div class="section-header">
+                <h2 class="section-title">API Tokens</h2>
+                <button class="overrule-btn" id="create-token-btn">+ Create Token</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Prefix</th>
+                            <th>Hostnames</th>
+                            <th>Paths</th>
+                            <th>Expires</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tokens-body">
+                        <tr>
+                            <td colspan="6" class="empty-logs">No dynamic tokens created</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Logs Section -->
         <div class="logs-section">
             <div class="section-header">
@@ -491,6 +518,20 @@
             return `<span style="color: var(--text-secondary);">—</span>`;
         }
 
+        // Renders a list of hostname binds; an override replaces the whole set.
+        function formatBindList(binds, override) {
+            if (override) {
+                const orig = (binds && binds.length)
+                    ? `<span style="text-decoration: line-through; color: var(--text-secondary); margin-right: 0.4rem;">${binds.map(escapeHtml).join(', ')}</span>`
+                    : '';
+                return `${orig}<span class="badge badge-put" title="Temporary override (not persisted)">${escapeHtml(override)}</span>`;
+            }
+            if (binds && binds.length) {
+                return binds.map(b => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(b)}</span>`).join('');
+            }
+            return `<span style="color: var(--text-secondary);">—</span>`;
+        }
+
         function formatLastPing(secondsAgo) {
             if (secondsAgo === null || secondsAgo === undefined) return '—';
             if (secondsAgo < 1) return 'now';
@@ -500,7 +541,7 @@
         async function overruleClient(c) {
             const hostname = prompt(
                 `Temporary hostname bind for client ${c.id.slice(0, 8)}…\n(empty = clear override; not persisted across reconnects)`,
-                c.override_hostname_bind || c.hostname_bind || ''
+                c.override_hostname_bind || (c.hostname_binds && c.hostname_binds[0]) || ''
             );
             if (hostname === null) return;
             const path = prompt(
@@ -622,9 +663,9 @@
                     stats.active_clients.forEach(c => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td class="text-mono" title="${escapeHtml(c.id)}">${escapeHtml(c.id.slice(0, 8))}…</td>
+                            <td class="text-mono" title="${escapeHtml(c.id)}${c.token_name ? ' • token: ' + escapeHtml(c.token_name) : ' • master token'}">${escapeHtml(c.id.slice(0, 8))}…${c.token_name ? `<br><span style="font-size:0.7rem;color:var(--text-secondary);">🔑 ${escapeHtml(c.token_name)}</span>` : ''}</td>
                             <td class="text-mono">${escapeHtml(c.ip)}</td>
-                            <td>${formatBind(c.hostname_bind, c.override_hostname_bind)}</td>
+                            <td>${formatBindList(c.hostname_binds, c.override_hostname_bind)}</td>
                             <td>${formatBind(c.path_bind, c.override_path_bind)}</td>
                             <td class="text-mono">${formatLastPing(c.last_ping_seconds_ago)}</td>
                             <td>${formatUptime(c.connected_for_seconds)}</td>
@@ -680,6 +721,97 @@
             }
         }
 
+        // --- API Token management ---
+        function formatExpiry(t) {
+            if (!t.expires_at) return 'never';
+            const d = new Date(t.expires_at * 1000);
+            return (t.expired ? '⚠️ expired ' : '') + d.toLocaleString();
+        }
+
+        async function fetchTokens() {
+            try {
+                const res = await fetch('/aperio/api/tokens');
+                if (!res.ok) throw new Error();
+                const tokens = await res.json();
+                const body = document.getElementById('tokens-body');
+                body.innerHTML = '';
+                if (tokens.length === 0) {
+                    body.innerHTML = `<tr><td colspan="6" class="empty-logs">No dynamic tokens created</td></tr>`;
+                    return;
+                }
+                tokens.forEach(t => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${escapeHtml(t.name)}</td>
+                        <td class="text-mono">${escapeHtml(t.token_prefix)}…</td>
+                        <td>${(t.hostnames.length ? t.hostnames : ['*']).map(h => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(h)}</span>`).join('')}</td>
+                        <td>${(t.paths.length ? t.paths : ['*']).map(p => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(p)}</span>`).join('')}</td>
+                        <td class="text-mono">${formatExpiry(t)}</td>
+                        <td></td>
+                    `;
+                    const btn = document.createElement('button');
+                    btn.className = 'overrule-btn';
+                    btn.textContent = 'Revoke';
+                    btn.addEventListener('click', () => revokeToken(t));
+                    tr.lastElementChild.appendChild(btn);
+                    body.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Failed to fetch tokens', e);
+            }
+        }
+
+        async function createToken() {
+            const name = prompt('Token name (label):');
+            if (!name) return;
+            const hostnames = prompt('Allowed hostnames (comma separated, * = all):', '*');
+            if (hostnames === null) return;
+            const paths = prompt('Allowed path binds (comma separated, * = all):', '*');
+            if (paths === null) return;
+            const ttlRaw = prompt('Lifetime in seconds (empty = never expires):', '');
+            if (ttlRaw === null) return;
+            const payload = {
+                name: name.trim(),
+                hostnames: hostnames.split(',').map(s => s.trim()).filter(Boolean),
+                paths: paths.split(',').map(s => s.trim()).filter(Boolean),
+            };
+            const ttl = parseInt(ttlRaw, 10);
+            if (!isNaN(ttl) && ttl > 0) payload.ttl_seconds = ttl;
+
+            try {
+                const res = await fetch('/aperio/api/tokens', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    alert(`Token creation failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                const created = await res.json();
+                prompt('Token created! Copy it now — it will NOT be shown again:', created.token);
+                fetchTokens();
+            } catch (e) {
+                alert('Token creation failed: ' + e);
+            }
+        }
+
+        async function revokeToken(t) {
+            if (!confirm(`Revoke token "${t.name}" (${t.token_prefix}…)?\nNew connections with this token will be rejected.`)) return;
+            try {
+                const res = await fetch(`/aperio/api/tokens/${encodeURIComponent(t.id)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    alert(`Revoke failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchTokens();
+            } catch (e) {
+                alert('Revoke failed: ' + e);
+            }
+        }
+
+        document.getElementById('create-token-btn').addEventListener('click', createToken);
+
         document.getElementById('filter-input').addEventListener('input', updateLogsTable);
 
         function update() {
@@ -688,6 +820,9 @@
         }
 
         update();
+        fetchTokens();
+        // Tokens change rarely; refresh on a slower cadence.
+        setInterval(fetchTokens, 10000);
         // Poll every 2 seconds to optimize server utilization
         setInterval(update, 2000);
     </script>
