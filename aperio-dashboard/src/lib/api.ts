@@ -32,6 +32,9 @@ export interface ClientDetail {
   override_hostname_bind: string | null
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
+  version: string | null
+  protocol: number | null
+  protocol_mismatch: boolean
   healthy: boolean
   draining: boolean
   enabled: boolean

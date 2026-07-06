@@ -31,6 +31,11 @@ use stats::StatsStore;
 use tokens::TokenStore;
 use webhooks::WebhookStore;
 
+/// Version of the tunnel wire protocol. Bumped on breaking changes to
+/// `TunnelMessage` so version skew between client and server is surfaced
+/// (in logs and on the dashboard) instead of failing in obscure ways.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -48,9 +53,21 @@ pub enum TunnelMessage {
     /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
     #[serde(default)]
     tcp: bool,
+    /// Client build version (CARGO_PKG_VERSION), for display/diagnostics.
+    #[serde(default)]
+    version: Option<String>,
+    /// Tunnel wire protocol version the client speaks.
+    #[serde(default)]
+    protocol: Option<u32>,
   },
   Pong {
     timestamp: u64,
+    /// Server build version, echoed so the client can log mismatches.
+    #[serde(default)]
+    version: Option<String>,
+    /// Tunnel wire protocol version the server speaks.
+    #[serde(default)]
+    protocol: Option<u32>,
   },
   Request {
     id: String,
@@ -74,14 +91,9 @@ pub enum TunnelMessage {
     headers: Vec<(String, String)>,
   },
   /// A chunk of a streamed response body (Base64 encoded).
-  ResponseChunk {
-    id: String,
-    data: String,
-  },
+  ResponseChunk { id: String, data: String },
   /// Marks the end of a streamed response body.
-  ResponseEnd {
-    id: String,
-  },
+  ResponseEnd { id: String },
   /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,
@@ -109,26 +121,17 @@ pub enum TunnelMessage {
   },
   /// Server → client: informs the client of a hostname automatically
   /// assigned to it (random subdomain feature).
-  HostnameAssigned {
-    hostname: String,
-  },
+  HostnameAssigned { hostname: String },
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
   /// Server → client: open a raw TCP connection to the client's configured
   /// TCP target for this stream (experimental TCP tunneling).
-  TcpOpen {
-    stream_id: String,
-  },
+  TcpOpen { stream_id: String },
   /// Raw TCP bytes relayed through the tunnel (Base64).
-  TcpData {
-    stream_id: String,
-    data: String,
-  },
+  TcpData { stream_id: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
-  TcpClose {
-    stream_id: String,
-  },
+  TcpClose { stream_id: String },
   /// Server → client: offers zlib compression for subsequent tunnel frames.
   CompressionStart {},
   /// Client → server: compression accepted; both sides may now send
@@ -215,6 +218,12 @@ struct ClientDetail {
   last_ping_seconds_ago: Option<u64>,
   /// Concurrency limit announced by the client (None = unlimited).
   max_concurrent: Option<u32>,
+  /// Client build version announced via Ping (None until the first Ping).
+  version: Option<String>,
+  /// Tunnel protocol version announced via Ping.
+  protocol: Option<u32>,
+  /// True when the announced protocol version differs from the server's.
+  protocol_mismatch: bool,
   /// False when the client missed its heartbeat window and is out of the pool.
   healthy: bool,
   /// True while the client is gracefully draining before shutdown.
@@ -346,6 +355,11 @@ struct ClientHandle {
   admin_enabled: bool,
   /// True when the client announced a TCP target (experimental TCP tunneling).
   tcp_enabled: bool,
+  /// Client build version announced via Ping (None until the first Ping,
+  /// or for clients predating version reporting).
+  client_version: Option<String>,
+  /// Tunnel protocol version announced via Ping.
+  client_protocol: Option<u32>,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -1148,6 +1162,11 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       override_hostname_bind: handle.override_hostname_bind.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: handle.max_concurrent,
+      version: handle.client_version.clone(),
+      protocol: handle.client_protocol,
+      protocol_mismatch: handle
+        .client_protocol
+        .is_some_and(|p| p != PROTOCOL_VERSION),
       healthy: handle.is_healthy(state.config.client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
@@ -2777,6 +2796,8 @@ async fn handle_socket(
         draining: false,
         admin_enabled: true,
         tcp_enabled: false,
+        client_version: None,
+        client_protocol: None,
       },
     );
     drop(clients);
@@ -3048,6 +3069,8 @@ async fn handle_socket(
               hostname_bind,
               max_concurrent,
               tcp,
+              version,
+              protocol,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -3094,10 +3117,30 @@ async fn handle_socket(
                     );
                   }
                   handle.tcp_enabled = tcp;
+                  if let Some(v) = version {
+                    handle.client_version = Some(v);
+                  }
+                  // Warn once per change, not on every heartbeat.
+                  if protocol.is_some() && handle.client_protocol != protocol {
+                    handle.client_protocol = protocol;
+                    if let Some(p) = protocol
+                      && p != PROTOCOL_VERSION
+                    {
+                      warn!(
+                        "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
+                         update the older side to avoid subtle incompatibilities",
+                        client_id, p, PROTOCOL_VERSION
+                      );
+                    }
+                  }
                   handle.last_ping_at = Some(Instant::now());
                 }
               }
-              let pong = TunnelMessage::Pong { timestamp };
+              let pong = TunnelMessage::Pong {
+                timestamp,
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                protocol: Some(PROTOCOL_VERSION),
+              };
               if let Ok(pong_str) = serde_json::to_string(&pong) {
                 let _ = tx_write.send(Message::Text(pong_str)).await;
               }
@@ -4984,6 +5027,8 @@ mod tests {
         draining: false,
         admin_enabled: true,
         tcp_enabled: false,
+        client_version: None,
+        client_protocol: None,
       },
     );
 
@@ -5185,6 +5230,8 @@ mod tests {
       draining: false,
       admin_enabled: true,
       tcp_enabled: false,
+      client_version: None,
+      client_protocol: None,
     }
   }
 

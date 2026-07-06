@@ -16,6 +16,10 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error, info, warn};
 
+/// Version of the tunnel wire protocol. Must match the constant in
+/// aperio-server; bumped on breaking changes to `TunnelMessage`.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -33,9 +37,21 @@ pub enum TunnelMessage {
     /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
     #[serde(default)]
     tcp: bool,
+    /// Client build version (CARGO_PKG_VERSION), for display/diagnostics.
+    #[serde(default)]
+    version: Option<String>,
+    /// Tunnel wire protocol version this client speaks.
+    #[serde(default)]
+    protocol: Option<u32>,
   },
   Pong {
     timestamp: u64,
+    /// Server build version, for logging version skew.
+    #[serde(default)]
+    version: Option<String>,
+    /// Tunnel wire protocol version the server speaks.
+    #[serde(default)]
+    protocol: Option<u32>,
   },
   Request {
     id: String,
@@ -59,14 +75,9 @@ pub enum TunnelMessage {
     headers: Vec<(String, String)>,
   },
   /// A chunk of a streamed response body (Base64 encoded).
-  ResponseChunk {
-    id: String,
-    data: String,
-  },
+  ResponseChunk { id: String, data: String },
   /// Marks the end of a streamed response body.
-  ResponseEnd {
-    id: String,
-  },
+  ResponseEnd { id: String },
   /// Server instructs the client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,
@@ -94,25 +105,16 @@ pub enum TunnelMessage {
   },
   /// Server → client: informs the client of a hostname automatically
   /// assigned to it (random subdomain feature).
-  HostnameAssigned {
-    hostname: String,
-  },
+  HostnameAssigned { hostname: String },
   /// Client → server: the client received a shutdown signal and is draining.
   Draining {},
   /// Server → client: open a raw TCP connection to the client's configured
   /// TCP target for this stream (experimental TCP tunneling).
-  TcpOpen {
-    stream_id: String,
-  },
+  TcpOpen { stream_id: String },
   /// Raw TCP bytes relayed through the tunnel (Base64).
-  TcpData {
-    stream_id: String,
-    data: String,
-  },
+  TcpData { stream_id: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
-  TcpClose {
-    stream_id: String,
-  },
+  TcpClose { stream_id: String },
   /// Server → client: offers zlib compression for subsequent tunnel frames.
   CompressionStart {},
   /// Client → server: compression accepted; both sides may now send
@@ -621,6 +623,8 @@ async fn main() {
                   hostname_bind: hostname_bind_ping.clone(),
                   max_concurrent,
                   tcp: tcp_enabled_ping,
+                  version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                  protocol: Some(PROTOCOL_VERSION),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -638,6 +642,7 @@ async fn main() {
               .unwrap_or_default();
 
             // Read messages from Server
+            let mut version_skew_warned = false;
             loop {
               tokio::select! {
                   _ = abort_rx.recv() => {
@@ -842,8 +847,21 @@ async fn main() {
                                           TunnelMessage::HostnameAssigned { hostname } => {
                                               info!("Server assigned hostname to this client: {}", hostname);
                                           }
-                                          TunnelMessage::Pong { timestamp } => {
+                                          TunnelMessage::Pong { timestamp, version, protocol } => {
                                               debug!("Pong received: {}", timestamp);
+                                              // Log version skew once per connection, not per heartbeat.
+                                              if !version_skew_warned
+                                                && let Some(p) = protocol
+                                                && p != PROTOCOL_VERSION
+                                              {
+                                                  version_skew_warned = true;
+                                                  warn!(
+                                                      "Server speaks tunnel protocol v{} (server version {}) but this client speaks v{}; update the older side",
+                                                      p,
+                                                      version.as_deref().unwrap_or("unknown"),
+                                                      PROTOCOL_VERSION
+                                                  );
+                                              }
                                               let mut lock = last_pong_time.lock().await;
                                               *lock = Instant::now();
                                           }

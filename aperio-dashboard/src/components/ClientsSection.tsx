@@ -245,9 +245,25 @@ export function ClientsSection({
                 <Table.Cell>
                   <Tooltip content={`${c.id} • ${c.token_name ? `token: ${c.token_name}` : 'master token'}`}>
                     <Flex direction="column">
-                      <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
-                        {c.id.slice(0, 8)}…
-                      </Text>
+                      <Flex align="center" gap="1">
+                        <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
+                          {c.id.slice(0, 8)}…
+                        </Text>
+                        {c.version && (
+                          <Text size="1" color="gray">
+                            v{c.version}
+                          </Text>
+                        )}
+                        {c.protocol_mismatch && (
+                          <Tooltip
+                            content={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
+                          >
+                            <Badge color="red" size="1">
+                              proto v{c.protocol}
+                            </Badge>
+                          </Tooltip>
+                        )}
+                      </Flex>
                       {c.token_name && (
                         <Text size="1" color="gray">
                           🔑 {c.token_name}
