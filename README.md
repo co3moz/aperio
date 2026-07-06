@@ -135,6 +135,7 @@ The server is configured entirely through environment variables.
 | `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
 | `APERIO_RANDOM_SUBDOMAIN` | e.g. `*.example.com` — every connecting client gets a random hostname under this suffix, in addition to its other binds. | — |
 | `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |
+| `APERIO_LB_STRATEGY` | Load-balancing strategy: `round-robin` or `primary-standby` (client priority tiers, see [Routing](#routing)). | `round-robin` |
 
 ### Limits & Protection
 
@@ -250,6 +251,7 @@ aperio-client --help
 | `--host HOSTNAME` | Hostname bind (e.g. `app.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
 | `--concurrency N` | Local max concurrent requests |
+| `--priority N` | Load-balancing priority tier: 0 = primary (default), higher = standby |
 | `--pass-hostname` | Forward the original `Host` header to the backend |
 | `--config FILE` | Config file path (default: `./aperio.yaml`) |
 
@@ -264,6 +266,7 @@ aperio-client --help
 | `APERIO_PATH_BIND` | `--path` | `path` | Path prefix this client serves. | — |
 | `APERIO_CLIENT_TRIM_BIND` | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
 | `APERIO_CLIENT_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
+| `APERIO_CLIENT_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
 | `APERIO_CLIENT_MAX_CONCURRENT` | `--concurrency` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
 | `APERIO_CLIENT_TCP_TARGET` | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
 | `APERIO_CLIENT_TARGET_HEALTH` | — | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. | — |
@@ -304,10 +307,12 @@ On `SIGINT`/`SIGTERM` the client tells the server it is **draining**: the server
 
 When a request arrives, the server picks a client in this order:
 
-1. **Eligibility** — clients that are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`), draining, or disabled from the dashboard are skipped. In-flight requests always finish.
+1. **Eligibility** — clients that are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`), whose own backend health probe failed, draining, or disabled from the dashboard are skipped. In-flight requests always finish.
 2. **Hostname** — clients whose hostname binds contain the request's `Host` (case-insensitive, port ignored) win. If none match, clients *without* any hostname bind act as the fallback pool — unless `APERIO_REQUIRE_HOSTNAME_BIND=1`, in which case the request fails with 504.
 3. **Path** — within the hostname pool, the longest matching path bind wins. Binds match on segment boundaries: `/api` matches `/api` and `/api/v1`, never `/apixyz`. Clients without a path bind are the fallback.
-4. **Round-robin** — multiple clients with identical binds share traffic evenly.
+4. **Strategy** — how a client is picked from the final pool, set by `APERIO_LB_STRATEGY`:
+   - `round-robin` (default) — clients with identical binds share traffic evenly.
+   - `primary-standby` — only the clients with the **lowest announced priority** (`--priority` / `APERIO_CLIENT_PRIORITY`, 0 = primary) receive traffic; standby tiers take over automatically when every more-primary client is unhealthy, draining, disabled, or gone. Rotation still applies within a tier. The dashboard marks standby clients with a `standby N` badge.
 
 A client can hold several hostname binds at once: its declared `--host`, hostnames granted by its token, and a random subdomain.
 

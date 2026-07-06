@@ -52,6 +52,10 @@ pub enum TunnelMessage {
     /// False takes this client out of routing without dropping the tunnel.
     #[serde(default = "default_true")]
     backend_healthy: bool,
+    /// Load-balancing priority tier: 0 = primary (default), higher numbers
+    /// are standbys (used with the server's primary-standby strategy).
+    #[serde(default)]
+    priority: u32,
   },
   Pong {
     timestamp: u64,
@@ -184,6 +188,8 @@ struct FileConfig {
   health_timeout: Option<u64>,
   /// Consecutive probe failures before the backend is reported unhealthy.
   health_threshold: Option<u32>,
+  /// Load-balancing priority tier (0 = primary, higher = standby).
+  priority: Option<u32>,
 }
 
 /// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
@@ -221,6 +227,7 @@ struct CliArgs {
   hostname: Option<String>,
   path: Option<String>,
   concurrency: Option<u32>,
+  priority: Option<u32>,
   pass_hostname: bool,
   config: Option<String>,
   local_port: Option<u16>,
@@ -239,7 +246,7 @@ enum CliMode {
 
 fn print_usage() {
   eprintln!(
-    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
+    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --priority N       Load-balancing priority tier: 0 = primary, higher = standby (or APERIO_CLIENT_PRIORITY / yaml: priority)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
   );
 }
 
@@ -253,6 +260,7 @@ fn parse_cli() -> CliArgs {
     hostname: None,
     path: None,
     concurrency: None,
+    priority: None,
     pass_hostname: false,
     config: None,
     local_port: None,
@@ -311,6 +319,10 @@ fn parse_cli() -> CliArgs {
       "--concurrency" => {
         let v = take("--concurrency");
         cli.concurrency = v.parse::<u32>().ok();
+      }
+      "--priority" => {
+        let v = take("--priority");
+        cli.priority = v.parse::<u32>().ok();
       }
       "--pass-hostname" => cli.pass_hostname = true,
       "--help" | "-h" => {
@@ -450,6 +462,19 @@ async fn main() {
 
   let local_limiter: Option<Arc<Semaphore>> =
     max_concurrent.map(|n| Arc::new(Semaphore::new(n as usize)));
+
+  // Load-balancing priority tier announced to the server: 0 = primary
+  // (default), higher numbers are standbys that only receive traffic when
+  // the server runs the primary-standby strategy and no lower tier is up.
+  let priority = cli
+    .priority
+    .or_else(|| {
+      std::env::var("APERIO_CLIENT_PRIORITY")
+        .ok()
+        .and_then(|val| val.parse::<u32>().ok())
+    })
+    .or(file_cfg.priority)
+    .unwrap_or(0);
 
   // Cap on individual tunnel WebSocket messages accepted from the server.
   let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
@@ -601,6 +626,9 @@ async fn main() {
   if let Some(n) = max_concurrent {
     info!("- Max Concurrent Requests: {}", n);
   }
+  if priority > 0 {
+    info!("- Load Balancing Priority: {} (standby tier)", priority);
+  }
   if let Some(ref t) = tcp_target {
     info!("- TCP Target: {}", t);
   }
@@ -719,6 +747,7 @@ async fn main() {
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
                   backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
+                  priority,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

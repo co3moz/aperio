@@ -68,6 +68,10 @@ pub enum TunnelMessage {
     /// client out of routing without dropping the tunnel connection.
     #[serde(default = "default_true")]
     backend_healthy: bool,
+    /// Load-balancing priority tier: 0 = primary (default), higher numbers
+    /// are standbys. Only used with APERIO_LB_STRATEGY=primary-standby.
+    #[serde(default)]
+    priority: u32,
   },
   Pong {
     timestamp: u64,
@@ -187,6 +191,19 @@ struct ServerConfig {
   /// Custom HTML page served on 504 gateway-timeout responses
   /// (loaded once from APERIO_504_PAGE at startup).
   custom_504_page: Option<String>,
+  /// How a client is picked from the routed pool (APERIO_LB_STRATEGY).
+  lb_strategy: LbStrategy,
+}
+
+/// Load-balancing behavior applied after routing narrows the candidate pool.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LbStrategy {
+  /// Rotate through the whole pool (default).
+  RoundRobin,
+  /// Only the clients sharing the lowest announced priority receive traffic;
+  /// higher-priority-number standbys take over when every more-primary
+  /// client drops out of the pool (rotation still applies within a tier).
+  PrimaryStandby,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -235,6 +252,8 @@ struct ClientDetail {
   protocol_mismatch: bool,
   /// Latest backend health verdict reported by the client's own probe.
   backend_healthy: bool,
+  /// Announced load-balancing priority tier (0 = primary, higher = standby).
+  priority: u32,
   /// False when the client missed its heartbeat window and is out of the pool.
   healthy: bool,
   /// True while the client is gracefully draining before shutdown.
@@ -375,6 +394,8 @@ struct ClientHandle {
   /// (APERIO_CLIENT_TARGET_HEALTH). False = excluded from routing while the
   /// tunnel connection itself stays up.
   backend_healthy: bool,
+  /// Announced load-balancing priority tier (0 = primary, higher = standby).
+  priority: u32,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -769,6 +790,28 @@ async fn main() {
         }
       });
 
+  // Load-balancing strategy applied after routing narrows the pool.
+  let lb_strategy = match std::env::var("APERIO_LB_STRATEGY")
+    .unwrap_or_default()
+    .trim()
+    .to_ascii_lowercase()
+    .replace('_', "-")
+    .as_str()
+  {
+    "" | "round-robin" => LbStrategy::RoundRobin,
+    "primary-standby" | "failover" => {
+      info!("Load balancing strategy: primary-standby (client priority tiers)");
+      LbStrategy::PrimaryStandby
+    }
+    other => {
+      warn!(
+        "Unknown APERIO_LB_STRATEGY '{}' (expected 'round-robin' or 'primary-standby'); using round-robin",
+        other
+      );
+      LbStrategy::RoundRobin
+    }
+  };
+
   // Heartbeat-based health: clients whose last Ping is older than this many
   // seconds are treated as down and excluded from load balancing.
   let client_down_threshold_secs = std::env::var("APERIO_CLIENT_DOWN_THRESHOLD")
@@ -861,6 +904,7 @@ async fn main() {
     client_down_threshold: Duration::from_secs(client_down_threshold_secs),
     tunnel_compression,
     custom_504_page,
+    lb_strategy,
   };
 
   if require_hostname_bind {
@@ -1183,6 +1227,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
         .client_protocol
         .is_some_and(|p| p != PROTOCOL_VERSION),
       backend_healthy: handle.backend_healthy,
+      priority: handle.priority,
       healthy: handle.is_healthy(state.config.client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
@@ -1993,6 +2038,7 @@ async fn request_replay_handler(
     ) {
       None => None,
       Some((pool, group_key)) => {
+        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
@@ -2646,6 +2692,33 @@ fn select_client_pool(
   }
 }
 
+/// Applies the configured load-balancing strategy to a routed pool.
+/// `RoundRobin` keeps the whole pool (the caller's per-group counter rotates
+/// through it); `PrimaryStandby` narrows it to the clients sharing the lowest
+/// announced priority, so standbys only receive traffic once every
+/// more-primary client has dropped out of the pool.
+fn apply_lb_strategy(
+  pool: Vec<String>,
+  clients: &HashMap<String, ClientHandle>,
+  strategy: LbStrategy,
+) -> Vec<String> {
+  match strategy {
+    LbStrategy::RoundRobin => pool,
+    LbStrategy::PrimaryStandby => {
+      let min_priority = pool
+        .iter()
+        .filter_map(|id| clients.get(id))
+        .map(|c| c.priority)
+        .min()
+        .unwrap_or(0);
+      pool
+        .into_iter()
+        .filter(|id| clients.get(id).is_some_and(|c| c.priority == min_priority))
+        .collect()
+    }
+  }
+}
+
 /// Resolves the real client IP, honoring `X-Forwarded-For` / `X-Real-IP` only
 /// when `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
 /// proxy). Otherwise the direct socket address is used, since clients could
@@ -2817,6 +2890,7 @@ async fn handle_socket(
         client_version: None,
         client_protocol: None,
         backend_healthy: true,
+        priority: 0,
       },
     );
     drop(clients);
@@ -3091,6 +3165,7 @@ async fn handle_socket(
               version,
               protocol,
               backend_healthy,
+              priority,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -3152,6 +3227,13 @@ async fn handle_socket(
                         client_id
                       );
                     }
+                  }
+                  if handle.priority != priority {
+                    info!(
+                      "Client {} announced load-balancing priority {}",
+                      client_id, priority
+                    );
+                    handle.priority = priority;
                   }
                   if let Some(v) = version {
                     handle.client_version = Some(v);
@@ -3574,6 +3656,7 @@ async fn proxy_handler(
     ) {
       None => None,
       Some((pool, group_key)) => {
+        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
@@ -4017,6 +4100,7 @@ async fn handle_ws_proxy(
     ) {
       None => None,
       Some((pool, group_key)) => {
+        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
@@ -4861,6 +4945,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      lb_strategy: LbStrategy::RoundRobin,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -4930,6 +5015,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      lb_strategy: LbStrategy::RoundRobin,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -5000,6 +5086,7 @@ mod tests {
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
       custom_504_page: None,
+      lb_strategy: LbStrategy::RoundRobin,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -5066,6 +5153,7 @@ mod tests {
         client_version: None,
         client_protocol: None,
         backend_healthy: true,
+        priority: 0,
       },
     );
 
@@ -5270,7 +5358,39 @@ mod tests {
       client_version: None,
       client_protocol: None,
       backend_healthy: true,
+      priority: 0,
     }
+  }
+
+  #[test]
+  fn test_apply_lb_strategy_primary_standby() {
+    let mut clients = HashMap::new();
+    let primary = mock_client(None, None, None, None);
+    let mut standby = mock_client(None, None, None, None);
+    standby.priority = 1;
+    clients.insert("primary".to_string(), primary);
+    clients.insert("standby".to_string(), standby);
+
+    let pool = vec!["primary".to_string(), "standby".to_string()];
+    // Round-robin keeps the whole pool.
+    assert_eq!(
+      apply_lb_strategy(pool.clone(), &clients, LbStrategy::RoundRobin).len(),
+      2
+    );
+    // Primary-standby narrows to the lowest priority tier.
+    assert_eq!(
+      apply_lb_strategy(pool, &clients, LbStrategy::PrimaryStandby),
+      vec!["primary".to_string()]
+    );
+    // Once the primary is out of the pool, the standby takes over.
+    assert_eq!(
+      apply_lb_strategy(
+        vec!["standby".to_string()],
+        &clients,
+        LbStrategy::PrimaryStandby
+      ),
+      vec!["standby".to_string()]
+    );
   }
 
   #[test]

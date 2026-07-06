@@ -36,6 +36,7 @@ export interface ClientDetail {
   protocol: number | null
   protocol_mismatch: boolean
   backend_healthy: boolean
+  priority: number
   healthy: boolean
   draining: boolean
   enabled: boolean

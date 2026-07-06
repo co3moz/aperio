@@ -254,6 +254,13 @@ export function ClientsSection({
                             v{c.version}
                           </Text>
                         )}
+                        {c.priority > 0 && (
+                          <Tooltip content={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}>
+                            <Badge color="gray" size="1">
+                              standby {c.priority}
+                            </Badge>
+                          </Tooltip>
+                        )}
                         {c.protocol_mismatch && (
                           <Tooltip
                             content={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
