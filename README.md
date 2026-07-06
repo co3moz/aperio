@@ -6,14 +6,16 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 
 **Highlights**
 
-- Hostname- and path-based routing with round-robin load balancing across clients
+- Hostname- and path-based routing; round-robin or primary-standby (failover tier) load balancing
 - Automatic random subdomains (`a1b2c3.example.com`) under a wildcard domain
 - Scoped, revocable API tokens with hostname/path/IP restrictions and TTLs
+- Ephemeral tunnels via API + GitHub Action — per-PR preview environments in one step
+- Signed share links: temporary, scoped visitor access to protected sites without accounts
 - OIDC / SSO protection for proxied traffic (Cloudflare Access style)
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
-- Admin dashboard: live traffic, request inspector & replay, client kill switch, audit log, webhooks
-- Prometheus metrics, persistent statistics, health-aware load balancing, graceful drain
-- Single static binary per side; official multi-arch Docker images
+- Admin dashboard: live traffic, request inspector & replay, client kill switch, maintenance mode, add-client wizard, audit log, webhooks
+- Prometheus metrics, structured JSON access log, persistent statistics, backend health probing, graceful drain
+- Single static binary per side: one-line installer, prebuilt releases, official multi-arch Docker images
 
 ---
 
@@ -176,6 +178,7 @@ Aperio has several independent auth layers; use the ones you need:
 3. **Visitor password** (`APERIO_SERVER_AUTH=user:password`) — a login form in front of all proxied traffic.
 4. **OIDC / SSO** — identity-provider login in front of all proxied traffic. See [OIDC / SSO Protection](#oidc--sso-protection).
 5. **Dashboard password** (`APERIO_DASHBOARD_AUTH`) — a separate dashboard-only password (username `aperio`), so you don't have to share the master token with dashboard users. Set `APERIO_DASHBOARD=0` to disable the dashboard entirely.
+6. **Share links** — signed, expiring URLs that grant visitors scoped access to a protected site without an account. See [Share Links](#share-links).
 
 ### OIDC / SSO Protection
 
@@ -233,7 +236,7 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 | `GET/POST /aperio/api/maintenance` | List / toggle per-hostname maintenance mode. | dashboard session |
 | `POST /aperio/api/share` | Generate a signed share link (see [Share Links](#share-links)). | dashboard session |
 | `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](#ephemeral-tunnels-ci--preview-environments). | master token (Bearer) or dashboard session |
-| `GET+POST /aperio/auth` | Login page / login API. | — |
+| `GET/POST /aperio/auth` | Login page / login API. | — |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
@@ -259,6 +262,7 @@ aperio-client                          Run with environment variables (Docker mo
 aperio-client http <port> [options]    Expose http://localhost:<port>
 aperio-client run [--config FILE]      Run from aperio.yaml
 aperio-client tcp <local_port>         Bridge a local TCP port to the server's /aperio/tcp endpoint
+aperio-client --version
 aperio-client --help
 ```
 
@@ -312,8 +316,13 @@ path: /api
 trim_bind: true
 pass_hostname: false
 max_concurrent: 8
+priority: 0                # 0 = primary, higher = standby tier
+target_health: /health     # probe the backend; report unhealthy without dropping the tunnel
+health_interval: 10
 tcp_target: localhost:5432
 ```
+
+The file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
 
 ### Graceful Shutdown
 
@@ -440,11 +449,12 @@ See [aperio-tunnel-action/README.md](aperio-tunnel-action/README.md) for all inp
 Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUTH`):
 
 - **Live overview** — connected clients, request rate chart, lifetime average response time, today's traffic (persisted across restarts).
-- **Clients table** — binds, health dot, last heartbeat, announced concurrency limit, per-client **Enable/Disable** kill switch (disabled clients stay connected but receive no new traffic), and bind overrule.
+- **Clients table** — binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, `BACKEND DOWN` badge when the client's own health probe fails, announced concurrency limit, per-client **Enable/Disable** kill switch (disabled clients stay connected but receive no new traffic), and bind overrule.
 - **Request inspector** — click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests), and **replay** the request through the tunnel with one click.
 - **API Tokens / Webhooks** — create, edit, revoke.
 - **Add Client wizard** — pick a token strategy (placeholder or mint a scoped token on the spot), describe the local service, and copy a ready-to-run `docker run` / CLI / `aperio.yaml` snippet.
 - **Maintenance mode** — put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE`, with `Retry-After`) while the tunnel clients stay connected. In-memory like bind overrides; cleared on server restart. Toggles are audited and emitted as `maintenance_on`/`maintenance_off` webhook events.
+- **Share links** — generate signed, expiring visitor-access URLs. See [Share Links](#share-links).
 - **Audit log** — the last 200 administrative/security events.
 
 ---
@@ -453,7 +463,7 @@ Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUT
 
 ### Audit Log
 
-Logins (password and OIDC), token create/update/revoke, client connect/disconnect/drain, kill-switch toggles, overrules, replays and TCP streams are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details — and shown in the dashboard.
+Logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays and TCP streams are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details — and shown in the dashboard.
 
 ### Webhooks
 
@@ -463,7 +473,11 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
-Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`.
+Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `tunnel_created`, `share_created`, `maintenance_on`, `maintenance_off`.
+
+### Access Log
+
+Every proxied request is emitted as a structured `aperio_access` tracing event on stdout (JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, `error` as top-level fields). Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL` — ready to be tailed into Loki or ClickHouse.
 
 ### Persistent Statistics
 
@@ -496,9 +510,9 @@ psql -h 127.0.0.1 -p 15432
 
 Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dynamic-token IP allowlists apply). The client only ever connects to its configured `tcp_target`, regardless of what the server asks — the TCP analogue of the HTTP SSRF guard. No extra public ports are opened.
 
-### Custom Error Page
+### Custom Error Pages
 
-`APERIO_504_PAGE=/app/error_504.html` serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page.
+`APERIO_504_PAGE=/app/error_504.html` serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page. `APERIO_503_PAGE` does the same for the maintenance-mode response.
 
 ---
 
@@ -508,6 +522,7 @@ Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dy
 - Prefer **dynamic tokens** over sharing the master token: scope them to a hostname, pin them to source IPs, give them a TTL. Treat the master token as root.
 - The client deliberately does not fully trust the server: it only connects to its configured HTTP/TCP targets (SSRF guards), caps tunnel message sizes, bounds decompression output, and enforces its own concurrency limit.
 - Constant-time comparison is used for all secrets; dashboard sessions are `HttpOnly` + `SameSite=Lax` cookies; query strings are stripped from logs.
+- Share links are HMAC-signed and scoped to a hostname (and optional path); anyone holding a link has access until it expires, so scope them tightly — rotating `APERIO_SERVER_TOKEN` revokes all of them at once.
 - The metrics endpoint is never public — it always requires a token.
 
 ---
