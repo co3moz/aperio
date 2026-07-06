@@ -237,6 +237,10 @@ enum LbStrategy {
   /// higher-priority-number standbys take over when every more-primary
   /// client drops out of the pool (rotation still applies within a tier).
   PrimaryStandby,
+  /// Round-robin, but visitors stick to the client that served them first
+  /// via an `aperio_affinity` cookie (falling back to rotation when that
+  /// client leaves the pool).
+  Sticky,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -908,9 +912,13 @@ async fn main() {
       info!("Load balancing strategy: primary-standby (client priority tiers)");
       LbStrategy::PrimaryStandby
     }
+    "sticky" => {
+      info!("Load balancing strategy: sticky (visitor affinity via cookie)");
+      LbStrategy::Sticky
+    }
     other => {
       warn!(
-        "Unknown APERIO_LB_STRATEGY '{}' (expected 'round-robin' or 'primary-standby'); using round-robin",
+        "Unknown APERIO_LB_STRATEGY '{}' (expected 'round-robin', 'primary-standby' or 'sticky'); using round-robin",
         other
       );
       LbStrategy::RoundRobin
@@ -3056,7 +3064,9 @@ fn apply_lb_strategy(
   strategy: LbStrategy,
 ) -> Vec<String> {
   match strategy {
-    LbStrategy::RoundRobin => pool,
+    // Sticky affinity is resolved later in pick_proxy_client; the pool
+    // itself is built exactly like round-robin.
+    LbStrategy::RoundRobin | LbStrategy::Sticky => pool,
     LbStrategy::PrimaryStandby => {
       let min_priority = pool
         .iter()
@@ -3083,15 +3093,35 @@ struct SelectedClient {
   instance_id: Option<String>,
 }
 
+/// Returns the pool member matching an affinity value — either a client's
+/// self-reported instance ID (survives reconnects) or its connection ID.
+fn find_affinity_match(
+  pool: &[String],
+  clients: &HashMap<String, ClientHandle>,
+  affinity: &str,
+) -> Option<String> {
+  pool
+    .iter()
+    .find(|id| {
+      clients.get(*id).is_some_and(|c| {
+        c.reported_instance_id.as_deref() == Some(affinity) || id.as_str() == affinity
+      })
+    })
+    .cloned()
+}
+
 /// Picks a client for a request with the full routing pipeline (eligibility →
 /// hostname → path → strategy → round-robin). When `require_instance` is
 /// given, only clients that reported that instance ID qualify (failover
-/// `wait` mode waiting for a specific client process to return).
+/// `wait` mode waiting for a specific client process to return). With the
+/// sticky strategy, a matching `affinity` cookie value pins the choice to
+/// the client that served this visitor before.
 async fn pick_proxy_client(
   state: &AppState,
   uri_path: &str,
   request_host: Option<&str>,
   require_instance: Option<&str>,
+  affinity: Option<&str>,
 ) -> Option<SelectedClient> {
   let clients = state.clients.lock().await;
   let (pool, group_key) = select_client_pool(
@@ -3112,10 +3142,22 @@ async fn pick_proxy_client(
   if pool.is_empty() {
     return None;
   }
-  let mut rr_map = state.path_rr.lock().await;
-  let idx = rr_map.entry(group_key).or_insert(0);
-  let chosen_id = pool[*idx % pool.len()].clone();
-  *idx = (*idx + 1) % pool.len();
+
+  // Sticky affinity: honor the visitor's cookie when that client is still in
+  // the pool; otherwise fall back to rotation (and the response sets a fresh
+  // cookie for the newly chosen client).
+  let chosen_id = if state.config.lb_strategy == LbStrategy::Sticky
+    && let Some(previous) = affinity.and_then(|a| find_affinity_match(&pool, &clients, a))
+  {
+    previous
+  } else {
+    let mut rr_map = state.path_rr.lock().await;
+    let idx = rr_map.entry(group_key).or_insert(0);
+    let chosen = pool[*idx % pool.len()].clone();
+    *idx = (*idx + 1) % pool.len();
+    chosen
+  };
+
   clients.get(&chosen_id).map(|c| SelectedClient {
     id: chosen_id.clone(),
     tx: c.tx.clone(),
@@ -3135,7 +3177,9 @@ async fn wait_for_candidate(
   deadline: tokio::time::Instant,
 ) -> Option<SelectedClient> {
   loop {
-    if let Some(client) = pick_proxy_client(state, uri_path, request_host, require_instance).await {
+    if let Some(client) =
+      pick_proxy_client(state, uri_path, request_host, require_instance, None).await
+    {
       return Some(client);
     }
     if tokio::time::Instant::now() >= deadline {
@@ -4012,16 +4056,21 @@ fn share_claims_cover(claims: &ShareClaims, host: Option<&str>, uri_path: &str) 
   }
 }
 
-/// Extracts a share token from the Cookie header.
-fn share_token_from_cookies(headers: &HeaderMap) -> Option<String> {
+/// Extracts a named cookie value from the Cookie header.
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
   let cookie_str = headers.get("cookie")?.to_str().ok()?;
   for part in cookie_str.split(';') {
     let kv: Vec<&str> = part.trim().splitn(2, '=').collect();
-    if kv.len() == 2 && kv[0] == SHARE_COOKIE {
+    if kv.len() == 2 && kv[0] == name {
       return Some(kv[1].to_string());
     }
   }
   None
+}
+
+/// Extracts a share token from the Cookie header.
+fn share_token_from_cookies(headers: &HeaderMap) -> Option<String> {
+  cookie_value(headers, SHARE_COOKIE)
 }
 
 /// Checks share-link access for a request without a dashboard session:
@@ -4349,25 +4398,39 @@ async fn proxy_handler(
   // with per-group round-robin.
   let request_host = extract_request_host(&headers);
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
-  let mut selected =
-    match pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None).await {
-      Some(client) => client,
-      None => {
-        log_request_failure(
-          &state,
-          &method_str,
-          &uri_str,
-          504,
-          start_time.elapsed(),
-          Some("No active client connection available"),
-        )
-        .await;
-        return gateway_timeout_response(
-          &state,
-          "504 Gateway Timeout - Client disconnected before request dispatch",
-        );
-      }
-    };
+  // Sticky strategy: a returning visitor carries an affinity cookie naming
+  // the client that served them before.
+  let affinity = if state.config.lb_strategy == LbStrategy::Sticky {
+    cookie_value(&headers, "aperio_affinity")
+  } else {
+    None
+  };
+  let mut selected = match pick_proxy_client(
+    &state,
+    &uri_path_owned,
+    request_host.as_deref(),
+    None,
+    affinity.as_deref(),
+  )
+  .await
+  {
+    Some(client) => client,
+    None => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        504,
+        start_time.elapsed(),
+        Some("No active client connection available"),
+      )
+      .await;
+      return gateway_timeout_response(
+        &state,
+        "504 Gateway Timeout - Client disconnected before request dispatch",
+      );
+    }
+  };
 
   // 5. Read body with limit to prevent OOM / DoS
   let body_bytes = match axum::body::to_bytes(body, state.config.max_body_size).await {
@@ -4408,8 +4471,10 @@ async fn proxy_handler(
           .split(';')
           .filter(|part| {
             let trimmed = part.trim();
-            // Internal aperio cookies (session, share) never reach backends.
-            !trimmed.starts_with("aperio_session=") && !trimmed.starts_with("aperio_share=")
+            // Internal aperio cookies never reach backends.
+            !trimmed.starts_with("aperio_session=")
+              && !trimmed.starts_with("aperio_share=")
+              && !trimmed.starts_with("aperio_affinity=")
           })
           .map(|part| part.trim())
           .collect::<Vec<&str>>()
@@ -4576,6 +4641,25 @@ async fn proxy_handler(
 
         let mut response_builder = Response::builder().status(status_code);
 
+        // Sticky sessions: pin this visitor to the client that just served
+        // them. The instance ID is preferred so affinity survives client
+        // reconnects; the connection ID is the fallback.
+        if state.config.lb_strategy == LbStrategy::Sticky {
+          let affinity_value = selected.instance_id.as_deref().unwrap_or(&selected.id);
+          let secure_flag = if state.config.secure_cookies {
+            "; Secure"
+          } else {
+            ""
+          };
+          response_builder = response_builder.header(
+            "set-cookie",
+            format!(
+              "aperio_affinity={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+              affinity_value, secure_flag
+            ),
+          );
+        }
+
         for (k, v) in tunnel_res.headers.iter() {
           let k_lower = k.to_lowercase();
           // Strip connection management headers
@@ -4693,7 +4777,7 @@ async fn proxy_handler(
             .get_or_insert_with(|| tokio::time::Instant::now() + state.config.failover_window);
           let next = match state.config.failover_mode {
             FailoverMode::Retry => {
-              pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None).await
+              pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None, None).await
             }
             FailoverMode::Wait => {
               // Wait for the same client process to return; when it
@@ -4859,31 +4943,25 @@ async fn handle_ws_proxy(
     }
   }
 
-  // 4. Select a tunnel client (same hostname/path-aware routing as HTTP proxy)
+  // 4. Select a tunnel client (same hostname/path-aware routing as HTTP
+  // proxy, including sticky affinity so a page's WebSockets land on the
+  // same client as the page itself).
   let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
   let request_host = extract_request_host(&headers);
-  let client_info = {
-    let clients = state.clients.lock().await;
-    match select_client_pool(
-      &clients,
-      uri_path,
-      request_host.as_deref(),
-      state.config.require_hostname_bind,
-      state.config.client_down_threshold,
-    ) {
-      None => None,
-      Some((pool, group_key)) => {
-        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
-        let mut rr_map = state.path_rr.lock().await;
-        let idx = rr_map.entry(group_key).or_insert(0);
-        let chosen_id = &pool[*idx % pool.len()];
-        *idx = (*idx + 1) % pool.len();
-        clients
-          .get(chosen_id)
-          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
-      }
-    }
+  let ws_affinity = if state.config.lb_strategy == LbStrategy::Sticky {
+    cookie_value(&headers, "aperio_affinity")
+  } else {
+    None
   };
+  let client_info = pick_proxy_client(
+    &state,
+    uri_path,
+    request_host.as_deref(),
+    None,
+    ws_affinity.as_deref(),
+  )
+  .await
+  .map(|c| (c.id, c.tx, c.request_count));
 
   let (chosen_client_id, client_tx, client_req_counter) = match client_info {
     Some(info) => info,
@@ -4915,8 +4993,10 @@ async fn handle_ws_proxy(
           .split(';')
           .filter(|part| {
             let trimmed = part.trim();
-            // Internal aperio cookies (session, share) never reach backends.
-            !trimmed.starts_with("aperio_session=") && !trimmed.starts_with("aperio_share=")
+            // Internal aperio cookies never reach backends.
+            !trimmed.starts_with("aperio_session=")
+              && !trimmed.starts_with("aperio_share=")
+              && !trimmed.starts_with("aperio_affinity=")
           })
           .map(|part| part.trim())
           .collect::<Vec<&str>>()
@@ -6289,6 +6369,34 @@ mod tests {
       Some("app.example.com"),
       "/anything"
     ));
+  }
+
+  #[test]
+  fn test_find_affinity_match() {
+    let mut clients = HashMap::new();
+    let mut a = mock_client(None, None, None, None);
+    a.reported_instance_id = Some("instance-a".to_string());
+    let b = mock_client(None, None, None, None);
+    clients.insert("conn-a".to_string(), a);
+    clients.insert("conn-b".to_string(), b);
+    let pool = vec!["conn-a".to_string(), "conn-b".to_string()];
+
+    // Matches by instance ID (survives reconnects) and by connection ID.
+    assert_eq!(
+      find_affinity_match(&pool, &clients, "instance-a"),
+      Some("conn-a".to_string())
+    );
+    assert_eq!(
+      find_affinity_match(&pool, &clients, "conn-b"),
+      Some("conn-b".to_string())
+    );
+    // Unknown affinity falls back to rotation (None).
+    assert_eq!(find_affinity_match(&pool, &clients, "gone"), None);
+    // A client that left the pool no longer matches.
+    assert_eq!(
+      find_affinity_match(&["conn-b".to_string()], &clients, "instance-a"),
+      None
+    );
   }
 
   #[test]

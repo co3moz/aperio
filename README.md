@@ -149,7 +149,7 @@ The server is configured entirely through environment variables.
 | `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
 | `APERIO_RANDOM_SUBDOMAIN` | e.g. `*.example.com` — every connecting client gets a random hostname under this suffix, in addition to its other binds. | — |
 | `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |
-| `APERIO_LB_STRATEGY` | Load-balancing strategy: `round-robin` or `primary-standby` (client priority tiers, see [Routing](#routing)). | `round-robin` |
+| `APERIO_LB_STRATEGY` | Load-balancing strategy: `round-robin`, `primary-standby` (client priority tiers), or `sticky` (visitor affinity via cookie). See [Routing](#routing). | `round-robin` |
 | `APERIO_FAILOVER` | What to do when a client dies mid-request: `fail`, `retry`, `wait`, or `retry-wait`. See [In-Flight Failover](#in-flight-failover). | `fail` |
 | `APERIO_FAILOVER_MAX_JUMPS` | Max re-dispatch attempts per request. | `2` |
 | `APERIO_FAILOVER_WINDOW` | Total seconds the `wait`/`retry-wait` modes may spend waiting for a candidate, across all jumps. | `15` |
@@ -348,6 +348,7 @@ When a request arrives, the server picks a client in this order:
 4. **Strategy** — how a client is picked from the final pool, set by `APERIO_LB_STRATEGY`:
    - `round-robin` (default) — clients with identical binds share traffic evenly.
    - `primary-standby` — only the clients with the **lowest announced priority** (`--priority` / `APERIO_CLIENT_PRIORITY`, 0 = primary) receive traffic; standby tiers take over automatically when every more-primary client is unhealthy, draining, disabled, or gone. Rotation still applies within a tier. The dashboard marks standby clients with a `standby N` badge.
+   - `sticky` — round-robin for first-time visitors, then an `aperio_affinity` cookie (HttpOnly, 24 h) pins each visitor to the client that served them — including their WebSockets. Affinity keys on the client's instance ID, so it survives reconnects of the same client process; if that client leaves the pool the visitor falls back to rotation and gets a fresh cookie. Use this when backends hold per-visitor state (PHP sessions, in-memory carts, ...). The cookie is stripped before requests reach backends.
 
 A client can hold several hostname binds at once: its declared `--host`, hostnames granted by its token, and a random subdomain.
 
