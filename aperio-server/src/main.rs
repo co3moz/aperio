@@ -136,6 +136,9 @@ struct ServerConfig {
   /// client is assigned `<random>.<suffix>` in addition to any token-granted
   /// or declared hostname binds.
   random_subdomain_suffix: Option<String>,
+  /// A client whose last heartbeat is older than this is considered down and
+  /// removed from the load-balancing pool until it pings again.
+  client_down_threshold: Duration,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -176,6 +179,8 @@ struct ClientDetail {
   last_ping_seconds_ago: Option<u64>,
   /// Concurrency limit announced by the client (None = unlimited).
   max_concurrent: Option<u32>,
+  /// False when the client missed its heartbeat window and is out of the pool.
+  healthy: bool,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -372,6 +377,13 @@ impl ClientHandle {
 
   fn has_hostname_bind(&self) -> bool {
     !self.effective_hostnames().is_empty()
+  }
+
+  /// A client is healthy while its last heartbeat (or, before the first
+  /// Ping, its connection time) is within the down threshold.
+  fn is_healthy(&self, down_threshold: Duration) -> bool {
+    let reference = self.last_ping_at.unwrap_or(self.connected_at);
+    reference.elapsed() < down_threshold
   }
 }
 
@@ -617,6 +629,14 @@ async fn main() {
     .ok()
     .filter(|t| !t.trim().is_empty());
 
+  // Heartbeat-based health: clients whose last Ping is older than this many
+  // seconds are treated as down and excluded from load balancing.
+  let client_down_threshold_secs = std::env::var("APERIO_CLIENT_DOWN_THRESHOLD")
+    .ok()
+    .and_then(|val| val.parse::<u64>().ok())
+    .filter(|n| *n > 0)
+    .unwrap_or(15);
+
   // Random subdomain assignment: APERIO_RANDOM_SUBDOMAIN="*.example.com"
   // gives every connecting client a random hostname under that suffix.
   let random_subdomain_suffix = std::env::var("APERIO_RANDOM_SUBDOMAIN")
@@ -695,6 +715,7 @@ async fn main() {
     require_hostname_bind,
     metrics_token,
     random_subdomain_suffix,
+    client_down_threshold: Duration::from_secs(client_down_threshold_secs),
   };
 
   if require_hostname_bind {
@@ -906,6 +927,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       override_hostname_bind: handle.override_hostname_bind.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: handle.max_concurrent,
+      healthy: handle.is_healthy(state.config.client_down_threshold),
     })
     .collect();
 
@@ -1321,6 +1343,7 @@ async fn request_replay_handler(
       uri_path,
       request_host.as_deref(),
       state.config.require_hostname_bind,
+      state.config.client_down_threshold,
     ) {
       None => None,
       Some((pool, group_key)) => {
@@ -1863,12 +1886,20 @@ fn select_client_pool(
   uri_path: &str,
   request_host: Option<&str>,
   require_hostname_bind: bool,
+  down_threshold: Duration,
 ) -> Option<(Vec<String>, RouteGroupKey)> {
+  // --- Eligibility stage: unhealthy clients never receive traffic ---
+  let eligible: Vec<(&String, &ClientHandle)> = clients
+    .iter()
+    .filter(|(_, c)| c.is_healthy(down_threshold))
+    .collect();
+
   // --- Hostname stage ---
   let host_matched: Vec<(&String, &ClientHandle)> = match request_host {
-    Some(host) => clients
+    Some(host) => eligible
       .iter()
       .filter(|(_, c)| c.matches_host(host))
+      .cloned()
       .collect(),
     None => Vec::new(),
   };
@@ -1880,9 +1911,10 @@ fn select_client_pool(
       // Strict mode: unbound clients are never eligible.
       return None;
     } else {
-      let unbound: Vec<(&String, &ClientHandle)> = clients
+      let unbound: Vec<(&String, &ClientHandle)> = eligible
         .iter()
         .filter(|(_, c)| !c.has_hostname_bind())
+        .cloned()
         .collect();
       (unbound, None)
     };
@@ -2658,6 +2690,7 @@ async fn proxy_handler(
       uri_path,
       request_host.as_deref(),
       state.config.require_hostname_bind,
+      state.config.client_down_threshold,
     ) {
       None => None,
       Some((pool, group_key)) => {
@@ -3084,6 +3117,7 @@ async fn handle_ws_proxy(
       uri_path,
       request_host.as_deref(),
       state.config.require_hostname_bind,
+      state.config.client_down_threshold,
     ) {
       None => None,
       Some((pool, group_key)) => {
@@ -3559,6 +3593,7 @@ mod tests {
       require_hostname_bind: false,
       metrics_token: None,
       random_subdomain_suffix: None,
+      client_down_threshold: Duration::from_secs(3600),
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -3620,6 +3655,7 @@ mod tests {
       require_hostname_bind: false,
       metrics_token: None,
       random_subdomain_suffix: None,
+      client_down_threshold: Duration::from_secs(3600),
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -3682,6 +3718,7 @@ mod tests {
       require_hostname_bind: false,
       metrics_token: None,
       random_subdomain_suffix: None,
+      client_down_threshold: Duration::from_secs(3600),
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -3887,6 +3924,9 @@ mod tests {
     assert_eq!(extract_client_ip(&headers, direct, false), direct);
   }
 
+  /// Generous health threshold so mock clients (no pings) stay eligible.
+  const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
+
   fn test_token_store() -> TokenStore {
     let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
     TokenStore::load(&dir.to_string_lossy())
@@ -3921,6 +3961,32 @@ mod tests {
       max_concurrent: None,
       inflight_limiter: None,
     }
+  }
+
+  #[test]
+  fn test_select_client_pool_excludes_unhealthy() {
+    let mut clients = HashMap::new();
+    let mut stale = mock_client(None, None, None, None);
+    // Last heartbeat far in the past -> down
+    stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
+    clients.insert("stale".to_string(), stale);
+
+    // Only client is unhealthy -> nothing selectable
+    assert!(select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).is_none());
+
+    // A fresh client joins -> traffic goes only to it
+    let mut fresh = mock_client(None, None, None, None);
+    fresh.last_ping_at = Some(Instant::now());
+    clients.insert("fresh".to_string(), fresh);
+    let (pool, _) =
+      select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).unwrap();
+    assert_eq!(pool, vec!["fresh".to_string()]);
+
+    // The stale client recovers with a new ping -> back in the pool
+    clients.get_mut("stale").unwrap().last_ping_at = Some(Instant::now());
+    let (pool, _) =
+      select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).unwrap();
+    assert_eq!(pool.len(), 2);
   }
 
   #[test]
@@ -4027,22 +4093,22 @@ mod tests {
 
     // Host matches a.example.com → only client "a"
     let (pool, key) =
-      select_client_pool(&clients, "/", Some("a.example.com"), false).unwrap();
+      select_client_pool(&clients, "/", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["a".to_string()]);
     assert_eq!(key, (Some("a.example.com".to_string()), None));
 
     // Unknown host → falls back to unbound client
-    let (pool, key) = select_client_pool(&clients, "/", Some("c.example.com"), false).unwrap();
+    let (pool, key) = select_client_pool(&clients, "/", Some("c.example.com"), false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["unbound".to_string()]);
     assert_eq!(key, (None, None));
 
     // Strict mode: unknown host → no client at all
-    assert!(select_client_pool(&clients, "/", Some("c.example.com"), true).is_none());
+    assert!(select_client_pool(&clients, "/", Some("c.example.com"), true, TEST_THRESHOLD).is_none());
     // Strict mode: matching host still works
-    let (pool, _) = select_client_pool(&clients, "/", Some("b.example.com"), true).unwrap();
+    let (pool, _) = select_client_pool(&clients, "/", Some("b.example.com"), true, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["b".to_string()]);
     // Strict mode: no Host header → no client
-    assert!(select_client_pool(&clients, "/", None, true).is_none());
+    assert!(select_client_pool(&clients, "/", None, true, TEST_THRESHOLD).is_none());
   }
 
   #[test]
@@ -4059,7 +4125,7 @@ mod tests {
 
     // Path under /api on the bound host → path-bound client wins
     let (pool, key) =
-      select_client_pool(&clients, "/api/users", Some("a.example.com"), false).unwrap();
+      select_client_pool(&clients, "/api/users", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["host-api".to_string()]);
     assert_eq!(
       key,
@@ -4071,7 +4137,7 @@ mod tests {
 
     // Other paths on the bound host → unbound-path client
     let (pool, _) =
-      select_client_pool(&clients, "/other", Some("a.example.com"), false).unwrap();
+      select_client_pool(&clients, "/other", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["host-root".to_string()]);
   }
 
@@ -4085,11 +4151,11 @@ mod tests {
     );
 
     let (pool, _) =
-      select_client_pool(&clients, "/", Some("a.example.com"), true).unwrap();
+      select_client_pool(&clients, "/", Some("a.example.com"), true, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["overruled".to_string()]);
 
     // With the override active, the client is no longer an unbound fallback
-    assert!(select_client_pool(&clients, "/", Some("x.example.com"), false).is_none());
+    assert!(select_client_pool(&clients, "/", Some("x.example.com"), false, TEST_THRESHOLD).is_none());
   }
 
   #[test]
@@ -4104,11 +4170,11 @@ mod tests {
       mock_client(None, Some("/api/v2"), None, None),
     );
 
-    let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, false).unwrap();
+    let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["long".to_string()]);
     assert_eq!(key, (None, Some("/api/v2".to_string())));
 
-    let (pool, _) = select_client_pool(&clients, "/api/other", None, false).unwrap();
+    let (pool, _) = select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
     assert_eq!(pool, vec!["short".to_string()]);
   }
 

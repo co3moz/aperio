@@ -771,7 +771,7 @@
                             <td class="text-mono">${escapeHtml(c.ip)}</td>
                             <td>${formatBindList(c.hostname_binds, c.override_hostname_bind)}</td>
                             <td>${formatBind(c.path_bind, c.override_path_bind)}</td>
-                            <td class="text-mono">${formatLastPing(c.last_ping_seconds_ago)}</td>
+                            <td class="text-mono"><span class="status-dot ${c.healthy ? 'active' : 'inactive'}" style="margin-right:0.4rem;"></span>${formatLastPing(c.last_ping_seconds_ago)}${c.healthy ? '' : ' <span style="color:var(--danger);font-size:0.7rem;">DOWN</span>'}</td>
                             <td>${formatUptime(c.connected_for_seconds)}</td>
                             <td class="text-mono">${escapeHtml(c.request_count)}</td>
                             <td></td>
