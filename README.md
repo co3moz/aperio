@@ -130,7 +130,7 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 ## Server Guide
 
-The server is configured entirely through environment variables.
+The server is configured through environment variables; most settings can also be edited live from the dashboard's *Server Settings* section, where they become persisted overrides on top of the env defaults (see [Dashboard](#dashboard)).
 
 ### Core Settings
 
@@ -239,6 +239,7 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 | `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
 | `GET/POST /aperio/api/maintenance` | List / toggle per-hostname maintenance mode. | dashboard session |
 | `POST /aperio/api/share` | Generate a signed share link (see [Share Links](#share-links)). | dashboard session |
+| `GET/PUT /aperio/api/settings` | Read / edit runtime server settings (persisted overrides on top of env defaults). | dashboard session |
 | `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](#ephemeral-tunnels-ci--preview-environments). | master token (Bearer) or dashboard session |
 | `GET/POST /aperio/auth` | Login page / login API. | — |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
@@ -477,6 +478,7 @@ Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUT
 - **Add Client wizard** — pick a token strategy (placeholder or mint a scoped token on the spot), describe the local service, and copy a ready-to-run `docker run` / CLI / `aperio.yaml` snippet.
 - **Maintenance mode** — put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE`, with `Retry-After`) while the tunnel clients stay connected. In-memory like bind overrides; cleared on server restart. Toggles are audited and emitted as `maintenance_on`/`maintenance_off` webhook events.
 - **Share links** — generate signed, expiring visitor-access URLs. See [Share Links](#share-links).
+- **Server settings** — edit almost every runtime setting (timeouts, limits, LB strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML) live from the dashboard. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust and OIDC remain env-only. Changes are audited (`settings_updated`) and emitted to webhooks.
 - **Audit log** — the last 200 administrative/security events.
 
 ---

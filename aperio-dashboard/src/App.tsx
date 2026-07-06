@@ -6,6 +6,7 @@ import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
 import { InspectorDialog } from './components/InspectorDialog'
 import { MaintenanceSection } from './components/MaintenanceSection'
+import { SettingsSection } from './components/SettingsSection'
 import { ShareLinksSection } from './components/ShareLinksSection'
 import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
@@ -88,6 +89,7 @@ export default function App() {
           <WebhooksSection />
           <AuditSection />
           <TrafficSection logs={logs} onInspect={setInspectId} />
+          <SettingsSection />
         </Flex>
       </Container>
 

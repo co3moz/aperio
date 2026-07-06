@@ -134,6 +134,17 @@ export interface AuditEvent {
   details: string
 }
 
+/** Dashboard-editable server settings (see SettingsOverrides in the server). */
+export type SettingsValues = Record<string, string | number | boolean | null>
+
+export type SettingsOverrides = Record<string, string | number | boolean | null | undefined>
+
+export interface SettingsPayload {
+  effective: SettingsValues
+  defaults: SettingsValues
+  overrides: SettingsOverrides
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -197,6 +208,9 @@ export const api = {
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   audit: () => request<AuditEvent[]>('/audit'),
   maintenance: () => request<string[]>('/maintenance'),
+  settings: () => request<SettingsPayload>('/settings'),
+  updateSettings: (overrides: SettingsOverrides) =>
+    request<{ effective: SettingsValues }>('/settings', json('PUT', overrides)),
   createShareLink: (payload: { hostname: string; path?: string; ttl_seconds?: number }) =>
     request<{ id: string; url: string; token: string; expires_at: number }>(
       '/share',

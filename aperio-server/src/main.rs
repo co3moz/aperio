@@ -228,6 +228,176 @@ enum FailoverMode {
   RetryWait,
 }
 
+/// Dashboard-editable configuration overrides, persisted as
+/// `<data_dir>/settings.json`. Every field is optional: `None` (or a missing
+/// key) keeps the environment-derived default; empty strings clear optional
+/// values (pages, subdomain suffix, visitor auth). The master token,
+/// HOST/PORT, proxy trust, cookie security and OIDC remain env-only.
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct SettingsOverrides {
+  gateway_timeout_secs: Option<u64>,
+  gateway_response_timeout_secs: Option<u64>,
+  max_body_size: Option<usize>,
+  max_tunnels: Option<usize>,
+  require_hostname_bind: Option<bool>,
+  lb_strategy: Option<String>,
+  failover_mode: Option<String>,
+  failover_max_jumps: Option<u32>,
+  failover_window_secs: Option<u64>,
+  failover_all_methods: Option<bool>,
+  client_down_threshold_secs: Option<u64>,
+  ip_limit_max: Option<f64>,
+  ip_limit_refill: Option<f64>,
+  tunnel_compression: Option<bool>,
+  random_subdomain_suffix: Option<String>,
+  /// Raw HTML (not a file path, unlike APERIO_504_PAGE).
+  custom_504_page: Option<String>,
+  /// Raw HTML (not a file path, unlike APERIO_503_PAGE).
+  custom_503_page: Option<String>,
+  /// Visitor password in `user:password` form ("" = disabled).
+  auth_credentials: Option<String>,
+}
+
+/// Parses an `APERIO_LB_STRATEGY`-style value.
+fn parse_lb_strategy(raw: &str) -> Option<LbStrategy> {
+  match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+    "" | "round-robin" => Some(LbStrategy::RoundRobin),
+    "primary-standby" | "failover" => Some(LbStrategy::PrimaryStandby),
+    "sticky" => Some(LbStrategy::Sticky),
+    _ => None,
+  }
+}
+
+/// Parses an `APERIO_FAILOVER`-style value.
+fn parse_failover_mode(raw: &str) -> Option<FailoverMode> {
+  match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+    "" | "fail" => Some(FailoverMode::Fail),
+    "retry" => Some(FailoverMode::Retry),
+    "wait" => Some(FailoverMode::Wait),
+    "retry-wait" => Some(FailoverMode::RetryWait),
+    _ => None,
+  }
+}
+
+/// Applies persisted/dashboard overrides on top of the env-derived defaults,
+/// producing the effective configuration. Invalid values are skipped.
+fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverrides) -> ServerConfig {
+  let mut c = base.clone();
+  if let Some(v) = o.gateway_timeout_secs {
+    c.gateway_timeout = Duration::from_secs(v.max(1));
+  }
+  if let Some(v) = o.gateway_response_timeout_secs {
+    c.gateway_response_timeout = Duration::from_secs(v.max(1));
+  }
+  if let Some(v) = o.max_body_size {
+    c.max_body_size = v.max(1024);
+  }
+  if let Some(v) = o.max_tunnels {
+    c.max_tunnels = v.max(1);
+  }
+  if let Some(v) = o.require_hostname_bind {
+    c.require_hostname_bind = v;
+  }
+  if let Some(ref s) = o.lb_strategy
+    && let Some(v) = parse_lb_strategy(s)
+  {
+    c.lb_strategy = v;
+  }
+  if let Some(ref s) = o.failover_mode
+    && let Some(v) = parse_failover_mode(s)
+  {
+    c.failover_mode = v;
+  }
+  if let Some(v) = o.failover_max_jumps {
+    c.failover_max_jumps = v;
+  }
+  if let Some(v) = o.failover_window_secs {
+    c.failover_window = Duration::from_secs(v.max(1));
+  }
+  if let Some(v) = o.failover_all_methods {
+    c.failover_all_methods = v;
+  }
+  if let Some(v) = o.client_down_threshold_secs {
+    c.client_down_threshold = Duration::from_secs(v.max(1));
+  }
+  if let Some(v) = o.ip_limit_max
+    && v > 0.0
+  {
+    c.ip_limit_max = v;
+  }
+  if let Some(v) = o.ip_limit_refill
+    && v >= 0.0
+  {
+    c.ip_limit_refill = v;
+  }
+  if let Some(v) = o.tunnel_compression {
+    c.tunnel_compression = v;
+  }
+  if let Some(ref s) = o.random_subdomain_suffix {
+    let trimmed = s.trim().trim_start_matches("*.").trim_matches('.');
+    c.random_subdomain_suffix = if trimmed.is_empty() {
+      None
+    } else {
+      Some(trimmed.to_string())
+    };
+  }
+  if let Some(ref html) = o.custom_504_page {
+    c.custom_504_page = if html.is_empty() {
+      None
+    } else {
+      Some(html.clone())
+    };
+  }
+  if let Some(ref html) = o.custom_503_page {
+    c.custom_503_page = if html.is_empty() {
+      None
+    } else {
+      Some(html.clone())
+    };
+  }
+  if let Some(ref creds) = o.auth_credentials {
+    c.auth_credentials = if creds.is_empty() {
+      None
+    } else {
+      Some(creds.clone())
+    };
+  }
+  c
+}
+
+/// JSON view of the dashboard-editable subset of a configuration.
+fn settings_view(c: &ServerConfig) -> serde_json::Value {
+  serde_json::json!({
+    "gateway_timeout_secs": c.gateway_timeout.as_secs(),
+    "gateway_response_timeout_secs": c.gateway_response_timeout.as_secs(),
+    "max_body_size": c.max_body_size,
+    "max_tunnels": c.max_tunnels,
+    "require_hostname_bind": c.require_hostname_bind,
+    "lb_strategy": match c.lb_strategy {
+      LbStrategy::RoundRobin => "round-robin",
+      LbStrategy::PrimaryStandby => "primary-standby",
+      LbStrategy::Sticky => "sticky",
+    },
+    "failover_mode": match c.failover_mode {
+      FailoverMode::Fail => "fail",
+      FailoverMode::Retry => "retry",
+      FailoverMode::Wait => "wait",
+      FailoverMode::RetryWait => "retry-wait",
+    },
+    "failover_max_jumps": c.failover_max_jumps,
+    "failover_window_secs": c.failover_window.as_secs(),
+    "failover_all_methods": c.failover_all_methods,
+    "client_down_threshold_secs": c.client_down_threshold.as_secs(),
+    "ip_limit_max": c.ip_limit_max,
+    "ip_limit_refill": c.ip_limit_refill,
+    "tunnel_compression": c.tunnel_compression,
+    "random_subdomain_suffix": c.random_subdomain_suffix,
+    "custom_504_page": c.custom_504_page,
+    "custom_503_page": c.custom_503_page,
+    "auth_credentials": c.auth_credentials,
+  })
+}
+
 /// Load-balancing behavior applied after routing narrows the candidate pool.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LbStrategy {
@@ -617,7 +787,17 @@ struct AppState {
   pending_requests: Mutex<HashMap<String, PendingRequest>>,
   stats: Mutex<ServerStats>,
   recent_logs: Mutex<VecDeque<RequestLog>>,
-  config: ServerConfig,
+  /// Live server configuration. Dashboard-editable settings swap in a new
+  /// `Arc<ServerConfig>`; every access takes a cheap read-lock snapshot via
+  /// [`AppState::config`].
+  config_store: std::sync::RwLock<Arc<ServerConfig>>,
+  /// Configuration as derived from environment variables only, used as the
+  /// base that persisted overrides apply on top of (and for "reset").
+  config_env_defaults: Arc<ServerConfig>,
+  /// Currently persisted dashboard overrides (subset of settings).
+  settings_overrides: Mutex<SettingsOverrides>,
+  /// Path of the persisted overrides file (`<data_dir>/settings.json`).
+  settings_path: std::path::PathBuf,
   concurrency_semaphore: Semaphore,
   path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   sessions: Mutex<HashMap<String, SessionInfo>>,
@@ -658,6 +838,15 @@ struct AppState {
 }
 
 impl AppState {
+  /// Snapshot of the live configuration (cheap Arc clone).
+  fn config(&self) -> Arc<ServerConfig> {
+    self
+      .config_store
+      .read()
+      .expect("config lock poisoned")
+      .clone()
+  }
+
   /// Records an audit event (file + in-memory ring).
   async fn audit(&self, event: &str, actor_ip: &str, details: &str) {
     self.audit.lock().await.record(event, actor_ip, details);
@@ -692,8 +881,8 @@ impl AppState {
       limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
     }
 
-    let max_tokens = self.config.ip_limit_max;
-    let refill_rate = self.config.ip_limit_refill;
+    let max_tokens = self.config().ip_limit_max;
+    let refill_rate = self.config().ip_limit_refill;
 
     let state = limit_map.entry(ip).or_insert_with(|| RateLimitState {
       tokens: max_tokens,
@@ -900,51 +1089,27 @@ async fn main() {
       });
 
   // Load-balancing strategy applied after routing narrows the pool.
-  let lb_strategy = match std::env::var("APERIO_LB_STRATEGY")
-    .unwrap_or_default()
-    .trim()
-    .to_ascii_lowercase()
-    .replace('_', "-")
-    .as_str()
-  {
-    "" | "round-robin" => LbStrategy::RoundRobin,
-    "primary-standby" | "failover" => {
-      info!("Load balancing strategy: primary-standby (client priority tiers)");
-      LbStrategy::PrimaryStandby
-    }
-    "sticky" => {
-      info!("Load balancing strategy: sticky (visitor affinity via cookie)");
-      LbStrategy::Sticky
-    }
-    other => {
-      warn!(
-        "Unknown APERIO_LB_STRATEGY '{}' (expected 'round-robin', 'primary-standby' or 'sticky'); using round-robin",
-        other
-      );
-      LbStrategy::RoundRobin
-    }
-  };
+  let lb_strategy_raw = std::env::var("APERIO_LB_STRATEGY").unwrap_or_default();
+  let lb_strategy = parse_lb_strategy(&lb_strategy_raw).unwrap_or_else(|| {
+    warn!(
+      "Unknown APERIO_LB_STRATEGY '{}' (expected 'round-robin', 'primary-standby' or 'sticky'); using round-robin",
+      lb_strategy_raw
+    );
+    LbStrategy::RoundRobin
+  });
+  if lb_strategy != LbStrategy::RoundRobin {
+    info!("Load balancing strategy: {:?}", lb_strategy);
+  }
 
   // In-flight failover: what to do when a client dies mid-request.
-  let failover_mode = match std::env::var("APERIO_FAILOVER")
-    .unwrap_or_default()
-    .trim()
-    .to_ascii_lowercase()
-    .replace('_', "-")
-    .as_str()
-  {
-    "" | "fail" => FailoverMode::Fail,
-    "retry" => FailoverMode::Retry,
-    "wait" => FailoverMode::Wait,
-    "retry-wait" => FailoverMode::RetryWait,
-    other => {
-      warn!(
-        "Unknown APERIO_FAILOVER '{}' (expected 'fail', 'retry', 'wait' or 'retry-wait'); using fail",
-        other
-      );
-      FailoverMode::Fail
-    }
-  };
+  let failover_raw = std::env::var("APERIO_FAILOVER").unwrap_or_default();
+  let failover_mode = parse_failover_mode(&failover_raw).unwrap_or_else(|| {
+    warn!(
+      "Unknown APERIO_FAILOVER '{}' (expected 'fail', 'retry', 'wait' or 'retry-wait'); using fail",
+      failover_raw
+    );
+    FailoverMode::Fail
+  });
   let failover_max_jumps = std::env::var("APERIO_FAILOVER_MAX_JUMPS")
     .ok()
     .and_then(|val| val.parse::<u32>().ok())
@@ -1072,6 +1237,34 @@ async fn main() {
     failover_all_methods,
   };
 
+  // Dashboard-editable settings: env-derived values are the defaults, and
+  // overrides persisted from earlier dashboard edits apply on top.
+  let settings_path = std::path::PathBuf::from(&data_dir).join("settings.json");
+  let settings_overrides = std::fs::read_to_string(&settings_path)
+    .ok()
+    .and_then(
+      |raw| match serde_json::from_str::<SettingsOverrides>(&raw) {
+        Ok(o) => Some(o),
+        Err(e) => {
+          error!(
+            "Failed to parse {:?}: {} — ignoring persisted settings",
+            settings_path, e
+          );
+          None
+        }
+      },
+    )
+    .unwrap_or_default();
+  let overridden = override_keys(&settings_overrides);
+  if !overridden.is_empty() {
+    info!(
+      "Applying persisted dashboard settings from {:?} (overridden: {:?})",
+      settings_path, overridden
+    );
+  }
+  let config_env_defaults = Arc::new(config);
+  let config = apply_settings_overrides(&config_env_defaults, &settings_overrides);
+
   if require_hostname_bind {
     info!(
       "Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic."
@@ -1099,7 +1292,10 @@ async fn main() {
       total_bytes_transferred: 0,
     }),
     recent_logs: Mutex::new(VecDeque::with_capacity(100)),
-    config,
+    config_store: std::sync::RwLock::new(Arc::new(config)),
+    config_env_defaults,
+    settings_overrides: Mutex::new(settings_overrides),
+    settings_path,
     concurrency_semaphore: Semaphore::new(max_concurrent_requests),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
@@ -1169,6 +1365,10 @@ async fn main() {
         get(maintenance_list_handler).post(maintenance_set_handler),
       )
       .route("/api/share", axum::routing::post(share_create_handler))
+      .route(
+        "/api/settings",
+        get(settings_get_handler).put(settings_put_handler),
+      )
       .route(
         "/api/webhooks",
         get(webhooks_list_handler).post(webhooks_create_handler),
@@ -1406,7 +1606,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
         0 => None,
         n => Some(n),
       },
-      healthy: handle.is_healthy(state.config.client_down_threshold),
+      healthy: handle.is_healthy(state.config().client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
     })
@@ -1461,7 +1661,7 @@ async fn client_override_handler(
   headers: HeaderMap,
   Json(payload): Json<ClientOverrideRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   // Validate before mutating: reject invalid values with 400.
   let new_hostname = match payload.hostname_bind.as_deref() {
     None | Some("") => None,
@@ -1541,7 +1741,7 @@ async fn webhooks_create_handler(
   headers: HeaderMap,
   Json(payload): Json<WebhookCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
     return (
@@ -1583,7 +1783,7 @@ async fn webhooks_delete_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   if state.webhook_store.lock().await.delete(&id) {
     state
       .audit("webhook_deleted", &actor_ip, &format!("id={}", id))
@@ -1609,7 +1809,7 @@ async fn client_enabled_handler(
   headers: HeaderMap,
   Json(payload): Json<ClientEnabledRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {
@@ -1775,7 +1975,7 @@ async fn tokens_create_handler(
   headers: HeaderMap,
   Json(payload): Json<TokenCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
     return (
@@ -1844,7 +2044,7 @@ async fn tokens_update_handler(
   headers: HeaderMap,
   Json(payload): Json<TokenUpdateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
 
   if let Some(ref n) = payload.name {
     let n = n.trim();
@@ -1919,7 +2119,7 @@ async fn tokens_revoke_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);
@@ -1933,6 +2133,116 @@ async fn tokens_revoke_handler(
   } else {
     (StatusCode::NOT_FOUND, "Token not found").into_response()
   }
+}
+
+/// Names of the fields a SettingsOverrides actually overrides.
+fn override_keys(o: &SettingsOverrides) -> Vec<String> {
+  match serde_json::to_value(o) {
+    Ok(serde_json::Value::Object(map)) => map
+      .into_iter()
+      .filter(|(_, v)| !v.is_null())
+      .map(|(k, _)| k)
+      .collect(),
+    _ => Vec::new(),
+  }
+}
+
+/// Returns the dashboard-editable settings: effective values, environment
+/// defaults, and the persisted overrides.
+async fn settings_get_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+  let overrides = state.settings_overrides.lock().await.clone();
+  Json(serde_json::json!({
+    "effective": settings_view(&state.config()),
+    "defaults": settings_view(&state.config_env_defaults),
+    "overrides": overrides,
+  }))
+}
+
+/// Replaces the settings overrides. The body is the full overrides object:
+/// missing/null fields fall back to the environment default. Changes apply
+/// live (config swap), persist to `<data_dir>/settings.json`, and are
+/// audited with the list of overridden keys.
+async fn settings_put_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<SettingsOverrides>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+
+  // Reject values that apply_settings_overrides would silently skip.
+  if let Some(ref s) = payload.lb_strategy
+    && parse_lb_strategy(s).is_none()
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      format!("Invalid lb_strategy: {}", s),
+    )
+      .into_response();
+  }
+  if let Some(ref s) = payload.failover_mode
+    && parse_failover_mode(s).is_none()
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      format!("Invalid failover_mode: {}", s),
+    )
+      .into_response();
+  }
+  if let Some(ref creds) = payload.auth_credentials
+    && !creds.is_empty()
+    && !creds.contains(':')
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      "auth_credentials must be in user:password form",
+    )
+      .into_response();
+  }
+  for (label, page) in [
+    ("custom_504_page", &payload.custom_504_page),
+    ("custom_503_page", &payload.custom_503_page),
+  ] {
+    if let Some(html) = page
+      && html.len() > 512 * 1024
+    {
+      return (StatusCode::BAD_REQUEST, format!("{} exceeds 512 KB", label)).into_response();
+    }
+  }
+
+  let effective = apply_settings_overrides(&state.config_env_defaults, &payload);
+  *state.config_store.write().expect("config lock poisoned") = Arc::new(effective);
+  *state.settings_overrides.lock().await = payload.clone();
+
+  match serde_json::to_string_pretty(&payload) {
+    Ok(json) => {
+      if let Err(e) = std::fs::write(&state.settings_path, json) {
+        error!(
+          "Failed to persist settings to {:?}: {}",
+          state.settings_path, e
+        );
+      }
+    }
+    Err(e) => error!("Failed to serialize settings: {}", e),
+  }
+
+  let keys = override_keys(&payload);
+  info!(
+    "Settings updated from the dashboard (overridden: {:?})",
+    keys
+  );
+  state
+    .audit("settings_updated", &actor_ip, &keys.join(","))
+    .await;
+  state
+    .emit_event("settings_updated", serde_json::json!({"overridden": keys}))
+    .await;
+
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({"effective": settings_view(&state.config())})),
+  )
+    .into_response()
 }
 
 /// Payload for toggling maintenance mode on a hostname (dashboard).
@@ -1959,7 +2269,7 @@ async fn maintenance_set_handler(
   headers: HeaderMap,
   Json(payload): Json<MaintenanceRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let raw = payload.hostname.trim();
   let hostname = if raw == "*" {
     "*".to_string()
@@ -2030,7 +2340,7 @@ async fn share_create_handler(
   headers: HeaderMap,
   Json(payload): Json<ShareCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
 
   let hostname = match normalize_hostname_bind(payload.hostname.trim()) {
     Some(h) => h,
@@ -2075,7 +2385,7 @@ async fn share_create_handler(
     exp: now + ttl,
     id: uuid::Uuid::new_v4().simple().to_string()[..8].to_string(),
   };
-  let token = sign_share_claims(&claims, &share_signing_key(&state.config.token));
+  let token = sign_share_claims(&claims, &share_signing_key(&state.config().token));
   let url = format!(
     "https://{}{}?aperio_share={}",
     hostname,
@@ -2143,7 +2453,7 @@ const TUNNEL_MAX_TTL_SECS: u64 = 7 * 24 * 3_600;
 /// without a browser login flow.
 async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
   if let Some(presented) = extract_token(headers)
-    && constant_time_eq_str(&presented, &state.config.token)
+    && constant_time_eq_str(&presented, &state.config().token)
   {
     return true;
   }
@@ -2160,7 +2470,7 @@ async fn tunnels_create_handler(
   headers: HeaderMap,
   Json(payload): Json<TunnelCreateRequest>,
 ) -> Response {
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   // Rate limit before auth so credential guessing is throttled like login.
   if !state.check_rate_limit(client_ip).await {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -2220,7 +2530,7 @@ async fn tunnels_create_handler(
           .into_response();
       }
     },
-    None => match state.config.random_subdomain_suffix {
+    None => match state.config().random_subdomain_suffix {
       Some(ref suffix) => {
         let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
         format!("{}.{}", label, suffix)
@@ -2299,7 +2609,7 @@ async fn tunnels_delete_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   if !state.check_rate_limit(client_ip).await {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
@@ -2359,7 +2669,7 @@ async fn request_replay_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
   let captured = {
     let store = state.captured_requests.lock().await;
     store.iter().find(|c| c.id == id).cloned()
@@ -2392,12 +2702,12 @@ async fn request_replay_handler(
       &clients,
       uri_path,
       request_host.as_deref(),
-      state.config.require_hostname_bind,
-      state.config.client_down_threshold,
+      state.config().require_hostname_bind,
+      state.config().client_down_threshold,
     ) {
       None => None,
       Some((pool, group_key)) => {
-        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
+        let pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
@@ -2454,7 +2764,7 @@ async fn request_replay_handler(
   }
 
   let start = Instant::now();
-  let result = tokio::time::timeout(state.config.gateway_response_timeout, rx_response).await;
+  let result = tokio::time::timeout(state.config().gateway_response_timeout, rx_response).await;
   state.pending_requests.lock().await.remove(&replay_id);
 
   match result {
@@ -2510,7 +2820,7 @@ async fn metrics_handler(
   axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Some(ref token) = state.config.metrics_token {
+  if let Some(ref token) = state.config().metrics_token {
     let bearer_ok = headers
       .get("authorization")
       .and_then(|v| v.to_str().ok())
@@ -2620,7 +2930,7 @@ async fn auth_login_handler(
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
   // Rate limit login attempts per IP to mitigate brute-force attacks.
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
@@ -2635,14 +2945,14 @@ async fn auth_login_handler(
       && let Ok(decoded_str) = String::from_utf8(decoded)
     {
       // Allow APERIO_SERVER_AUTH credentials if configured
-      if let Some(ref creds) = state.config.auth_credentials
+      if let Some(ref creds) = state.config().auth_credentials
         && constant_time_eq_str(&decoded_str, creds)
       {
         authenticated = true;
       }
       // Always allow token as password with username "aperio"
       if !authenticated
-        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", state.config.token))
+        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", state.config().token))
       {
         authenticated = true;
       }
@@ -2679,7 +2989,7 @@ async fn auth_login_handler(
     },
   );
 
-  let secure_flag = if state.config.secure_cookies {
+  let secure_flag = if state.config().secure_cookies {
     "; Secure"
   } else {
     ""
@@ -2733,7 +3043,7 @@ async fn authorize_tunnel_token(
   client_ip: IpAddr,
 ) -> Option<ClientPerms> {
   let presented = extract_token(headers)?;
-  if constant_time_eq_str(&presented, &state.config.token) {
+  if constant_time_eq_str(&presented, &state.config().token) {
     return Some(ClientPerms::master());
   }
   let store = state.token_store.lock().await;
@@ -3128,10 +3438,10 @@ async fn pick_proxy_client(
     &clients,
     uri_path,
     request_host,
-    state.config.require_hostname_bind,
-    state.config.client_down_threshold,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
   )?;
-  let mut pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
+  let mut pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
   if let Some(instance) = require_instance {
     pool.retain(|id| {
       clients
@@ -3146,7 +3456,7 @@ async fn pick_proxy_client(
   // Sticky affinity: honor the visitor's cookie when that client is still in
   // the pool; otherwise fall back to rotation (and the response sets a fresh
   // cookie for the newly chosen client).
-  let chosen_id = if state.config.lb_strategy == LbStrategy::Sticky
+  let chosen_id = if state.config().lb_strategy == LbStrategy::Sticky
     && let Some(previous) = affinity.and_then(|a| find_affinity_match(&pool, &clients, a))
   {
     previous
@@ -3230,7 +3540,7 @@ async fn ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let tunnel_client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let tunnel_client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
     Some(p) => p,
     None => {
@@ -3243,10 +3553,12 @@ async fn ws_handler(
   // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
   loop {
     let current = state.active_tunnel_count.load(Ordering::SeqCst);
-    if current >= state.config.max_tunnels {
+    if current >= state.config().max_tunnels {
       warn!(
         "WebSocket upgrade connection rejected from {}: Maximum tunnels count reached ({}/{})",
-        addr, current, state.config.max_tunnels
+        addr,
+        current,
+        state.config().max_tunnels
       );
       return (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -3265,8 +3577,8 @@ async fn ws_handler(
   }
 
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
-  ws.max_message_size(state.config.max_body_size.saturating_mul(2))
-    .max_frame_size(state.config.max_body_size)
+  ws.max_message_size(state.config().max_body_size.saturating_mul(2))
+    .max_frame_size(state.config().max_body_size)
     .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state, perms))
 }
 
@@ -3367,10 +3679,14 @@ async fn handle_socket(
   // random subdomain feature is on, the random hostname is added on top of
   // any token-granted hostnames — the client serves both.
   let mut assigned_hostnames = perms.granted_hostnames();
-  let random_hostname = state.config.random_subdomain_suffix.as_ref().map(|suffix| {
-    let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
-    format!("{}.{}", label, suffix)
-  });
+  let random_hostname = state
+    .config()
+    .random_subdomain_suffix
+    .as_ref()
+    .map(|suffix| {
+      let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
+      format!("{}.{}", label, suffix)
+    });
   if let Some(ref h) = random_hostname {
     assigned_hostnames.push(h.clone());
   }
@@ -3426,7 +3742,7 @@ async fn handle_socket(
   }
 
   // Offer tunnel compression; frames stay uncompressed until the client Acks.
-  if state.config.tunnel_compression
+  if state.config().tunnel_compression
     && let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {})
   {
     let _ = tx_write.send(Message::Text(json)).await;
@@ -3434,7 +3750,7 @@ async fn handle_socket(
 
   // Cap for decompressed tunnel frames (defends against zlib bombs).
   let max_inflated = state
-    .config
+    .config()
     .max_body_size
     .saturating_mul(4)
     .max(8 * 1024 * 1024);
@@ -3559,7 +3875,7 @@ async fn handle_socket(
                     // for too long, drop the stream instead of blocking the
                     // whole tunnel read loop forever.
                     let send_res = tokio::time::timeout(
-                      state.config.gateway_response_timeout,
+                      state.config().gateway_response_timeout,
                       chunk_tx.send(Ok(bytes)),
                     )
                     .await;
@@ -4085,7 +4401,7 @@ fn check_share_access(
   uri: &Uri,
   host: Option<&str>,
 ) -> Option<Option<Response>> {
-  let key = share_signing_key(&state.config.token);
+  let key = share_signing_key(&state.config().token);
   let uri_path = uri.path();
 
   // 1. Token in the query string: the first click on a generated link.
@@ -4117,7 +4433,7 @@ fn check_share_access(
       } else {
         format!("{}?{}", uri_path, rest.join("&"))
       };
-      let secure_flag = if state.config.secure_cookies {
+      let secure_flag = if state.config().secure_cookies {
         "; Secure"
       } else {
         ""
@@ -4195,7 +4511,7 @@ async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
 /// Builds a 504 response: the custom APERIO_504_PAGE HTML when configured,
 /// otherwise the given plain-text message.
 fn gateway_timeout_response(state: &AppState, fallback: &str) -> Response {
-  match state.config.custom_504_page {
+  match state.config().custom_504_page {
     Some(ref html) => (
       StatusCode::GATEWAY_TIMEOUT,
       [("content-type", "text/html; charset=utf-8")],
@@ -4218,7 +4534,7 @@ async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
 
 /// Builds the 503 maintenance response (custom APERIO_503_PAGE or plain text).
 fn maintenance_response(state: &AppState) -> Response {
-  let mut resp = match state.config.custom_503_page {
+  let mut resp = match state.config().custom_503_page {
     Some(ref html) => (
       StatusCode::SERVICE_UNAVAILABLE,
       [("content-type", "text/html; charset=utf-8")],
@@ -4263,7 +4579,7 @@ async fn proxy_handler(
   let method = req.method().clone();
   let uri = req.uri().clone();
   let headers = req.headers().clone();
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
 
   // Maintenance mode wins over everything else (including WS upgrades):
   // visitors get the 503 page even while tunnel clients stay connected.
@@ -4302,7 +4618,7 @@ async fn proxy_handler(
   }
 
   // 2. Session/Auth check (if configured)
-  let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
+  let auth_required = state.config().auth_credentials.is_some() || state.oidc.is_some();
   if auth_required && !validate_session(&state, &headers).await {
     // Share links: a signed, expiring token grants access to this
     // hostname/path without a dashboard session.
@@ -4341,7 +4657,7 @@ async fn proxy_handler(
   if !is_connected {
     // Wait for a client to reconnect, bounded by the configured gateway timeout.
     let mut rx = state.client_connected.subscribe();
-    let timeout_fut = tokio::time::sleep(state.config.gateway_timeout);
+    let timeout_fut = tokio::time::sleep(state.config().gateway_timeout);
     tokio::pin!(timeout_fut);
 
     let mut reconnected = false;
@@ -4400,7 +4716,7 @@ async fn proxy_handler(
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
   // Sticky strategy: a returning visitor carries an affinity cookie naming
   // the client that served them before.
-  let affinity = if state.config.lb_strategy == LbStrategy::Sticky {
+  let affinity = if state.config().lb_strategy == LbStrategy::Sticky {
     cookie_value(&headers, "aperio_affinity")
   } else {
     None
@@ -4433,7 +4749,7 @@ async fn proxy_handler(
   };
 
   // 5. Read body with limit to prevent OOM / DoS
-  let body_bytes = match axum::body::to_bytes(body, state.config.max_body_size).await {
+  let body_bytes = match axum::body::to_bytes(body, state.config().max_body_size).await {
     Ok(bytes) => bytes,
     Err(e) => {
       log_request_failure(
@@ -4526,7 +4842,7 @@ async fn proxy_handler(
     // timeout) for an in-flight slot instead of flooding the client's backend.
     let _inflight_permit = match selected.inflight_limiter.clone() {
       Some(limiter) => {
-        match tokio::time::timeout(state.config.gateway_timeout, limiter.acquire_owned()).await {
+        match tokio::time::timeout(state.config().gateway_timeout, limiter.acquire_owned()).await {
           Ok(Ok(permit)) => Some(permit),
           _ => {
             log_request_failure(
@@ -4601,7 +4917,7 @@ async fn proxy_handler(
 
     // Await the response with the per-attempt response timeout.
     let outcome: Option<TunnelResponse> = if dispatched {
-      let timeout_fut = tokio::time::sleep(state.config.gateway_response_timeout);
+      let timeout_fut = tokio::time::sleep(state.config().gateway_response_timeout);
       tokio::pin!(timeout_fut);
       tokio::select! {
           _ = &mut timeout_fut => {
@@ -4644,9 +4960,9 @@ async fn proxy_handler(
         // Sticky sessions: pin this visitor to the client that just served
         // them. The instance ID is preferred so affinity survives client
         // reconnects; the connection ID is the fallback.
-        if state.config.lb_strategy == LbStrategy::Sticky {
+        if state.config().lb_strategy == LbStrategy::Sticky {
           let affinity_value = selected.instance_id.as_deref().unwrap_or(&selected.id);
-          let secure_flag = if state.config.secure_cookies {
+          let secure_flag = if state.config().secure_cookies {
             "; Secure"
           } else {
             ""
@@ -4771,14 +5087,14 @@ async fn proxy_handler(
         // The client vanished before answering. No response bytes
         // have reached the visitor yet, so a failover re-dispatch
         // is safe (for retryable methods).
-        let can_failover = state.config.failover_mode != FailoverMode::Fail
-          && method_retryable(&method_str, state.config.failover_all_methods)
-          && jumps_used < state.config.failover_max_jumps;
+        let can_failover = state.config().failover_mode != FailoverMode::Fail
+          && method_retryable(&method_str, state.config().failover_all_methods)
+          && jumps_used < state.config().failover_max_jumps;
         if can_failover {
           jumps_used += 1;
           let deadline = *failover_deadline
-            .get_or_insert_with(|| tokio::time::Instant::now() + state.config.failover_window);
-          let next = match state.config.failover_mode {
+            .get_or_insert_with(|| tokio::time::Instant::now() + state.config().failover_window);
+          let next = match state.config().failover_mode {
             FailoverMode::Retry => {
               pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None, None).await
             }
@@ -4814,7 +5130,7 @@ async fn proxy_handler(
               selected.id,
               next_client.id,
               jumps_used,
-              state.config.failover_max_jumps
+              state.config().failover_max_jumps
             );
             selected = next_client;
             continue;
@@ -4880,7 +5196,7 @@ async fn handle_ws_proxy(
   }
 
   // 2. Session/Auth check
-  let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
+  let auth_required = state.config().auth_credentials.is_some() || state.oidc.is_some();
   if auth_required && !validate_session(&state, &headers).await {
     // A share cookie set during the page load also covers its WebSockets.
     let share_ok = check_share_access(
@@ -4914,7 +5230,7 @@ async fn handle_ws_proxy(
   };
   if !is_connected {
     let mut rx = state.client_connected.subscribe();
-    let timeout_fut = tokio::time::sleep(state.config.gateway_timeout);
+    let timeout_fut = tokio::time::sleep(state.config().gateway_timeout);
     tokio::pin!(timeout_fut);
 
     let mut reconnected = false;
@@ -4951,7 +5267,7 @@ async fn handle_ws_proxy(
   // same client as the page itself).
   let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
   let request_host = extract_request_host(&headers);
-  let ws_affinity = if state.config.lb_strategy == LbStrategy::Sticky {
+  let ws_affinity = if state.config().lb_strategy == LbStrategy::Sticky {
     cookie_value(&headers, "aperio_affinity")
   } else {
     None
@@ -5077,7 +5393,7 @@ async fn handle_ws_proxy(
   }
 
   // Await UpgradeResponse from client
-  let timeout_fut = tokio::time::sleep(state.config.gateway_response_timeout);
+  let timeout_fut = tokio::time::sleep(state.config().gateway_response_timeout);
   tokio::pin!(timeout_fut);
 
   let client_response = tokio::select! {
@@ -5320,7 +5636,7 @@ async fn tcp_ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -5341,7 +5657,7 @@ async fn tcp_ws_handler(
         c.tcp_enabled
           && c.admin_enabled
           && !c.draining
-          && c.is_healthy(state.config.client_down_threshold)
+          && c.is_healthy(state.config().client_down_threshold)
       })
       .map(|(id, c)| (id.clone(), c.tx.clone()))
   };
@@ -5462,7 +5778,7 @@ fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap) -> Option<String> {
     return Some(fixed.clone());
   }
   let host = headers.get("host").and_then(|v| v.to_str().ok())?;
-  let proto = if state.config.trust_proxy {
+  let proto = if state.config().trust_proxy {
     headers
       .get("x-forwarded-proto")
       .and_then(|v| v.to_str().ok())
@@ -5484,7 +5800,7 @@ async fn oidc_login_handler(
   let Some(rt) = state.oidc.clone() else {
     return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
   };
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -5547,7 +5863,7 @@ async fn oidc_callback_handler(
   let Some(rt) = state.oidc.clone() else {
     return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
   };
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -5663,7 +5979,7 @@ async fn oidc_callback_handler(
       expires_at: Instant::now() + Duration::from_secs(86400),
     },
   );
-  let secure_flag = if state.config.secure_cookies {
+  let secure_flag = if state.config().secure_cookies {
     "; Secure"
   } else {
     ""
@@ -5886,7 +6202,13 @@ mod tests {
         total_bytes_transferred: 0,
       }),
       recent_logs: Mutex::new(VecDeque::new()),
-      config,
+      config_store: std::sync::RwLock::new(Arc::new(config.clone())),
+      config_env_defaults: Arc::new(config),
+      settings_overrides: Mutex::new(SettingsOverrides::default()),
+      settings_path: std::env::temp_dir().join(format!(
+        "aperio-test-settings-{}.json",
+        uuid::Uuid::new_v4()
+      )),
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
@@ -5964,7 +6286,13 @@ mod tests {
         total_bytes_transferred: 0,
       }),
       recent_logs: Mutex::new(VecDeque::new()),
-      config,
+      config_store: std::sync::RwLock::new(Arc::new(config.clone())),
+      config_env_defaults: Arc::new(config),
+      settings_overrides: Mutex::new(SettingsOverrides::default()),
+      settings_path: std::env::temp_dir().join(format!(
+        "aperio-test-settings-{}.json",
+        uuid::Uuid::new_v4()
+      )),
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
@@ -6041,7 +6369,13 @@ mod tests {
         total_bytes_transferred: 0,
       }),
       recent_logs: Mutex::new(VecDeque::new()),
-      config,
+      config_store: std::sync::RwLock::new(Arc::new(config.clone())),
+      config_env_defaults: Arc::new(config),
+      settings_overrides: Mutex::new(SettingsOverrides::default()),
+      settings_path: std::env::temp_dir().join(format!(
+        "aperio-test-settings-{}.json",
+        uuid::Uuid::new_v4()
+      )),
       concurrency_semaphore: Semaphore::new(10),
       path_rr: Mutex::new(HashMap::new()),
       sessions: Mutex::new(HashMap::new()),
@@ -6372,6 +6706,76 @@ mod tests {
       Some("app.example.com"),
       "/anything"
     ));
+  }
+
+  #[test]
+  fn test_apply_settings_overrides() {
+    let base = ServerConfig {
+      token: "t".to_string(),
+      gateway_timeout: Duration::from_secs(10),
+      gateway_response_timeout: Duration::from_secs(30),
+      max_body_size: 10 * 1024 * 1024,
+      max_tunnels: 10,
+      ip_limit_max: 100.0,
+      ip_limit_refill: 5.0,
+      auth_credentials: None,
+      trust_proxy: false,
+      secure_cookies: false,
+      require_hostname_bind: false,
+      metrics_token: None,
+      random_subdomain_suffix: None,
+      client_down_threshold: Duration::from_secs(15),
+      tunnel_compression: false,
+      custom_504_page: None,
+      custom_503_page: None,
+      lb_strategy: LbStrategy::RoundRobin,
+      failover_mode: FailoverMode::Fail,
+      failover_max_jumps: 2,
+      failover_window: Duration::from_secs(15),
+      failover_all_methods: false,
+    };
+
+    let overrides = SettingsOverrides {
+      gateway_timeout_secs: Some(20),
+      lb_strategy: Some("sticky".to_string()),
+      failover_mode: Some("retry-wait".to_string()),
+      random_subdomain_suffix: Some("*.e2e.local".to_string()),
+      custom_504_page: Some("<h1>down</h1>".to_string()),
+      auth_credentials: Some("user:pass".to_string()),
+      ..Default::default()
+    };
+    let c = apply_settings_overrides(&base, &overrides);
+    assert_eq!(c.gateway_timeout, Duration::from_secs(20));
+    assert_eq!(c.lb_strategy, LbStrategy::Sticky);
+    assert_eq!(c.failover_mode, FailoverMode::RetryWait);
+    assert_eq!(c.random_subdomain_suffix.as_deref(), Some("e2e.local"));
+    assert_eq!(c.custom_504_page.as_deref(), Some("<h1>down</h1>"));
+    assert_eq!(c.auth_credentials.as_deref(), Some("user:pass"));
+    // Untouched fields keep the base values; the token never changes.
+    assert_eq!(c.max_body_size, base.max_body_size);
+    assert_eq!(c.token, "t");
+
+    // Empty strings clear optional values; invalid enum values are skipped.
+    let clearing = SettingsOverrides {
+      auth_credentials: Some(String::new()),
+      lb_strategy: Some("bogus".to_string()),
+      ..Default::default()
+    };
+    let c2 = apply_settings_overrides(&c, &clearing);
+    assert_eq!(c2.auth_credentials, None);
+    assert_eq!(c2.lb_strategy, c.lb_strategy);
+
+    assert_eq!(
+      override_keys(&overrides),
+      vec![
+        "auth_credentials",
+        "custom_504_page",
+        "failover_mode",
+        "gateway_timeout_secs",
+        "lb_strategy",
+        "random_subdomain_suffix",
+      ]
+    );
   }
 
   #[test]
