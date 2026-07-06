@@ -34,6 +34,10 @@ pub enum TunnelMessage {
     path_bind: Option<String>,
     #[serde(default)]
     hostname_bind: Option<String>,
+    /// Maximum concurrent requests the client is willing to process.
+    /// The server queues excess requests instead of dispatching them.
+    #[serde(default)]
+    max_concurrent: Option<u32>,
   },
   Pong {
     timestamp: u64,
@@ -141,6 +145,8 @@ struct ClientDetail {
   override_hostname_bind: Option<String>,
   /// Seconds elapsed since the last heartbeat Ping was received.
   last_ping_seconds_ago: Option<u64>,
+  /// Concurrency limit announced by the client (None = unlimited).
+  max_concurrent: Option<u32>,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -213,6 +219,12 @@ struct ClientHandle {
   last_ping_at: Option<Instant>,
   /// Permissions attached to the token this client authenticated with.
   perms: ClientPerms,
+  /// Announced concurrency limit of the client (from Ping), for display.
+  max_concurrent: Option<u32>,
+  /// Semaphore enforcing the client's announced concurrency limit. Requests
+  /// beyond the limit wait here (bounded by the gateway timeout) instead of
+  /// being dispatched, so the server never floods the client's backend.
+  inflight_limiter: Option<Arc<Semaphore>>,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -773,6 +785,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       override_path_bind: handle.override_path_bind.clone(),
       override_hostname_bind: handle.override_hostname_bind.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
+      max_concurrent: handle.max_concurrent,
     })
     .collect();
 
@@ -1518,6 +1531,8 @@ async fn handle_socket(
         override_hostname_bind: None,
         last_ping_at: None,
         perms: perms.clone(),
+        max_concurrent: None,
+        inflight_limiter: None,
       },
     );
     drop(clients);
@@ -1576,6 +1591,7 @@ async fn handle_socket(
               timestamp,
               path_bind,
               hostname_bind,
+              max_concurrent,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -1607,6 +1623,19 @@ async fn handle_socket(
                         client_id, h
                       );
                     }
+                  }
+                  // Create the concurrency limiter on the first Ping that
+                  // announces a limit; the limit is fixed for the connection.
+                  if handle.inflight_limiter.is_none()
+                    && let Some(n) = max_concurrent
+                    && n > 0
+                  {
+                    handle.max_concurrent = Some(n);
+                    handle.inflight_limiter = Some(Arc::new(Semaphore::new(n as usize)));
+                    info!(
+                      "Client {} announced concurrency limit: {} — excess requests will be queued",
+                      client_id, n
+                    );
                   }
                   handle.last_ping_at = Some(Instant::now());
                 }
@@ -1958,14 +1987,19 @@ async fn proxy_handler(
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
         *idx = (*idx + 1) % pool.len();
-        clients
-          .get(chosen_id)
-          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+        clients.get(chosen_id).map(|c| {
+          (
+            chosen_id.clone(),
+            c.tx.clone(),
+            c.request_count.clone(),
+            c.inflight_limiter.clone(),
+          )
+        })
       }
     }
   };
 
-  let (chosen_client_id, client_tx, client_req_counter) = match client_info {
+  let (chosen_client_id, client_tx, client_req_counter, inflight_limiter) = match client_info {
     Some(info) => info,
     None => {
       log_request_failure(
@@ -1983,6 +2017,33 @@ async fn proxy_handler(
       )
         .into_response();
     }
+  };
+
+  // Honor the client's announced concurrency limit: wait (up to the gateway
+  // timeout) for an in-flight slot instead of flooding the client's backend.
+  let _inflight_permit = match inflight_limiter {
+    Some(limiter) => {
+      match tokio::time::timeout(state.config.gateway_timeout, limiter.acquire_owned()).await {
+        Ok(Ok(permit)) => Some(permit),
+        _ => {
+          log_request_failure(
+            &state,
+            &method_str,
+            &uri_str,
+            429,
+            start_time.elapsed(),
+            Some("Client concurrency limit: no slot freed within gateway timeout"),
+          )
+          .await;
+          return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "429 Too Many Requests - Tunnel client concurrency limit reached",
+          )
+            .into_response();
+        }
+      }
+    }
+    None => None,
   };
 
   // Increment request stats for client
@@ -2924,6 +2985,8 @@ mod tests {
         override_hostname_bind: None,
         last_ping_at: None,
         perms: ClientPerms::master(),
+        max_concurrent: None,
+        inflight_limiter: None,
       },
     );
 
@@ -3098,6 +3161,8 @@ mod tests {
       override_hostname_bind: override_hostname.map(|s| s.to_string()),
       last_ping_at: None,
       perms: ClientPerms::master(),
+      max_concurrent: None,
+      inflight_limiter: None,
     }
   }
 

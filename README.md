@@ -117,6 +117,7 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
 | `APERIO_CLIENT_MAX_RESPONSE_BODY` | Maximum response body size in bytes accepted from the backend. Protects against OOM.                                  | `52428800` (50MB)       | No       | usize          |
 | `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
+| `APERIO_CLIENT_MAX_CONCURRENT` | Maximum concurrent requests this client processes. Announced to the server, which queues excess requests (up to the gateway timeout) instead of flooding the backend; also enforced locally. `0`/unset = unlimited. | _(unlimited)_ | No | u32 |
 | `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `info`                  | No       | String         |
 
 ---

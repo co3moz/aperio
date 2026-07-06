@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, Semaphore, mpsc};
 use tokio_tungstenite::{
   connect_async,
   tungstenite::{
@@ -25,6 +25,10 @@ pub enum TunnelMessage {
     path_bind: Option<String>,
     #[serde(default)]
     hostname_bind: Option<String>,
+    /// Maximum concurrent requests this client is willing to process.
+    /// The server queues excess requests instead of dispatching them.
+    #[serde(default)]
+    max_concurrent: Option<u32>,
   },
   Pong {
     timestamp: u64,
@@ -150,6 +154,17 @@ async fn main() {
     .and_then(|val| val.parse::<u64>().ok())
     .unwrap_or(30);
 
+  // Maximum concurrent requests processed locally. Announced to the server so
+  // it queues excess requests instead of flooding the backend. Also enforced
+  // locally, since the client must not fully trust the server. 0 = unlimited.
+  let max_concurrent = std::env::var("APERIO_CLIENT_MAX_CONCURRENT")
+    .ok()
+    .and_then(|val| val.parse::<u32>().ok())
+    .filter(|n| *n > 0);
+
+  let local_limiter: Option<Arc<Semaphore>> =
+    max_concurrent.map(|n| Arc::new(Semaphore::new(n as usize)));
+
   let client_id = uuid::Uuid::new_v4().to_string();
 
   let ws_url = match build_ws_url(&server_addr) {
@@ -170,6 +185,9 @@ async fn main() {
   }
   if let Some(ref host) = hostname_bind {
     info!("- Hostname Bind: {}", host);
+  }
+  if let Some(n) = max_concurrent {
+    info!("- Max Concurrent Requests: {}", n);
   }
   info!("- WebSocket URL: {}", ws_url);
 
@@ -256,6 +274,7 @@ async fn main() {
                     .as_secs(),
                   path_bind: path_bind_ping.clone(),
                   hostname_bind: hostname_bind_ping.clone(),
+                  max_concurrent,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -299,9 +318,19 @@ async fn main() {
                                               let path_bind_val = path_bind.clone();
                                               let trim_bind_val = trim_bind;
                                               let max_resp_size = max_response_body_size;
+                                              let limiter = local_limiter.clone();
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {
+                                                  // Local concurrency guard: even a misbehaving server
+                                                  // cannot push more parallel work onto the backend.
+                                                  let _permit = match limiter {
+                                                      Some(sem) => match sem.acquire_owned().await {
+                                                          Ok(p) => Some(p),
+                                                          Err(_) => None,
+                                                      },
+                                                      None => None,
+                                                  };
                                                   let response = handle_incoming_request(
                                                       req_client,
                                                       id,
