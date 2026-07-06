@@ -83,6 +83,14 @@ The server is configured entirely through environment variables.
 | `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
 | `APERIO_DATA_DIR`                        | Directory for persisted server state (dynamic API tokens). Mount a volume here in Docker.                                    | `./data`          | No       | String  |
 | `APERIO_RANDOM_SUBDOMAIN`                | E.g. `*.example.com`: every connecting client automatically gets a random hostname bind under this suffix (ngrok-style), in addition to any token-granted or declared hostnames. | _(None)_ | No | String |
+| `APERIO_CLIENT_DOWN_THRESHOLD`           | Seconds without a heartbeat before a client is treated as down and dropped from the routing pool (rejoins on the next ping). | `15` | No | u64 |
+| `APERIO_TUNNEL_COMPRESSION`              | Set to `1` to offer per-message zlib compression to clients; enabled per connection once the client acknowledges. | `false` | No | Boolean |
+| `APERIO_504_PAGE`                        | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | _(None)_ | No | String |
+| `APERIO_OIDC_ISSUER`                     | OIDC issuer URL (e.g. `https://accounts.google.com`). Setting this requires SSO login for all proxied traffic. | _(None)_ | No | String |
+| `APERIO_OIDC_CLIENT_ID` / `APERIO_OIDC_CLIENT_SECRET` | OAuth client credentials registered at the issuer (redirect URI: `https://<your-host>/aperio/oidc/callback`). | _(None)_ | With issuer | String |
+| `APERIO_OIDC_ALLOWED_EMAILS`             | Comma-separated allowlist: exact addresses, `*@domain`, or `*`. Required when OIDC is enabled. | _(None)_ | With issuer | String |
+| `APERIO_OIDC_SCOPES`                     | OAuth scopes requested during login. | `openid email profile` | No | String |
+| `APERIO_OIDC_REDIRECT_URL`               | Fixed callback URL override (otherwise derived from the request Host / X-Forwarded-Proto). | _(derived)_ | No | String |
 | `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
 | `APERIO_METRICS_TOKEN`                   | Token required to scrape `/aperio/metrics` — pass as `?token=<value>` or `Authorization: Bearer`. If unset while metrics are enabled, a random token is generated once and persisted in `APERIO_DATA_DIR/metrics_token` (logged on first generation). The endpoint is never public. | _(auto-generated)_ | No      | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
@@ -122,6 +130,7 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_CLIENT_MAX_MESSAGE_SIZE` | Maximum size of a single tunnel WebSocket message accepted from the server (memory protection).                        | `33554432` (32MB)       | No       | usize          |
 | `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
 | `APERIO_CLIENT_MAX_CONCURRENT` | Maximum concurrent requests this client processes. Announced to the server, which queues excess requests (up to the gateway timeout) instead of flooding the backend; also enforced locally. `0`/unset = unlimited. | _(unlimited)_ | No | u32 |
+| `APERIO_CLIENT_TCP_TARGET` | `host:port` for experimental raw TCP tunneling. The client only ever connects to this exact address, no matter what the server requests. | _(None)_ | No | String |
 | `LOG_LEVEL`                 | Log verbosity. Values: `error`, `warn`, `info`, `debug`, `trace`.                                                    | `info`                  | No       | String         |
 
 ---
@@ -249,6 +258,72 @@ Aperio automatically detects and proxies WebSocket upgrade requests. When a publ
 | HTTP Long-Polling     | Yes    | Regular HTTP request/response (unchanged) |
 
 No additional configuration is required — the server and client handle upgrade detection automatically.
+
+---
+
+## OIDC / SSO Protection (Cloudflare Access style)
+
+Set `APERIO_OIDC_ISSUER`, `APERIO_OIDC_CLIENT_ID`, `APERIO_OIDC_CLIENT_SECRET` and `APERIO_OIDC_ALLOWED_EMAILS` to put an identity-provider login in front of all proxied traffic. Unauthenticated visitors are redirected to the provider; after login their verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist (`user@x.com`, `*@x.com`, `*`). Sessions reuse the standard `aperio_session` cookie (24h). Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup — a misconfigured SSO setup is a fatal error, never a silently open proxy. Grants and denials appear in the audit log.
+
+---
+
+## Audit Log, Webhooks & Persistent Stats
+
+- **Audit log**: administrative/security events (logins, OIDC grants/denials, token create/update/revoke, client connect/disconnect/drain, overrules, replays, TCP streams) are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP and details. The dashboard shows the last 200 events (`GET /aperio/api/audit`).
+- **Webhooks**: define webhooks from the dashboard (name, URL, subscribed events, `*` = all). Events (`client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`) are delivered as JSON POSTs (`{"event", "timestamp", "data"}`) fire-and-forget with a 10s timeout. Stored in `APERIO_DATA_DIR/webhooks.json`.
+- **Persistent stats**: lifetime counters (`total_requests`, success/failed, bytes sent/received, summed duration) plus daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/stats.json`. The dashboard shows the all-time average response time and today's traffic.
+
+---
+
+## Health, Drain & Client Toggle
+
+- A client whose last heartbeat is older than `APERIO_CLIENT_DOWN_THRESHOLD` (15s default) is automatically removed from load balancing and rejoins on its next ping (shown as a red DOWN dot in the dashboard).
+- On SIGINT/SIGTERM the client announces **draining**: the server immediately stops routing new requests to it, in-flight requests finish (up to 30s), then the client exits.
+- The dashboard's **Enable/Disable** toggle removes a healthy, connected client from routing without disconnecting it — in-flight requests always complete.
+
+---
+
+## Experimental TCP Tunneling
+
+Give the client a TCP target and bridge a local port through the tunnel:
+
+```bash
+# Side A (inside the private network): expose a TCP service
+APERIO_CLIENT_TCP_TARGET=localhost:5432 ./aperio-client
+
+# Side B (anywhere): bridge a local port through the server
+./aperio-client tcp 15432 --server https://tunnel.example.com --token <token>
+# now: psql -h 127.0.0.1 -p 15432
+```
+
+Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dynamic-token IP allowlists apply). The client only ever connects to its configured `APERIO_CLIENT_TCP_TARGET`, regardless of what the server asks. No additional public ports are opened.
+
+---
+
+## Client CLI & aperio.yaml
+
+The client keeps its env-driven Docker mode (no arguments = old behavior) and adds CLI commands:
+
+```bash
+aperio-client http 3000 --host a.example.com --server https://tunnel.example.com --token apr_xxx
+aperio-client run --config ./aperio.yaml
+aperio-client tcp 15432 --server ... --token ...
+aperio-client --help
+```
+
+Precedence: **CLI arguments > environment variables > `aperio.yaml`** (auto-loaded from the working directory). Example `aperio.yaml`:
+
+```yaml
+server: https://tunnel.example.com
+token: apr_xxxxxxxxxxxxxxxx
+target: http://localhost:3000
+hostname: a.example.com
+path: /api
+trim_bind: true
+pass_hostname: false
+max_concurrent: 8
+tcp_target: localhost:5432
+```
 
 ---
 
