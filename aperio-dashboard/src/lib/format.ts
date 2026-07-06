@@ -6,6 +6,15 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
+/** Formats a bytes/second capacity as a bit-rate (e.g. 1000000 → "8 Mbit/s"). */
+export function formatBandwidth(bytesPerSec: number): string {
+  const bits = bytesPerSec * 8
+  if (bits >= 1e9) return `${parseFloat((bits / 1e9).toFixed(1))} Gbit/s`
+  if (bits >= 1e6) return `${parseFloat((bits / 1e6).toFixed(1))} Mbit/s`
+  if (bits >= 1e3) return `${parseFloat((bits / 1e3).toFixed(1))} kbit/s`
+  return `${bits} bit/s`
+}
+
 export function formatUptime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)

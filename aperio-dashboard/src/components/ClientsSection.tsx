@@ -14,7 +14,7 @@ import {
 } from '@radix-ui/themes'
 import { useState, type ReactNode } from 'react'
 import { api, ApiError, type ClientDetail } from '../lib/api'
-import { formatLastPing, formatUptime } from '../lib/format'
+import { formatBandwidth, formatLastPing, formatUptime } from '../lib/format'
 import { AddClientWizard } from './AddClientWizard'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
@@ -253,6 +253,13 @@ export function ClientsSection({
                           <Text size="1" color="gray">
                             v{c.version}
                           </Text>
+                        )}
+                        {c.bandwidth_bps !== null && (
+                          <Tooltip content="Announced link capacity; the server paces frames to this client accordingly">
+                            <Badge color="gray" size="1">
+                              {formatBandwidth(c.bandwidth_bps)}
+                            </Badge>
+                          </Tooltip>
                         )}
                         {c.priority > 0 && (
                           <Tooltip content={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}>

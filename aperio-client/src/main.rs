@@ -25,6 +25,34 @@ fn default_true() -> bool {
   true
 }
 
+/// Parses a human bandwidth value into bytes/second. Bit-based suffixes
+/// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
+/// `gb`, or bare `k`/`m`/`g`) multiply by powers of 1000; a bare number is
+/// bytes/second. Case-insensitive; fractions like "1.5mbit" are accepted.
+fn parse_bandwidth(raw: &str) -> Option<u64> {
+  let value = raw.trim().to_ascii_lowercase().replace(' ', "");
+  let (number, multiplier): (&str, f64) = if let Some(n) = value.strip_suffix("kbit") {
+    (n, 1_000.0 / 8.0)
+  } else if let Some(n) = value.strip_suffix("mbit") {
+    (n, 1_000_000.0 / 8.0)
+  } else if let Some(n) = value.strip_suffix("gbit") {
+    (n, 1_000_000_000.0 / 8.0)
+  } else if let Some(n) = value.strip_suffix("kb").or_else(|| value.strip_suffix('k')) {
+    (n, 1_000.0)
+  } else if let Some(n) = value.strip_suffix("mb").or_else(|| value.strip_suffix('m')) {
+    (n, 1_000_000.0)
+  } else if let Some(n) = value.strip_suffix("gb").or_else(|| value.strip_suffix('g')) {
+    (n, 1_000_000_000.0)
+  } else {
+    (value.as_str(), 1.0)
+  };
+  let parsed = number.parse::<f64>().ok()?;
+  if !parsed.is_finite() || parsed <= 0.0 {
+    return None;
+  }
+  Some((parsed * multiplier) as u64)
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -56,6 +84,10 @@ pub enum TunnelMessage {
     /// are standbys (used with the server's primary-standby strategy).
     #[serde(default)]
     priority: u32,
+    /// Announced downstream link capacity in bytes/second; the server paces
+    /// tunnel frames so this client is never pushed faster than its network.
+    #[serde(default)]
+    bandwidth_bps: Option<u64>,
   },
   Pong {
     timestamp: u64,
@@ -190,6 +222,8 @@ struct FileConfig {
   health_threshold: Option<u32>,
   /// Load-balancing priority tier (0 = primary, higher = standby).
   priority: Option<u32>,
+  /// Link capacity of this client's network, e.g. "8mbit", "500kbit", "2MB".
+  bandwidth: Option<String>,
 }
 
 /// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
@@ -488,6 +522,19 @@ async fn main() {
     .or(file_cfg.priority)
     .unwrap_or(0);
 
+  // Announced link capacity (bytes/second); the server paces its frames so
+  // this client's network is never flooded (e.g. "8mbit" on a DSL uplink).
+  let bandwidth_bps = std::env::var("APERIO_CLIENT_BANDWIDTH")
+    .ok()
+    .or(file_cfg.bandwidth.clone())
+    .and_then(|raw| {
+      let parsed = parse_bandwidth(&raw);
+      if parsed.is_none() {
+        warn!("Invalid bandwidth value '{}'; ignoring", raw);
+      }
+      parsed
+    });
+
   // Cap on individual tunnel WebSocket messages accepted from the server.
   let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
     .ok()
@@ -675,6 +722,9 @@ async fn main() {
   if priority > 0 {
     info!("- Load Balancing Priority: {} (standby tier)", priority);
   }
+  if let Some(bw) = bandwidth_bps {
+    info!("- Announced Bandwidth: {} bytes/s", bw);
+  }
   if let Some(ref t) = tcp_target {
     info!("- TCP Target: {}", t);
   }
@@ -859,6 +909,7 @@ async fn main() {
                   protocol: Some(PROTOCOL_VERSION),
                   backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
                   priority,
+                  bandwidth_bps,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -2272,6 +2323,21 @@ mod tests {
     let (tx, mut rx) = mpsc::channel::<Message>(64);
     tokio::spawn(async move { while rx.recv().await.is_some() {} });
     tx
+  }
+
+  #[test]
+  fn test_parse_bandwidth() {
+    assert_eq!(parse_bandwidth("8mbit"), Some(1_000_000));
+    assert_eq!(parse_bandwidth("1gbit"), Some(125_000_000));
+    assert_eq!(parse_bandwidth("500kbit"), Some(62_500));
+    assert_eq!(parse_bandwidth("2MB"), Some(2_000_000));
+    assert_eq!(parse_bandwidth("100kb"), Some(100_000));
+    assert_eq!(parse_bandwidth("1.5mbit"), Some(187_500));
+    assert_eq!(parse_bandwidth("125000"), Some(125_000));
+    assert_eq!(parse_bandwidth("8 Mbit"), Some(1_000_000));
+    assert_eq!(parse_bandwidth("0"), None);
+    assert_eq!(parse_bandwidth("-5mbit"), None);
+    assert_eq!(parse_bandwidth("fast"), None);
   }
 
   #[test]

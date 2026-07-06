@@ -72,6 +72,10 @@ pub enum TunnelMessage {
     /// are standbys. Only used with APERIO_LB_STRATEGY=primary-standby.
     #[serde(default)]
     priority: u32,
+    /// Announced downstream link capacity in bytes/second. The server paces
+    /// tunnel frames so this client is never pushed faster than its network.
+    #[serde(default)]
+    bandwidth_bps: Option<u64>,
   },
   Pong {
     timestamp: u64,
@@ -283,6 +287,8 @@ struct ClientDetail {
   backend_healthy: bool,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   priority: u32,
+  /// Announced downstream link capacity in bytes/second (None = unlimited).
+  bandwidth_bps: Option<u64>,
   /// False when the client missed its heartbeat window and is out of the pool.
   healthy: bool,
   /// True while the client is gracefully draining before shutdown.
@@ -429,6 +435,9 @@ struct ClientHandle {
   /// server-assigned connection ID it survives reconnects of the same
   /// process, letting the failover `wait` mode recognize a returning client.
   reported_instance_id: Option<String>,
+  /// Announced downstream link capacity in bytes/second (0 = unlimited).
+  /// Shared with the connection's writer task, which paces outgoing frames.
+  bandwidth_bps: Arc<AtomicU64>,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -1385,6 +1394,10 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
         .is_some_and(|p| p != PROTOCOL_VERSION),
       backend_healthy: handle.backend_healthy,
       priority: handle.priority,
+      bandwidth_bps: match handle.bandwidth_bps.load(Ordering::Relaxed) {
+        0 => None,
+        n => Some(n),
+      },
       healthy: handle.is_healthy(state.config.client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
@@ -3230,10 +3243,22 @@ async fn handle_socket(
   // the client acknowledges the CompressionStart offer.
   let compress_out = Arc::new(AtomicBool::new(false));
 
+  // Announced downstream link capacity of the client in bytes/second
+  // (0 = unlimited). Updated from Ping, read by the writer task.
+  let bandwidth_bps = Arc::new(AtomicU64::new(0));
+
   // Spawn a writer task for this connection
   let writer_client_id = client_id.clone();
   let compress_out_writer = compress_out.clone();
+  let bandwidth_writer = bandwidth_bps.clone();
   let writer_task = tokio::spawn(async move {
+    // Bandwidth shaping: when the client announced a limited link, pace all
+    // outgoing tunnel frames with a token bucket (1 s burst, average rate =
+    // announced capacity) so the server never pushes faster than the
+    // client's network can drain. Frames larger than the burst drive the
+    // bucket negative and pay the remainder as sleep time.
+    let mut bucket_tokens: f64 = 0.0;
+    let mut bucket_refilled_at = Instant::now();
     while let Some(msg) = rx_write.recv().await {
       let msg = match msg {
         Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
@@ -3241,6 +3266,24 @@ async fn handle_socket(
         }
         other => other,
       };
+      let rate = bandwidth_writer.load(Ordering::Relaxed);
+      if rate > 0 {
+        let size = match &msg {
+          Message::Text(t) => t.len(),
+          Message::Binary(b) => b.len(),
+          _ => 0,
+        } as f64;
+        let rate_f = rate as f64;
+        let now = Instant::now();
+        bucket_tokens = (bucket_tokens
+          + now.duration_since(bucket_refilled_at).as_secs_f64() * rate_f)
+          .min(rate_f);
+        bucket_refilled_at = now;
+        bucket_tokens -= size;
+        if bucket_tokens < 0.0 {
+          tokio::time::sleep(Duration::from_secs_f64(-bucket_tokens / rate_f)).await;
+        }
+      }
       if let Err(e) = ws_sender.send(msg).await {
         error!(
           "Error writing to websocket client {}: {:?}",
@@ -3316,6 +3359,7 @@ async fn handle_socket(
         backend_healthy: true,
         priority: 0,
         reported_instance_id: None,
+        bandwidth_bps: bandwidth_bps.clone(),
       },
     );
     drop(clients);
@@ -3591,6 +3635,7 @@ async fn handle_socket(
               protocol,
               backend_healthy,
               priority,
+              bandwidth_bps,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -3665,6 +3710,16 @@ async fn handle_socket(
                   // process when it reconnects under a new connection ID.
                   if handle.reported_instance_id.is_none() && !cid.is_empty() {
                     handle.reported_instance_id = Some(cid.clone());
+                  }
+                  // Announced link capacity feeds the writer task's shaper.
+                  let announced_bw = bandwidth_bps.unwrap_or(0);
+                  if handle.bandwidth_bps.swap(announced_bw, Ordering::Relaxed) != announced_bw
+                    && announced_bw > 0
+                  {
+                    info!(
+                      "Client {} announced a bandwidth limit of {} bytes/s; pacing outgoing frames",
+                      client_id, announced_bw
+                    );
                   }
                   if let Some(v) = version {
                     handle.client_version = Some(v);
@@ -5954,6 +6009,7 @@ mod tests {
         backend_healthy: true,
         priority: 0,
         reported_instance_id: None,
+        bandwidth_bps: Arc::new(AtomicU64::new(0)),
       },
     );
 
@@ -6160,6 +6216,7 @@ mod tests {
       backend_healthy: true,
       priority: 0,
       reported_instance_id: None,
+      bandwidth_bps: Arc::new(AtomicU64::new(0)),
     }
   }
 

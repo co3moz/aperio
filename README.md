@@ -296,6 +296,7 @@ aperio-client --help
 | `APERIO_CLIENT_TRIM_BIND` | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
 | `APERIO_CLIENT_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
 | `APERIO_CLIENT_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
+| `APERIO_CLIENT_BANDWIDTH` | — | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. | unlimited |
 | `APERIO_CLIENT_MAX_CONCURRENT` | `--concurrency` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
 | `APERIO_CLIENT_TCP_TARGET` | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
 | `APERIO_CLIENT_TARGET_HEALTH` | — | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. | — |
