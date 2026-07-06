@@ -172,6 +172,9 @@ struct ServerConfig {
   /// When true, the server offers zlib compression to connecting clients;
   /// tunnel frames are compressed once the client acknowledges.
   tunnel_compression: bool,
+  /// Custom HTML page served on 504 gateway-timeout responses
+  /// (loaded once from APERIO_504_PAGE at startup).
+  custom_504_page: Option<String>,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -717,6 +720,21 @@ async fn main() {
     info!("Tunnel compression is enabled (zlib per-message)");
   }
 
+  // Optional custom 504 error page (e.g. APERIO_504_PAGE=/app/error_504.html).
+  // Loaded once at startup; on read failure the default plain-text 504 is kept.
+  let custom_504_page = std::env::var("APERIO_504_PAGE").ok().and_then(|path| {
+    match std::fs::read_to_string(&path) {
+      Ok(html) => {
+        info!("Custom 504 page loaded from {}", path);
+        Some(html)
+      }
+      Err(e) => {
+        error!("Failed to read APERIO_504_PAGE {}: {} — using default 504 text", path, e);
+        None
+      }
+    }
+  });
+
   // Heartbeat-based health: clients whose last Ping is older than this many
   // seconds are treated as down and excluded from load balancing.
   let client_down_threshold_secs = std::env::var("APERIO_CLIENT_DOWN_THRESHOLD")
@@ -805,6 +823,7 @@ async fn main() {
     random_subdomain_suffix,
     client_down_threshold: Duration::from_secs(client_down_threshold_secs),
     tunnel_compression,
+    custom_504_page,
   };
 
   if require_hostname_bind {
@@ -2965,6 +2984,20 @@ async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
   false
 }
 
+/// Builds a 504 response: the custom APERIO_504_PAGE HTML when configured,
+/// otherwise the given plain-text message.
+fn gateway_timeout_response(state: &AppState, fallback: &str) -> Response {
+  match state.config.custom_504_page {
+    Some(ref html) => (
+      StatusCode::GATEWAY_TIMEOUT,
+      [("content-type", "text/html; charset=utf-8")],
+      html.clone(),
+    )
+      .into_response(),
+    None => (StatusCode::GATEWAY_TIMEOUT, fallback.to_string()).into_response(),
+  }
+}
+
 /// Checks if an HTTP request is a WebSocket upgrade request.
 fn is_websocket_upgrade(method: &Method, headers: &HeaderMap) -> bool {
   if method != Method::GET {
@@ -3078,11 +3111,7 @@ async fn proxy_handler(
         Some("Gateway Timeout - Reconnect wait expired"),
       )
       .await;
-      return (
-        StatusCode::GATEWAY_TIMEOUT,
-        "504 Gateway Timeout - No client connected in time",
-      )
-        .into_response();
+      return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
     }
   }
 
@@ -3151,11 +3180,10 @@ async fn proxy_handler(
         Some("No active client connection available"),
       )
       .await;
-      return (
-        StatusCode::GATEWAY_TIMEOUT,
+      return gateway_timeout_response(
+        &state,
         "504 Gateway Timeout - Client disconnected before request dispatch",
-      )
-        .into_response();
+      );
     }
   };
 
@@ -3338,7 +3366,7 @@ async fn proxy_handler(
           )
           .await;
           state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
-          (StatusCode::GATEWAY_TIMEOUT, "504 Gateway Timeout - Gateway response timeout expired").into_response()
+          gateway_timeout_response(&state, "504 Gateway Timeout - Gateway response timeout expired")
       }
       res_opt = rx_response => {
           let duration = start_time.elapsed();
@@ -3549,11 +3577,7 @@ async fn handle_ws_proxy(
         Some("Gateway Timeout - Reconnect wait expired"),
       )
       .await;
-      return (
-        StatusCode::GATEWAY_TIMEOUT,
-        "504 Gateway Timeout - No client connected in time",
-      )
-        .into_response();
+      return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
     }
   }
 
@@ -3594,11 +3618,10 @@ async fn handle_ws_proxy(
         Some("No active client for WebSocket upgrade"),
       )
       .await;
-      return (
-        StatusCode::GATEWAY_TIMEOUT,
+      return gateway_timeout_response(
+        &state,
         "504 Gateway Timeout - No client available for WebSocket upgrade",
-      )
-        .into_response();
+      );
     }
   };
 
@@ -4412,6 +4435,7 @@ mod tests {
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
+      custom_504_page: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -4480,6 +4504,7 @@ mod tests {
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
+      custom_504_page: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -4549,6 +4574,7 @@ mod tests {
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
       tunnel_compression: false,
+      custom_504_page: None,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
