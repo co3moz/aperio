@@ -16,3 +16,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 futures-util = "0.3"
 url = "2.5"
 flate2 = "1"
+serde_yaml = "0.9"

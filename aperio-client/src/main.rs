@@ -136,10 +136,192 @@ struct TcpStreamHandle {
   abort_tx: mpsc::Sender<()>,
 }
 
+/// Configuration file schema (`aperio.yaml`). All keys are optional; CLI
+/// arguments and environment variables take precedence over file values.
+///
+/// ```yaml
+/// # Aperio client configuration
+/// server: https://tunnel.example.com   # Aperio server URL
+/// token: apr_xxxxxxxxxxxxxxxx          # tunnel token (master or dynamic)
+/// target: http://localhost:3000        # local backend to expose
+/// hostname: a.example.com              # optional hostname bind
+/// path: /api                           # optional path bind
+/// trim_bind: true                      # strip the path bind before forwarding
+/// pass_hostname: false                 # forward the original Host header
+/// max_concurrent: 8                    # local concurrency limit
+/// tcp_target: localhost:5432           # optional raw TCP target
+/// ```
+#[derive(serde::Deserialize, Default)]
+struct FileConfig {
+  server: Option<String>,
+  token: Option<String>,
+  target: Option<String>,
+  hostname: Option<String>,
+  path: Option<String>,
+  trim_bind: Option<bool>,
+  pass_hostname: Option<bool>,
+  max_concurrent: Option<u32>,
+  max_response_body: Option<usize>,
+  timeout: Option<u64>,
+  max_message_size: Option<usize>,
+  tcp_target: Option<String>,
+}
+
+/// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
+/// file is fine; an unreadable/invalid explicit file is a fatal error.
+fn load_file_config(explicit: Option<&str>) -> FileConfig {
+  let path = explicit.unwrap_or("aperio.yaml");
+  match std::fs::read_to_string(path) {
+    Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
+      Ok(cfg) => {
+        info!("Loaded configuration from {}", path);
+        cfg
+      }
+      Err(e) => {
+        error!("Failed to parse {}: {}", path, e);
+        std::process::exit(1);
+      }
+    },
+    Err(e) => {
+      if explicit.is_some() {
+        error!("Failed to read config file {}: {}", path, e);
+        std::process::exit(1);
+      }
+      FileConfig::default()
+    }
+  }
+}
+
+/// Parsed command line. With no arguments the client behaves exactly like
+/// before (environment-variable driven), so Docker setups are unaffected.
+struct CliArgs {
+  mode: CliMode,
+  server: Option<String>,
+  token: Option<String>,
+  target: Option<String>,
+  hostname: Option<String>,
+  path: Option<String>,
+  concurrency: Option<u32>,
+  pass_hostname: bool,
+  config: Option<String>,
+  local_port: Option<u16>,
+}
+
+enum CliMode {
+  /// Legacy env-driven mode (no CLI arguments given).
+  Env,
+  /// `aperio-client http <port>`: expose a local HTTP port.
+  Http,
+  /// `aperio-client run`: fully config-file driven.
+  Run,
+  /// `aperio-client tcp <local_port>`: local TCP bridge to /aperio/tcp.
+  TcpBridge,
+}
+
+fn print_usage() {
+  eprintln!(
+    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
+  );
+}
+
+fn parse_cli() -> CliArgs {
+  let mut args = std::env::args().skip(1).peekable();
+  let mut cli = CliArgs {
+    mode: CliMode::Env,
+    server: None,
+    token: None,
+    target: None,
+    hostname: None,
+    path: None,
+    concurrency: None,
+    pass_hostname: false,
+    config: None,
+    local_port: None,
+  };
+
+  let Some(first) = args.next() else {
+    return cli;
+  };
+  match first.as_str() {
+    "http" => {
+      cli.mode = CliMode::Http;
+      let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) else {
+        eprintln!("error: 'http' requires a local port number\n");
+        print_usage();
+        std::process::exit(2);
+      };
+      cli.target = Some(format!("http://localhost:{}", port));
+    }
+    "run" => cli.mode = CliMode::Run,
+    "tcp" => {
+      cli.mode = CliMode::TcpBridge;
+      let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) else {
+        eprintln!("error: 'tcp' requires a local port number\n");
+        print_usage();
+        std::process::exit(2);
+      };
+      cli.local_port = Some(port);
+    }
+    "help" | "--help" | "-h" => {
+      print_usage();
+      std::process::exit(0);
+    }
+    other => {
+      eprintln!("error: unknown command '{}'\n", other);
+      print_usage();
+      std::process::exit(2);
+    }
+  }
+
+  while let Some(arg) = args.next() {
+    let mut take = |name: &str| -> String {
+      match args.next() {
+        Some(v) => v,
+        None => {
+          eprintln!("error: {} requires a value", name);
+          std::process::exit(2);
+        }
+      }
+    };
+    match arg.as_str() {
+      "--server" => cli.server = Some(take("--server")),
+      "--token" => cli.token = Some(take("--token")),
+      "--host" => cli.hostname = Some(take("--host")),
+      "--path" => cli.path = Some(take("--path")),
+      "--config" => cli.config = Some(take("--config")),
+      "--concurrency" => {
+        let v = take("--concurrency");
+        cli.concurrency = v.parse::<u32>().ok();
+      }
+      "--pass-hostname" => cli.pass_hostname = true,
+      "--help" | "-h" => {
+        print_usage();
+        std::process::exit(0);
+      }
+      other => {
+        eprintln!("error: unknown option '{}'\n", other);
+        print_usage();
+        std::process::exit(2);
+      }
+    }
+  }
+  cli
+}
+
+/// Resolution helper: CLI > environment variable > config file.
+fn resolve(cli: Option<String>, env_key: &str, file: Option<String>) -> Option<String> {
+  cli
+    .or_else(|| std::env::var(env_key).ok().filter(|s| !s.trim().is_empty()))
+    .or(file)
+}
+
 #[tokio::main]
 /// Entry point for the Aperio client.
 /// Loads configuration from environment variables, sets up logging, and initiates the reconnect loop.
 async fn main() {
+  // Parse CLI first so `--help` and argument errors never emit JSON logs.
+  let cli = parse_cli();
+
   // Initialize logging with structured JSON output (pino.js style)
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
@@ -156,39 +338,58 @@ async fn main() {
 
   info!("Starting Aperio Client...");
 
-  // Enforce APERIO_SERVER_TOKEN environment variable
-  let token = std::env::var("APERIO_SERVER_TOKEN").unwrap_or_else(|_| {
-    error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
-    std::process::exit(1);
-  });
+  // Configuration precedence: CLI arguments > environment variables > aperio.yaml.
+  let file_cfg = load_file_config(cli.config.as_deref());
+
+  let token = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token.clone())
+    .unwrap_or_else(|| {
+      error!("CRITICAL SECURITY ERROR: a tunnel token is required (APERIO_SERVER_TOKEN, --token, or yaml: token)!");
+      std::process::exit(1);
+    });
   if token.trim().is_empty() {
-    error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN cannot be empty!");
+    error!("CRITICAL SECURITY ERROR: the tunnel token cannot be empty!");
     std::process::exit(1);
   }
 
-  let server_addr = std::env::var("APERIO_SERVER_URL").unwrap_or_else(|_| {
-    error!("CRITICAL ERROR: APERIO_SERVER_URL environment variable must be set!");
-    std::process::exit(1);
-  });
-  let target = std::env::var("APERIO_CLIENT_TARGET").unwrap_or_else(|_| {
-    error!("CRITICAL ERROR: APERIO_CLIENT_TARGET environment variable must be set!");
-    std::process::exit(1);
-  });
-  let pass_hostname_val =
-    std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_else(|_| "0".to_string());
-  let pass_hostname = pass_hostname_val == "1";
+  let server_addr = resolve(cli.server.clone(), "APERIO_SERVER_URL", file_cfg.server.clone())
+    .unwrap_or_else(|| {
+      error!("CRITICAL ERROR: the server URL is required (APERIO_SERVER_URL, --server, or yaml: server)!");
+      std::process::exit(1);
+    });
 
-  let path_bind = std::env::var("APERIO_PATH_BIND").ok();
+  // TCP bridge mode short-circuits the tunnel client entirely.
+  if let CliMode::TcpBridge = cli.mode {
+    let port = cli.local_port.unwrap_or(0);
+    run_tcp_bridge(port, &server_addr, &token).await;
+    return;
+  }
+
+  let target = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target.clone())
+    .unwrap_or_else(|| {
+      error!("CRITICAL ERROR: the target is required (APERIO_CLIENT_TARGET, 'http <port>', or yaml: target)!");
+      std::process::exit(1);
+    });
+  let pass_hostname = cli.pass_hostname
+    || std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_default() == "1"
+    || file_cfg.pass_hostname.unwrap_or(false);
+
+  let path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path.clone());
 
   // Hostname this client wants to serve (e.g. "a.example.com"). The server
   // routes requests whose Host header matches this value to this client.
-  let hostname_bind = std::env::var("APERIO_HOSTNAME_BIND")
-    .ok()
-    .map(|h| h.trim().to_ascii_lowercase())
-    .filter(|h| !h.is_empty());
+  let hostname_bind = resolve(
+    cli.hostname.clone(),
+    "APERIO_HOSTNAME_BIND",
+    file_cfg.hostname.clone(),
+  )
+  .map(|h| h.trim().to_ascii_lowercase())
+  .filter(|h| !h.is_empty());
 
   let trim_bind = if path_bind.is_some() {
-    std::env::var("APERIO_CLIENT_TRIM_BIND").unwrap_or_else(|_| "1".to_string()) == "1"
+    match std::env::var("APERIO_CLIENT_TRIM_BIND").ok() {
+      Some(v) => v == "1",
+      None => file_cfg.trim_bind.unwrap_or(true),
+    }
   } else {
     false
   };
@@ -199,33 +400,37 @@ async fn main() {
   let max_response_body_size = std::env::var("APERIO_CLIENT_MAX_RESPONSE_BODY")
     .ok()
     .and_then(|val| val.parse::<usize>().ok())
+    .or(file_cfg.max_response_body)
     .unwrap_or(50 * 1024 * 1024);
 
   // Per-request timeout (in seconds) for calls to the local target backend.
-  // Prevents the client from hanging indefinitely if the backend stalls.
-  // Defaults to 30 seconds.
   let client_timeout_secs = std::env::var("APERIO_CLIENT_TIMEOUT")
     .ok()
     .and_then(|val| val.parse::<u64>().ok())
+    .or(file_cfg.timeout)
     .unwrap_or(30);
 
   // Maximum concurrent requests processed locally. Announced to the server so
   // it queues excess requests instead of flooding the backend. Also enforced
   // locally, since the client must not fully trust the server. 0 = unlimited.
-  let max_concurrent = std::env::var("APERIO_CLIENT_MAX_CONCURRENT")
-    .ok()
-    .and_then(|val| val.parse::<u32>().ok())
+  let max_concurrent = cli
+    .concurrency
+    .or_else(|| {
+      std::env::var("APERIO_CLIENT_MAX_CONCURRENT")
+        .ok()
+        .and_then(|val| val.parse::<u32>().ok())
+    })
+    .or(file_cfg.max_concurrent)
     .filter(|n| *n > 0);
 
   let local_limiter: Option<Arc<Semaphore>> =
     max_concurrent.map(|n| Arc::new(Semaphore::new(n as usize)));
 
   // Cap on individual tunnel WebSocket messages accepted from the server.
-  // The client must not fully trust the server, so bound memory per frame.
-  // Defaults to 32 MB (requests bodies are limited server-side anyway).
   let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
     .ok()
     .and_then(|val| val.parse::<usize>().ok())
+    .or(file_cfg.max_message_size)
     .unwrap_or(32 * 1024 * 1024);
 
   // Experimental raw TCP tunneling: when set (host:port), the server can open
@@ -233,6 +438,7 @@ async fn main() {
   // connects anywhere else, no matter what the server asks for.
   let tcp_target = std::env::var("APERIO_CLIENT_TCP_TARGET")
     .ok()
+    .or(file_cfg.tcp_target.clone())
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty());
 
@@ -796,9 +1002,9 @@ fn decompress_frame(data: &[u8], max_out: usize) -> Option<String> {
   Some(out)
 }
 
-/// Builds the correct WebSocket connection URL from an HTTP or WS address.
-/// Ensures the scheme is set to `ws` or `wss` and appends the tunnel path `/aperio/ws`.
-fn build_ws_url(server: &str) -> Result<String, String> {
+/// Builds a WebSocket connection URL from an HTTP or WS address.
+/// Ensures the scheme is set to `ws` or `wss` and applies the given path.
+fn build_ws_url_with_path(server: &str, path: &str) -> Result<String, String> {
   let mut server_clean = server.to_string();
   if !server_clean.contains("://") {
     server_clean = format!("http://{}", server_clean);
@@ -815,9 +1021,114 @@ fn build_ws_url(server: &str) -> Result<String, String> {
   parsed
     .set_scheme(ws_scheme)
     .map_err(|_| "Failed to set WebSocket scheme".to_string())?;
-  parsed.set_path("/aperio/ws");
+  parsed.set_path(path);
 
   Ok(parsed.to_string())
+}
+
+/// Tunnel WebSocket URL (`/aperio/ws`).
+fn build_ws_url(server: &str) -> Result<String, String> {
+  build_ws_url_with_path(server, "/aperio/ws")
+}
+
+/// Runs a local TCP bridge: listens on 127.0.0.1:<port> and relays each
+/// accepted connection to the server's experimental `/aperio/tcp` endpoint,
+/// which tunnels it to the remote client's TCP target.
+async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+  let ws_url = match build_ws_url_with_path(server, "/aperio/tcp") {
+    Ok(u) => u,
+    Err(e) => {
+      error!("Failed to build TCP bridge URL: {}", e);
+      std::process::exit(1);
+    }
+  };
+
+  let listener = match tokio::net::TcpListener::bind(("127.0.0.1", local_port)).await {
+    Ok(l) => l,
+    Err(e) => {
+      error!("Failed to bind 127.0.0.1:{}: {}", local_port, e);
+      std::process::exit(1);
+    }
+  };
+  let bound = listener.local_addr().map(|a| a.port()).unwrap_or(local_port);
+  info!(
+    "TCP bridge listening on 127.0.0.1:{} -> {} (remote client's TCP target)",
+    bound, ws_url
+  );
+
+  loop {
+    let (mut sock, peer) = match listener.accept().await {
+      Ok(x) => x,
+      Err(e) => {
+        error!("TCP bridge accept error: {}", e);
+        continue;
+      }
+    };
+    info!("TCP bridge: connection from {}", peer);
+
+    let ws_url = ws_url.clone();
+    let token = token.to_string();
+    tokio::spawn(async move {
+      // Open a fresh tunnel stream for this connection.
+      let mut req = match ws_url.clone().into_client_request() {
+        Ok(r) => r,
+        Err(e) => {
+          error!("TCP bridge request build error: {:?}", e);
+          return;
+        }
+      };
+      match HeaderValue::from_str(&format!("Bearer {}", token)) {
+        Ok(val) => {
+          req.headers_mut().insert("Authorization", val);
+        }
+        Err(_) => return,
+      }
+      let (ws, _) = match connect_async(req).await {
+        Ok(x) => x,
+        Err(e) => {
+          error!("TCP bridge failed to reach server: {:?}", e);
+          return;
+        }
+      };
+      let (mut ws_tx, mut ws_rx) = ws.split();
+      let (mut tcp_read, mut tcp_write) = sock.split();
+
+      let to_server = async {
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+          match tcp_read.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+              if ws_tx.send(Message::Binary(buf[..n].to_vec())).await.is_err() {
+                break;
+              }
+            }
+          }
+        }
+        let _ = ws_tx.send(Message::Close(None)).await;
+      };
+
+      let to_local = async {
+        while let Some(Ok(msg)) = ws_rx.next().await {
+          match msg {
+            Message::Binary(bytes) => {
+              if tcp_write.write_all(&bytes).await.is_err() {
+                break;
+              }
+            }
+            Message::Close(_) => break,
+            _ => {}
+          }
+        }
+        let _ = tcp_write.shutdown().await;
+      };
+
+      tokio::join!(to_server, to_local);
+      info!("TCP bridge: connection from {} closed", peer);
+    });
+  }
 }
 
 /// Serializes and sends a tunnel message; returns Err(()) when the tunnel
