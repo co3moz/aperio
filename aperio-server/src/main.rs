@@ -104,6 +104,9 @@ pub enum TunnelMessage {
   HostnameAssigned {
     hostname: String,
   },
+  /// Client → server: the client received a shutdown signal and is draining.
+  /// The server stops routing new requests to it; in-flight requests finish.
+  Draining {},
 }
 
 /// Configuration settings for the Aperio server.
@@ -181,6 +184,10 @@ struct ClientDetail {
   max_concurrent: Option<u32>,
   /// False when the client missed its heartbeat window and is out of the pool.
   healthy: bool,
+  /// True while the client is gracefully draining before shutdown.
+  draining: bool,
+  /// Dashboard kill switch state (false = excluded from routing).
+  enabled: bool,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -292,6 +299,12 @@ struct ClientHandle {
   /// beyond the limit wait here (bounded by the gateway timeout) instead of
   /// being dispatched, so the server never floods the client's backend.
   inflight_limiter: Option<Arc<Semaphore>>,
+  /// True after the client announced a graceful shutdown: no new requests
+  /// are routed to it while in-flight ones finish.
+  draining: bool,
+  /// Dashboard kill switch: false = temporarily excluded from routing even
+  /// though the connection and heartbeats remain healthy.
+  admin_enabled: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -781,6 +794,10 @@ async fn main() {
         axum::routing::post(client_override_handler),
       )
       .route(
+        "/api/clients/:id/enabled",
+        axum::routing::post(client_enabled_handler),
+      )
+      .route(
         "/api/tokens",
         get(tokens_list_handler).post(tokens_create_handler),
       )
@@ -928,6 +945,8 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: handle.max_concurrent,
       healthy: handle.is_healthy(state.config.client_down_threshold),
+      draining: handle.draining,
+      enabled: handle.admin_enabled,
     })
     .collect();
 
@@ -1026,6 +1045,55 @@ async fn client_override_handler(
 /// Returns recent audit events (dashboard).
 async fn audit_handler(State(state): State<Arc<AppState>>) -> Json<Vec<audit::AuditEvent>> {
   Json(state.audit.lock().await.recent())
+}
+
+/// Payload for the client enable/disable toggle.
+#[derive(Deserialize)]
+struct ClientEnabledRequest {
+  enabled: bool,
+}
+
+/// Dashboard kill switch: temporarily removes a connected client from the
+/// routing pool (or puts it back). In-flight requests always complete.
+async fn client_enabled_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(client_id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<ClientEnabledRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+  let found = {
+    let mut clients = state.clients.lock().await;
+    match clients.get_mut(&client_id) {
+      Some(handle) => {
+        handle.admin_enabled = payload.enabled;
+        true
+      }
+      None => false,
+    }
+  };
+  if found {
+    info!(
+      "Client {} {} via dashboard",
+      client_id,
+      if payload.enabled { "enabled" } else { "disabled" }
+    );
+    state
+      .audit(
+        if payload.enabled {
+          "client_enabled"
+        } else {
+          "client_disabled"
+        },
+        &actor_ip,
+        &format!("client={}", client_id),
+      )
+      .await;
+    Json(serde_json::json!({"status": "ok"})).into_response()
+  } else {
+    (StatusCode::NOT_FOUND, "Client not found").into_response()
+  }
 }
 
 /// Public view of a dynamic token record (never includes hash or secret).
@@ -1888,10 +1956,11 @@ fn select_client_pool(
   require_hostname_bind: bool,
   down_threshold: Duration,
 ) -> Option<(Vec<String>, RouteGroupKey)> {
-  // --- Eligibility stage: unhealthy clients never receive traffic ---
+  // --- Eligibility stage: unhealthy, draining, or admin-disabled clients
+  // never receive new traffic (in-flight requests still complete) ---
   let eligible: Vec<(&String, &ClientHandle)> = clients
     .iter()
-    .filter(|(_, c)| c.is_healthy(down_threshold))
+    .filter(|(_, c)| c.is_healthy(down_threshold) && !c.draining && c.admin_enabled)
     .collect();
 
   // --- Hostname stage ---
@@ -2106,6 +2175,8 @@ async fn handle_socket(
         perms: perms.clone(),
         max_concurrent: None,
         inflight_limiter: None,
+        draining: false,
+        admin_enabled: true,
       },
     );
     drop(clients);
@@ -2280,6 +2351,18 @@ async fn handle_socket(
                 );
                 state.response_streams.lock().await.insert(id, handle);
               }
+            }
+            TunnelMessage::Draining {} => {
+              info!("Client {} is draining: no new requests will be routed to it", client_id);
+              {
+                let mut clients = state.clients.lock().await;
+                if let Some(handle) = clients.get_mut(&client_id) {
+                  handle.draining = true;
+                }
+              }
+              state
+                .audit("client_draining", &client_ip, &format!("client={}", client_id))
+                .await;
             }
             TunnelMessage::Ping {
               client_id: cid,
@@ -3774,6 +3857,8 @@ mod tests {
         perms: ClientPerms::master(),
         max_concurrent: None,
         inflight_limiter: None,
+        draining: false,
+        admin_enabled: true,
       },
     );
 
@@ -3960,6 +4045,8 @@ mod tests {
       perms: ClientPerms::master(),
       max_concurrent: None,
       inflight_limiter: None,
+      draining: false,
+      admin_enabled: true,
     }
   }
 

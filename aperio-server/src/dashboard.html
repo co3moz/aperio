@@ -640,6 +640,25 @@
             return `${secondsAgo}s ago`;
         }
 
+        async function toggleClient(c) {
+            const next = !c.enabled;
+            if (!next && !confirm(`Disable client ${c.id.slice(0, 8)}…?\nIt stays connected but receives no new requests; in-flight requests complete.`)) return;
+            try {
+                const res = await fetch(`/aperio/api/clients/${encodeURIComponent(c.id)}/enabled`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: next })
+                });
+                if (!res.ok) {
+                    alert(`Toggle failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchStats();
+            } catch (e) {
+                alert('Toggle failed: ' + e);
+            }
+        }
+
         async function overruleClient(c) {
             const hostname = prompt(
                 `Temporary hostname bind for client ${c.id.slice(0, 8)}…\n(empty = clear override; not persisted across reconnects)`,
@@ -778,9 +797,25 @@
                         `;
                         const btn = document.createElement('button');
                         btn.className = 'overrule-btn';
+                        btn.style.marginRight = '0.35rem';
                         btn.textContent = (c.override_hostname_bind || c.override_path_bind) ? 'Edit ✏️' : 'Set';
                         btn.addEventListener('click', () => overruleClient(c));
                         tr.lastElementChild.appendChild(btn);
+
+                        // Enable/disable kill switch: disabled clients stay
+                        // connected but receive no new traffic.
+                        const toggle = document.createElement('button');
+                        toggle.className = 'overrule-btn';
+                        if (c.draining) {
+                            toggle.textContent = 'Draining…';
+                            toggle.disabled = true;
+                            toggle.title = 'Client is gracefully shutting down';
+                        } else {
+                            toggle.textContent = c.enabled ? 'Disable' : 'Enable';
+                            toggle.style.color = c.enabled ? 'var(--danger)' : 'var(--success)';
+                            toggle.addEventListener('click', () => toggleClient(c));
+                        }
+                        tr.lastElementChild.appendChild(toggle);
                         clientsBody.appendChild(tr);
                     });
                 }

@@ -3,6 +3,7 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc};
 use tokio_tungstenite::{
@@ -93,6 +94,8 @@ pub enum TunnelMessage {
   HostnameAssigned {
     hostname: String,
   },
+  /// Client → server: the client received a shutdown signal and is draining.
+  Draining {},
 }
 
 /// Handle to an active WebSocket proxy stream connected to the local backend.
@@ -196,6 +199,39 @@ async fn main() {
     .unwrap_or(32 * 1024 * 1024);
 
   let client_id = uuid::Uuid::new_v4().to_string();
+
+  // Graceful shutdown state: a signal marks the client as draining, the
+  // server is notified, and the process exits once in-flight work finishes.
+  let shutting_down = Arc::new(AtomicBool::new(false));
+  let inflight_requests = Arc::new(AtomicUsize::new(0));
+  let shutdown_notify = Arc::new(tokio::sync::Notify::new());
+  {
+    let shutting_down = shutting_down.clone();
+    let shutdown_notify = shutdown_notify.clone();
+    tokio::spawn(async move {
+      let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+      };
+      #[cfg(unix)]
+      let terminate = async {
+        if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+          sig.recv().await;
+        } else {
+          std::future::pending::<()>().await;
+        }
+      };
+      #[cfg(not(unix))]
+      let terminate = std::future::pending::<()>();
+
+      tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+      }
+      info!("Shutdown signal received: draining before exit...");
+      shutting_down.store(true, Ordering::SeqCst);
+      shutdown_notify.notify_waiters();
+    });
+  }
 
   let ws_url = match build_ws_url(&server_addr) {
     Ok(url) => url,
@@ -333,6 +369,29 @@ async fn main() {
                       warn!("Liveness timeout triggered. Aborting socket loop.");
                       break;
                   }
+                  _ = shutdown_notify.notified() => {
+                      // Announce drain, let in-flight requests finish, then exit.
+                      if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
+                          let _ = tx_write.send(Message::Text(json)).await;
+                      }
+                      let drain_deadline = Instant::now() + Duration::from_secs(30);
+                      loop {
+                          let inflight = inflight_requests.load(Ordering::SeqCst);
+                          if inflight == 0 {
+                              info!("Drain complete; exiting.");
+                              break;
+                          }
+                          if Instant::now() >= drain_deadline {
+                              warn!("Drain timeout with {} request(s) still in flight; exiting anyway.", inflight);
+                              break;
+                          }
+                          info!("Draining: {} request(s) in flight...", inflight);
+                          tokio::time::sleep(Duration::from_millis(500)).await;
+                      }
+                      // Give the Draining frame a moment to flush before closing.
+                      tokio::time::sleep(Duration::from_millis(200)).await;
+                      std::process::exit(0);
+                  }
                   msg_res = ws_receiver.next() => {
                       match msg_res {
                           Some(Ok(msg)) => {
@@ -354,6 +413,8 @@ async fn main() {
                                               let trim_bind_val = trim_bind;
                                               let max_resp_size = max_response_body_size;
                                               let limiter = local_limiter.clone();
+                                              let inflight = inflight_requests.clone();
+                                              inflight.fetch_add(1, Ordering::SeqCst);
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {
@@ -385,6 +446,7 @@ async fn main() {
                                                   {
                                                       let _ = tx_resp.send(Message::Text(resp_str)).await;
                                                   }
+                                                  inflight.fetch_sub(1, Ordering::SeqCst);
                                               });
                                           }
                                           TunnelMessage::UpgradeRequest {
@@ -492,6 +554,11 @@ async fn main() {
       }
     }
 
+    // A shutdown signal while disconnected exits immediately (nothing to drain).
+    if shutting_down.load(Ordering::SeqCst) {
+      info!("Shutdown requested while disconnected; exiting.");
+      std::process::exit(0);
+    }
     info!("Retrying connection in 5 seconds...");
     tokio::time::sleep(Duration::from_secs(5)).await;
   }
