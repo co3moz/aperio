@@ -23,6 +23,8 @@ pub enum TunnelMessage {
     client_id: String,
     timestamp: u64,
     path_bind: Option<String>,
+    #[serde(default)]
+    hostname_bind: Option<String>,
   },
   Pong {
     timestamp: u64,
@@ -119,6 +121,13 @@ async fn main() {
 
   let path_bind = std::env::var("APERIO_PATH_BIND").ok();
 
+  // Hostname this client wants to serve (e.g. "a.example.com"). The server
+  // routes requests whose Host header matches this value to this client.
+  let hostname_bind = std::env::var("APERIO_HOSTNAME_BIND")
+    .ok()
+    .map(|h| h.trim().to_ascii_lowercase())
+    .filter(|h| !h.is_empty());
+
   let trim_bind = if path_bind.is_some() {
     std::env::var("APERIO_CLIENT_TRIM_BIND").unwrap_or_else(|_| "1".to_string()) == "1"
   } else {
@@ -158,6 +167,9 @@ async fn main() {
   if let Some(ref bind) = path_bind {
     info!("- Path Bind: {}", bind);
     info!("- Trim Bind: {}", trim_bind);
+  }
+  if let Some(ref host) = hostname_bind {
+    info!("- Hostname Bind: {}", host);
   }
   info!("- WebSocket URL: {}", ws_url);
 
@@ -214,6 +226,7 @@ async fn main() {
             let tx_ping = tx_write.clone();
             let client_id_ping = client_id.clone();
             let path_bind_ping = path_bind.clone();
+            let hostname_bind_ping = hostname_bind.clone();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
 
@@ -242,6 +255,7 @@ async fn main() {
                     .unwrap_or_default()
                     .as_secs(),
                   path_bind: path_bind_ping.clone(),
+                  hostname_bind: hostname_bind_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

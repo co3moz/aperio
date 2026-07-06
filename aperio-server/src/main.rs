@@ -29,6 +29,8 @@ pub enum TunnelMessage {
     client_id: String,
     timestamp: u64,
     path_bind: Option<String>,
+    #[serde(default)]
+    hostname_bind: Option<String>,
   },
   Pong {
     timestamp: u64,
@@ -92,6 +94,12 @@ struct ServerConfig {
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).
   secure_cookies: bool,
+  /// When true, only clients that declared (or were overruled with) a
+  /// hostname bind participate in load balancing. Clients without a hostname
+  /// bind never receive proxied traffic.
+  require_hostname_bind: bool,
+  /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
+  metrics_token: Option<String>,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -118,6 +126,16 @@ struct ClientDetail {
   connected_for_seconds: u64,
   /// Total request count processed by this client connection.
   request_count: u64,
+  /// Path prefix the client itself reported (APERIO_PATH_BIND).
+  path_bind: Option<String>,
+  /// Hostname the client itself reported (APERIO_HOSTNAME_BIND).
+  hostname_bind: Option<String>,
+  /// Temporary server-side path bind override (dashboard overrule).
+  override_path_bind: Option<String>,
+  /// Temporary server-side hostname bind override (dashboard overrule).
+  override_hostname_bind: Option<String>,
+  /// Seconds elapsed since the last heartbeat Ping was received.
+  last_ping_seconds_ago: Option<u64>,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -172,7 +190,36 @@ struct ClientHandle {
   request_count: Arc<AtomicU64>,
   /// Path prefix this client is bound to (from APERIO_PATH_BIND).
   path_bind: Option<String>,
+  /// Hostname this client is bound to (from APERIO_HOSTNAME_BIND).
+  hostname_bind: Option<String>,
+  /// Temporary path bind override set from the dashboard. Not persisted:
+  /// lost when the client reconnects or the server restarts.
+  override_path_bind: Option<String>,
+  /// Temporary hostname bind override set from the dashboard. Not persisted.
+  override_hostname_bind: Option<String>,
+  /// Instant of the last heartbeat Ping received from this client.
+  last_ping_at: Option<Instant>,
 }
+
+impl ClientHandle {
+  /// Path bind used for routing: dashboard override wins over the
+  /// client-reported value.
+  fn effective_path_bind(&self) -> Option<&String> {
+    self.override_path_bind.as_ref().or(self.path_bind.as_ref())
+  }
+
+  /// Hostname bind used for routing: dashboard override wins over the
+  /// client-reported value.
+  fn effective_hostname_bind(&self) -> Option<&String> {
+    self
+      .override_hostname_bind
+      .as_ref()
+      .or(self.hostname_bind.as_ref())
+  }
+}
+
+/// Round-robin group key: (hostname group, path group) of the selected pool.
+type RouteGroupKey = (Option<String>, Option<String>);
 
 /// Standard response payload returned by tunnel client.
 struct TunnelResponse {
@@ -230,7 +277,7 @@ struct AppState {
   recent_logs: Mutex<VecDeque<RequestLog>>,
   config: ServerConfig,
   concurrency_semaphore: Semaphore,
-  path_rr: Mutex<HashMap<Option<String>, usize>>,
+  path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   sessions: Mutex<HashMap<String, SessionInfo>>,
   rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
   last_session_gc: Mutex<Instant>,
@@ -371,6 +418,20 @@ async fn main() {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(trust_proxy);
 
+  // When enabled, clients that did not declare a hostname bind (and were not
+  // given one via dashboard overrule) are excluded from load balancing.
+  let require_hostname_bind = std::env::var("APERIO_REQUIRE_HOSTNAME_BIND")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+
+  // Prometheus metrics endpoint (default: disabled). Optional bearer token.
+  let metrics_enabled = std::env::var("APERIO_METRICS")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let metrics_token = std::env::var("APERIO_METRICS_TOKEN")
+    .ok()
+    .filter(|t| !t.trim().is_empty());
+
   let config = ServerConfig {
     token: token.clone(),
     gateway_timeout: Duration::from_secs(gateway_timeout_secs),
@@ -382,7 +443,13 @@ async fn main() {
     auth_credentials,
     trust_proxy,
     secure_cookies,
+    require_hostname_bind,
+    metrics_token,
   };
+
+  if require_hostname_bind {
+    info!("Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic.");
+  }
 
   let (client_connected_tx, _) = watch::channel(false);
 
@@ -433,7 +500,11 @@ async fn main() {
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
-      .route("/api/logs", get(logs_handler));
+      .route("/api/logs", get(logs_handler))
+      .route(
+        "/api/clients/:id/override",
+        axum::routing::post(client_override_handler),
+      );
 
     let state_clone = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
@@ -470,6 +541,14 @@ async fn main() {
     get(auth_page_handler).post(auth_login_handler),
   );
   app = app.route("/aperio/ws", get(ws_handler));
+
+  // Prometheus metrics endpoint, registered outside the dashboard session
+  // middleware. Access control is handled by APERIO_METRICS_TOKEN if set.
+  if metrics_enabled {
+    app = app.route("/aperio/metrics", get(metrics_handler));
+    info!("Prometheus metrics endpoint enabled at /aperio/metrics");
+  }
+
   let app = app.with_state(state);
 
   let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -541,6 +620,11 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       ip: handle.client_ip.clone(),
       connected_for_seconds: handle.connected_at.elapsed().as_secs(),
       request_count: handle.request_count.load(Ordering::SeqCst),
+      path_bind: handle.path_bind.clone(),
+      hostname_bind: handle.hostname_bind.clone(),
+      override_path_bind: handle.override_path_bind.clone(),
+      override_hostname_bind: handle.override_hostname_bind.clone(),
+      last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
     })
     .collect();
 
@@ -562,6 +646,139 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
 async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec<RequestLog>> {
   let logs = state.recent_logs.lock().await;
   Json(logs.iter().cloned().collect())
+}
+
+/// Request payload for the dashboard client override (overrule) endpoint.
+/// Each field fully replaces the corresponding override: a non-empty string
+/// sets it, an empty string or `null` clears it. Overrides are in-memory only
+/// and disappear when the client reconnects or the server restarts.
+#[derive(Deserialize)]
+struct ClientOverrideRequest {
+  hostname_bind: Option<String>,
+  path_bind: Option<String>,
+}
+
+/// Applies a temporary hostname/path bind override to a connected client.
+/// Protected by the dashboard session middleware.
+async fn client_override_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(client_id): axum::extract::Path<String>,
+  Json(payload): Json<ClientOverrideRequest>,
+) -> Response {
+  // Validate before mutating: reject invalid values with 400.
+  let new_hostname = match payload.hostname_bind.as_deref() {
+    None | Some("") => None,
+    Some(raw) => match normalize_hostname_bind(raw) {
+      Some(h) => Some(h),
+      None => {
+        return (StatusCode::BAD_REQUEST, "Invalid hostname_bind value").into_response();
+      }
+    },
+  };
+  let new_path = match payload.path_bind.as_deref() {
+    None | Some("") => None,
+    Some(raw) => match normalize_path_bind(raw) {
+      Some(p) => Some(p),
+      None => {
+        return (StatusCode::BAD_REQUEST, "Invalid path_bind value").into_response();
+      }
+    },
+  };
+
+  let mut clients = state.clients.lock().await;
+  match clients.get_mut(&client_id) {
+    Some(handle) => {
+      handle.override_hostname_bind = new_hostname.clone();
+      handle.override_path_bind = new_path.clone();
+      info!(
+        "Dashboard overrule applied to client {}: hostname_bind={:?} path_bind={:?}",
+        client_id, new_hostname, new_path
+      );
+      (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "Client not found").into_response(),
+  }
+}
+
+/// Prometheus text-format metrics endpoint (`/aperio/metrics`).
+/// Enabled with `APERIO_METRICS=1`; optionally protected with
+/// `APERIO_METRICS_TOKEN` (checked as a Bearer token).
+async fn metrics_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+  if let Some(ref token) = state.config.metrics_token {
+    let authorized = headers
+      .get("authorization")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.strip_prefix("Bearer "))
+      .is_some_and(|t| constant_time_eq_str(t, token));
+    if !authorized {
+      return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+  }
+
+  let stats = state.stats.lock().await.clone();
+  let clients = state.clients.lock().await;
+  let connected = clients.len();
+  let per_client: Vec<(String, u64)> = clients
+    .iter()
+    .map(|(id, c)| (id.clone(), c.request_count.load(Ordering::SeqCst)))
+    .collect();
+  drop(clients);
+  let pending = state.pending_requests.lock().await.len();
+  let ws_streams = state.ws_streams.lock().await.len();
+  let uptime = state.server_start_time.elapsed().as_secs();
+
+  let mut out = String::with_capacity(1024);
+  out.push_str("# HELP aperio_requests_total Total proxied requests received.\n");
+  out.push_str("# TYPE aperio_requests_total counter\n");
+  out.push_str(&format!("aperio_requests_total {}\n", stats.total_requests));
+  out.push_str("# HELP aperio_requests_success_total Successfully proxied requests.\n");
+  out.push_str("# TYPE aperio_requests_success_total counter\n");
+  out.push_str(&format!(
+    "aperio_requests_success_total {}\n",
+    stats.successful_requests
+  ));
+  out.push_str("# HELP aperio_requests_failed_total Failed proxied requests (5xx / gateway errors).\n");
+  out.push_str("# TYPE aperio_requests_failed_total counter\n");
+  out.push_str(&format!(
+    "aperio_requests_failed_total {}\n",
+    stats.failed_requests
+  ));
+  out.push_str("# HELP aperio_bytes_transferred_total Total payload bytes transferred.\n");
+  out.push_str("# TYPE aperio_bytes_transferred_total counter\n");
+  out.push_str(&format!(
+    "aperio_bytes_transferred_total {}\n",
+    stats.total_bytes_transferred
+  ));
+  out.push_str("# HELP aperio_connected_clients Currently connected tunnel clients.\n");
+  out.push_str("# TYPE aperio_connected_clients gauge\n");
+  out.push_str(&format!("aperio_connected_clients {}\n", connected));
+  out.push_str("# HELP aperio_pending_requests Requests currently awaiting a client response.\n");
+  out.push_str("# TYPE aperio_pending_requests gauge\n");
+  out.push_str(&format!("aperio_pending_requests {}\n", pending));
+  out.push_str("# HELP aperio_ws_streams_active Active proxied WebSocket streams.\n");
+  out.push_str("# TYPE aperio_ws_streams_active gauge\n");
+  out.push_str(&format!("aperio_ws_streams_active {}\n", ws_streams));
+  out.push_str("# HELP aperio_uptime_seconds Server uptime in seconds.\n");
+  out.push_str("# TYPE aperio_uptime_seconds gauge\n");
+  out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
+  out.push_str("# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n");
+  out.push_str("# TYPE aperio_client_requests_total counter\n");
+  for (id, count) in per_client {
+    out.push_str(&format!(
+      "aperio_client_requests_total{{client_id=\"{}\"}} {}\n",
+      id, count
+    ));
+  }
+
+  (
+    StatusCode::OK,
+    [(
+      "content-type",
+      "text/plain; version=0.0.4; charset=utf-8",
+    )],
+    out,
+  )
+    .into_response()
 }
 
 /// Health check endpoint returning status, active connection counts, and uptime.
@@ -746,6 +963,130 @@ fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
   uri_path == bind || uri_path.starts_with(&format!("{}/", bind))
 }
 
+/// Normalizes a hostname bind: lowercases, trims whitespace, strips a
+/// trailing dot and an optional port suffix. Returns `None` for empty values
+/// or values containing characters outside the DNS-safe set.
+fn normalize_hostname_bind(host: &str) -> Option<String> {
+  const MAX_HOSTNAME_LEN: usize = 253;
+
+  let trimmed = host.trim().trim_end_matches('.').to_ascii_lowercase();
+  // Strip a port suffix (not applicable to bracketed IPv6 literals).
+  let without_port = match trimmed.split_once(':') {
+    Some((h, port)) if !h.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => h.to_string(),
+    _ => trimmed,
+  };
+  if without_port.is_empty() || without_port.len() > MAX_HOSTNAME_LEN {
+    return None;
+  }
+  let valid = without_port
+    .split('.')
+    .all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+  if !valid {
+    warn!("Rejected hostname_bind with invalid format: {}", host);
+    return None;
+  }
+  Some(without_port)
+}
+
+/// Extracts the request hostname from the `Host` header (lowercased, port
+/// stripped). Returns `None` when the header is absent or malformed.
+fn extract_request_host(headers: &HeaderMap) -> Option<String> {
+  let raw = headers.get("host")?.to_str().ok()?;
+  let trimmed = raw.trim().to_ascii_lowercase();
+  // Bracketed IPv6 literal: [::1]:8080 → ::1 is not a valid hostname bind
+  // anyway, but strip the port consistently.
+  let host = if let Some(stripped) = trimmed.strip_prefix('[') {
+    stripped.split(']').next().unwrap_or("").to_string()
+  } else {
+    trimmed.split(':').next().unwrap_or("").to_string()
+  };
+  if host.is_empty() { None } else { Some(host) }
+}
+
+/// Selects the pool of candidate client IDs for a request, honoring hostname
+/// binds first, then path binds within the hostname group. Returns the pool
+/// together with the round-robin group key.
+///
+/// Hostname stage:
+/// - Clients whose effective hostname bind equals the request host win.
+/// - Otherwise, when `require_hostname_bind` is off, clients without any
+///   hostname bind act as the fallback pool. When the flag is on, clients
+///   without a hostname bind never receive traffic.
+///
+/// Path stage (within the hostname pool): longest matching path bind wins;
+/// clients without a path bind are the fallback.
+fn select_client_pool(
+  clients: &HashMap<String, ClientHandle>,
+  uri_path: &str,
+  request_host: Option<&str>,
+  require_hostname_bind: bool,
+) -> Option<(Vec<String>, RouteGroupKey)> {
+  // --- Hostname stage ---
+  let host_matched: Vec<(&String, &ClientHandle)> = match request_host {
+    Some(host) => clients
+      .iter()
+      .filter(|(_, c)| c.effective_hostname_bind().is_some_and(|b| b == host))
+      .collect(),
+    None => Vec::new(),
+  };
+
+  let (host_pool, host_key): (Vec<(&String, &ClientHandle)>, Option<String>) =
+    if !host_matched.is_empty() {
+      (host_matched, request_host.map(|h| h.to_string()))
+    } else if require_hostname_bind {
+      // Strict mode: unbound clients are never eligible.
+      return None;
+    } else {
+      let unbound: Vec<(&String, &ClientHandle)> = clients
+        .iter()
+        .filter(|(_, c)| c.effective_hostname_bind().is_none())
+        .collect();
+      (unbound, None)
+    };
+
+  if host_pool.is_empty() {
+    return None;
+  }
+
+  // --- Path stage ---
+  let path_matched: Vec<(&String, &String)> = host_pool
+    .iter()
+    .filter_map(|(id, c)| {
+      c.effective_path_bind()
+        .filter(|bind| path_matches_bind(uri_path, bind))
+        .map(|bind| (*id, bind))
+    })
+    .collect();
+
+  let (pool, path_key): (Vec<String>, Option<String>) = if !path_matched.is_empty() {
+    // Longest matching bind wins; only clients with that exact bind pool together.
+    let longest = path_matched
+      .iter()
+      .map(|(_, b)| (*b).clone())
+      .max_by_key(|b| b.len())
+      .unwrap();
+    let ids = path_matched
+      .iter()
+      .filter(|(_, b)| **b == longest)
+      .map(|(id, _)| (*id).clone())
+      .collect();
+    (ids, Some(longest))
+  } else {
+    let ids: Vec<String> = host_pool
+      .iter()
+      .filter(|(_, c)| c.effective_path_bind().is_none())
+      .map(|(id, _)| (*id).clone())
+      .collect();
+    (ids, None)
+  };
+
+  if pool.is_empty() {
+    None
+  } else {
+    Some((pool, (host_key, path_key)))
+  }
+}
+
 /// Resolves the real client IP, honoring `X-Forwarded-For` / `X-Real-IP` only
 /// when `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
 /// proxy). Otherwise the direct socket address is used, since clients could
@@ -851,6 +1192,10 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
         client_ip: client_ip.clone(),
         request_count: client_req_count.clone(),
         path_bind: None,
+        hostname_bind: None,
+        override_path_bind: None,
+        override_hostname_bind: None,
+        last_ping_at: None,
       },
     );
     drop(clients);
@@ -908,14 +1253,25 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
               client_id: cid,
               timestamp,
               path_bind,
+              hostname_bind,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
-              // Update client's path_bind from first Ping (normalized to segment boundary)
-              let normalized = path_bind.and_then(|b| normalize_path_bind(&b));
-              if normalized.is_some() {
+              // Update client's reported binds and heartbeat time. Only the
+              // server-assigned connection ID is trusted for state updates;
+              // the client-declared `cid` is ignored to prevent a client from
+              // mutating another connection's state.
+              let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
+              let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
+              {
                 let mut clients = state.clients.lock().await;
-                if let Some(handle) = clients.get_mut(&cid) {
-                  handle.path_bind = normalized;
+                if let Some(handle) = clients.get_mut(&client_id) {
+                  if normalized_path.is_some() {
+                    handle.path_bind = normalized_path;
+                  }
+                  if normalized_host.is_some() {
+                    handle.hostname_bind = normalized_host;
+                  }
+                  handle.last_ping_at = Some(Instant::now());
                 }
               }
               let pong = TunnelMessage::Pong { timestamp };
@@ -1009,11 +1365,17 @@ async fn handle_socket(socket: WebSocket, client_ip: String, state: Arc<AppState
     let removed = clients.remove(&client_id);
     let now_empty = clients.is_empty();
 
-    // Clean up the round-robin index for this client's path group if no other
-    // client remains in the same group (prevents unbounded growth of path_rr).
+    // Clean up the round-robin index for this client's routing group if no
+    // other client remains in the same group (prevents unbounded growth).
     if let Some(handle) = &removed {
-      let group_key = handle.path_bind.clone();
-      let group_has_clients = clients.values().any(|c| c.path_bind == group_key);
+      let group_key: RouteGroupKey = (
+        handle.effective_hostname_bind().cloned(),
+        handle.effective_path_bind().cloned(),
+      );
+      let group_has_clients = clients.values().any(|c| {
+        c.effective_hostname_bind() == group_key.0.as_ref()
+          && c.effective_path_bind() == group_key.1.as_ref()
+      });
       if !group_has_clients {
         let mut rr_map = state.path_rr.lock().await;
         rr_map.remove(&group_key);
@@ -1241,50 +1603,24 @@ async fn proxy_handler(
     }
   };
 
-  // 4. Get an active client, preferring path-bound matches with per-group round-robin
+  // 4. Get an active client, preferring hostname- and path-bound matches
+  // with per-group round-robin.
+  let request_host = extract_request_host(&headers);
   let client_info = {
     let clients = state.clients.lock().await;
-    if clients.is_empty() {
-      None
-    } else {
-      let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
+    let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
 
-      // Collect clients whose path_bind matches the request URI prefix on a segment boundary
-      let matched: Vec<(&String, Option<String>)> = clients
-        .iter()
-        .filter(|(_, c)| {
-          if let Some(ref bind) = c.path_bind {
-            path_matches_bind(uri_path, bind)
-          } else {
-            false
-          }
-        })
-        .map(|(id, c)| (id, c.path_bind.clone()))
-        .collect();
-
-      let (pool, group_key): (Vec<&String>, Option<String>) = if !matched.is_empty() {
-        let key = matched
-          .iter()
-          .filter_map(|(_, b)| b.clone())
-          .max_by_key(|b| b.len());
-        let ids: Vec<&String> = matched.iter().map(|(id, _)| *id).collect();
-        (ids, key)
-      } else {
-        // Fallback to clients without any path_bind
-        let ids: Vec<&String> = clients
-          .iter()
-          .filter(|(_, c)| c.path_bind.is_none())
-          .map(|(id, _)| id)
-          .collect();
-        (ids, None)
-      };
-
-      if pool.is_empty() {
-        None
-      } else {
+    match select_client_pool(
+      &clients,
+      uri_path,
+      request_host.as_deref(),
+      state.config.require_hostname_bind,
+    ) {
+      None => None,
+      Some((pool, group_key)) => {
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
-        let chosen_id = pool[*idx % pool.len()];
+        let chosen_id = &pool[*idx % pool.len()];
         *idx = (*idx + 1) % pool.len();
         clients
           .get(chosen_id)
@@ -1603,47 +1939,22 @@ async fn handle_ws_proxy(
     }
   }
 
-  // 4. Select a tunnel client
+  // 4. Select a tunnel client (same hostname/path-aware routing as HTTP proxy)
   let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
+  let request_host = extract_request_host(&headers);
   let client_info = {
     let clients = state.clients.lock().await;
-    if clients.is_empty() {
-      None
-    } else {
-      let matched: Vec<(&String, Option<String>)> = clients
-        .iter()
-        .filter(|(_, c)| {
-          if let Some(ref bind) = c.path_bind {
-            path_matches_bind(uri_path, bind)
-          } else {
-            false
-          }
-        })
-        .map(|(id, c)| (id, c.path_bind.clone()))
-        .collect();
-
-      let (pool, group_key): (Vec<&String>, Option<String>) = if !matched.is_empty() {
-        let key = matched
-          .iter()
-          .filter_map(|(_, b)| b.clone())
-          .max_by_key(|b| b.len());
-        let ids: Vec<&String> = matched.iter().map(|(id, _)| *id).collect();
-        (ids, key)
-      } else {
-        let ids: Vec<&String> = clients
-          .iter()
-          .filter(|(_, c)| c.path_bind.is_none())
-          .map(|(id, _)| id)
-          .collect();
-        (ids, None)
-      };
-
-      if pool.is_empty() {
-        None
-      } else {
+    match select_client_pool(
+      &clients,
+      uri_path,
+      request_host.as_deref(),
+      state.config.require_hostname_bind,
+    ) {
+      None => None,
+      Some((pool, group_key)) => {
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);
-        let chosen_id = pool[*idx % pool.len()];
+        let chosen_id = &pool[*idx % pool.len()];
         *idx = (*idx + 1) % pool.len();
         clients
           .get(chosen_id)
@@ -2110,6 +2421,8 @@ mod tests {
       auth_credentials: None,
       trust_proxy: false,
       secure_cookies: false,
+      require_hostname_bind: false,
+      metrics_token: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -2164,6 +2477,8 @@ mod tests {
       auth_credentials: None,
       trust_proxy: false,
       secure_cookies: false,
+      require_hostname_bind: false,
+      metrics_token: None,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -2219,6 +2534,8 @@ mod tests {
       auth_credentials: None,
       trust_proxy: false,
       secure_cookies: false,
+      require_hostname_bind: false,
+      metrics_token: None,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -2261,6 +2578,10 @@ mod tests {
         client_ip: "127.0.0.1".to_string(),
         request_count: client_req_count,
         path_bind: None,
+        hostname_bind: None,
+        override_path_bind: None,
+        override_hostname_bind: None,
+        last_ping_at: None,
       },
     );
 
@@ -2408,6 +2729,171 @@ mod tests {
     // No headers → fallback to socket address
     let headers = HeaderMap::new();
     assert_eq!(extract_client_ip(&headers, direct, false), direct);
+  }
+
+  fn mock_client(
+    hostname_bind: Option<&str>,
+    path_bind: Option<&str>,
+    override_hostname: Option<&str>,
+    override_path: Option<&str>,
+  ) -> ClientHandle {
+    let (tx, _rx) = mpsc::channel::<Message>(1);
+    ClientHandle {
+      tx,
+      connected_at: Instant::now(),
+      client_ip: "127.0.0.1".to_string(),
+      request_count: Arc::new(AtomicU64::new(0)),
+      path_bind: path_bind.map(|s| s.to_string()),
+      hostname_bind: hostname_bind.map(|s| s.to_string()),
+      override_path_bind: override_path.map(|s| s.to_string()),
+      override_hostname_bind: override_hostname.map(|s| s.to_string()),
+      last_ping_at: None,
+    }
+  }
+
+  #[test]
+  fn test_normalize_hostname_bind() {
+    assert_eq!(
+      normalize_hostname_bind("a.example.com"),
+      Some("a.example.com".to_string())
+    );
+    // Case-insensitive
+    assert_eq!(
+      normalize_hostname_bind("A.Example.COM"),
+      Some("a.example.com".to_string())
+    );
+    // Port stripped
+    assert_eq!(
+      normalize_hostname_bind("a.example.com:8080"),
+      Some("a.example.com".to_string())
+    );
+    // Trailing dot stripped
+    assert_eq!(
+      normalize_hostname_bind("a.example.com."),
+      Some("a.example.com".to_string())
+    );
+    // Invalid values rejected
+    assert_eq!(normalize_hostname_bind(""), None);
+    assert_eq!(normalize_hostname_bind("   "), None);
+    assert_eq!(normalize_hostname_bind("exa mple.com"), None);
+    assert_eq!(normalize_hostname_bind("example..com"), None);
+    assert_eq!(normalize_hostname_bind("exa_mple.com"), None);
+    assert_eq!(normalize_hostname_bind(&"a".repeat(300)), None);
+  }
+
+  #[test]
+  fn test_extract_request_host() {
+    let mut headers = HeaderMap::new();
+    assert_eq!(extract_request_host(&headers), None);
+
+    headers.insert("host", HeaderValue::from_static("A.Example.com:443"));
+    assert_eq!(
+      extract_request_host(&headers),
+      Some("a.example.com".to_string())
+    );
+
+    headers.insert("host", HeaderValue::from_static("[::1]:8080"));
+    assert_eq!(extract_request_host(&headers), Some("::1".to_string()));
+  }
+
+  #[test]
+  fn test_select_client_pool_hostname_routing() {
+    let mut clients = HashMap::new();
+    clients.insert(
+      "a".to_string(),
+      mock_client(Some("a.example.com"), None, None, None),
+    );
+    clients.insert(
+      "b".to_string(),
+      mock_client(Some("b.example.com"), None, None, None),
+    );
+    clients.insert("unbound".to_string(), mock_client(None, None, None, None));
+
+    // Host matches a.example.com → only client "a"
+    let (pool, key) =
+      select_client_pool(&clients, "/", Some("a.example.com"), false).unwrap();
+    assert_eq!(pool, vec!["a".to_string()]);
+    assert_eq!(key, (Some("a.example.com".to_string()), None));
+
+    // Unknown host → falls back to unbound client
+    let (pool, key) = select_client_pool(&clients, "/", Some("c.example.com"), false).unwrap();
+    assert_eq!(pool, vec!["unbound".to_string()]);
+    assert_eq!(key, (None, None));
+
+    // Strict mode: unknown host → no client at all
+    assert!(select_client_pool(&clients, "/", Some("c.example.com"), true).is_none());
+    // Strict mode: matching host still works
+    let (pool, _) = select_client_pool(&clients, "/", Some("b.example.com"), true).unwrap();
+    assert_eq!(pool, vec!["b".to_string()]);
+    // Strict mode: no Host header → no client
+    assert!(select_client_pool(&clients, "/", None, true).is_none());
+  }
+
+  #[test]
+  fn test_select_client_pool_hostname_and_path_combined() {
+    let mut clients = HashMap::new();
+    clients.insert(
+      "host-api".to_string(),
+      mock_client(Some("a.example.com"), Some("/api"), None, None),
+    );
+    clients.insert(
+      "host-root".to_string(),
+      mock_client(Some("a.example.com"), None, None, None),
+    );
+
+    // Path under /api on the bound host → path-bound client wins
+    let (pool, key) =
+      select_client_pool(&clients, "/api/users", Some("a.example.com"), false).unwrap();
+    assert_eq!(pool, vec!["host-api".to_string()]);
+    assert_eq!(
+      key,
+      (
+        Some("a.example.com".to_string()),
+        Some("/api".to_string())
+      )
+    );
+
+    // Other paths on the bound host → unbound-path client
+    let (pool, _) =
+      select_client_pool(&clients, "/other", Some("a.example.com"), false).unwrap();
+    assert_eq!(pool, vec!["host-root".to_string()]);
+  }
+
+  #[test]
+  fn test_select_client_pool_override_wins() {
+    let mut clients = HashMap::new();
+    // Client reported no hostname, dashboard overruled it to a.example.com
+    clients.insert(
+      "overruled".to_string(),
+      mock_client(None, None, Some("a.example.com"), None),
+    );
+
+    let (pool, _) =
+      select_client_pool(&clients, "/", Some("a.example.com"), true).unwrap();
+    assert_eq!(pool, vec!["overruled".to_string()]);
+
+    // With the override active, the client is no longer an unbound fallback
+    assert!(select_client_pool(&clients, "/", Some("x.example.com"), false).is_none());
+  }
+
+  #[test]
+  fn test_select_client_pool_longest_path_bind_wins() {
+    let mut clients = HashMap::new();
+    clients.insert(
+      "short".to_string(),
+      mock_client(None, Some("/api"), None, None),
+    );
+    clients.insert(
+      "long".to_string(),
+      mock_client(None, Some("/api/v2"), None, None),
+    );
+
+    let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, false).unwrap();
+    assert_eq!(pool, vec!["long".to_string()]);
+    assert_eq!(key, (None, Some("/api/v2".to_string())));
+
+    let (pool, _) = select_client_pool(&clients, "/api/other", None, false).unwrap();
+    assert_eq!(pool, vec!["short".to_string()]);
   }
 
   #[test]

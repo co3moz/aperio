@@ -80,6 +80,9 @@ The server is configured entirely through environment variables.
 | `APERIO_DASHBOARD_AUTH`                  | Password for dashboard-only login with username `aperio`. Falls back to `APERIO_SERVER_TOKEN` if not set.                   | _(None)_          | No       | String  |
 | `APERIO_TRUST_PROXY`                     | Set to `1` or `true` to trust `X-Forwarded-For` / `X-Real-IP` headers for client IP resolution.                             | `false`           | No       | Boolean |
 | `APERIO_SECURE_COOKIES`                  | Set to `1` or `true` to add the `Secure` flag to session cookies (HTTPS-only). Defaults to `APERIO_TRUST_PROXY` value.      | `false`           | No       | Boolean |
+| `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
+| `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
+| `APERIO_METRICS_TOKEN`                   | Optional bearer token required to scrape `/aperio/metrics` (`Authorization: Bearer <token>`). Unset = no auth on metrics.    | _(None)_          | No       | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
 
 ### Endpoints
@@ -89,6 +92,8 @@ The server is configured entirely through environment variables.
 - **`GET /aperio`**: HTML admin dashboard interface (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/stats`**: JSON stats endpoint displaying connection counters, byte counters, and uptime info (available when `APERIO_DASHBOARD` is enabled).
 - **`GET /aperio/api/logs`**: JSON endpoint returning the last 100 request logs (available when `APERIO_DASHBOARD` is enabled).
+- **`POST /aperio/api/clients/:id/override`**: Applies a temporary (in-memory) hostname/path bind overrule to a connected client (available when `APERIO_DASHBOARD` is enabled).
+- **`GET /aperio/metrics`**: Prometheus text-format metrics (available when `APERIO_METRICS` is enabled; optionally protected with `APERIO_METRICS_TOKEN`).
 - **`GET /aperio/health`**: Simple server health verification endpoint (always available, no auth required).
 - **`GET /POST /aperio/auth`**: Login page and authentication endpoint. Always available regardless of dashboard setting.
 
@@ -107,6 +112,7 @@ The client receives requests from the server and forwards them to a local backen
 | `APERIO_CLIENT_TARGET`        | Address of the local target backend to forward proxy traffic to.                                                      | _(None)_                | **Yes**  | String         |
 | `APERIO_CLIENT_PASS_HOSTNAME` | If set to `1`, passes the original request `Host` header through. Otherwise, overrides it with the local target host. | `0` (default)           | No       | Boolean/String |
 | `APERIO_PATH_BIND`           | Path prefix to bind this client to (e.g. `/api`). Unbound clients serve as fallback.                                   | _(None)_                | No       | String         |
+| `APERIO_HOSTNAME_BIND`       | Hostname to bind this client to (e.g. `a.example.com`). The server routes requests whose `Host` header matches.        | _(None)_                | No       | String         |
 | `APERIO_CLIENT_TRIM_BIND`    | If `1`, strips the path bind prefix from the URI before forwarding. Defaults to `1` when `APERIO_PATH_BIND` is set.     | `1` (if bind set)       | No       | Boolean        |
 | `APERIO_CLIENT_MAX_RESPONSE_BODY` | Maximum response body size in bytes accepted from the backend. Protects against OOM.                                  | `52428800` (50MB)       | No       | usize          |
 | `APERIO_CLIENT_TIMEOUT`     | Per-request timeout in seconds for calls to the target backend.                                                           | `30`                    | No       | u64            |
@@ -138,6 +144,28 @@ Aperio supports advanced path-based routing, allowing you to direct public traff
    If no path-bound client matches the incoming request, the server routes the request to any connected clients that **do not** have a path bind set (acting as catch-all / fallback handlers).
 4. **Gateway Timeout**:
    If there are no matching path-bound clients and no unbound fallback clients connected, the server returns a `504 Gateway Timeout` response.
+
+### Hostname Binding (`APERIO_HOSTNAME_BIND`)
+
+When you expose the Aperio server behind a wildcard domain (e.g. Traefik routing `*.example.com` to it), each client can claim a specific hostname:
+
+```
+           Public HTTP Requests (Host header)
+                 |
+                 +---> a.example.com  --> [ Client A (Hostname Bind: a.example.com) ]
+                 |
+                 +---> b.example.com  --> [ Client B (Hostname Bind: b.example.com) ]
+                 |
+                 +---> c.example.com  --> [ Client C (No Hostname Bind, fallback) ]
+```
+
+Routing order: the server first selects the hostname group (exact match on the request's `Host` header, case-insensitive, port ignored), then applies path-bind routing *within* that group. Clients without a hostname bind act as the fallback pool for unmatched hosts.
+
+With `APERIO_REQUIRE_HOSTNAME_BIND=1` on the server, the fallback is disabled: clients that did not declare a hostname bind never receive proxied traffic. Use this in strict multi-tenant setups where every client must claim its own subdomain.
+
+### Dashboard Overrule (Temporary Bind Overrides)
+
+The dashboard's *Active Tunnel Connections* table shows each client's hostname bind, path bind, and last heartbeat. The **Overrule** button lets you set a temporary hostname/path bind for a connected client — useful to route traffic to a client that connected without binds, or to redirect a hostname live. Overrides live only in server memory: they disappear when the client reconnects or the server restarts, and the client's own configuration is never modified.
 
 ### Prefix Trimming (`APERIO_CLIENT_TRIM_BIND`)
 

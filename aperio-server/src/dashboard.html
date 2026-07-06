@@ -261,6 +261,23 @@
             font-size: 0.875rem;
         }
 
+        .overrule-btn {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 6px;
+            padding: 0.25rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .overrule-btn:hover {
+            background: rgba(99, 102, 241, 0.3);
+        }
+
         .empty-logs {
             padding: 3rem;
             text-align: center;
@@ -335,13 +352,17 @@
                         <tr>
                             <th>Client ID</th>
                             <th>IP Address</th>
+                            <th>Hostname</th>
+                            <th>Path</th>
+                            <th>Last Ping</th>
                             <th>Connected For</th>
-                            <th>Requests Handled</th>
+                            <th>Requests</th>
+                            <th>Overrule</th>
                         </tr>
                     </thead>
                     <tbody id="clients-body">
                         <tr>
-                            <td colspan="4" class="empty-logs">No active client sessions</td>
+                            <td colspan="8" class="empty-logs">No active client sessions</td>
                         </tr>
                     </tbody>
                 </table>
@@ -457,6 +478,53 @@
                 .replace(/'/g, '&#39;');
         }
 
+        // Renders a bind value; when a temporary dashboard override is active
+        // it is shown highlighted, with the client-reported value struck through.
+        function formatBind(reported, override) {
+            if (override) {
+                const orig = reported
+                    ? `<span style="text-decoration: line-through; color: var(--text-secondary); margin-right: 0.4rem;">${escapeHtml(reported)}</span>`
+                    : '';
+                return `${orig}<span class="badge badge-put" title="Temporary override (not persisted)">${escapeHtml(override)}</span>`;
+            }
+            if (reported) return `<span class="badge badge-get">${escapeHtml(reported)}</span>`;
+            return `<span style="color: var(--text-secondary);">—</span>`;
+        }
+
+        function formatLastPing(secondsAgo) {
+            if (secondsAgo === null || secondsAgo === undefined) return '—';
+            if (secondsAgo < 1) return 'now';
+            return `${secondsAgo}s ago`;
+        }
+
+        async function overruleClient(c) {
+            const hostname = prompt(
+                `Temporary hostname bind for client ${c.id.slice(0, 8)}…\n(empty = clear override; not persisted across reconnects)`,
+                c.override_hostname_bind || c.hostname_bind || ''
+            );
+            if (hostname === null) return;
+            const path = prompt(
+                `Temporary path bind for client ${c.id.slice(0, 8)}…\n(empty = clear override; not persisted across reconnects)`,
+                c.override_path_bind || c.path_bind || ''
+            );
+            if (path === null) return;
+
+            try {
+                const res = await fetch(`/aperio/api/clients/${encodeURIComponent(c.id)}/override`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hostname_bind: hostname.trim(), path_bind: path.trim() })
+                });
+                if (!res.ok) {
+                    alert(`Overrule failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchStats();
+            } catch (e) {
+                alert('Overrule request failed: ' + e);
+            }
+        }
+
         function formatUptime(seconds) {
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
@@ -549,16 +617,25 @@
                 const clientsBody = document.getElementById('clients-body');
                 clientsBody.innerHTML = '';
                 if (stats.active_clients.length === 0) {
-                    clientsBody.innerHTML = `<tr><td colspan="4" class="empty-logs">No active client sessions</td></tr>`;
+                    clientsBody.innerHTML = `<tr><td colspan="8" class="empty-logs">No active client sessions</td></tr>`;
                 } else {
                     stats.active_clients.forEach(c => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td class="text-mono">${escapeHtml(c.id)}</td>
+                            <td class="text-mono" title="${escapeHtml(c.id)}">${escapeHtml(c.id.slice(0, 8))}…</td>
                             <td class="text-mono">${escapeHtml(c.ip)}</td>
+                            <td>${formatBind(c.hostname_bind, c.override_hostname_bind)}</td>
+                            <td>${formatBind(c.path_bind, c.override_path_bind)}</td>
+                            <td class="text-mono">${formatLastPing(c.last_ping_seconds_ago)}</td>
                             <td>${formatUptime(c.connected_for_seconds)}</td>
                             <td class="text-mono">${escapeHtml(c.request_count)}</td>
+                            <td></td>
                         `;
+                        const btn = document.createElement('button');
+                        btn.className = 'overrule-btn';
+                        btn.textContent = (c.override_hostname_bind || c.override_path_bind) ? 'Edit ✏️' : 'Set';
+                        btn.addEventListener('click', () => overruleClient(c));
+                        tr.lastElementChild.appendChild(btn);
                         clientsBody.appendChild(tr);
                     });
                 }
