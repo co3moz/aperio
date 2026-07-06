@@ -9,6 +9,7 @@ import { MaintenanceSection } from './components/MaintenanceSection'
 import { ShareLinksSection } from './components/ShareLinksSection'
 import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
+import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TrafficSection } from './components/TrafficSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { usePoll } from './hooks/usePoll'
@@ -80,6 +81,7 @@ export default function App() {
           <StatsCards stats={stats} />
           <ActivityChart history={history} />
           <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+          <TrafficBreakdownSection stats={stats} />
           <MaintenanceSection />
           <ShareLinksSection />
           <TokensSection />

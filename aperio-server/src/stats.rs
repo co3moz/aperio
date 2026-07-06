@@ -29,6 +29,43 @@ pub struct PersistentStats {
   pub total_request_duration_ms: u64,
   /// Period buckets keyed as `d:2026-07-06`, `w:2026-W27`, `m:2026-07`, `y:2026`.
   pub periods: HashMap<String, PeriodStats>,
+  /// Lifetime traffic per token label (`master` for the master token).
+  #[serde(default)]
+  pub by_token: HashMap<String, PeriodStats>,
+  /// Lifetime traffic per request hostname.
+  #[serde(default)]
+  pub by_hostname: HashMap<String, PeriodStats>,
+}
+
+/// Maximum number of distinct token/hostname labels tracked; extra labels
+/// are folded into `__other` so a flood of random hostnames cannot grow the
+/// stats file without bound.
+const LABEL_CAP: usize = 200;
+
+/// Bumps a label bucket, folding overflow labels into `__other`.
+fn bump_label(
+  map: &mut HashMap<String, PeriodStats>,
+  label: &str,
+  success: bool,
+  bytes_in: u64,
+  bytes_out: u64,
+  duration_ms: u64,
+) {
+  let key = if map.contains_key(label) || map.len() < LABEL_CAP {
+    label
+  } else {
+    "__other"
+  };
+  let p = map.entry(key.to_string()).or_default();
+  p.requests += 1;
+  if success {
+    p.success += 1;
+  } else {
+    p.failed += 1;
+  }
+  p.bytes_received += bytes_in;
+  p.bytes_sent += bytes_out;
+  p.duration_ms += duration_ms;
 }
 
 impl PersistentStats {
@@ -86,6 +123,40 @@ impl StatsStore {
 
   /// Records a completed proxied request across all-time and period buckets.
   pub fn record_request(&mut self, success: bool, bytes_in: u64, bytes_out: u64, duration_ms: u64) {
+    self.record_request_labeled(success, bytes_in, bytes_out, duration_ms, None, None)
+  }
+
+  /// Like [`record_request`], additionally attributing the traffic to a
+  /// token label and/or request hostname for per-tenant traceability.
+  pub fn record_request_labeled(
+    &mut self,
+    success: bool,
+    bytes_in: u64,
+    bytes_out: u64,
+    duration_ms: u64,
+    token: Option<&str>,
+    hostname: Option<&str>,
+  ) {
+    if let Some(token) = token {
+      bump_label(
+        &mut self.stats.by_token,
+        token,
+        success,
+        bytes_in,
+        bytes_out,
+        duration_ms,
+      );
+    }
+    if let Some(hostname) = hostname {
+      bump_label(
+        &mut self.stats.by_hostname,
+        hostname,
+        success,
+        bytes_in,
+        bytes_out,
+        duration_ms,
+      );
+    }
     self.stats.total_requests += 1;
     if success {
       self.stats.total_success += 1;
@@ -174,8 +245,8 @@ mod tests {
     let dir_str = dir.to_string_lossy().to_string();
 
     let mut store = StatsStore::load(&dir_str);
-    store.record_request(true, 100, 2000, 40);
-    store.record_request(false, 50, 0, 60);
+    store.record_request_labeled(true, 100, 2000, 40, Some("master"), Some("a.example.com"));
+    store.record_request_labeled(false, 50, 0, 60, Some("tenant-a"), Some("a.example.com"));
     store.record_bytes_sent(500);
     store.save_if_dirty();
 
@@ -196,9 +267,25 @@ mod tests {
       assert_eq!(p.bytes_sent, 2500);
     }
 
+    // Label breakdowns are attributed per token and hostname.
+    assert_eq!(snap.by_token.get("master").unwrap().requests, 1);
+    assert_eq!(snap.by_token.get("tenant-a").unwrap().failed, 1);
+    let host = snap.by_hostname.get("a.example.com").unwrap();
+    assert_eq!(host.requests, 2);
+    assert_eq!(host.bytes_sent, 2000);
+
     // Reload from disk → counters survive.
     let store2 = StatsStore::load(&dir_str);
     assert_eq!(store2.snapshot().total_requests, 2);
+    assert_eq!(
+      store2
+        .snapshot()
+        .by_hostname
+        .get("a.example.com")
+        .unwrap()
+        .requests,
+      2
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
   }

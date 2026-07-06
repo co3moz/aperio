@@ -4687,14 +4687,17 @@ async fn proxy_handler(
           stats.total_bytes_transferred += body_len;
         }
 
-        // Persistent (restart-surviving) counters.
+        // Persistent (restart-surviving) counters, attributed to the token
+        // and hostname for per-tenant traceability.
         {
           let mut ps = state.persistent_stats.lock().await;
-          ps.record_request(
+          ps.record_request_labeled(
             !status_code.is_server_error(),
             body_bytes.len() as u64,
             body_len,
             duration.as_millis() as u64,
+            Some(selected.token_name.as_deref().unwrap_or("master")),
+            request_host.as_deref(),
           );
         }
 

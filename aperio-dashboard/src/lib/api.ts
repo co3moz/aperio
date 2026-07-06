@@ -18,6 +18,8 @@ export interface PersistentStats {
   total_bytes_received: number
   total_request_duration_ms: number
   periods: Record<string, PeriodStats>
+  by_token: Record<string, PeriodStats>
+  by_hostname: Record<string, PeriodStats>
 }
 
 export interface ClientDetail {

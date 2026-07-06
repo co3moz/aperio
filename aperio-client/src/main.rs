@@ -2500,6 +2500,12 @@ mod tests {
         socket.write_all(header.as_bytes()).await.unwrap();
         let payload = vec![0xABu8; body_size];
         socket.write_all(&payload).await.unwrap();
+        // Close gracefully and wait for the peer to finish reading; an
+        // abrupt drop can RST the connection and truncate in-flight bytes
+        // (a flake seen under parallel test load).
+        let _ = socket.shutdown().await;
+        let mut sink = [0u8; 1024];
+        while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
       }
     });
 
