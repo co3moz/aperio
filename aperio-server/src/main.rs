@@ -45,6 +45,9 @@ pub enum TunnelMessage {
     /// The server queues excess requests instead of dispatching them.
     #[serde(default)]
     max_concurrent: Option<u32>,
+    /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
+    #[serde(default)]
+    tcp: bool,
   },
   Pong {
     timestamp: u64,
@@ -112,6 +115,20 @@ pub enum TunnelMessage {
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
+  /// Server → client: open a raw TCP connection to the client's configured
+  /// TCP target for this stream (experimental TCP tunneling).
+  TcpOpen {
+    stream_id: String,
+  },
+  /// Raw TCP bytes relayed through the tunnel (Base64).
+  TcpData {
+    stream_id: String,
+    data: String,
+  },
+  /// Signals that a TCP stream has been closed (either side).
+  TcpClose {
+    stream_id: String,
+  },
   /// Server → client: offers zlib compression for subsequent tunnel frames.
   CompressionStart {},
   /// Client → server: compression accepted; both sides may now send
@@ -324,6 +341,8 @@ struct ClientHandle {
   /// Dashboard kill switch: false = temporarily excluded from routing even
   /// though the connection and heartbeats remain healthy.
   admin_enabled: bool,
+  /// True when the client announced a TCP target (experimental TCP tunneling).
+  tcp_enabled: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -442,6 +461,18 @@ struct ResponseStreamHandle {
   client_id: String,
 }
 
+/// Message relayed from the tunnel to a public TCP consumer WebSocket.
+enum TcpConsumerMsg {
+  Data(Vec<u8>),
+  Close,
+}
+
+/// Handle to an active TCP tunnel stream (consumer side).
+struct TcpStreamHandle {
+  tx: mpsc::Sender<TcpConsumerMsg>,
+  client_id: String,
+}
+
 /// Structure tracking requests waiting for client execution.
 struct PendingRequest {
   /// Oneshot channel sender to return client response to proxy handler thread.
@@ -514,6 +545,8 @@ struct AppState {
   oidc: Option<oidc::OidcRuntime>,
   /// Pending OIDC login flows: state token → (original redirect, expiry).
   oidc_states: Mutex<HashMap<String, (String, Instant)>>,
+  /// Active experimental TCP tunnel streams: stream_id → consumer sender.
+  tcp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
 }
 
 impl AppState {
@@ -817,6 +850,7 @@ async fn main() {
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
     oidc: oidc_runtime,
     oidc_states: Mutex::new(HashMap::new()),
+    tcp_streams: Mutex::new(HashMap::new()),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -905,6 +939,7 @@ async fn main() {
     get(auth_page_handler).post(auth_login_handler),
   );
   app = app.route("/aperio/ws", get(ws_handler));
+  app = app.route("/aperio/tcp", get(tcp_ws_handler));
   app = app.route("/aperio/oidc/login", get(oidc_login_handler));
   app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));
 
@@ -1315,13 +1350,16 @@ struct TokenUpdateRequest {
   ttl_seconds: Option<u64>,
 }
 
+/// Normalized (hostnames, paths, allowed_ips) permission lists.
+type TokenPermLists = (Vec<String>, Vec<String>, Vec<String>);
+
 /// Validates and normalizes token permission lists. Returns an error message
 /// when an entry is invalid.
 fn validate_token_perms(
   hostnames: &[String],
   paths: &[String],
   allowed_ips: &[String],
-) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
+) -> Result<TokenPermLists, String> {
   let mut out_hosts = Vec::new();
   for h in hostnames {
     let trimmed = h.trim();
@@ -2386,6 +2424,7 @@ async fn handle_socket(
         inflight_limiter: None,
         draining: false,
         admin_enabled: true,
+        tcp_enabled: false,
       },
     );
     drop(clients);
@@ -2582,6 +2621,42 @@ async fn handle_socket(
                 state.response_streams.lock().await.insert(id, handle);
               }
             }
+            TunnelMessage::TcpData { stream_id, data } => {
+              let consumer_tx = {
+                let streams = state.tcp_streams.lock().await;
+                match streams.get(&stream_id) {
+                  Some(h) if h.client_id == client_id => Some(h.tx.clone()),
+                  Some(_) => {
+                    warn!("TcpData for stream {} rejected: not owned by client {}", stream_id, client_id);
+                    None
+                  }
+                  None => None,
+                }
+              };
+              if let Some(consumer_tx) = consumer_tx {
+                use base64::prelude::*;
+                match BASE64_STANDARD.decode(&data) {
+                  Ok(bytes) => {
+                    if consumer_tx.send(TcpConsumerMsg::Data(bytes)).await.is_err() {
+                      state.tcp_streams.lock().await.remove(&stream_id);
+                    }
+                  }
+                  Err(_) => {
+                    warn!("Failed to decode Base64 TcpData for stream {}", stream_id);
+                  }
+                }
+              }
+            }
+            TunnelMessage::TcpClose { stream_id } => {
+              let removed = state.tcp_streams.lock().await.remove(&stream_id);
+              if let Some(h) = removed {
+                if h.client_id == client_id {
+                  let _ = h.tx.send(TcpConsumerMsg::Close).await;
+                } else {
+                  state.tcp_streams.lock().await.insert(stream_id, h);
+                }
+              }
+            }
             TunnelMessage::CompressionAck {} => {
               info!("Client {} acknowledged tunnel compression", client_id);
               compress_out.store(true, Ordering::SeqCst);
@@ -2610,6 +2685,7 @@ async fn handle_socket(
               path_bind,
               hostname_bind,
               max_concurrent,
+              tcp,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -2655,6 +2731,7 @@ async fn handle_socket(
                       client_id, n
                     );
                   }
+                  handle.tcp_enabled = tcp;
                   handle.last_ping_at = Some(Instant::now());
                 }
               }
@@ -2831,6 +2908,21 @@ async fn handle_socket(
   {
     let mut streams = state.response_streams.lock().await;
     streams.retain(|_, handle| handle.client_id != client_id);
+  }
+
+  // Close TCP tunnel streams owned by the disconnected client.
+  {
+    let mut streams = state.tcp_streams.lock().await;
+    let closing: Vec<_> = streams
+      .iter()
+      .filter(|(_, h)| h.client_id == client_id)
+      .map(|(_, h)| h.tx.clone())
+      .collect();
+    streams.retain(|_, h| h.client_id != client_id);
+    drop(streams);
+    for tx in closing {
+      let _ = tx.send(TcpConsumerMsg::Close).await;
+    }
   }
 }
 
@@ -3830,6 +3922,149 @@ async fn relay_ws_stream(
 }
 
 
+/// Experimental TCP tunneling endpoint (`GET /aperio/tcp`, WebSocket).
+/// Consumers authenticate with a tunnel token (master or dynamic) and get a
+/// raw byte relay to the TCP target configured on a TCP-enabled client.
+/// Binary WebSocket frames = raw TCP bytes.
+async fn tcp_ws_handler(
+  ws: WebSocketUpgrade,
+  headers: HeaderMap,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  State(state): State<Arc<AppState>>,
+) -> Response {
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  if !state.check_rate_limit(caller_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
+  if authorize_tunnel_token(&state, &headers, caller_ip)
+    .await
+    .is_none()
+  {
+    info!("Unauthorized TCP tunnel attempt blocked.");
+    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+  }
+
+  // Select a TCP-capable, eligible client.
+  let client_info = {
+    let clients = state.clients.lock().await;
+    clients
+      .iter()
+      .find(|(_, c)| {
+        c.tcp_enabled
+          && c.admin_enabled
+          && !c.draining
+          && c.is_healthy(state.config.client_down_threshold)
+      })
+      .map(|(id, c)| (id.clone(), c.tx.clone()))
+  };
+  let Some((client_id, client_tx)) = client_info else {
+    return (
+      StatusCode::SERVICE_UNAVAILABLE,
+      "No TCP-capable tunnel client connected",
+    )
+      .into_response();
+  };
+
+  state
+    .audit(
+      "tcp_stream_opened",
+      &caller_ip.to_string(),
+      &format!("client={}", client_id),
+    )
+    .await;
+
+  ws.on_upgrade(move |socket| relay_tcp_consumer(state, socket, client_id, client_tx))
+}
+
+/// Relays bytes between a public TCP consumer WebSocket and the tunnel.
+async fn relay_tcp_consumer(
+  state: Arc<AppState>,
+  consumer_ws: WebSocket,
+  client_id: String,
+  client_tx: mpsc::Sender<Message>,
+) {
+  let stream_id = uuid::Uuid::new_v4().to_string();
+  let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
+  state.tcp_streams.lock().await.insert(
+    stream_id.clone(),
+    TcpStreamHandle {
+      tx: relay_tx,
+      client_id: client_id.clone(),
+    },
+  );
+
+  // Ask the client to open its TCP target.
+  let open = TunnelMessage::TcpOpen {
+    stream_id: stream_id.clone(),
+  };
+  if let Ok(json) = serde_json::to_string(&open) {
+    if client_tx.send(Message::Text(json)).await.is_err() {
+      state.tcp_streams.lock().await.remove(&stream_id);
+      return;
+    }
+  }
+
+  let (mut ws_sender, mut ws_receiver) = consumer_ws.split();
+
+  // Consumer → tunnel
+  let stream_id_up = stream_id.clone();
+  let client_tx_up = client_tx.clone();
+  let up_task = tokio::spawn(async move {
+    use base64::prelude::*;
+    while let Some(Ok(msg)) = ws_receiver.next().await {
+      let bytes = match msg {
+        Message::Binary(b) => b,
+        Message::Text(t) => t.into_bytes(),
+        Message::Close(_) => break,
+        _ => continue,
+      };
+      let data_msg = TunnelMessage::TcpData {
+        stream_id: stream_id_up.clone(),
+        data: BASE64_STANDARD.encode(&bytes),
+      };
+      if let Ok(json) = serde_json::to_string(&data_msg)
+        && client_tx_up.send(Message::Text(json)).await.is_err()
+      {
+        break;
+      }
+    }
+    // Consumer went away → close the client side.
+    let close = TunnelMessage::TcpClose {
+      stream_id: stream_id_up.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&close) {
+      let _ = client_tx_up.send(Message::Text(json)).await;
+    }
+  });
+
+  // Tunnel → consumer
+  let down_task = tokio::spawn(async move {
+    while let Some(msg) = relay_rx.recv().await {
+      match msg {
+        TcpConsumerMsg::Data(bytes) => {
+          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
+            break;
+          }
+        }
+        TcpConsumerMsg::Close => {
+          let _ = ws_sender.send(Message::Close(None)).await;
+          break;
+        }
+      }
+    }
+  });
+
+  let up_abort = up_task.abort_handle();
+  let down_abort = down_task.abort_handle();
+  tokio::select! {
+    _ = up_task => down_abort.abort(),
+    _ = down_task => up_abort.abort(),
+  }
+
+  state.tcp_streams.lock().await.remove(&stream_id);
+  debug!("TCP tunnel stream {} closed", stream_id);
+}
+
 /// Derives the OIDC redirect URI for this deployment: the explicit override
 /// wins, otherwise it is built from the request Host header (and
 /// X-Forwarded-Proto when running behind a trusted proxy).
@@ -4214,6 +4449,7 @@ mod tests {
       webhook_store: Mutex::new(test_webhook_store()),
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
+      tcp_streams: Mutex::new(HashMap::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -4282,6 +4518,7 @@ mod tests {
       webhook_store: Mutex::new(test_webhook_store()),
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
+      tcp_streams: Mutex::new(HashMap::new()),
     });
 
     let response = proxy_handler(
@@ -4349,6 +4586,7 @@ mod tests {
       webhook_store: Mutex::new(test_webhook_store()),
       oidc: None,
       oidc_states: Mutex::new(HashMap::new()),
+      tcp_streams: Mutex::new(HashMap::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -4373,6 +4611,7 @@ mod tests {
         inflight_limiter: None,
         draining: false,
         admin_enabled: true,
+        tcp_enabled: false,
       },
     );
 
@@ -4573,6 +4812,7 @@ mod tests {
       inflight_limiter: None,
       draining: false,
       admin_enabled: true,
+      tcp_enabled: false,
     }
   }
 

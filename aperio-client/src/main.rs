@@ -30,6 +30,9 @@ pub enum TunnelMessage {
     /// The server queues excess requests instead of dispatching them.
     #[serde(default)]
     max_concurrent: Option<u32>,
+    /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
+    #[serde(default)]
+    tcp: bool,
   },
   Pong {
     timestamp: u64,
@@ -96,6 +99,20 @@ pub enum TunnelMessage {
   },
   /// Client → server: the client received a shutdown signal and is draining.
   Draining {},
+  /// Server → client: open a raw TCP connection to the client's configured
+  /// TCP target for this stream (experimental TCP tunneling).
+  TcpOpen {
+    stream_id: String,
+  },
+  /// Raw TCP bytes relayed through the tunnel (Base64).
+  TcpData {
+    stream_id: String,
+    data: String,
+  },
+  /// Signals that a TCP stream has been closed (either side).
+  TcpClose {
+    stream_id: String,
+  },
   /// Server → client: offers zlib compression for subsequent tunnel frames.
   CompressionStart {},
   /// Client → server: compression accepted; both sides may now send
@@ -107,6 +124,14 @@ pub enum TunnelMessage {
 struct WsStreamHandle {
   /// Sender to forward tunnel WsData frames to the backend WebSocket writer task.
   tx: mpsc::Sender<Message>,
+  /// Abort handle to stop the relay tasks.
+  abort_tx: mpsc::Sender<()>,
+}
+
+/// Handle to an active raw TCP stream connected to the local TCP target.
+struct TcpStreamHandle {
+  /// Sender to forward decoded TcpData bytes to the TCP writer task.
+  tx: mpsc::Sender<Vec<u8>>,
   /// Abort handle to stop the relay tasks.
   abort_tx: mpsc::Sender<()>,
 }
@@ -203,6 +228,14 @@ async fn main() {
     .and_then(|val| val.parse::<usize>().ok())
     .unwrap_or(32 * 1024 * 1024);
 
+  // Experimental raw TCP tunneling: when set (host:port), the server can open
+  // TCP streams through this client to exactly this target. The client never
+  // connects anywhere else, no matter what the server asks for.
+  let tcp_target = std::env::var("APERIO_CLIENT_TCP_TARGET")
+    .ok()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+
   let client_id = uuid::Uuid::new_v4().to_string();
 
   // Graceful shutdown state: a signal marks the client as draining, the
@@ -260,6 +293,9 @@ async fn main() {
   if let Some(n) = max_concurrent {
     info!("- Max Concurrent Requests: {}", n);
   }
+  if let Some(ref t) = tcp_target {
+    info!("- TCP Target: {}", t);
+  }
   info!("- WebSocket URL: {}", ws_url);
 
   // Reconnection Loop
@@ -306,6 +342,10 @@ async fn main() {
             let active_ws_streams: Arc<Mutex<HashMap<String, WsStreamHandle>>> =
               Arc::new(Mutex::new(HashMap::new()));
 
+            // Active raw TCP tunnel streams: stream_id → handle
+            let active_tcp_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>> =
+              Arc::new(Mutex::new(HashMap::new()));
+
             // Outgoing compression is enabled after the server's offer is Acked.
             let compress_out = Arc::new(AtomicBool::new(false));
 
@@ -328,6 +368,7 @@ async fn main() {
 
             // Spawn task for heartbeat (Ping every 5 seconds & liveness check)
             let tx_ping = tx_write.clone();
+            let tcp_enabled_ping = tcp_target.is_some();
             let client_id_ping = client_id.clone();
             let path_bind_ping = path_bind.clone();
             let hostname_bind_ping = hostname_bind.clone();
@@ -361,6 +402,7 @@ async fn main() {
                   path_bind: path_bind_ping.clone(),
                   hostname_bind: hostname_bind_ping.clone(),
                   max_concurrent,
+                  tcp: tcp_enabled_ping,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -534,6 +576,44 @@ async fn main() {
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
                                           }
+                                          TunnelMessage::TcpOpen { stream_id } => {
+                                              match tcp_target.clone() {
+                                                  Some(target_addr) => {
+                                                      let tx = tx_write.clone();
+                                                      let streams = active_tcp_streams.clone();
+                                                      tokio::spawn(async move {
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams).await;
+                                                      });
+                                                  }
+                                                  None => {
+                                                      warn!("TcpOpen received but APERIO_CLIENT_TCP_TARGET is not set; refusing");
+                                                      let close = TunnelMessage::TcpClose { stream_id };
+                                                      if let Ok(json) = serde_json::to_string(&close) {
+                                                          let _ = tx_write.send(Message::Text(json)).await;
+                                                      }
+                                                  }
+                                              }
+                                          }
+                                          TunnelMessage::TcpData { stream_id, data } => {
+                                              let streams = active_tcp_streams.lock().await;
+                                              if let Some(handle) = streams.get(&stream_id) {
+                                                  match BASE64_STANDARD.decode(&data) {
+                                                      Ok(bytes) => {
+                                                          if handle.tx.send(bytes).await.is_err() {
+                                                              debug!("TCP backend channel closed for stream {}", stream_id);
+                                                          }
+                                                      }
+                                                      Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
+                                                  }
+                                              }
+                                          }
+                                          TunnelMessage::TcpClose { stream_id } => {
+                                              let mut streams = active_tcp_streams.lock().await;
+                                              if let Some(handle) = streams.remove(&stream_id) {
+                                                  let _ = handle.abort_tx.send(()).await;
+                                                  debug!("Closed TCP stream {}", stream_id);
+                                              }
+                                          }
                                           TunnelMessage::CompressionStart {} => {
                                               info!("Server offered tunnel compression; enabling zlib frames");
                                               if let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionAck {}) {
@@ -589,6 +669,107 @@ async fn main() {
     info!("Retrying connection in 5 seconds...");
     tokio::time::sleep(Duration::from_secs(5)).await;
   }
+}
+
+/// Opens a TCP connection to the configured local target and relays bytes
+/// bidirectionally between it and the tunnel.
+async fn handle_tcp_open(
+  stream_id: String,
+  target_addr: String,
+  tunnel_tx: mpsc::Sender<Message>,
+  active_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
+) {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+  info!("Opening TCP stream {} to {}", stream_id, target_addr);
+  let connect = tokio::time::timeout(
+    Duration::from_secs(10),
+    tokio::net::TcpStream::connect(&target_addr),
+  )
+  .await;
+  let stream = match connect {
+    Ok(Ok(s)) => s,
+    _ => {
+      error!(
+        "TCP connect to {} failed for stream {}",
+        target_addr, stream_id
+      );
+      let close = TunnelMessage::TcpClose {
+        stream_id: stream_id.clone(),
+      };
+      if let Ok(json) = serde_json::to_string(&close) {
+        let _ = tunnel_tx.send(Message::Text(json)).await;
+      }
+      return;
+    }
+  };
+
+  let (mut read_half, mut write_half) = stream.into_split();
+  let (bytes_tx, mut bytes_rx) = mpsc::channel::<Vec<u8>>(64);
+  let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
+  active_streams.lock().await.insert(
+    stream_id.clone(),
+    TcpStreamHandle {
+      tx: bytes_tx,
+      abort_tx,
+    },
+  );
+
+  // Backend -> tunnel
+  let stream_id_up = stream_id.clone();
+  let tunnel_tx_up = tunnel_tx.clone();
+  let up_task = tokio::spawn(async move {
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+      match read_half.read(&mut buf).await {
+        Ok(0) | Err(_) => break,
+        Ok(n) => {
+          let msg = TunnelMessage::TcpData {
+            stream_id: stream_id_up.clone(),
+            data: BASE64_STANDARD.encode(&buf[..n]),
+          };
+          if let Ok(json) = serde_json::to_string(&msg)
+            && tunnel_tx_up.send(Message::Text(json)).await.is_err()
+          {
+            break;
+          }
+        }
+      }
+    }
+    let close = TunnelMessage::TcpClose {
+      stream_id: stream_id_up.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&close) {
+      let _ = tunnel_tx_up.send(Message::Text(json)).await;
+    }
+  });
+
+  // Tunnel -> backend
+  let down_task = tokio::spawn(async move {
+    loop {
+      tokio::select! {
+        _ = abort_rx.recv() => break,
+        chunk = bytes_rx.recv() => match chunk {
+          Some(bytes) => {
+            if write_half.write_all(&bytes).await.is_err() {
+              break;
+            }
+          }
+          None => break,
+        },
+      }
+    }
+    let _ = write_half.shutdown().await;
+  });
+
+  let up_abort = up_task.abort_handle();
+  let down_abort = down_task.abort_handle();
+  tokio::select! {
+    _ = up_task => down_abort.abort(),
+    _ = down_task => up_abort.abort(),
+  }
+  active_streams.lock().await.remove(&stream_id);
+  info!("TCP stream {} closed", stream_id);
 }
 
 /// Compresses a tunnel text frame into a zlib binary frame.
