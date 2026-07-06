@@ -22,6 +22,10 @@ pub struct ApiToken {
   pub hostnames: Vec<String>,
   /// Path binds this token may claim. `["*"]` or empty = unrestricted.
   pub paths: Vec<String>,
+  /// Client source IPs (plain or CIDR) allowed to connect with this token.
+  /// Empty or containing "0.0.0.0/0" (or "*") = any IP.
+  #[serde(default)]
+  pub allowed_ips: Vec<String>,
   /// Unix timestamp (seconds) of creation.
   pub created_at: u64,
   /// Optional unix timestamp (seconds) after which the token is rejected.
@@ -94,6 +98,7 @@ impl TokenStore {
     name: String,
     hostnames: Vec<String>,
     paths: Vec<String>,
+    allowed_ips: Vec<String>,
     ttl_seconds: Option<u64>,
   ) -> (ApiToken, String) {
     let secret = format!(
@@ -108,12 +113,46 @@ impl TokenStore {
       token_prefix: secret.chars().take(12).collect(),
       hostnames,
       paths,
+      allowed_ips,
       created_at: now_secs(),
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
     };
     self.tokens.push(record.clone());
     self.persist();
     (record, secret)
+  }
+
+  /// Updates a token's scope (permissions/expiry) in place without touching
+  /// the secret. Returns the updated record, or None when the ID is unknown.
+  #[allow(clippy::too_many_arguments)]
+  pub fn update(
+    &mut self,
+    id: &str,
+    name: Option<String>,
+    hostnames: Option<Vec<String>>,
+    paths: Option<Vec<String>>,
+    allowed_ips: Option<Vec<String>>,
+    ttl_seconds: Option<Option<u64>>,
+  ) -> Option<ApiToken> {
+    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
+    if let Some(n) = name {
+      token.name = n;
+    }
+    if let Some(h) = hostnames {
+      token.hostnames = h;
+    }
+    if let Some(p) = paths {
+      token.paths = p;
+    }
+    if let Some(ips) = allowed_ips {
+      token.allowed_ips = ips;
+    }
+    if let Some(ttl) = ttl_seconds {
+      token.expires_at = ttl.map(|t| now_secs().saturating_add(t));
+    }
+    let updated = token.clone();
+    self.persist();
+    Some(updated)
   }
 
   /// Removes a token by ID. Returns true when a token was actually removed.
@@ -181,6 +220,7 @@ mod tests {
       "ci-token".to_string(),
       vec!["a.example.com".to_string()],
       vec!["*".to_string()],
+      vec![],
       None,
     );
     assert!(secret.starts_with("apr_"));
@@ -206,7 +246,7 @@ mod tests {
   fn test_expired_token_rejected() {
     let dir = temp_dir();
     let mut store = TokenStore::load(&dir);
-    let (_, secret) = store.create("short".to_string(), vec![], vec![], Some(0));
+    let (_, secret) = store.create("short".to_string(), vec![], vec![], vec![], Some(0));
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());
     let _ = std::fs::remove_dir_all(&dir);

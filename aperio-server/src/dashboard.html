@@ -440,13 +440,14 @@
                             <th>Prefix</th>
                             <th>Hostnames</th>
                             <th>Paths</th>
+                            <th>Allowed IPs</th>
                             <th>Expires</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="tokens-body">
                         <tr>
-                            <td colspan="6" class="empty-logs">No dynamic tokens created</td>
+                            <td colspan="7" class="empty-logs">No dynamic tokens created</td>
                         </tr>
                     </tbody>
                 </table>
@@ -954,7 +955,7 @@
                 const body = document.getElementById('tokens-body');
                 body.innerHTML = '';
                 if (tokens.length === 0) {
-                    body.innerHTML = `<tr><td colspan="6" class="empty-logs">No dynamic tokens created</td></tr>`;
+                    body.innerHTML = `<tr><td colspan="7" class="empty-logs">No dynamic tokens created</td></tr>`;
                     return;
                 }
                 tokens.forEach(t => {
@@ -964,13 +965,20 @@
                         <td class="text-mono">${escapeHtml(t.token_prefix)}…</td>
                         <td>${(t.hostnames.length ? t.hostnames : ['*']).map(h => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(h)}</span>`).join('')}</td>
                         <td>${(t.paths.length ? t.paths : ['*']).map(p => `<span class="badge badge-get" style="margin-right:0.25rem;">${escapeHtml(p)}</span>`).join('')}</td>
+                        <td>${(t.allowed_ips.length ? t.allowed_ips : ['0.0.0.0/0']).map(i => `<span class="badge badge-other" style="margin-right:0.25rem;">${escapeHtml(i)}</span>`).join('')}</td>
                         <td class="text-mono">${formatExpiry(t)}</td>
                         <td></td>
                     `;
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'overrule-btn';
+                    editBtn.style.marginRight = '0.35rem';
+                    editBtn.textContent = 'Edit';
+                    editBtn.addEventListener('click', () => editToken(t));
                     const btn = document.createElement('button');
                     btn.className = 'overrule-btn';
                     btn.textContent = 'Revoke';
                     btn.addEventListener('click', () => revokeToken(t));
+                    tr.lastElementChild.appendChild(editBtn);
                     tr.lastElementChild.appendChild(btn);
                     body.appendChild(tr);
                 });
@@ -986,12 +994,15 @@
             if (hostnames === null) return;
             const paths = prompt('Allowed path binds (comma separated, * = all):', '*');
             if (paths === null) return;
+            const ips = prompt('Allowed source IPs/CIDRs (comma separated):', '0.0.0.0/0');
+            if (ips === null) return;
             const ttlRaw = prompt('Lifetime in seconds (empty = never expires):', '');
             if (ttlRaw === null) return;
             const payload = {
                 name: name.trim(),
                 hostnames: hostnames.split(',').map(s => s.trim()).filter(Boolean),
                 paths: paths.split(',').map(s => s.trim()).filter(Boolean),
+                allowed_ips: ips.split(',').map(s => s.trim()).filter(Boolean),
             };
             const ttl = parseInt(ttlRaw, 10);
             if (!isNaN(ttl) && ttl > 0) payload.ttl_seconds = ttl;
@@ -1011,6 +1022,41 @@
                 fetchTokens();
             } catch (e) {
                 alert('Token creation failed: ' + e);
+            }
+        }
+
+        // Edits a token's scope in place; the secret never changes.
+        async function editToken(t) {
+            const hostnames = prompt('Allowed hostnames (comma separated, * = all):', (t.hostnames.length ? t.hostnames : ['*']).join(', '));
+            if (hostnames === null) return;
+            const paths = prompt('Allowed path binds (comma separated, * = all):', (t.paths.length ? t.paths : ['*']).join(', '));
+            if (paths === null) return;
+            const ips = prompt('Allowed source IPs/CIDRs (comma separated):', (t.allowed_ips.length ? t.allowed_ips : ['0.0.0.0/0']).join(', '));
+            if (ips === null) return;
+            const ttlRaw = prompt('New lifetime in seconds from now (0 = never expires, empty = keep current):', '');
+            if (ttlRaw === null) return;
+
+            const payload = {
+                hostnames: hostnames.split(',').map(s => s.trim()).filter(Boolean),
+                paths: paths.split(',').map(s => s.trim()).filter(Boolean),
+                allowed_ips: ips.split(',').map(s => s.trim()).filter(Boolean),
+            };
+            const ttl = parseInt(ttlRaw, 10);
+            if (!isNaN(ttl) && ttl >= 0) payload.ttl_seconds = ttl;
+
+            try {
+                const res = await fetch(`/aperio/api/tokens/${encodeURIComponent(t.id)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    alert(`Token update failed: ${res.status} ${await res.text()}`);
+                    return;
+                }
+                fetchTokens();
+            } catch (e) {
+                alert('Token update failed: ' + e);
             }
         }
 

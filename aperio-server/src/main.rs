@@ -765,7 +765,7 @@ async fn main() {
       )
       .route(
         "/api/tokens/:id",
-        axum::routing::delete(tokens_revoke_handler),
+        axum::routing::put(tokens_update_handler).delete(tokens_revoke_handler),
       )
       .route("/api/requests/:id", get(request_detail_handler))
       .route(
@@ -1014,6 +1014,7 @@ struct TokenView {
   token_prefix: String,
   hostnames: Vec<String>,
   paths: Vec<String>,
+  allowed_ips: Vec<String>,
   created_at: u64,
   expires_at: Option<u64>,
   expired: bool,
@@ -1031,6 +1032,7 @@ async fn tokens_list_handler(State(state): State<Arc<AppState>>) -> Json<Vec<Tok
       token_prefix: t.token_prefix.clone(),
       hostnames: t.hostnames.clone(),
       paths: t.paths.clone(),
+      allowed_ips: t.allowed_ips.clone(),
       created_at: t.created_at,
       expires_at: t.expires_at,
       expired: t.is_expired(),
@@ -1049,8 +1051,77 @@ struct TokenCreateRequest {
   /// Allowed path binds; `["*"]` (or empty) = all paths.
   #[serde(default)]
   paths: Vec<String>,
+  /// Source IPs/CIDRs allowed to connect. Defaults to `["0.0.0.0/0"]` (any).
+  #[serde(default)]
+  allowed_ips: Vec<String>,
   /// Optional lifetime in seconds; omitted = never expires.
   ttl_seconds: Option<u64>,
+}
+
+/// Payload for editing an existing token's scope without changing the secret.
+/// Absent fields are left untouched; `ttl_seconds: 0` clears the expiry.
+#[derive(Deserialize)]
+struct TokenUpdateRequest {
+  name: Option<String>,
+  hostnames: Option<Vec<String>>,
+  paths: Option<Vec<String>>,
+  allowed_ips: Option<Vec<String>>,
+  /// Some(0) = never expires; Some(n) = expires n seconds from now.
+  ttl_seconds: Option<u64>,
+}
+
+/// Validates and normalizes token permission lists. Returns an error message
+/// when an entry is invalid.
+fn validate_token_perms(
+  hostnames: &[String],
+  paths: &[String],
+  allowed_ips: &[String],
+) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
+  let mut out_hosts = Vec::new();
+  for h in hostnames {
+    let trimmed = h.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if trimmed == "*" {
+      out_hosts.push("*".to_string());
+      continue;
+    }
+    match normalize_hostname_bind(trimmed) {
+      Some(valid) => out_hosts.push(valid),
+      None => return Err(format!("Invalid hostname permission: {}", trimmed)),
+    }
+  }
+  let mut out_paths = Vec::new();
+  for p in paths {
+    let trimmed = p.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if trimmed == "*" {
+      out_paths.push("*".to_string());
+      continue;
+    }
+    match normalize_path_bind(trimmed) {
+      Some(valid) => out_paths.push(valid),
+      None => return Err(format!("Invalid path permission: {}", trimmed)),
+    }
+  }
+  let mut out_ips = Vec::new();
+  for entry in allowed_ips {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if !valid_ip_entry(trimmed) {
+      return Err(format!("Invalid IP/CIDR entry: {}", trimmed));
+    }
+    out_ips.push(trimmed.to_string());
+  }
+  if out_ips.is_empty() {
+    out_ips.push("0.0.0.0/0".to_string());
+  }
+  Ok((out_hosts, out_paths, out_ips))
 }
 
 /// Creates a dynamic token. The plaintext secret is returned exactly once.
@@ -1066,65 +1137,27 @@ async fn tokens_create_handler(
     return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
   }
 
-  // Validate permission entries ("*" allowed as wildcard).
-  let mut hostnames = Vec::new();
-  for h in &payload.hostnames {
-    let trimmed = h.trim();
-    if trimmed.is_empty() {
-      continue;
-    }
-    if trimmed == "*" {
-      hostnames.push("*".to_string());
-      continue;
-    }
-    match normalize_hostname_bind(trimmed) {
-      Some(valid) => hostnames.push(valid),
-      None => {
-        return (
-          StatusCode::BAD_REQUEST,
-          format!("Invalid hostname permission: {}", trimmed),
-        )
-          .into_response();
-      }
-    }
-  }
-  let mut paths = Vec::new();
-  for p in &payload.paths {
-    let trimmed = p.trim();
-    if trimmed.is_empty() {
-      continue;
-    }
-    if trimmed == "*" {
-      paths.push("*".to_string());
-      continue;
-    }
-    match normalize_path_bind(trimmed) {
-      Some(valid) => paths.push(valid),
-      None => {
-        return (
-          StatusCode::BAD_REQUEST,
-          format!("Invalid path permission: {}", trimmed),
-        )
-          .into_response();
-      }
-    }
-  }
+  let (hostnames, paths, allowed_ips) =
+    match validate_token_perms(&payload.hostnames, &payload.paths, &payload.allowed_ips) {
+      Ok(v) => v,
+      Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
 
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
-    store.create(name, hostnames, paths, payload.ttl_seconds)
+    store.create(name, hostnames, paths, allowed_ips, payload.ttl_seconds)
   };
   info!(
-    "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, expires_at={:?})",
-    record.name, record.id, record.hostnames, record.paths, record.expires_at
+    "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
+    record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
   );
   state
     .audit(
       "token_created",
       &actor_ip,
       &format!(
-        "name={} id={} hostnames={:?} paths={:?} expires_at={:?}",
-        record.name, record.id, record.hostnames, record.paths, record.expires_at
+        "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
+        record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
       ),
     )
     .await;
@@ -1136,10 +1169,78 @@ async fn tokens_create_handler(
       "token": secret,
       "hostnames": record.hostnames,
       "paths": record.paths,
+      "allowed_ips": record.allowed_ips,
       "expires_at": record.expires_at,
     })),
   )
     .into_response()
+}
+
+/// Edits an existing token's scope (name, hostnames, paths, allowed IPs,
+/// expiry) without changing the secret. Live connections are unaffected.
+async fn tokens_update_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<TokenUpdateRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+
+  if let Some(ref n) = payload.name {
+    let n = n.trim();
+    if n.is_empty() || n.len() > 64 {
+      return (StatusCode::BAD_REQUEST, "Token name must be 1-64 characters").into_response();
+    }
+  }
+  let (hostnames, paths, allowed_ips) = match validate_token_perms(
+    payload.hostnames.as_deref().unwrap_or(&[]),
+    payload.paths.as_deref().unwrap_or(&[]),
+    payload.allowed_ips.as_deref().unwrap_or(&[]),
+  ) {
+    Ok(v) => v,
+    Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+  };
+
+  // ttl_seconds: absent = keep; 0 = never expires; n = now + n.
+  let ttl = payload
+    .ttl_seconds
+    .map(|n| if n == 0 { None } else { Some(n) });
+
+  let updated = state.token_store.lock().await.update(
+    &id,
+    payload.name.map(|n| n.trim().to_string()),
+    payload.hostnames.map(|_| hostnames),
+    payload.paths.map(|_| paths),
+    payload.allowed_ips.map(|_| allowed_ips),
+    ttl,
+  );
+
+  match updated {
+    Some(record) => {
+      info!(
+        "Dynamic token updated: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
+        record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
+      );
+      state
+        .audit(
+          "token_updated",
+          &actor_ip,
+          &format!(
+            "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
+            record.name,
+            record.id,
+            record.hostnames,
+            record.paths,
+            record.allowed_ips,
+            record.expires_at
+          ),
+        )
+        .await;
+      Json(serde_json::json!({"status": "ok"})).into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+  }
 }
 
 /// Revokes (deletes) a dynamic token. Existing tunnel connections that used
@@ -1541,18 +1642,104 @@ fn extract_and_verify_token(headers: &HeaderMap, server_token: &str) -> bool {
 /// Resolves the permissions for a presented tunnel token: the master token
 /// grants unrestricted access; otherwise the dynamic token store is consulted
 /// (rejecting unknown and expired tokens).
-async fn authorize_tunnel_token(state: &AppState, headers: &HeaderMap) -> Option<ClientPerms> {
+async fn authorize_tunnel_token(
+  state: &AppState,
+  headers: &HeaderMap,
+  client_ip: IpAddr,
+) -> Option<ClientPerms> {
   let presented = extract_token(headers)?;
   if constant_time_eq_str(&presented, &state.config.token) {
     return Some(ClientPerms::master());
   }
   let store = state.token_store.lock().await;
-  store.verify(&presented).map(|t| ClientPerms {
+  let token = store.verify(&presented)?;
+  // Dynamic tokens can be restricted to source IPs/CIDRs.
+  if !ip_allowed(client_ip, &token.allowed_ips) {
+    warn!(
+      "Token '{}' rejected: source IP {} not in allowed list {:?}",
+      token.name, client_ip, token.allowed_ips
+    );
+    return None;
+  }
+  Some(ClientPerms {
     master: false,
-    hostnames: t.hostnames.clone(),
-    paths: t.paths.clone(),
-    token_name: Some(t.name.clone()),
+    hostnames: token.hostnames.clone(),
+    paths: token.paths.clone(),
+    token_name: Some(token.name.clone()),
   })
+}
+
+/// Checks whether `ip` matches an allowlist of plain IPs and CIDR ranges.
+/// An empty list, `*`, `0.0.0.0/0` or `::/0` allow any address.
+fn ip_allowed(ip: IpAddr, allowed: &[String]) -> bool {
+  if allowed.is_empty() {
+    return true;
+  }
+  allowed.iter().any(|entry| {
+    let entry = entry.trim();
+    if entry == "*" || entry == "0.0.0.0/0" || entry == "::/0" || entry == "0.0.0.0" {
+      return true;
+    }
+    match entry.split_once('/') {
+      Some((base, prefix)) => {
+        let (Ok(base_ip), Ok(bits)) = (base.parse::<IpAddr>(), prefix.parse::<u32>()) else {
+          return false;
+        };
+        cidr_contains(base_ip, bits, ip)
+      }
+      None => entry.parse::<IpAddr>().is_ok_and(|allowed_ip| allowed_ip == ip),
+    }
+  })
+}
+
+/// True when `ip` falls inside the CIDR `base/bits` (families must match).
+fn cidr_contains(base: IpAddr, bits: u32, ip: IpAddr) -> bool {
+  match (base, ip) {
+    (IpAddr::V4(b), IpAddr::V4(i)) => {
+      if bits > 32 {
+        return false;
+      }
+      if bits == 0 {
+        return true;
+      }
+      let mask = u32::MAX << (32 - bits);
+      (u32::from(b) & mask) == (u32::from(i) & mask)
+    }
+    (IpAddr::V6(b), IpAddr::V6(i)) => {
+      if bits > 128 {
+        return false;
+      }
+      if bits == 0 {
+        return true;
+      }
+      let mask = u128::MAX << (128 - bits);
+      (u128::from(b) & mask) == (u128::from(i) & mask)
+    }
+    _ => false,
+  }
+}
+
+/// Validates an allowlist entry (plain IP or CIDR, or a wildcard form).
+fn valid_ip_entry(entry: &str) -> bool {
+  let entry = entry.trim();
+  if entry == "*" {
+    return true;
+  }
+  match entry.split_once('/') {
+    Some((base, prefix)) => {
+      let Ok(base_ip) = base.parse::<IpAddr>() else {
+        return false;
+      };
+      match prefix.parse::<u32>() {
+        Ok(bits) => match base_ip {
+          IpAddr::V4(_) => bits <= 32,
+          IpAddr::V6(_) => bits <= 128,
+        },
+        Err(_) => false,
+      }
+    }
+    None => entry.parse::<IpAddr>().is_ok(),
+  }
 }
 
 /// Constant-time string comparison to mitigate timing attacks on secrets.
@@ -1773,7 +1960,8 @@ async fn ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let perms = match authorize_tunnel_token(&state, &headers).await {
+  let tunnel_client_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
     Some(p) => p,
     None => {
       info!("Unauthorized connection attempt blocked.");
@@ -3733,6 +3921,50 @@ mod tests {
       max_concurrent: None,
       inflight_limiter: None,
     }
+  }
+
+  #[test]
+  fn test_ip_allowed() {
+    let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+
+    // Empty list or wildcards allow everything
+    assert!(ip_allowed(ip("1.2.3.4"), &[]));
+    assert!(ip_allowed(ip("1.2.3.4"), &["*".to_string()]));
+    assert!(ip_allowed(ip("1.2.3.4"), &["0.0.0.0/0".to_string()]));
+    assert!(ip_allowed(ip("::1"), &["::/0".to_string()]));
+
+    // Exact IP match
+    assert!(ip_allowed(ip("1.2.3.4"), &["1.2.3.4".to_string()]));
+    assert!(!ip_allowed(ip("1.2.3.5"), &["1.2.3.4".to_string()]));
+
+    // CIDR ranges
+    assert!(ip_allowed(ip("10.1.2.3"), &["10.0.0.0/8".to_string()]));
+    assert!(!ip_allowed(ip("11.1.2.3"), &["10.0.0.0/8".to_string()]));
+    assert!(ip_allowed(ip("192.168.1.77"), &["192.168.1.0/24".to_string()]));
+    assert!(!ip_allowed(ip("192.168.2.77"), &["192.168.1.0/24".to_string()]));
+
+    // Multiple entries: any match wins
+    assert!(ip_allowed(
+      ip("203.0.113.9"),
+      &["10.0.0.0/8".to_string(), "203.0.113.0/24".to_string()]
+    ));
+
+    // IPv6 CIDR
+    assert!(ip_allowed(ip("fd00::1"), &["fd00::/8".to_string()]));
+    assert!(!ip_allowed(ip("2001:db8::1"), &["fd00::/8".to_string()]));
+    // Family mismatch never matches
+    assert!(!ip_allowed(ip("1.2.3.4"), &["fd00::/8".to_string()]));
+
+    // Malformed entries are ignored (do not match)
+    assert!(!ip_allowed(ip("1.2.3.4"), &["not-an-ip".to_string()]));
+
+    // Validation helper
+    assert!(valid_ip_entry("10.0.0.0/8"));
+    assert!(valid_ip_entry("1.2.3.4"));
+    assert!(valid_ip_entry("::1"));
+    assert!(valid_ip_entry("*"));
+    assert!(!valid_ip_entry("10.0.0.0/33"));
+    assert!(!valid_ip_entry("banana"));
   }
 
   #[test]
