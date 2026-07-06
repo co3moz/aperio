@@ -519,7 +519,9 @@ WebSocket upgrade requests are detected automatically and proxied end-to-end —
 
 ### Large Bodies & Compression
 
-Response bodies over 256 KB are streamed through the tunnel in chunks with backpressure, so memory usage stays bounded on both sides regardless of response size. With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compression; clients that support it acknowledge and both directions switch to compressed frames (older clients keep working uncompressed).
+Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions** — responses since v1, and request bodies (uploads) with tunnel protocol v2 — so memory usage stays bounded on both sides regardless of size. v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64+JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames. Streamed uploads cannot fail over or be replayed from the inspector (the body is consumed as it is forwarded).
+
+With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compression for JSON frames; clients that support it acknowledge and both directions switch to compressed frames (older clients keep working uncompressed).
 
 ### Experimental TCP Tunneling
 

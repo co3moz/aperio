@@ -34,7 +34,42 @@ use webhooks::WebhookStore;
 /// Version of the tunnel wire protocol. Bumped on breaking changes to
 /// `TunnelMessage` so version skew between client and server is surfaced
 /// (in logs and on the dashboard) instead of failing in obscure ways.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
+/// chunk frames instead of base64+JSON for body data.
+pub const PROTOCOL_VERSION: u32 = 2;
+
+// --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
+// Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
+// byte never collides with zlib-compressed JSON frames, which start with
+// 0x78.
+
+/// Binary frame tag for a streamed request-body chunk (server → client).
+pub const FRAME_REQUEST_CHUNK: u8 = 1;
+/// Binary frame tag for a streamed response-body chunk (client → server).
+pub const FRAME_RESPONSE_CHUNK: u8 = 2;
+
+/// Encodes a v2 binary chunk frame.
+fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Vec<u8> {
+  let mut out = Vec::with_capacity(2 + id.len() + payload.len());
+  out.push(tag);
+  out.push(id.len() as u8);
+  out.extend_from_slice(id.as_bytes());
+  out.extend_from_slice(payload);
+  out
+}
+
+/// Decodes a v2 binary chunk frame into (tag, id, payload).
+fn decode_binary_frame(data: &[u8]) -> Option<(u8, &str, &[u8])> {
+  if data.len() < 2 {
+    return None;
+  }
+  let id_len = data[1] as usize;
+  if data.len() < 2 + id_len {
+    return None;
+  }
+  let id = std::str::from_utf8(&data[2..2 + id_len]).ok()?;
+  Some((data[0], id, &data[2 + id_len..]))
+}
 
 /// Serde default for fields that must be true when absent (older peers).
 fn default_true() -> bool {
@@ -93,6 +128,19 @@ pub enum TunnelMessage {
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
+  /// Start of a streamed request body (protocol v2): method/uri/headers
+  /// only; the body follows as RequestChunk frames ended by RequestEnd.
+  RequestStart {
+    id: String,
+    method: String,
+    uri: String,
+    headers: Vec<(String, String)>,
+  },
+  /// A chunk of a streamed request body (Base64; v2 peers use raw binary
+  /// frames instead).
+  RequestChunk { id: String, data: String },
+  /// Marks the end of a streamed request body.
+  RequestEnd { id: String },
   Response {
     id: String,
     status: u16,
@@ -549,6 +597,9 @@ struct CapturedRequest {
 const CAPTURE_MAX_ENTRIES: usize = 50;
 /// Maximum captured body size per direction (decoded bytes).
 const CAPTURE_BODY_LIMIT: usize = 64 * 1024;
+/// Request bodies above this size are streamed to v2 clients as
+/// RequestStart/Chunk/End frames instead of being buffered in memory.
+const REQUEST_STREAM_THRESHOLD: u64 = 256 * 1024;
 
 /// Handle tracking active WebSocket sender channel and metadata.
 struct ClientHandle {
@@ -3163,6 +3214,52 @@ fn compress_frame(text: &str) -> Vec<u8> {
   enc.finish().unwrap_or_default()
 }
 
+/// Delivers one streamed response chunk to the waiting public consumer,
+/// verifying stream ownership and accounting the bytes. Shared by the JSON
+/// (base64) and protocol v2 binary frame paths.
+async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str, bytes: Vec<u8>) {
+  // Look up the stream and verify the sender owns it.
+  let chunk_tx = {
+    let streams = state.response_streams.lock().await;
+    match streams.get(id) {
+      Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
+      Some(_) => {
+        warn!(
+          "ResponseChunk for request ID {} rejected: not owned by client {}",
+          id, client_id
+        );
+        None
+      }
+      None => None,
+    }
+  };
+  if let Some(chunk_tx) = chunk_tx {
+    let len = bytes.len() as u64;
+    // Bounded send with timeout: if the public consumer stalls for too
+    // long, drop the stream instead of blocking the tunnel read loop.
+    let send_res = tokio::time::timeout(
+      state.config().gateway_response_timeout,
+      chunk_tx.send(Ok(bytes)),
+    )
+    .await;
+    match send_res {
+      Ok(Ok(())) => {
+        let mut stats = state.stats.lock().await;
+        stats.total_bytes_transferred += len;
+        drop(stats);
+        state.persistent_stats.lock().await.record_bytes_sent(len);
+      }
+      _ => {
+        debug!(
+          "Dropping streamed response {} (consumer gone or stalled)",
+          id
+        );
+        state.response_streams.lock().await.remove(id);
+      }
+    }
+  }
+}
+
 /// Inflates a zlib binary frame back into a text frame, bounding the output
 /// size to protect against decompression bombs.
 fn decompress_frame(data: &[u8], max_out: usize) -> Option<String> {
@@ -3401,6 +3498,8 @@ struct SelectedClient {
   token_name: Option<String>,
   /// Client-process instance ID (from Ping); used by failover `wait` mode.
   instance_id: Option<String>,
+  /// Tunnel protocol version the client announced (None until known).
+  protocol: Option<u32>,
 }
 
 /// Returns the pool member matching an affinity value — either a client's
@@ -3475,6 +3574,7 @@ async fn pick_proxy_client(
     inflight_limiter: c.inflight_limiter.clone(),
     token_name: c.perms.token_name.clone(),
     instance_id: c.reported_instance_id.clone(),
+    protocol: c.client_protocol,
   })
 }
 
@@ -3761,7 +3861,17 @@ async fn handle_socket(
       Ok(msg) => {
         let text_opt = match msg {
           Message::Text(t) => Some(t),
-          Message::Binary(b) => decompress_frame(&b, max_inflated),
+          Message::Binary(b) => {
+            // v2 binary chunk frames carry a tag byte that never collides
+            // with zlib-compressed JSON frames (0x78).
+            if let Some((FRAME_RESPONSE_CHUNK, fid, payload)) = decode_binary_frame(&b) {
+              let fid = fid.to_string();
+              deliver_response_chunk(&state, &client_id, &fid, payload.to_vec()).await;
+              None
+            } else {
+              decompress_frame(&b, max_inflated)
+            }
+          }
           _ => None,
         };
         if let Some(text) = text_opt
@@ -3851,54 +3961,13 @@ async fn handle_socket(
               }
             }
             TunnelMessage::ResponseChunk { id, data } => {
-              // Look up the stream and verify the sender owns it.
-              let chunk_tx = {
-                let streams = state.response_streams.lock().await;
-                match streams.get(&id) {
-                  Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
-                  Some(_) => {
-                    warn!(
-                      "ResponseChunk for request ID {} rejected: not owned by client {}",
-                      id, client_id
-                    );
-                    None
-                  }
-                  None => None,
-                }
-              };
-              if let Some(chunk_tx) = chunk_tx {
-                use base64::prelude::*;
-                match BASE64_STANDARD.decode(&data) {
-                  Ok(bytes) => {
-                    let len = bytes.len() as u64;
-                    // Bounded send with timeout: if the public consumer stalls
-                    // for too long, drop the stream instead of blocking the
-                    // whole tunnel read loop forever.
-                    let send_res = tokio::time::timeout(
-                      state.config().gateway_response_timeout,
-                      chunk_tx.send(Ok(bytes)),
-                    )
-                    .await;
-                    match send_res {
-                      Ok(Ok(())) => {
-                        let mut stats = state.stats.lock().await;
-                        stats.total_bytes_transferred += len;
-                        drop(stats);
-                        state.persistent_stats.lock().await.record_bytes_sent(len);
-                      }
-                      _ => {
-                        debug!(
-                          "Dropping streamed response {} (consumer gone or stalled)",
-                          id
-                        );
-                        state.response_streams.lock().await.remove(&id);
-                      }
-                    }
-                  }
-                  Err(_) => {
-                    warn!("Failed to decode Base64 ResponseChunk for request {}", id);
-                    state.response_streams.lock().await.remove(&id);
-                  }
+              // Base64 fallback path; v2 clients send raw binary frames.
+              use base64::prelude::*;
+              match BASE64_STANDARD.decode(&data) {
+                Ok(bytes) => deliver_response_chunk(&state, &client_id, &id, bytes).await,
+                Err(_) => {
+                  warn!("Failed to decode Base64 ResponseChunk for request {}", id);
+                  state.response_streams.lock().await.remove(&id);
                 }
               }
             }
@@ -4748,24 +4817,65 @@ async fn proxy_handler(
     }
   };
 
-  // 5. Read body with limit to prevent OOM / DoS
-  let body_bytes = match axum::body::to_bytes(body, state.config().max_body_size).await {
-    Ok(bytes) => bytes,
-    Err(e) => {
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        413,
-        start_time.elapsed(),
-        Some(&format!("Payload too large or read failure: {}", e)),
-      )
-      .await;
-      return (
-        StatusCode::PAYLOAD_TOO_LARGE,
-        "413 Payload Too Large - Request body size exceeds limit",
-      )
-        .into_response();
+  // Protocol v2 upload streaming: large (or chunked) request bodies are
+  // forwarded as RequestStart/Chunk/End frames instead of being buffered,
+  // when the selected client speaks v2. Streamed requests cannot fail over
+  // (the body is consumed as it is forwarded).
+  let content_length = headers
+    .get("content-length")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.parse::<u64>().ok());
+  let chunked_upload = headers
+    .get("transfer-encoding")
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+  // Declared over-limit bodies keep failing fast with 413 even when they
+  // would otherwise be streamed.
+  if content_length.is_some_and(|l| l as usize > state.config().max_body_size) {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      413,
+      start_time.elapsed(),
+      Some("Declared content-length exceeds the body size limit"),
+    )
+    .await;
+    return (
+      StatusCode::PAYLOAD_TOO_LARGE,
+      "413 Payload Too Large - Request body size exceeds limit",
+    )
+      .into_response();
+  }
+  let stream_request = selected.protocol.unwrap_or(1) >= 2
+    && (chunked_upload || content_length.is_some_and(|l| l > REQUEST_STREAM_THRESHOLD));
+  // Bytes forwarded by the streamed-body pump (for stats attribution).
+  let streamed_bytes = Arc::new(AtomicU64::new(0));
+
+  // 5. Read body with limit to prevent OOM / DoS (buffered requests only)
+  let mut streamed_body: Option<Body> = None;
+  let body_bytes = if stream_request {
+    streamed_body = Some(body);
+    axum::body::Bytes::new()
+  } else {
+    match axum::body::to_bytes(body, state.config().max_body_size).await {
+      Ok(bytes) => bytes,
+      Err(e) => {
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          413,
+          start_time.elapsed(),
+          Some(&format!("Payload too large or read failure: {}", e)),
+        )
+        .await;
+        return (
+          StatusCode::PAYLOAD_TOO_LARGE,
+          "413 Payload Too Large - Request body size exceeds limit",
+        )
+          .into_response();
+      }
     }
   };
 
@@ -4805,9 +4915,12 @@ async fn proxy_handler(
   }
 
   // Capture (truncated) request data for the dashboard inspector before the
-  // originals are moved into the tunnel message.
+  // originals are moved into the tunnel message. Streamed bodies are not
+  // captured (marked truncated, which also disables replay).
   let capture_req_headers = serialized_headers.clone();
-  let (capture_req_body, capture_req_truncated) = {
+  let (capture_req_body, capture_req_truncated) = if stream_request {
+    (None, true)
+  } else {
     use base64::prelude::*;
     if body_bytes.is_empty() {
       (None, false)
@@ -4883,15 +4996,27 @@ async fn proxy_handler(
       );
     }
 
-    let tunnel_req = TunnelMessage::Request {
-      id: request_id.clone(),
-      method: method_str.clone(),
-      uri: uri_str.clone(),
-      headers: serialized_headers.clone(),
-      body: base64_body.clone(),
+    // Dispatch: buffered requests go out as a single Request message;
+    // streamed requests send RequestStart here and a pump task feeds the
+    // body as raw binary chunk frames.
+    let dispatch_msg = if stream_request {
+      TunnelMessage::RequestStart {
+        id: request_id.clone(),
+        method: method_str.clone(),
+        uri: uri_str.clone(),
+        headers: serialized_headers.clone(),
+      }
+    } else {
+      TunnelMessage::Request {
+        id: request_id.clone(),
+        method: method_str.clone(),
+        uri: uri_str.clone(),
+        headers: serialized_headers.clone(),
+        body: base64_body.clone(),
+      }
     };
 
-    let req_json = match serde_json::to_string(&tunnel_req) {
+    let req_json = match serde_json::to_string(&dispatch_msg) {
       Ok(json) => json,
       Err(e) => {
         state.pending_requests.lock().await.remove(&request_id);
@@ -4913,6 +5038,54 @@ async fn proxy_handler(
     let dispatched = selected.tx.send(Message::Text(req_json)).await.is_ok();
     if !dispatched {
       state.pending_requests.lock().await.remove(&request_id);
+    } else if let Some(raw_body) = streamed_body.take() {
+      // Pump the visitor's body through the tunnel without buffering it.
+      let pump_tx = selected.tx.clone();
+      let pump_id = request_id.clone();
+      let pump_state = state.clone();
+      let counter = streamed_bytes.clone();
+      let max_body = state.config().max_body_size;
+      tokio::spawn(async move {
+        let mut stream = raw_body.into_data_stream();
+        let mut total: usize = 0;
+        while let Some(chunk) = stream.next().await {
+          match chunk {
+            Ok(bytes) => {
+              total += bytes.len();
+              if total > max_body {
+                warn!(
+                  "Streamed request {} exceeded the max body size; truncating the upload",
+                  pump_id
+                );
+                break;
+              }
+              counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+              {
+                let mut stats = pump_state.stats.lock().await;
+                stats.total_bytes_transferred += bytes.len() as u64;
+              }
+              if pump_tx
+                .send(Message::Binary(encode_binary_frame(
+                  FRAME_REQUEST_CHUNK,
+                  &pump_id,
+                  &bytes,
+                )))
+                .await
+                .is_err()
+              {
+                break;
+              }
+            }
+            Err(e) => {
+              warn!("Request body stream error for {}: {}", pump_id, e);
+              break;
+            }
+          }
+        }
+        if let Ok(json) = serde_json::to_string(&TunnelMessage::RequestEnd { id: pump_id }) {
+          let _ = pump_tx.send(Message::Text(json)).await;
+        }
+      });
     }
 
     // Await the response with the per-attempt response timeout.
@@ -5009,7 +5182,7 @@ async fn proxy_handler(
           let mut ps = state.persistent_stats.lock().await;
           ps.record_request_labeled(
             !status_code.is_server_error(),
-            body_bytes.len() as u64,
+            body_bytes.len() as u64 + streamed_bytes.load(Ordering::Relaxed),
             body_len,
             duration.as_millis() as u64,
             Some(selected.token_name.as_deref().unwrap_or("master")),
@@ -5087,7 +5260,8 @@ async fn proxy_handler(
         // The client vanished before answering. No response bytes
         // have reached the visitor yet, so a failover re-dispatch
         // is safe (for retryable methods).
-        let can_failover = state.config().failover_mode != FailoverMode::Fail
+        let can_failover = !stream_request
+          && state.config().failover_mode != FailoverMode::Fail
           && method_retryable(&method_str, state.config().failover_all_methods)
           && jumps_used < state.config().failover_max_jumps;
         if can_failover {

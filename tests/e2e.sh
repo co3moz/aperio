@@ -214,6 +214,14 @@ BODY="$(curl -s -X POST -H "Host: ${HOSTNAME_BIND}" -H 'Content-Type: text/plain
   --data 'payload-123' "$BASE/submit")"
 assert_contains "$BODY" "backend ${BACKEND_PORT} POST /submit body=payload-123" "POST body is proxied"
 
+step "Large upload/download streaming (protocol v2)"
+BIG="$LOG_DIR/big.bin"
+"$PYTHON" -c "import sys; sys.stdout.write('A'*600000)" > "$BIG"
+SIZE_OUT="$(curl -s -X POST -H "Host: ${HOSTNAME_BIND}" -H 'Content-Type: application/octet-stream' \
+  --data-binary @"$BIG" "$BASE/big" | wc -c)"
+[ "$SIZE_OUT" -ge 600000 ] || fail "streamed upload/download returned only $SIZE_OUT bytes"
+echo "  ok: 600 KB body streamed both ways ($SIZE_OUT bytes echoed)"
+
 step "Dashboard login and APIs"
 COOKIES="$LOG_DIR/cookies.txt"
 dashboard_login "$COOKIES"

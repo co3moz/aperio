@@ -18,7 +18,45 @@ use tracing::{debug, error, info, warn};
 
 /// Version of the tunnel wire protocol. Must match the constant in
 /// aperio-server; bumped on breaking changes to `TunnelMessage`.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
+/// chunk frames instead of base64+JSON for body data.
+pub const PROTOCOL_VERSION: u32 = 2;
+
+// --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
+// Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
+// byte never collides with zlib-compressed JSON frames, which start with
+// 0x78.
+
+/// Binary frame tag for a streamed request-body chunk (server → client).
+pub const FRAME_REQUEST_CHUNK: u8 = 1;
+/// Binary frame tag for a streamed response-body chunk (client → server).
+pub const FRAME_RESPONSE_CHUNK: u8 = 2;
+
+/// Encodes a v2 binary chunk frame.
+fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Vec<u8> {
+  let mut out = Vec::with_capacity(2 + id.len() + payload.len());
+  out.push(tag);
+  out.push(id.len() as u8);
+  out.extend_from_slice(id.as_bytes());
+  out.extend_from_slice(payload);
+  out
+}
+
+/// Chunk feeder for one streamed request body in flight.
+type RequestBodyFeeder = mpsc::Sender<Result<Vec<u8>, std::io::Error>>;
+
+/// Decodes a v2 binary chunk frame into (tag, id, payload).
+fn decode_binary_frame(data: &[u8]) -> Option<(u8, &str, &[u8])> {
+  if data.len() < 2 {
+    return None;
+  }
+  let id_len = data[1] as usize;
+  if data.len() < 2 + id_len {
+    return None;
+  }
+  let id = std::str::from_utf8(&data[2..2 + id_len]).ok()?;
+  Some((data[0], id, &data[2 + id_len..]))
+}
 
 /// Serde default for fields that must be true when absent (older peers).
 fn default_true() -> bool {
@@ -105,6 +143,19 @@ pub enum TunnelMessage {
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
   },
+  /// Start of a streamed request body (protocol v2): method/uri/headers
+  /// only; the body follows as RequestChunk frames ended by RequestEnd.
+  RequestStart {
+    id: String,
+    method: String,
+    uri: String,
+    headers: Vec<(String, String)>,
+  },
+  /// A chunk of a streamed request body (Base64; v2 peers use raw binary
+  /// frames instead).
+  RequestChunk { id: String, data: String },
+  /// Marks the end of a streamed request body.
+  RequestEnd { id: String },
   Response {
     id: String,
     status: u16,
@@ -870,9 +921,9 @@ async fn main() {
             let config_dirty_ping = config_dirty.clone();
 
             let ping_task = tokio::spawn(async move {
+              // The first Ping goes out immediately: it announces the binds,
+              // version/protocol, and health before any traffic is routed.
               loop {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-
                 // A pending config change drops the connection so the
                 // reconnect loop can re-resolve and apply it.
                 if config_dirty_ping.load(Ordering::SeqCst) {
@@ -916,6 +967,7 @@ async fn main() {
                 {
                   break;
                 }
+                tokio::time::sleep(Duration::from_secs(5)).await;
               }
             });
 
@@ -925,6 +977,14 @@ async fn main() {
               .timeout(Duration::from_secs(client_timeout_secs))
               .build()
               .unwrap_or_default();
+
+            // Protocol version the server announced via Pong; v2 enables
+            // binary chunk frames and streamed request bodies.
+            let server_protocol = Arc::new(std::sync::atomic::AtomicU32::new(1));
+
+            // Streamed request bodies in flight: request id → chunk feeder.
+            let active_request_streams: Arc<Mutex<HashMap<String, RequestBodyFeeder>>> =
+              Arc::new(Mutex::new(HashMap::new()));
 
             // Read messages from Server
             let mut version_skew_warned = false;
@@ -962,7 +1022,19 @@ async fn main() {
                           Some(Ok(msg)) => {
                               let text_opt = match msg {
                                   Message::Text(t) => Some(t),
-                                  Message::Binary(b) => decompress_frame(&b, max_message_size.saturating_mul(4)),
+                                  Message::Binary(b) => {
+                                      // v2 binary chunk frames carry a tag byte that never
+                                      // collides with zlib streams (0x78).
+                                      if let Some((FRAME_REQUEST_CHUNK, fid, payload)) = decode_binary_frame(&b) {
+                                          let streams = active_request_streams.lock().await;
+                                          if let Some(feeder) = streams.get(fid) {
+                                              let _ = feeder.send(Ok(payload.to_vec())).await;
+                                          }
+                                          None
+                                      } else {
+                                          decompress_frame(&b, max_message_size.saturating_mul(4))
+                                      }
+                                  }
                                   _ => None,
                               };
                               if let Some(text) = text_opt
@@ -984,6 +1056,7 @@ async fn main() {
                                               let max_resp_size = max_response_body_size;
                                               let limiter = local_limiter.clone();
                                               let inflight = inflight_requests.clone();
+                                              let proto = server_protocol.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
 
                                               // Handle incoming request concurrently
@@ -994,6 +1067,7 @@ async fn main() {
                                                       Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
+                                                  let binary = proto.load(Ordering::Relaxed) >= 2;
                                                   let response = handle_incoming_request(
                                                       req_client,
                                                       id,
@@ -1006,6 +1080,8 @@ async fn main() {
                                                       path_bind_val,
                                                       trim_bind_val,
                                                       max_resp_size,
+                                                      None,
+                                                      binary,
                                                       tx_resp.clone(),
                                                   )
                                                   .await;
@@ -1018,6 +1094,80 @@ async fn main() {
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
                                               });
+                                          }
+                                          TunnelMessage::RequestStart {
+                                              id,
+                                              method,
+                                              uri,
+                                              headers,
+                                          } => {
+                                              // Streamed request body (protocol v2): the backend
+                                              // request starts immediately and is fed chunk-by-chunk
+                                              // as RequestChunk frames arrive.
+                                              let (body_tx, body_rx) =
+                                                  mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+                                              active_request_streams.lock().await.insert(id.clone(), body_tx);
+                                              let tx_resp = tx_write.clone();
+                                              let req_client = reqwest_client.clone();
+                                              let target_url = target.clone();
+                                              let path_bind_val = path_bind.clone();
+                                              let trim_bind_val = trim_bind;
+                                              let max_resp_size = max_response_body_size;
+                                              let limiter = local_limiter.clone();
+                                              let inflight = inflight_requests.clone();
+                                              let streams = active_request_streams.clone();
+                                              let proto = server_protocol.clone();
+                                              inflight.fetch_add(1, Ordering::SeqCst);
+                                              tokio::spawn(async move {
+                                                  let _permit = match limiter {
+                                                      Some(sem) => sem.acquire_owned().await.ok(),
+                                                      None => None,
+                                                  };
+                                                  let binary = proto.load(Ordering::Relaxed) >= 2;
+                                                  let response = handle_incoming_request(
+                                                      req_client,
+                                                      id.clone(),
+                                                      method,
+                                                      uri,
+                                                      headers,
+                                                      None,
+                                                      &target_url,
+                                                      pass_hostname,
+                                                      path_bind_val,
+                                                      trim_bind_val,
+                                                      max_resp_size,
+                                                      Some(body_rx),
+                                                      binary,
+                                                      tx_resp.clone(),
+                                                  )
+                                                  .await;
+                                                  streams.lock().await.remove(&id);
+                                                  if let Some(response) = response
+                                                      && let Ok(resp_str) = serde_json::to_string(&response)
+                                                  {
+                                                      let _ = tx_resp.send(Message::Text(resp_str)).await;
+                                                  }
+                                                  inflight.fetch_sub(1, Ordering::SeqCst);
+                                              });
+                                          }
+                                          TunnelMessage::RequestChunk { id, data } => {
+                                              // Base64 fallback path; v2 servers send binary frames.
+                                              let streams = active_request_streams.lock().await;
+                                              if let Some(feeder) = streams.get(&id) {
+                                                  match BASE64_STANDARD.decode(&data) {
+                                                      Ok(bytes) => {
+                                                          let _ = feeder.send(Ok(bytes)).await;
+                                                      }
+                                                      Err(_) => warn!(
+                                                          "Failed to decode Base64 RequestChunk for {}",
+                                                          id
+                                                      ),
+                                                  }
+                                              }
+                                          }
+                                          TunnelMessage::RequestEnd { id } => {
+                                              // Dropping the feeder ends the streamed body.
+                                              active_request_streams.lock().await.remove(&id);
                                           }
                                           TunnelMessage::UpgradeRequest {
                                               id,
@@ -1134,6 +1284,9 @@ async fn main() {
                                           }
                                           TunnelMessage::Pong { timestamp, version, protocol } => {
                                               debug!("Pong received: {}", timestamp);
+                                              if let Some(p) = protocol {
+                                                  server_protocol.store(p, Ordering::Relaxed);
+                                              }
                                               // Log version skew once per connection, not per heartbeat.
                                               if !version_skew_warned
                                                 && let Some(p) = protocol
@@ -1745,6 +1898,32 @@ const STREAM_CHUNK_SIZE: usize = 128 * 1024;
 /// Small responses are returned as `Some(TunnelMessage::Response)` for the
 /// caller to send. Large responses are streamed directly through `tunnel_tx`
 /// (ResponseStart/Chunk/End) and `None` is returned.
+/// Sends one streamed response chunk: a raw binary frame for v2 servers, or
+/// the legacy base64+JSON message otherwise.
+async fn send_response_chunk(
+  tunnel_tx: &mpsc::Sender<Message>,
+  id: &str,
+  part: &[u8],
+  binary: bool,
+) -> Result<(), ()> {
+  if binary {
+    tunnel_tx
+      .send(Message::Binary(encode_binary_frame(
+        FRAME_RESPONSE_CHUNK,
+        id,
+        part,
+      )))
+      .await
+      .map_err(|_| ())
+  } else {
+    let msg = TunnelMessage::ResponseChunk {
+      id: id.to_string(),
+      data: BASE64_STANDARD.encode(part),
+    };
+    send_tunnel_msg(tunnel_tx, &msg).await
+  }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_incoming_request(
   client: reqwest::Client,
@@ -1758,6 +1937,8 @@ async fn handle_incoming_request(
   path_bind: Option<String>,
   trim_bind: bool,
   max_response_body_size: usize,
+  streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
+  binary_chunks: bool,
   tunnel_tx: mpsc::Sender<Message>,
 ) -> Option<TunnelMessage> {
   info!(
@@ -1868,8 +2049,14 @@ async fn handle_incoming_request(
     builder = builder.header(reqwest::header::HOST, val);
   }
 
-  // Map Body
-  if let Some(encoded_body) = body_base64 {
+  // Map Body: either the buffered base64 payload, or a protocol v2 streamed
+  // body fed chunk-by-chunk from the tunnel read loop.
+  if let Some(rx) = streamed_body {
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+      rx.recv().await.map(|item| (item, rx))
+    });
+    builder = builder.body(reqwest::Body::wrap_stream(stream));
+  } else if let Some(encoded_body) = body_base64 {
     match BASE64_STANDARD.decode(encoded_body) {
       Ok(bytes) => {
         builder = builder.body(bytes);
@@ -1919,11 +2106,10 @@ async fn handle_incoming_request(
                   return None;
                 }
                 for part in buf.chunks(STREAM_CHUNK_SIZE) {
-                  let msg = TunnelMessage::ResponseChunk {
-                    id: id.clone(),
-                    data: BASE64_STANDARD.encode(part),
-                  };
-                  if send_tunnel_msg(&tunnel_tx, &msg).await.is_err() {
+                  if send_response_chunk(&tunnel_tx, &id, part, binary_chunks)
+                    .await
+                    .is_err()
+                  {
                     return None;
                   }
                 }
@@ -1938,11 +2124,10 @@ async fn handle_incoming_request(
                 );
                 break;
               }
-              let msg = TunnelMessage::ResponseChunk {
-                id: id.clone(),
-                data: BASE64_STANDARD.encode(&chunk),
-              };
-              if send_tunnel_msg(&tunnel_tx, &msg).await.is_err() {
+              if send_response_chunk(&tunnel_tx, &id, &chunk, binary_chunks)
+                .await
+                .is_err()
+              {
                 return None;
               }
             }
@@ -2450,6 +2635,8 @@ mod tests {
       None,
       false,
       1024 * 1024,
+      None,
+      false,
       test_tunnel_tx(),
     )
     .await
@@ -2523,6 +2710,8 @@ mod tests {
       None,
       false,
       10 * 1024 * 1024,
+      None,
+      false,
       tx,
     )
     .await;
@@ -2596,6 +2785,8 @@ mod tests {
       Some("/api".to_string()),
       true,
       1024 * 1024,
+      None,
+      false,
       test_tunnel_tx(),
     )
     .await
@@ -2655,6 +2846,8 @@ mod tests {
       Some("/api".to_string()),
       false,
       1024 * 1024,
+      None,
+      false,
       test_tunnel_tx(),
     )
     .await;
