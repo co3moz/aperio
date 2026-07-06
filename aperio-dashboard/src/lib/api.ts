@@ -35,6 +35,7 @@ export interface ClientDetail {
   version: string | null
   protocol: number | null
   protocol_mismatch: boolean
+  backend_healthy: boolean
   healthy: boolean
   draining: boolean
   enabled: boolean

@@ -285,12 +285,21 @@ export function ClientsSection({
                 </Table.Cell>
                 <Table.Cell>
                   <Flex align="center" gap="2">
-                    <span className={`status-dot ${c.healthy ? 'active' : 'inactive'}`} />
+                    <span
+                      className={`status-dot ${c.healthy && c.backend_healthy ? 'active' : 'inactive'}`}
+                    />
                     <Text size="2">{formatLastPing(c.last_ping_seconds_ago)}</Text>
                     {!c.healthy && (
                       <Badge color="red" size="1">
                         DOWN
                       </Badge>
+                    )}
+                    {c.healthy && !c.backend_healthy && (
+                      <Tooltip content="The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected">
+                        <Badge color="amber" size="1">
+                          BACKEND DOWN
+                        </Badge>
+                      </Tooltip>
                     )}
                   </Flex>
                 </Table.Cell>

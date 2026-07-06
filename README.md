@@ -266,6 +266,10 @@ aperio-client --help
 | `APERIO_CLIENT_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
 | `APERIO_CLIENT_MAX_CONCURRENT` | `--concurrency` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
 | `APERIO_CLIENT_TCP_TARGET` | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
+| `APERIO_CLIENT_TARGET_HEALTH` | — | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. | — |
+| `APERIO_CLIENT_HEALTH_INTERVAL` | — | `health_interval` | Seconds between backend health probes. | `10` |
+| `APERIO_CLIENT_HEALTH_TIMEOUT` | — | `health_timeout` | Per-probe timeout (seconds). | `5` |
+| `APERIO_CLIENT_HEALTH_THRESHOLD` | — | `health_threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
 | `APERIO_CLIENT_TIMEOUT` | — | `timeout` | Per-request backend timeout (seconds). | `30` |
 | `APERIO_CLIENT_MAX_RESPONSE_BODY` | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
 | `APERIO_CLIENT_MAX_MESSAGE_SIZE` | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |

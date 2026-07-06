@@ -36,6 +36,11 @@ use webhooks::WebhookStore;
 /// (in logs and on the dashboard) instead of failing in obscure ways.
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// Serde default for fields that must be true when absent (older peers).
+fn default_true() -> bool {
+  true
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -59,6 +64,10 @@ pub enum TunnelMessage {
     /// Tunnel wire protocol version the client speaks.
     #[serde(default)]
     protocol: Option<u32>,
+    /// Result of the client's own backend health probe. False takes the
+    /// client out of routing without dropping the tunnel connection.
+    #[serde(default = "default_true")]
+    backend_healthy: bool,
   },
   Pong {
     timestamp: u64,
@@ -224,6 +233,8 @@ struct ClientDetail {
   protocol: Option<u32>,
   /// True when the announced protocol version differs from the server's.
   protocol_mismatch: bool,
+  /// Latest backend health verdict reported by the client's own probe.
+  backend_healthy: bool,
   /// False when the client missed its heartbeat window and is out of the pool.
   healthy: bool,
   /// True while the client is gracefully draining before shutdown.
@@ -360,6 +371,10 @@ struct ClientHandle {
   client_version: Option<String>,
   /// Tunnel protocol version announced via Ping.
   client_protocol: Option<u32>,
+  /// Latest backend health verdict reported by the client's own probe
+  /// (APERIO_CLIENT_TARGET_HEALTH). False = excluded from routing while the
+  /// tunnel connection itself stays up.
+  backend_healthy: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -1167,6 +1182,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServe
       protocol_mismatch: handle
         .client_protocol
         .is_some_and(|p| p != PROTOCOL_VERSION),
+      backend_healthy: handle.backend_healthy,
       healthy: handle.is_healthy(state.config.client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
@@ -2557,7 +2573,9 @@ fn select_client_pool(
   // never receive new traffic (in-flight requests still complete) ---
   let eligible: Vec<(&String, &ClientHandle)> = clients
     .iter()
-    .filter(|(_, c)| c.is_healthy(down_threshold) && !c.draining && c.admin_enabled)
+    .filter(|(_, c)| {
+      c.is_healthy(down_threshold) && c.backend_healthy && !c.draining && c.admin_enabled
+    })
     .collect();
 
   // --- Hostname stage ---
@@ -2798,6 +2816,7 @@ async fn handle_socket(
         tcp_enabled: false,
         client_version: None,
         client_protocol: None,
+        backend_healthy: true,
       },
     );
     drop(clients);
@@ -3071,6 +3090,7 @@ async fn handle_socket(
               tcp,
               version,
               protocol,
+              backend_healthy,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -3117,6 +3137,22 @@ async fn handle_socket(
                     );
                   }
                   handle.tcp_enabled = tcp;
+                  // Log backend health transitions reported by the client's
+                  // own probe; the eligibility filter honours the flag.
+                  if handle.backend_healthy != backend_healthy {
+                    handle.backend_healthy = backend_healthy;
+                    if backend_healthy {
+                      info!(
+                        "Client {} reports its backend is healthy again; back in routing",
+                        client_id
+                      );
+                    } else {
+                      warn!(
+                        "Client {} reports its backend as unhealthy; excluded from routing (tunnel stays connected)",
+                        client_id
+                      );
+                    }
+                  }
                   if let Some(v) = version {
                     handle.client_version = Some(v);
                   }
@@ -5029,6 +5065,7 @@ mod tests {
         tcp_enabled: false,
         client_version: None,
         client_protocol: None,
+        backend_healthy: true,
       },
     );
 
@@ -5232,6 +5269,7 @@ mod tests {
       tcp_enabled: false,
       client_version: None,
       client_protocol: None,
+      backend_healthy: true,
     }
   }
 

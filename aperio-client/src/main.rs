@@ -20,6 +20,11 @@ use tracing::{debug, error, info, warn};
 /// aperio-server; bumped on breaking changes to `TunnelMessage`.
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// Serde default for fields that must be true when absent (older peers).
+fn default_true() -> bool {
+  true
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -43,6 +48,10 @@ pub enum TunnelMessage {
     /// Tunnel wire protocol version this client speaks.
     #[serde(default)]
     protocol: Option<u32>,
+    /// Result of the client's own backend health probe (APERIO_CLIENT_TARGET_HEALTH).
+    /// False takes this client out of routing without dropping the tunnel.
+    #[serde(default = "default_true")]
+    backend_healthy: bool,
   },
   Pong {
     timestamp: u64,
@@ -167,6 +176,14 @@ struct FileConfig {
   timeout: Option<u64>,
   max_message_size: Option<usize>,
   tcp_target: Option<String>,
+  /// Health endpoint of the local target (path like `/health` or full URL).
+  target_health: Option<String>,
+  /// Seconds between backend health probes.
+  health_interval: Option<u64>,
+  /// Per-probe timeout in seconds.
+  health_timeout: Option<u64>,
+  /// Consecutive probe failures before the backend is reported unhealthy.
+  health_threshold: Option<u32>,
 }
 
 /// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
@@ -450,7 +467,82 @@ async fn main() {
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty());
 
+  // Backend health probing: when a health endpoint is configured the client
+  // probes it on its own schedule, independent of the server connection.
+  let target_health = std::env::var("APERIO_CLIENT_TARGET_HEALTH")
+    .ok()
+    .or(file_cfg.target_health.clone())
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+  let health_interval = std::env::var("APERIO_CLIENT_HEALTH_INTERVAL")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .or(file_cfg.health_interval)
+    .unwrap_or(10)
+    .max(1);
+  let health_timeout = std::env::var("APERIO_CLIENT_HEALTH_TIMEOUT")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .or(file_cfg.health_timeout)
+    .unwrap_or(5)
+    .max(1);
+  let health_threshold = std::env::var("APERIO_CLIENT_HEALTH_THRESHOLD")
+    .ok()
+    .and_then(|v| v.parse::<u32>().ok())
+    .or(file_cfg.health_threshold)
+    .unwrap_or(2)
+    .max(1);
+
   let client_id = uuid::Uuid::new_v4().to_string();
+
+  // Latest backend health verdict, reported to the server via heartbeats. An
+  // unhealthy backend never tears the tunnel down: the server just takes
+  // this client out of routing until the backend recovers.
+  let backend_healthy = Arc::new(AtomicBool::new(true));
+  if let Some(ref health_path) = target_health {
+    let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
+      health_path.clone()
+    } else {
+      format!(
+        "{}/{}",
+        target.trim_end_matches('/'),
+        health_path.trim_start_matches('/')
+      )
+    };
+    let flag = backend_healthy.clone();
+    let probe_client = reqwest::Client::builder()
+      .timeout(Duration::from_secs(health_timeout))
+      .build()
+      .unwrap_or_default();
+    info!(
+      "- Backend health check: {} (every {}s, timeout {}s, threshold {})",
+      health_url, health_interval, health_timeout, health_threshold
+    );
+    tokio::spawn(async move {
+      let mut consecutive_failures: u32 = 0;
+      loop {
+        tokio::time::sleep(Duration::from_secs(health_interval)).await;
+        let ok = matches!(
+          probe_client.get(&health_url).send().await,
+          Ok(resp) if resp.status().is_success()
+        );
+        if ok {
+          consecutive_failures = 0;
+          if !flag.swap(true, Ordering::SeqCst) {
+            info!("Backend health restored: {}", health_url);
+          }
+        } else {
+          consecutive_failures = consecutive_failures.saturating_add(1);
+          if consecutive_failures >= health_threshold && flag.swap(false, Ordering::SeqCst) {
+            warn!(
+              "Backend health check failed {} consecutive time(s): {} — reporting unhealthy to the server (tunnel stays connected)",
+              consecutive_failures, health_url
+            );
+          }
+        }
+      }
+    });
+  }
 
   // Graceful shutdown state: a signal marks the client as draining, the
   // server is notified, and the process exits once in-flight work finishes.
@@ -594,6 +686,7 @@ async fn main() {
             let hostname_bind_ping = hostname_bind.clone();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
+            let backend_healthy_ping = backend_healthy.clone();
 
             let ping_task = tokio::spawn(async move {
               loop {
@@ -625,6 +718,7 @@ async fn main() {
                   tcp: tcp_enabled_ping,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
+                  backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
