@@ -219,6 +219,7 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 | `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
 | `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
 | `GET/POST /aperio/api/maintenance` | List / toggle per-hostname maintenance mode. | dashboard session |
+| `POST /aperio/api/share` | Generate a signed share link (see [Share Links](#share-links)). | dashboard session |
 | `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](#ephemeral-tunnels-ci--preview-environments). | master token (Bearer) or dashboard session |
 | `GET+POST /aperio/auth` | Login page / login API. | — |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
@@ -363,6 +364,20 @@ A client declaring a bind its token doesn't permit gets the declaration ignored 
 Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown exactly once at creation.
 
 > **Docker note:** dynamic tokens (plus stats, audit log, and webhooks) live in `APERIO_DATA_DIR`. Without a volume (`- ./data:/app/data`) they are lost when the container is recreated.
+
+---
+
+## Share Links
+
+When a proxied site is protected (`APERIO_SERVER_AUTH` or OIDC), you can hand out **temporary access** without creating accounts: the dashboard's *Share Links* section generates a URL like
+
+```
+https://app.example.com/docs?aperio_share=eyJob3N0IjoiYXBwLuKApiJ9.9f2c…
+```
+
+The token is JWT-style — `base64url(claims).base64url(HMAC-SHA256)` — carrying the hostname, an optional path prefix, and an expiry (default 3 days, max 30). Opening the link validates the token, answers with a redirect to the clean URL, and sets an `aperio_share` cookie (`HttpOnly`, `SameSite=Lax`, expiring with the token) that authorizes subsequent requests — including the page's WebSockets. Out-of-scope paths still redirect to the login page.
+
+Links are **stateless**: the signing key is derived from the master token, nothing is stored server-side, and links simply expire (rotating `APERIO_SERVER_TOKEN` invalidates all of them at once). Creation is audited (`share_created`) and emitted to webhooks; the internal cookie is stripped before requests are forwarded to backends.
 
 ---
 

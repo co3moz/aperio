@@ -194,6 +194,11 @@ export const api = {
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   audit: () => request<AuditEvent[]>('/audit'),
   maintenance: () => request<string[]>('/maintenance'),
+  createShareLink: (payload: { hostname: string; path?: string; ttl_seconds?: number }) =>
+    request<{ id: string; url: string; token: string; expires_at: number }>(
+      '/share',
+      json('POST', payload),
+    ),
   setMaintenance: (hostname: string, enabled: boolean) =>
     mutate('/maintenance', json('POST', { hostname, enabled })),
 }

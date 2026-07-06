@@ -1060,6 +1060,7 @@ async fn main() {
         "/api/maintenance",
         get(maintenance_list_handler).post(maintenance_set_handler),
       )
+      .route("/api/share", axum::routing::post(share_create_handler))
       .route(
         "/api/webhooks",
         get(webhooks_list_handler).post(webhooks_create_handler),
@@ -1892,6 +1893,113 @@ async fn maintenance_set_handler(
       .await;
   }
   (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+}
+
+/// Payload for generating a share link (dashboard).
+#[derive(Deserialize)]
+struct ShareCreateRequest {
+  /// Hostname the link grants access to.
+  hostname: String,
+  /// Optional path prefix; omitted = the whole site.
+  path: Option<String>,
+  /// Lifetime in seconds; defaults to 3 days, capped at 30 days.
+  ttl_seconds: Option<u64>,
+}
+
+/// Generates a signed share link: a URL that grants temporary, scoped access
+/// to an auth-protected proxied site without a dashboard login. Stateless —
+/// the token is HMAC-signed and simply expires; there is nothing to list or
+/// revoke individually (rotating the master token invalidates all links).
+async fn share_create_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<ShareCreateRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy).to_string();
+
+  let hostname = match normalize_hostname_bind(payload.hostname.trim()) {
+    Some(h) => h,
+    None => {
+      return (
+        StatusCode::BAD_REQUEST,
+        format!("Invalid hostname: {}", payload.hostname),
+      )
+        .into_response();
+    }
+  };
+  let path = match payload
+    .path
+    .as_deref()
+    .map(str::trim)
+    .filter(|p| !p.is_empty() && *p != "/")
+  {
+    None => None,
+    Some(raw) => match normalize_path_bind(raw) {
+      Some(p) => Some(p),
+      None => {
+        return (StatusCode::BAD_REQUEST, format!("Invalid path: {}", raw)).into_response();
+      }
+    },
+  };
+  let ttl = payload.ttl_seconds.unwrap_or(SHARE_DEFAULT_TTL_SECS);
+  if ttl == 0 || ttl > SHARE_MAX_TTL_SECS {
+    return (
+      StatusCode::BAD_REQUEST,
+      format!("ttl_seconds must be between 1 and {}", SHARE_MAX_TTL_SECS),
+    )
+      .into_response();
+  }
+
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_secs();
+  let claims = ShareClaims {
+    host: hostname.clone(),
+    path: path.clone(),
+    exp: now + ttl,
+    id: uuid::Uuid::new_v4().simple().to_string()[..8].to_string(),
+  };
+  let token = sign_share_claims(&claims, &share_signing_key(&state.config.token));
+  let url = format!(
+    "https://{}{}?aperio_share={}",
+    hostname,
+    path.as_deref().unwrap_or("/"),
+    token
+  );
+
+  info!(
+    "Share link created: id={} host={} path={:?} expires_at={}",
+    claims.id, hostname, path, claims.exp
+  );
+  state
+    .audit(
+      "share_created",
+      &actor_ip,
+      &format!(
+        "id={} hostname={} path={:?} expires_at={}",
+        claims.id, hostname, path, claims.exp
+      ),
+    )
+    .await;
+  state
+    .emit_event(
+      "share_created",
+      serde_json::json!({"id": claims.id, "hostname": hostname, "path": path, "expires_at": claims.exp}),
+    )
+    .await;
+
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({
+      "id": claims.id,
+      "url": url,
+      "token": token,
+      "expires_at": claims.exp,
+    })),
+  )
+    .into_response()
 }
 
 /// Payload for the programmatic tunnel provisioning endpoint
@@ -3586,6 +3694,175 @@ async fn handle_socket(
   }
 }
 
+// --- Share links: signed, expiring, hostname/path-scoped access tokens ---
+
+/// Cookie (and query parameter) name carrying a share token.
+const SHARE_COOKIE: &str = "aperio_share";
+/// Default share link lifetime: 3 days.
+const SHARE_DEFAULT_TTL_SECS: u64 = 3 * 24 * 3600;
+/// Maximum share link lifetime: 30 days.
+const SHARE_MAX_TTL_SECS: u64 = 30 * 24 * 3600;
+
+/// Claims embedded in a share token. The token is
+/// `base64url(json).base64url(hmac_sha256)`, signed with a key derived from
+/// the master token — nothing is persisted server-side, so links survive
+/// restarts and simply expire.
+#[derive(Serialize, Deserialize)]
+struct ShareClaims {
+  /// Hostname the link grants access to.
+  host: String,
+  /// Path prefix the link grants access to (None = the whole site).
+  #[serde(default)]
+  path: Option<String>,
+  /// Unix expiry timestamp (seconds).
+  exp: u64,
+  /// Random ID tying proxy-side usage back to the audit trail.
+  id: String,
+}
+
+/// Derives the HMAC signing key for share tokens from the master token, so
+/// links stay valid across restarts without persisting key material.
+fn share_signing_key(server_token: &str) -> [u8; 32] {
+  let mut hasher = Sha256::default();
+  hasher.update(b"aperio-share-signing-key:");
+  hasher.update(server_token.as_bytes());
+  hasher.finalize().into()
+}
+
+fn sign_share_claims(claims: &ShareClaims, key: &[u8]) -> String {
+  use base64::prelude::*;
+  use hmac::Mac;
+  let payload = BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap_or_default());
+  let mut mac = hmac::Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+  mac.update(payload.as_bytes());
+  let sig = BASE64_URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+  format!("{payload}.{sig}")
+}
+
+/// Verifies signature and expiry; returns the claims when the token is valid.
+fn verify_share_token(token: &str, key: &[u8]) -> Option<ShareClaims> {
+  use base64::prelude::*;
+  use hmac::Mac;
+  let (payload, sig) = token.split_once('.')?;
+  let sig_bytes = BASE64_URL_SAFE_NO_PAD.decode(sig).ok()?;
+  let mut mac = hmac::Hmac::<Sha256>::new_from_slice(key).ok()?;
+  mac.update(payload.as_bytes());
+  mac.verify_slice(&sig_bytes).ok()?;
+  let claims: ShareClaims =
+    serde_json::from_slice(&BASE64_URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .ok()?
+    .as_secs();
+  if claims.exp <= now {
+    return None;
+  }
+  Some(claims)
+}
+
+/// True when the claims cover the given request host and path.
+fn share_claims_cover(claims: &ShareClaims, host: Option<&str>, uri_path: &str) -> bool {
+  if host != Some(claims.host.as_str()) {
+    return false;
+  }
+  match &claims.path {
+    None => true,
+    Some(p) => path_matches_bind(uri_path, p),
+  }
+}
+
+/// Extracts a share token from the Cookie header.
+fn share_token_from_cookies(headers: &HeaderMap) -> Option<String> {
+  let cookie_str = headers.get("cookie")?.to_str().ok()?;
+  for part in cookie_str.split(';') {
+    let kv: Vec<&str> = part.trim().splitn(2, '=').collect();
+    if kv.len() == 2 && kv[0] == SHARE_COOKIE {
+      return Some(kv[1].to_string());
+    }
+  }
+  None
+}
+
+/// Checks share-link access for a request without a dashboard session:
+/// - `Some(None)` — a valid share cookie covers this request; proceed.
+/// - `Some(Some(response))` — a valid token arrived via the `aperio_share`
+///   query parameter (first click on a link): redirect to the clean URL,
+///   setting the cookie for subsequent requests.
+/// - `None` — no valid share credential.
+fn check_share_access(
+  state: &AppState,
+  headers: &HeaderMap,
+  uri: &Uri,
+  host: Option<&str>,
+) -> Option<Option<Response>> {
+  let key = share_signing_key(&state.config.token);
+  let uri_path = uri.path();
+
+  // 1. Token in the query string: the first click on a generated link.
+  if let Some(query) = uri.query() {
+    let mut rest: Vec<&str> = Vec::new();
+    let mut presented: Option<&str> = None;
+    for pair in query.split('&') {
+      match pair.strip_prefix("aperio_share=") {
+        // The token alphabet is base64url plus '.', so no percent-decoding
+        // is needed here.
+        Some(v) => presented = Some(v),
+        None => {
+          if !pair.is_empty() {
+            rest.push(pair);
+          }
+        }
+      }
+    }
+    if let Some(raw) = presented
+      && let Some(claims) = verify_share_token(raw, &key)
+      && share_claims_cover(&claims, host, uri_path)
+    {
+      let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+      let clean_url = if rest.is_empty() {
+        uri_path.to_string()
+      } else {
+        format!("{}?{}", uri_path, rest.join("&"))
+      };
+      let secure_flag = if state.config.secure_cookies {
+        "; Secure"
+      } else {
+        ""
+      };
+      let cookie = format!(
+        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
+        SHARE_COOKIE,
+        raw,
+        claims.exp.saturating_sub(now),
+        secure_flag
+      );
+      info!(
+        "Share link {} used for {} (path {})",
+        claims.id, claims.host, uri_path
+      );
+      let resp = Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", clean_url)
+        .header("Set-Cookie", cookie)
+        .body(Body::empty())
+        .unwrap();
+      return Some(Some(resp));
+    }
+  }
+
+  // 2. Share cookie from a previous visit.
+  if let Some(token) = share_token_from_cookies(headers)
+    && let Some(claims) = verify_share_token(&token, &key)
+    && share_claims_cover(&claims, host, uri_path)
+  {
+    return Some(None);
+  }
+  None
+}
+
 /// Validates the `aperio_session` cookie and returns true if the session is still active.
 async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
   // Lazy garbage collection of expired sessions (runs at most once per 5 minutes).
@@ -3737,19 +4014,32 @@ async fn proxy_handler(
   // 2. Session/Auth check (if configured)
   let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
   if auth_required && !validate_session(&state, &headers).await {
-    // Prefer the OIDC SSO flow when configured; fall back to the built-in
-    // password login page otherwise.
-    let login_path = if state.oidc.is_some() {
-      "/aperio/oidc/login"
-    } else {
-      "/aperio/auth"
-    };
-    let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
-    return Response::builder()
-      .status(StatusCode::FOUND)
-      .header("Location", redirect_url)
-      .body(Body::empty())
-      .unwrap();
+    // Share links: a signed, expiring token grants access to this
+    // hostname/path without a dashboard session.
+    match check_share_access(
+      &state,
+      &headers,
+      &uri,
+      extract_request_host(&headers).as_deref(),
+    ) {
+      Some(Some(redirect)) => return redirect,
+      Some(None) => { /* valid share cookie — proceed */ }
+      None => {
+        // Prefer the OIDC SSO flow when configured; fall back to the
+        // built-in password login page otherwise.
+        let login_path = if state.oidc.is_some() {
+          "/aperio/oidc/login"
+        } else {
+          "/aperio/auth"
+        };
+        let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
+        return Response::builder()
+          .status(StatusCode::FOUND)
+          .header("Location", redirect_url)
+          .body(Body::empty())
+          .unwrap();
+      }
+    }
   }
 
   // 3. Wait for connection if client is disconnected.
@@ -3935,7 +4225,11 @@ async fn proxy_handler(
       if k.as_str() == "cookie" {
         let filtered: String = val_str
           .split(';')
-          .filter(|part| !part.trim().starts_with("aperio_session="))
+          .filter(|part| {
+            let trimmed = part.trim();
+            // Internal aperio cookies (session, share) never reach backends.
+            !trimmed.starts_with("aperio_session=") && !trimmed.starts_with("aperio_share=")
+          })
           .map(|part| part.trim())
           .collect::<Vec<&str>>()
           .join("; ");
@@ -4218,19 +4512,29 @@ async fn handle_ws_proxy(
   // 2. Session/Auth check
   let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
   if auth_required && !validate_session(&state, &headers).await {
-    // Prefer the OIDC SSO flow when configured; fall back to the built-in
-    // password login page otherwise.
-    let login_path = if state.oidc.is_some() {
-      "/aperio/oidc/login"
-    } else {
-      "/aperio/auth"
-    };
-    let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
-    return Response::builder()
-      .status(StatusCode::FOUND)
-      .header("Location", redirect_url)
-      .body(Body::empty())
-      .unwrap();
+    // A share cookie set during the page load also covers its WebSockets.
+    let share_ok = check_share_access(
+      &state,
+      &headers,
+      &uri,
+      extract_request_host(&headers).as_deref(),
+    )
+    .is_some();
+    if !share_ok {
+      // Prefer the OIDC SSO flow when configured; fall back to the built-in
+      // password login page otherwise.
+      let login_path = if state.oidc.is_some() {
+        "/aperio/oidc/login"
+      } else {
+        "/aperio/auth"
+      };
+      let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
+      return Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", redirect_url)
+        .body(Body::empty())
+        .unwrap();
+    }
   }
 
   // 3. Wait for connection
@@ -4326,7 +4630,11 @@ async fn handle_ws_proxy(
       if k.as_str() == "cookie" {
         let filtered: String = val_str
           .split(';')
-          .filter(|part| !part.trim().starts_with("aperio_session="))
+          .filter(|part| {
+            let trimmed = part.trim();
+            // Internal aperio cookies (session, share) never reach backends.
+            !trimmed.starts_with("aperio_session=") && !trimmed.starts_with("aperio_share=")
+          })
           .map(|part| part.trim())
           .collect::<Vec<&str>>()
           .join("; ");
@@ -5611,6 +5919,77 @@ mod tests {
       backend_healthy: true,
       priority: 0,
     }
+  }
+
+  #[test]
+  fn test_share_token_roundtrip() {
+    let key = share_signing_key("master-token");
+    let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap()
+      .as_secs();
+    let claims = ShareClaims {
+      host: "app.example.com".to_string(),
+      path: Some("/docs".to_string()),
+      exp: now + 60,
+      id: "abc12345".to_string(),
+    };
+    let token = sign_share_claims(&claims, &key);
+
+    // Valid token verifies and covers its scope.
+    let verified = verify_share_token(&token, &key).expect("token must verify");
+    assert_eq!(verified.host, "app.example.com");
+    assert!(share_claims_cover(
+      &verified,
+      Some("app.example.com"),
+      "/docs/intro"
+    ));
+    // Different host or out-of-scope path is not covered.
+    assert!(!share_claims_cover(
+      &verified,
+      Some("other.example.com"),
+      "/docs"
+    ));
+    assert!(!share_claims_cover(
+      &verified,
+      Some("app.example.com"),
+      "/admin"
+    ));
+    // Segment boundary: /docsX must not match the /docs prefix.
+    assert!(!share_claims_cover(
+      &verified,
+      Some("app.example.com"),
+      "/docsecret"
+    ));
+
+    // Tampered signature and wrong key are rejected.
+    assert!(verify_share_token(&format!("{}x", token), &key).is_none());
+    assert!(verify_share_token(&token, &share_signing_key("other-token")).is_none());
+
+    // Expired token is rejected.
+    let expired = ShareClaims {
+      host: "app.example.com".to_string(),
+      path: None,
+      exp: now - 1,
+      id: "expired1".to_string(),
+    };
+    let expired_token = sign_share_claims(&expired, &key);
+    assert!(verify_share_token(&expired_token, &key).is_none());
+
+    // A pathless token covers the whole host.
+    let whole = ShareClaims {
+      host: "app.example.com".to_string(),
+      path: None,
+      exp: now + 60,
+      id: "whole1234".to_string(),
+    };
+    let whole_token = sign_share_claims(&whole, &key);
+    let verified = verify_share_token(&whole_token, &key).unwrap();
+    assert!(share_claims_cover(
+      &verified,
+      Some("app.example.com"),
+      "/anything"
+    ));
   }
 
   #[test]
