@@ -196,6 +196,32 @@ struct ServerConfig {
   custom_503_page: Option<String>,
   /// How a client is picked from the routed pool (APERIO_LB_STRATEGY).
   lb_strategy: LbStrategy,
+  /// What to do when a client is lost while a request is in flight.
+  failover_mode: FailoverMode,
+  /// Max re-dispatch attempts per request (APERIO_FAILOVER_MAX_JUMPS).
+  failover_max_jumps: u32,
+  /// Total time budget for waiting on candidates across all jumps
+  /// (APERIO_FAILOVER_WINDOW, seconds).
+  failover_window: Duration,
+  /// Allow failover for non-idempotent methods too
+  /// (APERIO_FAILOVER_ALL_METHODS).
+  failover_all_methods: bool,
+}
+
+/// What happens when a tunnel client is lost while a request is in flight
+/// and no response bytes have reached the visitor yet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FailoverMode {
+  /// Fail immediately with 502 (default).
+  Fail,
+  /// Re-dispatch to another currently available candidate; fail when none.
+  Retry,
+  /// Wait for the same client instance to reconnect and re-dispatch (any
+  /// candidate qualifies when the instance is unknown).
+  Wait,
+  /// Re-dispatch to another candidate right away; when none exists, wait
+  /// for one to appear.
+  RetryWait,
 }
 
 /// Load-balancing behavior applied after routing narrows the candidate pool.
@@ -399,6 +425,10 @@ struct ClientHandle {
   backend_healthy: bool,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   priority: u32,
+  /// Client-process instance ID self-reported via Ping. Unlike the
+  /// server-assigned connection ID it survives reconnects of the same
+  /// process, letting the failover `wait` mode recognize a returning client.
+  reported_instance_id: Option<String>,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -878,6 +908,53 @@ async fn main() {
     }
   };
 
+  // In-flight failover: what to do when a client dies mid-request.
+  let failover_mode = match std::env::var("APERIO_FAILOVER")
+    .unwrap_or_default()
+    .trim()
+    .to_ascii_lowercase()
+    .replace('_', "-")
+    .as_str()
+  {
+    "" | "fail" => FailoverMode::Fail,
+    "retry" => FailoverMode::Retry,
+    "wait" => FailoverMode::Wait,
+    "retry-wait" => FailoverMode::RetryWait,
+    other => {
+      warn!(
+        "Unknown APERIO_FAILOVER '{}' (expected 'fail', 'retry', 'wait' or 'retry-wait'); using fail",
+        other
+      );
+      FailoverMode::Fail
+    }
+  };
+  let failover_max_jumps = std::env::var("APERIO_FAILOVER_MAX_JUMPS")
+    .ok()
+    .and_then(|val| val.parse::<u32>().ok())
+    .unwrap_or(2);
+  let failover_window = Duration::from_secs(
+    std::env::var("APERIO_FAILOVER_WINDOW")
+      .ok()
+      .and_then(|val| val.parse::<u64>().ok())
+      .unwrap_or(15),
+  );
+  let failover_all_methods = std::env::var("APERIO_FAILOVER_ALL_METHODS")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  if failover_mode != FailoverMode::Fail {
+    info!(
+      "In-flight failover enabled: {:?} (max {} jumps, {}s window{})",
+      failover_mode,
+      failover_max_jumps,
+      failover_window.as_secs(),
+      if failover_all_methods {
+        ", all methods"
+      } else {
+        ", idempotent methods only"
+      }
+    );
+  }
+
   // Heartbeat-based health: clients whose last Ping is older than this many
   // seconds are treated as down and excluded from load balancing.
   let client_down_threshold_secs = std::env::var("APERIO_CLIENT_DOWN_THRESHOLD")
@@ -972,6 +1049,10 @@ async fn main() {
     custom_504_page,
     custom_503_page,
     lb_strategy,
+    failover_mode,
+    failover_max_jumps,
+    failover_window,
+    failover_all_methods,
   };
 
   if require_hostname_bind {
@@ -2976,6 +3057,90 @@ fn apply_lb_strategy(
   }
 }
 
+/// A dispatch target chosen from the routed pool.
+struct SelectedClient {
+  id: String,
+  tx: mpsc::Sender<Message>,
+  request_count: Arc<AtomicU64>,
+  inflight_limiter: Option<Arc<Semaphore>>,
+  token_name: Option<String>,
+  /// Client-process instance ID (from Ping); used by failover `wait` mode.
+  instance_id: Option<String>,
+}
+
+/// Picks a client for a request with the full routing pipeline (eligibility →
+/// hostname → path → strategy → round-robin). When `require_instance` is
+/// given, only clients that reported that instance ID qualify (failover
+/// `wait` mode waiting for a specific client process to return).
+async fn pick_proxy_client(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+  require_instance: Option<&str>,
+) -> Option<SelectedClient> {
+  let clients = state.clients.lock().await;
+  let (pool, group_key) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config.require_hostname_bind,
+    state.config.client_down_threshold,
+  )?;
+  let mut pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
+  if let Some(instance) = require_instance {
+    pool.retain(|id| {
+      clients
+        .get(id)
+        .is_some_and(|c| c.reported_instance_id.as_deref() == Some(instance))
+    });
+  }
+  if pool.is_empty() {
+    return None;
+  }
+  let mut rr_map = state.path_rr.lock().await;
+  let idx = rr_map.entry(group_key).or_insert(0);
+  let chosen_id = pool[*idx % pool.len()].clone();
+  *idx = (*idx + 1) % pool.len();
+  clients.get(&chosen_id).map(|c| SelectedClient {
+    id: chosen_id.clone(),
+    tx: c.tx.clone(),
+    request_count: c.request_count.clone(),
+    inflight_limiter: c.inflight_limiter.clone(),
+    token_name: c.perms.token_name.clone(),
+    instance_id: c.reported_instance_id.clone(),
+  })
+}
+
+/// Polls the routing pool until a candidate appears or the deadline passes.
+async fn wait_for_candidate(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+  require_instance: Option<&str>,
+  deadline: tokio::time::Instant,
+) -> Option<SelectedClient> {
+  loop {
+    if let Some(client) = pick_proxy_client(state, uri_path, request_host, require_instance).await {
+      return Some(client);
+    }
+    if tokio::time::Instant::now() >= deadline {
+      return None;
+    }
+    tokio::time::sleep(Duration::from_millis(250)).await;
+  }
+}
+
+/// True when in-flight failover may re-dispatch this method: idempotent
+/// methods (RFC 9110) are safe to send twice, while POST/PATCH may execute
+/// twice on the backend and require the APERIO_FAILOVER_ALL_METHODS opt-in.
+fn method_retryable(method: &str, all_methods: bool) -> bool {
+  all_methods
+    || matches!(
+      method,
+      "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE" | "TRACE"
+    )
+}
+
 /// Resolves the real client IP, honoring `X-Forwarded-For` / `X-Real-IP` only
 /// when `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
 /// proxy). Otherwise the direct socket address is used, since clients could
@@ -3148,6 +3313,7 @@ async fn handle_socket(
         client_protocol: None,
         backend_healthy: true,
         priority: 0,
+        reported_instance_id: None,
       },
     );
     drop(clients);
@@ -3491,6 +3657,12 @@ async fn handle_socket(
                       client_id, priority
                     );
                     handle.priority = priority;
+                  }
+                  // The self-reported instance ID is remembered (first value
+                  // wins) so failover `wait` mode can recognize this client
+                  // process when it reconnects under a new connection ID.
+                  if handle.reported_instance_id.is_none() && !cid.is_empty() {
+                    handle.reported_instance_id = Some(cid.clone());
                   }
                   if let Some(v) = version {
                     handle.client_version = Some(v);
@@ -4119,40 +4291,10 @@ async fn proxy_handler(
   // 4. Get an active client, preferring hostname- and path-bound matches
   // with per-group round-robin.
   let request_host = extract_request_host(&headers);
-  let client_info = {
-    let clients = state.clients.lock().await;
-    let uri_path = uri_str.split('?').next().unwrap_or(&uri_str);
-
-    match select_client_pool(
-      &clients,
-      uri_path,
-      request_host.as_deref(),
-      state.config.require_hostname_bind,
-      state.config.client_down_threshold,
-    ) {
-      None => None,
-      Some((pool, group_key)) => {
-        let pool = apply_lb_strategy(pool, &clients, state.config.lb_strategy);
-        let mut rr_map = state.path_rr.lock().await;
-        let idx = rr_map.entry(group_key).or_insert(0);
-        let chosen_id = &pool[*idx % pool.len()];
-        *idx = (*idx + 1) % pool.len();
-        clients.get(chosen_id).map(|c| {
-          (
-            chosen_id.clone(),
-            c.tx.clone(),
-            c.request_count.clone(),
-            c.inflight_limiter.clone(),
-            c.perms.token_name.clone(),
-          )
-        })
-      }
-    }
-  };
-
-  let (chosen_client_id, client_tx, client_req_counter, inflight_limiter, client_token_name) =
-    match client_info {
-      Some(info) => info,
+  let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
+  let mut selected =
+    match pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None).await {
+      Some(client) => client,
       None => {
         log_request_failure(
           &state,
@@ -4169,36 +4311,6 @@ async fn proxy_handler(
         );
       }
     };
-
-  // Honor the client's announced concurrency limit: wait (up to the gateway
-  // timeout) for an in-flight slot instead of flooding the client's backend.
-  let _inflight_permit = match inflight_limiter {
-    Some(limiter) => {
-      match tokio::time::timeout(state.config.gateway_timeout, limiter.acquire_owned()).await {
-        Ok(Ok(permit)) => Some(permit),
-        _ => {
-          log_request_failure(
-            &state,
-            &method_str,
-            &uri_str,
-            429,
-            start_time.elapsed(),
-            Some("Client concurrency limit: no slot freed within gateway timeout"),
-          )
-          .await;
-          return (
-            StatusCode::TOO_MANY_REQUESTS,
-            "429 Too Many Requests - Tunnel client concurrency limit reached",
-          )
-            .into_response();
-        }
-      }
-    }
-    None => None,
-  };
-
-  // Increment request stats for client
-  client_req_counter.fetch_add(1, Ordering::SeqCst);
 
   // 5. Read body with limit to prevent OOM / DoS
   let body_bytes = match axum::body::to_bytes(body, state.config.max_body_size).await {
@@ -4271,219 +4383,321 @@ async fn proxy_handler(
     }
   };
 
-  let request_id = uuid::Uuid::new_v4().to_string();
-  let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
-
-  // Insert oneshot receiver to await response mapping
-  {
-    let mut pending = state.pending_requests.lock().await;
-    pending.insert(
-      request_id.clone(),
-      PendingRequest {
-        tx: tx_response,
-        client_id: chosen_client_id.clone(),
-      },
-    );
-  }
-
-  let tunnel_req = TunnelMessage::Request {
-    id: request_id.clone(),
-    method: method_str.clone(),
-    uri: uri_str.clone(),
-    headers: serialized_headers,
-    body: base64_body,
-  };
-
-  let req_json = match serde_json::to_string(&tunnel_req) {
-    Ok(json) => json,
-    Err(e) => {
-      state.pending_requests.lock().await.remove(&request_id);
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        500,
-        start_time.elapsed(),
-        Some(&format!("Request serialization failed: {}", e)),
-      )
-      .await;
-      return (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
-    }
-  };
-
-  if client_tx.send(Message::Text(req_json)).await.is_err() {
-    state.pending_requests.lock().await.remove(&request_id);
-    log_request_failure(
-      &state,
-      &method_str,
-      &uri_str,
-      502,
-      start_time.elapsed(),
-      Some("Failed to send tunnel frame to websocket client"),
-    )
-    .await;
-    return (
-      StatusCode::BAD_GATEWAY,
-      "502 Bad Gateway - Client socket error",
-    )
-      .into_response();
-  }
-
-  // Update traffic metrics
+  // Update traffic metrics once per visitor request, regardless of how many
+  // failover attempts it takes.
   {
     let mut stats = state.stats.lock().await;
     stats.total_requests += 1;
     stats.total_bytes_transferred += body_bytes.len() as u64;
   }
 
-  // 6. Await response from client with response timeout
-  let timeout_fut = tokio::time::sleep(state.config.gateway_response_timeout);
-  tokio::pin!(timeout_fut);
+  // 6. Dispatch and await the response. When the assigned client is lost
+  // before answering (nothing has been sent to the visitor yet), the
+  // configured failover mode may re-dispatch the request to another client
+  // or wait for one to return, bounded by max-jumps and the time window.
+  let mut jumps_used: u32 = 0;
+  // The failover window starts ticking at the first in-flight failure.
+  let mut failover_deadline: Option<tokio::time::Instant> = None;
 
-  tokio::select! {
-      _ = &mut timeout_fut => {
-          state.pending_requests.lock().await.remove(&request_id);
-          log_request_failure(
+  loop {
+    // Honor the client's announced concurrency limit: wait (up to the gateway
+    // timeout) for an in-flight slot instead of flooding the client's backend.
+    let _inflight_permit = match selected.inflight_limiter.clone() {
+      Some(limiter) => {
+        match tokio::time::timeout(state.config.gateway_timeout, limiter.acquire_owned()).await {
+          Ok(Ok(permit)) => Some(permit),
+          _ => {
+            log_request_failure(
               &state,
               &method_str,
               &uri_str,
-              504,
+              429,
               start_time.elapsed(),
-              Some("Client response timeout expired"),
-          )
-          .await;
-          state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
-          gateway_timeout_response(&state, "504 Gateway Timeout - Gateway response timeout expired")
-      }
-      res_opt = rx_response => {
-          let duration = start_time.elapsed();
-          match res_opt {
-              Ok(mut tunnel_res) => {
-                  let status_code = StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-
-                  let res_bytes = if let Some(ref encoded_body) = tunnel_res.body {
-                      use base64::prelude::*;
-                      BASE64_STANDARD.decode(encoded_body).unwrap_or_default()
-                  } else {
-                      Vec::new()
-                  };
-
-                  let body_len = res_bytes.len() as u64;
-
-                  let mut response_builder = Response::builder().status(status_code);
-
-                  for (k, v) in tunnel_res.headers.iter() {
-                      let k_lower = k.to_lowercase();
-                      // Strip connection management headers
-                      if k_lower == "connection" || k_lower == "keep-alive" || k_lower == "transfer-encoding" {
-                          continue;
-                      }
-                      if let (Ok(name), Ok(value)) = (HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_str(v)) {
-                          response_builder = response_builder.header(name, value);
-                      }
-                  }
-
-                  {
-                      let mut stats = state.stats.lock().await;
-                      // Only count server errors (5xx) as failed. 2xx/3xx/4xx are
-                      // legitimate responses successfully proxied through the tunnel.
-                      if status_code.is_server_error() {
-                          stats.failed_requests += 1;
-                      } else {
-                          stats.successful_requests += 1;
-                      }
-                      // Streamed bodies are counted chunk-by-chunk as they arrive.
-                      stats.total_bytes_transferred += body_len;
-                  }
-
-                  // Persistent (restart-surviving) counters.
-                  {
-                      let mut ps = state.persistent_stats.lock().await;
-                      ps.record_request(
-                          !status_code.is_server_error(),
-                          body_bytes.len() as u64,
-                          body_len,
-                          duration.as_millis() as u64,
-                      );
-                  }
-
-                  log_request_success(
-                      &state,
-                      request_id.clone(),
-                      &method_str,
-                      &uri_str,
-                      tunnel_res.status,
-                      duration,
-                      request_host.as_deref(),
-                      Some(&chosen_client_id),
-                      client_token_name.as_deref(),
-                  ).await;
-
-                  // Capture the transaction for the dashboard inspector.
-                  {
-                      use base64::prelude::*;
-                      let resp_streamed = tunnel_res.stream_rx.is_some();
-                      let (resp_body_cap, resp_truncated) = if resp_streamed || res_bytes.is_empty() {
-                          (None, false)
-                      } else if res_bytes.len() > CAPTURE_BODY_LIMIT {
-                          (Some(BASE64_STANDARD.encode(&res_bytes[..CAPTURE_BODY_LIMIT])), true)
-                      } else {
-                          (Some(BASE64_STANDARD.encode(&res_bytes)), false)
-                      };
-                      let mut captured = state.captured_requests.lock().await;
-                      if captured.len() >= CAPTURE_MAX_ENTRIES {
-                          captured.pop_front();
-                      }
-                      captured.push_back(CapturedRequest {
-                          id: request_id.clone(),
-                          timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                          method: method_str.clone(),
-                          uri: uri_str.clone(),
-                          req_headers: capture_req_headers,
-                          req_body: capture_req_body,
-                          req_body_truncated: capture_req_truncated,
-                          status: tunnel_res.status,
-                          resp_headers: tunnel_res.headers.clone(),
-                          resp_body: resp_body_cap,
-                          resp_body_truncated: resp_truncated,
-                          resp_streamed,
-                          duration_ms: duration.as_millis(),
-                      });
-                  }
-
-                  // Streamed response: forward chunks as they arrive without buffering.
-                  let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
-                      let stream = futures_util::stream::unfold(chunk_rx, |mut rx| async move {
-                          rx.recv().await.map(|item| (item, rx))
-                      });
-                      Body::from_stream(stream)
-                  } else {
-                      Body::from(res_bytes)
-                  };
-
-                  match response_builder.body(body) {
-                      Ok(r) => r,
-                      Err(e) => {
-                          error!("Error constructing response: {:?}", e);
-                          (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
-                      }
-                  }
-              }
-              Err(_) => {
-                  log_request_failure(
-                      &state,
-                      &method_str,
-                      &uri_str,
-                      502,
-                      duration,
-                      Some("Communication channel with client closed abruptly"),
-                  )
-                  .await;
-                  state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, duration.as_millis() as u64);
-                  (StatusCode::BAD_GATEWAY, "502 Bad Gateway - Client connection lost in flight").into_response()
-              }
+              Some("Client concurrency limit: no slot freed within gateway timeout"),
+            )
+            .await;
+            break (
+              StatusCode::TOO_MANY_REQUESTS,
+              "429 Too Many Requests - Tunnel client concurrency limit reached",
+            )
+              .into_response();
           }
+        }
       }
+      None => None,
+    };
+
+    // Increment request stats for the chosen client.
+    selected.request_count.fetch_add(1, Ordering::SeqCst);
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
+
+    // Insert oneshot receiver to await response mapping
+    {
+      let mut pending = state.pending_requests.lock().await;
+      pending.insert(
+        request_id.clone(),
+        PendingRequest {
+          tx: tx_response,
+          client_id: selected.id.clone(),
+        },
+      );
+    }
+
+    let tunnel_req = TunnelMessage::Request {
+      id: request_id.clone(),
+      method: method_str.clone(),
+      uri: uri_str.clone(),
+      headers: serialized_headers.clone(),
+      body: base64_body.clone(),
+    };
+
+    let req_json = match serde_json::to_string(&tunnel_req) {
+      Ok(json) => json,
+      Err(e) => {
+        state.pending_requests.lock().await.remove(&request_id);
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          500,
+          start_time.elapsed(),
+          Some(&format!("Request serialization failed: {}", e)),
+        )
+        .await;
+        break (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
+      }
+    };
+
+    // A failed send means the client is already gone; it goes through the
+    // same failover decision as an in-flight connection loss.
+    let dispatched = selected.tx.send(Message::Text(req_json)).await.is_ok();
+    if !dispatched {
+      state.pending_requests.lock().await.remove(&request_id);
+    }
+
+    // Await the response with the per-attempt response timeout.
+    let outcome: Option<TunnelResponse> = if dispatched {
+      let timeout_fut = tokio::time::sleep(state.config.gateway_response_timeout);
+      tokio::pin!(timeout_fut);
+      tokio::select! {
+          _ = &mut timeout_fut => {
+              state.pending_requests.lock().await.remove(&request_id);
+              log_request_failure(
+                  &state,
+                  &method_str,
+                  &uri_str,
+                  504,
+                  start_time.elapsed(),
+                  Some("Client response timeout expired"),
+              )
+              .await;
+              state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
+              break gateway_timeout_response(&state, "504 Gateway Timeout - Gateway response timeout expired");
+          }
+          res_opt = rx_response => res_opt.ok(),
+      }
+    } else {
+      None
+    };
+
+    let duration = start_time.elapsed();
+    match outcome {
+      Some(mut tunnel_res) => {
+        let status_code =
+          StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+        let res_bytes = if let Some(ref encoded_body) = tunnel_res.body {
+          use base64::prelude::*;
+          BASE64_STANDARD.decode(encoded_body).unwrap_or_default()
+        } else {
+          Vec::new()
+        };
+
+        let body_len = res_bytes.len() as u64;
+
+        let mut response_builder = Response::builder().status(status_code);
+
+        for (k, v) in tunnel_res.headers.iter() {
+          let k_lower = k.to_lowercase();
+          // Strip connection management headers
+          if k_lower == "connection" || k_lower == "keep-alive" || k_lower == "transfer-encoding" {
+            continue;
+          }
+          if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(v),
+          ) {
+            response_builder = response_builder.header(name, value);
+          }
+        }
+
+        {
+          let mut stats = state.stats.lock().await;
+          // Only count server errors (5xx) as failed. 2xx/3xx/4xx are
+          // legitimate responses successfully proxied through the tunnel.
+          if status_code.is_server_error() {
+            stats.failed_requests += 1;
+          } else {
+            stats.successful_requests += 1;
+          }
+          // Streamed bodies are counted chunk-by-chunk as they arrive.
+          stats.total_bytes_transferred += body_len;
+        }
+
+        // Persistent (restart-surviving) counters.
+        {
+          let mut ps = state.persistent_stats.lock().await;
+          ps.record_request(
+            !status_code.is_server_error(),
+            body_bytes.len() as u64,
+            body_len,
+            duration.as_millis() as u64,
+          );
+        }
+
+        log_request_success(
+          &state,
+          request_id.clone(),
+          &method_str,
+          &uri_str,
+          tunnel_res.status,
+          duration,
+          request_host.as_deref(),
+          Some(&selected.id),
+          selected.token_name.as_deref(),
+        )
+        .await;
+
+        // Capture the transaction for the dashboard inspector.
+        {
+          use base64::prelude::*;
+          let resp_streamed = tunnel_res.stream_rx.is_some();
+          let (resp_body_cap, resp_truncated) = if resp_streamed || res_bytes.is_empty() {
+            (None, false)
+          } else if res_bytes.len() > CAPTURE_BODY_LIMIT {
+            (
+              Some(BASE64_STANDARD.encode(&res_bytes[..CAPTURE_BODY_LIMIT])),
+              true,
+            )
+          } else {
+            (Some(BASE64_STANDARD.encode(&res_bytes)), false)
+          };
+          let mut captured = state.captured_requests.lock().await;
+          if captured.len() >= CAPTURE_MAX_ENTRIES {
+            captured.pop_front();
+          }
+          captured.push_back(CapturedRequest {
+            id: request_id.clone(),
+            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            method: method_str.clone(),
+            uri: uri_str.clone(),
+            req_headers: capture_req_headers.clone(),
+            req_body: capture_req_body.clone(),
+            req_body_truncated: capture_req_truncated,
+            status: tunnel_res.status,
+            resp_headers: tunnel_res.headers.clone(),
+            resp_body: resp_body_cap,
+            resp_body_truncated: resp_truncated,
+            resp_streamed,
+            duration_ms: duration.as_millis(),
+          });
+        }
+
+        // Streamed response: forward chunks as they arrive without buffering.
+        let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
+          let stream = futures_util::stream::unfold(chunk_rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+          });
+          Body::from_stream(stream)
+        } else {
+          Body::from(res_bytes)
+        };
+
+        break match response_builder.body(body) {
+          Ok(r) => r,
+          Err(e) => {
+            error!("Error constructing response: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
+          }
+        };
+      }
+      None => {
+        // The client vanished before answering. No response bytes
+        // have reached the visitor yet, so a failover re-dispatch
+        // is safe (for retryable methods).
+        let can_failover = state.config.failover_mode != FailoverMode::Fail
+          && method_retryable(&method_str, state.config.failover_all_methods)
+          && jumps_used < state.config.failover_max_jumps;
+        if can_failover {
+          jumps_used += 1;
+          let deadline = *failover_deadline
+            .get_or_insert_with(|| tokio::time::Instant::now() + state.config.failover_window);
+          let next = match state.config.failover_mode {
+            FailoverMode::Retry => {
+              pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None).await
+            }
+            FailoverMode::Wait => {
+              // Wait for the same client process to return; when it
+              // never reported an instance ID, any candidate counts.
+              wait_for_candidate(
+                &state,
+                &uri_path_owned,
+                request_host.as_deref(),
+                selected.instance_id.as_deref(),
+                deadline,
+              )
+              .await
+            }
+            FailoverMode::RetryWait => {
+              wait_for_candidate(
+                &state,
+                &uri_path_owned,
+                request_host.as_deref(),
+                None,
+                deadline,
+              )
+              .await
+            }
+            FailoverMode::Fail => None,
+          };
+          if let Some(next_client) = next {
+            warn!(
+              "In-flight failover: {} {} re-dispatched from client {} to {} (jump {}/{})",
+              method_str,
+              uri_path_owned,
+              selected.id,
+              next_client.id,
+              jumps_used,
+              state.config.failover_max_jumps
+            );
+            selected = next_client;
+            continue;
+          }
+        }
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          502,
+          duration,
+          Some("Communication channel with client closed abruptly"),
+        )
+        .await;
+        state.persistent_stats.lock().await.record_request(
+          false,
+          body_bytes.len() as u64,
+          0,
+          duration.as_millis() as u64,
+        );
+        break (
+          StatusCode::BAD_GATEWAY,
+          "502 Bad Gateway - Client connection lost in flight",
+        )
+          .into_response();
+      }
+    }
   }
 }
 
@@ -5509,6 +5723,10 @@ mod tests {
       custom_504_page: None,
       custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
+      failover_mode: FailoverMode::Fail,
+      failover_max_jumps: 2,
+      failover_window: Duration::from_secs(15),
+      failover_all_methods: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -5582,6 +5800,10 @@ mod tests {
       custom_504_page: None,
       custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
+      failover_mode: FailoverMode::Fail,
+      failover_max_jumps: 2,
+      failover_window: Duration::from_secs(15),
+      failover_all_methods: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -5656,6 +5878,10 @@ mod tests {
       custom_504_page: None,
       custom_503_page: None,
       lb_strategy: LbStrategy::RoundRobin,
+      failover_mode: FailoverMode::Fail,
+      failover_max_jumps: 2,
+      failover_window: Duration::from_secs(15),
+      failover_all_methods: false,
     };
 
     let (client_connected_tx, _) = watch::channel(true);
@@ -5725,6 +5951,7 @@ mod tests {
         client_protocol: None,
         backend_healthy: true,
         priority: 0,
+        reported_instance_id: None,
       },
     );
 
@@ -5930,6 +6157,7 @@ mod tests {
       client_protocol: None,
       backend_healthy: true,
       priority: 0,
+      reported_instance_id: None,
     }
   }
 
@@ -6002,6 +6230,19 @@ mod tests {
       Some("app.example.com"),
       "/anything"
     ));
+  }
+
+  #[test]
+  fn test_method_retryable() {
+    // Idempotent methods may always fail over.
+    for m in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "TRACE"] {
+      assert!(method_retryable(m, false), "{m} must be retryable");
+    }
+    // Non-idempotent methods need the explicit opt-in.
+    for m in ["POST", "PATCH"] {
+      assert!(!method_retryable(m, false), "{m} must not retry by default");
+      assert!(method_retryable(m, true), "{m} must retry with the opt-in");
+    }
   }
 
   #[test]

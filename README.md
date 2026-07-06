@@ -150,6 +150,10 @@ The server is configured entirely through environment variables.
 | `APERIO_RANDOM_SUBDOMAIN` | e.g. `*.example.com` — every connecting client gets a random hostname under this suffix, in addition to its other binds. | — |
 | `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |
 | `APERIO_LB_STRATEGY` | Load-balancing strategy: `round-robin` or `primary-standby` (client priority tiers, see [Routing](#routing)). | `round-robin` |
+| `APERIO_FAILOVER` | What to do when a client dies mid-request: `fail`, `retry`, `wait`, or `retry-wait`. See [In-Flight Failover](#in-flight-failover). | `fail` |
+| `APERIO_FAILOVER_MAX_JUMPS` | Max re-dispatch attempts per request. | `2` |
+| `APERIO_FAILOVER_WINDOW` | Total seconds the `wait`/`retry-wait` modes may spend waiting for a candidate, across all jumps. | `15` |
+| `APERIO_FAILOVER_ALL_METHODS` | `1` = also fail over non-idempotent methods (POST/PATCH). Off by default because a re-dispatched request may reach a backend twice. | `0` |
 
 ### Limits & Protection
 
@@ -342,6 +346,19 @@ When a request arrives, the server picks a client in this order:
    - `primary-standby` — only the clients with the **lowest announced priority** (`--priority` / `APERIO_CLIENT_PRIORITY`, 0 = primary) receive traffic; standby tiers take over automatically when every more-primary client is unhealthy, draining, disabled, or gone. Rotation still applies within a tier. The dashboard marks standby clients with a `standby N` badge.
 
 A client can hold several hostname binds at once: its declared `--host`, hostnames granted by its token, and a random subdomain.
+
+### In-Flight Failover
+
+By default, a request that is already dispatched to a client fails with **502** if that client's connection drops before it answers. `APERIO_FAILOVER` changes this — failover only ever triggers when **no response bytes have reached the visitor yet**, so a re-dispatch is transparent:
+
+- `fail` *(default)* — answer 502 immediately.
+- `retry` — re-dispatch to another currently available candidate for the same route; 502 when none exists.
+- `wait` — wait for the **same client** to reconnect (recognized by its self-reported instance ID, which survives reconnects) and re-dispatch to it; when the instance is unknown, any candidate counts.
+- `retry-wait` — re-dispatch to another candidate right away; if none exists, wait for one to appear. The most available option.
+
+Two limits bound the behavior: `APERIO_FAILOVER_MAX_JUMPS` caps how many times one request may be re-dispatched (default 2), and `APERIO_FAILOVER_WINDOW` caps the total seconds the waiting modes may spend (default 15, starting at the first failure).
+
+Only **idempotent methods** (GET, HEAD, OPTIONS, PUT, DELETE, TRACE) fail over by default: a POST may have already reached the backend before the client died, and re-dispatching it could execute the operation twice. Set `APERIO_FAILOVER_ALL_METHODS=1` if your backends handle duplicate deliveries. Every jump is logged with the old and new client IDs.
 
 ### Hostname Binding
 
