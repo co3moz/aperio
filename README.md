@@ -83,7 +83,7 @@ The server is configured entirely through environment variables.
 | `APERIO_REQUIRE_HOSTNAME_BIND`           | Set to `1` or `true` to require hostname binds: clients without a hostname bind are excluded from load balancing entirely.  | `false`           | No       | Boolean |
 | `APERIO_DATA_DIR`                        | Directory for persisted server state (dynamic API tokens). Mount a volume here in Docker.                                    | `./data`          | No       | String  |
 | `APERIO_METRICS`                         | Set to `1` or `true` to enable the Prometheus metrics endpoint at `/aperio/metrics`.                                        | `false`           | No       | Boolean |
-| `APERIO_METRICS_TOKEN`                   | Optional bearer token required to scrape `/aperio/metrics` (`Authorization: Bearer <token>`). Unset = no auth on metrics.    | _(None)_          | No       | String  |
+| `APERIO_METRICS_TOKEN`                   | Token required to scrape `/aperio/metrics` — pass as `?token=<value>` or `Authorization: Bearer`. If unset while metrics are enabled, a random token is generated once and persisted in `APERIO_DATA_DIR/metrics_token` (logged on first generation). The endpoint is never public. | _(auto-generated)_ | No      | String  |
 | `LOG_LEVEL`                               | Log verbosity. Use instead of `RUST_LOG` for a simpler interface. Values: `error`, `warn`, `info`, `debug`, `trace`.          | `info`            | No       | String  |
 
 ### Endpoints

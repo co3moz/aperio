@@ -509,13 +509,55 @@ async fn main() {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
 
-  // Prometheus metrics endpoint (default: disabled). Optional bearer token.
+  // Prometheus metrics endpoint (default: disabled). Auth is always required:
+  // either APERIO_METRICS_TOKEN, or a random token generated once and
+  // persisted in the data directory (a truly public metrics endpoint brings
+  // no benefit and leaks operational details).
   let metrics_enabled = std::env::var("APERIO_METRICS")
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
   let metrics_token = std::env::var("APERIO_METRICS_TOKEN")
     .ok()
     .filter(|t| !t.trim().is_empty());
+
+  // Data directory for persisted state (dynamic tokens, etc.). In Docker,
+  // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
+  let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+  let token_store = TokenStore::load(&data_dir);
+
+  // Resolve the effective metrics token: env var wins; otherwise generate a
+  // random token once and persist it so every restart uses the same value.
+  let metrics_token = if metrics_enabled && metrics_token.is_none() {
+    let path = std::path::Path::new(&data_dir).join("metrics_token");
+    let persisted = std::fs::read_to_string(&path)
+      .ok()
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty());
+    match persisted {
+      Some(tok) => {
+        warn!(
+          "APERIO_METRICS_TOKEN not set; using the persisted random metrics token from {:?}. \
+           Scrape with /aperio/metrics?token=<token> or an Authorization: Bearer header.",
+          path
+        );
+        Some(tok)
+      }
+      None => {
+        let tok = format!("mtr_{}", uuid::Uuid::new_v4().simple());
+        if let Err(e) = std::fs::write(&path, &tok) {
+          error!("Failed to persist generated metrics token to {:?}: {}", path, e);
+        }
+        warn!(
+          "APERIO_METRICS_TOKEN not set; generated a random metrics token: {} (persisted in {:?}). \
+           Scrape with /aperio/metrics?token=<token>. This value is logged only on first generation.",
+          tok, path
+        );
+        Some(tok)
+      }
+    }
+  } else {
+    metrics_token
+  };
 
   let config = ServerConfig {
     token: token.clone(),
@@ -535,11 +577,6 @@ async fn main() {
   if require_hostname_bind {
     info!("Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic.");
   }
-
-  // Data directory for persisted state (dynamic tokens, etc.). In Docker,
-  // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
-  let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-  let token_store = TokenStore::load(&data_dir);
 
   let (client_connected_tx, _) = watch::channel(false);
 
@@ -948,16 +985,24 @@ async fn tokens_revoke_handler(
 }
 
 /// Prometheus text-format metrics endpoint (`/aperio/metrics`).
-/// Enabled with `APERIO_METRICS=1`; optionally protected with
-/// `APERIO_METRICS_TOKEN` (checked as a Bearer token).
-async fn metrics_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+/// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
+/// `?token=<value>` (convenient for Prometheus scrape configs) or as an
+/// `Authorization: Bearer <value>` header.
+async fn metrics_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+  headers: HeaderMap,
+) -> Response {
   if let Some(ref token) = state.config.metrics_token {
-    let authorized = headers
+    let bearer_ok = headers
       .get("authorization")
       .and_then(|v| v.to_str().ok())
       .and_then(|v| v.strip_prefix("Bearer "))
       .is_some_and(|t| constant_time_eq_str(t, token));
-    if !authorized {
+    let query_ok = query
+      .get("token")
+      .is_some_and(|t| constant_time_eq_str(t, token));
+    if !bearer_ok && !query_ok {
       return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
   }
