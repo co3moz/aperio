@@ -608,6 +608,10 @@ struct AppState {
   /// Requests to them get a 503 page even while clients are connected.
   /// In-memory only, like bind overrides: cleared by a server restart.
   maintenance: Mutex<std::collections::HashSet<String>>,
+  /// Structured access log file (APERIO_ACCESS_LOG): one JSON line per
+  /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
+  /// always emitted as structured `aperio_access` tracing events on stdout.
+  access_log: Option<std::sync::Mutex<std::fs::File>>,
 }
 
 impl AppState {
@@ -797,6 +801,33 @@ async fn main() {
         }
       });
 
+  // Structured access log: APERIO_ACCESS_LOG=<path> appends one JSON line
+  // per proxied request to the file (in addition to the structured
+  // aperio_access tracing events that always go to stdout).
+  let access_log = std::env::var("APERIO_ACCESS_LOG")
+    .ok()
+    .map(|p| p.trim().to_string())
+    .filter(|p| !p.is_empty())
+    .and_then(|path| {
+      match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+      {
+        Ok(file) => {
+          info!("Structured access log enabled: {}", path);
+          Some(std::sync::Mutex::new(file))
+        }
+        Err(e) => {
+          error!(
+            "Failed to open APERIO_ACCESS_LOG {}: {} — access log file disabled",
+            path, e
+          );
+          None
+        }
+      }
+    });
+
   // Optional custom maintenance page (APERIO_503_PAGE=/app/maintenance.html).
   let custom_503_page =
     std::env::var("APERIO_503_PAGE")
@@ -980,6 +1011,7 @@ async fn main() {
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
+    access_log,
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -3809,30 +3841,32 @@ async fn proxy_handler(
             c.tx.clone(),
             c.request_count.clone(),
             c.inflight_limiter.clone(),
+            c.perms.token_name.clone(),
           )
         })
       }
     }
   };
 
-  let (chosen_client_id, client_tx, client_req_counter, inflight_limiter) = match client_info {
-    Some(info) => info,
-    None => {
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        504,
-        start_time.elapsed(),
-        Some("No active client connection available"),
-      )
-      .await;
-      return gateway_timeout_response(
-        &state,
-        "504 Gateway Timeout - Client disconnected before request dispatch",
-      );
-    }
-  };
+  let (chosen_client_id, client_tx, client_req_counter, inflight_limiter, client_token_name) =
+    match client_info {
+      Some(info) => info,
+      None => {
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          504,
+          start_time.elapsed(),
+          Some("No active client connection available"),
+        )
+        .await;
+        return gateway_timeout_response(
+          &state,
+          "504 Gateway Timeout - Client disconnected before request dispatch",
+        );
+      }
+    };
 
   // Honor the client's announced concurrency limit: wait (up to the gateway
   // timeout) for an in-flight slot instead of flooding the client's backend.
@@ -3941,7 +3975,7 @@ async fn proxy_handler(
       request_id.clone(),
       PendingRequest {
         tx: tx_response,
-        client_id: chosen_client_id,
+        client_id: chosen_client_id.clone(),
       },
     );
   }
@@ -4067,7 +4101,17 @@ async fn proxy_handler(
                       );
                   }
 
-                  log_request_success(&state, request_id.clone(), &method_str, &uri_str, tunnel_res.status, duration).await;
+                  log_request_success(
+                      &state,
+                      request_id.clone(),
+                      &method_str,
+                      &uri_str,
+                      tunnel_res.status,
+                      duration,
+                      request_host.as_deref(),
+                      Some(&chosen_client_id),
+                      client_token_name.as_deref(),
+                  ).await;
 
                   // Capture the transaction for the dashboard inspector.
                   {
@@ -4979,6 +5023,18 @@ fn sanitize_uri(uri: &str) -> &str {
   uri.split('?').next().unwrap_or(uri)
 }
 
+/// Appends one JSON line to the access log file when APERIO_ACCESS_LOG is
+/// configured. The same data is always emitted as a structured tracing event.
+fn append_access_line(state: &AppState, entry: &serde_json::Value) {
+  if let Some(file) = &state.access_log {
+    use std::io::Write;
+    if let Ok(mut f) = file.lock() {
+      let _ = writeln!(f, "{}", entry);
+    }
+  }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn log_request_success(
   state: &Arc<AppState>,
   id: String,
@@ -4986,29 +5042,55 @@ async fn log_request_success(
   uri: &str,
   status: u16,
   duration: Duration,
+  host: Option<&str>,
+  client_id: Option<&str>,
+  token: Option<&str>,
 ) {
   let safe_uri = sanitize_uri(uri);
-  let mut logs = state.recent_logs.lock().await;
-  if logs.len() >= 100 {
-    logs.pop_front();
+  {
+    let mut logs = state.recent_logs.lock().await;
+    if logs.len() >= 100 {
+      logs.pop_front();
+    }
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    logs.push_back(RequestLog {
+      id: id.clone(),
+      timestamp,
+      method: method.to_string(),
+      uri: safe_uri.to_string(),
+      status: Some(status),
+      duration_ms: duration.as_millis(),
+      error: None,
+    });
   }
-  let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-  logs.push_back(RequestLog {
-    id: id.clone(),
-    timestamp,
-    method: method.to_string(),
-    uri: safe_uri.to_string(),
-    status: Some(status),
-    duration_ms: duration.as_millis(),
-    error: None,
-  });
+  // Structured access event: with the JSON log format every field below
+  // becomes a top-level key, directly usable by log pipelines.
   info!(
-    "Proxy SUCCESS: ID={} Method={} URI={} Status={} Duration={}ms",
-    id,
+    target: "aperio_access",
+    request_id = %id,
     method,
-    safe_uri,
+    uri = %safe_uri,
     status,
-    duration.as_millis()
+    duration_ms = duration.as_millis() as u64,
+    host = host.unwrap_or(""),
+    client_id = client_id.unwrap_or(""),
+    token = token.unwrap_or("master"),
+    "proxy success"
+  );
+  append_access_line(
+    state,
+    &serde_json::json!({
+      "ts": Local::now().to_rfc3339(),
+      "request_id": id,
+      "method": method,
+      "uri": safe_uri,
+      "status": status,
+      "duration_ms": duration.as_millis() as u64,
+      "host": host,
+      "client_id": client_id,
+      "token": token.unwrap_or("master"),
+      "error": null,
+    }),
   );
 }
 
@@ -5021,29 +5103,47 @@ async fn log_request_failure(
   error: Option<&str>,
 ) {
   let safe_uri = sanitize_uri(uri);
-  let mut logs = state.recent_logs.lock().await;
-  if logs.len() >= 100 {
-    logs.pop_front();
-  }
-  let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
   let id = uuid::Uuid::new_v4().to_string();
-  logs.push_back(RequestLog {
-    id: id.clone(),
-    timestamp,
-    method: method.to_string(),
-    uri: safe_uri.to_string(),
-    status: Some(status),
-    duration_ms: duration.as_millis(),
-    error: error.map(|s| s.to_string()),
-  });
+  {
+    let mut logs = state.recent_logs.lock().await;
+    if logs.len() >= 100 {
+      logs.pop_front();
+    }
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    logs.push_back(RequestLog {
+      id: id.clone(),
+      timestamp,
+      method: method.to_string(),
+      uri: safe_uri.to_string(),
+      status: Some(status),
+      duration_ms: duration.as_millis(),
+      error: error.map(|s| s.to_string()),
+    });
+  }
   warn!(
-    "Proxy FAILURE: ID={} Method={} URI={} Status={} Duration={}ms Error={:?}",
-    id,
+    target: "aperio_access",
+    request_id = %id,
     method,
-    safe_uri,
+    uri = %safe_uri,
     status,
-    duration.as_millis(),
-    error
+    duration_ms = duration.as_millis() as u64,
+    error = error.unwrap_or(""),
+    "proxy failure"
+  );
+  append_access_line(
+    state,
+    &serde_json::json!({
+      "ts": Local::now().to_rfc3339(),
+      "request_id": id,
+      "method": method,
+      "uri": safe_uri,
+      "status": status,
+      "duration_ms": duration.as_millis() as u64,
+      "host": null,
+      "client_id": null,
+      "token": null,
+      "error": error,
+    }),
   );
 }
 
@@ -5128,6 +5228,7 @@ mod tests {
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
       maintenance: Mutex::new(std::collections::HashSet::new()),
+      access_log: None,
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -5201,6 +5302,7 @@ mod tests {
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
       maintenance: Mutex::new(std::collections::HashSet::new()),
+      access_log: None,
     });
 
     let response = proxy_handler(
@@ -5273,6 +5375,7 @@ mod tests {
       oidc_states: Mutex::new(HashMap::new()),
       tcp_streams: Mutex::new(HashMap::new()),
       maintenance: Mutex::new(std::collections::HashSet::new()),
+      access_log: None,
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);

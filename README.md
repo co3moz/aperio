@@ -153,6 +153,7 @@ The server is configured entirely through environment variables.
 | `APERIO_TUNNEL_COMPRESSION` | `1` = offer per-message zlib compression to clients (enabled per connection once acknowledged; old clients keep plain frames). | `0` |
 | `APERIO_504_PAGE` | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | — |
 | `APERIO_503_PAGE` | Path to an HTML file served while a hostname is in maintenance mode instead of the plain-text default. | — |
+| `APERIO_ACCESS_LOG` | File path for the structured access log: one JSON line per proxied request (`request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, `error`) — directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured `aperio_access` tracing events. | — |
 
 ### Authentication Layers
 
