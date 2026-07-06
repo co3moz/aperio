@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
@@ -112,6 +112,11 @@ pub enum TunnelMessage {
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
+  /// Server → client: offers zlib compression for subsequent tunnel frames.
+  CompressionStart {},
+  /// Client → server: compression accepted; both sides may now send
+  /// compressed binary frames.
+  CompressionAck {},
 }
 
 /// Configuration settings for the Aperio server.
@@ -147,6 +152,9 @@ struct ServerConfig {
   /// A client whose last heartbeat is older than this is considered down and
   /// removed from the load-balancing pool until it pings again.
   client_down_threshold: Duration,
+  /// When true, the server offers zlib compression to connecting clients;
+  /// tunnel frames are compressed once the client acknowledges.
+  tunnel_compression: bool,
 }
 
 /// In-memory server-wide traffic statistics.
@@ -667,6 +675,15 @@ async fn main() {
     .ok()
     .filter(|t| !t.trim().is_empty());
 
+  // Tunnel frame compression (zlib). Offered to clients on connect; enabled
+  // per connection once the client acknowledges support.
+  let tunnel_compression = std::env::var("APERIO_TUNNEL_COMPRESSION")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  if tunnel_compression {
+    info!("Tunnel compression is enabled (zlib per-message)");
+  }
+
   // Heartbeat-based health: clients whose last Ping is older than this many
   // seconds are treated as down and excluded from load balancing.
   let client_down_threshold_secs = std::env::var("APERIO_CLIENT_DOWN_THRESHOLD")
@@ -754,6 +771,7 @@ async fn main() {
     metrics_token,
     random_subdomain_suffix,
     client_down_threshold: Duration::from_secs(client_down_threshold_secs),
+    tunnel_compression,
   };
 
   if require_hostname_bind {
@@ -1994,6 +2012,30 @@ fn constant_time_eq_str(a: &str, b: &str) -> bool {
   da.ct_eq(&db).into()
 }
 
+/// Compresses a tunnel text frame into a zlib binary frame.
+fn compress_frame(text: &str) -> Vec<u8> {
+  use flate2::{Compression, write::ZlibEncoder};
+  use std::io::Write;
+  let mut enc = ZlibEncoder::new(Vec::new(), Compression::fast());
+  let _ = enc.write_all(text.as_bytes());
+  enc.finish().unwrap_or_default()
+}
+
+/// Inflates a zlib binary frame back into a text frame, bounding the output
+/// size to protect against decompression bombs.
+fn decompress_frame(data: &[u8], max_out: usize) -> Option<String> {
+  use flate2::read::ZlibDecoder;
+  use std::io::Read;
+  let mut out = String::new();
+  let mut dec = ZlibDecoder::new(data).take(max_out as u64 + 1);
+  dec.read_to_string(&mut out).ok()?;
+  if out.len() > max_out {
+    warn!("Dropped tunnel frame: decompressed size exceeds limit");
+    return None;
+  }
+  Some(out)
+}
+
 /// Normalizes a path bind by ensuring it starts with `/` and stripping any
 /// trailing slashes. Returns `None` for the empty/root bind or for values
 /// that fail validation (too long, path traversal, or unsafe characters).
@@ -2260,10 +2302,21 @@ async fn handle_socket(
   // Create channel to handle writes asynchronously
   let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
 
+  // Per-connection compression state: outgoing frames are compressed once
+  // the client acknowledges the CompressionStart offer.
+  let compress_out = Arc::new(AtomicBool::new(false));
+
   // Spawn a writer task for this connection
   let writer_client_id = client_id.clone();
+  let compress_out_writer = compress_out.clone();
   let writer_task = tokio::spawn(async move {
     while let Some(msg) = rx_write.recv().await {
+      let msg = match msg {
+        Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
+          Message::Binary(compress_frame(&t))
+        }
+        other => other,
+      };
       if let Err(e) = ws_sender.send(msg).await {
         error!(
           "Error writing to websocket client {}: {:?}",
@@ -2354,11 +2407,30 @@ async fn handle_socket(
     }
   }
 
+  // Offer tunnel compression; frames stay uncompressed until the client Acks.
+  if state.config.tunnel_compression
+    && let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {})
+  {
+    let _ = tx_write.send(Message::Text(json)).await;
+  }
+
+  // Cap for decompressed tunnel frames (defends against zlib bombs).
+  let max_inflated = state
+    .config
+    .max_body_size
+    .saturating_mul(4)
+    .max(8 * 1024 * 1024);
+
   // Read loop
   while let Some(result) = ws_receiver.next().await {
     match result {
       Ok(msg) => {
-        if let Message::Text(text) = msg
+        let text_opt = match msg {
+          Message::Text(t) => Some(t),
+          Message::Binary(b) => decompress_frame(&b, max_inflated),
+          _ => None,
+        };
+        if let Some(text) = text_opt
           && let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text)
         {
           match tunnel_msg {
@@ -2509,6 +2581,10 @@ async fn handle_socket(
                 );
                 state.response_streams.lock().await.insert(id, handle);
               }
+            }
+            TunnelMessage::CompressionAck {} => {
+              info!("Client {} acknowledged tunnel compression", client_id);
+              compress_out.store(true, Ordering::SeqCst);
             }
             TunnelMessage::Draining {} => {
               info!("Client {} is draining: no new requests will be routed to it", client_id);
@@ -4100,6 +4176,7 @@ mod tests {
       metrics_token: None,
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
+      tunnel_compression: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -4166,6 +4243,7 @@ mod tests {
       metrics_token: None,
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
+      tunnel_compression: false,
     };
 
     let (client_connected_tx, _) = watch::channel(false);
@@ -4233,6 +4311,7 @@ mod tests {
       metrics_token: None,
       random_subdomain_suffix: None,
       client_down_threshold: Duration::from_secs(3600),
+      tunnel_compression: false,
     };
 
     let (client_connected_tx, _) = watch::channel(true);

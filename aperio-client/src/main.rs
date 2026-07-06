@@ -96,6 +96,11 @@ pub enum TunnelMessage {
   },
   /// Client → server: the client received a shutdown signal and is draining.
   Draining {},
+  /// Server → client: offers zlib compression for subsequent tunnel frames.
+  CompressionStart {},
+  /// Client → server: compression accepted; both sides may now send
+  /// compressed binary frames.
+  CompressionAck {},
 }
 
 /// Handle to an active WebSocket proxy stream connected to the local backend.
@@ -301,9 +306,19 @@ async fn main() {
             let active_ws_streams: Arc<Mutex<HashMap<String, WsStreamHandle>>> =
               Arc::new(Mutex::new(HashMap::new()));
 
+            // Outgoing compression is enabled after the server's offer is Acked.
+            let compress_out = Arc::new(AtomicBool::new(false));
+
             // Spawn task to handle WebSocket writes
+            let compress_out_writer = compress_out.clone();
             let writer_task = tokio::spawn(async move {
               while let Some(msg) = rx_write.recv().await {
+                let msg = match msg {
+                  Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
+                    Message::Binary(compress_frame(&t))
+                  }
+                  other => other,
+                };
                 if let Err(e) = ws_sender.send(msg).await {
                   error!("Error writing to server socket: {:?}", e);
                   break;
@@ -395,7 +410,12 @@ async fn main() {
                   msg_res = ws_receiver.next() => {
                       match msg_res {
                           Some(Ok(msg)) => {
-                              if let Message::Text(text) = msg
+                              let text_opt = match msg {
+                                  Message::Text(t) => Some(t),
+                                  Message::Binary(b) => decompress_frame(&b, max_message_size.saturating_mul(4)),
+                                  _ => None,
+                              };
+                              if let Some(text) = text_opt
                                   && let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text)
                               {
                                   match tunnel_msg {
@@ -514,6 +534,13 @@ async fn main() {
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
                                           }
+                                          TunnelMessage::CompressionStart {} => {
+                                              info!("Server offered tunnel compression; enabling zlib frames");
+                                              if let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionAck {}) {
+                                                  let _ = tx_write.send(Message::Text(json)).await;
+                                              }
+                                              compress_out.store(true, Ordering::SeqCst);
+                                          }
                                           TunnelMessage::HostnameAssigned { hostname } => {
                                               info!("Server assigned hostname to this client: {}", hostname);
                                           }
@@ -562,6 +589,30 @@ async fn main() {
     info!("Retrying connection in 5 seconds...");
     tokio::time::sleep(Duration::from_secs(5)).await;
   }
+}
+
+/// Compresses a tunnel text frame into a zlib binary frame.
+fn compress_frame(text: &str) -> Vec<u8> {
+  use flate2::{Compression, write::ZlibEncoder};
+  use std::io::Write;
+  let mut enc = ZlibEncoder::new(Vec::new(), Compression::fast());
+  let _ = enc.write_all(text.as_bytes());
+  enc.finish().unwrap_or_default()
+}
+
+/// Inflates a zlib binary frame back into a text frame, bounding the output
+/// size to protect against decompression bombs from a misbehaving server.
+fn decompress_frame(data: &[u8], max_out: usize) -> Option<String> {
+  use flate2::read::ZlibDecoder;
+  use std::io::Read;
+  let mut out = String::new();
+  let mut dec = ZlibDecoder::new(data).take(max_out as u64 + 1);
+  dec.read_to_string(&mut out).ok()?;
+  if out.len() > max_out {
+    warn!("Dropped tunnel frame: decompressed size exceeds limit");
+    return None;
+  }
+  Some(out)
 }
 
 /// Builds the correct WebSocket connection URL from an HTTP or WS address.
