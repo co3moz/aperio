@@ -22,6 +22,7 @@ use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
 mod audit;
+mod oidc;
 mod stats;
 mod tokens;
 mod webhooks;
@@ -501,6 +502,10 @@ struct AppState {
   persistent_stats: Mutex<StatsStore>,
   /// Persistent webhook definitions for the event system.
   webhook_store: Mutex<WebhookStore>,
+  /// OIDC SSO runtime config (None = feature disabled).
+  oidc: Option<oidc::OidcRuntime>,
+  /// Pending OIDC login flows: state token → (original redirect, expiry).
+  oidc_states: Mutex<HashMap<String, (String, Instant)>>,
 }
 
 impl AppState {
@@ -755,6 +760,9 @@ async fn main() {
     info!("Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic.");
   }
 
+  // OIDC SSO configuration (optional).
+  let oidc_runtime = oidc::load_from_env().await;
+
   let (client_connected_tx, _) = watch::channel(false);
 
   let state = Arc::new(AppState {
@@ -789,6 +797,8 @@ async fn main() {
     audit: Mutex::new(AuditLog::load(&data_dir)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
+    oidc: oidc_runtime,
+    oidc_states: Mutex::new(HashMap::new()),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -877,6 +887,8 @@ async fn main() {
     get(auth_page_handler).post(auth_login_handler),
   );
   app = app.route("/aperio/ws", get(ws_handler));
+  app = app.route("/aperio/oidc/login", get(oidc_login_handler));
+  app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));
 
   // Prometheus metrics endpoint, registered outside the dashboard session
   // middleware. Access control is handled by APERIO_METRICS_TOKEN if set.
@@ -2844,8 +2856,16 @@ async fn proxy_handler(
   }
 
   // 2. Session/Auth check (if configured)
-  if state.config.auth_credentials.is_some() && !validate_session(&state, &headers).await {
-    let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&uri_str));
+  let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
+  if auth_required && !validate_session(&state, &headers).await {
+    // Prefer the OIDC SSO flow when configured; fall back to the built-in
+    // password login page otherwise.
+    let login_path = if state.oidc.is_some() {
+      "/aperio/oidc/login"
+    } else {
+      "/aperio/auth"
+    };
+    let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
     return Response::builder()
       .status(StatusCode::FOUND)
       .header("Location", redirect_url)
@@ -3309,8 +3329,16 @@ async fn handle_ws_proxy(
   }
 
   // 2. Session/Auth check
-  if state.config.auth_credentials.is_some() && !validate_session(&state, &headers).await {
-    let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&uri_str));
+  let auth_required = state.config.auth_credentials.is_some() || state.oidc.is_some();
+  if auth_required && !validate_session(&state, &headers).await {
+    // Prefer the OIDC SSO flow when configured; fall back to the built-in
+    // password login page otherwise.
+    let login_path = if state.oidc.is_some() {
+      "/aperio/oidc/login"
+    } else {
+      "/aperio/auth"
+    };
+    let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
     return Response::builder()
       .status(StatusCode::FOUND)
       .header("Location", redirect_url)
@@ -3725,6 +3753,230 @@ async fn relay_ws_stream(
   );
 }
 
+
+/// Derives the OIDC redirect URI for this deployment: the explicit override
+/// wins, otherwise it is built from the request Host header (and
+/// X-Forwarded-Proto when running behind a trusted proxy).
+fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  let rt = state.oidc.as_ref()?;
+  if let Some(ref fixed) = rt.redirect_url_override {
+    return Some(fixed.clone());
+  }
+  let host = headers.get("host").and_then(|v| v.to_str().ok())?;
+  let proto = if state.config.trust_proxy {
+    headers
+      .get("x-forwarded-proto")
+      .and_then(|v| v.to_str().ok())
+      .unwrap_or("http")
+  } else {
+    "http"
+  };
+  Some(format!("{}://{}/aperio/oidc/callback", proto, host))
+}
+
+/// Starts the OIDC authorization code flow: stores a CSRF state token and
+/// redirects the browser to the identity provider.
+async fn oidc_login_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let Some(rt) = state.oidc.clone() else {
+    return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
+  };
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  if !state.check_rate_limit(caller_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
+  let redirect_after = query
+    .get("redirect")
+    .map(|r| safe_redirect_path(r).to_string())
+    .unwrap_or_else(|| "/".to_string());
+  let Some(redirect_uri) = oidc_redirect_uri(&state, &headers) else {
+    return (StatusCode::BAD_REQUEST, "Missing Host header").into_response();
+  };
+
+  // Register the CSRF state (10 min TTL, opportunistic GC).
+  let state_token = uuid::Uuid::new_v4().to_string();
+  {
+    let mut states = state.oidc_states.lock().await;
+    let now = Instant::now();
+    states.retain(|_, (_, exp)| *exp > now);
+    states.insert(
+      state_token.clone(),
+      (redirect_after, now + Duration::from_secs(600)),
+    );
+  }
+
+  let authorize = url::Url::parse_with_params(
+    &rt.authorization_endpoint,
+    &[
+      ("response_type", "code"),
+      ("client_id", rt.client_id.as_str()),
+      ("redirect_uri", redirect_uri.as_str()),
+      ("scope", rt.scopes.as_str()),
+      ("state", state_token.as_str()),
+    ],
+  );
+  match authorize {
+    Ok(u) => Response::builder()
+      .status(StatusCode::FOUND)
+      .header("Location", u.to_string())
+      .body(Body::empty())
+      .unwrap(),
+    Err(e) => {
+      error!("Failed to build OIDC authorize URL: {}", e);
+      (StatusCode::INTERNAL_SERVER_ERROR, "OIDC configuration error").into_response()
+    }
+  }
+}
+
+/// OIDC callback: validates the CSRF state, exchanges the code for tokens,
+/// fetches the userinfo email, checks it against the allowlist, and creates
+/// a session identical to the password login.
+async fn oidc_callback_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let Some(rt) = state.oidc.clone() else {
+    return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
+  };
+  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config.trust_proxy);
+  if !state.check_rate_limit(caller_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
+  let (Some(code), Some(state_param)) = (query.get("code"), query.get("state")) else {
+    return (StatusCode::BAD_REQUEST, "Missing code/state parameter").into_response();
+  };
+
+  // Validate and consume the CSRF state.
+  let redirect_after = {
+    let mut states = state.oidc_states.lock().await;
+    match states.remove(state_param) {
+      Some((redirect, exp)) if exp > Instant::now() => redirect,
+      _ => {
+        return (StatusCode::BAD_REQUEST, "Invalid or expired OIDC state").into_response();
+      }
+    }
+  };
+  let Some(redirect_uri) = oidc_redirect_uri(&state, &headers) else {
+    return (StatusCode::BAD_REQUEST, "Missing Host header").into_response();
+  };
+
+  // Exchange the authorization code for an access token.
+  let http = reqwest::Client::builder()
+    .timeout(Duration::from_secs(15))
+    .build()
+    .unwrap_or_default();
+  let token_res = http
+    .post(&rt.token_endpoint)
+    .form(&[
+      ("grant_type", "authorization_code"),
+      ("code", code.as_str()),
+      ("redirect_uri", redirect_uri.as_str()),
+      ("client_id", rt.client_id.as_str()),
+      ("client_secret", rt.client_secret.as_str()),
+    ])
+    .send()
+    .await;
+  #[derive(Deserialize)]
+  struct TokenResponse {
+    access_token: String,
+  }
+  let access_token = match token_res {
+    Ok(res) if res.status().is_success() => match res.json::<TokenResponse>().await {
+      Ok(t) => t.access_token,
+      Err(e) => {
+        error!("OIDC token response parse error: {}", e);
+        return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
+      }
+    },
+    Ok(res) => {
+      warn!("OIDC token endpoint returned {}", res.status());
+      return (StatusCode::UNAUTHORIZED, "OIDC token exchange rejected").into_response();
+    }
+    Err(e) => {
+      error!("OIDC token exchange failed: {}", e);
+      return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
+    }
+  };
+
+  // Fetch the verified identity from the issuer (trusted via TLS).
+  #[derive(Deserialize)]
+  struct UserInfo {
+    email: Option<String>,
+  }
+  let userinfo = http
+    .get(&rt.userinfo_endpoint)
+    .bearer_auth(&access_token)
+    .send()
+    .await;
+  let email = match userinfo {
+    Ok(res) if res.status().is_success() => match res.json::<UserInfo>().await {
+      Ok(u) => u.email.unwrap_or_default(),
+      Err(e) => {
+        error!("OIDC userinfo parse error: {}", e);
+        return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
+      }
+    },
+    _ => {
+      return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
+    }
+  };
+
+  if !oidc::email_allowed(&email, &rt.allowed_emails) {
+    warn!("OIDC login denied for {} (not in allowlist)", email);
+    state
+      .audit(
+        "oidc_login_denied",
+        &caller_ip.to_string(),
+        &format!("email={}", email),
+      )
+      .await;
+    return (
+      StatusCode::FORBIDDEN,
+      "403 Forbidden - Your account is not allowed to access this service",
+    )
+      .into_response();
+  }
+
+  info!("OIDC login success for {}", email);
+  state
+    .audit(
+      "oidc_login_success",
+      &caller_ip.to_string(),
+      &format!("email={}", email),
+    )
+    .await;
+
+  // Create a session identical to the password login flow.
+  let session_token = uuid::Uuid::new_v4().to_string();
+  state.sessions.lock().await.insert(
+    session_token.clone(),
+    SessionInfo {
+      expires_at: Instant::now() + Duration::from_secs(86400),
+    },
+  );
+  let secure_flag = if state.config.secure_cookies {
+    "; Secure"
+  } else {
+    ""
+  };
+  let cookie = format!(
+    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+    session_token, secure_flag
+  );
+  Response::builder()
+    .status(StatusCode::FOUND)
+    .header("Set-Cookie", cookie)
+    .header("Location", redirect_after)
+    .body(Body::empty())
+    .unwrap()
+}
+
 /// Validates a redirect path to prevent open redirect attacks.
 /// Only allows same-origin relative paths (starting with `/`) and rejects
 /// protocol-relative URLs (`//evil.com`) and backslash-based bypasses (`/\`).
@@ -3883,6 +4135,8 @@ mod tests {
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
       webhook_store: Mutex::new(test_webhook_store()),
+      oidc: None,
+      oidc_states: Mutex::new(HashMap::new()),
     };
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -3948,6 +4202,8 @@ mod tests {
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
       webhook_store: Mutex::new(test_webhook_store()),
+      oidc: None,
+      oidc_states: Mutex::new(HashMap::new()),
     });
 
     let response = proxy_handler(
@@ -4012,6 +4268,8 @@ mod tests {
       audit: Mutex::new(test_audit_log()),
       persistent_stats: Mutex::new(test_stats_store()),
       webhook_store: Mutex::new(test_webhook_store()),
+      oidc: None,
+      oidc_states: Mutex::new(HashMap::new()),
     });
 
     let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
