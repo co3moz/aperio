@@ -1,5 +1,5 @@
 import { GlobeIcon } from '@radix-ui/react-icons'
-import { Badge, Box, Container, Flex, Heading, Separator, Text } from '@radix-ui/themes'
+import { Badge, Box, Container, Flex, Heading, Separator, TabNav, Text } from '@radix-ui/themes'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
@@ -20,10 +20,20 @@ import { formatUptime } from './lib/format'
 const POLL_INTERVAL_MS = 2000
 const HISTORY_LENGTH = 30
 
+type Page = 'overview' | 'traffic' | 'access' | 'system'
+
+const PAGES: { id: Page; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'traffic', label: 'Traffic' },
+  { id: 'access', label: 'Access' },
+  { id: 'system', label: 'System' },
+]
+
 export default function App() {
   const { data: stats, refresh: refreshStats } = usePoll(api.stats, POLL_INTERVAL_MS)
   const { data: logs } = usePoll(api.logs, POLL_INTERVAL_MS)
   const [inspectId, setInspectId] = useState<string | null>(null)
+  const [page, setPage] = useState<Page>('overview')
 
   // Requests/second sparkline derived from the total_requests delta between
   // consecutive stats polls.
@@ -55,7 +65,7 @@ export default function App() {
         }}
       >
         <Container size="4" px="5">
-          <Flex justify="between" align="center" py="4">
+          <Flex justify="between" align="center" pt="4" pb="2">
             <Flex align="center" gap="2">
               <GlobeIcon width="22" height="22" color="var(--indigo-9)" />
               <Heading
@@ -74,22 +84,53 @@ export default function App() {
               {connected ? 'Connected & Active' : 'Offline (Waiting for Client)'}
             </Badge>
           </Flex>
+          <TabNav.Root>
+            {PAGES.map((p) => (
+              <TabNav.Link
+                key={p.id}
+                href={`#${p.id}`}
+                active={page === p.id}
+                onClick={(e) => {
+                  e.preventDefault()
+                  setPage(p.id)
+                }}
+              >
+                {p.label}
+              </TabNav.Link>
+            ))}
+          </TabNav.Root>
         </Container>
       </Box>
 
       <Container size="4" px="5" flexGrow="1">
         <Flex direction="column" gap="6" py="6">
-          <StatsCards stats={stats} />
-          <ActivityChart history={history} />
-          <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
-          <TrafficBreakdownSection stats={stats} />
-          <MaintenanceSection />
-          <ShareLinksSection />
-          <TokensSection />
-          <WebhooksSection />
-          <AuditSection />
-          <TrafficSection logs={logs} onInspect={setInspectId} />
-          <SettingsSection />
+          {page === 'overview' && (
+            <>
+              <StatsCards stats={stats} />
+              <ActivityChart history={history} />
+              <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+            </>
+          )}
+          {page === 'traffic' && (
+            <>
+              <TrafficSection logs={logs} onInspect={setInspectId} />
+              <TrafficBreakdownSection stats={stats} />
+            </>
+          )}
+          {page === 'access' && (
+            <>
+              <TokensSection />
+              <ShareLinksSection />
+              <MaintenanceSection />
+            </>
+          )}
+          {page === 'system' && (
+            <>
+              <SettingsSection />
+              <WebhooksSection />
+              <AuditSection />
+            </>
+          )}
         </Flex>
       </Container>
 

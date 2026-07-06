@@ -167,6 +167,7 @@ The server is configured through environment variables; most settings can also b
 | `APERIO_SERVER_GATEWAY_TIMEOUT` | Seconds to wait for a client to (re)connect before failing a request. | `10` |
 | `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Seconds to wait for a client to answer a dispatched request. | `30` |
 | `APERIO_TRUST_PROXY` | `1` = trust `X-Forwarded-For` / `X-Real-IP` for client IPs. Enable **only** behind a trusted reverse proxy. | `0` |
+| `APERIO_REAL_IP_HEADER` | Header consulted **before** `X-Forwarded-For` for the real client IP (with `APERIO_TRUST_PROXY=1`). Needed behind CDN→proxy chains where the proxy resets XFF to the CDN edge — e.g. set `CF-Connecting-IP` behind Cloudflare, or configure the proxy's `forwardedHeaders.trustedIPs` instead. | — |
 | `APERIO_SECURE_COOKIES` | `1` = set the `Secure` flag on session cookies. Defaults to the `APERIO_TRUST_PROXY` value. | — |
 | `APERIO_TUNNEL_COMPRESSION` | `1` = offer per-message zlib compression to clients (enabled per connection once acknowledged; old clients keep plain frames). | `0` |
 | `APERIO_504_PAGE` | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | — |

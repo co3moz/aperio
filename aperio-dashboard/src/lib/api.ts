@@ -212,7 +212,7 @@ export const api = {
   updateSettings: (overrides: SettingsOverrides) =>
     request<{ effective: SettingsValues }>('/settings', json('PUT', overrides)),
   createShareLink: (payload: { hostname: string; path?: string; ttl_seconds?: number }) =>
-    request<{ id: string; url: string; token: string; expires_at: number }>(
+    request<{ id: string; url: string; token: string; expires_at: number | null }>(
       '/share',
       json('POST', payload),
     ),

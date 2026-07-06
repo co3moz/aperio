@@ -44,10 +44,22 @@ function dockerCommand(serverUrl: string, token: string, s: WizardState): string
 function cliCommand(serverUrl: string, token: string, s: WizardState): string {
   const port = localPort(s.target)
   if (port) {
-    let cmd = `aperio-client http ${port} --server ${serverUrl} --token ${token}`
-    if (s.hostname) cmd += ` --host ${s.hostname}`
-    if (s.path) cmd += ` --path ${s.path}`
-    return cmd
+    // Multi-line with continuations: long single lines wrap unpredictably
+    // inside the <pre> block.
+    const lines = [
+      `aperio-client http ${port} \\`,
+      `  --server ${serverUrl} \\`,
+      `  --token ${token}`,
+    ]
+    if (s.hostname) {
+      lines[lines.length - 1] += ' \\'
+      lines.push(`  --host ${s.hostname}`)
+    }
+    if (s.path) {
+      lines[lines.length - 1] += ' \\'
+      lines.push(`  --path ${s.path}`)
+    }
+    return lines.join('\n')
   }
   // Non-local targets have no CLI shorthand; fall back to env (Docker) mode.
   const env = [
@@ -81,17 +93,22 @@ function CommandBlock({ content }: { content: string }) {
     }
   }
 
+  // The copy button floats over the top-right corner of the code block so it
+  // never stacks with the dialog's own footer buttons.
   return (
-    <Flex direction="column" gap="2" mt="3">
-      <pre className="inspector-pre" style={{ maxHeight: 320 }}>
+    <div style={{ position: 'relative', marginTop: 'var(--space-3)' }}>
+      <pre className="inspector-pre" style={{ maxHeight: 320, paddingRight: 96 }}>
         {content}
       </pre>
-      <Flex justify="end">
-        <Button size="1" variant="soft" onClick={copy}>
-          {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </Flex>
-    </Flex>
+      <Button
+        size="1"
+        variant="soft"
+        onClick={copy}
+        style={{ position: 'absolute', top: 8, right: 8 }}
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
+      </Button>
+    </div>
   )
 }
 
@@ -166,7 +183,7 @@ export function AddClientWizard() {
     <Dialog.Root open={open} onOpenChange={openDialog}>
       <Dialog.Trigger>
         <Button size="2" variant="soft">
-          <PlusIcon /> Add Client
+          <PlusIcon /> Connect a new client
         </Button>
       </Dialog.Trigger>
       <Dialog.Content maxWidth="620px">

@@ -13,11 +13,30 @@ import {
 import { useState, type FormEvent } from 'react'
 import { api, ApiError } from '../lib/api'
 
+const MINUTE = 60
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
 const TTL_OPTIONS = [
-  { value: String(60 * 60), label: '1 hour' },
-  { value: String(24 * 60 * 60), label: '1 day' },
-  { value: String(3 * 24 * 60 * 60), label: '3 days' },
-  { value: String(7 * 24 * 60 * 60), label: '7 days' },
+  { value: String(10 * MINUTE), label: '10 minutes' },
+  { value: String(30 * MINUTE), label: '30 minutes' },
+  { value: String(HOUR), label: '1 hour' },
+  { value: String(3 * HOUR), label: '3 hours' },
+  { value: String(6 * HOUR), label: '6 hours' },
+  { value: String(12 * HOUR), label: '12 hours' },
+  { value: String(DAY), label: '1 day' },
+  { value: String(2 * DAY), label: '2 days' },
+  { value: String(3 * DAY), label: '3 days' },
+  { value: String(5 * DAY), label: '5 days' },
+  { value: String(7 * DAY), label: '1 week' },
+  { value: String(14 * DAY), label: '2 weeks' },
+  { value: String(30 * DAY), label: '1 month' },
+  { value: String(90 * DAY), label: '3 months' },
+  { value: String(180 * DAY), label: '6 months' },
+  { value: String(365 * DAY), label: '1 year' },
+  { value: String(2 * 365 * DAY), label: '2 years' },
+  { value: String(5 * 365 * DAY), label: '5 years' },
+  { value: '0', label: 'never expires' },
 ]
 
 /**
@@ -31,7 +50,7 @@ export function ShareLinksSection() {
   const [ttl, setTtl] = useState(TTL_OPTIONS[2].value)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ url: string; expires_at: number } | null>(null)
+  const [result, setResult] = useState<{ url: string; expires_at: number | null } | null>(null)
   const [copied, setCopied] = useState(false)
 
   const create = async (e: FormEvent) => {
@@ -124,7 +143,9 @@ export function ShareLinksSection() {
                     {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
                   </Button>
                   <Text size="1" color="gray">
-                    valid until {new Date(result.expires_at * 1000).toLocaleString()}
+                    {result.expires_at
+                      ? `valid until ${new Date(result.expires_at * 1000).toLocaleString()}`
+                      : 'never expires'}
                   </Text>
                 </Flex>
               </Callout.Text>

@@ -219,6 +219,9 @@ struct ServerConfig {
   /// client IP resolution. Only enable when running behind a trusted reverse
   /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
   trust_proxy: bool,
+  /// Header consulted first for the real client IP when trust_proxy is on
+  /// (APERIO_REAL_IP_HEADER, e.g. `CF-Connecting-IP` behind Cloudflare).
+  real_ip_header: Option<String>,
   /// When true, session cookies include the `Secure` flag so browsers only
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).
@@ -1043,6 +1046,21 @@ async fn main() {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
 
+  // Optional real-IP header consulted before X-Forwarded-For (only with
+  // trust_proxy). Needed behind CDN → proxy chains where the proxy resets
+  // XFF to the CDN edge address, e.g. APERIO_REAL_IP_HEADER=CF-Connecting-IP.
+  let real_ip_header = std::env::var("APERIO_REAL_IP_HEADER")
+    .ok()
+    .map(|v| v.trim().to_ascii_lowercase())
+    .filter(|v| !v.is_empty());
+  if let Some(ref h) = real_ip_header {
+    if trust_proxy {
+      info!("Real client IP is read from the '{}' header", h);
+    } else {
+      warn!("APERIO_REAL_IP_HEADER is set but APERIO_TRUST_PROXY is off; the header is ignored");
+    }
+  }
+
   // When true, session cookies include the `Secure` flag (HTTPS-only).
   // Defaults to `trust_proxy` since a TLS-terminating reverse proxy implies HTTPS.
   let secure_cookies = std::env::var("APERIO_SECURE_COOKIES")
@@ -1273,6 +1291,7 @@ async fn main() {
     ip_limit_refill,
     auth_credentials,
     trust_proxy,
+    real_ip_header,
     secure_cookies,
     require_hostname_bind,
     metrics_token,
@@ -1438,11 +1457,17 @@ async fn main() {
           if validate_session(&state, req.headers()).await {
             return next.run(req).await;
           }
-          // Redirect to login page, preserving the original path
-          let redirect_url = format!(
-            "/aperio/auth?redirect={}",
-            safe_redirect_path(req.uri().path())
-          );
+          // Redirect to login page, preserving the original path. The nested
+          // router sees the path with the /aperio prefix stripped ("/" for
+          // the dashboard itself), so the prefix must be re-added or the
+          // post-login redirect lands on the proxied site instead.
+          let nested_path = req.uri().path();
+          let full_path = if nested_path == "/" {
+            "/aperio".to_string()
+          } else {
+            format!("/aperio{}", nested_path)
+          };
+          let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&full_path));
           Response::builder()
             .status(StatusCode::FOUND)
             .header("Location", redirect_url)
@@ -1712,7 +1737,13 @@ async fn client_override_handler(
   headers: HeaderMap,
   Json(payload): Json<ClientOverrideRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   // Validate before mutating: reject invalid values with 400.
   let new_hostname = match payload.hostname_bind.as_deref() {
     None | Some("") => None,
@@ -1792,7 +1823,13 @@ async fn webhooks_create_handler(
   headers: HeaderMap,
   Json(payload): Json<WebhookCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
     return (
@@ -1834,7 +1871,13 @@ async fn webhooks_delete_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   if state.webhook_store.lock().await.delete(&id) {
     state
       .audit("webhook_deleted", &actor_ip, &format!("id={}", id))
@@ -1860,7 +1903,13 @@ async fn client_enabled_handler(
   headers: HeaderMap,
   Json(payload): Json<ClientEnabledRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {
@@ -2026,7 +2075,13 @@ async fn tokens_create_handler(
   headers: HeaderMap,
   Json(payload): Json<TokenCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let name = payload.name.trim().to_string();
   if name.is_empty() || name.len() > 64 {
     return (
@@ -2095,7 +2150,13 @@ async fn tokens_update_handler(
   headers: HeaderMap,
   Json(payload): Json<TokenUpdateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
 
   if let Some(ref n) = payload.name {
     let n = n.trim();
@@ -2170,7 +2231,13 @@ async fn tokens_revoke_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);
@@ -2219,7 +2286,13 @@ async fn settings_put_handler(
   headers: HeaderMap,
   Json(payload): Json<SettingsOverrides>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
 
   // Reject values that apply_settings_overrides would silently skip.
   if let Some(ref s) = payload.lb_strategy
@@ -2320,7 +2393,13 @@ async fn maintenance_set_handler(
   headers: HeaderMap,
   Json(payload): Json<MaintenanceRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let raw = payload.hostname.trim();
   let hostname = if raw == "*" {
     "*".to_string()
@@ -2391,7 +2470,13 @@ async fn share_create_handler(
   headers: HeaderMap,
   Json(payload): Json<ShareCreateRequest>,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
 
   let hostname = match normalize_hostname_bind(payload.hostname.trim()) {
     Some(h) => h,
@@ -2417,11 +2502,15 @@ async fn share_create_handler(
       }
     },
   };
+  // ttl_seconds: omitted = 3 days, 0 = the link never expires.
   let ttl = payload.ttl_seconds.unwrap_or(SHARE_DEFAULT_TTL_SECS);
-  if ttl == 0 || ttl > SHARE_MAX_TTL_SECS {
+  if ttl > SHARE_MAX_TTL_SECS {
     return (
       StatusCode::BAD_REQUEST,
-      format!("ttl_seconds must be between 1 and {}", SHARE_MAX_TTL_SECS),
+      format!(
+        "ttl_seconds must be at most {} (or 0 for never)",
+        SHARE_MAX_TTL_SECS
+      ),
     )
       .into_response();
   }
@@ -2433,7 +2522,7 @@ async fn share_create_handler(
   let claims = ShareClaims {
     host: hostname.clone(),
     path: path.clone(),
-    exp: now + ttl,
+    exp: if ttl == 0 { None } else { Some(now + ttl) },
     id: uuid::Uuid::new_v4().simple().to_string()[..8].to_string(),
   };
   let token = sign_share_claims(&claims, &share_signing_key(&state.config().token));
@@ -2445,7 +2534,7 @@ async fn share_create_handler(
   );
 
   info!(
-    "Share link created: id={} host={} path={:?} expires_at={}",
+    "Share link created: id={} host={} path={:?} expires_at={:?}",
     claims.id, hostname, path, claims.exp
   );
   state
@@ -2453,7 +2542,7 @@ async fn share_create_handler(
       "share_created",
       &actor_ip,
       &format!(
-        "id={} hostname={} path={:?} expires_at={}",
+        "id={} hostname={} path={:?} expires_at={:?}",
         claims.id, hostname, path, claims.exp
       ),
     )
@@ -2521,7 +2610,12 @@ async fn tunnels_create_handler(
   headers: HeaderMap,
   Json(payload): Json<TunnelCreateRequest>,
 ) -> Response {
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   // Rate limit before auth so credential guessing is throttled like login.
   if !state.check_rate_limit(client_ip).await {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -2660,7 +2754,12 @@ async fn tunnels_delete_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   if !state.check_rate_limit(client_ip).await {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
@@ -2720,7 +2819,13 @@ async fn request_replay_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let actor_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy).to_string();
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  )
+  .to_string();
   let captured = {
     let store = state.captured_requests.lock().await;
     store.iter().find(|c| c.id == id).cloned()
@@ -2981,7 +3086,12 @@ async fn auth_login_handler(
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
   // Rate limit login attempts per IP to mitigate brute-force attacks.
-  let client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
@@ -3610,12 +3720,29 @@ fn method_retryable(method: &str, all_methods: bool) -> bool {
     )
 }
 
-/// Resolves the real client IP, honoring `X-Forwarded-For` / `X-Real-IP` only
-/// when `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
+/// Resolves the real client IP, honoring forwarding headers only when
+/// `trust_proxy` is enabled (i.e. the server runs behind a trusted reverse
 /// proxy). Otherwise the direct socket address is used, since clients could
 /// otherwise spoof these headers to bypass rate limiting.
-fn extract_client_ip(headers: &HeaderMap, fallback: IpAddr, trust_proxy: bool) -> IpAddr {
+///
+/// `real_ip_header` (APERIO_REAL_IP_HEADER, e.g. `CF-Connecting-IP`) takes
+/// precedence over X-Forwarded-For: intermediate proxies such as Traefik
+/// often reset XFF to their immediate peer (a CDN edge), while the CDN's own
+/// header still carries the true visitor address.
+fn extract_client_ip(
+  headers: &HeaderMap,
+  fallback: IpAddr,
+  trust_proxy: bool,
+  real_ip_header: Option<&str>,
+) -> IpAddr {
   if trust_proxy {
+    if let Some(name) = real_ip_header
+      && let Some(value) = headers.get(name)
+      && let Ok(value_str) = value.to_str()
+      && let Ok(parsed) = value_str.trim().parse::<IpAddr>()
+    {
+      return parsed;
+    }
     if let Some(xff) = headers.get("x-forwarded-for")
       && let Ok(xff_str) = xff.to_str()
       && let Some(first) = xff_str.split(',').next()
@@ -3640,7 +3767,12 @@ async fn ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let tunnel_client_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let tunnel_client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
     Some(p) => p,
     None => {
@@ -4370,8 +4502,8 @@ async fn handle_socket(
 const SHARE_COOKIE: &str = "aperio_share";
 /// Default share link lifetime: 3 days.
 const SHARE_DEFAULT_TTL_SECS: u64 = 3 * 24 * 3600;
-/// Maximum share link lifetime: 30 days.
-const SHARE_MAX_TTL_SECS: u64 = 30 * 24 * 3600;
+/// Maximum finite share link lifetime: 10 years (`ttl_seconds: 0` = never).
+const SHARE_MAX_TTL_SECS: u64 = 10 * 365 * 24 * 3600;
 
 /// Claims embedded in a share token. The token is
 /// `base64url(json).base64url(hmac_sha256)`, signed with a key derived from
@@ -4384,8 +4516,9 @@ struct ShareClaims {
   /// Path prefix the link grants access to (None = the whole site).
   #[serde(default)]
   path: Option<String>,
-  /// Unix expiry timestamp (seconds).
-  exp: u64,
+  /// Unix expiry timestamp in seconds (None = the link never expires).
+  #[serde(default)]
+  exp: Option<u64>,
   /// Random ID tying proxy-side usage back to the audit trail.
   id: String,
 }
@@ -4424,7 +4557,9 @@ fn verify_share_token(token: &str, key: &[u8]) -> Option<ShareClaims> {
     .duration_since(std::time::UNIX_EPOCH)
     .ok()?
     .as_secs();
-  if claims.exp <= now {
+  if let Some(exp) = claims.exp
+    && exp <= now
+  {
     return None;
   }
   Some(claims)
@@ -4507,12 +4642,14 @@ fn check_share_access(
       } else {
         ""
       };
+      // Never-expiring links get a 10-year cookie.
+      let max_age = claims
+        .exp
+        .map(|exp| exp.saturating_sub(now))
+        .unwrap_or(SHARE_MAX_TTL_SECS);
       let cookie = format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
-        SHARE_COOKIE,
-        raw,
-        claims.exp.saturating_sub(now),
-        secure_flag
+        SHARE_COOKIE, raw, max_age, secure_flag
       );
       info!(
         "Share link {} used for {} (path {})",
@@ -4648,7 +4785,12 @@ async fn proxy_handler(
   let method = req.method().clone();
   let uri = req.uri().clone();
   let headers = req.headers().clone();
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
 
   // Maintenance mode wins over everything else (including WS upgrades):
   // visitors get the 503 page even while tunnel clients stay connected.
@@ -5810,7 +5952,12 @@ async fn tcp_ws_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   State(state): State<Arc<AppState>>,
 ) -> Response {
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -5974,7 +6121,12 @@ async fn oidc_login_handler(
   let Some(rt) = state.oidc.clone() else {
     return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
   };
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -6037,7 +6189,12 @@ async fn oidc_callback_handler(
   let Some(rt) = state.oidc.clone() else {
     return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
   };
-  let caller_ip = extract_client_ip(&headers, addr.ip(), state.config().trust_proxy);
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
@@ -6344,6 +6501,7 @@ mod tests {
       ip_limit_refill: 0.0, // No refill for testing strict burst limit
       auth_credentials: None,
       trust_proxy: false,
+      real_ip_header: None,
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
@@ -6427,6 +6585,7 @@ mod tests {
       ip_limit_refill: 10.0,
       auth_credentials: None,
       trust_proxy: false,
+      real_ip_header: None,
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
@@ -6511,6 +6670,7 @@ mod tests {
       ip_limit_refill: 10.0,
       auth_credentials: None,
       trust_proxy: false,
+      real_ip_header: None,
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
@@ -6697,13 +6857,13 @@ mod tests {
 
     // No headers → fallback to socket address
     let headers = HeaderMap::new();
-    assert_eq!(extract_client_ip(&headers, direct, true), direct);
+    assert_eq!(extract_client_ip(&headers, direct, true, None), direct);
 
     // X-Forwarded-For with single IP
     let mut headers = HeaderMap::new();
     headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
     assert_eq!(
-      extract_client_ip(&headers, direct, true),
+      extract_client_ip(&headers, direct, true, None),
       "198.51.100.10".parse::<IpAddr>().unwrap()
     );
 
@@ -6714,7 +6874,7 @@ mod tests {
       HeaderValue::from_static("198.51.100.10, 10.0.0.1, 10.0.0.2"),
     );
     assert_eq!(
-      extract_client_ip(&headers, direct, true),
+      extract_client_ip(&headers, direct, true, None),
       "198.51.100.10".parse::<IpAddr>().unwrap()
     );
 
@@ -6722,14 +6882,32 @@ mod tests {
     let mut headers = HeaderMap::new();
     headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
     assert_eq!(
-      extract_client_ip(&headers, direct, true),
+      extract_client_ip(&headers, direct, true, None),
       "198.51.100.20".parse::<IpAddr>().unwrap()
     );
 
     // Malformed X-Forwarded-For → fallback
     let mut headers = HeaderMap::new();
     headers.insert("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
-    assert_eq!(extract_client_ip(&headers, direct, true), direct);
+    assert_eq!(extract_client_ip(&headers, direct, true, None), direct);
+
+    // A configured real-IP header (e.g. CF-Connecting-IP) wins over
+    // X-Forwarded-For, which chained proxies often reset to the CDN edge.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+      "x-forwarded-for",
+      HeaderValue::from_static("162.158.14.210"),
+    );
+    headers.insert("cf-connecting-ip", HeaderValue::from_static("24.133.52.18"));
+    assert_eq!(
+      extract_client_ip(&headers, direct, true, Some("cf-connecting-ip")),
+      "24.133.52.18".parse::<IpAddr>().unwrap()
+    );
+    // ...but only when trust_proxy is on.
+    assert_eq!(
+      extract_client_ip(&headers, direct, false, Some("cf-connecting-ip")),
+      direct
+    );
   }
 
   #[test]
@@ -6739,16 +6917,16 @@ mod tests {
     // When trust_proxy is false, spoofed X-Forwarded-For must be ignored.
     let mut headers = HeaderMap::new();
     headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
-    assert_eq!(extract_client_ip(&headers, direct, false), direct);
+    assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
 
     // Spoofed X-Real-IP must also be ignored.
     let mut headers = HeaderMap::new();
     headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
-    assert_eq!(extract_client_ip(&headers, direct, false), direct);
+    assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
 
     // No headers → fallback to socket address
     let headers = HeaderMap::new();
-    assert_eq!(extract_client_ip(&headers, direct, false), direct);
+    assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
   }
 
   /// Generous health threshold so mock clients (no pings) stay eligible.
@@ -6821,7 +6999,7 @@ mod tests {
     let claims = ShareClaims {
       host: "app.example.com".to_string(),
       path: Some("/docs".to_string()),
-      exp: now + 60,
+      exp: Some(now + 60),
       id: "abc12345".to_string(),
     };
     let token = sign_share_claims(&claims, &key);
@@ -6860,7 +7038,7 @@ mod tests {
     let expired = ShareClaims {
       host: "app.example.com".to_string(),
       path: None,
-      exp: now - 1,
+      exp: Some(now - 1),
       id: "expired1".to_string(),
     };
     let expired_token = sign_share_claims(&expired, &key);
@@ -6870,7 +7048,7 @@ mod tests {
     let whole = ShareClaims {
       host: "app.example.com".to_string(),
       path: None,
-      exp: now + 60,
+      exp: Some(now + 60),
       id: "whole1234".to_string(),
     };
     let whole_token = sign_share_claims(&whole, &key);
@@ -6880,6 +7058,16 @@ mod tests {
       Some("app.example.com"),
       "/anything"
     ));
+
+    // exp: None = the link never expires.
+    let forever = ShareClaims {
+      host: "app.example.com".to_string(),
+      path: None,
+      exp: None,
+      id: "forever12".to_string(),
+    };
+    let forever_token = sign_share_claims(&forever, &key);
+    assert!(verify_share_token(&forever_token, &key).is_some());
   }
 
   #[test]
@@ -6894,6 +7082,7 @@ mod tests {
       ip_limit_refill: 5.0,
       auth_credentials: None,
       trust_proxy: false,
+      real_ip_header: None,
       secure_cookies: false,
       require_hostname_bind: false,
       metrics_token: None,
