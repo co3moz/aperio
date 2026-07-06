@@ -1,0 +1,102 @@
+name: Release
+
+# Tag a version (e.g. `git tag v0.2.0 && git push --tags`) and this workflow
+# builds prebuilt binaries for every supported platform and attaches them to
+# a GitHub Release. Asset names are versionless so install.sh can always use
+# the stable `releases/latest/download/...` URLs.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Node.js (dashboard build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }}
+
+      - name: Package (tar.gz)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist-pkg
+          for bin in aperio-client aperio-server; do
+            tar -C "target/${{ matrix.target }}/release" -czf "dist-pkg/${bin}-${{ matrix.target }}.tar.gz" "${bin}"
+            (cd dist-pkg && shasum -a 256 "${bin}-${{ matrix.target }}.tar.gz" > "${bin}-${{ matrix.target }}.tar.gz.sha256")
+          done
+
+      - name: Package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-pkg | Out-Null
+          foreach ($bin in "aperio-client","aperio-server") {
+            Compress-Archive -Path "target/${{ matrix.target }}/release/$bin.exe" -DestinationPath "dist-pkg/$bin-${{ matrix.target }}.zip"
+            $hash = (Get-FileHash "dist-pkg/$bin-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
+            "$hash  $bin-${{ matrix.target }}.zip" | Out-File -Encoding ascii "dist-pkg/$bin-${{ matrix.target }}.zip.sha256"
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.target }}
+          path: dist-pkg/*
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-pkg
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-pkg/*
+          generate_release_notes: true

@@ -246,7 +246,7 @@ enum CliMode {
 
 fn print_usage() {
   eprintln!(
-    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --priority N       Load-balancing priority tier: 0 = primary, higher = standby (or APERIO_CLIENT_PRIORITY / yaml: priority)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
+    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --priority N       Load-balancing priority tier: 0 = primary, higher = standby (or APERIO_CLIENT_PRIORITY / yaml: priority)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --version          Print the client version\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
   );
 }
 
@@ -291,6 +291,10 @@ fn parse_cli() -> CliArgs {
     }
     "help" | "--help" | "-h" => {
       print_usage();
+      std::process::exit(0);
+    }
+    "version" | "--version" | "-V" => {
+      println!("aperio-client {}", env!("CARGO_PKG_VERSION"));
       std::process::exit(0);
     }
     other => {

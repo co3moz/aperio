@@ -674,6 +674,16 @@ impl AppState {
 /// Entry point for the Aperio server.
 /// Sets up logging, reads env config, registers paths/middleware, and binds the TCP listener.
 async fn main() {
+  // `aperio-server --version` must print and exit instead of starting the
+  // server (used by installers and packaging).
+  if matches!(
+    std::env::args().nth(1).as_deref(),
+    Some("--version" | "-V" | "version")
+  ) {
+    println!("aperio-server {}", env!("CARGO_PKG_VERSION"));
+    return;
+  }
+
   // Initialize tracing with structured JSON output (pino.js style)
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
@@ -1167,8 +1177,10 @@ async fn main() {
     .unwrap();
 
   info!(
-    "Server listening on {}:{} with connection info tracing enabled",
-    host, port
+    "Aperio Server v{} listening on {}:{} with connection info tracing enabled",
+    env!("CARGO_PKG_VERSION"),
+    host,
+    port
   );
 
   axum::serve(

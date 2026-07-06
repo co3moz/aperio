@@ -62,6 +62,14 @@ docker run -d --name aperio-client \
 
 ### With the CLI
 
+Install a prebuilt binary (Linux and macOS; Windows zips are on the [Releases page](https://github.com/co3moz/aperio/releases)):
+
+```bash
+curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
+# server binary instead: APERIO_BIN=aperio-server curl ... | sh
+# pin a version:         APERIO_VERSION=v0.2.0    curl ... | sh
+```
+
 ```bash
 # Expose local port 3000 in one line
 aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx
@@ -100,6 +108,10 @@ services:
 ```
 
 See [docker-compose.yml.example](docker-compose.yml.example) for a commented version.
+
+### Releases
+
+Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release — [install.sh](install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version.
 
 ### Building from Source
 
