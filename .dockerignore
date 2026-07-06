@@ -1,0 +1,4 @@
+target
+aperio-dashboard/node_modules
+aperio-dashboard/dist
+.git

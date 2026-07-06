@@ -1,0 +1,59 @@
+.radix-themes {
+  min-height: 100vh;
+  background-color: #0b0f19;
+  background-image:
+    radial-gradient(at 10% 10%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+    radial-gradient(at 90% 90%, rgba(16, 185, 129, 0.06) 0px, transparent 50%);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: status-pulse 2s infinite;
+}
+
+.status-dot.active {
+  background-color: var(--green-9);
+  box-shadow: 0 0 12px var(--green-9);
+}
+
+.status-dot.inactive {
+  background-color: var(--red-9);
+  box-shadow: 0 0 12px var(--red-9);
+}
+
+@keyframes status-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+}
+
+.inspector-pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-3);
+  padding: var(--space-3);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  margin: 0;
+}
+
+.clickable-row {
+  cursor: pointer;
+}

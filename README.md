@@ -103,12 +103,14 @@ See [docker-compose.yml.example](docker-compose.yml.example) for a commented ver
 
 ### Building from Source
 
-Requires the Rust toolchain (2024 edition, 1.85+):
+Requires the Rust toolchain (2024 edition, 1.85+). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
 
 ```bash
 cargo build --release -p aperio-server -p aperio-client
 # binaries: target/release/aperio-server, target/release/aperio-client
 ```
+
+To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `APERIO_SKIP_DASHBOARD_BUILD=1`. For dashboard development, `npm run dev` in `aperio-dashboard/` serves the UI with hot reload and proxies API calls to a local server on port 8080; debug builds of the server read `dist/` from disk at runtime, so a `npm run build` is picked up without recompiling.
 
 ---
 

@@ -6,7 +6,7 @@ use axum::{
     ws::{Message, WebSocket, WebSocketUpgrade},
   },
   http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri},
-  response::{Html, IntoResponse, Response},
+  response::{IntoResponse, Response},
   routing::{any, get},
 };
 use chrono::Local;
@@ -956,7 +956,18 @@ async fn main() {
       },
     ));
 
+    // Static assets are registered after the session layer on purpose: they
+    // are public, because the login page needs them before any session exists.
+    dash_router = dash_router.route("/assets/*path", get(dashboard_asset_handler));
+
     app = app.nest("/aperio", dash_router);
+  } else {
+    // Even with the dashboard disabled the login page (used by
+    // APERIO_SERVER_AUTH-protected proxied sites) still needs its assets.
+    app = app.nest(
+      "/aperio",
+      Router::new().route("/assets/*path", get(dashboard_asset_handler)),
+    );
   }
 
   // Health endpoint is intentionally registered outside the dashboard auth
@@ -1050,9 +1061,49 @@ async fn shutdown_signal() {
   info!("Shutdown signal received, closing Aperio Server connections...");
 }
 
-/// Handler serving the embedded HTML dashboard dashboard.
-async fn dashboard_handler() -> Html<&'static str> {
-  Html(include_str!("dashboard.html"))
+/// Dashboard frontend built from `aperio-dashboard/` (Vite + React) by
+/// build.rs. In release builds the files are embedded into the binary; in
+/// debug builds rust-embed reads them from disk so a rebuilt `dist/` is
+/// picked up without recompiling.
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../aperio-dashboard/dist"]
+struct DashboardAssets;
+
+/// Serves a file from the embedded dashboard build. Hashed assets are safe to
+/// cache forever; HTML entry points must always be revalidated.
+fn serve_embedded(path: &str, immutable: bool) -> Response {
+  match DashboardAssets::get(path) {
+    Some(file) => {
+      let mime = mime_guess::from_path(path).first_or_octet_stream();
+      let cache_control = if immutable {
+        "public, max-age=31536000, immutable"
+      } else {
+        "no-cache"
+      };
+      (
+        [
+          (axum::http::header::CONTENT_TYPE, mime.as_ref()),
+          (axum::http::header::CACHE_CONTROL, cache_control),
+        ],
+        file.data.into_owned(),
+      )
+        .into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "Not found").into_response(),
+  }
+}
+
+/// Handler serving the embedded dashboard SPA.
+async fn dashboard_handler() -> Response {
+  serve_embedded("index.html", false)
+}
+
+/// Serves the hashed static assets (JS/CSS) of the dashboard build. These are
+/// public: the login page needs them before any session exists.
+async fn dashboard_asset_handler(
+  axum::extract::Path(path): axum::extract::Path<String>,
+) -> Response {
+  serve_embedded(&format!("assets/{path}"), true)
 }
 
 /// Handler returning live statistics and active connections detail in JSON.
@@ -1883,9 +1934,9 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
   (StatusCode::OK, Json(health_info))
 }
 
-/// Serves the login page.
-async fn auth_page_handler() -> Html<&'static str> {
-  Html(include_str!("authentication.html"))
+/// Serves the login page from the embedded dashboard build.
+async fn auth_page_handler() -> Response {
+  serve_embedded("auth.html", false)
 }
 
 /// Handles login form submission. Validates credentials and sets a session cookie.
