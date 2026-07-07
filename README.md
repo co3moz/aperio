@@ -316,6 +316,7 @@ aperio-client --help
 | `APERIO_CLIENT_HEALTH_TIMEOUT` | — | `health_timeout` | Per-probe timeout (seconds). | `5` |
 | `APERIO_CLIENT_HEALTH_THRESHOLD` | — | `health_threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
 | `APERIO_CLIENT_TIMEOUT` | — | `timeout` | Per-request backend timeout (seconds). | `30` |
+| `APERIO_CLIENT_MAX_REDIRECTS` | — | `max_redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps — or to unrelated hosts — pass through to the visitor unchanged. `0` disables following entirely. | `5` |
 | `APERIO_CLIENT_MAX_RESPONSE_BODY` | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
 | `APERIO_CLIENT_MAX_MESSAGE_SIZE` | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
 | `LOG_LEVEL` | — | — | Log verbosity. | `info` |

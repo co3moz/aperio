@@ -31,6 +31,10 @@ Two knobs keep a client from being overwhelmed:
 - `APERIO_CLIENT_MAX_CONCURRENT` — announced to the server, which queues the excess instead of flooding the backend; also enforced locally.
 - `APERIO_CLIENT_BANDWIDTH` — declare the link capacity (`8mbit`, `500kbit`, `2MB`, or plain bytes/second) and the server paces outgoing tunnel frames with a token bucket (1 s burst) so the client is never pushed faster than its network can drain.
 
+## Backend redirects
+
+Backends often answer `http://` targets with a redirect to `https://`, or bounce between hosts of the same domain. The client follows such redirects transparently — same-host scheme upgrades and hops within the same root domain (`example.com` → `test.example.com`), up to `APERIO_CLIENT_MAX_REDIRECTS` jumps (default 5, `0` = pass all redirects through). Https-to-http downgrades and redirects to unrelated domains are never followed; they reach the visitor as normal redirect responses.
+
 ## Self-diagnosis
 
 `aperio-client check` resolves the configuration with the usual precedence and verifies every hop: the server health endpoint (including a version and protocol comparison), token validity via a real tunnel handshake, the local target, and its health endpoint when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.

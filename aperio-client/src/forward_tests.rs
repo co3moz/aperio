@@ -21,6 +21,136 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
   }
 }
 
+#[test]
+fn test_same_site() {
+  // Exact and case/dot-insensitive matches.
+  assert!(same_site("example.com", "example.com"));
+  assert!(same_site("Example.COM.", "example.com"));
+  // Same root domain: parent↔child and siblings.
+  assert!(same_site("example.com", "test.example.com"));
+  assert!(same_site("a.example.com", "b.example.com"));
+  assert!(same_site("x.y.example.com", "example.com"));
+  // Different domains never match.
+  assert!(!same_site("example.com", "evil.com"));
+  assert!(!same_site("example.com", "example.org"));
+  // IPs and single-label hosts only match exactly.
+  assert!(same_site("127.0.0.1", "127.0.0.1"));
+  assert!(!same_site("127.0.0.1", "127.0.0.2"));
+  assert!(same_site("localhost", "localhost"));
+  assert!(!same_site("localhost", "example.com"));
+}
+
+/// Minimal HTTP server answering every request with the given response.
+async fn mock_server(response: String) -> u16 {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    while let Ok((mut socket, _)) = listener.accept().await {
+      let resp = response.clone();
+      tokio::spawn(async move {
+        let mut buf = [0; 2048];
+        let _ = socket.read(&mut buf).await;
+        let _ = socket.write_all(resp.as_bytes()).await;
+      });
+    }
+  });
+  port
+}
+
+#[tokio::test]
+async fn test_redirects_followed_same_host() {
+  // Target redirects to a second local server on the same host (127.0.0.1);
+  // the client must follow it transparently and return the final 200.
+  let final_port = mock_server(
+    "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nfinal".to_string(),
+  )
+  .await;
+  let first_port = mock_server(format!(
+    "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{}/moved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    final_port
+  ))
+  .await;
+
+  let ctx = ForwardContext {
+    client: reqwest::Client::builder()
+      .redirect(redirect_policy(5))
+      .build()
+      .unwrap(),
+    ..test_ctx(&format!("http://127.0.0.1:{}", first_port), test_tunnel_tx())
+  };
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-redir-1".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+
+  if let TunnelMessage::Response { status, body, .. } = result {
+    assert_eq!(status, 200);
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "final");
+  } else {
+    panic!("Expected response variant");
+  }
+}
+
+#[tokio::test]
+async fn test_redirects_passed_through_cross_site() {
+  // A redirect to an unrelated domain must NOT be followed: the 301 goes
+  // back through the tunnel untouched.
+  let first_port = mock_server(
+    "HTTP/1.1 301 Moved Permanently\r\nLocation: http://unrelated.invalid/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+      .to_string(),
+  )
+  .await;
+
+  let ctx = ForwardContext {
+    client: reqwest::Client::builder()
+      .redirect(redirect_policy(5))
+      .build()
+      .unwrap(),
+    ..test_ctx(&format!("http://127.0.0.1:{}", first_port), test_tunnel_tx())
+  };
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-redir-2".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+
+  if let TunnelMessage::Response {
+    status, headers, ..
+  } = result
+  {
+    assert_eq!(status, 301);
+    let loc = headers
+      .iter()
+      .find(|(k, _)| k == "location")
+      .map(|(_, v)| v.as_str());
+    assert_eq!(loc, Some("http://unrelated.invalid/"));
+  } else {
+    panic!("Expected response variant");
+  }
+}
+
 #[tokio::test]
 async fn test_make_error_response() {
   let response = make_error_response("req-123".to_string(), 502);

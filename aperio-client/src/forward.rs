@@ -41,6 +41,63 @@ async fn send_response_chunk(
   }
 }
 
+/// True when two hosts belong to the same site for redirect purposes:
+/// identical hosts, or hostnames sharing at least the last two DNS labels
+/// (`example.com` ↔ `test.example.com`, `a.example.com` ↔ `b.example.com`).
+/// IP addresses and single-label hosts (`localhost`) only match exactly.
+pub(crate) fn same_site(a: &str, b: &str) -> bool {
+  let a = a.trim_end_matches('.').to_ascii_lowercase();
+  let b = b.trim_end_matches('.').to_ascii_lowercase();
+  if a == b {
+    return true;
+  }
+  // IP literals never match a different host.
+  if a.parse::<std::net::IpAddr>().is_ok() || b.parse::<std::net::IpAddr>().is_ok() {
+    return false;
+  }
+  let shared = a
+    .rsplit('.')
+    .zip(b.rsplit('.'))
+    .take_while(|(x, y)| x == y)
+    .count();
+  shared >= 2
+}
+
+/// Redirect policy for backend requests: follows same-host scheme upgrades
+/// (`http://x` → `https://x`) and redirects within the same root domain, up
+/// to `max_hops` jumps and never downgrading https to http. Anything else —
+/// including the hop after the limit — is passed through to the visitor as a
+/// regular redirect response, exactly like `Policy::none`.
+pub(crate) fn redirect_policy(max_hops: usize) -> reqwest::redirect::Policy {
+  if max_hops == 0 {
+    return reqwest::redirect::Policy::none();
+  }
+  reqwest::redirect::Policy::custom(move |attempt| {
+    if attempt.previous().len() > max_hops {
+      return attempt.stop();
+    }
+    let orig = match attempt.previous().first() {
+      Some(u) => u.clone(),
+      None => return attempt.stop(),
+    };
+    let next = attempt.url();
+    // https → http downgrades and non-http schemes are never followed.
+    let scheme_ok = matches!(
+      (orig.scheme(), next.scheme()),
+      ("http", "http") | ("http", "https") | ("https", "https")
+    );
+    let host_ok = match (orig.host_str(), next.host_str()) {
+      (Some(a), Some(b)) => same_site(a, b),
+      _ => false,
+    };
+    if scheme_ok && host_ok {
+      attempt.follow()
+    } else {
+      attempt.stop()
+    }
+  })
+}
+
 /// Per-connection constants for request forwarding, so per-request calls
 /// only carry the request itself.
 pub(crate) struct ForwardContext {

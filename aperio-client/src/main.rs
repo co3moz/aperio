@@ -182,6 +182,15 @@ async fn main() {
       parsed
     });
 
+  // Backend redirects: same-host scheme upgrades (http → https) and hops
+  // within the same root domain are followed transparently, up to this many
+  // jumps. 0 = pass every redirect through to the visitor (old behavior).
+  let max_redirects = std::env::var("APERIO_CLIENT_MAX_REDIRECTS")
+    .ok()
+    .and_then(|v| v.parse::<usize>().ok())
+    .or(file_cfg.max_redirects)
+    .unwrap_or(5);
+
   // Cap on individual tunnel WebSocket messages accepted from the server.
   let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
     .ok()
@@ -567,9 +576,11 @@ async fn main() {
               }
             });
 
-            // Reqwest Client to make local forwarding requests
+            // Reqwest Client to make local forwarding requests. Same-site
+            // backend redirects (http→https, same root domain) are followed
+            // transparently; everything else passes through to the visitor.
             let reqwest_client = reqwest::Client::builder()
-              .redirect(reqwest::redirect::Policy::none()) // Let backend determine redirect loops
+              .redirect(forward::redirect_policy(max_redirects))
               .timeout(Duration::from_secs(client_timeout_secs))
               .build()
               .unwrap_or_default();

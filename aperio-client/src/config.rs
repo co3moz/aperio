@@ -72,6 +72,9 @@ pub(crate) struct FileConfig {
   pub(crate) priority: Option<u32>,
   /// Link capacity of this client's network, e.g. "8mbit", "500kbit", "2MB".
   pub(crate) bandwidth: Option<String>,
+  /// Max backend redirects to follow transparently (same-host scheme
+  /// upgrades and same-root-domain hops); 0 passes redirects through.
+  pub(crate) max_redirects: Option<usize>,
 }
 
 /// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
