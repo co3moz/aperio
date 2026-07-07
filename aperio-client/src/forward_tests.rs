@@ -78,7 +78,10 @@ async fn test_redirects_followed_same_host() {
       .redirect(redirect_policy(5))
       .build()
       .unwrap(),
-    ..test_ctx(&format!("http://127.0.0.1:{}", first_port), test_tunnel_tx())
+    ..test_ctx(
+      &format!("http://127.0.0.1:{}", first_port),
+      test_tunnel_tx(),
+    )
   };
   let result = handle_incoming_request(
     &ctx,
@@ -119,7 +122,10 @@ async fn test_redirects_passed_through_cross_site() {
       .redirect(redirect_policy(5))
       .build()
       .unwrap(),
-    ..test_ctx(&format!("http://127.0.0.1:{}", first_port), test_tunnel_tx())
+    ..test_ctx(
+      &format!("http://127.0.0.1:{}", first_port),
+      test_tunnel_tx(),
+    )
   };
   let result = handle_incoming_request(
     &ctx,

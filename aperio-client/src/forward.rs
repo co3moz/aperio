@@ -174,7 +174,9 @@ pub(crate) async fn handle_incoming_request(
   let target_path = target_parsed.path().trim_end_matches('/');
   let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
 
-  if ctx.trim_bind && let Some(ref bind) = ctx.path_bind {
+  if ctx.trim_bind
+    && let Some(ref bind) = ctx.path_bind
+  {
     let bind_trimmed = bind.trim_matches('/');
     if incoming_path.starts_with(bind_trimmed) {
       incoming_path = incoming_path[bind_trimmed.len()..]

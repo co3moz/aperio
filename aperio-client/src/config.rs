@@ -101,12 +101,7 @@ pub(crate) struct CommonOpts {
   #[arg(long, global = true, value_name = "PREFIX")]
   pub(crate) path: Option<String>,
   /// Max concurrent requests (yaml: max_concurrent, env: APERIO_MAX_CONCURRENT)
-  #[arg(
-    long,
-    visible_alias = "concurrency",
-    global = true,
-    value_name = "N"
-  )]
+  #[arg(long, visible_alias = "concurrency", global = true, value_name = "N")]
   pub(crate) max_concurrent: Option<u32>,
   /// Load-balancing priority tier: 0 = primary, higher = standby
   /// (yaml: priority, env: APERIO_PRIORITY)
@@ -242,9 +237,7 @@ impl FileConfig {
 
   pub(crate) fn server_token(&self) -> Option<String> {
     match &self.server {
-      Some(ServerValue::Section {
-        token: Some(t), ..
-      }) => Some(t.clone()),
+      Some(ServerValue::Section { token: Some(t), .. }) => Some(t.clone()),
       _ => self.token.clone(),
     }
   }
@@ -412,7 +405,10 @@ pub(crate) fn resolve_settings(
     max_response_body: layered(
       None,
       local.max_response_body,
-      env_parse("APERIO_MAX_RESPONSE_BODY", "APERIO_CLIENT_MAX_RESPONSE_BODY"),
+      env_parse(
+        "APERIO_MAX_RESPONSE_BODY",
+        "APERIO_CLIENT_MAX_RESPONSE_BODY",
+      ),
       home.max_response_body,
     )
     .unwrap_or(50 * 1024 * 1024),
