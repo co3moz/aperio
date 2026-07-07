@@ -27,7 +27,7 @@ Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page
 
 ## Server settings
 
-Almost every runtime setting — timeouts, limits, load-balancing strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML — can be edited live. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust, and OIDC remain env-only. Changes are audited as `settings_updated`.
+Almost every runtime setting — timeouts, limits, load-balancing strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML — can be edited live and takes effect immediately: changing the random-subdomain pattern re-issues connected clients' random hostnames on the spot, and enabling tunnel compression is offered to already-connected clients. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust, and OIDC remain env-only. Changes are audited as `settings_updated`.
 
 ## Also here
 

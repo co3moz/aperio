@@ -628,6 +628,9 @@ struct ClientHandle {
   /// Hostnames granted automatically: token-bound hostnames and/or the
   /// randomly assigned subdomain.
   assigned_hostnames: Vec<String>,
+  /// The randomly assigned hostname within `assigned_hostnames`, tracked
+  /// separately so a runtime pattern change can swap it in place.
+  random_hostname: Option<String>,
   /// Temporary path bind override set from the dashboard. Not persisted:
   /// lost when the client reconnects or the server restarts.
   override_path_bind: Option<String>,
@@ -2405,9 +2408,20 @@ async fn settings_put_handler(
     }
   }
 
+  let old_config = state.config();
   let effective = apply_settings_overrides(&state.config_env_defaults, &payload);
   *state.config_store.write().expect("config lock poisoned") = Arc::new(effective);
   *state.settings_overrides.lock().await = payload.clone();
+  let new_config = state.config();
+
+  // Settings that involve connected clients are pushed out immediately
+  // instead of waiting for reconnects.
+  if old_config.random_subdomain_suffix != new_config.random_subdomain_suffix {
+    reassign_random_hostnames(&state).await;
+  }
+  if !old_config.tunnel_compression && new_config.tunnel_compression {
+    offer_compression_to_connected(&state).await;
+  }
 
   match serde_json::to_string_pretty(&payload) {
     Ok(json) => {
@@ -2438,6 +2452,58 @@ async fn settings_put_handler(
     Json(serde_json::json!({"effective": settings_view(&state.config())})),
   )
     .into_response()
+}
+
+/// Re-issues random hostnames after the subdomain pattern changed at
+/// runtime: every connected client loses its old random hostname (it points
+/// at the retired pattern) and, when a pattern is still configured, receives
+/// a fresh assignment pushed immediately via `HostnameAssigned`.
+async fn reassign_random_hostnames(state: &Arc<AppState>) {
+  let pattern = state.config().random_subdomain_suffix.clone();
+  let mut notifications = Vec::new();
+  {
+    let mut clients = state.clients.lock().await;
+    for (id, c) in clients.iter_mut() {
+      if let Some(ref old) = c.random_hostname {
+        c.assigned_hostnames.retain(|h| h != old);
+      }
+      c.random_hostname = pattern.as_deref().map(random_subdomain_hostname);
+      if let Some(ref h) = c.random_hostname {
+        c.assigned_hostnames.push(h.clone());
+        info!("Reassigned random hostname {} to client {}", h, id);
+        notifications.push((c.tx.clone(), h.clone()));
+      }
+    }
+  }
+  // Send outside the clients lock so a slow client cannot stall the map.
+  for (tx, hostname) in notifications {
+    if let Ok(json) = serde_json::to_string(&TunnelMessage::HostnameAssigned { hostname }) {
+      let _ = tx.send(Message::Text(json)).await;
+    }
+  }
+}
+
+/// Offers zlib tunnel compression to every already-connected client after
+/// the setting was enabled at runtime (each client switches on ack). There
+/// is no protocol message to stop compression, so disabling only affects
+/// new connections.
+async fn offer_compression_to_connected(state: &Arc<AppState>) {
+  let txs: Vec<_> = {
+    let clients = state.clients.lock().await;
+    clients.values().map(|c| c.tx.clone()).collect()
+  };
+  if txs.is_empty() {
+    return;
+  }
+  info!(
+    "Tunnel compression enabled at runtime; offering it to {} connected client(s)",
+    txs.len()
+  );
+  for tx in txs {
+    if let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {}) {
+      let _ = tx.send(Message::Text(json)).await;
+    }
+  }
 }
 
 /// Payload for toggling maintenance mode on a hostname (dashboard).
@@ -4040,6 +4106,7 @@ async fn handle_socket(
         assigned_path: perms.granted_path(),
         declared_hostname: None,
         assigned_hostnames,
+        random_hostname: random_hostname.clone(),
         override_path_bind: None,
         override_hostname_bind: None,
         last_ping_at: None,
@@ -6851,6 +6918,7 @@ mod tests {
         assigned_path: None,
         declared_hostname: None,
         assigned_hostnames: Vec::new(),
+        random_hostname: None,
         override_path_bind: None,
         override_hostname_bind: None,
         last_ping_at: None,
@@ -7076,6 +7144,7 @@ mod tests {
       assigned_path: None,
       declared_hostname: hostname_bind.map(|s| s.to_string()),
       assigned_hostnames: Vec::new(),
+      random_hostname: None,
       override_path_bind: override_path.map(|s| s.to_string()),
       override_hostname_bind: override_hostname.map(|s| s.to_string()),
       last_ping_at: None,

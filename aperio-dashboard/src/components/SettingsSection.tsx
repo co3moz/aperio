@@ -41,7 +41,7 @@ const FIELDS: FieldSpec[] = [
   { key: 'failover_all_methods', label: 'Failover non-idempotent methods', kind: 'boolean', hint: 'POST/PATCH may reach a backend twice when enabled' },
   { key: 'ip_limit_max', label: 'IP rate limit burst', kind: 'number' },
   { key: 'ip_limit_refill', label: 'IP rate limit refill (req/s)', kind: 'number' },
-  { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Applies to newly connecting clients' },
+  { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
   { key: 'random_subdomain_suffix', label: 'Random subdomain suffix', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * is replaced with a random label; empty = disabled' },
   { key: 'auth_credentials', label: 'Visitor password', kind: 'text', hint: 'user:password put in front of all proxied traffic; empty = disabled' },
   { key: 'custom_504_page', label: 'Custom 504 page (HTML)', kind: 'textarea' },
