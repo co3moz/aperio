@@ -1,0 +1,102 @@
+use axum::{
+  extract::State,
+  http::{HeaderMap, StatusCode},
+  response::{IntoResponse, Response},
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use crate::auth::constant_time_eq_str;
+use crate::state::AppState;
+
+/// Prometheus text-format metrics endpoint (`/aperio/metrics`).
+/// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
+/// `?token=<value>` (convenient for Prometheus scrape configs) or as an
+/// `Authorization: Bearer <value>` header.
+pub(crate) async fn metrics_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+  headers: HeaderMap,
+) -> Response {
+  if let Some(ref token) = state.config().metrics_token {
+    let bearer_ok = headers
+      .get("authorization")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.strip_prefix("Bearer "))
+      .is_some_and(|t| constant_time_eq_str(t, token));
+    let query_ok = query
+      .get("token")
+      .is_some_and(|t| constant_time_eq_str(t, token));
+    if !bearer_ok && !query_ok {
+      return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+  }
+
+  let stats = state.stats.lock().await.clone();
+  let clients = state.clients.lock().await;
+  let connected = clients.len();
+  let per_client: Vec<(String, u64)> = clients
+    .iter()
+    .map(|(id, c)| (id.clone(), c.request_count.load(Ordering::SeqCst)))
+    .collect();
+  drop(clients);
+  let pending = state.pending_requests.lock().await.len();
+  let ws_streams = state.ws_streams.lock().await.len();
+  let uptime = state.server_start_time.elapsed().as_secs();
+
+  let mut out = String::with_capacity(1024);
+  out.push_str("# HELP aperio_requests_total Total proxied requests received.\n");
+  out.push_str("# TYPE aperio_requests_total counter\n");
+  out.push_str(&format!("aperio_requests_total {}\n", stats.total_requests));
+  out.push_str("# HELP aperio_requests_success_total Successfully proxied requests.\n");
+  out.push_str("# TYPE aperio_requests_success_total counter\n");
+  out.push_str(&format!(
+    "aperio_requests_success_total {}\n",
+    stats.successful_requests
+  ));
+  out.push_str(
+    "# HELP aperio_requests_failed_total Failed proxied requests (5xx / gateway errors).\n",
+  );
+  out.push_str("# TYPE aperio_requests_failed_total counter\n");
+  out.push_str(&format!(
+    "aperio_requests_failed_total {}\n",
+    stats.failed_requests
+  ));
+  out.push_str("# HELP aperio_bytes_transferred_total Total payload bytes transferred.\n");
+  out.push_str("# TYPE aperio_bytes_transferred_total counter\n");
+  out.push_str(&format!(
+    "aperio_bytes_transferred_total {}\n",
+    stats.total_bytes_transferred
+  ));
+  out.push_str("# HELP aperio_connected_clients Currently connected tunnel clients.\n");
+  out.push_str("# TYPE aperio_connected_clients gauge\n");
+  out.push_str(&format!("aperio_connected_clients {}\n", connected));
+  out.push_str("# HELP aperio_pending_requests Requests currently awaiting a client response.\n");
+  out.push_str("# TYPE aperio_pending_requests gauge\n");
+  out.push_str(&format!("aperio_pending_requests {}\n", pending));
+  out.push_str("# HELP aperio_ws_streams_active Active proxied WebSocket streams.\n");
+  out.push_str("# TYPE aperio_ws_streams_active gauge\n");
+  out.push_str(&format!("aperio_ws_streams_active {}\n", ws_streams));
+  out.push_str("# HELP aperio_uptime_seconds Server uptime in seconds.\n");
+  out.push_str("# TYPE aperio_uptime_seconds gauge\n");
+  out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
+  state.duration_histogram.render(&mut out);
+  out.push_str(
+    "# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n",
+  );
+  out.push_str("# TYPE aperio_client_requests_total counter\n");
+  for (id, count) in per_client {
+    out.push_str(&format!(
+      "aperio_client_requests_total{{client_id=\"{}\"}} {}\n",
+      id, count
+    ));
+  }
+
+  (
+    StatusCode::OK,
+    [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+    out,
+  )
+    .into_response()
+}

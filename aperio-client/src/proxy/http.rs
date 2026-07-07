@@ -411,5 +411,5 @@ pub(crate) fn make_error_response(id: String, status: u16) -> TunnelMessage {
 }
 
 #[cfg(test)]
-#[path = "forward_tests.rs"]
+#[path = "http_tests.rs"]
 mod tests;

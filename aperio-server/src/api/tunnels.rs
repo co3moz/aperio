@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::api::validate_token_perms;
+use crate::api::tokens::validate_token_perms;
 use crate::auth::{constant_time_eq_str, extract_token, validate_session};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;

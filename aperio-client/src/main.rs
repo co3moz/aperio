@@ -17,23 +17,22 @@ use tracing::{debug, error, info, warn};
 
 mod check;
 mod config;
-mod forward;
 mod protocol;
+mod proxy;
 mod tcp;
-mod ws_proxy;
 
 use check::run_check;
 use config::{
   CliMode, FileConfig, build_ws_url, load_file_config, load_home_config, parse_bandwidth,
   parse_cli, resolve_settings,
 };
-use forward::{ForwardContext, ForwardRequest, handle_incoming_request};
 use protocol::{
   FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelMessage, compress_frame,
   decode_binary_frame, decompress_frame,
 };
+use proxy::http::{ForwardContext, ForwardRequest, handle_incoming_request};
+use proxy::ws::{WsStreamHandle, handle_upgrade_request};
 use tcp::{TcpStreamHandle, handle_tcp_open, run_tcp_bridge};
-use ws_proxy::{WsStreamHandle, handle_upgrade_request};
 
 #[tokio::main]
 /// Entry point for the Aperio client.
@@ -497,7 +496,7 @@ async fn main() {
             // backend redirects (http→https, same root domain) are followed
             // transparently; everything else passes through to the visitor.
             let reqwest_client = reqwest::Client::builder()
-              .redirect(forward::redirect_policy(max_redirects))
+              .redirect(proxy::http::redirect_policy(max_redirects))
               .timeout(Duration::from_secs(client_timeout_secs))
               .build()
               .unwrap_or_default();

@@ -1,5 +1,4 @@
 use crate::access_log::sanitize_uri;
-use crate::audit::AuditLog;
 use crate::auth::{extract_and_verify_token, ip_allowed, safe_redirect_path, valid_ip_entry};
 use crate::protocol::TunnelMessage;
 use crate::proxy::proxy_handler;
@@ -20,9 +19,10 @@ use crate::state::{
   AppState, ClientHandle, ClientPerms, ConnectionState, DurationHistogram, ServerStats,
   TunnelResponse,
 };
-use crate::stats::StatsStore;
-use crate::tokens::TokenStore;
-use crate::webhooks::WebhookStore;
+use crate::store::audit::AuditLog;
+use crate::store::stats::StatsStore;
+use crate::store::tokens::TokenStore;
+use crate::store::webhooks::WebhookStore;
 use axum::{
   body::Body,
   extract::{ConnectInfo, State, ws::Message},

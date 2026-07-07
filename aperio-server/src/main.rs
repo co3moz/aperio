@@ -15,7 +15,6 @@ use tracing::{error, info, warn};
 
 mod access_log;
 mod api;
-mod audit;
 mod auth;
 mod oidc;
 mod protocol;
@@ -24,22 +23,24 @@ mod routing;
 mod settings;
 mod share;
 mod state;
-mod stats;
-mod tcp;
-mod tokens;
-mod tunnel_ws;
-mod tunnels;
-mod webhooks;
+mod store;
+mod tunnel;
 
-use crate::api::{
-  audit_handler, client_enabled_handler, client_override_handler, dashboard_asset_handler,
-  dashboard_handler, health_handler, logs_handler, maintenance_list_handler,
-  maintenance_set_handler, metrics_handler, request_detail_handler, request_replay_handler,
-  settings_get_handler, settings_put_handler, stats_handler, tokens_create_handler,
-  tokens_list_handler, tokens_revoke_handler, tokens_update_handler, webhooks_create_handler,
-  webhooks_delete_handler, webhooks_list_handler,
+use crate::api::clients::{
+  client_enabled_handler, client_override_handler, logs_handler, stats_handler,
 };
-use crate::audit::AuditLog;
+use crate::api::inspector::{request_detail_handler, request_replay_handler};
+use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler};
+use crate::api::metrics::metrics_handler;
+use crate::api::settings::{settings_get_handler, settings_put_handler};
+use crate::api::tokens::{
+  tokens_create_handler, tokens_list_handler, tokens_revoke_handler, tokens_update_handler,
+};
+use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
+use crate::api::webhooks::{
+  audit_handler, webhooks_create_handler, webhooks_delete_handler, webhooks_list_handler,
+};
+use crate::api::{dashboard_asset_handler, dashboard_handler, health_handler};
 use crate::auth::{
   auth_login_handler, auth_page_handler, oidc_callback_handler, oidc_login_handler,
   safe_redirect_path, validate_session,
@@ -54,12 +55,12 @@ use crate::share::share_create_handler;
 use crate::state::{
   AppState, CAPTURE_MAX_ENTRIES, ConnectionState, DurationHistogram, ServerStats,
 };
-use crate::stats::StatsStore;
-use crate::tcp::tcp_ws_handler;
-use crate::tokens::TokenStore;
-use crate::tunnel_ws::ws_handler;
-use crate::tunnels::{tunnels_create_handler, tunnels_delete_handler};
-use crate::webhooks::WebhookStore;
+use crate::store::audit::AuditLog;
+use crate::store::stats::StatsStore;
+use crate::store::tokens::TokenStore;
+use crate::store::webhooks::WebhookStore;
+use crate::tunnel::tcp::tcp_ws_handler;
+use crate::tunnel::ws::ws_handler;
 
 #[tokio::main]
 /// Entry point for the Aperio server.

@@ -66,7 +66,7 @@ impl WebhookStore {
       url,
       events,
       enabled: true,
-      created_at: crate::tokens::now_secs(),
+      created_at: crate::store::tokens::now_secs(),
     };
     self.webhooks.push(hook.clone());
     self.persist();

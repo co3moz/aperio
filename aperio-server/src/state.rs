@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
 
-use crate::audit::AuditLog;
 use crate::oidc;
-use crate::stats::{self, StatsStore};
-use crate::tokens::TokenStore;
-use crate::webhooks::{self, WebhookStore};
+use crate::store::audit::AuditLog;
+use crate::store::stats::{self, StatsStore};
+use crate::store::tokens::TokenStore;
+use crate::store::webhooks::{self, WebhookStore};
 
 use crate::settings::{ServerConfig, SettingsOverrides};
 
