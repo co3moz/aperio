@@ -92,6 +92,11 @@ pub(crate) enum TunnelMessage {
     /// client's `services:` list), for the dashboard.
     #[serde(default)]
     service: Option<String>,
+    /// The client declares its service public: the server skips the visitor
+    /// auth gate for traffic routed here (honored only when the token
+    /// permits publishing public services).
+    #[serde(default)]
+    public: bool,
   },
   Pong {
     timestamp: u64,

@@ -47,6 +47,7 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
       max_concurrent: handle.max_concurrent,
       version: handle.client_version.clone(),
       service: handle.service_name.clone(),
+      public: handle.public,
       protocol: handle.client_protocol,
       protocol_mismatch: handle
         .client_protocol

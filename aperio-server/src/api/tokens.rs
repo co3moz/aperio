@@ -27,6 +27,7 @@ pub(crate) struct TokenView {
   pub(crate) expired: bool,
   pub(crate) max_rps: Option<f64>,
   pub(crate) daily_max_bytes: Option<u64>,
+  pub(crate) allow_public: bool,
 }
 
 /// Lists dynamic API tokens (metadata only, secrets are never returned).
@@ -49,6 +50,7 @@ pub(crate) async fn tokens_list_handler(
       expired: t.is_expired(),
       max_rps: t.max_rps,
       daily_max_bytes: t.daily_max_bytes,
+      allow_public: t.allow_public,
     })
     .collect();
   Json(views)
@@ -74,6 +76,10 @@ pub(crate) struct TokenCreateRequest {
   pub(crate) max_rps: Option<f64>,
   /// Optional daily byte quota (request + response payload).
   pub(crate) daily_max_bytes: Option<u64>,
+  /// May clients using this token publish services as public (skipping the
+  /// server's visitor auth gate)? Defaults to false.
+  #[serde(default)]
+  pub(crate) allow_public: bool,
 }
 
 /// Payload for editing an existing token's scope without changing the secret.
@@ -90,6 +96,8 @@ pub(crate) struct TokenUpdateRequest {
   pub(crate) max_rps: Option<f64>,
   /// Some(0) clears the quota; Some(n) sets it to n bytes/day.
   pub(crate) daily_max_bytes: Option<u64>,
+  /// Absent = keep; true/false sets whether public publishing is permitted.
+  pub(crate) allow_public: Option<bool>,
 }
 
 /// Normalized (hostnames, paths, allowed_ips) permission lists.
@@ -192,6 +200,7 @@ pub(crate) async fn tokens_create_handler(
       payload.ttl_seconds,
       payload.max_rps.filter(|v| *v > 0.0),
       payload.daily_max_bytes.filter(|v| *v > 0),
+      payload.allow_public,
     )
   };
   info!(
@@ -289,6 +298,7 @@ pub(crate) async fn tokens_update_handler(
     // max_rps / daily_max_bytes: absent = keep; 0 = clear; n = set.
     payload.max_rps.map(Some),
     payload.daily_max_bytes.map(Some),
+    payload.allow_public,
   );
 
   match updated {

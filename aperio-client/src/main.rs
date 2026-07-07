@@ -314,6 +314,7 @@ fn build_specs(
       health_interval: settings.health_interval,
       health_timeout: settings.health_timeout,
       health_threshold: settings.health_threshold,
+      public: settings.public,
     }]);
   }
 
@@ -390,6 +391,7 @@ fn build_specs(
           .health_threshold
           .unwrap_or(settings.health_threshold)
           .max(1),
+        public: entry.public.unwrap_or(settings.public),
       })
     })
     .collect()
@@ -425,6 +427,9 @@ fn log_spec(spec: &ServiceSpec) {
   }
   if let Some(ref t) = spec.tcp_target {
     info!("- TCP Target: {}", t);
+  }
+  if spec.public {
+    info!("- Public: visitor auth gate skipped for this service (token permitting)");
   }
   info!("- WebSocket URL: {}", spec.ws_url);
 }

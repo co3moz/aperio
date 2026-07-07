@@ -85,6 +85,10 @@ pub enum TunnelMessage {
     /// client's `services:` list), for the dashboard.
     #[serde(default)]
     service: Option<String>,
+    /// The client declares its service public: skip the visitor auth gate
+    /// for traffic routed here (honored only when the token permits it).
+    #[serde(default)]
+    public: bool,
   },
   Pong {
     timestamp: u64,

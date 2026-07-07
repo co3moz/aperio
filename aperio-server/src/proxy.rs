@@ -142,8 +142,16 @@ pub(crate) async fn proxy_handler(
       .into_response();
   }
 
-  // 2. Session/Auth check (if configured)
-  let auth_required = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  // 2. Session/Auth check (if configured). Routes served exclusively by
+  // clients that declared themselves public (token permitting) skip the gate.
+  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  let auth_required = auth_configured
+    && !crate::routing::route_is_public(
+      &state,
+      uri.path(),
+      extract_request_host(&headers).as_deref(),
+    )
+    .await;
   if auth_required && !validate_session(&state, &headers).await {
     // Share links: a signed, expiring token grants access to this
     // hostname/path without a dashboard session.

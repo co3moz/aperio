@@ -38,6 +38,10 @@ pub struct ApiToken {
   /// served by clients authenticated with this token.
   #[serde(default)]
   pub daily_max_bytes: Option<u64>,
+  /// May clients using this token publish services as public (skipping the
+  /// server's visitor auth gate)? Defaults to false.
+  #[serde(default)]
+  pub allow_public: bool,
 }
 
 impl ApiToken {
@@ -118,6 +122,7 @@ impl TokenStore {
     ttl_seconds: Option<u64>,
     max_rps: Option<f64>,
     daily_max_bytes: Option<u64>,
+    allow_public: bool,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -136,6 +141,7 @@ impl TokenStore {
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
       max_rps,
       daily_max_bytes,
+      allow_public,
     };
     self.tokens.push(record.clone());
     self.persist();
@@ -155,6 +161,7 @@ impl TokenStore {
     ttl_seconds: Option<Option<u64>>,
     max_rps: Option<Option<f64>>,
     daily_max_bytes: Option<Option<u64>>,
+    allow_public: Option<bool>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -177,6 +184,9 @@ impl TokenStore {
     }
     if let Some(quota) = daily_max_bytes {
       token.daily_max_bytes = quota.filter(|v| *v > 0);
+    }
+    if let Some(p) = allow_public {
+      token.allow_public = p;
     }
     let updated = token.clone();
     self.persist();
@@ -252,6 +262,7 @@ mod tests {
       None,
       None,
       None,
+      false,
     );
     assert!(secret.starts_with("apr_"));
     assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -284,6 +295,7 @@ mod tests {
       Some(0),
       None,
       None,
+      false,
     );
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());

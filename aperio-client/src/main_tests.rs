@@ -22,6 +22,7 @@ fn base_settings() -> ClientSettings {
     health_interval: 10,
     health_timeout: 5,
     health_threshold: 2,
+    public: false,
     services: Vec::new(),
   }
 }

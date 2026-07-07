@@ -36,6 +36,7 @@ export interface ClientDetail {
   max_concurrent: number | null
   version: string | null
   service: string | null
+  public: boolean
   protocol: number | null
   protocol_mismatch: boolean
   backend_healthy: boolean
@@ -103,6 +104,7 @@ export interface TokenView {
   expired: boolean
   max_rps: number | null
   daily_max_bytes: number | null
+  allow_public: boolean
 }
 
 export interface TokenCreatePayload {
@@ -113,6 +115,7 @@ export interface TokenCreatePayload {
   ttl_seconds?: number
   max_rps?: number
   daily_max_bytes?: number
+  allow_public?: boolean
 }
 
 export interface TokenUpdatePayload {
@@ -122,6 +125,7 @@ export interface TokenUpdatePayload {
   ttl_seconds?: number
   max_rps?: number
   daily_max_bytes?: number
+  allow_public?: boolean
 }
 
 export interface Webhook {

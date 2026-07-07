@@ -256,6 +256,13 @@ export function ClientsSection({
                             </Badge>
                           </Tooltip>
                         )}
+                        {c.public && (
+                          <Tooltip content="This client serves its traffic without the visitor auth gate">
+                            <Badge color="green" size="1">
+                              public
+                            </Badge>
+                          </Tooltip>
+                        )}
                         {c.version && (
                           <Text size="1" color="gray">
                             v{c.version}

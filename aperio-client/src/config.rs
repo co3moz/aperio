@@ -111,6 +111,11 @@ pub(crate) struct CommonOpts {
   /// (yaml: pass_hostname, env: APERIO_PASS_HOSTNAME)
   #[arg(long, global = true)]
   pub(crate) pass_hostname: bool,
+  /// Declare the exposed service public: ask the server to skip its
+  /// visitor password / OIDC gate for this service (needs token permission)
+  /// (yaml: public, env: APERIO_PUBLIC)
+  #[arg(long, global = true)]
+  pub(crate) public: bool,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -203,6 +208,8 @@ pub(crate) struct ServiceEntry {
   pub(crate) health_interval: Option<u64>,
   pub(crate) health_timeout: Option<u64>,
   pub(crate) health_threshold: Option<u32>,
+  /// Declare this service public (skip the server's visitor auth gate).
+  pub(crate) public: Option<bool>,
 }
 
 /// Configuration file schema (`aperio.yaml` / `~/.aperio.yaml`). All keys
@@ -270,6 +277,10 @@ pub(crate) struct FileConfig {
   /// the local config file; when non-empty it replaces the single top-level
   /// `target`.
   pub(crate) services: Option<Vec<ServiceEntry>>,
+  /// Declare the exposed service public: the server skips its visitor
+  /// password / OIDC gate for traffic routed here (requires a token that
+  /// permits publishing public services).
+  pub(crate) public: Option<bool>,
 }
 
 impl FileConfig {
@@ -368,6 +379,8 @@ pub(crate) struct ClientSettings {
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
   pub(crate) health_threshold: u32,
+  /// Ask the server to skip its visitor auth gate for this service.
+  pub(crate) public: bool,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -615,6 +628,14 @@ pub(crate) fn resolve_settings(
     )
     .unwrap_or(2)
     .max(1),
+    public: o.public
+      || layered(
+        None,
+        local.public,
+        env_bool("APERIO_PUBLIC", "APERIO_CLIENT_PUBLIC"),
+        home.public,
+      )
+      .unwrap_or(false),
     services: local.services.clone().unwrap_or_default(),
   }
 }

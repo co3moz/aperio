@@ -58,8 +58,16 @@ pub(crate) async fn handle_ws_proxy(
       .into_response();
   }
 
-  // 2. Session/Auth check
-  let auth_required = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  // 2. Session/Auth check. Routes served exclusively by public-declared
+  // clients (token permitting) skip the gate, mirroring the HTTP path.
+  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  let auth_required = auth_configured
+    && !crate::routing::route_is_public(
+      &state,
+      uri.path(),
+      extract_request_host(&headers).as_deref(),
+    )
+    .await;
   if auth_required && !validate_session(&state, &headers).await {
     // A share cookie set during the page load also covers its WebSockets.
     let share_ok = check_share_access(

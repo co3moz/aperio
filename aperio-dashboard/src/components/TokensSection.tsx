@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Callout,
+  Checkbox,
   Code,
   Dialog,
   Flex,
@@ -39,6 +40,7 @@ interface TokenFormState {
   ttl: string
   maxRps: string
   dailyMaxMb: string
+  allowPublic: boolean
 }
 
 function formFromToken(t: TokenView | null): TokenFormState {
@@ -50,6 +52,7 @@ function formFromToken(t: TokenView | null): TokenFormState {
     ttl: '',
     maxRps: t?.max_rps != null ? String(t.max_rps) : '',
     dailyMaxMb: t?.daily_max_bytes != null ? String(t.daily_max_bytes / (1024 * 1024)) : '',
+    allowPublic: t?.allow_public ?? false,
   }
 }
 
@@ -77,8 +80,10 @@ function TokenFormDialog({
     setOpen(next)
   }
 
-  const set = (key: keyof TokenFormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }))
+  const set =
+    (key: keyof TokenFormState) =>
+    (e: React.ChangeEvent<HTMLInputElement>): void =>
+      setForm((f) => ({ ...f, [key]: e.target.value }))
 
   const submit = async () => {
     setBusy(true)
@@ -97,6 +102,7 @@ function TokenFormDialog({
           ...(Number.isNaN(ttl) || ttl < 0 ? {} : { ttl_seconds: ttl }),
           ...(Number.isNaN(maxRps) || maxRps < 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes < 0 ? {} : { daily_max_bytes: dailyBytes }),
+          allow_public: form.allowPublic,
         })
         onSaved()
       } else {
@@ -112,6 +118,7 @@ function TokenFormDialog({
           ...(Number.isNaN(ttl) || ttl <= 0 ? {} : { ttl_seconds: ttl }),
           ...(Number.isNaN(maxRps) || maxRps <= 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes <= 0 ? {} : { daily_max_bytes: dailyBytes }),
+          allow_public: form.allowPublic,
         })
         onSaved()
         onCreated(created.token)
@@ -124,7 +131,12 @@ function TokenFormDialog({
     }
   }
 
-  const field = (label: string, key: keyof TokenFormState, placeholder: string) => (
+  // Only the string-valued fields use this text helper; allowPublic has its
+  // own checkbox below.
+  type TextKey = {
+    [K in keyof TokenFormState]: TokenFormState[K] extends string ? K : never
+  }[keyof TokenFormState]
+  const field = (label: string, key: TextKey, placeholder: string) => (
     <label>
       <Text as="div" size="1" weight="medium" color="gray" mb="1">
         {label}
@@ -179,6 +191,17 @@ function TokenFormDialog({
             'dailyMaxMb',
             '',
           )}
+          <label>
+            <Flex align="center" gap="2">
+              <Checkbox
+                checked={form.allowPublic}
+                onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
+              />
+              <Text size="1" weight="medium" color="gray">
+                MAY PUBLISH PUBLIC SERVICES (VISITOR AUTH GATE SKIPPED)
+              </Text>
+            </Flex>
+          </label>
           {error && (
             <Callout.Root color="red" size="1">
               <Callout.Text>{error}</Callout.Text>
@@ -348,7 +371,12 @@ export function TokensSection() {
                         {Math.round(t.daily_max_bytes / (1024 * 1024))} MB/day
                       </Badge>
                     )}
-                    {t.max_rps == null && t.daily_max_bytes == null && (
+                    {t.allow_public && (
+                      <Badge color="green" size="1">
+                        public ok
+                      </Badge>
+                    )}
+                    {t.max_rps == null && t.daily_max_bytes == null && !t.allow_public && (
                       <Text size="2" color="gray">
                         —
                       </Text>

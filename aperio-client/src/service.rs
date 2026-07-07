@@ -62,6 +62,8 @@ pub(crate) struct ServiceSpec {
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
   pub(crate) health_threshold: u32,
+  /// Ask the server to skip its visitor auth gate for this service.
+  pub(crate) public: bool,
 }
 
 impl ServiceSpec {
@@ -237,8 +239,12 @@ pub(crate) async fn run_service(
             let backend_healthy_ping = backend_healthy.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
-            let (max_concurrent, priority, bandwidth_bps) =
-              (spec.max_concurrent, spec.priority, spec.bandwidth_bps);
+            let (max_concurrent, priority, bandwidth_bps, public) = (
+              spec.max_concurrent,
+              spec.priority,
+              spec.bandwidth_bps,
+              spec.public,
+            );
 
             let ping_task = tokio::spawn(async move {
               // The first Ping goes out immediately: it announces the binds,
@@ -282,6 +288,7 @@ pub(crate) async fn run_service(
                   priority,
                   bandwidth_bps,
                   service: service_name_ping.clone(),
+                  public,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

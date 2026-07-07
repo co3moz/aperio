@@ -37,6 +37,8 @@ Two options put a gate in front of everything the tunnel serves:
 
   After login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist — exact addresses, `*@domain`, or `*`. Sessions last 24 h. A misconfigured SSO setup is a **fatal error**: the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
 
+A client can opt its own service out of the gate by declaring itself **public** (`--public`, yaml `public: true`, or `APERIO_PUBLIC=1`) — useful when one Aperio server fronts both protected internal tools and a public site. Two safety rules apply: the client's token must carry the *may publish public services* permission (off by default; master always may), and the gate is only skipped for routes served exclusively by public clients — if a protected and a public client share the same hostname, the gate stays.
+
 To let specific people through a protected site *without* an account, use [Share Links](share-links.md).
 
 ## Dashboard access

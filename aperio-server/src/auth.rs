@@ -167,6 +167,7 @@ pub(crate) async fn authorize_tunnel_token(
     paths: token.paths.clone(),
     token_name: Some(token.name.clone()),
     token_id: Some(token.id.clone()),
+    allow_public: token.allow_public,
   })
 }
 

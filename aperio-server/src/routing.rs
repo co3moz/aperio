@@ -353,6 +353,31 @@ pub(crate) async fn pick_proxy_client(
   })
 }
 
+/// True when the route for this host/path is served exclusively by clients
+/// that declared themselves public (with a token permitting it): the visitor
+/// auth gate is skipped. An empty or mixed pool keeps the gate — a request
+/// must never leak past auth because one pool member happens to be public.
+pub(crate) async fn route_is_public(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+) -> bool {
+  let clients = state.clients.lock().await;
+  let Some((pool, _)) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  ) else {
+    return false;
+  };
+  !pool.is_empty()
+    && pool
+      .iter()
+      .all(|id| clients.get(id).is_some_and(|c| c.public))
+}
+
 /// Polls the routing pool until a candidate appears or the deadline passes.
 pub(crate) async fn wait_for_candidate(
   state: &AppState,

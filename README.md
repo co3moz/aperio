@@ -190,6 +190,7 @@ Aperio has several independent auth layers; use the ones you need:
 2. **Dynamic tokens** — created from the dashboard, scoped and revocable. See [Dynamic API Tokens](#dynamic-api-tokens).
 3. **Visitor password** (`APERIO_SERVER_AUTH=user:password`) — a login form in front of all proxied traffic.
 4. **OIDC / SSO** — identity-provider login in front of all proxied traffic. See [OIDC / SSO Protection](#oidc--sso-protection).
+   > A client may opt out of the visitor gate for its own service by declaring itself **public** (`--public` / yaml `public: true` / `APERIO_PUBLIC=1`). The server honors the declaration only when the client's token carries the *may publish public services* permission (master token always may), and only for routes served exclusively by public clients — a mixed pool keeps the gate.
 5. **Dashboard password** (`APERIO_DASHBOARD_AUTH`) — a separate dashboard-only password (username `aperio`), so you don't have to share the master token with dashboard users. Set `APERIO_DASHBOARD=0` to disable the dashboard entirely.
 6. **Share links** — signed, expiring URLs that grant visitors scoped access to a protected site without an account. See [Share Links](#share-links).
 
@@ -311,6 +312,7 @@ Names map mechanically across the three surfaces: CLI `--server-token` ↔ yaml 
 | `APERIO_PATH` (`APERIO_PATH_BIND`) | `--path` | `path` | Path prefix this client serves. | — |
 | `APERIO_TRIM_BIND` (`APERIO_CLIENT_TRIM_BIND`) | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
 | `APERIO_PASS_HOSTNAME` (`APERIO_CLIENT_PASS_HOSTNAME`) | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
+| `APERIO_PUBLIC` (`APERIO_CLIENT_PUBLIC`) | `--public` | `public` | Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). | `0` |
 | `APERIO_PRIORITY` (`APERIO_CLIENT_PRIORITY`) | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
 | `APERIO_BANDWIDTH` (`APERIO_CLIENT_BANDWIDTH`) | — | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. | unlimited |
 | `APERIO_MAX_CONCURRENT` (`APERIO_CLIENT_MAX_CONCURRENT`) | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
@@ -460,6 +462,7 @@ Besides the master token, you can mint scoped tokens from the dashboard (*API To
 - **Paths** — which path binds it may claim. `*` = any.
 - **Allowed IPs** — source IPs/CIDRs that may connect with this token (`0.0.0.0/0` = any, the default).
 - **Lifetime** — optional TTL; expired tokens are rejected at connect time.
+- **Public publishing** — whether clients using this token may declare their service public (skipping the server's visitor password / OIDC gate). Off by default; the master token always may.
 - **Rate limit** — optional requests/second cap (token bucket) applied to all proxied traffic served by clients connected with this token; excess requests get `429`.
 - **Daily quota** — optional bytes/day cap (request + response payload); once exhausted the token's traffic answers `429` until local midnight. Usage tracking is in-memory, so a server restart resets the current day's counter.
 

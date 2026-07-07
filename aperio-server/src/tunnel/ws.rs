@@ -264,6 +264,8 @@ pub(crate) async fn handle_socket(
         reported_instance_id: None,
         bandwidth_bps: bandwidth_bps.clone(),
         service_name: None,
+        public: false,
+        public_denied_warned: false,
       },
     );
     drop(clients);
@@ -510,6 +512,7 @@ pub(crate) async fn handle_socket(
               priority,
               bandwidth_bps,
               service,
+              public,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -600,6 +603,25 @@ pub(crate) async fn handle_socket(
                   }
                   if service.is_some() {
                     handle.service_name = service;
+                  }
+                  // Public declaration: honored only when the token permits
+                  // publishing public services.
+                  let effective_public = public && handle.perms.allow_public;
+                  if public && !handle.perms.allow_public && !handle.public_denied_warned {
+                    handle.public_denied_warned = true;
+                    warn!(
+                      "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
+                      client_id
+                    );
+                  }
+                  if handle.public != effective_public {
+                    handle.public = effective_public;
+                    if effective_public {
+                      info!(
+                        "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
+                        client_id
+                      );
+                    }
                   }
                   // Warn once per change, not on every heartbeat.
                   if protocol.is_some() && handle.client_protocol != protocol {

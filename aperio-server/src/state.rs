@@ -57,6 +57,8 @@ pub(crate) struct ClientDetail {
   pub(crate) version: Option<String>,
   /// Service name announced via Ping (multi-service clients).
   pub(crate) service: Option<String>,
+  /// True when this client serves its traffic without the visitor auth gate.
+  pub(crate) public: bool,
   /// Tunnel protocol version announced via Ping.
   pub(crate) protocol: Option<u32>,
   /// True when the announced protocol version differs from the server's.
@@ -225,6 +227,12 @@ pub(crate) struct ClientHandle {
   /// Display name of the service this connection exposes (announced via
   /// Ping by multi-service clients).
   pub(crate) service_name: Option<String>,
+  /// True when the client declared its service public AND its token permits
+  /// publishing public services: the visitor auth gate is skipped for
+  /// routes served exclusively by public clients.
+  pub(crate) public: bool,
+  /// Ensures the "public requested but not permitted" warning logs once.
+  pub(crate) public_denied_warned: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -241,6 +249,8 @@ pub(crate) struct ClientPerms {
   /// Record ID of the dynamic token used (None for the master token);
   /// rate limits and quotas key on this.
   pub(crate) token_id: Option<String>,
+  /// May this token publish services as public (visitor auth gate skipped)?
+  pub(crate) allow_public: bool,
 }
 
 impl ClientPerms {
@@ -251,6 +261,7 @@ impl ClientPerms {
       paths: Vec::new(),
       token_name: None,
       token_id: None,
+      allow_public: true,
     }
   }
 

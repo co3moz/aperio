@@ -358,6 +358,30 @@ assert_contains "$RESP" "302" "share cookie does not cover other hostnames"
 RESP="$(curl -s -D - -o /dev/null -H "Host: ${HOSTNAME_BIND}" "$BASE/hello?aperio_share=tampered.token")"
 assert_contains "$RESP" "/aperio/auth" "a tampered share token is rejected"
 
+step "Public service opt-out of the visitor gate"
+# Master token always may publish public services: this hostname bypasses auth.
+start_client public "$BACKEND_PORT" APERIO_HOSTNAME_BIND=pub.e2e.local APERIO_PUBLIC=1
+retry 20 sh -c "curl -s -H 'Host: pub.e2e.local' '$BASE/hello' | grep -q 'backend ${BACKEND_PORT} GET /hello'" \
+  || fail "public client did not bypass the visitor gate"
+echo "  ok: public client serves without login"
+# The protected hostname keeps its gate.
+RESP="$(curl -s -D - -o /dev/null -H "Host: ${HOSTNAME_BIND}" "$BASE/hello")"
+assert_contains "$RESP" "/aperio/auth" "protected hostname still redirects to login"
+# A dynamic token WITHOUT the allow_public permission cannot bypass the gate.
+NP="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"nopublic","hostnames":["priv.e2e.local"]}' "$BASE/aperio/api/tokens")" \
+  || fail "token creation failed"
+NP_TOKEN="$(echo "$NP" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$NP_TOKEN" ] || fail "could not parse the token response: $NP"
+env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$NP_TOKEN" \
+  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_PUBLIC=1 \
+  "$CLIENT_BIN" >"$LOG_DIR/client-auth-nopublic.log" 2>&1 &
+CLIENT_PIDS+=($!)
+retry 20 sh -c "grep -q 'does not permit publishing public' '$LOG_DIR/server-auth.log'" \
+  || fail "server did not log the denied public declaration"
+RESP="$(curl -s -D - -o /dev/null -H "Host: priv.e2e.local" "$BASE/hello")"
+assert_contains "$RESP" "/aperio/auth" "unpermitted public declaration keeps the gate"
+
 stop_server
 
 ##############################################################################

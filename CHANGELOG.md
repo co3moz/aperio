@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Public services**: a client can declare its service public (`--public`, yaml `public: true`, `APERIO_PUBLIC=1`) and the server skips its visitor password / OIDC gate for routes served exclusively by that client. Gated by a new per-token *may publish public services* permission (off by default; master token always may) and shown as badges in the dashboard.
 - The client prints human-readable logs on interactive terminals and keeps JSON when stdout is not a TTY (Docker, pipes); `APERIO_LOG_FORMAT=json|pretty` overrides the auto-detection.
 
 ### Security
