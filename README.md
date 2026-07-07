@@ -269,7 +269,7 @@ The client layers four configuration sources, from lowest to highest precedence:
 
 On connection loss the client reconnects with **exponential backoff and jitter** (1 s doubling up to 60 s, randomized) so a restarted server is not stampeded by its whole client fleet at once; the backoff resets after a connection stays up for 30 s.
 
-When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the current connection is dropped gracefully, and the client reconnects with the freshly resolved `token`, `server`, `target`, `hostname`, `path`, and `priority`. The usual layering applies on reload; a file that no longer parses is ignored with a warning.
+When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the current connection is dropped gracefully, and the service restarts with the freshly resolved configuration — **every** setting applies, including timeouts, concurrency, bandwidth, health probing, and redirect limits. The usual layering applies on reload; a file that no longer parses (or resolves to an invalid configuration) is ignored with a warning.
 
 ### CLI
 

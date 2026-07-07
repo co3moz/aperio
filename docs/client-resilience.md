@@ -18,7 +18,7 @@ Probe cadence is tunable: `APERIO_HEALTH_INTERVAL` (default 10 s), `APERIO_HEALT
 
 ## Config hot-reload
 
-When a config file is present (`./aperio.yaml` or `--config`), edits are detected within ~5 s: the current connection is dropped gracefully and the client reconnects with the freshly resolved `token`, `server`, `target`, `hostname`, `path`, and `priority`. The usual layering applies on reload (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`); a file that no longer parses is ignored with a warning rather than killing the client.
+When a config file is present (`./aperio.yaml` or `--config`), edits are detected within ~5 s: the current connection is dropped gracefully and the service restarts with the freshly resolved configuration — every setting applies, including timeouts, concurrency, bandwidth, health probing, and redirect limits. The usual layering applies on reload (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`); a file that no longer parses (or resolves to an invalid configuration) is ignored with a warning rather than killing the client.
 
 ## Graceful shutdown
 
