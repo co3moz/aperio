@@ -232,10 +232,12 @@ struct ServerConfig {
   require_hostname_bind: bool,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   metrics_token: Option<String>,
-  /// Domain suffix for automatic random subdomains (from
-  /// `APERIO_RANDOM_SUBDOMAIN="*.example.com"`). When set, every connecting
-  /// client is assigned `<random>.<suffix>` in addition to any token-granted
-  /// or declared hostname binds.
+  /// Canonical pattern for automatic random subdomains (from
+  /// `APERIO_RANDOM_SUBDOMAIN`): a hostname whose leftmost label contains a
+  /// `*` placeholder, e.g. `*.example.com` or `*-test.example.com`. When
+  /// set, every connecting client is assigned the pattern with `*` replaced
+  /// by a random label, in addition to any token-granted or declared
+  /// hostname binds.
   random_subdomain_suffix: Option<String>,
   /// A client whose last heartbeat is older than this is considered down and
   /// removed from the load-balancing pool until it pings again.
@@ -385,11 +387,12 @@ fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverrides) -> Serve
     c.tunnel_compression = v;
   }
   if let Some(ref s) = o.random_subdomain_suffix {
-    let trimmed = s.trim().trim_start_matches("*.").trim_matches('.');
-    c.random_subdomain_suffix = if trimmed.is_empty() {
+    c.random_subdomain_suffix = if s.trim().is_empty() {
       None
     } else {
-      Some(trimmed.to_string())
+      // An invalid pattern keeps the previous value rather than breaking
+      // hostname generation mid-flight.
+      normalize_random_subdomain_pattern(s).or_else(|| c.random_subdomain_suffix.clone())
     };
   }
   if let Some(ref html) = o.custom_504_page {
@@ -1219,23 +1222,21 @@ async fn main() {
   let random_subdomain_suffix = std::env::var("APERIO_RANDOM_SUBDOMAIN")
     .ok()
     .and_then(|val| {
-      let trimmed = val.trim();
-      let suffix = trimmed.strip_prefix("*.").unwrap_or(trimmed);
-      match normalize_hostname_bind(suffix) {
+      match normalize_random_subdomain_pattern(&val) {
         Some(s) => Some(s),
         None => {
           error!(
-            "Invalid APERIO_RANDOM_SUBDOMAIN value '{}' (expected e.g. \"*.example.com\"); ignoring",
+            "Invalid APERIO_RANDOM_SUBDOMAIN value '{}' (expected e.g. \"example.com\", \"*.example.com\", or \"*-test.example.com\"); ignoring",
             val
           );
           None
         }
       }
     });
-  if let Some(ref suffix) = random_subdomain_suffix {
+  if let Some(ref pattern) = random_subdomain_suffix {
     info!(
-      "Random subdomain assignment enabled: every client gets <random>.{}",
-      suffix
+      "Random subdomain assignment enabled: every client gets {} (* = random label)",
+      pattern
     );
   }
 
@@ -2676,10 +2677,7 @@ async fn tunnels_create_handler(
       }
     },
     None => match state.config().random_subdomain_suffix {
-      Some(ref suffix) => {
-        let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
-        format!("{}.{}", label, suffix)
-      }
+      Some(ref pattern) => random_subdomain_hostname(pattern),
       None => {
         return (
           StatusCode::BAD_REQUEST,
@@ -3437,6 +3435,43 @@ fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
 /// Normalizes a hostname bind: lowercases, trims whitespace, strips a
 /// trailing dot and an optional port suffix. Returns `None` for empty values
 /// or values containing characters outside the DNS-safe set.
+/// Normalizes a random-subdomain pattern into canonical form: a hostname
+/// whose leftmost label contains exactly one `*` placeholder.
+///
+/// - `example.com`        → `*.example.com`
+/// - `*.example.com`      → `*.example.com`
+/// - `*-test.example.com` → `*-test.example.com` (same-level suffix, so one
+///   wildcard TLS certificate covers `<random>-test.example.com`)
+fn normalize_random_subdomain_pattern(raw: &str) -> Option<String> {
+  let trimmed = raw.trim().trim_matches('.').to_ascii_lowercase();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let pattern = if trimmed.contains('*') {
+    trimmed
+  } else {
+    format!("*.{}", trimmed)
+  };
+  // Exactly one `*`, and only in the leftmost label.
+  if pattern.matches('*').count() != 1 {
+    return None;
+  }
+  let (head, tail) = pattern.split_once('.')?;
+  if !head.contains('*') || tail.contains('*') {
+    return None;
+  }
+  // The pattern must yield a valid hostname once the placeholder is filled.
+  normalize_hostname_bind(&pattern.replacen('*', "abc123", 1))?;
+  Some(pattern)
+}
+
+/// Produces a concrete random hostname from a canonical subdomain pattern
+/// (the `*` placeholder is replaced with a random label).
+fn random_subdomain_hostname(pattern: &str) -> String {
+  let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
+  pattern.replacen('*', &label, 1)
+}
+
 fn normalize_hostname_bind(host: &str) -> Option<String> {
   const MAX_HOSTNAME_LEN: usize = 253;
 
@@ -3915,10 +3950,7 @@ async fn handle_socket(
     .config()
     .random_subdomain_suffix
     .as_ref()
-    .map(|suffix| {
-      let label: String = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
-      format!("{}.{}", label, suffix)
-    });
+    .map(|pattern| random_subdomain_hostname(pattern));
   if let Some(ref h) = random_hostname {
     assigned_hostnames.push(h.clone());
   }
@@ -7111,7 +7143,7 @@ mod tests {
     assert_eq!(c.gateway_timeout, Duration::from_secs(20));
     assert_eq!(c.lb_strategy, LbStrategy::Sticky);
     assert_eq!(c.failover_mode, FailoverMode::RetryWait);
-    assert_eq!(c.random_subdomain_suffix.as_deref(), Some("e2e.local"));
+    assert_eq!(c.random_subdomain_suffix.as_deref(), Some("*.e2e.local"));
     assert_eq!(c.custom_504_page.as_deref(), Some("<h1>down</h1>"));
     assert_eq!(c.auth_credentials.as_deref(), Some("user:pass"));
     // Untouched fields keep the base values; the token never changes.
@@ -7139,6 +7171,42 @@ mod tests {
         "random_subdomain_suffix",
       ]
     );
+  }
+
+  #[test]
+  fn test_normalize_random_subdomain_pattern() {
+    // Bare domain gets the implicit leading wildcard label.
+    assert_eq!(
+      normalize_random_subdomain_pattern("example.com").as_deref(),
+      Some("*.example.com")
+    );
+    // Canonical form is accepted as-is.
+    assert_eq!(
+      normalize_random_subdomain_pattern("*.example.com").as_deref(),
+      Some("*.example.com")
+    );
+    // Same-level suffix pattern is preserved, not turned into *.-test....
+    assert_eq!(
+      normalize_random_subdomain_pattern("*-test.example.com").as_deref(),
+      Some("*-test.example.com")
+    );
+    assert_eq!(
+      normalize_random_subdomain_pattern("  *.Example.COM.  ").as_deref(),
+      Some("*.example.com")
+    );
+    // Invalid: wildcard outside the leftmost label, multiple wildcards,
+    // no domain part, empty.
+    assert_eq!(normalize_random_subdomain_pattern("test.*.example.com"), None);
+    assert_eq!(normalize_random_subdomain_pattern("*.*.example.com"), None);
+    assert_eq!(normalize_random_subdomain_pattern("*"), None);
+    assert_eq!(normalize_random_subdomain_pattern(""), None);
+
+    // Generation replaces the placeholder in place.
+    let host = random_subdomain_hostname("*-pi.example.com");
+    assert!(host.ends_with("-pi.example.com"), "got {host}");
+    assert!(!host.contains('*'));
+    let host = random_subdomain_hostname("*.example.com");
+    assert!(host.ends_with(".example.com") && !host.contains('*'));
   }
 
   #[test]

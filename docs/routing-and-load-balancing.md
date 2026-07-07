@@ -34,6 +34,8 @@ Within the hostname pool, the longest matching path bind wins. Binds match on se
 
 With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are per-connection and additive — declared and token-granted binds keep working alongside.
 
+The value is a pattern: the `*` in the leftmost label is replaced with a random label. `example.com` is shorthand for `*.example.com`, and `*-test.example.com` yields `<random>-test.example.com` — same subdomain level, so one wildcard TLS certificate covers the generated hostnames.
+
 ## Dashboard overrule
 
 The dashboard can temporarily override any client's binds ("Overrule") — handy for redirecting a hostname live. Overrides live only in server memory: a reconnect or restart reverts to the client's own configuration.

@@ -151,7 +151,7 @@ The server is configured through environment variables; most settings can also b
 | Variable | Description | Default |
 | --- | --- | --- |
 | `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
-| `APERIO_RANDOM_SUBDOMAIN` | e.g. `*.example.com` — every connecting client gets a random hostname under this suffix, in addition to its other binds. | — |
+| `APERIO_RANDOM_SUBDOMAIN` | Pattern with a `*` placeholder in the leftmost label — every connecting client gets the pattern with `*` replaced by a random label, in addition to its other binds. `example.com` ≡ `*.example.com`; `*-test.example.com` yields `<random>-test.example.com` (stays on the same subdomain level, so one wildcard TLS cert covers it). | — |
 | `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |
 | `APERIO_LB_STRATEGY` | Load-balancing strategy: `round-robin`, `primary-standby` (client priority tiers), or `sticky` (visitor affinity via cookie). See [Routing](#routing). | `round-robin` |
 | `APERIO_FAILOVER` | What to do when a client dies mid-request: `fail`, `retry`, `wait`, or `retry-wait`. See [In-Flight Failover](#in-flight-failover). | `fail` |
@@ -400,6 +400,12 @@ Set `APERIO_CLIENT_TRIM_BIND=0` to forward the full original path.
 ### Random Subdomains
 
 With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server, every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. The client logs it on connect and the dashboard shows it. Assignments are per-connection (a reconnect gets a fresh one) and *additive* — token-granted and declared binds keep working alongside.
+
+The value is a pattern whose leftmost label contains a `*` placeholder, replaced with a random label on assignment:
+
+- `example.com` — shorthand for `*.example.com`
+- `*.example.com` — `<random>.example.com`
+- `*-test.example.com` — `<random>-test.example.com`: stays on the same subdomain level, so the parent domain's wildcard TLS certificate still covers the generated hostnames
 
 ### Dashboard Overrule
 

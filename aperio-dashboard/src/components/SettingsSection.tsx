@@ -42,7 +42,7 @@ const FIELDS: FieldSpec[] = [
   { key: 'ip_limit_max', label: 'IP rate limit burst', kind: 'number' },
   { key: 'ip_limit_refill', label: 'IP rate limit refill (req/s)', kind: 'number' },
   { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Applies to newly connecting clients' },
-  { key: 'random_subdomain_suffix', label: 'Random subdomain suffix', kind: 'text', hint: 'e.g. example.com — new connections get <random>.<suffix>; empty = disabled' },
+  { key: 'random_subdomain_suffix', label: 'Random subdomain suffix', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * is replaced with a random label; empty = disabled' },
   { key: 'auth_credentials', label: 'Visitor password', kind: 'text', hint: 'user:password put in front of all proxied traffic; empty = disabled' },
   { key: 'custom_504_page', label: 'Custom 504 page (HTML)', kind: 'textarea' },
   { key: 'custom_503_page', label: 'Custom 503 maintenance page (HTML)', kind: 'textarea' },
