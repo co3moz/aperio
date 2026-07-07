@@ -13,6 +13,7 @@ Short, focused articles on each part of the product. For a single-page overview 
 - [Tokens & Authentication](tokens-and-auth.md) — the master token, scoped dynamic tokens, visitor passwords, and OIDC/SSO.
 - [Share Links](share-links.md) — hand out temporary access to a protected site without creating accounts.
 - [Ephemeral Tunnels](ephemeral-tunnels.md) — per-PR preview environments via the API and the GitHub Action.
+- [Emergency Tunnels](emergency-tunnels.md) — declare unexposed TCP services and bind them from a peer client with `--bind-tunnels` when everything else is down.
 
 ## Operating Aperio
 
@@ -22,4 +23,4 @@ Short, focused articles on each part of the product. For a single-page overview 
 
 ## Under the Hood
 
-- [Tunnel Protocol & Advanced Features](tunnel-protocol.md) — WebSocket pass-through, chunked body streaming, binary frames, compression, experimental TCP tunneling.
+- [Tunnel Protocol & Advanced Features](tunnel-protocol.md) — WebSocket pass-through, chunked body streaming, binary frames, compression.

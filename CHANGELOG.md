@@ -11,6 +11,12 @@ project follows semantic versioning per release tag.
 - **Public services**: a client can declare its service public (`--public`, yaml `public: true`, `APERIO_PUBLIC=1`) and the server skips its visitor password / OIDC gate for routes served exclusively by that client. Gated by a new per-token *may publish public services* permission (off by default; master token always may) and shown as badges in the dashboard.
 - The client prints human-readable logs on interactive terminals and keeps JSON when stdout is not a TTY (Docker, pipes); `APERIO_LOG_FORMAT=json|pretty` overrides the auto-detection.
 - Global `--target` client flag as an alternative to the positional target, usable with subcommands too — `aperio-client check --target 3000` now works instead of erroring with "unexpected argument".
+- **Emergency tunnels**: a client declares normally unexposed local TCP services in a `tunnels:` list (a config with only tunnels is valid); a peer client running `aperio-client --bind-tunnels <client-id>` with the **same token** binds them as local 127.0.0.1 listeners (port = declared target's port, overridable per target via a `bind-tunnels:` yaml section that also supports multiple clients). Port conflicts and already-taken local ports are reported instead of bound. The declaring client only ever dials addresses from its own list; even master-token holders must name an explicit client id. Discovery endpoint: `GET /aperio/tunnels/:client_id`.
+- `--client-id` client flag (yaml `client_id`, env `APERIO_CLIENT_ID`) pins the client instance id to a fixed UUID across restarts — useful for failover `wait` mode and `--bind-tunnels`. Invalid (non-UUID) values are rejected at startup. Duplicate ids are allowed but flagged: the dashboard clients table shows a `SHARED ID` badge when two live connections report the same instance id (lookups by that id are ambiguous).
+
+### Changed
+
+- The experimental TCP tunneling feature (`tcp_target`, `aperio-client tcp <port>`, bare `GET /aperio/tcp`) is no longer documented and the `tcp` subcommand is hidden from `--help`; the API keeps working for existing setups. Emergency tunnels are the supported path for raw TCP access.
 
 ### Security
 

@@ -46,6 +46,23 @@ fn default_true() -> bool {
   true
 }
 
+/// Serde default protocol of a declared tunnel.
+fn default_tcp() -> String {
+  "tcp".to_string()
+}
+
+/// One tunnel declared by a client (`tunnels:` list in its aperio.yaml): a
+/// normally unexposed local service that a peer client may reach through
+/// the server with `--bind-tunnels` — same token, explicit client id.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TunnelDecl {
+  /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
+  pub target: String,
+  /// Transport protocol; only `tcp` is currently supported.
+  #[serde(default = "default_tcp")]
+  pub protocol: String,
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -89,6 +106,11 @@ pub enum TunnelMessage {
     /// for traffic routed here (honored only when the token permits it).
     #[serde(default)]
     public: bool,
+    /// Tunnels declared by the client (`tunnels:` list): normally
+    /// unexposed local services reachable by a peer client via
+    /// `--bind-tunnels` with the same token and this client's id.
+    #[serde(default)]
+    tunnels: Vec<TunnelDecl>,
   },
   Pong {
     timestamp: u64,
@@ -168,9 +190,15 @@ pub enum TunnelMessage {
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
-  /// Server → client: open a raw TCP connection to the client's configured
-  /// TCP target for this stream (experimental TCP tunneling).
-  TcpOpen { stream_id: String },
+  /// Server → client: open a raw TCP connection for this stream. `target`
+  /// selects one of the client's declared tunnels; when absent the legacy
+  /// `tcp_target` is used. The client only ever connects to addresses it
+  /// itself declared, regardless of what the server asks.
+  TcpOpen {
+    stream_id: String,
+    #[serde(default)]
+    target: Option<String>,
+  },
   /// Raw TCP bytes relayed through the tunnel (Base64).
   TcpData { stream_id: String, data: String },
   /// Signals that a TCP stream has been closed (either side).

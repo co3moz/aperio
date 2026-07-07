@@ -266,6 +266,7 @@ pub(crate) async fn handle_socket(
         service_name: None,
         public: false,
         public_denied_warned: false,
+        tunnels: Vec::new(),
       },
     );
     drop(clients);
@@ -513,6 +514,7 @@ pub(crate) async fn handle_socket(
               bandwidth_bps,
               service,
               public,
+              tunnels,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -559,6 +561,14 @@ pub(crate) async fn handle_socket(
                     );
                   }
                   handle.tcp_enabled = tcp;
+                  if handle.tunnels != tunnels {
+                    info!(
+                      "Client {} declares {} bindable tunnel(s)",
+                      client_id,
+                      tunnels.len()
+                    );
+                    handle.tunnels = tunnels;
+                  }
                   // Log backend health transitions reported by the client's
                   // own probe; the eligibility filter honours the flag.
                   if handle.backend_healthy != backend_healthy {

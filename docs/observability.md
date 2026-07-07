@@ -27,7 +27,7 @@ Every proxied request is emitted as a structured `aperio_access` tracing event o
 
 ## Audit log
 
-Administrative and security events — logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and TCP streams — are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. The dashboard shows the most recent 200. The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
+Administrative and security events — logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams — are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. The dashboard shows the most recent 200. The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
 
 ## Webhooks
 

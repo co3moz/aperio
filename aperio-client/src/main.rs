@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+mod bind_tunnels;
 mod check;
 mod config;
 mod protocol;
@@ -91,10 +92,34 @@ async fn main() {
     return;
   }
 
+  // Bind-tunnels mode: run local listeners for a peer client's declared
+  // tunnels instead of exposing anything.
+  if let CliMode::BindTunnels(ref id) = cli.mode {
+    let server = settings.server.clone().unwrap_or_else(|| {
+      error!("CRITICAL ERROR: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)!");
+      std::process::exit(1);
+    });
+    bind_tunnels::run_bind_tunnels(&settings, &server, id).await;
+  }
+
   // Stable instance id base, kept across reconnects and config respawns so
   // the server's failover `wait` mode keeps recognizing this client. Each
-  // service derives its own id from it by index.
-  let client_id = uuid::Uuid::new_v4().to_string();
+  // service derives its own id from it by index. `--client-id` (or yaml
+  // client_id / APERIO_CLIENT_ID) makes it persistent across runs; it must
+  // be a UUID like the generated default.
+  let client_id = match settings.client_id {
+    Some(ref explicit) => match uuid::Uuid::parse_str(explicit) {
+      Ok(u) => u.to_string(),
+      Err(_) => {
+        error!(
+          "CRITICAL ERROR: client_id '{}' is not a valid UUID (--client-id / APERIO_CLIENT_ID / yaml: client_id)",
+          explicit
+        );
+        std::process::exit(1);
+      }
+    },
+    None => uuid::Uuid::new_v4().to_string(),
+  };
 
   let mut specs = match build_specs(&settings, &client_id, cli.target.is_some()) {
     Ok(specs) => specs,
@@ -277,6 +302,8 @@ fn build_specs(
     })
   };
 
+  let tunnels = validate_tunnels(&settings.tunnels)?;
+
   if settings.services.is_empty() || cli_target_given {
     if cli_target_given && !settings.services.is_empty() {
       warn!(
@@ -284,9 +311,18 @@ fn build_specs(
         settings.services.len()
       );
     }
-    let target = settings.target.clone().ok_or(
-      "CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, yaml: target, or a services: list)!",
-    )?;
+    // A client may run with only a tunnels: list (nothing exposed): the
+    // connection then serves no HTTP target and exists purely so a peer
+    // can bind the declared tunnels in an emergency.
+    let target = match settings.target.clone() {
+      Some(t) => t,
+      None if !tunnels.is_empty() => String::new(),
+      None => {
+        return Err(
+          "CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, yaml: target, or a services:/tunnels: list)!".to_string(),
+        );
+      }
+    };
     return Ok(vec![ServiceSpec {
       name: None,
       client_id: client_id_base.to_string(),
@@ -315,6 +351,7 @@ fn build_specs(
       health_timeout: settings.health_timeout,
       health_threshold: settings.health_threshold,
       public: settings.public,
+      tunnels,
     }]);
   }
 
@@ -392,9 +429,51 @@ fn build_specs(
           .unwrap_or(settings.health_threshold)
           .max(1),
         public: entry.public.unwrap_or(settings.public),
+        tunnels: tunnels.clone(),
       })
     })
     .collect()
+}
+
+/// Validates the `tunnels:` list: only TCP is supported for now, targets
+/// must be `host:port`, and duplicates are rejected. Returns the normalized
+/// declarations.
+fn validate_tunnels(
+  raw: &[crate::protocol::TunnelDecl],
+) -> Result<Vec<crate::protocol::TunnelDecl>, String> {
+  let mut seen = std::collections::HashSet::new();
+  let mut out = Vec::with_capacity(raw.len());
+  for decl in raw {
+    let target = decl.target.trim().to_string();
+    let protocol = decl.protocol.trim().to_ascii_lowercase();
+    if protocol != "tcp" {
+      return Err(format!(
+        "CRITICAL ERROR: tunnel '{}' declares protocol '{}'; only tcp is supported for now",
+        target, decl.protocol
+      ));
+    }
+    let port_ok = target
+      .rsplit_once(':')
+      .and_then(|(host, port)| {
+        let port = port.parse::<u16>().ok().filter(|p| *p > 0)?;
+        if host.is_empty() { None } else { Some(port) }
+      })
+      .is_some();
+    if !port_ok {
+      return Err(format!(
+        "CRITICAL ERROR: tunnel target '{}' is not a host:port address",
+        decl.target
+      ));
+    }
+    if !seen.insert(target.clone()) {
+      return Err(format!(
+        "CRITICAL ERROR: tunnel target '{}' is declared more than once",
+        target
+      ));
+    }
+    out.push(crate::protocol::TunnelDecl { target, protocol });
+  }
+  Ok(out)
 }
 
 /// Logs the effective configuration of a service at startup.
@@ -404,7 +483,11 @@ fn log_spec(spec: &ServiceSpec) {
     None => info!("Configuration loaded:"),
   }
   info!("- Client ID: {}", spec.client_id);
-  info!("- Target: {}", spec.target);
+  if spec.target.is_empty() {
+    info!("- Target: (none — tunnels only)");
+  } else {
+    info!("- Target: {}", spec.target);
+  }
   info!("- Pass Hostname: {}", spec.pass_hostname);
   if let Some(ref bind) = spec.path {
     info!("- Path Bind: {}", bind);
@@ -430,6 +513,12 @@ fn log_spec(spec: &ServiceSpec) {
   }
   if spec.public {
     info!("- Public: visitor auth gate skipped for this service (token permitting)");
+  }
+  for t in &spec.tunnels {
+    info!(
+      "- Tunnel: {} ({}) — bindable by a peer client with this token and client id",
+      t.target, t.protocol
+    );
   }
   info!("- WebSocket URL: {}", spec.ws_url);
 }

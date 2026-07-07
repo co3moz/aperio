@@ -45,6 +45,8 @@ export interface ClientDetail {
   healthy: boolean
   draining: boolean
   enabled: boolean
+  instance_id: string | null
+  instance_id_shared: boolean
 }
 
 export interface ServerStats {

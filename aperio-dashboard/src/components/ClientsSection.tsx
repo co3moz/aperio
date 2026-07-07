@@ -291,6 +291,15 @@ export function ClientsSection({
                             </Badge>
                           </Tooltip>
                         )}
+                        {c.instance_id_shared && (
+                          <Tooltip
+                            content={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
+                          >
+                            <Badge color="amber" size="1">
+                              SHARED ID
+                            </Badge>
+                          </Tooltip>
+                        )}
                       </Flex>
                       {c.token_name && (
                         <Text size="1" color="gray">

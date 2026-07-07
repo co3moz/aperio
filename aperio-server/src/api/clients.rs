@@ -20,6 +20,16 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
   let raw_stats = state.stats.lock().await.clone();
   let clients = state.clients.lock().await;
 
+  // Instance ids reported by more than one live connection: a
+  // misconfiguration worth flagging (`--bind-tunnels` / failover `wait`
+  // lookups become ambiguous).
+  let mut instance_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+  for handle in clients.values() {
+    if let Some(iid) = handle.reported_instance_id.as_deref() {
+      *instance_counts.entry(iid).or_insert(0) += 1;
+    }
+  }
+
   let active_clients = clients
     .iter()
     .map(|(id, handle)| ClientDetail {
@@ -61,6 +71,11 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
       healthy: handle.is_healthy(state.config().client_down_threshold),
       draining: handle.draining,
       enabled: handle.admin_enabled,
+      instance_id: handle.reported_instance_id.clone(),
+      instance_id_shared: handle
+        .reported_instance_id
+        .as_deref()
+        .is_some_and(|iid| instance_counts.get(iid).copied().unwrap_or(0) > 1),
     })
     .collect();
 

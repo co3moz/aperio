@@ -67,9 +67,16 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
         settings.services.len()
       ),
     ),
+    None if !settings.tunnels.is_empty() => pass(
+      "target",
+      format!(
+        "none — {} tunnel(s) declared (from ./aperio.yaml)",
+        settings.tunnels.len()
+      ),
+    ),
     None => fail(
       "target",
-      "missing (--target / APERIO_TARGET / yaml: target / services: list)".to_string(),
+      "missing (--target / APERIO_TARGET / yaml: target / services: or tunnels: list)".to_string(),
       &mut failures,
     ),
   }

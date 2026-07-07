@@ -336,6 +336,7 @@ async fn test_proxy_handler_success() {
       service_name: None,
       public: false,
       public_denied_warned: false,
+      tunnels: Vec::new(),
     },
   );
 
@@ -565,6 +566,7 @@ fn mock_client(
     service_name: None,
     public: false,
     public_denied_warned: false,
+    tunnels: Vec::new(),
   }
 }
 

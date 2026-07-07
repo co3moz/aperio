@@ -129,8 +129,6 @@ pub(crate) async fn handle_tcp_open(
 /// accepted connection to the server's experimental `/aperio/tcp` endpoint,
 /// which tunnels it to the remote client's TCP target.
 pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
-  use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
   let ws_url = match build_ws_url_with_path(server, "/aperio/tcp") {
     Ok(u) => u,
     Err(e) => {
@@ -156,7 +154,7 @@ pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
   );
 
   loop {
-    let (mut sock, peer) = match listener.accept().await {
+    let (sock, peer) = match listener.accept().await {
       Ok(x) => x,
       Err(e) => {
         error!("TCP bridge accept error: {}", e);
@@ -168,66 +166,75 @@ pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
     let ws_url = ws_url.clone();
     let token = token.to_string();
     tokio::spawn(async move {
-      // Open a fresh tunnel stream for this connection.
-      let mut req = match ws_url.clone().into_client_request() {
-        Ok(r) => r,
-        Err(e) => {
-          error!("TCP bridge request build error: {:?}", e);
-          return;
-        }
-      };
-      match HeaderValue::from_str(&format!("Bearer {}", token)) {
-        Ok(val) => {
-          req.headers_mut().insert("Authorization", val);
-        }
-        Err(_) => return,
-      }
-      let (ws, _) = match connect_async(req).await {
-        Ok(x) => x,
-        Err(e) => {
-          error!("TCP bridge failed to reach server: {:?}", e);
-          return;
-        }
-      };
-      let (mut ws_tx, mut ws_rx) = ws.split();
-      let (mut tcp_read, mut tcp_write) = sock.split();
-
-      let to_server = async {
-        let mut buf = vec![0u8; 16 * 1024];
-        loop {
-          match tcp_read.read(&mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-              if ws_tx
-                .send(Message::Binary(buf[..n].to_vec()))
-                .await
-                .is_err()
-              {
-                break;
-              }
-            }
-          }
-        }
-        let _ = ws_tx.send(Message::Close(None)).await;
-      };
-
-      let to_local = async {
-        while let Some(Ok(msg)) = ws_rx.next().await {
-          match msg {
-            Message::Binary(bytes) => {
-              if tcp_write.write_all(&bytes).await.is_err() {
-                break;
-              }
-            }
-            Message::Close(_) => break,
-            _ => {}
-          }
-        }
-        let _ = tcp_write.shutdown().await;
-      };
-
-      tokio::join!(to_server, to_local);
+      bridge_connection(sock, &ws_url, &token).await;
       info!("TCP bridge: connection from {} closed", peer);
     });
   }
+}
+
+/// Relays one accepted local TCP connection over a fresh WebSocket stream to
+/// the server's `/aperio/tcp` endpoint (query parameters select a specific
+/// peer client / declared tunnel target). Returns when either side closes.
+pub(crate) async fn bridge_connection(mut sock: tokio::net::TcpStream, ws_url: &str, token: &str) {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+  // Open a fresh tunnel stream for this connection.
+  let mut req = match ws_url.to_string().into_client_request() {
+    Ok(r) => r,
+    Err(e) => {
+      error!("TCP bridge request build error: {:?}", e);
+      return;
+    }
+  };
+  match HeaderValue::from_str(&format!("Bearer {}", token)) {
+    Ok(val) => {
+      req.headers_mut().insert("Authorization", val);
+    }
+    Err(_) => return,
+  }
+  let (ws, _) = match connect_async(req).await {
+    Ok(x) => x,
+    Err(e) => {
+      error!("TCP bridge failed to reach server: {:?}", e);
+      return;
+    }
+  };
+  let (mut ws_tx, mut ws_rx) = ws.split();
+  let (mut tcp_read, mut tcp_write) = sock.split();
+
+  let to_server = async {
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+      match tcp_read.read(&mut buf).await {
+        Ok(0) | Err(_) => break,
+        Ok(n) => {
+          if ws_tx
+            .send(Message::Binary(buf[..n].to_vec()))
+            .await
+            .is_err()
+          {
+            break;
+          }
+        }
+      }
+    }
+    let _ = ws_tx.send(Message::Close(None)).await;
+  };
+
+  let to_local = async {
+    while let Some(Ok(msg)) = ws_rx.next().await {
+      match msg {
+        Message::Binary(bytes) => {
+          if tcp_write.write_all(&bytes).await.is_err() {
+            break;
+          }
+        }
+        Message::Close(_) => break,
+        _ => {}
+      }
+    }
+    let _ = tcp_write.shutdown().await;
+  };
+
+  tokio::join!(to_server, to_local);
 }

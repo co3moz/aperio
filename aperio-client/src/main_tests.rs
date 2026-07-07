@@ -24,7 +24,55 @@ fn base_settings() -> ClientSettings {
     health_threshold: 2,
     public: false,
     services: Vec::new(),
+    client_id: None,
+    tunnels: Vec::new(),
+    bind_tunnels: std::collections::HashMap::new(),
   }
+}
+
+#[test]
+fn test_build_specs_tunnels_only() {
+  // A client may run with only a tunnels: list — nothing exposed, the
+  // connection exists so a peer can bind the declared tunnels.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:27017".to_string(),
+    protocol: "tcp".to_string(),
+  }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs.len(), 1);
+  assert!(specs[0].target.is_empty());
+  assert_eq!(specs[0].tunnels.len(), 1);
+}
+
+#[test]
+fn test_build_specs_tunnels_validation() {
+  let mut settings = base_settings();
+  // UDP is not supported yet.
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:53".to_string(),
+    protocol: "udp".to_string(),
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("only tcp"), "got: {err}");
+
+  // Targets must be host:port.
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "27017".to_string(),
+    protocol: "tcp".to_string(),
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("host:port"), "got: {err}");
+
+  // Duplicates are rejected.
+  let decl = protocol::TunnelDecl {
+    target: "127.0.0.1:27017".to_string(),
+    protocol: "tcp".to_string(),
+  };
+  settings.tunnels = vec![decl.clone(), decl];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("more than once"), "got: {err}");
 }
 
 #[test]

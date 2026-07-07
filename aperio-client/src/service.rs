@@ -23,8 +23,8 @@ use tokio_tungstenite::{
 use tracing::{debug, error, info, warn};
 
 use crate::protocol::{
-  FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelMessage, compress_frame,
-  decode_binary_frame, decompress_frame,
+  FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelDecl, TunnelMessage,
+  compress_frame, decode_binary_frame, decompress_frame,
 };
 use crate::proxy::http::{ForwardContext, ForwardRequest, handle_incoming_request};
 use crate::proxy::ws::{WsStreamHandle, handle_upgrade_request};
@@ -64,12 +64,22 @@ pub(crate) struct ServiceSpec {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
+  /// Tunnels declared by this client process (`tunnels:` list): normally
+  /// unexposed local services a peer client may bind with `--bind-tunnels`.
+  /// Announced via Ping on every connection of the process.
+  pub(crate) tunnels: Vec<TunnelDecl>,
 }
 
 impl ServiceSpec {
   /// Short label used to attribute log lines to this service.
   pub(crate) fn label(&self) -> String {
-    self.name.clone().unwrap_or_else(|| self.target.clone())
+    self.name.clone().unwrap_or_else(|| {
+      if self.target.is_empty() {
+        "(tunnels only)".to_string()
+      } else {
+        self.target.clone()
+      }
+    })
   }
 }
 
@@ -239,6 +249,7 @@ pub(crate) async fn run_service(
             let backend_healthy_ping = backend_healthy.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
+            let tunnels_ping = spec.tunnels.clone();
             let (max_concurrent, priority, bandwidth_bps, public) = (
               spec.max_concurrent,
               spec.priority,
@@ -289,6 +300,7 @@ pub(crate) async fn run_service(
                   bandwidth_bps,
                   service: service_name_ping.clone(),
                   public,
+                  tunnels: tunnels_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -551,8 +563,20 @@ pub(crate) async fn run_service(
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
                                           }
-                                          TunnelMessage::TcpOpen { stream_id } => {
-                                              match spec.tcp_target.clone() {
+                                          TunnelMessage::TcpOpen { stream_id, target } => {
+                                              // SSRF guard: only addresses this client itself
+                                              // declared are ever dialed — a named target must be
+                                              // in the tunnels: list, no target means the legacy
+                                              // tcp_target.
+                                              let resolved = match &target {
+                                                  Some(t) => spec
+                                                      .tunnels
+                                                      .iter()
+                                                      .find(|d| d.target == *t && d.protocol == "tcp")
+                                                      .map(|d| d.target.clone()),
+                                                  None => spec.tcp_target.clone(),
+                                              };
+                                              match resolved {
                                                   Some(target_addr) => {
                                                       let tx = tx_write.clone();
                                                       let streams = active_tcp_streams.clone();
@@ -561,7 +585,10 @@ pub(crate) async fn run_service(
                                                       });
                                                   }
                                                   None => {
-                                                      warn!("TcpOpen received but no TCP target is configured; refusing");
+                                                      match target {
+                                                          Some(t) => warn!("TcpOpen for undeclared target {}; refusing", t),
+                                                          None => warn!("TcpOpen received but no TCP target is configured; refusing"),
+                                                      }
                                                       let close = TunnelMessage::TcpClose { stream_id };
                                                       if let Ok(json) = serde_json::to_string(&close) {
                                                           let _ = tx_write.send(Message::Text(json)).await;

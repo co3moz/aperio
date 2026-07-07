@@ -14,8 +14,11 @@
 //! accepted as aliases so existing Docker setups keep working.
 
 use clap::{Args, Parser, Subcommand};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
+
+use crate::protocol::TunnelDecl;
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -57,7 +60,7 @@ Examples:\n  \
 aperio-client                          run from config file / environment (Docker mode)\n  \
 aperio-client 3000                     expose http://localhost:3000\n  \
 aperio-client example.com              expose http://example.com\n  \
-aperio-client tcp 15432                bridge a local TCP port through the server\n  \
+aperio-client --bind-tunnels <id>      bind the declared tunnels of a peer client locally\n  \
 aperio-client check                    diagnose configuration and connectivity"
 )]
 struct Cli {
@@ -65,6 +68,19 @@ struct Cli {
   /// (example.com → http://example.com) or a full URL. Optional when the
   /// target comes from a config file or the environment.
   target: Option<String>,
+
+  /// Bind the tunnels declared by a peer client (its `tunnels:` list) as
+  /// local listeners. Requires the peer's client id and the same token it
+  /// connected with. Without a value, every entry of the local
+  /// `bind-tunnels:` yaml section is bound.
+  #[arg(
+    long,
+    value_name = "CLIENT_ID",
+    num_args = 0..=1,
+    default_missing_value = "",
+    conflicts_with = "target"
+  )]
+  bind_tunnels: Option<String>,
 
   #[command(subcommand)]
   command: Option<Command>,
@@ -76,6 +92,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
   /// Bridge a local TCP port to the server's /aperio/tcp endpoint
+  #[command(hide = true)]
   Tcp {
     /// Local port to listen on (127.0.0.1)
     local_port: u16,
@@ -98,6 +115,10 @@ pub(crate) struct CommonOpts {
   /// (yaml: target, env: APERIO_TARGET)
   #[arg(long = "target", global = true, value_name = "TARGET")]
   pub(crate) target_opt: Option<String>,
+  /// Persistent client instance id, a UUID. Defaults to a random UUID per
+  /// run (yaml: client_id, env: APERIO_CLIENT_ID)
+  #[arg(long, global = true, value_name = "UUID")]
+  pub(crate) client_id: Option<String>,
   /// Hostname bind, e.g. app.example.com (yaml: hostname, env: APERIO_HOSTNAME)
   #[arg(long, visible_alias = "host", global = true, value_name = "HOSTNAME")]
   pub(crate) hostname: Option<String>,
@@ -142,6 +163,10 @@ pub(crate) enum CliMode {
   TcpBridge,
   /// `aperio-client check`: configuration & connectivity diagnostics.
   Check,
+  /// `aperio-client --bind-tunnels [id]`: bind the declared tunnels of one
+  /// (or every configured) peer client as local listeners. The id is empty
+  /// when the flag was given without a value (yaml section drives it).
+  BindTunnels(String),
 }
 
 /// Interprets the positional target: a bare port number becomes a localhost
@@ -162,10 +187,11 @@ pub(crate) fn parse_cli() -> CliArgs {
 }
 
 fn cli_to_args(cli: Cli) -> CliArgs {
-  let (mode, local_port) = match cli.command {
-    None => (CliMode::Run, None),
-    Some(Command::Tcp { local_port }) => (CliMode::TcpBridge, Some(local_port)),
-    Some(Command::Check) => (CliMode::Check, None),
+  let (mode, local_port) = match (cli.command, cli.bind_tunnels) {
+    (None, Some(id)) => (CliMode::BindTunnels(id.trim().to_string()), None),
+    (None, None) => (CliMode::Run, None),
+    (Some(Command::Tcp { local_port }), _) => (CliMode::TcpBridge, Some(local_port)),
+    (Some(Command::Check), _) => (CliMode::Check, None),
   };
   CliArgs {
     mode,
@@ -236,7 +262,6 @@ pub(crate) struct ServiceEntry {
 /// trim_bind: true                      # strip the path bind before forwarding
 /// pass_hostname: false                 # forward the original Host header
 /// max_concurrent: 8                    # local concurrency limit
-/// tcp_target: localhost:5432           # optional raw TCP target
 /// ```
 ///
 /// Instead of a single top-level `target`, a `services:` list exposes
@@ -292,6 +317,45 @@ pub(crate) struct FileConfig {
   /// password / OIDC gate for traffic routed here (requires a token that
   /// permits publishing public services).
   pub(crate) public: Option<bool>,
+  /// Persistent client instance id (a UUID). Defaults to a random UUID per
+  /// run when unset.
+  pub(crate) client_id: Option<String>,
+  /// Tunnels declared by this client: normally unexposed local services a
+  /// peer client may bind with `--bind-tunnels` (same token, this client's
+  /// id required). Local config file only.
+  ///
+  /// ```yaml
+  /// tunnels:
+  ///   - target: 127.0.0.1:27017
+  ///     protocol: tcp
+  /// ```
+  pub(crate) tunnels: Option<Vec<TunnelDecl>>,
+  /// Peer clients whose declared tunnels this process binds locally when
+  /// run with `--bind-tunnels`. Keys are peer client ids. Local config file
+  /// only.
+  ///
+  /// ```yaml
+  /// bind-tunnels:
+  ///   '<client-id>':
+  ///     token: <that client's token>
+  ///     override:
+  ///       '127.0.0.1:27017': 15000   # local port override per target
+  /// ```
+  #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
+  pub(crate) bind_tunnels: Option<HashMap<String, BindTunnelEntry>>,
+}
+
+/// One `bind-tunnels:` entry: how to reach (and locally map) the tunnels of
+/// one peer client.
+#[derive(serde::Deserialize, Default, Clone)]
+pub(crate) struct BindTunnelEntry {
+  /// Token the peer client connected with (falls back to the layered
+  /// server token when unset).
+  pub(crate) token: Option<String>,
+  /// Local port overrides: declared target → local port. Without an
+  /// override the local listener uses the port of the declared target.
+  #[serde(default, rename = "override")]
+  pub(crate) overrides: HashMap<String, u16>,
 }
 
 impl FileConfig {
@@ -396,6 +460,13 @@ pub(crate) struct ClientSettings {
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
   pub(crate) services: Vec<ServiceEntry>,
+  /// Persistent client instance id (CLI > local file > env). None = a
+  /// random UUID is generated per run.
+  pub(crate) client_id: Option<String>,
+  /// Tunnels declared by this client (local config file only).
+  pub(crate) tunnels: Vec<TunnelDecl>,
+  /// `bind-tunnels:` entries (local config file only).
+  pub(crate) bind_tunnels: HashMap<String, BindTunnelEntry>,
 }
 
 /// Which configuration layer supplied a value (used by `check` to explain
@@ -648,6 +719,15 @@ pub(crate) fn resolve_settings(
       )
       .unwrap_or(false),
     services: local.services.clone().unwrap_or_default(),
+    client_id: layered(
+      o.client_id.clone(),
+      local.client_id.clone(),
+      env2("APERIO_CLIENT_ID", "APERIO_CLIENT_ID"),
+      home.client_id.clone(),
+    )
+    .and_then(nonempty),
+    tunnels: local.tunnels.clone().unwrap_or_default(),
+    bind_tunnels: local.bind_tunnels.clone().unwrap_or_default(),
   }
 }
 

@@ -18,20 +18,9 @@ One trade-off: streamed uploads cannot fail over or be replayed from the request
 
 With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compression for JSON frames. Clients that support it acknowledge, and both directions switch to compressed frames; older clients keep working uncompressed. The client bounds decompression output as a memory-protection measure.
 
-## Experimental TCP tunneling
+## Emergency tunnels
 
-A raw TCP service (database, SSH, ...) can ride the same tunnel:
-
-```bash
-# Private network side: allow TCP streams to exactly one target
-APERIO_TCP_TARGET=localhost:5432 aperio-client 3000 --server-url ... --server-token ...
-
-# Consumer side (your laptop): bridge a local port through the server
-aperio-client tcp 15432 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
-psql -h 127.0.0.1 -p 15432
-```
-
-Consumers authenticate against `GET /aperio/tcp` with any valid tunnel token (dynamic-token IP allowlists apply), and binary WebSocket frames carry the raw bytes. The exposing client only ever connects to its configured `tcp_target`, regardless of what the server asks — the TCP analogue of the HTTP SSRF guard. No extra public ports are opened.
+A raw TCP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel — bound locally by a peer client running `--bind-tunnels` with the same token and the declaring client's id. See [Emergency Tunnels](emergency-tunnels.md).
 
 ## Custom error pages
 

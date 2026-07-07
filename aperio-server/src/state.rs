@@ -75,6 +75,12 @@ pub(crate) struct ClientDetail {
   pub(crate) draining: bool,
   /// Dashboard kill switch state (false = excluded from routing).
   pub(crate) enabled: bool,
+  /// Client-process instance id self-reported via Ping (`--client-id`).
+  pub(crate) instance_id: Option<String>,
+  /// True when another live connection reports the same instance id — a
+  /// misconfiguration warning surfaced in the dashboard (`--bind-tunnels`
+  /// and failover `wait` lookups become ambiguous).
+  pub(crate) instance_id_shared: bool,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -233,6 +239,10 @@ pub(crate) struct ClientHandle {
   pub(crate) public: bool,
   /// Ensures the "public requested but not permitted" warning logs once.
   pub(crate) public_denied_warned: bool,
+  /// Tunnels declared by the client via Ping (`tunnels:` list): normally
+  /// unexposed local services a peer client may bind with `--bind-tunnels`
+  /// (same token, explicit client id required).
+  pub(crate) tunnels: Vec<crate::protocol::TunnelDecl>,
 }
 
 /// Permissions resolved at connection time from the presented token.
