@@ -233,3 +233,7 @@ pub(crate) fn decompress_frame(data: &[u8], max_out: usize) -> Option<String> {
   }
   Some(out)
 }
+
+#[cfg(test)]
+#[path = "protocol_tests.rs"]
+mod tests;

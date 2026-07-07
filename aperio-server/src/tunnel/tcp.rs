@@ -27,6 +27,10 @@ fn same_token(consumer: &ClientPerms, owner: &ClientPerms) -> bool {
   consumer.master || (consumer.token_id.is_some() && consumer.token_id == owner.token_id)
 }
 
+#[cfg(test)]
+#[path = "tcp_tests.rs"]
+mod tests;
+
 /// TCP tunneling endpoint (`GET /aperio/tcp`, WebSocket). Binary WebSocket
 /// frames = raw TCP bytes.
 ///

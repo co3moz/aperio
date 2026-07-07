@@ -14,6 +14,11 @@ project follows semantic versioning per release tag.
 - **Emergency tunnels**: a client declares normally unexposed local TCP services in a `tunnels:` list (a config with only tunnels is valid); a peer client running `aperio-client --bind-tunnels <client-id>` with the **same token** binds them as local 127.0.0.1 listeners (port = declared target's port, overridable per target via a `bind-tunnels:` yaml section that also supports multiple clients). Port conflicts and already-taken local ports are reported instead of bound. The declaring client only ever dials addresses from its own list; even master-token holders must name an explicit client id. Discovery endpoint: `GET /aperio/tunnels/:client_id`.
 - `--client-id` client flag (yaml `client_id`, env `APERIO_CLIENT_ID`) pins the client instance id to a fixed UUID across restarts — useful for failover `wait` mode and `--bind-tunnels`. Invalid (non-UUID) values are rejected at startup. Duplicate ids are allowed but flagged: the dashboard clients table shows a `SHARED ID` badge when two live connections report the same instance id (lookups by that id are ambiguous).
 - Test coverage measurement via `cargo-llvm-cov`: a CI `coverage` job merges the unit tests AND the E2E integration run into one report (the instrumented server/client binaries flush profile data on their graceful SIGTERM exit), puts the per-file summary into the job summary, and uploads the HTML/lcov report as a `coverage-report` artifact (reported, not gated).
+- E2E phases for the previously untested runtime paths: WebSocket pass-through (upgrade, frame echo, clean close), emergency tunnels (discovery endpoint incl. the same-token 403 rule, `--bind-tunnels` with a port override, byte relay) and the legacy tcp bridge — plus metrics, request inspector & replay, webhooks API and audit API steps in the base phase. New unit test files for bind-tunnels resolution, the same-token rule, and the tunnel wire protocol (binary frames, compression bounds, serde backward compatibility).
+
+### Fixed
+
+- The `tcp` bridge and `--bind-tunnels` modes exit cleanly on SIGINT/SIGTERM instead of relying on the default signal handling.
 
 ### Changed
 

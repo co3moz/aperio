@@ -18,6 +18,7 @@ use crate::protocol::TunnelDecl;
 use crate::tcp::bridge_connection;
 
 /// How to reach (and locally map) the tunnels of one peer client.
+#[derive(Debug)]
 struct BindSpec {
   client_id: String,
   token: String,
@@ -32,6 +33,7 @@ const DISCOVERY_RETRY_SECS: u64 = 15;
 /// value of `--bind-tunnels` (empty = bind every entry of the local
 /// `bind-tunnels:` yaml section).
 pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cli_id: &str) -> ! {
+  crate::tcp::spawn_shutdown_watcher();
   let specs = build_bind_specs(settings, cli_id).unwrap_or_else(|e| {
     error!("{}", e);
     std::process::exit(1);
@@ -144,9 +146,8 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
     "{} tunnel listener(s) active. Press Ctrl+C to stop.",
     listeners
   );
-  let _ = tokio::signal::ctrl_c().await;
-  info!("Shutting down bind-tunnels mode.");
-  std::process::exit(0);
+  // The shutdown watcher exits the process on SIGINT/SIGTERM.
+  std::future::pending().await
 }
 
 /// Resolves the configured peers: an explicit `--bind-tunnels <id>` selects
@@ -230,6 +231,10 @@ fn tunnel_ws_url(server: &str, client_id: &str, target: &str) -> Result<String, 
     .append_pair("target", target);
   Ok(parsed.to_string())
 }
+
+#[cfg(test)]
+#[path = "bind_tunnels_tests.rs"]
+mod tests;
 
 /// Fetches the peer's declared tunnels from the server, retrying while the
 /// peer is not connected (yet). Fatal on authentication errors — retrying

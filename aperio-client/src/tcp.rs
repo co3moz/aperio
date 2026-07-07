@@ -125,10 +125,39 @@ pub(crate) async fn handle_tcp_open(
   info!("TCP stream {} closed", stream_id);
 }
 
+/// Exits the process cleanly on SIGINT/SIGTERM. Spawned by the auxiliary
+/// modes (`tcp` bridge, `--bind-tunnels`) which otherwise run forever; the
+/// clean exit also flushes coverage/profiling data in instrumented builds.
+pub(crate) fn spawn_shutdown_watcher() {
+  tokio::spawn(async {
+    let ctrl_c = async {
+      let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+      if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+      {
+        sig.recv().await;
+      } else {
+        std::future::pending::<()>().await;
+      }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+      _ = ctrl_c => {},
+      _ = terminate => {},
+    }
+    info!("Shutdown signal received; exiting.");
+    std::process::exit(0);
+  });
+}
+
 /// Runs a local TCP bridge: listens on 127.0.0.1:<port> and relays each
 /// accepted connection to the server's experimental `/aperio/tcp` endpoint,
 /// which tunnels it to the remote client's TCP target.
 pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
+  spawn_shutdown_watcher();
   let ws_url = match build_ws_url_with_path(server, "/aperio/tcp") {
     Ok(u) => u,
     Err(e) => {

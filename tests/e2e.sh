@@ -4,14 +4,18 @@
 # own server configuration:
 #
 #   A. base        — health, 504, proxying, dashboard APIs, tunnels API,
-#                    maintenance mode, settings API, access log
+#                    maintenance mode, settings API, access log, metrics,
+#                    request inspector & replay, webhooks API, audit API
 #   B. auth        — visitor password: login redirect + share-link flow
 #   C. failover    — retry-wait re-dispatch after a mid-request client kill
 #   D. lb          — primary-standby tiers, then sticky sessions
 #   E. features    — positional-target CLI, check provenance, redirect
 #                    following, multi-service client, ~/.aperio.yaml layer,
 #                    per-token rate limit
-#   F. subdomain   — same-level random subdomain pattern (*-suffix)
+#   F. ws          — WebSocket pass-through (upgrade + frame echo + close)
+#   G. tunnels     — emergency tunnels (tunnels: + --bind-tunnels) and the
+#                    legacy tcp bridge
+#   H. subdomain   — same-level random subdomain pattern (*-suffix)
 #
 # Usage: bash tests/e2e.sh
 # Expects target/debug binaries (override with APERIO_SERVER_BIN/APERIO_CLIENT_BIN).
@@ -195,7 +199,8 @@ start_backend "$BACKEND_PORT"
 
 step "Starting aperio-server (base configuration)"
 ACCESS_LOG="$LOG_DIR/access.jsonl"
-start_server APERIO_ACCESS_LOG="$ACCESS_LOG"
+METRICS_TOKEN="e2e-metrics-token"
+start_server APERIO_ACCESS_LOG="$ACCESS_LOG" APERIO_METRICS=1 APERIO_METRICS_TOKEN="$METRICS_TOKEN"
 BASE_DATA_DIR="$DATA_DIR"
 
 step "Health endpoint"
@@ -306,6 +311,51 @@ assert_status 200 "$CODE" "tunnel revocation succeeds"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
   -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/api/tunnels/${TUNNEL_ID}")"
 assert_status 404 "$CODE" "revoking the same tunnel twice returns 404"
+
+step "Prometheus metrics"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/metrics")"
+assert_status 401 "$CODE" "metrics without a token are rejected"
+METRICS="$(curl -s "$BASE/aperio/metrics?token=${METRICS_TOKEN}")"
+assert_contains "$METRICS" 'aperio_requests_total' "metrics expose the request counter"
+assert_contains "$METRICS" 'aperio_connected_clients' "metrics expose the client gauge"
+assert_contains "$METRICS" 'aperio_request_duration_seconds_bucket' "metrics expose the duration histogram"
+METRICS="$(curl -s -H "Authorization: Bearer ${METRICS_TOKEN}" "$BASE/aperio/metrics")"
+assert_contains "$METRICS" 'aperio_requests_total' "metrics accept the Bearer form too"
+
+step "Request inspector & replay"
+curl -s -H "Host: ${HOSTNAME_BIND}" "$BASE/inspect-me" >/dev/null
+REQ_ID="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs" | "$PYTHON" -c \
+  "import sys,json; print(next(l['id'] for l in json.load(sys.stdin) if l['uri'].startswith('/inspect-me')))")" \
+  || fail "could not find the /inspect-me request in the logs"
+DETAIL="$(curl -s -b "$COOKIES" "$BASE/aperio/api/requests/${REQ_ID}")"
+assert_contains "$DETAIL" '"method":"GET"' "inspector captures the request method"
+assert_contains "$DETAIL" '/inspect-me' "inspector captures the request uri"
+REPLAY="$(curl -s -b "$COOKIES" -X POST "$BASE/aperio/api/requests/${REQ_ID}/replay")"
+assert_contains "$REPLAY" '"status":200' "replay reaches the backend again"
+assert_contains "$REPLAY" '"replayed_id"' "replay reports the replayed id"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/requests/no-such-id")"
+assert_status 404 "$CODE" "unknown capture ids answer 404"
+
+step "Webhooks API"
+HOOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"name\":\"e2e-hook\",\"url\":\"http://127.0.0.1:${BACKEND_PORT}/hook\",\"events\":[\"client_connected\"]}" \
+  "$BASE/aperio/api/webhooks")" || fail "webhook creation failed"
+HOOK_ID="$(echo "$HOOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$HOOK_ID" ] || fail "could not parse the webhook response: $HOOK"
+LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
+assert_contains "$LIST" 'e2e-hook' "webhook list contains the created hook"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"bad","url":"ftp://nope"}' "$BASE/aperio/api/webhooks")"
+assert_status 400 "$CODE" "non-http webhook URLs are rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${HOOK_ID}")"
+assert_status 200 "$CODE" "webhook deletion succeeds"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${HOOK_ID}")"
+assert_status 404 "$CODE" "deleting the same webhook twice returns 404"
+
+step "Audit API"
+AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
+assert_contains "$AUDIT" 'client_connected' "audit log records the client connection"
+assert_contains "$AUDIT" 'webhook_created' "audit log records the webhook creation"
 
 step "Structured access log"
 [ -f "$ACCESS_LOG" ] || fail "access log file was not created"
@@ -582,6 +632,264 @@ for i in 1 2 3 4 5 6 7 8; do
 done
 assert_contains "$RL_CODES" "200" "some requests pass within the rate limit"
 assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
+
+stop_server
+
+##############################################################################
+PHASE="ws"
+##############################################################################
+
+WS_PORT=18104
+
+# Minimal RFC6455 WebSocket echo backend (stdlib only): answers plain HTTP
+# with 200/ok (so wait_routable works), upgrades WS handshakes, and echoes
+# every text/binary frame back prefixed with "echo:".
+start_ws_backend() { # <port>
+  "$PYTHON" - "$1" <<'PYEOF' >"$LOG_DIR/backend-ws.log" 2>&1 &
+import base64, hashlib, socket, sys, threading
+
+MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+def recvn(c, n):
+    buf = b""
+    while len(buf) < n:
+        d = c.recv(n - len(buf))
+        if not d:
+            return None
+        buf += d
+    return buf
+
+def handle(c):
+    data = b""
+    while b"\r\n\r\n" not in data:
+        d = c.recv(4096)
+        if not d:
+            return
+        data += d
+    key = ""
+    for line in data.decode("latin1").split("\r\n"):
+        if line.lower().startswith("sec-websocket-key:"):
+            key = line.split(":", 1)[1].strip()
+    if not key:
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        c.close()
+        return
+    accept = base64.b64encode(hashlib.sha1((key + MAGIC).encode()).digest()).decode()
+    c.sendall(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+               "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())
+    while True:
+        hdr = recvn(c, 2)
+        if hdr is None:
+            return
+        opcode = hdr[0] & 0x0F
+        ln = hdr[1] & 0x7F
+        masked = hdr[1] & 0x80
+        if ln == 126:
+            ln = int.from_bytes(recvn(c, 2), "big")
+        elif ln == 127:
+            ln = int.from_bytes(recvn(c, 8), "big")
+        mask = recvn(c, 4) if masked else b""
+        payload = recvn(c, ln) if ln else b""
+        if payload is None:
+            return
+        if masked and payload:
+            payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        if opcode == 8:
+            c.sendall(b"\x88\x00")
+            c.close()
+            return
+        if opcode in (1, 2):
+            resp = b"echo:" + payload
+            c.sendall(bytes([0x80 | opcode, len(resp)]) + resp)
+
+srv = socket.socket()
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", int(sys.argv[1])))
+srv.listen(8)
+while True:
+    conn, _ = srv.accept()
+    threading.Thread(target=handle, args=(conn,), daemon=True).start()
+PYEOF
+  BACKEND_PIDS+=($!)
+  retry 10 curl -sf "http://127.0.0.1:$1/ping" || fail "ws backend :$1 did not come up"
+}
+
+# WebSocket probe: connects THROUGH the aperio server (Host header routing),
+# performs the upgrade, sends one masked text frame, prints the echoed frame,
+# and closes cleanly.
+cat >"$LOG_DIR/ws_probe.py" <<'PYEOF'
+import base64, os, socket, sys
+
+port, host = int(sys.argv[1]), sys.argv[2]
+s = socket.create_connection(("127.0.0.1", port), timeout=15)
+key = base64.b64encode(os.urandom(16)).decode()
+s.sendall(("GET /ws-echo HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+           "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n" % (host, key)).encode())
+resp = b""
+while b"\r\n\r\n" not in resp:
+    d = s.recv(4096)
+    if not d:
+        print("no handshake response")
+        sys.exit(1)
+    resp += d
+if b" 101" not in resp.split(b"\r\n", 1)[0]:
+    print("handshake failed: %r" % resp[:200])
+    sys.exit(1)
+
+def recvn(n):
+    buf = b""
+    while len(buf) < n:
+        d = s.recv(n - len(buf))
+        if not d:
+            print("connection closed early")
+            sys.exit(1)
+        buf += d
+    return buf
+
+payload = b"hello-ws"
+mask = os.urandom(4)
+s.sendall(bytes([0x81, 0x80 | len(payload)]) + mask +
+          bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+hdr = recvn(2)
+data = recvn(hdr[1] & 0x7F)
+print(data.decode("latin1"))
+# Close cleanly so the WsClose path is exercised end to end.
+mask = os.urandom(4)
+s.sendall(bytes([0x88, 0x80]) + mask)
+s.close()
+sys.exit(0 if data == b"echo:hello-ws" else 1)
+PYEOF
+
+step "WebSocket pass-through"
+start_server
+start_ws_backend "$WS_PORT"
+start_client ws "$WS_PORT" APERIO_HOSTNAME_BIND=ws.e2e.local
+wait_routable ws.e2e.local "/ping"
+WS_OUT="$("$PYTHON" "$LOG_DIR/ws_probe.py" "$SERVER_PORT" ws.e2e.local)" \
+  || fail "ws probe failed: $WS_OUT"
+assert_contains "$WS_OUT" "echo:hello-ws" "WS frame echoed through the tunnel"
+
+stop_server
+
+##############################################################################
+PHASE="tunnels"
+##############################################################################
+
+ECHO_PORT=18105
+BIND_PORT=18106
+BRIDGE_PORT=18107
+
+# Raw TCP echo backend: echoes every received chunk prefixed with "echo:".
+start_tcp_echo() { # <port>
+  "$PYTHON" - "$1" <<'PYEOF' >"$LOG_DIR/backend-tcpecho.log" 2>&1 &
+import socket, sys, threading
+
+def go(c):
+    while True:
+        d = c.recv(4096)
+        if not d:
+            break
+        c.sendall(b"echo:" + d)
+    c.close()
+
+srv = socket.socket()
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", int(sys.argv[1])))
+srv.listen(8)
+while True:
+    c, _ = srv.accept()
+    threading.Thread(target=go, args=(c,), daemon=True).start()
+PYEOF
+  BACKEND_PIDS+=($!)
+}
+
+# TCP probe: sends argv[2] to 127.0.0.1:argv[1] and prints the response.
+cat >"$LOG_DIR/tcp_probe.py" <<'PYEOF'
+import socket, sys, time
+
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=15)
+msg = sys.argv[2].encode()
+s.sendall(msg)
+want = len(b"echo:") + len(msg)
+buf = b""
+deadline = time.time() + 15
+while len(buf) < want and time.time() < deadline:
+    d = s.recv(4096)
+    if not d:
+        break
+    buf += d
+print(buf.decode("latin1"))
+PYEOF
+
+step "Starting aperio-server (emergency tunnels configuration)"
+start_server
+start_tcp_echo "$ECHO_PORT"
+
+DECL_ID="$("$PYTHON" -c 'import uuid; print(uuid.uuid4())')"
+DECL_CFG="$LOG_DIR/decl.yaml"
+cat >"$DECL_CFG" <<YAML
+server:
+  url: ${BASE}
+  token: ${TOKEN}
+client_id: ${DECL_ID}
+target: http://127.0.0.1:${BACKEND_PORT}
+hostname: decl.e2e.local
+tcp_target: 127.0.0.1:${ECHO_PORT}
+tunnels:
+  - target: 127.0.0.1:${ECHO_PORT}
+    protocol: tcp
+YAML
+"$CLIENT_BIN" --config "$DECL_CFG" >"$LOG_DIR/client-tunnels-decl.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable decl.e2e.local
+
+step "Tunnel discovery endpoint"
+retry 20 sh -c "curl -sf -H 'Authorization: Bearer ${TOKEN}' '$BASE/aperio/tunnels/${DECL_ID}' \
+  | grep -q '127.0.0.1:${ECHO_PORT}'" \
+  || fail "declared tunnels did not become discoverable in time"
+TUNNELS="$(curl -s -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/tunnels/${DECL_ID}")"
+assert_contains "$TUNNELS" "\"127.0.0.1:${ECHO_PORT}\"" "discovery lists the declared target"
+assert_contains "$TUNNELS" '"protocol":"tcp"' "discovery lists the protocol"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/tunnels/no-such-client")"
+assert_status 404 "$CODE" "unknown client ids answer 404"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/tunnels/${DECL_ID}")"
+assert_status 401 "$CODE" "discovery without a token is rejected"
+COOKIES="$LOG_DIR/cookies-tunnels.txt"
+dashboard_login "$COOKIES"
+OTHER="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"other-token"}' "$BASE/aperio/api/tokens")" || fail "token creation failed"
+OTHER_TOKEN="$(echo "$OTHER" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$OTHER_TOKEN" ] || fail "could not parse the token response: $OTHER"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${OTHER_TOKEN}" "$BASE/aperio/tunnels/${DECL_ID}")"
+assert_status 403 "$CODE" "a different valid token is rejected (same-token rule)"
+
+step "Binding tunnels with --bind-tunnels (port override)"
+BT_CFG="$LOG_DIR/binder.yaml"
+cat >"$BT_CFG" <<YAML
+bind-tunnels:
+  '${DECL_ID}':
+    token: ${TOKEN}
+    override:
+      '127.0.0.1:${ECHO_PORT}': ${BIND_PORT}
+YAML
+"$CLIENT_BIN" --bind-tunnels "$DECL_ID" --config "$BT_CFG" --server-url "$BASE" \
+  >"$LOG_DIR/client-tunnels-binder.log" 2>&1 &
+CLIENT_PIDS+=($!)
+retry 30 sh -c "\"$PYTHON\" '$LOG_DIR/tcp_probe.py' $BIND_PORT ping | grep -q 'echo:ping'" \
+  || fail "bound tunnel did not become usable in time"
+OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$BIND_PORT" ping-123)"
+assert_contains "$OUT" "echo:ping-123" "bytes relayed through the bound tunnel"
+assert_contains "$(cat "$LOG_DIR/client-tunnels-binder.log")" "Tunnel bound: 127.0.0.1:${BIND_PORT}" \
+  "binder honored the port override"
+
+step "Legacy tcp bridge"
+"$CLIENT_BIN" tcp "$BRIDGE_PORT" --server-url "$BASE" --server-token "$TOKEN" \
+  >"$LOG_DIR/client-tunnels-bridge.log" 2>&1 &
+CLIENT_PIDS+=($!)
+retry 30 sh -c "\"$PYTHON\" '$LOG_DIR/tcp_probe.py' $BRIDGE_PORT ping | grep -q 'echo:ping'" \
+  || fail "legacy tcp bridge did not become usable in time"
+OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$BRIDGE_PORT" ping-legacy)"
+assert_contains "$OUT" "echo:ping-legacy" "bytes relayed through the legacy bridge"
 
 stop_server
 

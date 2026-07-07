@@ -90,6 +90,28 @@ fn test_target_flag_accepted_by_subcommands() {
 }
 
 #[test]
+fn test_bind_tunnels_flag_parsing() {
+  // With an explicit client id.
+  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels", "client-1"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id == "client-1"));
+
+  // Without a value (yaml section drives it) — the id resolves to "".
+  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id.is_empty()));
+
+  // A following flag is not swallowed as the value.
+  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels", "--config", "x.yaml"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id.is_empty()));
+  assert_eq!(args.opts.config.as_deref(), Some("x.yaml"));
+
+  // Conflicts with a positional target.
+  assert!(Cli::try_parse_from(["aperio-client", "3000", "--bind-tunnels", "c"]).is_err());
+}
+
+#[test]
 fn test_resolve_settings_layering() {
   // CLI beats the local file; the local file beats the home file.
   let cli = CliArgs {
