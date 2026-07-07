@@ -273,10 +273,12 @@ async fn test_handle_incoming_request_streams_large_body() {
       socket.write_all(header.as_bytes()).await.unwrap();
       let payload = vec![0xABu8; body_size];
       socket.write_all(&payload).await.unwrap();
-      // Close gracefully and wait for the peer to finish reading; an
-      // abrupt drop can RST the connection and truncate in-flight bytes
-      // (a flake seen under parallel test load).
-      let _ = socket.shutdown().await;
+      // Do NOT shutdown here: on Windows, queueing a FIN while the tail of
+      // the payload is still undelivered (peer window transiently zero) puts
+      // the closing connection into zero-window probing, and the stack
+      // aborts it with a RST after ~5 probes (~19 s), truncating the body.
+      // Keep the socket fully open and wait for the peer to finish reading;
+      // the task (and socket) is dropped when the test runtime shuts down.
       let mut sink = [0u8; 1024];
       while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
     }
