@@ -578,10 +578,21 @@ pub(crate) async fn run_service(
                                               };
                                               match resolved {
                                                   Some(target_addr) => {
+                                                      // Register the stream handle synchronously, BEFORE
+                                                      // spawning: TcpData for this stream can arrive on the
+                                                      // very next tunnel frame and would be dropped if the
+                                                      // spawned task had not registered yet. The channel
+                                                      // buffers bytes until the backend connect completes.
+                                                      let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(64);
+                                                      let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
+                                                      active_tcp_streams.lock().await.insert(
+                                                          stream_id.clone(),
+                                                          TcpStreamHandle { tx: bytes_tx, abort_tx },
+                                                      );
                                                       let tx = tx_write.clone();
                                                       let streams = active_tcp_streams.clone();
                                                       tokio::spawn(async move {
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams).await;
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx).await;
                                                       });
                                                   }
                                                   None => {

@@ -24,13 +24,21 @@ pub(crate) struct TcpStreamHandle {
   pub(crate) abort_tx: mpsc::Sender<()>,
 }
 
-/// Opens a TCP connection to the configured local target and relays bytes
+/// Opens a TCP connection to the local target and relays bytes
 /// bidirectionally between it and the tunnel.
+///
+/// The stream handle must already be registered in `active_streams` (the
+/// tunnel read loop does so synchronously before spawning this): the server
+/// starts relaying consumer bytes right after TcpOpen, and TcpData for an
+/// unregistered stream would be dropped silently. `bytes_rx` buffers
+/// whatever arrives while the connect is still in flight.
 pub(crate) async fn handle_tcp_open(
   stream_id: String,
   target_addr: String,
   tunnel_tx: mpsc::Sender<Message>,
   active_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
+  mut bytes_rx: mpsc::Receiver<Vec<u8>>,
+  mut abort_rx: mpsc::Receiver<()>,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -47,6 +55,7 @@ pub(crate) async fn handle_tcp_open(
         "TCP connect to {} failed for stream {}",
         target_addr, stream_id
       );
+      active_streams.lock().await.remove(&stream_id);
       let close = TunnelMessage::TcpClose {
         stream_id: stream_id.clone(),
       };
@@ -58,15 +67,6 @@ pub(crate) async fn handle_tcp_open(
   };
 
   let (mut read_half, mut write_half) = stream.into_split();
-  let (bytes_tx, mut bytes_rx) = mpsc::channel::<Vec<u8>>(64);
-  let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
-  active_streams.lock().await.insert(
-    stream_id.clone(),
-    TcpStreamHandle {
-      tx: bytes_tx,
-      abort_tx,
-    },
-  );
 
   // Backend -> tunnel
   let stream_id_up = stream_id.clone();

@@ -18,6 +18,7 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- TCP tunnel streams no longer drop the consumer's first bytes: the stream was registered inside a spawned task (after the backend connect), so a `TcpData` frame arriving right behind `TcpOpen` could be discarded silently and the connection appeared to hang. Registration now happens synchronously in the tunnel read loop, with the channel buffering bytes until the backend connect completes (found by the new e2e phase; affected the legacy bridge and emergency tunnels alike).
 - The `tcp` bridge and `--bind-tunnels` modes exit cleanly on SIGINT/SIGTERM instead of relying on the default signal handling.
 
 ### Changed
