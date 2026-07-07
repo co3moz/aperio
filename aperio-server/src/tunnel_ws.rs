@@ -1,0 +1,808 @@
+use axum::{
+  extract::{
+    ConnectInfo, State,
+    ws::{Message, WebSocket, WebSocketUpgrade},
+  },
+  http::{HeaderMap, StatusCode},
+  response::{IntoResponse, Response},
+};
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+use tokio::sync::{Semaphore, mpsc};
+use tracing::{debug, error, info, warn};
+
+use crate::auth::authorize_tunnel_token;
+use crate::protocol::{
+  FRAME_RESPONSE_CHUNK, PROTOCOL_VERSION, TunnelMessage, compress_frame, decode_binary_frame,
+  decompress_frame,
+};
+use crate::routing::{
+  extract_client_ip, normalize_hostname_bind, normalize_path_bind, random_subdomain_hostname,
+};
+use crate::state::{
+  AppState, ClientHandle, ClientPerms, ResponseStreamHandle, TcpConsumerMsg, TunnelResponse,
+  WsStreamMessage,
+};
+
+/// Delivers one streamed response chunk to the waiting public consumer,
+/// verifying stream ownership and accounting the bytes. Shared by the JSON
+/// (base64) and protocol v2 binary frame paths.
+async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str, bytes: Vec<u8>) {
+  // Look up the stream and verify the sender owns it.
+  let chunk_tx = {
+    let streams = state.response_streams.lock().await;
+    match streams.get(id) {
+      Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
+      Some(_) => {
+        warn!(
+          "ResponseChunk for request ID {} rejected: not owned by client {}",
+          id, client_id
+        );
+        None
+      }
+      None => None,
+    }
+  };
+  if let Some(chunk_tx) = chunk_tx {
+    let len = bytes.len() as u64;
+    // Bounded send with timeout: if the public consumer stalls for too
+    // long, drop the stream instead of blocking the tunnel read loop.
+    let send_res = tokio::time::timeout(
+      state.config().gateway_response_timeout,
+      chunk_tx.send(Ok(bytes)),
+    )
+    .await;
+    match send_res {
+      Ok(Ok(())) => {
+        let mut stats = state.stats.lock().await;
+        stats.total_bytes_transferred += len;
+        drop(stats);
+        state.persistent_stats.lock().await.record_bytes_sent(len);
+      }
+      _ => {
+        debug!(
+          "Dropping streamed response {} (consumer gone or stalled)",
+          id
+        );
+        state.response_streams.lock().await.remove(id);
+      }
+    }
+  }
+}
+
+/// Upgrade WebSocket endpoint. Extracts and verifies security tokens.
+pub(crate) async fn ws_handler(
+  ws: WebSocketUpgrade,
+  headers: HeaderMap,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  State(state): State<Arc<AppState>>,
+) -> Response {
+  let tunnel_client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+  );
+  let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
+    Some(p) => p,
+    None => {
+      info!("Unauthorized connection attempt blocked.");
+      return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+  };
+
+  // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
+  // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
+  loop {
+    let current = state.active_tunnel_count.load(Ordering::SeqCst);
+    if current >= state.config().max_tunnels {
+      warn!(
+        "WebSocket upgrade connection rejected from {}: Maximum tunnels count reached ({}/{})",
+        addr,
+        current,
+        state.config().max_tunnels
+      );
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Service Unavailable - Maximum active tunnels limit reached",
+      )
+        .into_response();
+    }
+    // Atomically reserve our slot; retry if another connection raced ahead.
+    if state
+      .active_tunnel_count
+      .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+      .is_ok()
+    {
+      break;
+    }
+  }
+
+  // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
+  ws.max_message_size(state.config().max_body_size.saturating_mul(2))
+    .max_frame_size(state.config().max_body_size)
+    .on_upgrade(move |socket| handle_socket(socket, tunnel_client_ip.to_string(), state, perms))
+}
+
+/// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
+pub(crate) async fn handle_socket(
+  socket: WebSocket,
+  client_ip: String,
+  state: Arc<AppState>,
+  perms: ClientPerms,
+) {
+  let (mut ws_sender, mut ws_receiver) = socket.split();
+  let client_id = uuid::Uuid::new_v4().to_string();
+
+  // Create channel to handle writes asynchronously
+  let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
+
+  // Per-connection compression state: outgoing frames are compressed once
+  // the client acknowledges the CompressionStart offer.
+  let compress_out = Arc::new(AtomicBool::new(false));
+
+  // Announced downstream link capacity of the client in bytes/second
+  // (0 = unlimited). Updated from Ping, read by the writer task.
+  let bandwidth_bps = Arc::new(AtomicU64::new(0));
+
+  // Spawn a writer task for this connection
+  let writer_client_id = client_id.clone();
+  let compress_out_writer = compress_out.clone();
+  let bandwidth_writer = bandwidth_bps.clone();
+  let writer_task = tokio::spawn(async move {
+    // Bandwidth shaping: when the client announced a limited link, pace all
+    // outgoing tunnel frames with a token bucket (1 s burst, average rate =
+    // announced capacity) so the server never pushes faster than the
+    // client's network can drain. Frames larger than the burst drive the
+    // bucket negative and pay the remainder as sleep time.
+    let mut bucket_tokens: f64 = 0.0;
+    let mut bucket_refilled_at = Instant::now();
+    while let Some(msg) = rx_write.recv().await {
+      let msg = match msg {
+        Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
+          Message::Binary(compress_frame(&t))
+        }
+        other => other,
+      };
+      let rate = bandwidth_writer.load(Ordering::Relaxed);
+      if rate > 0 {
+        let size = match &msg {
+          Message::Text(t) => t.len(),
+          Message::Binary(b) => b.len(),
+          _ => 0,
+        } as f64;
+        let rate_f = rate as f64;
+        let now = Instant::now();
+        bucket_tokens = (bucket_tokens
+          + now.duration_since(bucket_refilled_at).as_secs_f64() * rate_f)
+          .min(rate_f);
+        bucket_refilled_at = now;
+        bucket_tokens -= size;
+        if bucket_tokens < 0.0 {
+          tokio::time::sleep(Duration::from_secs_f64(-bucket_tokens / rate_f)).await;
+        }
+      }
+      if let Err(e) = ws_sender.send(msg).await {
+        error!(
+          "Error writing to websocket client {}: {:?}",
+          writer_client_id, e
+        );
+        break;
+      }
+    }
+  });
+
+  info!("Tunnel client connected: {} (IP: {})", client_id, client_ip);
+  state
+    .audit(
+      "client_connected",
+      &client_ip,
+      &format!(
+        "client={} token={}",
+        client_id,
+        perms.token_name.as_deref().unwrap_or("master")
+      ),
+    )
+    .await;
+  state
+    .emit_event(
+      "client_connected",
+      serde_json::json!({
+        "client_id": client_id,
+        "ip": client_ip,
+        "token": perms.token_name.as_deref().unwrap_or("master"),
+      }),
+    )
+    .await;
+
+  let client_req_count = Arc::new(AtomicU64::new(0));
+
+  // Token-granted binds apply immediately, before the first Ping. When the
+  // random subdomain feature is on, the random hostname is added on top of
+  // any token-granted hostnames — the client serves both.
+  let mut assigned_hostnames = perms.granted_hostnames();
+  let random_hostname = state
+    .config()
+    .random_subdomain_suffix
+    .as_ref()
+    .map(|pattern| random_subdomain_hostname(pattern));
+  if let Some(ref h) = random_hostname {
+    assigned_hostnames.push(h.clone());
+  }
+
+  // Register active client
+  {
+    let mut clients = state.clients.lock().await;
+    clients.insert(
+      client_id.clone(),
+      ClientHandle {
+        tx: tx_write.clone(),
+        connected_at: Instant::now(),
+        client_ip: client_ip.clone(),
+        request_count: client_req_count.clone(),
+        declared_path: None,
+        assigned_path: perms.granted_path(),
+        declared_hostname: None,
+        assigned_hostnames,
+        random_hostname: random_hostname.clone(),
+        override_path_bind: None,
+        override_hostname_bind: None,
+        last_ping_at: None,
+        perms: perms.clone(),
+        max_concurrent: None,
+        inflight_limiter: None,
+        draining: false,
+        admin_enabled: true,
+        tcp_enabled: false,
+        client_version: None,
+        client_protocol: None,
+        backend_healthy: true,
+        priority: 0,
+        reported_instance_id: None,
+        bandwidth_bps: bandwidth_bps.clone(),
+      },
+    );
+    drop(clients);
+    let mut conn = state.connection_state.lock().await;
+    conn.connected = true;
+    conn.last_disconnect = None;
+    state.client_connected.send_replace(true);
+  }
+
+  // Inform the client of its randomly assigned hostname (if any).
+  if let Some(hostname) = random_hostname {
+    info!(
+      "Assigned random hostname {} to client {}",
+      hostname, client_id
+    );
+    let msg = TunnelMessage::HostnameAssigned { hostname };
+    if let Ok(json) = serde_json::to_string(&msg) {
+      let _ = tx_write.send(Message::Text(json)).await;
+    }
+  }
+
+  // Offer tunnel compression; frames stay uncompressed until the client Acks.
+  if state.config().tunnel_compression
+    && let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {})
+  {
+    let _ = tx_write.send(Message::Text(json)).await;
+  }
+
+  // Cap for decompressed tunnel frames (defends against zlib bombs).
+  let max_inflated = state
+    .config()
+    .max_body_size
+    .saturating_mul(4)
+    .max(8 * 1024 * 1024);
+
+  // Read loop
+  while let Some(result) = ws_receiver.next().await {
+    match result {
+      Ok(msg) => {
+        let text_opt = match msg {
+          Message::Text(t) => Some(t),
+          Message::Binary(b) => {
+            // v2 binary chunk frames carry a tag byte that never collides
+            // with zlib-compressed JSON frames (0x78).
+            if let Some((FRAME_RESPONSE_CHUNK, fid, payload)) = decode_binary_frame(&b) {
+              let fid = fid.to_string();
+              deliver_response_chunk(&state, &client_id, &fid, payload.to_vec()).await;
+              None
+            } else {
+              decompress_frame(&b, max_inflated)
+            }
+          }
+          _ => None,
+        };
+        if let Some(text) = text_opt
+          && let Ok(tunnel_msg) = serde_json::from_str::<TunnelMessage>(&text)
+        {
+          match tunnel_msg {
+            TunnelMessage::Response {
+              id,
+              status,
+              headers,
+              body,
+            } => {
+              let mut pending = state.pending_requests.lock().await;
+              // Verify that this response originates from the client that was
+              // assigned the request. Prevents a malicious tunnel client from
+              // injecting spoofed responses for another client's requests.
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "Response for request ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id)
+                && req
+                  .tx
+                  .send(TunnelResponse {
+                    status,
+                    headers,
+                    body,
+                    stream_rx: None,
+                  })
+                  .is_err()
+              {
+                warn!(
+                  "Pending request oneshot receiver was dropped for request ID: {}",
+                  id
+                );
+              }
+            }
+            TunnelMessage::ResponseStart {
+              id,
+              status,
+              headers,
+            } => {
+              let mut pending = state.pending_requests.lock().await;
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "ResponseStart for request ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id) {
+                // Register the chunk channel before resolving the head so no
+                // ResponseChunk can race past an unregistered stream.
+                let (chunk_tx, chunk_rx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+                state.response_streams.lock().await.insert(
+                  id.clone(),
+                  ResponseStreamHandle {
+                    tx: chunk_tx,
+                    client_id: client_id.clone(),
+                  },
+                );
+                if req
+                  .tx
+                  .send(TunnelResponse {
+                    status,
+                    headers,
+                    body: None,
+                    stream_rx: Some(chunk_rx),
+                  })
+                  .is_err()
+                {
+                  warn!(
+                    "Pending request oneshot receiver was dropped for streamed request ID: {}",
+                    id
+                  );
+                  state.response_streams.lock().await.remove(&id);
+                }
+              }
+            }
+            TunnelMessage::ResponseChunk { id, data } => {
+              // Base64 fallback path; v2 clients send raw binary frames.
+              use base64::prelude::*;
+              match BASE64_STANDARD.decode(&data) {
+                Ok(bytes) => deliver_response_chunk(&state, &client_id, &id, bytes).await,
+                Err(_) => {
+                  warn!("Failed to decode Base64 ResponseChunk for request {}", id);
+                  state.response_streams.lock().await.remove(&id);
+                }
+              }
+            }
+            TunnelMessage::ResponseEnd { id } => {
+              // Dropping the sender ends the public body stream.
+              let removed = state.response_streams.lock().await.remove(&id);
+              if let Some(handle) = removed
+                && handle.client_id != client_id
+              {
+                // Ownership violation: re-insert and ignore.
+                warn!(
+                  "ResponseEnd for request ID {} rejected: not owned by client {}",
+                  id, client_id
+                );
+                state.response_streams.lock().await.insert(id, handle);
+              }
+            }
+            TunnelMessage::TcpData { stream_id, data } => {
+              let consumer_tx = {
+                let streams = state.tcp_streams.lock().await;
+                match streams.get(&stream_id) {
+                  Some(h) if h.client_id == client_id => Some(h.tx.clone()),
+                  Some(_) => {
+                    warn!(
+                      "TcpData for stream {} rejected: not owned by client {}",
+                      stream_id, client_id
+                    );
+                    None
+                  }
+                  None => None,
+                }
+              };
+              if let Some(consumer_tx) = consumer_tx {
+                use base64::prelude::*;
+                match BASE64_STANDARD.decode(&data) {
+                  Ok(bytes) => {
+                    if consumer_tx.send(TcpConsumerMsg::Data(bytes)).await.is_err() {
+                      state.tcp_streams.lock().await.remove(&stream_id);
+                    }
+                  }
+                  Err(_) => {
+                    warn!("Failed to decode Base64 TcpData for stream {}", stream_id);
+                  }
+                }
+              }
+            }
+            TunnelMessage::TcpClose { stream_id } => {
+              let removed = state.tcp_streams.lock().await.remove(&stream_id);
+              if let Some(h) = removed {
+                if h.client_id == client_id {
+                  let _ = h.tx.send(TcpConsumerMsg::Close).await;
+                } else {
+                  state.tcp_streams.lock().await.insert(stream_id, h);
+                }
+              }
+            }
+            TunnelMessage::CompressionAck {} => {
+              info!("Client {} acknowledged tunnel compression", client_id);
+              compress_out.store(true, Ordering::SeqCst);
+            }
+            TunnelMessage::Draining {} => {
+              info!(
+                "Client {} is draining: no new requests will be routed to it",
+                client_id
+              );
+              {
+                let mut clients = state.clients.lock().await;
+                if let Some(handle) = clients.get_mut(&client_id) {
+                  handle.draining = true;
+                }
+              }
+              state
+                .audit(
+                  "client_draining",
+                  &client_ip,
+                  &format!("client={}", client_id),
+                )
+                .await;
+              state
+                .emit_event(
+                  "client_draining",
+                  serde_json::json!({"client_id": client_id, "ip": client_ip}),
+                )
+                .await;
+            }
+            TunnelMessage::Ping {
+              client_id: cid,
+              timestamp,
+              path_bind,
+              hostname_bind,
+              max_concurrent,
+              tcp,
+              version,
+              protocol,
+              backend_healthy,
+              priority,
+              bandwidth_bps,
+            } => {
+              debug!("Heartbeat from client {}: {}", cid, timestamp);
+              // Update client's reported binds and heartbeat time. Only the
+              // server-assigned connection ID is trusted for state updates;
+              // the client-declared `cid` is ignored to prevent a client from
+              // mutating another connection's state.
+              let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
+              let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
+              {
+                let mut clients = state.clients.lock().await;
+                if let Some(handle) = clients.get_mut(&client_id) {
+                  // Declared binds must be permitted by the token used to connect.
+                  if let Some(p) = normalized_path {
+                    if handle.perms.path_allowed(&p) {
+                      handle.declared_path = Some(p);
+                    } else {
+                      warn!(
+                        "Client {} declared path bind {} not permitted by its token; ignored",
+                        client_id, p
+                      );
+                    }
+                  }
+                  if let Some(h) = normalized_host {
+                    if handle.perms.hostname_allowed(&h) {
+                      handle.declared_hostname = Some(h);
+                    } else {
+                      warn!(
+                        "Client {} declared hostname bind {} not permitted by its token; ignored",
+                        client_id, h
+                      );
+                    }
+                  }
+                  // Create the concurrency limiter on the first Ping that
+                  // announces a limit; the limit is fixed for the connection.
+                  if handle.inflight_limiter.is_none()
+                    && let Some(n) = max_concurrent
+                    && n > 0
+                  {
+                    handle.max_concurrent = Some(n);
+                    handle.inflight_limiter = Some(Arc::new(Semaphore::new(n as usize)));
+                    info!(
+                      "Client {} announced concurrency limit: {} — excess requests will be queued",
+                      client_id, n
+                    );
+                  }
+                  handle.tcp_enabled = tcp;
+                  // Log backend health transitions reported by the client's
+                  // own probe; the eligibility filter honours the flag.
+                  if handle.backend_healthy != backend_healthy {
+                    handle.backend_healthy = backend_healthy;
+                    if backend_healthy {
+                      info!(
+                        "Client {} reports its backend is healthy again; back in routing",
+                        client_id
+                      );
+                    } else {
+                      warn!(
+                        "Client {} reports its backend as unhealthy; excluded from routing (tunnel stays connected)",
+                        client_id
+                      );
+                    }
+                  }
+                  if handle.priority != priority {
+                    info!(
+                      "Client {} announced load-balancing priority {}",
+                      client_id, priority
+                    );
+                    handle.priority = priority;
+                  }
+                  // The self-reported instance ID is remembered (first value
+                  // wins) so failover `wait` mode can recognize this client
+                  // process when it reconnects under a new connection ID.
+                  if handle.reported_instance_id.is_none() && !cid.is_empty() {
+                    handle.reported_instance_id = Some(cid.clone());
+                  }
+                  // Announced link capacity feeds the writer task's shaper.
+                  let announced_bw = bandwidth_bps.unwrap_or(0);
+                  if handle.bandwidth_bps.swap(announced_bw, Ordering::Relaxed) != announced_bw
+                    && announced_bw > 0
+                  {
+                    info!(
+                      "Client {} announced a bandwidth limit of {} bytes/s; pacing outgoing frames",
+                      client_id, announced_bw
+                    );
+                  }
+                  if let Some(v) = version {
+                    handle.client_version = Some(v);
+                  }
+                  // Warn once per change, not on every heartbeat.
+                  if protocol.is_some() && handle.client_protocol != protocol {
+                    handle.client_protocol = protocol;
+                    if let Some(p) = protocol
+                      && p != PROTOCOL_VERSION
+                    {
+                      warn!(
+                        "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
+                         update the older side to avoid subtle incompatibilities",
+                        client_id, p, PROTOCOL_VERSION
+                      );
+                    }
+                  }
+                  handle.last_ping_at = Some(Instant::now());
+                }
+              }
+              let pong = TunnelMessage::Pong {
+                timestamp,
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                protocol: Some(PROTOCOL_VERSION),
+              };
+              if let Ok(pong_str) = serde_json::to_string(&pong) {
+                let _ = tx_write.send(Message::Text(pong_str)).await;
+              }
+            }
+            TunnelMessage::UpgradeResponse {
+              id,
+              status,
+              headers,
+            } => {
+              let mut pending = state.pending_upgrades.lock().await;
+              let is_owner = pending
+                .get(&id)
+                .is_some_and(|req| req.client_id == client_id);
+              if !is_owner {
+                if pending.contains_key(&id) {
+                  warn!(
+                    "UpgradeResponse for stream ID {} rejected: sent by client {} but owned by a different client",
+                    id, client_id
+                  );
+                }
+              } else if let Some(req) = pending.remove(&id)
+                && req
+                  .tx
+                  .send(TunnelResponse {
+                    status,
+                    headers,
+                    body: None,
+                    stream_rx: None,
+                  })
+                  .is_err()
+              {
+                warn!(
+                  "Pending upgrade oneshot receiver was dropped for stream ID: {}",
+                  id
+                );
+              }
+            }
+            TunnelMessage::WsData {
+              stream_id,
+              data,
+              is_text,
+            } => {
+              // Relay WebSocket frame to the public WS via the registered channel
+              let streams = state.ws_streams.lock().await;
+              if let Some(tx) = streams.get(&stream_id) {
+                let ws_msg = if is_text {
+                  Message::Text(data)
+                } else {
+                  use base64::prelude::*;
+                  match BASE64_STANDARD.decode(&data) {
+                    Ok(bytes) => Message::Binary(bytes),
+                    Err(_) => {
+                      warn!("Failed to decode Base64 WsData for stream {}", stream_id);
+                      continue;
+                    }
+                  }
+                };
+                if tx.send(WsStreamMessage::Data(ws_msg)).await.is_err() {
+                  debug!("WsStream channel closed for stream {}", stream_id);
+                }
+              }
+            }
+            TunnelMessage::WsClose {
+              stream_id,
+              code: _,
+              reason: _,
+            } => {
+              let streams = state.ws_streams.lock().await;
+              if let Some(tx) = streams.get(&stream_id) {
+                let _ = tx.send(WsStreamMessage::Close).await;
+              }
+            }
+            _ => {}
+          }
+        }
+      }
+      Err(e) => {
+        error!("WebSocket reading error for client {}: {:?}", client_id, e);
+        break;
+      }
+    }
+  }
+
+  // Client cleanup
+  writer_task.abort();
+  info!("Tunnel client disconnected: {}", client_id);
+  state
+    .audit(
+      "client_disconnected",
+      &client_ip,
+      &format!("client={}", client_id),
+    )
+    .await;
+  state
+    .emit_event(
+      "client_disconnected",
+      serde_json::json!({"client_id": client_id, "ip": client_ip}),
+    )
+    .await;
+  {
+    let mut clients = state.clients.lock().await;
+    let removed = clients.remove(&client_id);
+    let now_empty = clients.is_empty();
+
+    // Prune round-robin indices for routing groups that no longer have any
+    // matching client (prevents unbounded growth of the rr map). Clients can
+    // belong to multiple hostname groups, so re-evaluate all keys.
+    if removed.is_some() {
+      let mut rr_map = state.path_rr.lock().await;
+      rr_map.retain(|(host_key, path_key), _| {
+        clients.values().any(|c| {
+          let host_ok = match host_key {
+            Some(h) => c.matches_host(h),
+            None => !c.has_hostname_bind(),
+          };
+          host_ok && c.effective_path_bind() == path_key.as_ref()
+        })
+      });
+    }
+
+    drop(clients);
+
+    if now_empty {
+      let mut conn = state.connection_state.lock().await;
+      conn.connected = false;
+      conn.last_disconnect = Some(Instant::now());
+      drop(conn);
+      state.client_connected.send_replace(false);
+    }
+  }
+  // Release the reserved tunnel slot.
+  state.active_tunnel_count.fetch_sub(1, Ordering::SeqCst);
+
+  // Instantly abort pending requests that were routed to the disconnected client
+  {
+    let mut pending = state.pending_requests.lock().await;
+    let keys_to_remove: Vec<String> = pending
+      .iter()
+      .filter(|(_, req)| req.client_id == client_id)
+      .map(|(k, _)| k.clone())
+      .collect();
+
+    for k in keys_to_remove {
+      if let Some(_req) = pending.remove(&k) {
+        // Drop the sender channel, triggering an immediate channel cancellation / 502 Bad Gateway
+        debug!(
+          "Aborted pending request ID {} due to active client connection loss",
+          k
+        );
+        // The oneshot channel dropping will wake the handler thread to reply immediately.
+      }
+    }
+  }
+
+  // Abort pending upgrade responses routed to the disconnected client
+  {
+    let mut pending = state.pending_upgrades.lock().await;
+    let keys_to_remove: Vec<String> = pending
+      .iter()
+      .filter(|(_, req)| req.client_id == client_id)
+      .map(|(k, _)| k.clone())
+      .collect();
+    for k in keys_to_remove {
+      pending.remove(&k);
+    }
+  }
+
+  // Terminate in-flight streamed response bodies from the disconnected client
+  // (dropping the senders ends the corresponding public HTTP bodies).
+  {
+    let mut streams = state.response_streams.lock().await;
+    streams.retain(|_, handle| handle.client_id != client_id);
+  }
+
+  // Close TCP tunnel streams owned by the disconnected client.
+  {
+    let mut streams = state.tcp_streams.lock().await;
+    let closing: Vec<_> = streams
+      .iter()
+      .filter(|(_, h)| h.client_id == client_id)
+      .map(|(_, h)| h.tx.clone())
+      .collect();
+    streams.retain(|_, h| h.client_id != client_id);
+    drop(streams);
+    for tx in closing {
+      let _ = tx.send(TcpConsumerMsg::Close).await;
+    }
+  }
+}
