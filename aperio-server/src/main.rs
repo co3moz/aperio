@@ -824,6 +824,61 @@ struct RateLimitState {
   last_updated: Instant,
 }
 
+/// Upper bounds (seconds) of the request duration histogram buckets exposed
+/// on `/aperio/metrics`; a `+Inf` bucket is added implicitly.
+const DURATION_BUCKETS: [f64; 12] = [
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
+];
+
+/// Lock-free in-memory histogram of proxied request durations, rendered as a
+/// Prometheus `histogram` (cumulative buckets + sum + count). In-memory only:
+/// counters reset on restart, which Prometheus handles natively.
+#[derive(Default)]
+struct DurationHistogram {
+  buckets: [AtomicU64; DURATION_BUCKETS.len()],
+  sum_micros: AtomicU64,
+  count: AtomicU64,
+}
+
+impl DurationHistogram {
+  fn observe(&self, duration: Duration) {
+    let secs = duration.as_secs_f64();
+    for (i, bound) in DURATION_BUCKETS.iter().enumerate() {
+      if secs <= *bound {
+        self.buckets[i].fetch_add(1, Ordering::Relaxed);
+      }
+    }
+    self
+      .sum_micros
+      .fetch_add(duration.as_micros() as u64, Ordering::Relaxed);
+    self.count.fetch_add(1, Ordering::Relaxed);
+  }
+
+  fn render(&self, out: &mut String) {
+    out.push_str(
+      "# HELP aperio_request_duration_seconds Proxied request duration (dispatch to response).\n",
+    );
+    out.push_str("# TYPE aperio_request_duration_seconds histogram\n");
+    for (i, bound) in DURATION_BUCKETS.iter().enumerate() {
+      out.push_str(&format!(
+        "aperio_request_duration_seconds_bucket{{le=\"{}\"}} {}\n",
+        bound,
+        self.buckets[i].load(Ordering::Relaxed)
+      ));
+    }
+    let count = self.count.load(Ordering::Relaxed);
+    out.push_str(&format!(
+      "aperio_request_duration_seconds_bucket{{le=\"+Inf\"}} {}\n",
+      count
+    ));
+    out.push_str(&format!(
+      "aperio_request_duration_seconds_sum {}\n",
+      self.sum_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
+    ));
+    out.push_str(&format!("aperio_request_duration_seconds_count {}\n", count));
+  }
+}
+
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 struct SessionInfo {
   expires_at: Instant,
@@ -892,6 +947,8 @@ struct AppState {
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.
   access_log: Option<std::sync::Mutex<std::fs::File>>,
+  /// Request duration histogram exposed on `/aperio/metrics`.
+  duration_histogram: DurationHistogram,
 }
 
 impl AppState {
@@ -1387,6 +1444,7 @@ async fn main() {
     tcp_streams: Mutex::new(HashMap::new()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log,
+    duration_histogram: DurationHistogram::default(),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
@@ -3036,6 +3094,7 @@ async fn metrics_handler(
   out.push_str("# HELP aperio_uptime_seconds Server uptime in seconds.\n");
   out.push_str("# TYPE aperio_uptime_seconds gauge\n");
   out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
+  state.duration_histogram.render(&mut out);
   out.push_str(
     "# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n",
   );
@@ -6399,6 +6458,7 @@ async fn log_request_success(
   client_id: Option<&str>,
   token: Option<&str>,
 ) {
+  state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
   {
     let mut logs = state.recent_logs.lock().await;
@@ -6455,6 +6515,7 @@ async fn log_request_failure(
   duration: Duration,
   error: Option<&str>,
 ) {
+  state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
   let id = uuid::Uuid::new_v4().to_string();
   {

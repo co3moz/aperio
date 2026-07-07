@@ -229,7 +229,7 @@ scrape_configs:
       - targets: ["tunnel.example.com"]
 ```
 
-Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`, `aperio_requests_failed_total`, `aperio_bytes_transferred_total`, `aperio_connected_clients`, `aperio_pending_requests`, `aperio_ws_streams_active`, `aperio_uptime_seconds`, and per-client `aperio_client_requests_total{client_id=...}`.
+Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`, `aperio_requests_failed_total`, `aperio_bytes_transferred_total`, `aperio_connected_clients`, `aperio_pending_requests`, `aperio_ws_streams_active`, `aperio_uptime_seconds`, the `aperio_request_duration_seconds` histogram (p95/p99-ready), and per-client `aperio_client_requests_total{client_id=...}`.
 
 ### HTTP Endpoints
 
