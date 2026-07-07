@@ -324,6 +324,7 @@ Names map mechanically across the three surfaces: CLI `--server-token` ↔ yaml 
 | `APERIO_MAX_RESPONSE_BODY` (`APERIO_CLIENT_MAX_RESPONSE_BODY`) | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
 | `APERIO_MAX_MESSAGE_SIZE` (`APERIO_CLIENT_MAX_MESSAGE_SIZE`) | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
 | `LOG_LEVEL` | — | — | Log verbosity. | `info` |
+| `APERIO_LOG_FORMAT` | — | — | `json` or `pretty`. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). | auto |
 
 ### aperio.yaml & ~/.aperio.yaml
 

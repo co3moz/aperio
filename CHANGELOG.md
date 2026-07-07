@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- The client prints human-readable logs on interactive terminals and keeps JSON when stdout is not a TTY (Docker, pipes); `APERIO_LOG_FORMAT=json|pretty` overrides the auto-detection.
+
 ### Security
 
 - Bumped the transitive `quinn-proto` dependency to 0.11.16, resolving RUSTSEC-2026-0037 and RUSTSEC-2026-0185 (two high-severity denial-of-service advisories).

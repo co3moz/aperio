@@ -32,19 +32,38 @@ async fn main() {
   // Parse CLI first so `--help` and argument errors never emit JSON logs.
   let cli = parse_cli();
 
-  // Initialize logging with structured JSON output (pino.js style)
+  // Initialize logging. Interactive terminals get human-readable output;
+  // non-TTY stdout (Docker, pipes, service managers) keeps the structured
+  // JSON format (pino.js style). APERIO_LOG_FORMAT=json|pretty overrides
+  // the auto-detection.
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     tracing_subscriber::EnvFilter::new(level)
   });
 
-  tracing_subscriber::fmt()
-    .json()
-    .with_current_span(false)
-    .with_span_list(false)
-    .flatten_event(true)
-    .with_env_filter(log_filter)
-    .init();
+  let json_logs = match std::env::var("APERIO_LOG_FORMAT").ok().as_deref() {
+    Some("json") => true,
+    Some("pretty") | Some("text") => false,
+    _ => {
+      use std::io::IsTerminal;
+      !std::io::stdout().is_terminal()
+    }
+  };
+  if json_logs {
+    tracing_subscriber::fmt()
+      .json()
+      .with_current_span(false)
+      .with_span_list(false)
+      .flatten_event(true)
+      .with_env_filter(log_filter)
+      .init();
+  } else {
+    tracing_subscriber::fmt()
+      .compact()
+      .with_target(false)
+      .with_env_filter(log_filter)
+      .init();
+  }
 
   info!("Starting Aperio Client...");
 
