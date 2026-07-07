@@ -243,71 +243,84 @@ export function ClientsSection({
             clients.map((c) => (
               <Table.Row key={c.id}>
                 <Table.Cell>
-                  <Tooltip content={`${c.id} • ${c.token_name ? `token: ${c.token_name}` : 'master token'}`}>
-                    <Flex direction="column">
-                      <Flex align="center" gap="1">
-                        <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
-                          {c.id.slice(0, 8)}…
+                  <Flex direction="column">
+                    <Flex align="center" gap="1">
+                      <Tooltip
+                        content={
+                          <Flex direction="column" gap="1">
+                            {c.instance_id && <Text size="1">client id: {c.instance_id}</Text>}
+                            <Text size="1">connection: {c.id}</Text>
+                            <Text size="1">
+                              {c.token_name ? `token: ${c.token_name}` : 'master token'}
+                            </Text>
+                          </Flex>
+                        }
+                      >
+                        <Text
+                          size="2"
+                          style={{ fontFamily: 'var(--code-font-family)', cursor: 'default' }}
+                        >
+                          {(c.instance_id ?? c.id).slice(0, 8)}…
                         </Text>
-                        {c.service && (
-                          <Tooltip content="Service name announced by the client (services: list)">
-                            <Badge color="blue" size="1">
-                              {c.service}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {c.public && (
-                          <Tooltip content="This client serves its traffic without the visitor auth gate">
-                            <Badge color="green" size="1">
-                              public
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {c.version && (
-                          <Text size="1" color="gray">
-                            v{c.version}
-                          </Text>
-                        )}
-                        {c.bandwidth_bps !== null && (
-                          <Tooltip content="Announced link capacity; the server paces frames to this client accordingly">
-                            <Badge color="gray" size="1">
-                              {formatBandwidth(c.bandwidth_bps)}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {c.priority > 0 && (
-                          <Tooltip content={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}>
-                            <Badge color="gray" size="1">
-                              standby {c.priority}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {c.protocol_mismatch && (
-                          <Tooltip
-                            content={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
-                          >
-                            <Badge color="red" size="1">
-                              proto v{c.protocol}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {c.instance_id_shared && (
-                          <Tooltip
-                            content={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
-                          >
-                            <Badge color="amber" size="1">
-                              SHARED ID
-                            </Badge>
-                          </Tooltip>
-                        )}
-                      </Flex>
-                      {c.token_name && (
+                      </Tooltip>
+                      {c.service && (
+                        <Tooltip content="Service name announced by the client (services: list)">
+                          <Badge color="blue" size="1">
+                            {c.service}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      {c.public && (
+                        <Tooltip content="This client serves its traffic without the visitor auth gate">
+                          <Badge color="green" size="1">
+                            public
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      {c.version && (
                         <Text size="1" color="gray">
-                          🔑 {c.token_name}
+                          v{c.version}
                         </Text>
                       )}
+                      {c.bandwidth_bps !== null && (
+                        <Tooltip content="Announced link capacity; the server paces frames to this client accordingly">
+                          <Badge color="gray" size="1">
+                            {formatBandwidth(c.bandwidth_bps)}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      {c.priority > 0 && (
+                        <Tooltip content={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}>
+                          <Badge color="gray" size="1">
+                            standby {c.priority}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      {c.protocol_mismatch && (
+                        <Tooltip
+                          content={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
+                        >
+                          <Badge color="red" size="1">
+                            proto v{c.protocol}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      {c.instance_id_shared && (
+                        <Tooltip
+                          content={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
+                        >
+                          <Badge color="amber" size="1">
+                            SHARED ID
+                          </Badge>
+                        </Tooltip>
+                      )}
                     </Flex>
-                  </Tooltip>
+                    {c.token_name && (
+                      <Text size="1" color="gray">
+                        🔑 {c.token_name}
+                      </Text>
+                    )}
+                  </Flex>
                 </Table.Cell>
                 <Table.Cell>
                   <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>

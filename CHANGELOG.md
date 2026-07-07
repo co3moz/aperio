@@ -10,6 +10,16 @@ project follows semantic versioning per release tag.
 
 - Unit tests for previously unit-untested pure logic: the routing pipeline (path/hostname bind normalization and matching, random-subdomain patterns, request-host and client-IP extraction, pool selection, LB strategy and sticky affinity), the `ClientPerms`/`ClientHandle` routing accessors, the auth helpers (token extraction, IP/CIDR allowlists, constant-time compare, safe-redirect), and the settings parsers (`parse_lb_strategy`, `parse_failover_mode`, `override_keys`, `apply_settings_overrides`). 41 new tests; no behavior change.
 - E2E phases for previously thinly-covered dashboard handlers: the token API lifecycle (list, edit scope/limits/expiry/public-flag, invalid-permission and unknown-id rejections, revoke + double-revoke), the client control API (overrule validation and clearing, the enable/disable kill switch removing a client from the routing pool and restoring it), and the `aperio-client check` failure path against an unreachable server/target. No behavior change.
+- Refresh button on the dashboard audit log section.
+
+### Changed
+
+- Client IP resolution now consults `CF-Connecting-IP` automatically (under `trust_proxy`, after any explicit `APERIO_REAL_IP_HEADER`): behind Cloudflare an intermediate proxy such as Traefik often rewrites `X-Forwarded-For` down to the Cloudflare edge address, so audit entries, rate limiting and access logs recorded the edge IP instead of the real visitor. An explicit `APERIO_REAL_IP_HEADER` still wins, so pointing at another header (e.g. `True-Client-IP`) keeps overriding the automatic behavior.
+- The dashboard clients table now shows a client's pinned instance id (`--client-id`) as its primary identifier when set, falling back to the per-connection id; the id tooltip lists both the client id and the connection id.
+
+### Fixed
+
+- The client-id cell tooltip in the dashboard clients table no longer misrenders/overflows: it wrapped the whole cell (including the nested status badges, each with their own tooltip), so hovering produced a broken oversized overlay. The tooltip now wraps only the id text.
 
 ## [0.1.2] - 2026-07-07
 

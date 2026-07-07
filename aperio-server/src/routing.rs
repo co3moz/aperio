@@ -415,10 +415,18 @@ pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
 /// proxy). Otherwise the direct socket address is used, since clients could
 /// otherwise spoof these headers to bypass rate limiting.
 ///
-/// `real_ip_header` (APERIO_REAL_IP_HEADER, e.g. `CF-Connecting-IP`) takes
-/// precedence over X-Forwarded-For: intermediate proxies such as Traefik
-/// often reset XFF to their immediate peer (a CDN edge), while the CDN's own
-/// header still carries the true visitor address.
+/// Resolution order (all only under `trust_proxy`):
+/// 1. An explicitly configured `real_ip_header` (APERIO_REAL_IP_HEADER).
+/// 2. `CF-Connecting-IP` — Cloudflare always sends the true visitor address
+///    here, even when an intermediate proxy (e.g. Traefik) rewrites
+///    X-Forwarded-For down to its immediate peer (the Cloudflare edge). It is
+///    consulted automatically so the common `Cloudflare → reverse proxy →
+///    aperio` chain resolves the real client without extra configuration.
+/// 3. The first `X-Forwarded-For` entry.
+/// 4. `X-Real-IP`.
+///
+/// Any explicit `real_ip_header` still wins, so an operator can override the
+/// automatic Cloudflare behavior (e.g. point at `True-Client-IP`).
 pub(crate) fn extract_client_ip(
   headers: &HeaderMap,
   fallback: IpAddr,
@@ -430,6 +438,12 @@ pub(crate) fn extract_client_ip(
       && let Some(value) = headers.get(name)
       && let Ok(value_str) = value.to_str()
       && let Ok(parsed) = value_str.trim().parse::<IpAddr>()
+    {
+      return parsed;
+    }
+    if let Some(cf) = headers.get("cf-connecting-ip")
+      && let Ok(cf_str) = cf.to_str()
+      && let Ok(parsed) = cf_str.trim().parse::<IpAddr>()
     {
       return parsed;
     }

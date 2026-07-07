@@ -1,14 +1,22 @@
-import { Badge, Code, Flex, Heading, Table, Text } from '@radix-ui/themes'
+import { ReloadIcon } from '@radix-ui/react-icons'
+import { Badge, Code, Flex, Heading, IconButton, Table, Text, Tooltip } from '@radix-ui/themes'
 import { usePoll } from '../hooks/usePoll'
 import { api } from '../lib/api'
 import { EmptyRow } from './ClientsSection'
 
 export function AuditSection() {
-  const { data: events } = usePoll(api.audit, 10_000)
+  const { data: events, refresh } = usePoll(api.audit, 10_000)
 
   return (
     <Flex direction="column" gap="3">
-      <Heading size="4">Audit Log</Heading>
+      <Flex justify="between" align="center">
+        <Heading size="4">Audit Log</Heading>
+        <Tooltip content="Refresh">
+          <IconButton size="1" variant="soft" color="gray" onClick={refresh}>
+            <ReloadIcon />
+          </IconButton>
+        </Tooltip>
+      </Flex>
       <Table.Root variant="surface">
         <Table.Header>
           <Table.Row>
