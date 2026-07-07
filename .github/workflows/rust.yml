@@ -47,6 +47,50 @@ jobs:
       - name: Run automated tests
         run: cargo test --all
 
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install Node.js (dashboard build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Line/region coverage of the whole workspace via rustc's LLVM
+      # source-based instrumentation. Reported, not gated: the table lands
+      # in the job summary, the full HTML report as a downloadable artifact.
+      - name: Measure coverage
+        run: |
+          cargo llvm-cov --workspace --html
+          echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --summary-only >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            target/llvm-cov/html
+            lcov.info
+          retention-days: 30
+
   audit:
     name: Dependency Vulnerability Audit
     runs-on: ubuntu-latest
