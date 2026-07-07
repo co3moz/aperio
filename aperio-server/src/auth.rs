@@ -166,6 +166,7 @@ pub(crate) async fn authorize_tunnel_token(
     hostnames: token.hostnames.clone(),
     paths: token.paths.clone(),
     token_name: Some(token.name.clone()),
+    token_id: Some(token.id.clone()),
   })
 }
 

@@ -25,6 +25,8 @@ pub(crate) struct TokenView {
   pub(crate) created_at: u64,
   pub(crate) expires_at: Option<u64>,
   pub(crate) expired: bool,
+  pub(crate) max_rps: Option<f64>,
+  pub(crate) daily_max_bytes: Option<u64>,
 }
 
 /// Lists dynamic API tokens (metadata only, secrets are never returned).
@@ -45,6 +47,8 @@ pub(crate) async fn tokens_list_handler(
       created_at: t.created_at,
       expires_at: t.expires_at,
       expired: t.is_expired(),
+      max_rps: t.max_rps,
+      daily_max_bytes: t.daily_max_bytes,
     })
     .collect();
   Json(views)
@@ -65,6 +69,11 @@ pub(crate) struct TokenCreateRequest {
   pub(crate) allowed_ips: Vec<String>,
   /// Optional lifetime in seconds; omitted = never expires.
   pub(crate) ttl_seconds: Option<u64>,
+  /// Optional request rate limit (requests/second) for proxied traffic
+  /// served through this token.
+  pub(crate) max_rps: Option<f64>,
+  /// Optional daily byte quota (request + response payload).
+  pub(crate) daily_max_bytes: Option<u64>,
 }
 
 /// Payload for editing an existing token's scope without changing the secret.
@@ -77,6 +86,10 @@ pub(crate) struct TokenUpdateRequest {
   pub(crate) allowed_ips: Option<Vec<String>>,
   /// Some(0) = never expires; Some(n) = expires n seconds from now.
   pub(crate) ttl_seconds: Option<u64>,
+  /// Some(0.0) clears the rate limit; Some(n) sets it to n req/s.
+  pub(crate) max_rps: Option<f64>,
+  /// Some(0) clears the quota; Some(n) sets it to n bytes/day.
+  pub(crate) daily_max_bytes: Option<u64>,
 }
 
 /// Normalized (hostnames, paths, allowed_ips) permission lists.
@@ -165,9 +178,21 @@ pub(crate) async fn tokens_create_handler(
       Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
 
+  if payload.max_rps.is_some_and(|v| !v.is_finite() || v < 0.0) {
+    return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
+  }
+
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
-    store.create(name, hostnames, paths, allowed_ips, payload.ttl_seconds)
+    store.create(
+      name,
+      hostnames,
+      paths,
+      allowed_ips,
+      payload.ttl_seconds,
+      payload.max_rps.filter(|v| *v > 0.0),
+      payload.daily_max_bytes.filter(|v| *v > 0),
+    )
   };
   info!(
     "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
@@ -250,6 +275,10 @@ pub(crate) async fn tokens_update_handler(
     .ttl_seconds
     .map(|n| if n == 0 { None } else { Some(n) });
 
+  if payload.max_rps.is_some_and(|v| !v.is_finite() || v < 0.0) {
+    return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
+  }
+
   let updated = state.token_store.lock().await.update(
     &id,
     payload.name.map(|n| n.trim().to_string()),
@@ -257,6 +286,9 @@ pub(crate) async fn tokens_update_handler(
     payload.paths.map(|_| paths),
     payload.allowed_ips.map(|_| allowed_ips),
     ttl,
+    // max_rps / daily_max_bytes: absent = keep; 0 = clear; n = set.
+    payload.max_rps.map(Some),
+    payload.daily_max_bytes.map(Some),
   );
 
   match updated {

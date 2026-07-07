@@ -273,6 +273,26 @@ pub(crate) async fn proxy_handler(
     }
   };
 
+  // Per-token rate limit / daily quota of the serving token (dynamic tokens
+  // only). Enforced once at admission; failover re-dispatches of an already
+  // admitted request are not double-counted.
+  if let Err(reason) = state.check_token_limits(selected.token_id.as_deref()).await {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      429,
+      start_time.elapsed(),
+      Some(reason),
+    )
+    .await;
+    return (
+      StatusCode::TOO_MANY_REQUESTS,
+      format!("429 Too Many Requests - {}", reason),
+    )
+      .into_response();
+  }
+
   // Protocol v2 upload streaming: large (or chunked) request bodies are
   // forwarded as RequestStart/Chunk/End frames instead of being buffered,
   // when the selected client speaks v2. Streamed requests cannot fail over
@@ -645,6 +665,13 @@ pub(crate) async fn proxy_handler(
             request_host.as_deref(),
           );
         }
+        // Feed the serving token's daily byte quota (request + response).
+        state
+          .add_token_bytes(
+            selected.token_id.as_deref(),
+            body_bytes.len() as u64 + streamed_bytes.load(Ordering::Relaxed) + body_len,
+          )
+          .await;
 
         log_request_success(
           &state,

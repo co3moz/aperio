@@ -486,6 +486,8 @@ async fn main() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    token_rate: Mutex::new(HashMap::new()),
+    token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
     last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),

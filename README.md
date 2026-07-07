@@ -459,6 +459,8 @@ Besides the master token, you can mint scoped tokens from the dashboard (*API To
 - **Paths** — which path binds it may claim. `*` = any.
 - **Allowed IPs** — source IPs/CIDRs that may connect with this token (`0.0.0.0/0` = any, the default).
 - **Lifetime** — optional TTL; expired tokens are rejected at connect time.
+- **Rate limit** — optional requests/second cap (token bucket) applied to all proxied traffic served by clients connected with this token; excess requests get `429`.
+- **Daily quota** — optional bytes/day cap (request + response payload); once exhausted the token's traffic answers `429` until local midnight. Usage tracking is in-memory, so a server restart resets the current day's counter.
 
 A client declaring a bind its token doesn't permit gets the declaration ignored (logged). Tokens can be **edited in place** (scope, IPs, expiry — the secret never changes) or revoked; revocation rejects new connections while existing tunnels stay up until they drop.
 

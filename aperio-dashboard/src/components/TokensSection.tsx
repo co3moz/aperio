@@ -37,6 +37,8 @@ interface TokenFormState {
   paths: string
   ips: string
   ttl: string
+  maxRps: string
+  dailyMaxMb: string
 }
 
 function formFromToken(t: TokenView | null): TokenFormState {
@@ -46,6 +48,8 @@ function formFromToken(t: TokenView | null): TokenFormState {
     paths: t ? (t.paths.length ? t.paths : ['*']).join(', ') : '*',
     ips: t ? (t.allowed_ips.length ? t.allowed_ips : ['0.0.0.0/0']).join(', ') : '0.0.0.0/0',
     ttl: '',
+    maxRps: t?.max_rps != null ? String(t.max_rps) : '',
+    dailyMaxMb: t?.daily_max_bytes != null ? String(t.daily_max_bytes / (1024 * 1024)) : '',
   }
 }
 
@@ -80,6 +84,10 @@ function TokenFormDialog({
     setBusy(true)
     setError(null)
     const ttl = parseInt(form.ttl, 10)
+    // Empty input = keep current (edit) / no limit (create); 0 clears on edit.
+    const maxRps = form.maxRps.trim() === '' ? NaN : Number(form.maxRps)
+    const dailyMb = form.dailyMaxMb.trim() === '' ? NaN : Number(form.dailyMaxMb)
+    const dailyBytes = Number.isNaN(dailyMb) ? NaN : Math.round(dailyMb * 1024 * 1024)
     try {
       if (editing) {
         await api.updateToken(editing.id, {
@@ -87,6 +95,8 @@ function TokenFormDialog({
           paths: splitList(form.paths),
           allowed_ips: splitList(form.ips),
           ...(Number.isNaN(ttl) || ttl < 0 ? {} : { ttl_seconds: ttl }),
+          ...(Number.isNaN(maxRps) || maxRps < 0 ? {} : { max_rps: maxRps }),
+          ...(Number.isNaN(dailyBytes) || dailyBytes < 0 ? {} : { daily_max_bytes: dailyBytes }),
         })
         onSaved()
       } else {
@@ -100,6 +110,8 @@ function TokenFormDialog({
           paths: splitList(form.paths),
           allowed_ips: splitList(form.ips),
           ...(Number.isNaN(ttl) || ttl <= 0 ? {} : { ttl_seconds: ttl }),
+          ...(Number.isNaN(maxRps) || maxRps <= 0 ? {} : { max_rps: maxRps }),
+          ...(Number.isNaN(dailyBytes) || dailyBytes <= 0 ? {} : { daily_max_bytes: dailyBytes }),
         })
         onSaved()
         onCreated(created.token)
@@ -151,6 +163,20 @@ function TokenFormDialog({
               ? 'NEW LIFETIME IN SECONDS FROM NOW (0 = NEVER, EMPTY = KEEP)'
               : 'LIFETIME IN SECONDS (EMPTY = NEVER EXPIRES)',
             'ttl',
+            '',
+          )}
+          {field(
+            editing
+              ? 'RATE LIMIT (REQ/S, 0 = NO LIMIT, EMPTY = KEEP)'
+              : 'RATE LIMIT (REQ/S, EMPTY = NO LIMIT)',
+            'maxRps',
+            '',
+          )}
+          {field(
+            editing
+              ? 'DAILY TRAFFIC QUOTA (MB, 0 = NO QUOTA, EMPTY = KEEP)'
+              : 'DAILY TRAFFIC QUOTA (MB, EMPTY = NO QUOTA)',
+            'dailyMaxMb',
             '',
           )}
           {error && (
@@ -286,13 +312,14 @@ export function TokensSection() {
             <Table.ColumnHeaderCell>Hostnames</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Paths</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Allowed IPs</Table.ColumnHeaderCell>
+            <Table.ColumnHeaderCell>Limits</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Expires</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
           </Table.Row>
         </Table.Header>
         <Table.Body>
           {!tokens || tokens.length === 0 ? (
-            <EmptyRow colSpan={7}>No dynamic tokens created</EmptyRow>
+            <EmptyRow colSpan={8}>No dynamic tokens created</EmptyRow>
           ) : (
             tokens.map((t) => (
               <Table.Row key={t.id}>
@@ -308,6 +335,25 @@ export function TokensSection() {
                 </Table.Cell>
                 <Table.Cell>
                   <BadgeList items={t.allowed_ips} fallback="0.0.0.0/0" color="gray" />
+                </Table.Cell>
+                <Table.Cell>
+                  <Flex gap="1" wrap="wrap">
+                    {t.max_rps != null && (
+                      <Badge color="orange" size="1">
+                        {t.max_rps} req/s
+                      </Badge>
+                    )}
+                    {t.daily_max_bytes != null && (
+                      <Badge color="orange" size="1">
+                        {Math.round(t.daily_max_bytes / (1024 * 1024))} MB/day
+                      </Badge>
+                    )}
+                    {t.max_rps == null && t.daily_max_bytes == null && (
+                      <Text size="2" color="gray">
+                        —
+                      </Text>
+                    )}
+                  </Flex>
                 </Table.Cell>
                 <Table.Cell>
                   <Text size="2" color={t.expired ? 'red' : undefined}>

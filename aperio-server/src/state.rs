@@ -238,6 +238,9 @@ pub(crate) struct ClientPerms {
   pub(crate) paths: Vec<String>,
   /// Name of the dynamic token used (None for the master token).
   pub(crate) token_name: Option<String>,
+  /// Record ID of the dynamic token used (None for the master token);
+  /// rate limits and quotas key on this.
+  pub(crate) token_id: Option<String>,
 }
 
 impl ClientPerms {
@@ -247,6 +250,7 @@ impl ClientPerms {
       hostnames: Vec::new(),
       paths: Vec::new(),
       token_name: None,
+      token_id: None,
     }
   }
 
@@ -473,6 +477,12 @@ pub(crate) struct AppState {
   pub(crate) path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   pub(crate) sessions: Mutex<HashMap<String, SessionInfo>>,
   pub(crate) rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
+  /// Per-token request rate buckets (key = dynamic token record id),
+  /// enforcing the token's optional `max_rps`.
+  pub(crate) token_rate: Mutex<HashMap<String, RateLimitState>>,
+  /// Per-token daily byte usage: token id → (day key, bytes). In-memory
+  /// only — a restart resets the current day's usage.
+  pub(crate) token_daily_bytes: Mutex<HashMap<String, (String, u64)>>,
   pub(crate) last_session_gc: Mutex<Instant>,
   pub(crate) last_rate_gc: Mutex<Instant>,
   pub(crate) active_tunnel_count: AtomicUsize,
@@ -535,6 +545,75 @@ impl AppState {
 impl AppState {
   /// In-memory thread-safe Per-IP Token Bucket Rate Limiter.
   /// Returns `true` if request is allowed, `false` if rate-limited.
+  /// Enforces the serving token's optional rate limit and daily byte quota.
+  /// Returns Err with a short reason when the request must be rejected with
+  /// 429. Master-token traffic (token_id = None) is never limited.
+  pub(crate) async fn check_token_limits(&self, token_id: Option<&str>) -> Result<(), &'static str> {
+    let Some(id) = token_id else {
+      return Ok(());
+    };
+    // Limits are read from the store per request so dashboard edits apply
+    // live; the store is small (dozens of tokens at most).
+    let (max_rps, daily_max_bytes) = {
+      let store = self.token_store.lock().await;
+      match store.list().iter().find(|t| t.id == id) {
+        Some(t) => (t.max_rps, t.daily_max_bytes),
+        // Token revoked while its tunnel stays up: no limits to apply.
+        None => return Ok(()),
+      }
+    };
+
+    if let Some(rps) = max_rps.filter(|v| *v > 0.0) {
+      let mut buckets = self.token_rate.lock().await;
+      let now = Instant::now();
+      let burst = rps.max(1.0);
+      let bucket = buckets.entry(id.to_string()).or_insert(RateLimitState {
+        tokens: burst,
+        last_updated: now,
+      });
+      let elapsed = now.duration_since(bucket.last_updated).as_secs_f64();
+      bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
+      bucket.last_updated = now;
+      if bucket.tokens < 1.0 {
+        return Err("token rate limit exceeded");
+      }
+      bucket.tokens -= 1.0;
+    }
+
+    if let Some(quota) = daily_max_bytes.filter(|v| *v > 0) {
+      let today = crate::store::stats::period_keys()[0].clone();
+      let usage = self.token_daily_bytes.lock().await;
+      if let Some((day, used)) = usage.get(id)
+        && *day == today
+        && *used >= quota
+      {
+        return Err("token daily byte quota exceeded");
+      }
+    }
+    Ok(())
+  }
+
+  /// Attributes payload bytes to the serving token's daily usage (feeds the
+  /// `daily_max_bytes` quota). The counter rolls over at local midnight.
+  pub(crate) async fn add_token_bytes(&self, token_id: Option<&str>, bytes: u64) {
+    let Some(id) = token_id else {
+      return;
+    };
+    if bytes == 0 {
+      return;
+    }
+    let today = crate::store::stats::period_keys()[0].clone();
+    let mut usage = self.token_daily_bytes.lock().await;
+    let entry = usage
+      .entry(id.to_string())
+      .or_insert_with(|| (today.clone(), 0));
+    if entry.0 != today {
+      *entry = (today, bytes);
+    } else {
+      entry.1 = entry.1.saturating_add(bytes);
+    }
+  }
+
   pub(crate) async fn check_rate_limit(&self, ip: IpAddr) -> bool {
     let mut limit_map = self.rate_limiter.lock().await;
     let now = Instant::now();

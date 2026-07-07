@@ -14,6 +14,8 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 - **Paths** — which path binds it may claim.
 - **Allowed IPs** — source IPs/CIDRs that may connect with this token.
 - **Lifetime** — optional TTL; expired tokens are rejected at connect time.
+- **Rate limit** — optional requests/second cap for the traffic served through this token; excess requests answer `429`.
+- **Daily quota** — optional bytes/day cap (request + response payload), answering `429` once exhausted until local midnight (in-memory tracking; a restart resets the day's usage).
 
 A client declaring a bind its token doesn't permit gets the declaration ignored (and logged). Tokens can be edited in place — scope, IPs, expiry change while the secret stays the same — or revoked, which rejects new connections while existing tunnels stay up until they drop.
 

@@ -101,6 +101,8 @@ export interface TokenView {
   created_at: number
   expires_at: number | null
   expired: boolean
+  max_rps: number | null
+  daily_max_bytes: number | null
 }
 
 export interface TokenCreatePayload {
@@ -109,6 +111,8 @@ export interface TokenCreatePayload {
   paths: string[]
   allowed_ips: string[]
   ttl_seconds?: number
+  max_rps?: number
+  daily_max_bytes?: number
 }
 
 export interface TokenUpdatePayload {
@@ -116,6 +120,8 @@ export interface TokenUpdatePayload {
   paths: string[]
   allowed_ips: string[]
   ttl_seconds?: number
+  max_rps?: number
+  daily_max_bytes?: number
 }
 
 export interface Webhook {

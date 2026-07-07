@@ -30,6 +30,14 @@ pub struct ApiToken {
   pub created_at: u64,
   /// Optional unix timestamp (seconds) after which the token is rejected.
   pub expires_at: Option<u64>,
+  /// Optional request rate limit (requests/second, token bucket) applied to
+  /// traffic served by clients authenticated with this token.
+  #[serde(default)]
+  pub max_rps: Option<f64>,
+  /// Optional daily byte quota (request + response payload) for traffic
+  /// served by clients authenticated with this token.
+  #[serde(default)]
+  pub daily_max_bytes: Option<u64>,
 }
 
 impl ApiToken {
@@ -100,6 +108,7 @@ impl TokenStore {
 
   /// Creates a new token, persists it, and returns the record together with
   /// the plaintext secret. The secret is only available at creation time.
+  #[allow(clippy::too_many_arguments)]
   pub fn create(
     &mut self,
     name: String,
@@ -107,6 +116,8 @@ impl TokenStore {
     paths: Vec<String>,
     allowed_ips: Vec<String>,
     ttl_seconds: Option<u64>,
+    max_rps: Option<f64>,
+    daily_max_bytes: Option<u64>,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -123,6 +134,8 @@ impl TokenStore {
       allowed_ips,
       created_at: now_secs(),
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
+      max_rps,
+      daily_max_bytes,
     };
     self.tokens.push(record.clone());
     self.persist();
@@ -140,6 +153,8 @@ impl TokenStore {
     paths: Option<Vec<String>>,
     allowed_ips: Option<Vec<String>>,
     ttl_seconds: Option<Option<u64>>,
+    max_rps: Option<Option<f64>>,
+    daily_max_bytes: Option<Option<u64>>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -156,6 +171,12 @@ impl TokenStore {
     }
     if let Some(ttl) = ttl_seconds {
       token.expires_at = ttl.map(|t| now_secs().saturating_add(t));
+    }
+    if let Some(rps) = max_rps {
+      token.max_rps = rps.filter(|v| *v > 0.0);
+    }
+    if let Some(quota) = daily_max_bytes {
+      token.daily_max_bytes = quota.filter(|v| *v > 0);
     }
     let updated = token.clone();
     self.persist();
@@ -229,6 +250,8 @@ mod tests {
       vec!["*".to_string()],
       vec![],
       None,
+      None,
+      None,
     );
     assert!(secret.starts_with("apr_"));
     assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -253,7 +276,7 @@ mod tests {
   fn test_expired_token_rejected() {
     let dir = temp_dir();
     let mut store = TokenStore::load(&dir);
-    let (_, secret) = store.create("short".to_string(), vec![], vec![], vec![], Some(0));
+    let (_, secret) = store.create("short".to_string(), vec![], vec![], vec![], Some(0), None, None);
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());
     let _ = std::fs::remove_dir_all(&dir);
