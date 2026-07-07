@@ -26,7 +26,7 @@ use check::run_check;
 use config::{
   CliMode, FileConfig, build_ws_url, load_file_config, parse_bandwidth, parse_cli, resolve,
 };
-use forward::handle_incoming_request;
+use forward::{ForwardContext, ForwardRequest, handle_incoming_request};
 use protocol::{
   FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelMessage, compress_frame,
   decode_binary_frame, decompress_frame,
@@ -574,6 +574,17 @@ async fn main() {
               .build()
               .unwrap_or_default();
 
+            // Per-connection forwarding constants shared by all request tasks.
+            let forward_ctx = Arc::new(ForwardContext {
+              client: reqwest_client.clone(),
+              target: target.clone(),
+              pass_hostname,
+              path_bind: path_bind.clone(),
+              trim_bind,
+              max_response_body_size,
+              tunnel_tx: tx_write.clone(),
+            });
+
             // Protocol version the server announced via Pong; v2 enables
             // binary chunk frames and streamed request bodies.
             let server_protocol = Arc::new(std::sync::atomic::AtomicU32::new(1));
@@ -644,12 +655,7 @@ async fn main() {
                                               headers,
                                               body,
                                           } => {
-                                              let tx_resp = tx_write.clone();
-                                              let req_client = reqwest_client.clone();
-                                              let target_url = target.clone();
-                                              let path_bind_val = path_bind.clone();
-                                              let trim_bind_val = trim_bind;
-                                              let max_resp_size = max_response_body_size;
+                                              let ctx = forward_ctx.clone();
                                               let limiter = local_limiter.clone();
                                               let inflight = inflight_requests.clone();
                                               let proto = server_protocol.clone();
@@ -665,20 +671,10 @@ async fn main() {
                                                   };
                                                   let binary = proto.load(Ordering::Relaxed) >= 2;
                                                   let response = handle_incoming_request(
-                                                      req_client,
-                                                      id,
-                                                      method,
-                                                      uri,
-                                                      headers,
-                                                      body,
-                                                      &target_url,
-                                                      pass_hostname,
-                                                      path_bind_val,
-                                                      trim_bind_val,
-                                                      max_resp_size,
+                                                      &ctx,
+                                                      ForwardRequest { id, method, uri, headers, body },
                                                       None,
                                                       binary,
-                                                      tx_resp.clone(),
                                                   )
                                                   .await;
 
@@ -686,7 +682,7 @@ async fn main() {
                                                   if let Some(response) = response
                                                       && let Ok(resp_str) = serde_json::to_string(&response)
                                                   {
-                                                      let _ = tx_resp.send(Message::Text(resp_str)).await;
+                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str)).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
                                               });
@@ -703,12 +699,7 @@ async fn main() {
                                               let (body_tx, body_rx) =
                                                   mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
                                               active_request_streams.lock().await.insert(id.clone(), body_tx);
-                                              let tx_resp = tx_write.clone();
-                                              let req_client = reqwest_client.clone();
-                                              let target_url = target.clone();
-                                              let path_bind_val = path_bind.clone();
-                                              let trim_bind_val = trim_bind;
-                                              let max_resp_size = max_response_body_size;
+                                              let ctx = forward_ctx.clone();
                                               let limiter = local_limiter.clone();
                                               let inflight = inflight_requests.clone();
                                               let streams = active_request_streams.clone();
@@ -721,27 +712,23 @@ async fn main() {
                                                   };
                                                   let binary = proto.load(Ordering::Relaxed) >= 2;
                                                   let response = handle_incoming_request(
-                                                      req_client,
-                                                      id.clone(),
-                                                      method,
-                                                      uri,
-                                                      headers,
-                                                      None,
-                                                      &target_url,
-                                                      pass_hostname,
-                                                      path_bind_val,
-                                                      trim_bind_val,
-                                                      max_resp_size,
+                                                      &ctx,
+                                                      ForwardRequest {
+                                                          id: id.clone(),
+                                                          method,
+                                                          uri,
+                                                          headers,
+                                                          body: None,
+                                                      },
                                                       Some(body_rx),
                                                       binary,
-                                                      tx_resp.clone(),
                                                   )
                                                   .await;
                                                   streams.lock().await.remove(&id);
                                                   if let Some(response) = response
                                                       && let Ok(resp_str) = serde_json::to_string(&response)
                                                   {
-                                                      let _ = tx_resp.send(Message::Text(resp_str)).await;
+                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str)).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
                                               });

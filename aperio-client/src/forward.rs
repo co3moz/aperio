@@ -41,35 +41,60 @@ async fn send_response_chunk(
   }
 }
 
+/// Per-connection constants for request forwarding, so per-request calls
+/// only carry the request itself.
+pub(crate) struct ForwardContext {
+  /// HTTP client used for all backend calls on this connection.
+  pub(crate) client: reqwest::Client,
+  /// Local backend base URL.
+  pub(crate) target: String,
+  /// Forward the original `Host` header instead of the target's.
+  pub(crate) pass_hostname: bool,
+  /// Path bind of this client, stripped from incoming paths when `trim_bind`.
+  pub(crate) path_bind: Option<String>,
+  pub(crate) trim_bind: bool,
+  /// Cap on response bodies read from the backend.
+  pub(crate) max_response_body_size: usize,
+  /// Write half of the tunnel, used for streamed responses.
+  pub(crate) tunnel_tx: mpsc::Sender<Message>,
+}
+
+/// One proxied request as received from the tunnel.
+pub(crate) struct ForwardRequest {
+  pub(crate) id: String,
+  pub(crate) method: String,
+  pub(crate) uri: String,
+  pub(crate) headers: Vec<(String, String)>,
+  /// Base64-encoded buffered body (None when absent or streamed).
+  pub(crate) body: Option<String>,
+}
+
 /// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
 /// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request, and returns
 /// the response mapped back into a `TunnelMessage`.
 ///
 /// Small responses are returned as `Some(TunnelMessage::Response)` for the
-/// caller to send. Large responses are streamed directly through `tunnel_tx`
+/// caller to send. Large responses are streamed directly through the tunnel
 /// (ResponseStart/Chunk/End) and `None` is returned.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_incoming_request(
-  client: reqwest::Client,
-  id: String,
-  method_str: String,
-  uri_str: String,
-  headers: Vec<(String, String)>,
-  body_base64: Option<String>,
-  target: &str,
-  pass_hostname: bool,
-  path_bind: Option<String>,
-  trim_bind: bool,
-  max_response_body_size: usize,
+  ctx: &ForwardContext,
+  req: ForwardRequest,
   streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
   binary_chunks: bool,
-  tunnel_tx: mpsc::Sender<Message>,
 ) -> Option<TunnelMessage> {
+  let ForwardRequest {
+    id,
+    method: method_str,
+    uri: uri_str,
+    headers,
+    body: body_base64,
+  } = req;
+  let tunnel_tx = &ctx.tunnel_tx;
   info!(
     "Forwarding tunnel request ID {}: {} {}",
     id, method_str, uri_str
   );
-  let target_parsed = match url::Url::parse(target) {
+  let target_parsed = match url::Url::parse(&ctx.target) {
     Ok(url) => url,
     Err(e) => {
       error!("Failed to parse local target URL: {:?}", e);
@@ -92,7 +117,7 @@ pub(crate) async fn handle_incoming_request(
   let target_path = target_parsed.path().trim_end_matches('/');
   let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
 
-  if trim_bind && let Some(ref bind) = path_bind {
+  if ctx.trim_bind && let Some(ref bind) = ctx.path_bind {
     let bind_trimmed = bind.trim_matches('/');
     if incoming_path.starts_with(bind_trimmed) {
       incoming_path = incoming_path[bind_trimmed.len()..]
@@ -132,7 +157,7 @@ pub(crate) async fn handle_incoming_request(
     }
   };
 
-  let mut builder = client.request(method, dest_url);
+  let mut builder = ctx.client.request(method, dest_url);
 
   // Map Headers
   let mut host_header_val = None;
@@ -152,7 +177,7 @@ pub(crate) async fn handle_incoming_request(
 
     if k_lower == "host" {
       host_header_val = Some(v.clone());
-      if !pass_hostname {
+      if !ctx.pass_hostname {
         // Ignore Host header if pass_hostname is disabled (use target authority)
         continue;
       }
@@ -166,7 +191,7 @@ pub(crate) async fn handle_incoming_request(
     }
   }
 
-  if pass_hostname
+  if ctx.pass_hostname
     && let Some(host) = host_header_val
     && let Ok(val) = reqwest::header::HeaderValue::from_str(&host)
   {
@@ -207,7 +232,7 @@ pub(crate) async fn handle_incoming_request(
       // Read the body incrementally. Bodies up to the stream threshold are
       // buffered and returned as a single Response message; larger bodies
       // switch to chunked streaming so memory usage stays bounded.
-      let threshold = STREAM_THRESHOLD.min(max_response_body_size);
+      let threshold = STREAM_THRESHOLD.min(ctx.max_response_body_size);
       let mut stream = res.bytes_stream();
       let mut buf: Vec<u8> = Vec::new();
       let mut streaming = false;
@@ -226,11 +251,11 @@ pub(crate) async fn handle_incoming_request(
                   status,
                   headers: res_headers.clone(),
                 };
-                if send_tunnel_msg(&tunnel_tx, &start).await.is_err() {
+                if send_tunnel_msg(tunnel_tx, &start).await.is_err() {
                   return None;
                 }
                 for part in buf.chunks(STREAM_CHUNK_SIZE) {
-                  if send_response_chunk(&tunnel_tx, &id, part, binary_chunks)
+                  if send_response_chunk(tunnel_tx, &id, part, binary_chunks)
                     .await
                     .is_err()
                   {
@@ -241,14 +266,14 @@ pub(crate) async fn handle_incoming_request(
                 streaming = true;
               }
             } else {
-              if total > max_response_body_size {
+              if total > ctx.max_response_body_size {
                 warn!(
                   "Streamed response for request ID {} exceeded limit ({} bytes); truncating",
-                  id, max_response_body_size
+                  id, ctx.max_response_body_size
                 );
                 break;
               }
-              if send_response_chunk(&tunnel_tx, &id, &chunk, binary_chunks)
+              if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks)
                 .await
                 .is_err()
               {
@@ -276,7 +301,7 @@ pub(crate) async fn handle_incoming_request(
 
       if streaming {
         let end = TunnelMessage::ResponseEnd { id: id.clone() };
-        let _ = send_tunnel_msg(&tunnel_tx, &end).await;
+        let _ = send_tunnel_msg(tunnel_tx, &end).await;
         info!(
           "Tunnel request SUCCESS (streamed): ID={} Status={} Bytes={}",
           id, status, total

@@ -8,6 +8,19 @@ fn test_tunnel_tx() -> mpsc::Sender<Message> {
   tx
 }
 
+/// Default forwarding context against the given mock target.
+fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
+  ForwardContext {
+    client: reqwest::Client::new(),
+    target: target.to_string(),
+    pass_hostname: false,
+    path_bind: None,
+    trim_bind: false,
+    max_response_body_size: 1024 * 1024,
+    tunnel_tx,
+  }
+}
+
 #[tokio::test]
 async fn test_make_error_response() {
   let response = make_error_response("req-123".to_string(), 502);
@@ -61,24 +74,20 @@ async fn test_handle_incoming_request() {
     }
   });
 
-  let client = reqwest::Client::new();
   let headers = vec![("x-custom-header".to_string(), "custom-value".to_string())];
 
+  let ctx = test_ctx(&target_url, test_tunnel_tx());
   let result = handle_incoming_request(
-    client,
-    "req-id-123".to_string(),
-    "GET".to_string(),
-    "/test-path".to_string(),
-    headers,
-    None,
-    &target_url,
-    false,
-    None,
-    false,
-    1024 * 1024,
+    &ctx,
+    ForwardRequest {
+      id: "req-id-123".to_string(),
+      method: "GET".to_string(),
+      uri: "/test-path".to_string(),
+      headers,
+      body: None,
+    },
     None,
     false,
-    test_tunnel_tx(),
   )
   .await
   .expect("expected buffered response");
@@ -138,22 +147,21 @@ async fn test_handle_incoming_request_streams_large_body() {
   });
 
   let (tx, mut rx) = mpsc::channel::<Message>(256);
-  let client = reqwest::Client::new();
+  let ctx = ForwardContext {
+    max_response_body_size: 10 * 1024 * 1024,
+    ..test_ctx(&target_url, tx)
+  };
   let result = handle_incoming_request(
-    client,
-    "req-stream-1".to_string(),
-    "GET".to_string(),
-    "/big".to_string(),
-    vec![],
-    None,
-    &target_url,
-    false,
-    None,
-    false,
-    10 * 1024 * 1024,
+    &ctx,
+    ForwardRequest {
+      id: "req-stream-1".to_string(),
+      method: "GET".to_string(),
+      uri: "/big".to_string(),
+      headers: vec![],
+      body: None,
+    },
     None,
     false,
-    tx,
   )
   .await;
 
@@ -212,23 +220,23 @@ async fn test_handle_incoming_request_trim_bind() {
     }
   });
 
-  let client = reqwest::Client::new();
   // path_bind = "/api", trim_bind = true → /api/hello should become /hello
+  let ctx = ForwardContext {
+    path_bind: Some("/api".to_string()),
+    trim_bind: true,
+    ..test_ctx(&target_url, test_tunnel_tx())
+  };
   let result = handle_incoming_request(
-    client,
-    "req-trim-1".to_string(),
-    "GET".to_string(),
-    "/api/hello".to_string(),
-    vec![],
-    None,
-    &target_url,
-    false,
-    Some("/api".to_string()),
-    true,
-    1024 * 1024,
+    &ctx,
+    ForwardRequest {
+      id: "req-trim-1".to_string(),
+      method: "GET".to_string(),
+      uri: "/api/hello".to_string(),
+      headers: vec![],
+      body: None,
+    },
     None,
     false,
-    test_tunnel_tx(),
   )
   .await
   .expect("expected buffered response");
@@ -273,23 +281,23 @@ async fn test_handle_incoming_request_trim_bind_disabled() {
     }
   });
 
-  let client = reqwest::Client::new();
   // path_bind = "/api", trim_bind = false → path should NOT be stripped
+  let ctx = ForwardContext {
+    path_bind: Some("/api".to_string()),
+    trim_bind: false,
+    ..test_ctx(&target_url, test_tunnel_tx())
+  };
   let _result = handle_incoming_request(
-    client,
-    "req-trim-2".to_string(),
-    "GET".to_string(),
-    "/api/hello".to_string(),
-    vec![],
-    None,
-    &target_url,
-    false,
-    Some("/api".to_string()),
-    false,
-    1024 * 1024,
+    &ctx,
+    ForwardRequest {
+      id: "req-trim-2".to_string(),
+      method: "GET".to_string(),
+      uri: "/api/hello".to_string(),
+      headers: vec![],
+      body: None,
+    },
     None,
     false,
-    test_tunnel_tx(),
   )
   .await;
 
