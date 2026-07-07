@@ -33,7 +33,7 @@ use crate::tcp::{TcpStreamHandle, handle_tcp_open};
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ServiceSpec {
   /// Display name from the `services:` list (None for the single default
   /// service).
@@ -85,7 +85,11 @@ pub(crate) struct Shared {
 
 /// Runs one tunnel service until the process shuts down or `cancel` fires
 /// (config reload → the supervisor respawns with a fresh spec).
-pub(crate) async fn run_service(spec: ServiceSpec, shared: Shared, mut cancel: watch::Receiver<bool>) {
+pub(crate) async fn run_service(
+  spec: ServiceSpec,
+  shared: Shared,
+  mut cancel: watch::Receiver<bool>,
+) {
   let label = spec.label();
 
   // Latest backend health verdict, reported to the server via heartbeats. An

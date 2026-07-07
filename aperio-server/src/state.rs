@@ -548,7 +548,10 @@ impl AppState {
   /// Enforces the serving token's optional rate limit and daily byte quota.
   /// Returns Err with a short reason when the request must be rejected with
   /// 429. Master-token traffic (token_id = None) is never limited.
-  pub(crate) async fn check_token_limits(&self, token_id: Option<&str>) -> Result<(), &'static str> {
+  pub(crate) async fn check_token_limits(
+    &self,
+    token_id: Option<&str>,
+  ) -> Result<(), &'static str> {
     let Some(id) = token_id else {
       return Ok(());
     };

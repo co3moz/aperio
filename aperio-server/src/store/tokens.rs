@@ -276,7 +276,15 @@ mod tests {
   fn test_expired_token_rejected() {
     let dir = temp_dir();
     let mut store = TokenStore::load(&dir);
-    let (_, secret) = store.create("short".to_string(), vec![], vec![], vec![], Some(0), None, None);
+    let (_, secret) = store.create(
+      "short".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      Some(0),
+      None,
+      None,
+    );
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());
     let _ = std::fs::remove_dir_all(&dir);

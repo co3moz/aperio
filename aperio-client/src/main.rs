@@ -13,7 +13,7 @@ mod tcp;
 
 use check::run_check;
 use config::{
-  ClientSettings, CliMode, FileConfig, build_ws_url, load_file_config, load_home_config,
+  CliMode, ClientSettings, FileConfig, build_ws_url, load_file_config, load_home_config,
   parse_bandwidth, parse_cli, resolve_settings, resolve_sources,
 };
 
@@ -337,19 +337,16 @@ fn build_specs(
         },
         path,
         pass_hostname: entry.pass_hostname.unwrap_or(settings.pass_hostname),
-        max_response_body: entry.max_response_body.unwrap_or(settings.max_response_body),
+        max_response_body: entry
+          .max_response_body
+          .unwrap_or(settings.max_response_body),
         timeout_secs: entry.timeout.unwrap_or(settings.timeout_secs),
         max_concurrent: entry
           .max_concurrent
           .or(settings.max_concurrent)
           .filter(|n| *n > 0),
         priority: entry.priority.unwrap_or(settings.priority),
-        bandwidth_bps: parse_bw(
-          entry
-            .bandwidth
-            .as_deref()
-            .or(settings.bandwidth.as_deref()),
-        ),
+        bandwidth_bps: parse_bw(entry.bandwidth.as_deref().or(settings.bandwidth.as_deref())),
         max_message_size: settings.max_message_size,
         max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
         tcp_target: entry
@@ -399,7 +396,10 @@ fn log_spec(spec: &ServiceSpec) {
     info!("- Max Concurrent Requests: {}", n);
   }
   if spec.priority > 0 {
-    info!("- Load Balancing Priority: {} (standby tier)", spec.priority);
+    info!(
+      "- Load Balancing Priority: {} (standby tier)",
+      spec.priority
+    );
   }
   if let Some(bw) = spec.bandwidth_bps {
     info!("- Announced Bandwidth: {} bytes/s", bw);
