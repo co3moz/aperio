@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "clap",
@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "axum",
  "base64",

@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-07
+
 ### Added
 
 - **Public services**: a client can declare its service public (`--public`, yaml `public: true`, `APERIO_PUBLIC=1`) and the server skips its visitor password / OIDC gate for routes served exclusively by that client. Gated by a new per-token *may publish public services* permission (off by default; master token always may) and shown as badges in the dashboard.
