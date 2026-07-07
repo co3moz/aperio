@@ -47,6 +47,24 @@ jobs:
       - name: Run automated tests
         run: cargo test --all
 
+  audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Scans Cargo.lock against the RustSec advisory database. Fails the
+      # build on known vulnerabilities in the dependency tree.
+      - name: Audit dependencies
+        run: cargo audit
+
   e2e:
     name: End-to-End Tunnel Test
     runs-on: ubuntu-latest

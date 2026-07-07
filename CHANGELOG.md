@@ -17,6 +17,7 @@ project follows semantic versioning per release tag.
 - Size-based audit log rotation (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES`, default 3).
 - `aperio-client check` reports which configuration layer supplied each value and probes every `services:` entry.
 - Optional `service` field in the tunnel `Ping` message (backward compatible).
+- CI job auditing the dependency tree against the RustSec advisory database (`cargo audit`).
 
 ### Changed
 
