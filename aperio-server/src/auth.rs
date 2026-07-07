@@ -547,3 +547,7 @@ pub(crate) fn safe_redirect_path(uri: &str) -> &str {
     "/"
   }
 }
+
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;

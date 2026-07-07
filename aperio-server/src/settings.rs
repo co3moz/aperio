@@ -277,3 +277,7 @@ pub(crate) fn override_keys(o: &SettingsOverrides) -> Vec<String> {
     _ => Vec::new(),
   }
 }
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;

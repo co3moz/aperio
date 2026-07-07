@@ -449,3 +449,7 @@ pub(crate) fn extract_client_ip(
   }
   fallback
 }
+
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;
