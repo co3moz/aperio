@@ -69,7 +69,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     ),
     None => fail(
       "target",
-      "missing (positional argument / APERIO_TARGET / yaml: target / services: list)".to_string(),
+      "missing (--target / APERIO_TARGET / yaml: target / services: list)".to_string(),
       &mut failures,
     ),
   }

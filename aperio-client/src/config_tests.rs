@@ -64,6 +64,32 @@ fn test_file_config_server_forms() {
 }
 
 #[test]
+fn test_target_flag_accepted_by_subcommands() {
+  // `check` (and every mode) accepts --target as an alternative to the
+  // positional argument, with the same normalization.
+  let cli = Cli::try_parse_from([
+    "aperio-client",
+    "check",
+    "--target",
+    "https://rep.example.com",
+  ])
+  .unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::Check));
+  assert_eq!(args.target.as_deref(), Some("https://rep.example.com"));
+
+  // In run mode the positional wins over --target.
+  let cli = Cli::try_parse_from(["aperio-client", "3000", "--target", "4000"]).unwrap();
+  let args = cli_to_args(cli);
+  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+
+  // --target alone works in run mode and is normalized like the positional.
+  let cli = Cli::try_parse_from(["aperio-client", "--target", "3000"]).unwrap();
+  let args = cli_to_args(cli);
+  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+}
+
+#[test]
 fn test_resolve_settings_layering() {
   // CLI beats the local file; the local file beats the home file.
   let cli = CliArgs {

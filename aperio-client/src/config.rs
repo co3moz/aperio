@@ -94,6 +94,10 @@ pub(crate) struct CommonOpts {
   /// Tunnel token, master or dynamic (yaml: server.token, env: APERIO_SERVER_TOKEN)
   #[arg(long, visible_alias = "token", global = true, value_name = "TOKEN")]
   pub(crate) server_token: Option<String>,
+  /// What to expose or check, same forms as the positional argument
+  /// (yaml: target, env: APERIO_TARGET)
+  #[arg(long = "target", global = true, value_name = "TARGET")]
+  pub(crate) target_opt: Option<String>,
   /// Hostname bind, e.g. app.example.com (yaml: hostname, env: APERIO_HOSTNAME)
   #[arg(long, visible_alias = "host", global = true, value_name = "HOSTNAME")]
   pub(crate) hostname: Option<String>,
@@ -154,7 +158,10 @@ fn normalize_target(raw: &str) -> String {
 }
 
 pub(crate) fn parse_cli() -> CliArgs {
-  let cli = Cli::parse();
+  cli_to_args(Cli::parse())
+}
+
+fn cli_to_args(cli: Cli) -> CliArgs {
   let (mode, local_port) = match cli.command {
     None => (CliMode::Run, None),
     Some(Command::Tcp { local_port }) => (CliMode::TcpBridge, Some(local_port)),
@@ -162,7 +169,11 @@ pub(crate) fn parse_cli() -> CliArgs {
   };
   CliArgs {
     mode,
-    target: cli.target.as_deref().map(normalize_target),
+    target: cli
+      .target
+      .as_deref()
+      .or(cli.opts.target_opt.as_deref())
+      .map(normalize_target),
     local_port,
     opts: cli.opts,
   }
