@@ -327,6 +327,7 @@ async fn test_proxy_handler_success() {
       priority: 0,
       reported_instance_id: None,
       bandwidth_bps: Arc::new(AtomicU64::new(0)),
+      service_name: None,
     },
   );
 
@@ -553,6 +554,7 @@ fn mock_client(
     priority: 0,
     reported_instance_id: None,
     bandwidth_bps: Arc::new(AtomicU64::new(0)),
+    service_name: None,
   }
 }
 

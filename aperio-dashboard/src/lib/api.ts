@@ -35,6 +35,7 @@ export interface ClientDetail {
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
+  service: string | null
   protocol: number | null
   protocol_mismatch: boolean
   backend_healthy: boolean

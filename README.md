@@ -354,6 +354,30 @@ tcp_target: localhost:5432
 
 The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
 
+### Multiple Services
+
+One client process can expose several targets: replace the single `target` with a `services:` list, and the client opens one tunnel connection per entry — each with its own binds, health probe, and knobs:
+
+```yaml
+server:
+  url: https://tunnel.example.com
+  token: apr_xxxxxxxxxxxxxxxx
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: app.example.com
+    target_health: /health
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    max_concurrent: 8
+  - name: docs
+    target: http://localhost:5000
+    path: /docs
+```
+
+Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `tcp_target`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
+
 ### Graceful Shutdown
 
 On `SIGINT`/`SIGTERM` the client tells the server it is **draining**: the server immediately stops routing new requests to it, in-flight requests finish (up to 30 s), then the process exits. This plays well with `docker stop` and rolling deployments.

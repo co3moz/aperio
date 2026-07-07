@@ -55,6 +55,8 @@ pub(crate) struct ClientDetail {
   pub(crate) max_concurrent: Option<u32>,
   /// Client build version announced via Ping (None until the first Ping).
   pub(crate) version: Option<String>,
+  /// Service name announced via Ping (multi-service clients).
+  pub(crate) service: Option<String>,
   /// Tunnel protocol version announced via Ping.
   pub(crate) protocol: Option<u32>,
   /// True when the announced protocol version differs from the server's.
@@ -220,6 +222,9 @@ pub(crate) struct ClientHandle {
   /// Announced downstream link capacity in bytes/second (0 = unlimited).
   /// Shared with the connection's writer task, which paces outgoing frames.
   pub(crate) bandwidth_bps: Arc<AtomicU64>,
+  /// Display name of the service this connection exposes (announced via
+  /// Ping by multi-service clients).
+  pub(crate) service_name: Option<String>,
 }
 
 /// Permissions resolved at connection time from the presented token.

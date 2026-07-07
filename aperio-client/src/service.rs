@@ -232,6 +232,7 @@ pub(crate) async fn run_service(spec: ServiceSpec, shared: Shared, mut cancel: w
             let abort_tx_ping = abort_tx.clone();
             let backend_healthy_ping = backend_healthy.clone();
             let cancel_ping = cancel.clone();
+            let service_name_ping = spec.name.clone();
             let (max_concurrent, priority, bandwidth_bps) =
               (spec.max_concurrent, spec.priority, spec.bandwidth_bps);
 
@@ -276,6 +277,7 @@ pub(crate) async fn run_service(spec: ServiceSpec, shared: Shared, mut cancel: w
                   backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
                   priority,
                   bandwidth_bps,
+                  service: service_name_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

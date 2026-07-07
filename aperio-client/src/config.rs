@@ -179,6 +179,32 @@ pub(crate) enum ServerValue {
   },
 }
 
+/// One entry of the `services:` list — a single exposed target with its own
+/// binds and knobs. Unset fields fall back to the top-level / layered value
+/// (so shared settings like health cadence live once at the top).
+#[derive(serde::Deserialize, Default, Clone)]
+pub(crate) struct ServiceEntry {
+  /// Display name used in logs and the dashboard.
+  pub(crate) name: Option<String>,
+  /// Local backend to expose. Required per entry.
+  pub(crate) target: Option<String>,
+  pub(crate) hostname: Option<String>,
+  pub(crate) path: Option<String>,
+  pub(crate) trim_bind: Option<bool>,
+  pub(crate) pass_hostname: Option<bool>,
+  pub(crate) max_concurrent: Option<u32>,
+  pub(crate) priority: Option<u32>,
+  pub(crate) bandwidth: Option<String>,
+  pub(crate) timeout: Option<u64>,
+  pub(crate) max_response_body: Option<usize>,
+  pub(crate) max_redirects: Option<usize>,
+  pub(crate) tcp_target: Option<String>,
+  pub(crate) target_health: Option<String>,
+  pub(crate) health_interval: Option<u64>,
+  pub(crate) health_timeout: Option<u64>,
+  pub(crate) health_threshold: Option<u32>,
+}
+
 /// Configuration file schema (`aperio.yaml` / `~/.aperio.yaml`). All keys
 /// are optional.
 ///
@@ -193,6 +219,22 @@ pub(crate) enum ServerValue {
 /// pass_hostname: false                 # forward the original Host header
 /// max_concurrent: 8                    # local concurrency limit
 /// tcp_target: localhost:5432           # optional raw TCP target
+/// ```
+///
+/// Instead of a single top-level `target`, a `services:` list exposes
+/// several targets from one client process (one tunnel connection each):
+///
+/// ```yaml
+/// server:
+///   url: https://tunnel.example.com
+///   token: apr_xxxxxxxxxxxxxxxx
+/// services:
+///   - name: web
+///     target: http://localhost:3000
+///     hostname: app.example.com
+///   - name: api
+///     target: http://localhost:4000
+///     path: /api
 /// ```
 #[derive(serde::Deserialize, Default)]
 pub(crate) struct FileConfig {
@@ -224,6 +266,10 @@ pub(crate) struct FileConfig {
   /// Max backend redirects to follow transparently (same-host scheme
   /// upgrades and same-root-domain hops); 0 passes redirects through.
   pub(crate) max_redirects: Option<usize>,
+  /// Multiple exposed targets (one tunnel connection each). Read only from
+  /// the local config file; when non-empty it replaces the single top-level
+  /// `target`.
+  pub(crate) services: Option<Vec<ServiceEntry>>,
 }
 
 impl FileConfig {
@@ -322,6 +368,10 @@ pub(crate) struct ClientSettings {
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
   pub(crate) health_threshold: u32,
+  /// `services:` entries from the local config file (empty = single-service
+  /// mode driven by `target`). Per-entry gaps fall back to the resolved
+  /// top-level values above.
+  pub(crate) services: Vec<ServiceEntry>,
 }
 
 /// Non-empty environment lookup with a legacy alias.
@@ -491,6 +541,7 @@ pub(crate) fn resolve_settings(
     )
     .unwrap_or(2)
     .max(1),
+    services: local.services.clone().unwrap_or_default(),
   }
 }
 

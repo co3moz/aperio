@@ -46,6 +46,7 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: handle.max_concurrent,
       version: handle.client_version.clone(),
+      service: handle.service_name.clone(),
       protocol: handle.client_protocol,
       protocol_mismatch: handle
         .client_protocol

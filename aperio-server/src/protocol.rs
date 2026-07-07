@@ -81,6 +81,10 @@ pub enum TunnelMessage {
     /// tunnel frames so this client is never pushed faster than its network.
     #[serde(default)]
     bandwidth_bps: Option<u64>,
+    /// Display name of the service this connection exposes (from the
+    /// client's `services:` list), for the dashboard.
+    #[serde(default)]
+    service: Option<String>,
   },
   Pong {
     timestamp: u64,

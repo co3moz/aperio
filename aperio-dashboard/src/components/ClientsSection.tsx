@@ -249,6 +249,13 @@ export function ClientsSection({
                         <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
                           {c.id.slice(0, 8)}…
                         </Text>
+                        {c.service && (
+                          <Tooltip content="Service name announced by the client (services: list)">
+                            <Badge color="blue" size="1">
+                              {c.service}
+                            </Badge>
+                          </Tooltip>
+                        )}
                         {c.version && (
                           <Text size="1" color="gray">
                             v{c.version}

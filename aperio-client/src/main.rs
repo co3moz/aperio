@@ -16,6 +16,10 @@ use config::{
   ClientSettings, CliMode, FileConfig, build_ws_url, load_file_config, load_home_config,
   parse_bandwidth, parse_cli, resolve_settings,
 };
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;
 use service::{ServiceSpec, Shared, run_service};
 use tcp::run_tcp_bridge;
 
@@ -68,18 +72,21 @@ async fn main() {
     return;
   }
 
-  // Stable instance id, kept across reconnects and config respawns so the
-  // server's failover `wait` mode keeps recognizing this client.
+  // Stable instance id base, kept across reconnects and config respawns so
+  // the server's failover `wait` mode keeps recognizing this client. Each
+  // service derives its own id from it by index.
   let client_id = uuid::Uuid::new_v4().to_string();
 
-  let mut spec = match build_spec(&settings, client_id.clone()) {
-    Ok(spec) => spec,
+  let mut specs = match build_specs(&settings, &client_id, cli.target.is_some()) {
+    Ok(specs) => specs,
     Err(e) => {
       error!("{}", e);
       std::process::exit(1);
     }
   };
-  log_spec(&spec);
+  for spec in &specs {
+    log_spec(spec);
+  }
 
   // Graceful shutdown state: a signal marks the client as draining, the
   // server is notified, and the process exits once in-flight work finishes.
@@ -152,8 +159,8 @@ async fn main() {
     });
   }
 
-  // Supervisor: run the service, respawn it with fresh settings on reload.
-  let (mut cancel_tx, mut task) = spawn_service(spec.clone(), &shared);
+  // Supervisor: run the services, respawn them with fresh settings on reload.
+  let mut running = spawn_services(&specs, &shared);
   loop {
     if reload_rx.changed().await.is_err() {
       break;
@@ -164,16 +171,24 @@ async fn main() {
     match reloaded {
       Ok(new_file_cfg) => {
         let s = resolve_settings(&cli, &load_home_config(), &new_file_cfg);
-        match build_spec(&s, client_id.clone()) {
-          Ok(new_spec) => {
-            let _ = cancel_tx.send(true);
-            let _ = task.await;
-            spec = new_spec;
+        match build_specs(&s, &client_id, cli.target.is_some()) {
+          Ok(new_specs) => {
+            for (cancel_tx, _) in &running {
+              let _ = cancel_tx.send(true);
+            }
+            for (_, task) in running.drain(..) {
+              let _ = task.await;
+            }
+            specs = new_specs;
             info!(
-              "Configuration reloaded from {} (target: {}, hostname bind: {:?}, path bind: {:?})",
-              config_path, spec.target, spec.hostname, spec.path
+              "Configuration reloaded from {} ({} service(s))",
+              config_path,
+              specs.len()
             );
-            (cancel_tx, task) = spawn_service(spec.clone(), &shared);
+            for spec in &specs {
+              log_spec(spec);
+            }
+            running = spawn_services(&specs, &shared);
           }
           Err(e) => warn!(
             "Config reload from {} produced an invalid configuration ({}); keeping previous",
@@ -187,23 +202,39 @@ async fn main() {
       ),
     }
   }
-  let _ = task.await;
+  for (_, task) in running {
+    let _ = task.await;
+  }
 }
 
-/// Spawns one service task with its own cancel channel.
-fn spawn_service(
-  spec: ServiceSpec,
+/// Spawns one task per service, each with its own cancel channel.
+fn spawn_services(
+  specs: &[ServiceSpec],
   shared: &Shared,
-) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
-  let (cancel_tx, cancel_rx) = watch::channel(false);
-  let handle = tokio::spawn(run_service(spec, shared.clone(), cancel_rx));
-  (cancel_tx, handle)
+) -> Vec<(watch::Sender<bool>, tokio::task::JoinHandle<()>)> {
+  specs
+    .iter()
+    .map(|spec| {
+      let (cancel_tx, cancel_rx) = watch::channel(false);
+      let handle = tokio::spawn(run_service(spec.clone(), shared.clone(), cancel_rx));
+      (cancel_tx, handle)
+    })
+    .collect()
 }
 
-/// Validates the resolved settings and builds the runnable service spec.
-/// Returns an error message (used verbatim in logs) when a required value is
-/// missing or invalid.
-fn build_spec(settings: &ClientSettings, client_id: String) -> Result<ServiceSpec, String> {
+/// Validates the resolved settings and builds the runnable service specs.
+///
+/// Single-service mode uses the top-level `target`; a non-empty `services:`
+/// list in the local config file expands to one spec per entry, with unset
+/// per-entry knobs falling back to the top-level resolved values. A CLI
+/// positional target always wins and forces single-service mode. Returns an
+/// error message (used verbatim in logs) when a required value is missing or
+/// invalid.
+fn build_specs(
+  settings: &ClientSettings,
+  client_id_base: &str,
+  cli_target_given: bool,
+) -> Result<Vec<ServiceSpec>, String> {
   let token = settings
     .token
     .clone()
@@ -214,55 +245,146 @@ fn build_spec(settings: &ClientSettings, client_id: String) -> Result<ServiceSpe
   let server_addr = settings.server.clone().ok_or(
     "CRITICAL ERROR: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)!",
   )?;
-  let target = settings.target.clone().ok_or(
-    "CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, or yaml: target)!",
-  )?;
   let ws_url =
     build_ws_url(&server_addr).map_err(|e| format!("Failed to build WebSocket URL: {}", e))?;
 
-  // Announced link capacity (bytes/second); the server paces its frames so
-  // this client's network is never flooded (e.g. "8mbit" on a DSL uplink).
-  let bandwidth_bps = settings.bandwidth.as_deref().and_then(|raw| {
-    let parsed = parse_bandwidth(raw);
-    if parsed.is_none() {
-      warn!("Invalid bandwidth value '{}'; ignoring", raw);
-    }
-    parsed
-  });
+  let parse_bw = |raw: Option<&str>| {
+    raw.and_then(|raw| {
+      let parsed = parse_bandwidth(raw);
+      if parsed.is_none() {
+        warn!("Invalid bandwidth value '{}'; ignoring", raw);
+      }
+      parsed
+    })
+  };
 
-  Ok(ServiceSpec {
-    name: None,
-    client_id,
-    token,
-    server_addr,
-    ws_url,
-    hostname: settings.hostname.clone(),
-    trim_bind: if settings.path.is_some() {
-      settings.trim_bind.unwrap_or(true)
-    } else {
-      false
-    },
-    path: settings.path.clone(),
-    pass_hostname: settings.pass_hostname,
-    max_response_body: settings.max_response_body,
-    timeout_secs: settings.timeout_secs,
-    max_concurrent: settings.max_concurrent,
-    priority: settings.priority,
-    bandwidth_bps,
-    max_message_size: settings.max_message_size,
-    max_redirects: settings.max_redirects,
-    tcp_target: settings.tcp_target.clone(),
-    target_health: settings.target_health.clone(),
-    health_interval: settings.health_interval,
-    health_timeout: settings.health_timeout,
-    health_threshold: settings.health_threshold,
-    target,
-  })
+  if settings.services.is_empty() || cli_target_given {
+    if cli_target_given && !settings.services.is_empty() {
+      warn!(
+        "A positional target was given on the command line; ignoring the {} entry/entries of the services: list",
+        settings.services.len()
+      );
+    }
+    let target = settings.target.clone().ok_or(
+      "CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, yaml: target, or a services: list)!",
+    )?;
+    return Ok(vec![ServiceSpec {
+      name: None,
+      client_id: client_id_base.to_string(),
+      token,
+      server_addr,
+      ws_url,
+      target,
+      hostname: settings.hostname.clone(),
+      path: settings.path.clone(),
+      trim_bind: if settings.path.is_some() {
+        settings.trim_bind.unwrap_or(true)
+      } else {
+        false
+      },
+      pass_hostname: settings.pass_hostname,
+      max_response_body: settings.max_response_body,
+      timeout_secs: settings.timeout_secs,
+      max_concurrent: settings.max_concurrent,
+      priority: settings.priority,
+      bandwidth_bps: parse_bw(settings.bandwidth.as_deref()),
+      max_message_size: settings.max_message_size,
+      max_redirects: settings.max_redirects,
+      tcp_target: settings.tcp_target.clone(),
+      target_health: settings.target_health.clone(),
+      health_interval: settings.health_interval,
+      health_timeout: settings.health_timeout,
+      health_threshold: settings.health_threshold,
+    }]);
+  }
+
+  // Multi-service mode: one spec (and one tunnel connection) per entry.
+  // Binds (hostname/path/tcp_target/target_health) are strictly per entry;
+  // tuning knobs fall back to the top-level resolved values.
+  settings
+    .services
+    .iter()
+    .enumerate()
+    .map(|(i, entry)| {
+      let describe = || {
+        entry
+          .name
+          .clone()
+          .unwrap_or_else(|| format!("services[{}]", i))
+      };
+      let target = entry
+        .target
+        .clone()
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| format!("CRITICAL ERROR: service '{}' has no target!", describe()))?;
+      let path = entry.path.clone();
+      Ok(ServiceSpec {
+        name: entry.name.clone(),
+        client_id: format!("{}-{}", client_id_base, i),
+        token: token.clone(),
+        server_addr: server_addr.clone(),
+        ws_url: ws_url.clone(),
+        target,
+        hostname: entry
+          .hostname
+          .clone()
+          .map(|h| h.trim().to_ascii_lowercase())
+          .filter(|h| !h.is_empty()),
+        trim_bind: if path.is_some() {
+          entry.trim_bind.or(settings.trim_bind).unwrap_or(true)
+        } else {
+          false
+        },
+        path,
+        pass_hostname: entry.pass_hostname.unwrap_or(settings.pass_hostname),
+        max_response_body: entry.max_response_body.unwrap_or(settings.max_response_body),
+        timeout_secs: entry.timeout.unwrap_or(settings.timeout_secs),
+        max_concurrent: entry
+          .max_concurrent
+          .or(settings.max_concurrent)
+          .filter(|n| *n > 0),
+        priority: entry.priority.unwrap_or(settings.priority),
+        bandwidth_bps: parse_bw(
+          entry
+            .bandwidth
+            .as_deref()
+            .or(settings.bandwidth.as_deref()),
+        ),
+        max_message_size: settings.max_message_size,
+        max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
+        tcp_target: entry
+          .tcp_target
+          .clone()
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty()),
+        target_health: entry
+          .target_health
+          .clone()
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty()),
+        health_interval: entry
+          .health_interval
+          .unwrap_or(settings.health_interval)
+          .max(1),
+        health_timeout: entry
+          .health_timeout
+          .unwrap_or(settings.health_timeout)
+          .max(1),
+        health_threshold: entry
+          .health_threshold
+          .unwrap_or(settings.health_threshold)
+          .max(1),
+      })
+    })
+    .collect()
 }
 
 /// Logs the effective configuration of a service at startup.
 fn log_spec(spec: &ServiceSpec) {
-  info!("Configuration loaded:");
+  match spec.name {
+    Some(ref name) => info!("Service '{}' configured:", name),
+    None => info!("Configuration loaded:"),
+  }
   info!("- Client ID: {}", spec.client_id);
   info!("- Target: {}", spec.target);
   info!("- Pass Hostname: {}", spec.pass_hostname);

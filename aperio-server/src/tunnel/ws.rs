@@ -263,6 +263,7 @@ pub(crate) async fn handle_socket(
         priority: 0,
         reported_instance_id: None,
         bandwidth_bps: bandwidth_bps.clone(),
+        service_name: None,
       },
     );
     drop(clients);
@@ -508,6 +509,7 @@ pub(crate) async fn handle_socket(
               backend_healthy,
               priority,
               bandwidth_bps,
+              service,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -595,6 +597,9 @@ pub(crate) async fn handle_socket(
                   }
                   if let Some(v) = version {
                     handle.client_version = Some(v);
+                  }
+                  if service.is_some() {
+                    handle.service_name = service;
                   }
                   // Warn once per change, not on every heartbeat.
                   if protocol.is_some() && handle.client_protocol != protocol {

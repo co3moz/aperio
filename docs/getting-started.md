@@ -44,6 +44,10 @@ Open `http://your-server-ip:8080` — requests are proxied to your local port 30
 
 If something doesn't work, run `aperio-client check`: it verifies the server's health endpoint, compares client/server versions, performs a real token handshake, and probes your local target — exit code 0 means every hop is green.
 
+## More than one service?
+
+A single client process can expose several targets — put a `services:` list in `aperio.yaml` (each entry with its own `target`, `hostname`/`path`, and health probe) and the client opens one tunnel per entry. See the [main README](../README.md#multiple-services).
+
 ## Next steps
 
 - Put the server behind TLS and set `APERIO_TRUST_PROXY=1` — see [Tokens & Authentication](tokens-and-auth.md) for why the master token should never travel in plaintext.
