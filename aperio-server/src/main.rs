@@ -3811,7 +3811,7 @@ async fn ws_handler(
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
   ws.max_message_size(state.config().max_body_size.saturating_mul(2))
     .max_frame_size(state.config().max_body_size)
-    .on_upgrade(move |socket| handle_socket(socket, addr.to_string(), state, perms))
+    .on_upgrade(move |socket| handle_socket(socket, tunnel_client_ip.to_string(), state, perms))
 }
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
