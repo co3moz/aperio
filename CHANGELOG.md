@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-07
+
 ### Added
 
 - **Multi-service client**: a `services:` list in `aperio.yaml` exposes several targets from one client process — one tunnel connection per entry, each with its own binds, health probe, and tuning knobs. Service names show in client logs and as a badge in the dashboard clients table.
