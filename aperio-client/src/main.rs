@@ -24,7 +24,8 @@ mod ws_proxy;
 
 use check::run_check;
 use config::{
-  CliMode, FileConfig, build_ws_url, load_file_config, parse_bandwidth, parse_cli, resolve,
+  CliMode, FileConfig, build_ws_url, load_file_config, load_home_config, parse_bandwidth,
+  parse_cli, resolve_settings,
 };
 use forward::{ForwardContext, ForwardRequest, handle_incoming_request};
 use protocol::{
@@ -57,32 +58,28 @@ async fn main() {
 
   info!("Starting Aperio Client...");
 
-  // Configuration precedence: CLI arguments > environment variables > aperio.yaml.
-  let file_cfg = load_file_config(cli.config.as_deref());
+  // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
+  let home_cfg = load_home_config();
+  let file_cfg = load_file_config(cli.opts.config.as_deref());
+  let settings = resolve_settings(&cli, &home_cfg, &file_cfg);
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
-    run_check(&cli, &file_cfg).await;
+    run_check(&settings).await;
   }
 
-  let mut token = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token.clone())
-    .unwrap_or_else(|| {
-      error!("CRITICAL SECURITY ERROR: a tunnel token is required (APERIO_SERVER_TOKEN, --token, or yaml: token)!");
-      std::process::exit(1);
-    });
+  let mut token = settings.token.unwrap_or_else(|| {
+    error!("CRITICAL SECURITY ERROR: a tunnel token is required (--server-token, APERIO_SERVER_TOKEN, or yaml: server.token)!");
+    std::process::exit(1);
+  });
   if token.trim().is_empty() {
     error!("CRITICAL SECURITY ERROR: the tunnel token cannot be empty!");
     std::process::exit(1);
   }
 
-  let mut server_addr = resolve(
-    cli.server.clone(),
-    "APERIO_SERVER_URL",
-    file_cfg.server.clone(),
-  )
-  .unwrap_or_else(|| {
+  let mut server_addr = settings.server.unwrap_or_else(|| {
     error!(
-      "CRITICAL ERROR: the server URL is required (APERIO_SERVER_URL, --server, or yaml: server)!"
+      "CRITICAL ERROR: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)!"
     );
     std::process::exit(1);
   });
@@ -94,64 +91,36 @@ async fn main() {
     return;
   }
 
-  let mut target = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target.clone())
-    .unwrap_or_else(|| {
-      error!("CRITICAL ERROR: the target is required (APERIO_CLIENT_TARGET, 'http <port>', or yaml: target)!");
-      std::process::exit(1);
-    });
-  let pass_hostname = cli.pass_hostname
-    || std::env::var("APERIO_CLIENT_PASS_HOSTNAME").unwrap_or_default() == "1"
-    || file_cfg.pass_hostname.unwrap_or(false);
+  let mut target = settings.target.unwrap_or_else(|| {
+    error!("CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, or yaml: target)!");
+    std::process::exit(1);
+  });
+  let pass_hostname = settings.pass_hostname;
 
-  let mut path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path.clone());
+  let mut path_bind = settings.path;
 
   // Hostname this client wants to serve (e.g. "a.example.com"). The server
   // routes requests whose Host header matches this value to this client.
-  let mut hostname_bind = resolve(
-    cli.hostname.clone(),
-    "APERIO_HOSTNAME_BIND",
-    file_cfg.hostname.clone(),
-  )
-  .map(|h| h.trim().to_ascii_lowercase())
-  .filter(|h| !h.is_empty());
+  let mut hostname_bind = settings.hostname;
 
   let trim_bind = if path_bind.is_some() {
-    match std::env::var("APERIO_CLIENT_TRIM_BIND").ok() {
-      Some(v) => v == "1",
-      None => file_cfg.trim_bind.unwrap_or(true),
-    }
+    settings.trim_bind.unwrap_or(true)
   } else {
     false
   };
 
   // Maximum response body size (in bytes) accepted from the target backend.
   // Protects the client (and the tunnel) from OOM when a misbehaving backend
-  // streams an unbounded response. Defaults to 50 MB.
-  let max_response_body_size = std::env::var("APERIO_CLIENT_MAX_RESPONSE_BODY")
-    .ok()
-    .and_then(|val| val.parse::<usize>().ok())
-    .or(file_cfg.max_response_body)
-    .unwrap_or(50 * 1024 * 1024);
+  // streams an unbounded response.
+  let max_response_body_size = settings.max_response_body;
 
   // Per-request timeout (in seconds) for calls to the local target backend.
-  let client_timeout_secs = std::env::var("APERIO_CLIENT_TIMEOUT")
-    .ok()
-    .and_then(|val| val.parse::<u64>().ok())
-    .or(file_cfg.timeout)
-    .unwrap_or(30);
+  let client_timeout_secs = settings.timeout_secs;
 
   // Maximum concurrent requests processed locally. Announced to the server so
   // it queues excess requests instead of flooding the backend. Also enforced
-  // locally, since the client must not fully trust the server. 0 = unlimited.
-  let max_concurrent = cli
-    .concurrency
-    .or_else(|| {
-      std::env::var("APERIO_CLIENT_MAX_CONCURRENT")
-        .ok()
-        .and_then(|val| val.parse::<u32>().ok())
-    })
-    .or(file_cfg.max_concurrent)
-    .filter(|n| *n > 0);
+  // locally, since the client must not fully trust the server.
+  let max_concurrent = settings.max_concurrent;
 
   let local_limiter: Option<Arc<Semaphore>> =
     max_concurrent.map(|n| Arc::new(Semaphore::new(n as usize)));
@@ -159,79 +128,37 @@ async fn main() {
   // Load-balancing priority tier announced to the server: 0 = primary
   // (default), higher numbers are standbys that only receive traffic when
   // the server runs the primary-standby strategy and no lower tier is up.
-  let mut priority = cli
-    .priority
-    .or_else(|| {
-      std::env::var("APERIO_CLIENT_PRIORITY")
-        .ok()
-        .and_then(|val| val.parse::<u32>().ok())
-    })
-    .or(file_cfg.priority)
-    .unwrap_or(0);
+  let mut priority = settings.priority;
 
   // Announced link capacity (bytes/second); the server paces its frames so
   // this client's network is never flooded (e.g. "8mbit" on a DSL uplink).
-  let bandwidth_bps = std::env::var("APERIO_CLIENT_BANDWIDTH")
-    .ok()
-    .or(file_cfg.bandwidth.clone())
-    .and_then(|raw| {
-      let parsed = parse_bandwidth(&raw);
-      if parsed.is_none() {
-        warn!("Invalid bandwidth value '{}'; ignoring", raw);
-      }
-      parsed
-    });
+  let bandwidth_bps = settings.bandwidth.as_deref().and_then(|raw| {
+    let parsed = parse_bandwidth(raw);
+    if parsed.is_none() {
+      warn!("Invalid bandwidth value '{}'; ignoring", raw);
+    }
+    parsed
+  });
 
   // Backend redirects: same-host scheme upgrades (http → https) and hops
   // within the same root domain are followed transparently, up to this many
-  // jumps. 0 = pass every redirect through to the visitor (old behavior).
-  let max_redirects = std::env::var("APERIO_CLIENT_MAX_REDIRECTS")
-    .ok()
-    .and_then(|v| v.parse::<usize>().ok())
-    .or(file_cfg.max_redirects)
-    .unwrap_or(5);
+  // jumps. 0 = pass every redirect through to the visitor.
+  let max_redirects = settings.max_redirects;
 
   // Cap on individual tunnel WebSocket messages accepted from the server.
-  let max_message_size = std::env::var("APERIO_CLIENT_MAX_MESSAGE_SIZE")
-    .ok()
-    .and_then(|val| val.parse::<usize>().ok())
-    .or(file_cfg.max_message_size)
-    .unwrap_or(32 * 1024 * 1024);
+  let max_message_size = settings.max_message_size;
 
   // Experimental raw TCP tunneling: when set (host:port), the server can open
   // TCP streams through this client to exactly this target. The client never
   // connects anywhere else, no matter what the server asks for.
-  let tcp_target = std::env::var("APERIO_CLIENT_TCP_TARGET")
-    .ok()
-    .or(file_cfg.tcp_target.clone())
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty());
+  let tcp_target = settings.tcp_target;
 
   // Backend health probing: when a health endpoint is configured the client
   // probes it on its own schedule, independent of the server connection.
-  let target_health = std::env::var("APERIO_CLIENT_TARGET_HEALTH")
-    .ok()
-    .or(file_cfg.target_health.clone())
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty());
-  let health_interval = std::env::var("APERIO_CLIENT_HEALTH_INTERVAL")
-    .ok()
-    .and_then(|v| v.parse::<u64>().ok())
-    .or(file_cfg.health_interval)
-    .unwrap_or(10)
-    .max(1);
-  let health_timeout = std::env::var("APERIO_CLIENT_HEALTH_TIMEOUT")
-    .ok()
-    .and_then(|v| v.parse::<u64>().ok())
-    .or(file_cfg.health_timeout)
-    .unwrap_or(5)
-    .max(1);
-  let health_threshold = std::env::var("APERIO_CLIENT_HEALTH_THRESHOLD")
-    .ok()
-    .and_then(|v| v.parse::<u32>().ok())
-    .or(file_cfg.health_threshold)
-    .unwrap_or(2)
-    .max(1);
+  let target_health = settings.target_health;
+  let health_interval = settings.health_interval;
+  let health_timeout = settings.health_timeout;
+  let health_threshold = settings.health_threshold;
 
   let client_id = uuid::Uuid::new_v4().to_string();
 
@@ -332,6 +259,7 @@ async fn main() {
   // (token, server, target, binds, priority). CLI arguments and environment
   // variables keep their precedence over the file.
   let config_path = cli
+    .opts
     .config
     .clone()
     .unwrap_or_else(|| "aperio.yaml".to_string());
@@ -399,41 +327,30 @@ async fn main() {
         .and_then(|raw| serde_yaml::from_str::<FileConfig>(&raw).map_err(|e| e.to_string()));
       match reloaded {
         Ok(file_cfg) => {
-          if let Some(t) = resolve(cli.token.clone(), "APERIO_SERVER_TOKEN", file_cfg.token) {
+          // Re-run the full layering with the fresh files; CLI arguments and
+          // environment variables keep their precedence.
+          let s = resolve_settings(&cli, &load_home_config(), &file_cfg);
+          if let Some(t) = s.token {
             token = t;
           }
-          if let Some(s) = resolve(cli.server.clone(), "APERIO_SERVER_URL", file_cfg.server) {
-            match build_ws_url(&s) {
+          if let Some(srv) = s.server {
+            match build_ws_url(&srv) {
               Ok(url) => {
-                server_addr = s;
+                server_addr = srv;
                 ws_url = url;
               }
               Err(e) => warn!(
                 "Reloaded server URL {} is invalid ({}); keeping previous",
-                s, e
+                srv, e
               ),
             }
           }
-          if let Some(t) = resolve(cli.target.clone(), "APERIO_CLIENT_TARGET", file_cfg.target) {
+          if let Some(t) = s.target {
             target = t;
           }
-          path_bind = resolve(cli.path.clone(), "APERIO_PATH_BIND", file_cfg.path);
-          hostname_bind = resolve(
-            cli.hostname.clone(),
-            "APERIO_HOSTNAME_BIND",
-            file_cfg.hostname,
-          )
-          .map(|h| h.trim().to_ascii_lowercase())
-          .filter(|h| !h.is_empty());
-          priority = cli
-            .priority
-            .or_else(|| {
-              std::env::var("APERIO_CLIENT_PRIORITY")
-                .ok()
-                .and_then(|val| val.parse::<u32>().ok())
-            })
-            .or(file_cfg.priority)
-            .unwrap_or(0);
+          path_bind = s.path;
+          hostname_bind = s.hostname;
+          priority = s.priority;
           reconnect_attempt = 0;
           info!(
             "Configuration reloaded from {} (target: {}, hostname bind: {:?}, path bind: {:?})",

@@ -8,7 +8,7 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
-Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions** — responses since protocol v1, and request bodies (uploads) with protocol v2 — so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_CLIENT_MAX_RESPONSE_BODY` (default 50 MB).
+Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions** — responses since protocol v1, and request bodies (uploads) with protocol v2 — so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (default 50 MB).
 
 Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64-in-JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames.
 
@@ -24,10 +24,10 @@ A raw TCP service (database, SSH, ...) can ride the same tunnel:
 
 ```bash
 # Private network side: allow TCP streams to exactly one target
-APERIO_CLIENT_TCP_TARGET=localhost:5432 aperio-client http 3000 --server ... --token ...
+APERIO_TCP_TARGET=localhost:5432 aperio-client 3000 --server-url ... --server-token ...
 
 # Consumer side (your laptop): bridge a local port through the server
-aperio-client tcp 15432 --server https://tunnel.example.com --token apr_xxxxxxxx
+aperio-client tcp 15432 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 psql -h 127.0.0.1 -p 15432
 ```
 

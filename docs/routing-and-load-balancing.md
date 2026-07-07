@@ -20,7 +20,7 @@ c.example.com  ──▶  client C (no hostname bind — fallback)
 
 ## Path binds
 
-Within the hostname pool, the longest matching path bind wins. Binds match on segment boundaries: `/api` matches `/api` and `/api/v1`, never `/apixyz`. By default the bind prefix is stripped before forwarding (`/api/v1/users` arrives at the backend as `/v1/users`); set `APERIO_CLIENT_TRIM_BIND=0` to keep the full path.
+Within the hostname pool, the longest matching path bind wins. Binds match on segment boundaries: `/api` matches `/api` and `/api/v1`, never `/apixyz`. By default the bind prefix is stripped before forwarding (`/api/v1/users` arrives at the backend as `/v1/users`); set `APERIO_TRIM_BIND=0` to keep the full path.
 
 ## Strategies
 

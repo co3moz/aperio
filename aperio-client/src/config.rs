@@ -1,7 +1,21 @@
-//! Configuration: CLI arguments, environment variables, the `aperio.yaml`
-//! file, and the resolution precedence between them (CLI > env > file).
+//! Configuration: CLI arguments (clap), the `aperio.yaml` files, environment
+//! variables, and the layering between them.
+//!
+//! Sources from lowest to highest precedence:
+//!
+//! 1. `~/.aperio.yaml` — user-level defaults shared across projects
+//! 2. environment variables
+//! 3. `./aperio.yaml` (or the `--config` path)
+//! 4. CLI arguments
+//!
+//! Naming is mechanical across the three surfaces: CLI `--server-token` ↔
+//! yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. The pre-rename spellings
+//! (`APERIO_CLIENT_*`, `APERIO_HOSTNAME_BIND`, flat yaml `token:`) remain
+//! accepted as aliases so existing Docker setups keep working.
 
-use tracing::{error, info};
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+use tracing::{error, info, warn};
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -31,13 +45,152 @@ pub(crate) fn parse_bandwidth(raw: &str) -> Option<u64> {
   Some((parsed * multiplier) as u64)
 }
 
-/// Configuration file schema (`aperio.yaml`). All keys are optional; CLI
-/// arguments and environment variables take precedence over file values.
+// --- CLI ------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(
+  name = "aperio-client",
+  version,
+  about = "Aperio tunnel client — expose a local service through an Aperio server",
+  after_help = "Precedence: CLI arguments > ./aperio.yaml > environment variables > ~/.aperio.yaml\n\n\
+Examples:\n  \
+aperio-client                          run from config file / environment (Docker mode)\n  \
+aperio-client 3000                     expose http://localhost:3000\n  \
+aperio-client example.com              expose http://example.com\n  \
+aperio-client tcp 15432                bridge a local TCP port through the server\n  \
+aperio-client check                    diagnose configuration and connectivity"
+)]
+struct Cli {
+  /// What to expose: a port (3000 → http://localhost:3000), a hostname
+  /// (example.com → http://example.com) or a full URL. Optional when the
+  /// target comes from a config file or the environment.
+  target: Option<String>,
+
+  #[command(subcommand)]
+  command: Option<Command>,
+
+  #[command(flatten)]
+  opts: CommonOpts,
+}
+
+#[derive(Subcommand)]
+enum Command {
+  /// Bridge a local TCP port to the server's /aperio/tcp endpoint
+  Tcp {
+    /// Local port to listen on (127.0.0.1)
+    local_port: u16,
+  },
+  /// Diagnose configuration and connectivity
+  Check,
+}
+
+/// Options shared by all modes. Each maps mechanically onto a yaml key and
+/// an `APERIO_*` environment variable.
+#[derive(Args, Clone, Default)]
+pub(crate) struct CommonOpts {
+  /// Aperio server URL (yaml: server.url, env: APERIO_SERVER_URL)
+  #[arg(long, visible_alias = "server", global = true, value_name = "URL")]
+  pub(crate) server_url: Option<String>,
+  /// Tunnel token, master or dynamic (yaml: server.token, env: APERIO_SERVER_TOKEN)
+  #[arg(long, visible_alias = "token", global = true, value_name = "TOKEN")]
+  pub(crate) server_token: Option<String>,
+  /// Hostname bind, e.g. app.example.com (yaml: hostname, env: APERIO_HOSTNAME)
+  #[arg(long, visible_alias = "host", global = true, value_name = "HOSTNAME")]
+  pub(crate) hostname: Option<String>,
+  /// Path bind, e.g. /api (yaml: path, env: APERIO_PATH)
+  #[arg(long, global = true, value_name = "PREFIX")]
+  pub(crate) path: Option<String>,
+  /// Max concurrent requests (yaml: max_concurrent, env: APERIO_MAX_CONCURRENT)
+  #[arg(
+    long,
+    visible_alias = "concurrency",
+    global = true,
+    value_name = "N"
+  )]
+  pub(crate) max_concurrent: Option<u32>,
+  /// Load-balancing priority tier: 0 = primary, higher = standby
+  /// (yaml: priority, env: APERIO_PRIORITY)
+  #[arg(long, global = true, value_name = "N")]
+  pub(crate) priority: Option<u32>,
+  /// Forward the original Host header to the backend
+  /// (yaml: pass_hostname, env: APERIO_PASS_HOSTNAME)
+  #[arg(long, global = true)]
+  pub(crate) pass_hostname: bool,
+  /// Config file path (default: ./aperio.yaml)
+  #[arg(long, global = true, value_name = "FILE")]
+  pub(crate) config: Option<String>,
+}
+
+/// Parsed command line, normalized for the rest of the client.
+pub(crate) struct CliArgs {
+  pub(crate) mode: CliMode,
+  /// Normalized target from the positional argument (port → localhost URL,
+  /// bare hostname → http:// URL).
+  pub(crate) target: Option<String>,
+  pub(crate) local_port: Option<u16>,
+  pub(crate) opts: CommonOpts,
+}
+
+pub(crate) enum CliMode {
+  /// Normal tunnel operation (config file / env / positional target).
+  Run,
+  /// `aperio-client tcp <local_port>`: local TCP bridge to /aperio/tcp.
+  TcpBridge,
+  /// `aperio-client check`: configuration & connectivity diagnostics.
+  Check,
+}
+
+/// Interprets the positional target: a bare port number becomes a localhost
+/// URL, a bare hostname gets an http:// scheme, URLs pass through.
+fn normalize_target(raw: &str) -> String {
+  let trimmed = raw.trim();
+  if let Ok(port) = trimmed.parse::<u16>() {
+    format!("http://localhost:{}", port)
+  } else if trimmed.contains("://") {
+    trimmed.to_string()
+  } else {
+    format!("http://{}", trimmed)
+  }
+}
+
+pub(crate) fn parse_cli() -> CliArgs {
+  let cli = Cli::parse();
+  let (mode, local_port) = match cli.command {
+    None => (CliMode::Run, None),
+    Some(Command::Tcp { local_port }) => (CliMode::TcpBridge, Some(local_port)),
+    Some(Command::Check) => (CliMode::Check, None),
+  };
+  CliArgs {
+    mode,
+    target: cli.target.as_deref().map(normalize_target),
+    local_port,
+    opts: cli.opts,
+  }
+}
+
+// --- Config files ----------------------------------------------------------
+
+/// The `server:` key accepts both the legacy plain URL string and the
+/// canonical nested section.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ServerValue {
+  /// `server: https://tunnel.example.com` (legacy flat form)
+  Url(String),
+  /// `server: { url: ..., token: ... }`
+  Section {
+    url: Option<String>,
+    token: Option<String>,
+  },
+}
+
+/// Configuration file schema (`aperio.yaml` / `~/.aperio.yaml`). All keys
+/// are optional.
 ///
 /// ```yaml
-/// # Aperio client configuration
-/// server: https://tunnel.example.com   # Aperio server URL
-/// token: apr_xxxxxxxxxxxxxxxx          # tunnel token (master or dynamic)
+/// server:
+///   url: https://tunnel.example.com    # Aperio server URL
+///   token: apr_xxxxxxxxxxxxxxxx        # tunnel token (master or dynamic)
 /// target: http://localhost:3000        # local backend to expose
 /// hostname: a.example.com              # optional hostname bind
 /// path: /api                           # optional path bind
@@ -48,8 +201,9 @@ pub(crate) fn parse_bandwidth(raw: &str) -> Option<u64> {
 /// ```
 #[derive(serde::Deserialize, Default)]
 pub(crate) struct FileConfig {
-  pub(crate) server: Option<String>,
-  pub(crate) token: Option<String>,
+  server: Option<ServerValue>,
+  /// Legacy flat `token:` key (canonical form is `server.token`).
+  token: Option<String>,
   pub(crate) target: Option<String>,
   pub(crate) hostname: Option<String>,
   pub(crate) path: Option<String>,
@@ -77,7 +231,26 @@ pub(crate) struct FileConfig {
   pub(crate) max_redirects: Option<usize>,
 }
 
-/// Loads `aperio.yaml` (or an explicit `--config` path). A missing default
+impl FileConfig {
+  pub(crate) fn server_url(&self) -> Option<String> {
+    match &self.server {
+      Some(ServerValue::Url(s)) => Some(s.clone()),
+      Some(ServerValue::Section { url, .. }) => url.clone(),
+      None => None,
+    }
+  }
+
+  pub(crate) fn server_token(&self) -> Option<String> {
+    match &self.server {
+      Some(ServerValue::Section {
+        token: Some(t), ..
+      }) => Some(t.clone()),
+      _ => self.token.clone(),
+    }
+  }
+}
+
+/// Loads `./aperio.yaml` (or an explicit `--config` path). A missing default
 /// file is fine; an unreadable/invalid explicit file is a fatal error.
 pub(crate) fn load_file_config(explicit: Option<&str>) -> FileConfig {
   let path = explicit.unwrap_or("aperio.yaml");
@@ -102,141 +275,230 @@ pub(crate) fn load_file_config(explicit: Option<&str>) -> FileConfig {
   }
 }
 
-/// Parsed command line. With no arguments the client behaves exactly like
-/// before (environment-variable driven), so Docker setups are unaffected.
-pub(crate) struct CliArgs {
-  pub(crate) mode: CliMode,
-  pub(crate) server: Option<String>,
+/// Path of the user-level config (`~/.aperio.yaml`).
+fn home_config_path() -> Option<PathBuf> {
+  let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+  std::env::var_os(var).map(|home| PathBuf::from(home).join(".aperio.yaml"))
+}
+
+/// Loads `~/.aperio.yaml` — the lowest-precedence layer, shared across
+/// projects (typically holding `server.url` and `server.token`). Missing is
+/// fine; an unparseable file is skipped with a warning rather than being
+/// fatal, since it may belong to another aperio version.
+pub(crate) fn load_home_config() -> FileConfig {
+  let Some(path) = home_config_path() else {
+    return FileConfig::default();
+  };
+  match std::fs::read_to_string(&path) {
+    Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
+      Ok(cfg) => {
+        info!("Loaded user configuration from {:?}", path);
+        cfg
+      }
+      Err(e) => {
+        warn!("Ignoring unparseable {:?}: {}", path, e);
+        FileConfig::default()
+      }
+    },
+    Err(_) => FileConfig::default(),
+  }
+}
+
+// --- Layered resolution -----------------------------------------------------
+
+/// Fully resolved client settings, after layering CLI > ./aperio.yaml >
+/// environment > ~/.aperio.yaml and applying defaults.
+pub(crate) struct ClientSettings {
   pub(crate) token: Option<String>,
+  pub(crate) server: Option<String>,
   pub(crate) target: Option<String>,
   pub(crate) hostname: Option<String>,
   pub(crate) path: Option<String>,
-  pub(crate) concurrency: Option<u32>,
-  pub(crate) priority: Option<u32>,
+  /// Explicit trim_bind wish; `None` = default (true when a path bind is set).
+  pub(crate) trim_bind: Option<bool>,
   pub(crate) pass_hostname: bool,
-  pub(crate) config: Option<String>,
-  pub(crate) local_port: Option<u16>,
+  pub(crate) max_response_body: usize,
+  pub(crate) timeout_secs: u64,
+  pub(crate) max_concurrent: Option<u32>,
+  pub(crate) priority: u32,
+  pub(crate) bandwidth: Option<String>,
+  pub(crate) max_message_size: usize,
+  pub(crate) max_redirects: usize,
+  pub(crate) tcp_target: Option<String>,
+  pub(crate) target_health: Option<String>,
+  pub(crate) health_interval: u64,
+  pub(crate) health_timeout: u64,
+  pub(crate) health_threshold: u32,
 }
 
-pub(crate) enum CliMode {
-  /// Legacy env-driven mode (no CLI arguments given).
-  Env,
-  /// `aperio-client http <port>`: expose a local HTTP port.
-  Http,
-  /// `aperio-client run`: fully config-file driven.
-  Run,
-  /// `aperio-client tcp <local_port>`: local TCP bridge to /aperio/tcp.
-  TcpBridge,
-  /// `aperio-client check`: configuration & connectivity diagnostics.
-  Check,
+/// Non-empty environment lookup with a legacy alias.
+fn env2(new: &str, old: &str) -> Option<String> {
+  let get = |key: &str| std::env::var(key).ok().filter(|s| !s.trim().is_empty());
+  get(new).or_else(|| get(old))
 }
 
-fn print_usage() {
-  eprintln!(
-    "Aperio Client\n\nUsage:\n  aperio-client                        Run with environment variables (Docker mode)\n  aperio-client http <port> [options]  Expose http://localhost:<port>\n  aperio-client run [--config FILE]     Run from aperio.yaml\n  aperio-client tcp <local_port> [options]\n                                        Bridge a local TCP port to the server's /aperio/tcp endpoint\n  aperio-client check [options]         Diagnose configuration and connectivity\n\nOptions:\n  --server URL       Aperio server URL (or APERIO_SERVER_URL / yaml: server)\n  --token TOKEN      Tunnel token (or APERIO_SERVER_TOKEN / yaml: token)\n  --host HOSTNAME    Hostname bind (or APERIO_HOSTNAME_BIND / yaml: hostname)\n  --path PREFIX      Path bind (or APERIO_PATH_BIND / yaml: path)\n  --concurrency N    Max concurrent requests (or APERIO_CLIENT_MAX_CONCURRENT)\n  --priority N       Load-balancing priority tier: 0 = primary, higher = standby (or APERIO_CLIENT_PRIORITY / yaml: priority)\n  --pass-hostname    Forward the original Host header to the backend\n  --config FILE      Config file path (default: ./aperio.yaml)\n  --version          Print the client version\n  --help             Show this help\n\nPrecedence: CLI arguments > environment variables > aperio.yaml"
-  );
+fn env_parse<T: std::str::FromStr>(new: &str, old: &str) -> Option<T> {
+  env2(new, old).and_then(|v| v.parse().ok())
 }
 
-pub(crate) fn parse_cli() -> CliArgs {
-  let mut args = std::env::args().skip(1).peekable();
-  let mut cli = CliArgs {
-    mode: CliMode::Env,
-    server: None,
-    token: None,
-    target: None,
-    hostname: None,
-    path: None,
-    concurrency: None,
-    priority: None,
-    pass_hostname: false,
-    config: None,
-    local_port: None,
+fn env_bool(new: &str, old: &str) -> Option<bool> {
+  env2(new, old).map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+/// Layered lookup: CLI > local file > environment > home file.
+fn layered<T>(cli: Option<T>, local: Option<T>, env: Option<T>, home: Option<T>) -> Option<T> {
+  cli.or(local).or(env).or(home)
+}
+
+/// Resolves every client setting from the four layers. Called at startup and
+/// again on config hot-reload (with the freshly parsed files).
+pub(crate) fn resolve_settings(
+  cli: &CliArgs,
+  home: &FileConfig,
+  local: &FileConfig,
+) -> ClientSettings {
+  let o = &cli.opts;
+  let nonempty = |s: String| {
+    let t = s.trim().to_string();
+    if t.is_empty() { None } else { Some(t) }
   };
-
-  let Some(first) = args.next() else {
-    return cli;
-  };
-  match first.as_str() {
-    "http" => {
-      cli.mode = CliMode::Http;
-      let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) else {
-        eprintln!("error: 'http' requires a local port number\n");
-        print_usage();
-        std::process::exit(2);
-      };
-      cli.target = Some(format!("http://localhost:{}", port));
-    }
-    "run" => cli.mode = CliMode::Run,
-    "check" => cli.mode = CliMode::Check,
-    "tcp" => {
-      cli.mode = CliMode::TcpBridge;
-      let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) else {
-        eprintln!("error: 'tcp' requires a local port number\n");
-        print_usage();
-        std::process::exit(2);
-      };
-      cli.local_port = Some(port);
-    }
-    "help" | "--help" | "-h" => {
-      print_usage();
-      std::process::exit(0);
-    }
-    "version" | "--version" | "-V" => {
-      println!("aperio-client {}", env!("CARGO_PKG_VERSION"));
-      std::process::exit(0);
-    }
-    other => {
-      eprintln!("error: unknown command '{}'\n", other);
-      print_usage();
-      std::process::exit(2);
-    }
+  ClientSettings {
+    token: layered(
+      o.server_token.clone(),
+      local.server_token(),
+      env2("APERIO_SERVER_TOKEN", "APERIO_SERVER_TOKEN"),
+      home.server_token(),
+    ),
+    server: layered(
+      o.server_url.clone(),
+      local.server_url(),
+      env2("APERIO_SERVER_URL", "APERIO_SERVER_URL"),
+      home.server_url(),
+    ),
+    target: layered(
+      cli.target.clone(),
+      local.target.clone(),
+      env2("APERIO_TARGET", "APERIO_CLIENT_TARGET"),
+      home.target.clone(),
+    ),
+    hostname: layered(
+      o.hostname.clone(),
+      local.hostname.clone(),
+      env2("APERIO_HOSTNAME", "APERIO_HOSTNAME_BIND"),
+      home.hostname.clone(),
+    )
+    .map(|h| h.trim().to_ascii_lowercase())
+    .filter(|h| !h.is_empty()),
+    path: layered(
+      o.path.clone(),
+      local.path.clone(),
+      env2("APERIO_PATH", "APERIO_PATH_BIND"),
+      home.path.clone(),
+    ),
+    trim_bind: layered(
+      None,
+      local.trim_bind,
+      env_bool("APERIO_TRIM_BIND", "APERIO_CLIENT_TRIM_BIND"),
+      home.trim_bind,
+    ),
+    pass_hostname: o.pass_hostname
+      || layered(
+        None,
+        local.pass_hostname,
+        env_bool("APERIO_PASS_HOSTNAME", "APERIO_CLIENT_PASS_HOSTNAME"),
+        home.pass_hostname,
+      )
+      .unwrap_or(false),
+    max_response_body: layered(
+      None,
+      local.max_response_body,
+      env_parse("APERIO_MAX_RESPONSE_BODY", "APERIO_CLIENT_MAX_RESPONSE_BODY"),
+      home.max_response_body,
+    )
+    .unwrap_or(50 * 1024 * 1024),
+    timeout_secs: layered(
+      None,
+      local.timeout,
+      env_parse("APERIO_TIMEOUT", "APERIO_CLIENT_TIMEOUT"),
+      home.timeout,
+    )
+    .unwrap_or(30),
+    max_concurrent: layered(
+      o.max_concurrent,
+      local.max_concurrent,
+      env_parse("APERIO_MAX_CONCURRENT", "APERIO_CLIENT_MAX_CONCURRENT"),
+      home.max_concurrent,
+    )
+    .filter(|n| *n > 0),
+    priority: layered(
+      o.priority,
+      local.priority,
+      env_parse("APERIO_PRIORITY", "APERIO_CLIENT_PRIORITY"),
+      home.priority,
+    )
+    .unwrap_or(0),
+    bandwidth: layered(
+      None,
+      local.bandwidth.clone(),
+      env2("APERIO_BANDWIDTH", "APERIO_CLIENT_BANDWIDTH"),
+      home.bandwidth.clone(),
+    ),
+    max_message_size: layered(
+      None,
+      local.max_message_size,
+      env_parse("APERIO_MAX_MESSAGE_SIZE", "APERIO_CLIENT_MAX_MESSAGE_SIZE"),
+      home.max_message_size,
+    )
+    .unwrap_or(32 * 1024 * 1024),
+    max_redirects: layered(
+      None,
+      local.max_redirects,
+      env_parse("APERIO_MAX_REDIRECTS", "APERIO_CLIENT_MAX_REDIRECTS"),
+      home.max_redirects,
+    )
+    .unwrap_or(5),
+    tcp_target: layered(
+      None,
+      local.tcp_target.clone(),
+      env2("APERIO_TCP_TARGET", "APERIO_CLIENT_TCP_TARGET"),
+      home.tcp_target.clone(),
+    )
+    .and_then(nonempty),
+    target_health: layered(
+      None,
+      local.target_health.clone(),
+      env2("APERIO_TARGET_HEALTH", "APERIO_CLIENT_TARGET_HEALTH"),
+      home.target_health.clone(),
+    )
+    .and_then(nonempty),
+    health_interval: layered(
+      None,
+      local.health_interval,
+      env_parse("APERIO_HEALTH_INTERVAL", "APERIO_CLIENT_HEALTH_INTERVAL"),
+      home.health_interval,
+    )
+    .unwrap_or(10)
+    .max(1),
+    health_timeout: layered(
+      None,
+      local.health_timeout,
+      env_parse("APERIO_HEALTH_TIMEOUT", "APERIO_CLIENT_HEALTH_TIMEOUT"),
+      home.health_timeout,
+    )
+    .unwrap_or(5)
+    .max(1),
+    health_threshold: layered(
+      None,
+      local.health_threshold,
+      env_parse("APERIO_HEALTH_THRESHOLD", "APERIO_CLIENT_HEALTH_THRESHOLD"),
+      home.health_threshold,
+    )
+    .unwrap_or(2)
+    .max(1),
   }
-
-  while let Some(arg) = args.next() {
-    let mut take = |name: &str| -> String {
-      match args.next() {
-        Some(v) => v,
-        None => {
-          eprintln!("error: {} requires a value", name);
-          std::process::exit(2);
-        }
-      }
-    };
-    match arg.as_str() {
-      "--server" => cli.server = Some(take("--server")),
-      "--token" => cli.token = Some(take("--token")),
-      "--host" => cli.hostname = Some(take("--host")),
-      "--path" => cli.path = Some(take("--path")),
-      "--config" => cli.config = Some(take("--config")),
-      "--concurrency" => {
-        let v = take("--concurrency");
-        cli.concurrency = v.parse::<u32>().ok();
-      }
-      "--priority" => {
-        let v = take("--priority");
-        cli.priority = v.parse::<u32>().ok();
-      }
-      "--pass-hostname" => cli.pass_hostname = true,
-      "--help" | "-h" => {
-        print_usage();
-        std::process::exit(0);
-      }
-      other => {
-        eprintln!("error: unknown option '{}'\n", other);
-        print_usage();
-        std::process::exit(2);
-      }
-    }
-  }
-  cli
 }
 
-/// Resolution helper: CLI > environment variable > config file.
-pub(crate) fn resolve(cli: Option<String>, env_key: &str, file: Option<String>) -> Option<String> {
-  cli
-    .or_else(|| std::env::var(env_key).ok().filter(|s| !s.trim().is_empty()))
-    .or(file)
-}
+// --- Server URL helpers ------------------------------------------------------
 
 /// Builds a WebSocket connection URL from an HTTP or WS address.
 /// Ensures the scheme is set to `ws` or `wss` and applies the given path.

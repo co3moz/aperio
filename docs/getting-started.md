@@ -35,7 +35,7 @@ docker run -d --name aperio-client \
 Or with the CLI (installed via `curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh`):
 
 ```bash
-aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx
+aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 ```
 
 ## 3. Verify

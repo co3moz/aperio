@@ -78,10 +78,10 @@ curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
 
 ```bash
 # Expose local port 3000 in one line
-aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx
+aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 
 # Claim a specific hostname while doing it
-aperio-client http 3000 --server https://tunnel.example.com --token apr_xxxxxxxx --host app.example.com
+aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx --hostname app.example.com
 ```
 
 ### With Docker Compose
@@ -261,74 +261,83 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 
 > 📖 Resilience features (backoff, health probing, hot-reload, drain): [docs/client-resilience.md](docs/client-resilience.md)
 
-The client can be configured three ways, with this precedence:
+The client layers four configuration sources, from lowest to highest precedence:
 
-**CLI arguments  >  environment variables  >  `aperio.yaml`**
+**`~/.aperio.yaml`  <  environment variables  <  `./aperio.yaml`  <  CLI arguments**
 
-With no CLI arguments the client is fully environment-driven — existing Docker setups keep working unchanged.
+`~/.aperio.yaml` holds user-level defaults shared across projects (typically `server.url` and `server.token`), the local `aperio.yaml` describes the service in the current directory, and CLI arguments override everything. With no CLI arguments the client is fully environment-driven — existing Docker setups keep working unchanged.
 
 On connection loss the client reconnects with **exponential backoff and jitter** (1 s doubling up to 60 s, randomized) so a restarted server is not stampeded by its whole client fleet at once; the backoff resets after a connection stays up for 30 s.
 
-When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the current connection is dropped gracefully, and the client reconnects with the freshly resolved `token`, `server`, `target`, `hostname`, `path`, and `priority`. CLI arguments and environment variables keep their precedence; a file that no longer parses is ignored with a warning.
+When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the current connection is dropped gracefully, and the client reconnects with the freshly resolved `token`, `server`, `target`, `hostname`, `path`, and `priority`. The usual layering applies on reload; a file that no longer parses is ignored with a warning.
 
 ### CLI
 
 ```
-aperio-client                          Run with environment variables (Docker mode)
-aperio-client http <port> [options]    Expose http://localhost:<port>
-aperio-client run [--config FILE]      Run from aperio.yaml
+aperio-client                          Run from config files / environment (Docker mode)
+aperio-client 3000                     Expose http://localhost:3000
+aperio-client example.com              Expose http://example.com
 aperio-client tcp <local_port>         Bridge a local TCP port to the server's /aperio/tcp endpoint
 aperio-client check                    Diagnose configuration and connectivity
 aperio-client --version
 aperio-client --help
 ```
 
+The positional target is optional — a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. When omitted, the target comes from a config file or the environment.
+
 `aperio-client check` resolves the configuration with the usual precedence and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), the local target, and its health endpoint when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
 
 | Option | Meaning |
 | --- | --- |
-| `--server URL` | Aperio server URL |
-| `--token TOKEN` | Tunnel token (master or dynamic) |
-| `--host HOSTNAME` | Hostname bind (e.g. `app.example.com`) |
+| `--server-url URL` (alias `--server`) | Aperio server URL |
+| `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
+| `--hostname HOSTNAME` (alias `--host`) | Hostname bind (e.g. `app.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
-| `--concurrency N` | Local max concurrent requests |
+| `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |
 | `--priority N` | Load-balancing priority tier: 0 = primary (default), higher = standby |
 | `--pass-hostname` | Forward the original `Host` header to the backend |
 | `--config FILE` | Config file path (default: `./aperio.yaml`) |
 
 ### Configuration Reference
 
-| Env variable | CLI | yaml key | Description | Default |
+Names map mechanically across the three surfaces: CLI `--server-token` ↔ yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. The pre-rename spellings (`APERIO_CLIENT_*`, `APERIO_HOSTNAME_BIND`, `APERIO_PATH_BIND`, flat yaml `server:`/`token:`) remain accepted as aliases.
+
+| Env variable (legacy alias) | CLI | yaml key | Description | Default |
 | --- | --- | --- | --- | --- |
-| `APERIO_SERVER_TOKEN` | `--token` | `token` | **Required.** Tunnel token. | — |
-| `APERIO_SERVER_URL` | `--server` | `server` | **Required.** Server URL (`http/https/ws/wss`). | — |
-| `APERIO_CLIENT_TARGET` | `http <port>` | `target` | **Required.** Local backend to forward to. | — |
-| `APERIO_HOSTNAME_BIND` | `--host` | `hostname` | Hostname this client serves. | — |
-| `APERIO_PATH_BIND` | `--path` | `path` | Path prefix this client serves. | — |
-| `APERIO_CLIENT_TRIM_BIND` | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
-| `APERIO_CLIENT_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
-| `APERIO_CLIENT_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
-| `APERIO_CLIENT_BANDWIDTH` | — | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. | unlimited |
-| `APERIO_CLIENT_MAX_CONCURRENT` | `--concurrency` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
-| `APERIO_CLIENT_TCP_TARGET` | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
-| `APERIO_CLIENT_TARGET_HEALTH` | — | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. | — |
-| `APERIO_CLIENT_HEALTH_INTERVAL` | — | `health_interval` | Seconds between backend health probes. | `10` |
-| `APERIO_CLIENT_HEALTH_TIMEOUT` | — | `health_timeout` | Per-probe timeout (seconds). | `5` |
-| `APERIO_CLIENT_HEALTH_THRESHOLD` | — | `health_threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
-| `APERIO_CLIENT_TIMEOUT` | — | `timeout` | Per-request backend timeout (seconds). | `30` |
-| `APERIO_CLIENT_MAX_REDIRECTS` | — | `max_redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps — or to unrelated hosts — pass through to the visitor unchanged. `0` disables following entirely. | `5` |
-| `APERIO_CLIENT_MAX_RESPONSE_BODY` | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
-| `APERIO_CLIENT_MAX_MESSAGE_SIZE` | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
+| `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. | — |
+| `APERIO_SERVER_URL` | `--server-url` | `server.url` | **Required.** Server URL (`http/https/ws/wss`). | — |
+| `APERIO_TARGET` (`APERIO_CLIENT_TARGET`) | positional | `target` | **Required.** Local backend to forward to. | — |
+| `APERIO_HOSTNAME` (`APERIO_HOSTNAME_BIND`) | `--hostname` | `hostname` | Hostname this client serves. | — |
+| `APERIO_PATH` (`APERIO_PATH_BIND`) | `--path` | `path` | Path prefix this client serves. | — |
+| `APERIO_TRIM_BIND` (`APERIO_CLIENT_TRIM_BIND`) | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
+| `APERIO_PASS_HOSTNAME` (`APERIO_CLIENT_PASS_HOSTNAME`) | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
+| `APERIO_PRIORITY` (`APERIO_CLIENT_PRIORITY`) | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
+| `APERIO_BANDWIDTH` (`APERIO_CLIENT_BANDWIDTH`) | — | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. | unlimited |
+| `APERIO_MAX_CONCURRENT` (`APERIO_CLIENT_MAX_CONCURRENT`) | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
+| `APERIO_TCP_TARGET` (`APERIO_CLIENT_TCP_TARGET`) | — | `tcp_target` | `host:port` for experimental TCP tunneling. The client only ever connects to this exact address. | — |
+| `APERIO_TARGET_HEALTH` (`APERIO_CLIENT_TARGET_HEALTH`) | — | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. | — |
+| `APERIO_HEALTH_INTERVAL` (`APERIO_CLIENT_HEALTH_INTERVAL`) | — | `health_interval` | Seconds between backend health probes. | `10` |
+| `APERIO_HEALTH_TIMEOUT` (`APERIO_CLIENT_HEALTH_TIMEOUT`) | — | `health_timeout` | Per-probe timeout (seconds). | `5` |
+| `APERIO_HEALTH_THRESHOLD` (`APERIO_CLIENT_HEALTH_THRESHOLD`) | — | `health_threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
+| `APERIO_TIMEOUT` (`APERIO_CLIENT_TIMEOUT`) | — | `timeout` | Per-request backend timeout (seconds). | `30` |
+| `APERIO_MAX_REDIRECTS` (`APERIO_CLIENT_MAX_REDIRECTS`) | — | `max_redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps — or to unrelated hosts — pass through to the visitor unchanged. `0` disables following entirely. | `5` |
+| `APERIO_MAX_RESPONSE_BODY` (`APERIO_CLIENT_MAX_RESPONSE_BODY`) | — | `max_response_body` | Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. | 50 MB |
+| `APERIO_MAX_MESSAGE_SIZE` (`APERIO_CLIENT_MAX_MESSAGE_SIZE`) | — | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
 | `LOG_LEVEL` | — | — | Log verbosity. | `info` |
 
-### aperio.yaml
+### aperio.yaml & ~/.aperio.yaml
 
-If an `aperio.yaml` exists in the working directory (or is passed with `--config`), its values are used as defaults:
+If an `aperio.yaml` exists in the working directory (or is passed with `--config`), its values are used; a `~/.aperio.yaml` provides user-level defaults underneath it — handy for the server URL and token you use everywhere:
 
 ```yaml
-# Aperio client configuration
-server: https://tunnel.example.com
-token: apr_xxxxxxxxxxxxxxxx
+# ~/.aperio.yaml — shared across projects
+server:
+  url: https://tunnel.example.com
+  token: apr_xxxxxxxxxxxxxxxx
+```
+
+```yaml
+# ./aperio.yaml — per-project service description
 target: http://localhost:3000
 
 # optional
@@ -343,7 +352,7 @@ health_interval: 10
 tcp_target: localhost:5432
 ```
 
-The file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
+The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
 
 ### Graceful Shutdown
 
@@ -561,10 +570,10 @@ Expose a raw TCP service (database, SSH, ...) through the same tunnel port:
 
 ```bash
 # Private network side: allow TCP streams to exactly one target
-APERIO_CLIENT_TCP_TARGET=localhost:5432 aperio-client http 3000 --server ... --token ...
+APERIO_TCP_TARGET=localhost:5432 aperio-client 3000 --server-url ... --server-token ...
 
 # Consumer side (your laptop): bridge a local port through the server
-aperio-client tcp 15432 --server https://tunnel.example.com --token apr_xxxxxxxx
+aperio-client tcp 15432 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 psql -h 127.0.0.1 -p 15432
 ```
 

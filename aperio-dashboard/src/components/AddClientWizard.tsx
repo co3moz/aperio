@@ -43,40 +43,37 @@ function dockerCommand(serverUrl: string, token: string, s: WizardState): string
 
 function cliCommand(serverUrl: string, token: string, s: WizardState): string {
   const port = localPort(s.target)
-  if (port) {
-    // Multi-line with continuations: long single lines wrap unpredictably
-    // inside the <pre> block.
-    const lines = [
-      `aperio-client http ${port} \\`,
-      `  --server ${serverUrl} \\`,
-      `  --token ${token}`,
-    ]
-    if (s.hostname) {
-      lines[lines.length - 1] += ' \\'
-      lines.push(`  --host ${s.hostname}`)
-    }
-    if (s.path) {
-      lines[lines.length - 1] += ' \\'
-      lines.push(`  --path ${s.path}`)
-    }
-    return lines.join('\n')
-  }
-  // Non-local targets have no CLI shorthand; fall back to env (Docker) mode.
-  const env = [
-    `APERIO_SERVER_URL=${serverUrl}`,
-    `APERIO_SERVER_TOKEN=${token}`,
-    `APERIO_CLIENT_TARGET=${s.target}`,
+  // A local port or any URL works as the positional target.
+  const target = port ?? s.target
+  // Multi-line with continuations: long single lines wrap unpredictably
+  // inside the <pre> block.
+  const lines = [
+    `aperio-client ${target} \\`,
+    `  --server-url ${serverUrl} \\`,
+    `  --server-token ${token}`,
   ]
-  if (s.hostname) env.push(`APERIO_HOSTNAME_BIND=${s.hostname}`)
-  if (s.path) env.push(`APERIO_PATH_BIND=${s.path}`)
-  return `${env.join(' \\\n')} \\\naperio-client`
+  if (s.hostname) {
+    lines[lines.length - 1] += ' \\'
+    lines.push(`  --hostname ${s.hostname}`)
+  }
+  if (s.path) {
+    lines[lines.length - 1] += ' \\'
+    lines.push(`  --path ${s.path}`)
+  }
+  return lines.join('\n')
 }
 
 function yamlConfig(serverUrl: string, token: string, s: WizardState): string {
-  const lines = ['# aperio.yaml', `server: ${serverUrl}`, `token: ${token}`, `target: ${s.target}`]
+  const lines = [
+    '# aperio.yaml',
+    'server:',
+    `  url: ${serverUrl}`,
+    `  token: ${token}`,
+    `target: ${s.target}`,
+  ]
   if (s.hostname) lines.push(`hostname: ${s.hostname}`)
   if (s.path) lines.push(`path: ${s.path}`)
-  lines.push('', '# then run:', '#   aperio-client run')
+  lines.push('', '# then run:', '#   aperio-client')
   return lines.join('\n')
 }
 

@@ -17,3 +17,4 @@ futures-util = "0.3"
 url = "2.5"
 flate2 = "1"
 serde_yaml = "0.9"
+clap = { version = "4", features = ["derive", "wrap_help"] }

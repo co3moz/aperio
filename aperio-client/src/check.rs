@@ -6,13 +6,13 @@ use tokio_tungstenite::{
   tungstenite::{client::IntoClientRequest, http::HeaderValue},
 };
 
-use crate::config::{CliArgs, FileConfig, build_http_url, build_ws_url, resolve};
+use crate::config::{ClientSettings, build_http_url, build_ws_url};
 use crate::protocol::PROTOCOL_VERSION;
 
 /// `aperio-client check`: diagnoses configuration and connectivity — config
 /// resolution, server reachability and version skew, token validity, local
 /// target and health endpoint. Exits 0 when everything passes, 1 otherwise.
-pub(crate) async fn run_check(cli: &CliArgs, file_cfg: &FileConfig) -> ! {
+pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
   println!(
     "aperio-client {} — configuration & connectivity check\n",
     env!("CARGO_PKG_VERSION")
@@ -31,32 +31,16 @@ pub(crate) async fn run_check(cli: &CliArgs, file_cfg: &FileConfig) -> ! {
     .unwrap_or_default();
 
   // --- 1. Configuration resolution ---------------------------------------
-  let server = resolve(
-    cli.server.clone(),
-    "APERIO_SERVER_URL",
-    file_cfg.server.clone(),
-  );
-  let token = resolve(
-    cli.token.clone(),
-    "APERIO_SERVER_TOKEN",
-    file_cfg.token.clone(),
-  )
-  .filter(|t| !t.trim().is_empty());
-  let target = resolve(
-    cli.target.clone(),
-    "APERIO_CLIENT_TARGET",
-    file_cfg.target.clone(),
-  );
-  let target_health = std::env::var("APERIO_CLIENT_TARGET_HEALTH")
-    .ok()
-    .or(file_cfg.target_health.clone())
-    .filter(|s| !s.trim().is_empty());
+  let server = settings.server.clone();
+  let token = settings.token.clone().filter(|t| !t.trim().is_empty());
+  let target = settings.target.clone();
+  let target_health = settings.target_health.clone();
 
   match &server {
     Some(s) => pass("server url", s.clone()),
     None => fail(
       "server url",
-      "missing (APERIO_SERVER_URL / --server / yaml: server)".to_string(),
+      "missing (--server-url / APERIO_SERVER_URL / yaml: server.url)".to_string(),
       &mut failures,
     ),
   }
@@ -64,7 +48,7 @@ pub(crate) async fn run_check(cli: &CliArgs, file_cfg: &FileConfig) -> ! {
     Some(_) => pass("token", "configured".to_string()),
     None => fail(
       "token",
-      "missing (APERIO_SERVER_TOKEN / --token / yaml: token)".to_string(),
+      "missing (--server-token / APERIO_SERVER_TOKEN / yaml: server.token)".to_string(),
       &mut failures,
     ),
   }
@@ -72,7 +56,7 @@ pub(crate) async fn run_check(cli: &CliArgs, file_cfg: &FileConfig) -> ! {
     Some(t) => pass("target", t.clone()),
     None => fail(
       "target",
-      "missing (APERIO_CLIENT_TARGET / 'http <port>' / yaml: target)".to_string(),
+      "missing (positional argument / APERIO_TARGET / yaml: target)".to_string(),
       &mut failures,
     ),
   }
