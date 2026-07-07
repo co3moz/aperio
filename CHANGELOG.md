@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- Bumped the transitive `quinn-proto` dependency to 0.11.16, resolving RUSTSEC-2026-0037 and RUSTSEC-2026-0185 (two high-severity denial-of-service advisories).
+
 ## [0.1.1] - 2026-07-07
 
 ### Added
