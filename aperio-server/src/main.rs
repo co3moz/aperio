@@ -1399,6 +1399,18 @@ async fn main() {
     );
   }
 
+  // Audit log rotation: the active audit.jsonl is rotated once it exceeds
+  // APERIO_AUDIT_MAX_SIZE bytes (0 = never rotate), keeping
+  // APERIO_AUDIT_MAX_FILES older generations (audit.jsonl.1 ..).
+  let audit_max_size = std::env::var("APERIO_AUDIT_MAX_SIZE")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .unwrap_or(10 * 1024 * 1024);
+  let audit_max_files = std::env::var("APERIO_AUDIT_MAX_FILES")
+    .ok()
+    .and_then(|v| v.parse::<usize>().ok())
+    .unwrap_or(3);
+
   // OIDC SSO configuration (optional).
   let oidc_runtime = oidc::load_from_env().await;
 
@@ -1436,7 +1448,7 @@ async fn main() {
     token_store: Mutex::new(token_store),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
-    audit: Mutex::new(AuditLog::load(&data_dir)),
+    audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
     oidc: oidc_runtime,

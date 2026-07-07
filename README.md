@@ -176,6 +176,8 @@ The server is configured through environment variables; most settings can also b
 | `APERIO_TUNNEL_COMPRESSION` | `1` = offer per-message zlib compression to clients (enabled per connection once acknowledged; old clients keep plain frames). | `0` |
 | `APERIO_504_PAGE` | Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. | — |
 | `APERIO_503_PAGE` | Path to an HTML file served while a hostname is in maintenance mode instead of the plain-text default. | — |
+| `APERIO_AUDIT_MAX_SIZE` | Rotate `audit.jsonl` once it exceeds this many bytes (`0` = never rotate). | `10485760` (10 MB) |
+| `APERIO_AUDIT_MAX_FILES` | Rotated audit generations to keep (`audit.jsonl.1` … `.N`; `0` = truncate instead of keeping history). | `3` |
 | `APERIO_ACCESS_LOG` | File path for the structured access log: one JSON line per proxied request (`request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, `error`) — directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured `aperio_access` tracing events. | — |
 
 ### Authentication Layers
@@ -514,7 +516,7 @@ Available at `/aperio` (login: `aperio` / master token, or `APERIO_DASHBOARD_AUT
 
 ### Audit Log
 
-Logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays and TCP streams are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details — and shown in the dashboard.
+Logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays and TCP streams are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details — and shown in the dashboard. The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB, keeping `APERIO_AUDIT_MAX_FILES` generations) so it cannot fill the disk.
 
 ### Webhooks
 
