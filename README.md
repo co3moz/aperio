@@ -461,7 +461,7 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 - `ttl_seconds` defaults to 1 hour, capped at 7 days; `allowed_ips` restricts who may connect.
 - The minted token's hostname is **auto-bound** on connect — run the client with just the server URL, token, and target.
 - `DELETE /aperio/api/tunnels/:id` revokes the token (same auth), e.g. from a CI cleanup step.
-- Events appear in the audit log as `tunnel_created` / `tunnel_deleted`; webhooks receive `tunnel_created` on creation and `token_revoked` on deletion.
+- Events appear in the audit log and are delivered to webhooks as `tunnel_created` / `tunnel_deleted`.
 
 ### GitHub Action
 
@@ -518,7 +518,7 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
-Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `tunnel_created`, `share_created`, `maintenance_on`, `maintenance_off`.
+Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`.
 
 ### Access Log
 

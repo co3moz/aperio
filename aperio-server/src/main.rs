@@ -2788,7 +2788,7 @@ async fn tunnels_delete_handler(
       )
       .await;
     state
-      .emit_event("token_revoked", serde_json::json!({"id": id}))
+      .emit_event("tunnel_deleted", serde_json::json!({"id": id}))
       .await;
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {

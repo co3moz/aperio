@@ -19,7 +19,7 @@ import { splitList } from '../lib/format'
 import { EmptyRow } from './ClientsSection'
 
 const KNOWN_EVENTS =
-  'client_connected, client_disconnected, client_draining, token_created, token_revoked'
+  'client_connected, client_disconnected, client_draining, token_created, token_revoked, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off'
 
 function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)

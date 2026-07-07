@@ -21,7 +21,7 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 - The token's hostname is **auto-bound** on connect: run the client with just the server URL, the token, and the target.
 - `DELETE /aperio/api/tunnels/:id` revokes the token (same auth) — call it from your CI cleanup step.
 
-Provisioning appears in the audit log as `tunnel_created` / `tunnel_deleted`; webhooks receive `tunnel_created` on creation and `token_revoked` on deletion.
+Provisioning appears in the audit log and is delivered to webhooks as `tunnel_created` / `tunnel_deleted`.
 
 ## GitHub Action
 
