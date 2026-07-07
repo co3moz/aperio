@@ -271,6 +271,24 @@ fn client_ip_cloudflare_auto_detected() {
   );
 }
 
+#[test]
+fn cloudflare_xff_rewritten_detects_intermediate_proxy() {
+  let cf = ip("203.0.113.18");
+  // XFF was rewritten to the Cloudflare edge only → mismatch worth flagging.
+  let mut rewritten = HeaderMap::new();
+  rewritten.insert("x-forwarded-for", "162.158.19.179".parse().unwrap());
+  assert!(cloudflare_xff_rewritten(&rewritten, cf));
+  // XFF keeps the real client first (visitor, cf-edge) → consistent chain.
+  let mut ok = HeaderMap::new();
+  ok.insert(
+    "x-forwarded-for",
+    "203.0.113.18, 162.158.19.179".parse().unwrap(),
+  );
+  assert!(!cloudflare_xff_rewritten(&ok, cf));
+  // No X-Forwarded-For at all → nothing to compare, not a mismatch.
+  assert!(!cloudflare_xff_rewritten(&HeaderMap::new(), cf));
+}
+
 // --- select_client_pool -----------------------------------------------------
 
 #[test]

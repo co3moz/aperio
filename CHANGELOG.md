@@ -14,7 +14,7 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
-- Client IP resolution now consults `CF-Connecting-IP` automatically (under `trust_proxy`, after any explicit `APERIO_REAL_IP_HEADER`): behind Cloudflare an intermediate proxy such as Traefik often rewrites `X-Forwarded-For` down to the Cloudflare edge address, so audit entries, rate limiting and access logs recorded the edge IP instead of the real visitor. An explicit `APERIO_REAL_IP_HEADER` still wins, so pointing at another header (e.g. `True-Client-IP`) keeps overriding the automatic behavior.
+- Client IP resolution now consults `CF-Connecting-IP` automatically (under `trust_proxy`, after any explicit `APERIO_REAL_IP_HEADER`): behind Cloudflare an intermediate proxy such as Traefik often rewrites `X-Forwarded-For` down to the Cloudflare edge address, so audit entries, rate limiting and access logs recorded the edge IP instead of the real visitor. An explicit `APERIO_REAL_IP_HEADER` still wins, so pointing at another header (e.g. `True-Client-IP`) keeps overriding the automatic behavior. When the Cloudflare header is used *and* `X-Forwarded-For` starts with a different address (the tell-tale of an intermediate proxy that does not trust/preserve forwarded headers), the server logs a one-time warning pointing the operator at the actual fix rather than silently masking the misconfiguration.
 - The dashboard clients table now shows a client's pinned instance id (`--client-id`) as its primary identifier when set, falling back to the per-connection id; the id tooltip lists both the client id and the connection id.
 
 ### Fixed

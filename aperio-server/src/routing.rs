@@ -2,7 +2,7 @@ use axum::{extract::ws::Message, http::HeaderMap};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tracing::warn;
@@ -421,7 +421,10 @@ pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
 ///    here, even when an intermediate proxy (e.g. Traefik) rewrites
 ///    X-Forwarded-For down to its immediate peer (the Cloudflare edge). It is
 ///    consulted automatically so the common `Cloudflare → reverse proxy →
-///    aperio` chain resolves the real client without extra configuration.
+///    aperio` chain resolves the real client without extra configuration. When
+///    it is used but `X-Forwarded-For` starts with a *different* address, an
+///    intermediate proxy has clearly rewritten XFF — [`warn_if_xff_rewritten`]
+///    flags that misconfiguration once so the operator can fix the chain.
 /// 3. The first `X-Forwarded-For` entry.
 /// 4. `X-Real-IP`.
 ///
@@ -445,6 +448,7 @@ pub(crate) fn extract_client_ip(
       && let Ok(cf_str) = cf.to_str()
       && let Ok(parsed) = cf_str.trim().parse::<IpAddr>()
     {
+      warn_if_xff_rewritten(headers, parsed);
       return parsed;
     }
     if let Some(xff) = headers.get("x-forwarded-for")
@@ -462,6 +466,47 @@ pub(crate) fn extract_client_ip(
     }
   }
   fallback
+}
+
+/// Set once we have warned about a rewritten X-Forwarded-For, so the
+/// diagnostic below does not repeat on every subsequent request.
+static XFF_MISMATCH_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// True when Cloudflare's `CF-Connecting-IP` is present but `X-Forwarded-For`
+/// starts with a *different* address. A correctly configured chain keeps the
+/// real client at the front of XFF (`<visitor>, <cf-edge>`), so a mismatch
+/// means an intermediate proxy replaced XFF with its own peer. Absent or
+/// unparsable XFF is not a mismatch (nothing to compare against).
+fn cloudflare_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) -> bool {
+  headers
+    .get("x-forwarded-for")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|s| s.split(',').next())
+    .and_then(|s| s.trim().parse::<IpAddr>().ok())
+    .is_some_and(|first| first != cf_ip)
+}
+
+/// Emits a one-time warning when we fall back to `CF-Connecting-IP` because an
+/// intermediate proxy (e.g. Traefik that does not trust Cloudflare's forwarded
+/// headers) rewrote `X-Forwarded-For`. The Cloudflare header is still used for
+/// the real client IP; the warning points the operator at the actual fix.
+fn warn_if_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) {
+  if XFF_MISMATCH_WARNED.load(Ordering::Relaxed) || !cloudflare_xff_rewritten(headers, cf_ip) {
+    return;
+  }
+  if !XFF_MISMATCH_WARNED.swap(true, Ordering::Relaxed) {
+    let xff = headers
+      .get("x-forwarded-for")
+      .and_then(|v| v.to_str().ok())
+      .unwrap_or("");
+    warn!(
+      "Behind Cloudflare (CF-Connecting-IP={cf_ip}) but X-Forwarded-For ({xff}) does not start \
+       with the real client — an intermediate proxy is rewriting X-Forwarded-For to its own peer. \
+       Using the Cloudflare header for the client IP; check your reverse-proxy chain so forwarded \
+       headers are trusted and preserved (e.g. Traefik forwardedHeaders / nginx real_ip), or set \
+       APERIO_REAL_IP_HEADER explicitly."
+    );
+  }
 }
 
 #[cfg(test)]
