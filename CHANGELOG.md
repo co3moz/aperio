@@ -9,6 +9,7 @@ project follows semantic versioning per release tag.
 ### Added
 
 - Unit tests for previously unit-untested pure logic: the routing pipeline (path/hostname bind normalization and matching, random-subdomain patterns, request-host and client-IP extraction, pool selection, LB strategy and sticky affinity), the `ClientPerms`/`ClientHandle` routing accessors, the auth helpers (token extraction, IP/CIDR allowlists, constant-time compare, safe-redirect), and the settings parsers (`parse_lb_strategy`, `parse_failover_mode`, `override_keys`, `apply_settings_overrides`). 41 new tests; no behavior change.
+- E2E phases for previously thinly-covered dashboard handlers: the token API lifecycle (list, edit scope/limits/expiry/public-flag, invalid-permission and unknown-id rejections, revoke + double-revoke), the client control API (overrule validation and clearing, the enable/disable kill switch removing a client from the routing pool and restoring it), and the `aperio-client check` failure path against an unreachable server/target. No behavior change.
 
 ## [0.1.2] - 2026-07-07
 

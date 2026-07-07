@@ -5,13 +5,15 @@
 #
 #   A. base        — health, 504, proxying, dashboard APIs, tunnels API,
 #                    maintenance mode, settings API, access log, metrics,
-#                    request inspector & replay, webhooks API, audit API
+#                    request inspector & replay, webhooks API, audit API,
+#                    token API lifecycle (list/edit/revoke), client control
+#                    API (overrule + kill switch)
 #   B. auth        — visitor password: login redirect + share-link flow
 #   C. failover    — retry-wait re-dispatch after a mid-request client kill
 #   D. lb          — primary-standby tiers, then sticky sessions
-#   E. features    — positional-target CLI, check provenance, redirect
-#                    following, multi-service client, ~/.aperio.yaml layer,
-#                    per-token rate limit
+#   E. features    — positional-target CLI, check provenance & failure modes,
+#                    redirect following, multi-service client, ~/.aperio.yaml
+#                    layer, per-token rate limit
 #   F. ws          — WebSocket pass-through (upgrade + frame echo + close)
 #   G. tunnels     — emergency tunnels (tunnels: + --bind-tunnels) and the
 #                    legacy tcp bridge
@@ -362,6 +364,65 @@ step "Structured access log"
 assert_contains "$(cat "$ACCESS_LOG")" '"uri":"/hello' "access log records proxied requests"
 assert_contains "$(cat "$ACCESS_LOG")" '"token":"master"' "access log attributes the token"
 
+step "Token API lifecycle (list, edit, revoke)"
+TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"e2e-edit","hostnames":["edit.e2e.local"]}' "$BASE/aperio/api/tokens")" \
+  || fail "token creation failed"
+EDIT_ID="$(echo "$TOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$EDIT_ID" ] || fail "could not parse the token id: $TOK"
+LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tokens")"
+assert_contains "$LIST" '"name":"e2e-edit"' "token list includes the created token"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+  --data '{"hostnames":["edited.e2e.local"],"max_rps":5,"ttl_seconds":600,"allow_public":true}' \
+  "$BASE/aperio/api/tokens/${EDIT_ID}")"
+assert_status 200 "$CODE" "token scope can be edited"
+LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tokens")"
+assert_contains "$LIST" 'edited.e2e.local' "the edit updated the hostname scope"
+assert_contains "$LIST" '"allow_public":true' "the edit set the public-publish flag"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+  --data '{"hostnames":["bad host"]}' "$BASE/aperio/api/tokens/${EDIT_ID}")"
+assert_status 400 "$CODE" "an invalid hostname permission is rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+  --data '{"name":"x"}' "$BASE/aperio/api/tokens/no-such-token")"
+assert_status 404 "$CODE" "editing an unknown token returns 404"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${EDIT_ID}")"
+assert_status 200 "$CODE" "token revocation succeeds"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${EDIT_ID}")"
+assert_status 404 "$CODE" "revoking the same token twice returns 404"
+
+step "Client control API (overrule + kill switch)"
+CLIENT_ID="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats" | "$PYTHON" -c \
+  "import sys,json; print(json.load(sys.stdin)['active_clients'][0]['id'])")" \
+  || fail "could not read the client id from stats"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname_bind":"bad host"}' "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
+assert_status 400 "$CODE" "an invalid override hostname is rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"path_bind":"/x"}' "$BASE/aperio/api/clients/no-such-client/override")"
+assert_status 404 "$CODE" "overruling an unknown client returns 404"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"path_bind":"/ov"}' "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
+assert_status 200 "$CODE" "a path override can be applied"
+STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
+assert_contains "$STATS" '"override_path_bind":"/ov"' "stats reflect the applied override"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"path_bind":"","hostname_bind":""}' "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
+assert_status 200 "$CODE" "the override can be cleared"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"enabled":false}' "$BASE/aperio/api/clients/${CLIENT_ID}/enabled")"
+assert_status 200 "$CODE" "the client can be disabled (kill switch)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${HOSTNAME_BIND}" "$BASE/hello")"
+assert_status 504 "$CODE" "a disabled client no longer receives traffic"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"enabled":true}' "$BASE/aperio/api/clients/no-such-client/enabled")"
+assert_status 404 "$CODE" "toggling an unknown client returns 404"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"enabled":true}' "$BASE/aperio/api/clients/${CLIENT_ID}/enabled")"
+assert_status 200 "$CODE" "the client can be re-enabled"
+retry 10 sh -c "curl -s -H 'Host: ${HOSTNAME_BIND}' '$BASE/hello' | grep -q 'backend ${BACKEND_PORT} GET /hello'" \
+  || fail "traffic did not resume after re-enabling the client"
+echo "  ok: traffic resumes after re-enabling the client"
+
 stop_server
 
 ##############################################################################
@@ -561,6 +622,18 @@ CHECK_OUT="$(env APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
 assert_contains "$CHECK_OUT" "All checks passed" "check passes end to end"
 assert_contains "$CHECK_OUT" "(from CLI argument)" "check shows the CLI layer"
 assert_contains "$CHECK_OUT" "(from environment)" "check shows the environment layer"
+
+step "check reports failures against an unreachable server/target"
+if CHECK_FAIL="$(env APERIO_TARGET='http://127.0.0.1:19191' APERIO_TARGET_HEALTH='/health' \
+  "$CLIENT_BIN" check --server-url 'http://127.0.0.1:19191' --server-token bogus 2>&1)"; then
+  CHECK_RC=0
+else
+  CHECK_RC=$?
+fi
+assert_contains "$CHECK_FAIL" "FAIL  server health" "check flags the unreachable server"
+assert_contains "$CHECK_FAIL" "FAIL  target" "check flags the unreachable target"
+assert_contains "$CHECK_FAIL" "check(s) failed" "check summarizes the failures"
+[ "$CHECK_RC" -eq 1 ] || fail "check should exit 1 on failures (got $CHECK_RC)"
 
 step "Same-site redirect following"
 start_client redirect "$REDIR_PORT" APERIO_HOSTNAME_BIND=redir.e2e.local
