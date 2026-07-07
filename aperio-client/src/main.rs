@@ -14,7 +14,7 @@ mod tcp;
 use check::run_check;
 use config::{
   ClientSettings, CliMode, FileConfig, build_ws_url, load_file_config, load_home_config,
-  parse_bandwidth, parse_cli, resolve_settings,
+  parse_bandwidth, parse_cli, resolve_settings, resolve_sources,
 };
 
 #[cfg(test)]
@@ -55,7 +55,7 @@ async fn main() {
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
-    run_check(&settings).await;
+    run_check(&settings, &resolve_sources(&cli, &home_cfg, &file_cfg)).await;
   }
 
   // TCP bridge mode short-circuits the tunnel client entirely.

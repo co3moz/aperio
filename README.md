@@ -285,7 +285,7 @@ aperio-client --help
 
 The positional target is optional — a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. When omitted, the target comes from a config file or the environment.
 
-`aperio-client check` resolves the configuration with the usual precedence and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), the local target, and its health endpoint when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
+`aperio-client check` resolves the configuration with the usual precedence — reporting **which layer** (CLI argument, `./aperio.yaml`, environment, `~/.aperio.yaml`) supplied each value — and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), every local target (all `services:` entries in multi-service mode), and their health endpoints when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
 
 | Option | Meaning |
 | --- | --- |

@@ -37,4 +37,4 @@ Backends often answer `http://` targets with a redirect to `https://`, or bounce
 
 ## Self-diagnosis
 
-`aperio-client check` resolves the configuration with the usual precedence and verifies every hop: the server health endpoint (including a version and protocol comparison), token validity via a real tunnel handshake, the local target, and its health endpoint when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
+`aperio-client check` resolves the configuration with the usual precedence — reporting which layer (CLI argument, `./aperio.yaml`, environment, `~/.aperio.yaml`) supplied each value — and verifies every hop: the server health endpoint (including a version and protocol comparison), token validity via a real tunnel handshake, every local target (all `services:` entries in multi-service mode), and their health endpoints when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.

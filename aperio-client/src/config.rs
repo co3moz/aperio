@@ -374,6 +374,80 @@ pub(crate) struct ClientSettings {
   pub(crate) services: Vec<ServiceEntry>,
 }
 
+/// Which configuration layer supplied a value (used by `check` to explain
+/// where each setting came from).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Source {
+  Cli,
+  LocalFile,
+  Env,
+  HomeFile,
+}
+
+impl Source {
+  pub(crate) fn label(&self) -> &'static str {
+    match self {
+      Source::Cli => "CLI argument",
+      Source::LocalFile => "./aperio.yaml",
+      Source::Env => "environment",
+      Source::HomeFile => "~/.aperio.yaml",
+    }
+  }
+}
+
+/// Layer that supplied each core connection setting (None = unset anywhere).
+pub(crate) struct SettingsSources {
+  pub(crate) server: Option<Source>,
+  pub(crate) token: Option<Source>,
+  pub(crate) target: Option<Source>,
+}
+
+/// Highest-precedence layer that provides a value, mirroring `layered()`.
+fn source_of<T>(cli: bool, local: Option<&T>, env: Option<&T>, home: Option<&T>) -> Option<Source> {
+  if cli {
+    Some(Source::Cli)
+  } else if local.is_some() {
+    Some(Source::LocalFile)
+  } else if env.is_some() {
+    Some(Source::Env)
+  } else if home.is_some() {
+    Some(Source::HomeFile)
+  } else {
+    None
+  }
+}
+
+/// Reports which layer each core setting came from — the diagnostic
+/// counterpart of [`resolve_settings`], used by `aperio-client check`.
+pub(crate) fn resolve_sources(
+  cli: &CliArgs,
+  home: &FileConfig,
+  local: &FileConfig,
+) -> SettingsSources {
+  let (local_url, home_url) = (local.server_url(), home.server_url());
+  let (local_token, home_token) = (local.server_token(), home.server_token());
+  SettingsSources {
+    server: source_of(
+      cli.opts.server_url.is_some(),
+      local_url.as_ref(),
+      env2("APERIO_SERVER_URL", "APERIO_SERVER_URL").as_ref(),
+      home_url.as_ref(),
+    ),
+    token: source_of(
+      cli.opts.server_token.is_some(),
+      local_token.as_ref(),
+      env2("APERIO_SERVER_TOKEN", "APERIO_SERVER_TOKEN").as_ref(),
+      home_token.as_ref(),
+    ),
+    target: source_of(
+      cli.target.is_some(),
+      local.target.as_ref(),
+      env2("APERIO_TARGET", "APERIO_CLIENT_TARGET").as_ref(),
+      home.target.as_ref(),
+    ),
+  }
+}
+
 /// Non-empty environment lookup with a legacy alias.
 fn env2(new: &str, old: &str) -> Option<String> {
   let get = |key: &str| std::env::var(key).ok().filter(|s| !s.trim().is_empty());

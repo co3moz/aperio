@@ -6,13 +6,14 @@ use tokio_tungstenite::{
   tungstenite::{client::IntoClientRequest, http::HeaderValue},
 };
 
-use crate::config::{ClientSettings, build_http_url, build_ws_url};
+use crate::config::{ClientSettings, SettingsSources, build_http_url, build_ws_url};
 use crate::protocol::PROTOCOL_VERSION;
 
 /// `aperio-client check`: diagnoses configuration and connectivity — config
-/// resolution, server reachability and version skew, token validity, local
-/// target and health endpoint. Exits 0 when everything passes, 1 otherwise.
-pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
+/// resolution (with the layer each value came from), server reachability and
+/// version skew, token validity, local targets and the health endpoint.
+/// Exits 0 when everything passes, 1 otherwise.
+pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSources) -> ! {
   println!(
     "aperio-client {} — configuration & connectivity check\n",
     env!("CARGO_PKG_VERSION")
@@ -35,9 +36,14 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
   let token = settings.token.clone().filter(|t| !t.trim().is_empty());
   let target = settings.target.clone();
   let target_health = settings.target_health.clone();
+  let from = |src: Option<crate::config::Source>| {
+    src
+      .map(|s| format!(" (from {})", s.label()))
+      .unwrap_or_default()
+  };
 
   match &server {
-    Some(s) => pass("server url", s.clone()),
+    Some(s) => pass("server url", format!("{}{}", s, from(sources.server))),
     None => fail(
       "server url",
       "missing (--server-url / APERIO_SERVER_URL / yaml: server.url)".to_string(),
@@ -45,7 +51,7 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
     ),
   }
   match &token {
-    Some(_) => pass("token", "configured".to_string()),
+    Some(_) => pass("token", format!("configured{}", from(sources.token))),
     None => fail(
       "token",
       "missing (--server-token / APERIO_SERVER_TOKEN / yaml: server.token)".to_string(),
@@ -53,10 +59,17 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
     ),
   }
   match &target {
-    Some(t) => pass("target", t.clone()),
+    Some(t) => pass("target", format!("{}{}", t, from(sources.target))),
+    None if !settings.services.is_empty() => pass(
+      "target",
+      format!(
+        "{} service(s) configured (from ./aperio.yaml)",
+        settings.services.len()
+      ),
+    ),
     None => fail(
       "target",
-      "missing (positional argument / APERIO_TARGET / yaml: target)".to_string(),
+      "missing (positional argument / APERIO_TARGET / yaml: target / services: list)".to_string(),
       &mut failures,
     ),
   }
@@ -162,17 +175,36 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
     }
   }
 
-  // --- 4. Local target (and its health endpoint) --------------------------
-  if let Some(target) = &target {
+  // --- 4. Local targets (and their health endpoints) ----------------------
+  // Single-service mode probes the one target; multi-service mode probes
+  // every entry of the services: list.
+  let mut probes: Vec<(String, String, Option<String>)> = Vec::new();
+  if let Some(t) = &target {
+    probes.push(("target".to_string(), t.clone(), target_health.clone()));
+  } else {
+    for (i, entry) in settings.services.iter().enumerate() {
+      if let Some(t) = &entry.target {
+        let label = format!(
+          "service '{}'",
+          entry
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("services[{}]", i))
+        );
+        probes.push((label, t.clone(), entry.target_health.clone()));
+      }
+    }
+  }
+  for (label, target, health) in &probes {
     match http.get(target).send().await {
-      Ok(resp) => pass("target", format!("reachable (HTTP {})", resp.status())),
+      Ok(resp) => pass(label, format!("reachable (HTTP {})", resp.status())),
       Err(e) => fail(
-        "target",
+        label,
         format!("{target} unreachable: {e}"),
         &mut failures,
       ),
     }
-    if let Some(health_path) = &target_health {
+    if let Some(health_path) = health {
       let url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
         health_path.clone()
       } else {
@@ -182,17 +214,18 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
           health_path.trim_start_matches('/')
         )
       };
+      let health_label = format!("{label} health");
       match http.get(&url).send().await {
         Ok(resp) if resp.status().is_success() => {
-          pass("target health", format!("{url} → HTTP {}", resp.status()))
+          pass(&health_label, format!("{url} → HTTP {}", resp.status()))
         }
         Ok(resp) => fail(
-          "target health",
+          &health_label,
           format!("{url} → HTTP {}", resp.status()),
           &mut failures,
         ),
         Err(e) => fail(
-          "target health",
+          &health_label,
           format!("{url} unreachable: {e}"),
           &mut failures,
         ),
