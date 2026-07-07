@@ -8,6 +8,10 @@
 #   B. auth        — visitor password: login redirect + share-link flow
 #   C. failover    — retry-wait re-dispatch after a mid-request client kill
 #   D. lb          — primary-standby tiers, then sticky sessions
+#   E. features    — positional-target CLI, check provenance, redirect
+#                    following, multi-service client, ~/.aperio.yaml layer,
+#                    per-token rate limit
+#   F. subdomain   — same-level random subdomain pattern (*-suffix)
 #
 # Usage: bash tests/e2e.sh
 # Expects target/debug binaries (override with APERIO_SERVER_BIN/APERIO_CLIENT_BIN).
@@ -426,6 +430,155 @@ for i in 1 2 3 4 5; do
   [ "$PORT_SEEN" = "$FIRST" ] || fail "sticky request $i landed on backend $PORT_SEEN instead of $FIRST"
 done
 echo "  ok: five follow-up requests stuck to backend $FIRST"
+
+stop_server
+
+##############################################################################
+PHASE="features"
+##############################################################################
+
+REDIR_PORT=18103
+
+# Mock backend answering /r with a same-host redirect to the main backend and
+# /ext with a redirect to an unrelated domain.
+start_redirect_backend() { # <port> <target_port>
+  "$PYTHON" - "$1" "$2" <<'PYEOF' >"$LOG_DIR/backend-redirect.log" 2>&1 &
+import http.server, sys
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith('/ext'):
+            location = 'http://unrelated.invalid/'
+        else:
+            location = f'http://127.0.0.1:{sys.argv[2]}/hello'
+        self.send_response(301)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+PYEOF
+  BACKEND_PIDS+=($!)
+  retry 10 sh -c "curl -s -o /dev/null 'http://127.0.0.1:$1/ping'" \
+    || fail "redirect backend :$1 did not come up"
+}
+
+start_redirect_backend "$REDIR_PORT" "$BACKEND_PORT"
+
+step "Starting aperio-server (features configuration)"
+start_server
+
+step "Positional-target CLI form"
+"$CLIENT_BIN" "127.0.0.1:${BACKEND_PORT}" \
+  --server-url "$BASE" --server-token "$TOKEN" --hostname cli.e2e.local \
+  >"$LOG_DIR/client-features-cli.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable cli.e2e.local
+BODY="$(curl -s -H 'Host: cli.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} GET /hello" "positional target is proxied"
+
+step "check reports value provenance"
+CHECK_OUT="$(env APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
+  "$CLIENT_BIN" check --server-url "$BASE" --server-token "$TOKEN")" \
+  || fail "check exited non-zero: $CHECK_OUT"
+assert_contains "$CHECK_OUT" "All checks passed" "check passes end to end"
+assert_contains "$CHECK_OUT" "(from CLI argument)" "check shows the CLI layer"
+assert_contains "$CHECK_OUT" "(from environment)" "check shows the environment layer"
+
+step "Same-site redirect following"
+start_client redirect "$REDIR_PORT" APERIO_HOSTNAME_BIND=redir.e2e.local
+wait_routable redir.e2e.local "/r"
+BODY="$(curl -s -H 'Host: redir.e2e.local' "$BASE/r")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} GET /hello" "same-host redirect is followed transparently"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: redir.e2e.local' "$BASE/ext")"
+assert_status 301 "$CODE" "cross-site redirect passes through to the visitor"
+
+step "Multi-service client (services: list)"
+MS_CFG="$LOG_DIR/multi-service.yaml"
+cat >"$MS_CFG" <<YAML
+server:
+  url: ${BASE}
+  token: ${TOKEN}
+services:
+  - name: web
+    target: http://127.0.0.1:${BACKEND_PORT}
+    hostname: web.e2e.local
+  - name: api
+    target: http://127.0.0.1:${BACKEND2_PORT}
+    hostname: api.e2e.local
+YAML
+"$CLIENT_BIN" --config "$MS_CFG" >"$LOG_DIR/client-features-multi.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable web.e2e.local
+wait_routable api.e2e.local
+BODY="$(curl -s -H 'Host: web.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} " "service 'web' routes to its backend"
+BODY="$(curl -s -H 'Host: api.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND2_PORT} " "service 'api' routes to its backend"
+COOKIES="$LOG_DIR/cookies-features.txt"
+dashboard_login "$COOKIES"
+STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
+assert_contains "$STATS" '"service":"web"' "stats show the announced service name"
+
+step "~/.aperio.yaml user-level layer"
+HOME_DIR="$(mktemp -d)"
+cat >"$HOME_DIR/.aperio.yaml" <<YAML
+server:
+  url: ${BASE}
+  token: ${TOKEN}
+YAML
+env HOME="$HOME_DIR" USERPROFILE="$HOME_DIR" \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=home.e2e.local \
+  "$CLIENT_BIN" >"$LOG_DIR/client-features-home.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable home.e2e.local
+BODY="$(curl -s -H 'Host: home.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} " "server url/token came from ~/.aperio.yaml"
+
+step "Per-token rate limit"
+RL="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"rl","hostnames":["rl.e2e.local"],"max_rps":1}' "$BASE/aperio/api/tokens")" \
+  || fail "rate-limited token creation failed"
+RL_TOKEN="$(echo "$RL" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$RL_TOKEN" ] || fail "could not parse the token response: $RL"
+env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$RL_TOKEN" \
+  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
+  "$CLIENT_BIN" >"$LOG_DIR/client-features-rl.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable rl.e2e.local
+# Let the bucket refill after the routability probe consumed its one token,
+# so the burst below sees both a success and 429s.
+sleep 2
+RL_CODES=""
+for i in 1 2 3 4 5 6 7 8; do
+  RL_CODES="$RL_CODES $(curl -s -o /dev/null -w '%{http_code}' -H 'Host: rl.e2e.local' "$BASE/limited")"
+done
+assert_contains "$RL_CODES" "200" "some requests pass within the rate limit"
+assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
+
+stop_server
+
+##############################################################################
+PHASE="subdomain"
+##############################################################################
+
+step "Same-level random subdomain pattern"
+start_server APERIO_RANDOM_SUBDOMAIN='*-pi.e2e.local'
+TUNNEL="$(curl -sf -X POST -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+  --data '{"name":"pattern","ttl_seconds":300}' "$BASE/aperio/api/tunnels")" \
+  || fail "tunnel provisioning under the pattern failed"
+PATTERN_HOST="$(echo "$TUNNEL" | sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p')"
+case "$PATTERN_HOST" in
+  *-pi.e2e.local) echo "  ok: pattern hostname generated: $PATTERN_HOST" ;;
+  *) fail "expected a *-pi.e2e.local hostname, got: $PATTERN_HOST" ;;
+esac
+case "$PATTERN_HOST" in
+  *'*'*) fail "generated hostname still contains the placeholder: $PATTERN_HOST" ;;
+  *) echo "  ok: placeholder fully substituted" ;;
+esac
 
 stop_server
 
