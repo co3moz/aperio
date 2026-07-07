@@ -130,7 +130,7 @@ cargo build --release -p aperio-server -p aperio-client
 
 To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `APERIO_SKIP_DASHBOARD_BUILD=1`. For dashboard development, `npm run dev` in `aperio-dashboard/` serves the UI with hot reload and proxies API calls to a local server on port 8080; debug builds of the server read `dist/` from disk at runtime, so a `npm run build` is picked up without recompiling.
 
-Test coverage is measured with [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) (`cargo install cargo-llvm-cov` + `rustup component add llvm-tools-preview`): `cargo llvm-cov --workspace` prints the per-file table, `cargo llvm-cov --workspace --open` builds and opens the line-by-line HTML report. CI publishes the same report as a `coverage-report` artifact on every run.
+Test coverage is measured with [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) (`cargo install cargo-llvm-cov` + `rustup component add llvm-tools-preview`): `cargo llvm-cov --workspace` prints the per-file table, `cargo llvm-cov --workspace --open` builds and opens the line-by-line HTML report. CI goes further and merges the E2E integration run into the same report (instrumented binaries driven by `tests/e2e.sh`), publishing it as a `coverage-report` artifact on every run — that merged number is the real one, since the tunnel/proxy runtime paths are mostly exercised end-to-end rather than by unit tests.
 
 ---
 

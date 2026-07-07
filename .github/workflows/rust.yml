@@ -71,12 +71,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       # Line/region coverage of the whole workspace via rustc's LLVM
-      # source-based instrumentation. Reported, not gated: the table lands
-      # in the job summary, the full HTML report as a downloadable artifact.
-      - name: Measure coverage
+      # source-based instrumentation, merging the unit tests AND the E2E
+      # integration run into one report: `show-env` points CARGO_TARGET_DIR
+      # at the instrumented build, which tests/e2e.sh picks up, and the
+      # server/client write their profile data on the graceful SIGTERM
+      # exit — so the tunnel/proxy runtime paths count too. Reported, not
+      # gated: the table lands in the job summary, the full HTML report as
+      # a downloadable artifact.
+      - name: Measure coverage (unit tests + e2e)
         run: |
-          cargo llvm-cov --workspace --html
-          echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
+          source <(cargo llvm-cov show-env --sh)
+          cargo llvm-cov clean --workspace
+          cargo test --workspace
+          cargo build -p aperio-server -p aperio-client
+          bash tests/e2e.sh
+          cargo llvm-cov report --html --output-dir coverage-html
+          echo '## Coverage (unit tests + e2e)' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cargo llvm-cov report --summary-only >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -87,7 +97,7 @@ jobs:
         with:
           name: coverage-report
           path: |
-            target/llvm-cov/html
+            coverage-html
             lcov.info
           retention-days: 30
 
