@@ -29,8 +29,8 @@ services:
       - APERIO_SERVER_URL=http://server:8080
       # By default, attempt to forward to the host machine's port 80.
       # On Windows/macOS, use host.docker.internal to access host machine services.
-      - APERIO_CLIENT_TARGET=http://host.docker.internal:80
-      - APERIO_CLIENT_PASS_HOSTNAME=0
+      - APERIO_TARGET=http://host.docker.internal:80
+      - APERIO_PASS_HOSTNAME=0
       - LOG_LEVEL=debug
     extra_hosts:
       - "host.docker.internal:host-gateway"

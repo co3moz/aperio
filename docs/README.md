@@ -1,10 +1,11 @@
 # Aperio Documentation
 
-Short, focused articles on each part of the product. For a single-page overview and the full configuration reference, see the [main README](../README.md).
+Short, focused articles on each part of the product. For the project overview and quick start, see the [main README](../README.md).
 
 ## Getting Started
 
 - [Getting Started](getting-started.md) — expose your first local service in five minutes, with Docker or the CLI.
+- [Configuration Reference](configuration.md) — every setting on both sides: the env/CLI/yaml naming standard, precedence layers, full tables, and the HTTP endpoint list.
 
 ## Core Features
 
@@ -24,3 +25,4 @@ Short, focused articles on each part of the product. For a single-page overview 
 ## Under the Hood
 
 - [Tunnel Protocol & Advanced Features](tunnel-protocol.md) — WebSocket pass-through, chunked body streaming, binary frames, compression.
+- [Development & Releases](development.md) — building from source, tests & coverage, the release process, project conventions.

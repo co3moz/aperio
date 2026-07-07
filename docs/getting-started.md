@@ -28,7 +28,7 @@ docker run -d --name aperio-client \
   --network host \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
-  -e APERIO_CLIENT_TARGET="http://localhost:3000" \
+  -e APERIO_TARGET="http://localhost:3000" \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
@@ -46,10 +46,11 @@ If something doesn't work, run `aperio-client check`: it verifies the server's h
 
 ## More than one service?
 
-A single client process can expose several targets — put a `services:` list in `aperio.yaml` (each entry with its own `target`, `hostname`/`path`, and health probe) and the client opens one tunnel per entry. See the [main README](../README.md#multiple-services).
+A single client process can expose several targets — put a `services:` list in `aperio.yaml` (each entry with its own `target`, `hostname`/`path`, and health probe) and the client opens one tunnel per entry. See [Multiple services](configuration.md#multiple-services) in the configuration reference.
 
 ## Next steps
 
 - Put the server behind TLS and set `APERIO_TRUST_PROXY=1` — see [Tokens & Authentication](tokens-and-auth.md) for why the master token should never travel in plaintext.
 - Give each client its own hostname — see [Routing & Load Balancing](routing-and-load-balancing.md).
 - Mint scoped tokens instead of sharing the master token — see [Tokens & Authentication](tokens-and-auth.md).
+- Browse every setting on both sides — see the [Configuration Reference](configuration.md).

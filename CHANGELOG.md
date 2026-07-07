@@ -24,6 +24,7 @@ project follows semantic versioning per release tag.
 ### Changed
 
 - The experimental TCP tunneling feature (`tcp_target`, `aperio-client tcp <port>`, bare `GET /aperio/tcp`) is no longer documented and the `tcp` subcommand is hidden from `--help`; the API keeps working for existing setups. Emergency tunnels are the supported path for raw TCP access.
+- **Documentation restructure**: the README is now a short overview (intro, quick start, docs index) at ~110 lines instead of ~650. All reference material moved into `docs/`: the new [Configuration Reference](docs/configuration.md) holds the env/CLI/yaml naming standard, precedence layers, the full client and server settings tables, and the HTTP endpoint list; the new [Development & Releases](docs/development.md) holds building from source, tests & coverage, the release process, and project conventions. Examples (`.env.example`, `docker-compose.yml.example`, docs) now use the canonical `APERIO_TARGET`/`APERIO_PATH`/... names instead of the legacy `APERIO_CLIENT_*` aliases.
 
 ### Security
 
