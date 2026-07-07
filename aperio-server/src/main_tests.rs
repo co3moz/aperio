@@ -474,10 +474,10 @@ fn test_extract_client_ip_trusted() {
     "x-forwarded-for",
     HeaderValue::from_static("162.158.14.210"),
   );
-  headers.insert("cf-connecting-ip", HeaderValue::from_static("24.133.52.18"));
+  headers.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.18"));
   assert_eq!(
     extract_client_ip(&headers, direct, true, Some("cf-connecting-ip")),
-    "24.133.52.18".parse::<IpAddr>().unwrap()
+    "203.0.113.18".parse::<IpAddr>().unwrap()
   );
   // ...but only when trust_proxy is on.
   assert_eq!(
