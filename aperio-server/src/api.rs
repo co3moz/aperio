@@ -27,9 +27,22 @@ pub(crate) mod webhooks;
 #[folder = "../aperio-dashboard/dist"]
 struct DashboardAssets;
 
+/// Content-Security-Policy for the dashboard and login pages. The build emits
+/// only external module scripts and an external stylesheet (no inline script),
+/// so `script-src 'self'` holds; Radix Themes uses inline `style` attributes
+/// (needs `style-src 'unsafe-inline'`) and the app sets a `data:` favicon
+/// (needs `img-src data:`). HSTS is intentionally left to the TLS-terminating
+/// proxy so a plain-HTTP self-hosted setup is not locked to HTTPS.
+const DASHBOARD_CSP: &str = "default-src 'self'; img-src 'self' data:; \
+   font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; \
+   connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+
 /// Serves a file from the embedded dashboard build. Hashed assets are safe to
-/// cache forever; HTML entry points must always be revalidated.
+/// cache forever; HTML entry points must always be revalidated. Security
+/// headers are attached so the dashboard/login pages cannot be framed,
+/// MIME-sniffed, or leak referrers.
 pub(crate) fn serve_embedded(path: &str, immutable: bool) -> Response {
+  use axum::http::header;
   match DashboardAssets::get(path) {
     Some(file) => {
       let mime = mime_guess::from_path(path).first_or_octet_stream();
@@ -40,8 +53,12 @@ pub(crate) fn serve_embedded(path: &str, immutable: bool) -> Response {
       };
       (
         [
-          (axum::http::header::CONTENT_TYPE, mime.as_ref()),
-          (axum::http::header::CACHE_CONTROL, cache_control),
+          (header::CONTENT_TYPE, mime.as_ref()),
+          (header::CACHE_CONTROL, cache_control),
+          (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+          (header::X_FRAME_OPTIONS, "DENY"),
+          (header::REFERRER_POLICY, "no-referrer"),
+          (header::CONTENT_SECURITY_POLICY, DASHBOARD_CSP),
         ],
         file.data.into_owned(),
       )
