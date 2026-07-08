@@ -302,7 +302,8 @@ TUNNEL_ID="$(echo "$TUNNEL" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$EPHEMERAL_TOKEN" \
   APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
   "$CLIENT_BIN" >"$LOG_DIR/client-base-ephemeral.log" 2>&1 &
-CLIENT_PIDS+=($!)
+EPHEMERAL_PID=$!
+CLIENT_PIDS+=($EPHEMERAL_PID)
 wait_routable "$EPHEMERAL_HOST" "/preview"
 BODY="$(curl -s -H "Host: ${EPHEMERAL_HOST}" "$BASE/preview")"
 assert_contains "$BODY" "backend ${BACKEND_PORT} GET /preview" "ephemeral tunnel proxies to the backend"
@@ -313,6 +314,19 @@ assert_status 200 "$CODE" "tunnel revocation succeeds"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
   -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/api/tunnels/${TUNNEL_ID}")"
 assert_status 404 "$CODE" "revoking the same tunnel twice returns 404"
+
+# Stop the ephemeral client and wait for the server to drop it, so only `main`
+# stays connected. Otherwise the client-control test below reads
+# active_clients[0] non-deterministically and may disable the ephemeral client
+# (bound to its own random subdomain) rather than the one serving app.e2e.local.
+kill "$EPHEMERAL_PID" 2>/dev/null || true
+wait "$EPHEMERAL_PID" 2>/dev/null || true
+only_main_connected() {
+  test "$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats" \
+    | "$PYTHON" -c 'import sys,json; print(len(json.load(sys.stdin).get("active_clients", [])))')" -eq 1
+}
+retry 15 only_main_connected \
+  || fail "ephemeral client did not disconnect before the client-control test"
 
 step "Prometheus metrics"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/metrics")"
