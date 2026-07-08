@@ -15,9 +15,10 @@ import {
 } from '@radix-ui/themes'
 import { useState } from 'react'
 import { usePoll } from '../hooks/usePoll'
+import { useToast } from '../hooks/useToast'
 import { api, ApiError, type TokenView } from '../lib/api'
 import { formatExpiry, splitList } from '../lib/format'
-import { EmptyRow } from './ClientsSection'
+import { EmptyRow, SkeletonRows } from './ClientsSection'
 
 function BadgeList({ items, fallback, color }: { items: string[]; fallback: string; color: 'indigo' | 'gray' }) {
   const shown = items.length ? items : [fallback]
@@ -71,6 +72,7 @@ function TokenFormDialog({
   const [form, setForm] = useState<TokenFormState>(formFromToken(editing))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const openDialog = (next: boolean) => {
     if (next) {
@@ -105,6 +107,7 @@ function TokenFormDialog({
           allow_public: form.allowPublic,
         })
         onSaved()
+        toast(`Token "${editing.name}" updated`, 'green')
       } else {
         if (!form.name.trim()) {
           setError('Token name is required')
@@ -122,6 +125,7 @@ function TokenFormDialog({
         })
         onSaved()
         onCreated(created.token)
+        toast(`Token "${form.name.trim()}" created`, 'green')
       }
       setOpen(false)
     } catch (e) {
@@ -273,14 +277,16 @@ function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClos
 
 function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const revoke = async () => {
     setBusy(true)
     try {
       await api.revokeToken(token.id)
+      toast(`Token "${token.name}" revoked`, 'gray')
       onDone()
     } catch {
-      // The next poll reflects the actual store state.
+      toast(`Could not revoke token "${token.name}"`, 'red')
     } finally {
       setBusy(false)
     }
@@ -341,7 +347,9 @@ export function TokensSection() {
           </Table.Row>
         </Table.Header>
         <Table.Body>
-          {!tokens || tokens.length === 0 ? (
+          {tokens === null ? (
+            <SkeletonRows rows={4} cols={8} />
+          ) : tokens.length === 0 ? (
             <EmptyRow colSpan={8}>No dynamic tokens created</EmptyRow>
           ) : (
             tokens.map((t) => (

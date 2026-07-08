@@ -1,8 +1,9 @@
-import { ReloadIcon } from '@radix-ui/react-icons'
+import { FileTextIcon, ReloadIcon } from '@radix-ui/react-icons'
 import { Badge, Code, Flex, Heading, IconButton, Table, Text, Tooltip } from '@radix-ui/themes'
 import { usePoll } from '../hooks/usePoll'
 import { api } from '../lib/api'
-import { EmptyRow } from './ClientsSection'
+import { formatRelativeTime } from '../lib/format'
+import { EmptyRow, SkeletonRows } from './ClientsSection'
 
 export function AuditSection() {
   const { data: events, refresh } = usePoll(api.audit, 10_000)
@@ -27,15 +28,21 @@ export function AuditSection() {
           </Table.Row>
         </Table.Header>
         <Table.Body>
-          {!events || events.length === 0 ? (
-            <EmptyRow colSpan={4}>No audit events</EmptyRow>
+          {events === null ? (
+            <SkeletonRows rows={5} cols={4} />
+          ) : events.length === 0 ? (
+            <EmptyRow colSpan={4} icon={<FileTextIcon />}>
+              No audit events
+            </EmptyRow>
           ) : (
             [...events].reverse().map((ev, i) => (
               <Table.Row key={`${ev.ts}-${i}`}>
                 <Table.Cell>
-                  <Text size="2" color="gray" style={{ fontFamily: 'var(--code-font-family)' }}>
-                    {ev.timestamp}
-                  </Text>
+                  <Tooltip content={ev.timestamp}>
+                    <Text size="2" color="gray" style={{ fontFamily: 'var(--code-font-family)' }}>
+                      {formatRelativeTime(ev.ts)}
+                    </Text>
+                  </Tooltip>
                 </Table.Cell>
                 <Table.Cell>
                   <Badge color="gray">{ev.event}</Badge>

@@ -1,9 +1,18 @@
 .radix-themes {
   min-height: 100vh;
-  background-color: #0b0f19;
+  background-color: var(--color-background);
   background-image:
-    radial-gradient(at 10% 10%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
-    radial-gradient(at 90% 90%, rgba(16, 185, 129, 0.06) 0px, transparent 50%);
+    radial-gradient(at 10% 10%, color-mix(in srgb, var(--indigo-9) 12%, transparent) 0px, transparent 50%),
+    radial-gradient(at 90% 90%, color-mix(in srgb, var(--jade-9) 8%, transparent) 0px, transparent 50%);
+}
+
+/* Sticky top bar: translucent over the page background so it adapts to the
+   active light/dark appearance instead of a hard-coded dark tint. */
+.app-header {
+  z-index: 10;
+  backdrop-filter: blur(12px);
+  background-color: color-mix(in srgb, var(--color-background) 82%, transparent);
+  border-bottom: 1px solid var(--gray-a4);
 }
 
 .status-dot {
@@ -41,7 +50,7 @@
 }
 
 .inspector-pre {
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--gray-a3);
   border: 1px solid var(--gray-a5);
   border-radius: var(--radius-3);
   padding: var(--space-3);
@@ -56,4 +65,94 @@
 
 .clickable-row {
   cursor: pointer;
+}
+
+/* Keep wide tables inside their own scroll box so a narrow (mobile) viewport
+   scrolls the table horizontally instead of the whole page. */
+.rt-TableRoot {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Toast stack: fixed to the bottom-right, above everything else. */
+.toast-viewport {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  z-index: 1000;
+  width: min(360px, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+}
+
+.toast-item {
+  pointer-events: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-3);
+  border: 1px solid var(--gray-a5);
+  background-color: var(--color-panel-solid);
+  box-shadow: var(--shadow-4);
+  animation: toast-in 160ms ease-out;
+}
+
+.toast-item.toast-green {
+  border-left: 3px solid var(--green-9);
+}
+.toast-item.toast-red {
+  border-left: 3px solid var(--red-9);
+}
+.toast-item.toast-gray {
+  border-left: 3px solid var(--gray-9);
+}
+
+.toast-green .toast-icon {
+  color: var(--green-11);
+}
+.toast-red .toast-icon {
+  color: var(--red-11);
+}
+.toast-gray .toast-icon {
+  color: var(--gray-11);
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Command palette result rows. */
+.command-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.command-item:hover,
+.command-item[data-active='true'] {
+  background-color: var(--accent-a4);
+}
+
+/* Respect a reduced-motion preference: drop the looping pulse and slide-ins. */
+@media (prefers-reduced-motion: reduce) {
+  .status-dot {
+    animation: none;
+  }
+  .toast-item {
+    animation: none;
+  }
 }

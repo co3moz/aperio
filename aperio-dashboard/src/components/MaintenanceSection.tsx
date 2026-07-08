@@ -2,6 +2,7 @@ import { Cross2Icon, ExclamationTriangleIcon } from '@radix-ui/react-icons'
 import { Badge, Button, Callout, Card, Flex, Heading, IconButton, Text, TextField, Tooltip } from '@radix-ui/themes'
 import { useState, type FormEvent } from 'react'
 import { usePoll } from '../hooks/usePoll'
+import { useToast } from '../hooks/useToast'
 import { api, ApiError } from '../lib/api'
 
 /**
@@ -14,6 +15,7 @@ export function MaintenanceSection() {
   const [hostname, setHostname] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const enable = async (e: FormEvent) => {
     e.preventDefault()
@@ -24,6 +26,7 @@ export function MaintenanceSection() {
     try {
       await api.setMaintenance(value, true)
       setHostname('')
+      toast(`Maintenance enabled for ${value}`, 'gray')
       refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -35,6 +38,7 @@ export function MaintenanceSection() {
   const disable = async (host: string) => {
     try {
       await api.setMaintenance(host, false)
+      toast(`Maintenance ended for ${host}`, 'gray')
     } finally {
       refresh()
     }

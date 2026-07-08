@@ -199,6 +199,7 @@ function json(method: string, body: unknown): RequestInit {
 export const api = {
   stats: () => request<ServerStats>('/stats'),
   logs: () => request<RequestLog[]>('/logs'),
+  session: () => request<{ expires_in_seconds: number }>('/session'),
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),
@@ -231,4 +232,10 @@ export const api = {
     ),
   setMaintenance: (hostname: string, enabled: boolean) =>
     mutate('/maintenance', json('POST', { hostname, enabled })),
+}
+
+/** Ends the dashboard session. Lives at /aperio/auth/logout (outside the /api
+ *  namespace), so it bypasses the `send` helper's `/aperio/api` prefix. */
+export async function logout(): Promise<void> {
+  await fetch('/aperio/auth/logout', { method: 'POST' })
 }

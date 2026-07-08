@@ -1,4 +1,5 @@
 use axum::{
+  Json,
   body::Body,
   extract::{ConnectInfo, State},
   http::{HeaderMap, StatusCode},
@@ -111,6 +112,71 @@ pub(crate) async fn auth_login_handler(
       .body(Body::empty())
       .unwrap(),
   )
+}
+
+/// Reads the `aperio_session` value out of the Cookie header, if present.
+fn session_cookie(headers: &HeaderMap) -> Option<&str> {
+  let cookie_str = headers.get("cookie")?.to_str().ok()?;
+  cookie_str.split(';').find_map(|part| {
+    let (k, v) = part.trim().split_once('=')?;
+    (k == "aperio_session").then_some(v)
+  })
+}
+
+/// Logs out the current dashboard session: drops it from the session store and
+/// expires the cookie. Always answers 200 so a stale cookie still clears.
+pub(crate) async fn auth_logout_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Response {
+  if let Some(token) = session_cookie(&headers) {
+    state.sessions.lock().await.remove(token);
+  }
+  let secure_flag = if state.config().secure_cookies {
+    "; Secure"
+  } else {
+    ""
+  };
+  let cookie = format!(
+    "aperio_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
+    secure_flag
+  );
+  Response::builder()
+    .status(StatusCode::OK)
+    .header("Set-Cookie", cookie)
+    .body(Body::empty())
+    .unwrap()
+}
+
+/// Session status for the dashboard header ("session expires in …"). Registered
+/// behind the session middleware, so reaching it already implies a live session.
+#[derive(serde::Serialize)]
+pub(crate) struct SessionStatus {
+  /// Seconds until the current session cookie expires.
+  pub(crate) expires_in_seconds: u64,
+}
+
+pub(crate) async fn auth_session_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Response {
+  let remaining = match session_cookie(&headers) {
+    Some(token) => {
+      let sessions = state.sessions.lock().await;
+      match sessions.get(token) {
+        Some(info) => info
+          .expires_at
+          .saturating_duration_since(Instant::now())
+          .as_secs(),
+        None => 0,
+      }
+    }
+    None => 0,
+  };
+  Json(SessionStatus {
+    expires_in_seconds: remaining,
+  })
+  .into_response()
 }
 
 /// Extracts a Bearer token or `x-auth-token` value from request headers.

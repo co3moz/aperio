@@ -40,7 +40,7 @@ export function ActivityChart({ history }: { history: number[] }) {
             x2={W}
             y1={(H * i) / 3}
             y2={(H * i) / 3}
-            stroke="rgba(255, 255, 255, 0.05)"
+            stroke="var(--gray-a4)"
             strokeWidth="1"
           />
         ))}

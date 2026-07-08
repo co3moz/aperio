@@ -26,6 +26,26 @@ export function formatUptime(seconds: number): string {
   return parts.join(' ')
 }
 
+/**
+ * Renders an absolute time as a compact "12s ago" style label. Accepts either
+ * unix seconds (audit `ts`) or the server's local `%Y-%m-%d %H:%M:%S` string;
+ * returns the raw input unchanged when it cannot be parsed.
+ */
+export function formatRelativeTime(input: string | number): string {
+  const ms = typeof input === 'number' ? input * 1000 : Date.parse(input.replace(' ', 'T'))
+  if (Number.isNaN(ms)) return String(input)
+  const diff = Date.now() - ms
+  if (diff < 1000) return 'just now'
+  const s = Math.floor(diff / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ago`
+}
+
 export function formatLastPing(secondsAgo: number | null): string {
   if (secondsAgo === null || secondsAgo === undefined) return '—'
   if (secondsAgo < 1) return 'now'
@@ -68,6 +88,45 @@ export function decodeBodyPreview(
 
 export function formatHeaders(headers: [string, string][]): string {
   return headers.map(([k, v]) => `${k}: ${v}`).join('\n') || '(none)'
+}
+
+/** Single-quotes a string for safe inclusion in a POSIX shell command. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * Reconstructs an equivalent `curl` command for a captured request. The URL is
+ * rebuilt from the request's Host header (falling back to the dashboard origin)
+ * and path; a decodable, non-truncated body is included with `--data-binary`.
+ */
+export function buildCurl(
+  method: string,
+  uri: string,
+  headers: [string, string][],
+  body: string | null,
+  bodyTruncated: boolean,
+): string {
+  const host = headers.find(([k]) => k.toLowerCase() === 'host')?.[1] ?? window.location.host
+  const scheme = window.location.protocol.replace(':', '') || 'https'
+  const url = `${scheme}://${host}${uri}`
+
+  const parts = [`curl -X ${method} ${shellQuote(url)}`]
+  for (const [k, v] of headers) {
+    // Host is expressed by the URL; hop-by-hop/length headers are set by curl.
+    const lower = k.toLowerCase()
+    if (lower === 'host' || lower === 'content-length') continue
+    parts.push(`-H ${shellQuote(`${k}: ${v}`)}`)
+  }
+  if (body && !bodyTruncated) {
+    try {
+      const decoded = new TextDecoder().decode(Uint8Array.from(atob(body), (c) => c.charCodeAt(0)))
+      if (decoded) parts.push(`--data-binary ${shellQuote(decoded)}`)
+    } catch {
+      // Binary or undecodable body: omit it rather than emit garbage.
+    }
+  }
+  return parts.join(' \\\n  ')
 }
 
 /** Splits a comma separated input field into trimmed, non-empty items. */

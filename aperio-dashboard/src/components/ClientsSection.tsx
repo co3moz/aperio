@@ -1,4 +1,4 @@
-import { MixerHorizontalIcon } from '@radix-ui/react-icons'
+import { DrawingPinIcon, MagnifyingGlassIcon, MixerHorizontalIcon } from '@radix-ui/react-icons'
 import {
   AlertDialog,
   Badge,
@@ -7,12 +7,14 @@ import {
   Dialog,
   Flex,
   Heading,
+  Skeleton,
   Table,
   Text,
   TextField,
   Tooltip,
 } from '@radix-ui/themes'
 import { useState, type ReactNode } from 'react'
+import { useToast } from '../hooks/useToast'
 import { api, ApiError, type ClientDetail } from '../lib/api'
 import { formatBandwidth, formatLastPing, formatUptime } from '../lib/format'
 import { AddClientWizard } from './AddClientWizard'
@@ -54,6 +56,7 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
   const hasOverride = Boolean(client.override_hostname_bind || client.override_path_bind)
 
   const openDialog = (next: boolean) => {
@@ -71,6 +74,11 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
     try {
       await api.overrideClient(client.id, hostname.trim(), path.trim())
       setOpen(false)
+      const cleared = !hostname.trim() && !path.trim()
+      toast(
+        `${cleared ? 'Override cleared' : 'Override applied'} for ${client.id.slice(0, 8)}`,
+        'green',
+      )
       onDone()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -138,14 +146,19 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
 // requests; in-flight requests complete. Disabling asks for confirmation.
 function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const setEnabled = async (enabled: boolean) => {
     setBusy(true)
     try {
       await api.setClientEnabled(client.id, enabled)
+      toast(
+        `Client ${client.id.slice(0, 8)} ${enabled ? 'enabled' : 'disabled'}`,
+        enabled ? 'green' : 'gray',
+      )
       onDone()
     } catch {
-      // Next stats poll shows the actual state.
+      toast(`Could not update client ${client.id.slice(0, 8)}`, 'red')
     } finally {
       setBusy(false)
     }
@@ -198,15 +211,122 @@ function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => 
   )
 }
 
-function EmptyRow({ colSpan, children }: { colSpan: number; children: ReactNode }) {
+function EmptyRow({
+  colSpan,
+  icon,
+  children,
+}: {
+  colSpan: number
+  icon?: ReactNode
+  children: ReactNode
+}) {
   return (
     <Table.Row>
       <Table.Cell colSpan={colSpan}>
-        <Flex justify="center" p="5">
+        <Flex direction="column" align="center" justify="center" gap="2" p="6">
+          {icon && (
+            <Text color="gray" size="6" style={{ display: 'inline-flex', opacity: 0.6 }}>
+              {icon}
+            </Text>
+          )}
           <Text color="gray">{children}</Text>
         </Flex>
       </Table.Cell>
     </Table.Row>
+  )
+}
+
+// Placeholder shimmer rows shown while a table's first fetch is in flight, so
+// an empty grid doesn't read as "no data" before the data has arrived.
+function SkeletonRows({ rows, cols }: { rows: number; cols: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <Table.Row key={r}>
+          {Array.from({ length: cols }).map((_, c) => (
+            <Table.Cell key={c}>
+              <Skeleton>
+                <Text size="2">placeholder</Text>
+              </Skeleton>
+            </Table.Cell>
+          ))}
+        </Table.Row>
+      ))}
+    </>
+  )
+}
+
+type SortKey = 'requests' | 'connected' | 'ping'
+
+function sortValue(c: ClientDetail, key: SortKey): number {
+  if (key === 'requests') return c.request_count
+  if (key === 'connected') return c.connected_for_seconds
+  return c.last_ping_seconds_ago ?? Number.POSITIVE_INFINITY
+}
+
+// A clickable column header that drives the table sort and shows the direction.
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  sort: { key: SortKey; dir: 1 | -1 }
+  onSort: (key: SortKey) => void
+}) {
+  const active = sort.key === sortKey
+  return (
+    <Table.ColumnHeaderCell>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          font: 'inherit',
+          color: active ? 'var(--accent-11)' : 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        {label}
+        {active ? (sort.dir < 0 ? ' ↓' : ' ↑') : ''}
+      </button>
+    </Table.ColumnHeaderCell>
+  )
+}
+
+// Kill switch for every currently listed client at once, behind a confirm.
+function BulkDisableButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
+  return (
+    <AlertDialog.Root>
+      <AlertDialog.Trigger>
+        <Button size="1" variant="soft" color="red">
+          Disable all
+        </Button>
+      </AlertDialog.Trigger>
+      <AlertDialog.Content maxWidth="440px">
+        <AlertDialog.Title>Disable {count} client(s)?</AlertDialog.Title>
+        <AlertDialog.Description size="2">
+          Each stays connected but receives no new requests; in-flight requests complete. Affects
+          the clients currently listed (matching your search).
+        </AlertDialog.Description>
+        <Flex gap="3" mt="4" justify="end">
+          <AlertDialog.Cancel>
+            <Button variant="soft" color="gray">
+              Cancel
+            </Button>
+          </AlertDialog.Cancel>
+          <AlertDialog.Action>
+            <Button color="red" onClick={onConfirm}>
+              Disable all
+            </Button>
+          </AlertDialog.Action>
+        </Flex>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
   )
 }
 
@@ -217,11 +337,62 @@ export function ClientsSection({
   clients: ClientDetail[]
   onChanged: () => void
 }) {
+  const toast = useToast()
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'connected', dir: -1 })
+
+  const onSort = (key: SortKey) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: -1 }))
+
+  const needle = search.trim().toLowerCase()
+  const filtered = clients.filter(
+    (c) =>
+      !needle ||
+      (c.instance_id ?? c.id).toLowerCase().includes(needle) ||
+      c.ip.toLowerCase().includes(needle) ||
+      (c.service ?? '').toLowerCase().includes(needle) ||
+      (c.token_name ?? '').toLowerCase().includes(needle) ||
+      (c.path_bind ?? '').toLowerCase().includes(needle) ||
+      c.hostname_binds.some((h) => h.toLowerCase().includes(needle)),
+  )
+  const sorted = [...filtered].sort((a, b) => (sortValue(a, sort.key) - sortValue(b, sort.key)) * sort.dir)
+
+  const bulkSet = async (enabled: boolean) => {
+    const targets = filtered.filter((c) => c.enabled !== enabled && !c.draining)
+    if (targets.length === 0) {
+      toast(`No clients to ${enabled ? 'enable' : 'disable'}`, 'gray')
+      return
+    }
+    await Promise.allSettled(targets.map((c) => api.setClientEnabled(c.id, enabled)))
+    toast(`${targets.length} client(s) ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'green' : 'gray')
+    onChanged()
+  }
+
   return (
     <Flex direction="column" gap="3">
-      <Flex justify="between" align="center">
+      <Flex justify="between" align="center" gap="3" wrap="wrap">
         <Heading size="4">Active Tunnel Connections</Heading>
-        <AddClientWizard />
+        <Flex align="center" gap="2" wrap="wrap">
+          <TextField.Root
+            placeholder="Search clients…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 220 }}
+          >
+            <TextField.Slot>
+              <MagnifyingGlassIcon />
+            </TextField.Slot>
+          </TextField.Root>
+          {clients.length > 1 && (
+            <>
+              <BulkDisableButton count={filtered.length} onConfirm={() => void bulkSet(false)} />
+              <Button size="1" variant="soft" color="green" onClick={() => void bulkSet(true)}>
+                Enable all
+              </Button>
+            </>
+          )}
+          <AddClientWizard />
+        </Flex>
       </Flex>
       <Table.Root variant="surface">
         <Table.Header>
@@ -230,17 +401,23 @@ export function ClientsSection({
             <Table.ColumnHeaderCell>IP Address</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Hostname</Table.ColumnHeaderCell>
             <Table.ColumnHeaderCell>Path</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Last Ping</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Connected For</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Requests</Table.ColumnHeaderCell>
+            <SortHeader label="Last Ping" sortKey="ping" sort={sort} onSort={onSort} />
+            <SortHeader label="Connected For" sortKey="connected" sort={sort} onSort={onSort} />
+            <SortHeader label="Requests" sortKey="requests" sort={sort} onSort={onSort} />
             <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
           </Table.Row>
         </Table.Header>
         <Table.Body>
           {clients.length === 0 ? (
-            <EmptyRow colSpan={8}>No active client sessions</EmptyRow>
+            <EmptyRow colSpan={8} icon={<DrawingPinIcon />}>
+              No active client sessions — start a tunnel client to see it here
+            </EmptyRow>
+          ) : sorted.length === 0 ? (
+            <EmptyRow colSpan={8} icon={<MagnifyingGlassIcon />}>
+              No clients match “{search}”
+            </EmptyRow>
           ) : (
-            clients.map((c) => (
+            sorted.map((c) => (
               <Table.Row key={c.id}>
                 <Table.Cell>
                   <Flex direction="column">
@@ -370,4 +547,4 @@ export function ClientsSection({
   )
 }
 
-export { EmptyRow }
+export { EmptyRow, SkeletonRows }
