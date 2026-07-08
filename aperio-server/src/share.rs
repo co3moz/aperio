@@ -13,6 +13,7 @@ use tracing::info;
 
 use crate::routing::{
   extract_client_ip, normalize_hostname_bind, normalize_path_bind, path_matches_bind,
+  request_path_has_traversal,
 };
 use crate::state::AppState;
 
@@ -204,6 +205,12 @@ pub(crate) fn verify_share_token(token: &str, key: &[u8]) -> Option<ShareClaims>
 
 /// True when the claims cover the given request host and path.
 pub(crate) fn share_claims_cover(claims: &ShareClaims, host: Option<&str>, uri_path: &str) -> bool {
+  // A traversal segment in the request path can widen the granted scope
+  // (`/public/../admin` starts with `/public/`), so never treat such a path as
+  // covered — the request falls back to the normal login gate.
+  if request_path_has_traversal(uri_path) {
+    return false;
+  }
   if host != Some(claims.host.as_str()) {
     return false;
   }

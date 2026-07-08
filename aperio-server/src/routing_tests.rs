@@ -93,6 +93,27 @@ fn path_matches_bind_respects_segment_boundary() {
   assert!(!path_matches_bind("/", "/api"));
 }
 
+#[test]
+fn request_path_traversal_detected_literal_and_encoded() {
+  // Clean paths are not traversal.
+  assert!(!request_path_has_traversal("/public"));
+  assert!(!request_path_has_traversal("/public/page"));
+  assert!(!request_path_has_traversal("/a.b/c-d/e_f")); // dots inside a segment are fine
+
+  // Literal traversal.
+  assert!(request_path_has_traversal("/public/../admin"));
+  assert!(request_path_has_traversal("/public/./x"));
+  assert!(request_path_has_traversal("/.."));
+
+  // Single-percent-encoded traversal (a backend decodes once before resolving).
+  assert!(request_path_has_traversal("/public/%2e%2e/admin"));
+  assert!(request_path_has_traversal("/public/..%2fadmin"));
+  assert!(request_path_has_traversal("/public/%2e%2e%2fadmin"));
+
+  // Backslash separator variant.
+  assert!(request_path_has_traversal("/public\\..\\admin"));
+}
+
 // --- hostname / subdomain normalization -------------------------------------
 
 #[test]

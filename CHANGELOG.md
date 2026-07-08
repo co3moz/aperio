@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- Share links (and path-bind scope checks) no longer trust a request path containing `..`/`.` traversal segments. Because hyper/axum never normalize the request path, a share link scoped to `/public` previously matched `/public/../admin` (which starts with `/public/`) and, on a backend that resolves `..`, could reach sibling paths. The path is now checked for literal and single-percent-encoded traversal (`%2e%2e`, `..%2f`) before a share claim is considered to cover it; such requests fall back to the normal login gate.
+
 ### Added
 
 - Unit tests for previously unit-untested pure logic: the routing pipeline (path/hostname bind normalization and matching, random-subdomain patterns, request-host and client-IP extraction, pool selection, LB strategy and sticky affinity), the `ClientPerms`/`ClientHandle` routing accessors, the auth helpers (token extraction, IP/CIDR allowlists, constant-time compare, safe-redirect), and the settings parsers (`parse_lb_strategy`, `parse_failover_mode`, `override_keys`, `apply_settings_overrides`). 41 new tests; no behavior change.

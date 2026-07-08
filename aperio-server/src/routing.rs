@@ -59,6 +59,45 @@ pub(crate) fn path_matches_bind(uri_path: &str, bind: &str) -> bool {
   uri_path == bind || uri_path.starts_with(&format!("{}/", bind))
 }
 
+/// Decodes single-level percent-encoding in a path (`%2e` → `.`, `%2f` → `/`),
+/// mirroring the one decode a backend performs before resolving the path.
+/// Undecodable/invalid `%XX` sequences are left as-is.
+fn percent_decode_once(s: &str) -> String {
+  let bytes = s.as_bytes();
+  let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+  let mut i = 0;
+  while i < bytes.len() {
+    if bytes[i] == b'%' && i + 2 < bytes.len() {
+      let hi = (bytes[i + 1] as char).to_digit(16);
+      let lo = (bytes[i + 2] as char).to_digit(16);
+      if let (Some(h), Some(l)) = (hi, lo) {
+        out.push((h * 16 + l) as u8);
+        i += 3;
+        continue;
+      }
+    }
+    out.push(bytes[i]);
+    i += 1;
+  }
+  String::from_utf8_lossy(&out).into_owned()
+}
+
+/// True when a request path contains a `.`/`..` traversal segment, either
+/// literally or single-percent-encoded (`%2e%2e`, `..%2f`, `%2e%2e/`). Path
+/// binds themselves forbid traversal ([`normalize_path_bind`]), but the
+/// *request* path is never normalized by hyper/axum, so a scope check that
+/// trusts it (share links, path-bind routing) could otherwise be widened with
+/// `..` (`/public/../admin` starts with `/public/`). Both `/` and `\` are
+/// treated as separators.
+pub(crate) fn request_path_has_traversal(path: &str) -> bool {
+  let decoded = percent_decode_once(path);
+  [path, decoded.as_str()].iter().any(|candidate| {
+    candidate
+      .split(['/', '\\'])
+      .any(|seg| seg == ".." || seg == ".")
+  })
+}
+
 /// Normalizes a hostname bind: lowercases, trims whitespace, strips a
 /// trailing dot and an optional port suffix. Returns `None` for empty values
 /// or values containing characters outside the DNS-safe set.
