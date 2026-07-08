@@ -1,8 +1,9 @@
-import { PlayIcon } from '@radix-ui/react-icons'
+import { CheckIcon, CopyIcon, PlayIcon } from '@radix-ui/react-icons'
 import { Button, Callout, Dialog, Flex, Text, Tooltip } from '@radix-ui/themes'
 import { useEffect, useState } from 'react'
+import { useToast } from '../hooks/useToast'
 import { api, ApiError, type CapturedRequest } from '../lib/api'
-import { decodeBodyPreview, formatHeaders } from '../lib/format'
+import { buildCurl, decodeBodyPreview, formatHeaders } from '../lib/format'
 
 function Section({ label, content }: { label: string; content: string }) {
   return (
@@ -21,11 +22,14 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
   const [error, setError] = useState<string | null>(null)
   const [replayResult, setReplayResult] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     setDetail(null)
     setError(null)
     setReplayResult(null)
+    setCopied(false)
     if (!id) return
     api
       .requestDetail(id)
@@ -38,6 +42,24 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
         )
       })
   }, [id])
+
+  const copyCurl = async () => {
+    if (!detail) return
+    const curl = buildCurl(
+      detail.method,
+      detail.uri,
+      detail.req_headers,
+      detail.req_body,
+      detail.req_body_truncated,
+    )
+    try {
+      await navigator.clipboard.writeText(curl)
+      setCopied(true)
+      toast('Copied cURL to clipboard', 'green')
+    } catch {
+      toast('Clipboard unavailable', 'red')
+    }
+  }
 
   const replay = async () => {
     if (!detail) return
@@ -68,23 +90,30 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               : 'Request Detail'}
           </Dialog.Title>
           {detail && (
-            <Tooltip
-              content={
-                detail.req_body_truncated
-                  ? 'Body truncated at capture; cannot replay'
-                  : 'Send this request through the tunnel again'
-              }
-            >
-              <Button
-                size="1"
-                variant="soft"
-                disabled={detail.req_body_truncated}
-                loading={replaying}
-                onClick={replay}
+            <Flex gap="2" align="center" flexShrink="0">
+              <Tooltip content="Copy an equivalent curl command">
+                <Button size="1" variant="soft" color="gray" onClick={copyCurl}>
+                  {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy as cURL'}
+                </Button>
+              </Tooltip>
+              <Tooltip
+                content={
+                  detail.req_body_truncated
+                    ? 'Body truncated at capture; cannot replay'
+                    : 'Send this request through the tunnel again'
+                }
               >
-                <PlayIcon /> Replay
-              </Button>
-            </Tooltip>
+                <Button
+                  size="1"
+                  variant="soft"
+                  disabled={detail.req_body_truncated}
+                  loading={replaying}
+                  onClick={replay}
+                >
+                  <PlayIcon /> Replay
+                </Button>
+              </Tooltip>
+            </Flex>
           )}
         </Flex>
         <Dialog.Description size="1" color="gray" mt="1">

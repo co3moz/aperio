@@ -5,6 +5,30 @@ fn ip(s: &str) -> IpAddr {
   s.parse().unwrap()
 }
 
+// --- session cookie ---------------------------------------------------------
+
+#[test]
+fn session_cookie_parses_named_value_among_others() {
+  let mut h = HeaderMap::new();
+  h.insert(
+    "cookie",
+    "foo=1; aperio_session=abc-123; bar=2".parse().unwrap(),
+  );
+  assert_eq!(session_cookie(&h), Some("abc-123"));
+
+  // Only the aperio_session cookie is returned; other cookies are ignored.
+  let mut other = HeaderMap::new();
+  other.insert("cookie", "foo=1; bar=2".parse().unwrap());
+  assert_eq!(session_cookie(&other), None);
+
+  // A leading cookie without spaces is still matched after trimming.
+  let mut lead = HeaderMap::new();
+  lead.insert("cookie", "aperio_session=xyz".parse().unwrap());
+  assert_eq!(session_cookie(&lead), Some("xyz"));
+
+  assert_eq!(session_cookie(&HeaderMap::new()), None);
+}
+
 // --- token extraction -------------------------------------------------------
 
 #[test]

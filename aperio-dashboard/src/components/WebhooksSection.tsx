@@ -14,9 +14,10 @@ import {
 } from '@radix-ui/themes'
 import { useState } from 'react'
 import { usePoll } from '../hooks/usePoll'
+import { useToast } from '../hooks/useToast'
 import { api, ApiError, type Webhook } from '../lib/api'
 import { splitList } from '../lib/format'
-import { EmptyRow } from './ClientsSection'
+import { EmptyRow, SkeletonRows } from './ClientsSection'
 
 const KNOWN_EVENTS =
   'client_connected, client_disconnected, client_draining, token_created, token_revoked, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off'
@@ -28,6 +29,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const [events, setEvents] = useState('*')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const openDialog = (next: boolean) => {
     if (next) {
@@ -45,6 +47,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
     try {
       await api.createWebhook({ name: name.trim(), url: url.trim(), events: splitList(events) })
       setOpen(false)
+      toast(`Webhook "${name.trim()}" added`, 'green')
       onCreated()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -110,9 +113,11 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
 }
 
 function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => void }) {
+  const toast = useToast()
   const remove = async () => {
     try {
       await api.deleteWebhook(hook.id)
+      toast(`Webhook "${hook.name}" deleted`, 'gray')
     } finally {
       onDone()
     }
@@ -166,7 +171,9 @@ export function WebhooksSection() {
           </Table.Row>
         </Table.Header>
         <Table.Body>
-          {!hooks || hooks.length === 0 ? (
+          {hooks === null ? (
+            <SkeletonRows rows={3} cols={4} />
+          ) : hooks.length === 0 ? (
             <EmptyRow colSpan={4}>No webhooks defined</EmptyRow>
           ) : (
             hooks.map((h) => (

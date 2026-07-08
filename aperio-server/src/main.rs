@@ -42,8 +42,8 @@ use crate::api::webhooks::{
 };
 use crate::api::{dashboard_asset_handler, dashboard_handler, health_handler};
 use crate::auth::{
-  auth_login_handler, auth_page_handler, oidc_callback_handler, oidc_login_handler,
-  safe_redirect_path, validate_session,
+  auth_login_handler, auth_logout_handler, auth_page_handler, auth_session_handler,
+  oidc_callback_handler, oidc_login_handler, safe_redirect_path, validate_session,
 };
 use crate::proxy::proxy_handler;
 use crate::routing::normalize_random_subdomain_pattern;
@@ -527,6 +527,7 @@ async fn main() {
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
       .route("/api/logs", get(logs_handler))
+      .route("/api/session", get(auth_session_handler))
       .route(
         "/api/clients/:id/override",
         axum::routing::post(client_override_handler),
@@ -617,6 +618,12 @@ async fn main() {
   app = app.route(
     "/aperio/auth",
     get(auth_page_handler).post(auth_login_handler),
+  );
+  // Logout clears the session server-side and expires the cookie. Registered
+  // outside the dashboard session middleware so it works with any cookie state.
+  app = app.route(
+    "/aperio/auth/logout",
+    axum::routing::post(auth_logout_handler),
   );
   // Programmatic tunnel provisioning. Registered outside the dashboard
   // session middleware on purpose: it authenticates with the master token in
