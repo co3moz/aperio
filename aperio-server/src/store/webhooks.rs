@@ -34,11 +34,22 @@ pub struct WebhookStore {
 impl WebhookStore {
   pub fn load(data_dir: &str) -> Self {
     let path = PathBuf::from(data_dir).join("webhooks.json");
-    let webhooks = std::fs::read_to_string(&path)
-      .ok()
-      .and_then(|raw| serde_json::from_str::<WebhookFile>(&raw).ok())
-      .map(|f| f.webhooks)
-      .unwrap_or_default();
+    let webhooks = match std::fs::read_to_string(&path) {
+      Ok(raw) => match serde_json::from_str::<WebhookFile>(&raw) {
+        Ok(file) => file.webhooks,
+        Err(e) => {
+          // Preserve the unparseable file instead of silently discarding every
+          // webhook (the next write would overwrite it with an empty store).
+          let backup = crate::store::backup_corrupt(&path);
+          error!(
+            "Failed to parse {:?}: {} — backed up to {:?}, starting with no webhooks",
+            path, e, backup
+          );
+          Vec::new()
+        }
+      },
+      Err(_) => Vec::new(),
+    };
     if !webhooks.is_empty() {
       info!("Loaded {} webhook(s) from {:?}", webhooks.len(), path);
     }
@@ -51,7 +62,7 @@ impl WebhookStore {
     };
     match serde_json::to_string_pretty(&file) {
       Ok(json) => {
-        if let Err(e) = std::fs::write(&self.path, json) {
+        if let Err(e) = crate::store::atomic_write(&self.path, json.as_bytes()) {
           error!("Failed to persist webhooks to {:?}: {}", self.path, e);
         }
       }

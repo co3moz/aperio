@@ -40,6 +40,7 @@ project follows semantic versioning per release tag.
 ### Fixed
 
 - The client-id cell tooltip in the dashboard clients table no longer misrenders/overflows: it wrapped the whole cell (including the nested status badges, each with their own tooltip), so hovering produced a broken oversized overlay. The tooltip now wraps only the id text.
+- The dynamic-token and webhook JSON stores are now written atomically (temp file + fsync + rename) instead of a truncating in-place write, so a crash mid-write can no longer corrupt them. A store file that fails to parse on load is renamed aside as `<name>.corrupt.<epoch>` and preserved for recovery instead of being silently discarded (and then overwritten with an empty store on the next write).
 
 ## [0.1.2] - 2026-07-07
 

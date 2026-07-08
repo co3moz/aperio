@@ -76,9 +76,13 @@ impl TokenStore {
       Ok(raw) => match serde_json::from_str::<TokenFile>(&raw) {
         Ok(file) => file.tokens,
         Err(e) => {
+          // Preserve the unparseable file instead of silently discarding every
+          // token (the next write would otherwise overwrite it with an empty
+          // store). An operator can inspect/restore the backup.
+          let backup = crate::store::backup_corrupt(&path);
           error!(
-            "Failed to parse {:?}: {} — starting with empty token store",
-            path, e
+            "Failed to parse {:?}: {} — backed up to {:?}, starting with empty token store",
+            path, e, backup
           );
           Vec::new()
         }
@@ -102,7 +106,7 @@ impl TokenStore {
     };
     match serde_json::to_string_pretty(&file) {
       Ok(json) => {
-        if let Err(e) = std::fs::write(&self.path, json) {
+        if let Err(e) = crate::store::atomic_write(&self.path, json.as_bytes()) {
           error!("Failed to persist token store to {:?}: {}", self.path, e);
         }
       }
@@ -279,6 +283,32 @@ mod tests {
     assert!(store3.verify(&secret).is_none());
     let store4 = TokenStore::load(&dir);
     assert!(store4.list().is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_corrupt_token_file_is_backed_up_not_discarded() {
+    let dir = temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = std::path::PathBuf::from(&dir).join("tokens.json");
+    std::fs::write(&path, "{ this is not valid json").unwrap();
+
+    // Loading a corrupt store starts empty but must not overwrite the bad file.
+    let store = TokenStore::load(&dir);
+    assert!(store.list().is_empty());
+
+    // The original file was renamed aside as <name>.corrupt.<epoch>.
+    let backups: Vec<_> = std::fs::read_dir(&dir)
+      .unwrap()
+      .filter_map(|e| e.ok())
+      .filter(|e| {
+        e.file_name()
+          .to_string_lossy()
+          .starts_with("tokens.json.corrupt.")
+      })
+      .collect();
+    assert_eq!(backups.len(), 1, "corrupt file should be preserved");
 
     let _ = std::fs::remove_dir_all(&dir);
   }
