@@ -10,10 +10,7 @@ fn ip(s: &str) -> IpAddr {
 #[test]
 fn session_cookie_parses_named_value_among_others() {
   let mut h = HeaderMap::new();
-  h.insert(
-    "cookie",
-    "foo=1; aperio_session=abc-123; bar=2".parse().unwrap(),
-  );
+  h.insert("cookie", "foo=1; aperio_session=abc-123; bar=2".parse().unwrap());
   assert_eq!(session_cookie(&h), Some("abc-123"));
 
   // Only the aperio_session cookie is returned; other cookies are ignored.
