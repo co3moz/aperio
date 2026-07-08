@@ -214,13 +214,16 @@ impl TokenStore {
   }
 
   /// Verifies a presented secret against the store. Returns the matching
-  /// non-expired token record, if any.
+  /// non-expired token record, if any. The stored/derived hashes are compared
+  /// in constant time; comparing SHA-256 hashes (not the secret) is already low
+  /// risk, but this keeps the comparison consistent with the master-token path
+  /// and avoids a future timing regression.
   pub fn verify(&self, secret: &str) -> Option<&ApiToken> {
     let hash = hash_token(secret);
     self
       .tokens
       .iter()
-      .find(|t| t.token_hash == hash && !t.is_expired())
+      .find(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())
   }
 }
 

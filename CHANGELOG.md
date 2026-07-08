@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- Dynamic API tokens are now verified with a constant-time hash comparison instead of `==`. Comparing SHA-256 hashes (not the raw secret) was already low risk, but this keeps the token path consistent with the constant-time master-token check and forecloses a future timing regression.
 - The dashboard and login pages are now served with security headers: `Content-Security-Policy` (`default-src 'self'` with `data:` images/fonts and inline styles for Radix, no inline scripts), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`. Only the embedded dashboard/login responses are affected — proxied sites keep their backend's own headers. HSTS is intentionally left to the TLS-terminating proxy so a plain-HTTP self-hosted setup is not locked to HTTPS.
 - Share links (and path-bind scope checks) no longer trust a request path containing `..`/`.` traversal segments. Because hyper/axum never normalize the request path, a share link scoped to `/public` previously matched `/public/../admin` (which starts with `/public/`) and, on a backend that resolves `..`, could reach sibling paths. The path is now checked for literal and single-percent-encoded traversal (`%2e%2e`, `..%2f`) before a share claim is considered to cover it; such requests fall back to the normal login gate.
 
