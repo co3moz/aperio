@@ -24,6 +24,7 @@ mod settings;
 mod share;
 mod state;
 mod store;
+mod telemetry;
 mod tunnel;
 
 use crate::api::clients::{
@@ -76,19 +77,14 @@ async fn main() {
     return;
   }
 
-  // Initialize tracing with structured JSON output (pino.js style)
+  // Initialize tracing with structured JSON output (pino.js style), plus the
+  // optional OpenTelemetry OTLP export layer (APERIO_OTEL). The returned guard
+  // flushes buffered spans on graceful shutdown.
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     tracing_subscriber::EnvFilter::new(level)
   });
-
-  tracing_subscriber::fmt()
-    .json()
-    .with_current_span(false)
-    .with_span_list(false)
-    .flatten_event(true)
-    .with_env_filter(log_filter)
-    .init();
+  let otel_guard = telemetry::init(log_filter);
 
   info!("Starting Aperio Server...");
 
@@ -696,6 +692,9 @@ async fn main() {
 
   // Final stats flush so nothing recorded since the last tick is lost.
   shutdown_state.persistent_stats.lock().await.save_if_dirty();
+
+  // Flush any buffered OTLP spans before exit.
+  otel_guard.shutdown();
 }
 
 /// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::oneshot;
-use tracing::{error, warn};
+use tracing::{Instrument, error, warn};
 
 use crate::access_log::{log_request_failure, log_request_success};
 use crate::auth::{safe_redirect_path, validate_session};
@@ -25,6 +25,7 @@ use crate::state::{
   AppState, CAPTURE_BODY_LIMIT, CAPTURE_MAX_ENTRIES, CapturedRequest, PendingRequest,
   REQUEST_STREAM_THRESHOLD, TunnelResponse,
 };
+use crate::telemetry;
 
 pub(crate) mod ws;
 
@@ -119,9 +120,40 @@ pub(crate) async fn proxy_handler(
 
   // --- Normal HTTP proxy below ---
 
+  // Per-request OpenTelemetry span (no-op export when APERIO_OTEL is off). The
+  // span adopts any incoming W3C trace context as its parent; its own context
+  // is forwarded through the tunnel so the backend continues the trace.
+  let host_for_span = extract_request_host(&headers);
+  let span = telemetry::request_span(
+    &headers,
+    method.as_str(),
+    uri.path(),
+    host_for_span.as_deref(),
+  );
+  let trace_headers = telemetry::trace_headers(&span);
+  let body = req.into_body();
+  let response = proxy_http_request(state, method, uri, headers, body, caller_ip, trace_headers)
+    .instrument(span.clone())
+    .await;
+  telemetry::record_status(&span, response.status().as_u16());
+  response
+}
+
+/// Forwards a buffered/streamed HTTP request over the tunnel and maps the
+/// response back. Split out of [`proxy_handler`] so the whole flow runs inside
+/// one instrumented request span.
+#[allow(clippy::too_many_arguments)]
+async fn proxy_http_request(
+  state: Arc<AppState>,
+  method: Method,
+  uri: axum::http::Uri,
+  headers: HeaderMap,
+  body: Body,
+  caller_ip: std::net::IpAddr,
+  trace_headers: Vec<(String, String)>,
+) -> Response {
   let method_str = method.to_string();
   let uri_str = uri.to_string();
-  let body = req.into_body();
   let start_time = Instant::now();
 
   // 1. Per-IP Rate Limiting (Token Bucket)
@@ -281,6 +313,10 @@ pub(crate) async fn proxy_handler(
     }
   };
 
+  // Attribute the request span to the selected client (initial pick; failover
+  // may re-dispatch to another client below).
+  tracing::Span::current().record("aperio.client.id", selected.id.as_str());
+
   // Per-token rate limit / daily quota of the serving token (dynamic tokens
   // only). Enforced once at admission; failover re-dispatches of an already
   // admitted request are not double-counted.
@@ -373,9 +409,19 @@ pub(crate) async fn proxy_handler(
   // Map headers (preserve duplicates by collecting into a Vec).
   // Filter out internal aperio session cookies to prevent leaking dashboard
   // session tokens to tunnel clients.
+  // When OTLP export is on we replace any inbound W3C trace headers with this
+  // span's context; when off, `trace_headers` is empty and inbound headers
+  // pass through unchanged.
+  let inject_trace = !trace_headers.is_empty();
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
+      if inject_trace {
+        let k_lower = k.as_str().to_ascii_lowercase();
+        if k_lower == "traceparent" || k_lower == "tracestate" {
+          continue;
+        }
+      }
       if k.as_str() == "cookie" {
         let filtered: String = val_str
           .split(';')
@@ -397,6 +443,8 @@ pub(crate) async fn proxy_handler(
       serialized_headers.push((k.to_string(), val_str.to_string()));
     }
   }
+  // Forward this span's trace context to the backend (empty when OTLP is off).
+  serialized_headers.extend(trace_headers);
 
   // Capture (truncated) request data for the dashboard inspector before the
   // originals are moved into the tunnel message. Streamed bodies are not

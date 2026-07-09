@@ -23,3 +23,15 @@ chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 url = "2.5"
 flate2 = "1"
+# OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Uses the HTTP/protobuf
+# exporter over reqwest+rustls to reuse the existing TLS stack (no tonic/openssl).
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = [
+  "trace",
+  "http-proto",
+  "reqwest-client",
+  "reqwest-rustls",
+] }
+tracing-opentelemetry = "0.33"
+opentelemetry-semantic-conventions = "0.32"

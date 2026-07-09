@@ -1,6 +1,6 @@
 # Observability
 
-Aperio exposes what it is doing through four channels: metrics for dashboards and alerting, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
+Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
 ## Prometheus metrics
 
@@ -20,6 +20,22 @@ scrape_configs:
 Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`, `aperio_requests_failed_total`, `aperio_bytes_transferred_total`, `aperio_connected_clients`, `aperio_pending_requests`, `aperio_ws_streams_active`, `aperio_uptime_seconds`, and per-client `aperio_client_requests_total{client_id=...}`.
 
 Request latency is exposed as the `aperio_request_duration_seconds` histogram (buckets from 5 ms to 30 s), so p95/p99 can be plotted in Grafana with the usual `histogram_quantile(0.99, rate(aperio_request_duration_seconds_bucket[5m]))` query.
+
+## Distributed tracing (OpenTelemetry)
+
+Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
+
+```bash
+APERIO_OTEL=1
+APERIO_OTEL_ENDPOINT=http://otel-collector:4318   # base URL; /v1/traces is appended automatically
+APERIO_OTEL_SERVICE_NAME=aperio-server            # optional, defaults to "aperio-server"
+```
+
+The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
+
+**Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace — the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
+
+> **Note:** enabling the OTLP exporter compiles `aws-lc-sys`/rustls into the build, which needs a C toolchain (and CMake) at build time. Prebuilt release binaries already include it.
 
 ## Access log
 

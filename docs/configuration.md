@@ -185,6 +185,9 @@ Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, 
 | `APERIO_AUDIT_MAX_SIZE` | Rotate `audit.jsonl` once it exceeds this many bytes (`0` = never rotate). | `10485760` (10 MB) |
 | `APERIO_AUDIT_MAX_FILES` | Rotated audit generations to keep (`audit.jsonl.1` … `.N`; `0` = truncate instead of keeping history). | `3` |
 | `APERIO_ACCESS_LOG` | File path for the structured access log: one JSON line per proxied request (`request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, `error`) — directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured `aperio_access` tracing events. | — |
+| `APERIO_OTEL` | `1` = export one OTLP span per proxied request to an OpenTelemetry collector (adopts inbound W3C `traceparent`, propagates its own context to the backend). | `0` |
+| `APERIO_OTEL_ENDPOINT` | OTLP/HTTP collector base URL (`/v1/traces` is appended if absent). Falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`. | `http://localhost:4318` |
+| `APERIO_OTEL_SERVICE_NAME` | `service.name` reported on exported spans. Falls back to `OTEL_SERVICE_NAME`. | `aperio-server` |
 
 ### Authentication & dashboard
 
