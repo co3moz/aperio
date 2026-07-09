@@ -13,6 +13,7 @@ fn base_handle() -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     tx,
+    disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
     connected_at: std::time::Instant::now(),
     client_ip: "127.0.0.1".to_string(),
     request_count: Arc::new(AtomicU64::new(0)),

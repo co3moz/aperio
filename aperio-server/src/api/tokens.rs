@@ -333,8 +333,9 @@ pub(crate) async fn tokens_update_handler(
   }
 }
 
-/// Revokes (deletes) a dynamic token. Existing tunnel connections that used
-/// the token stay connected; only new connections are rejected.
+/// Revokes (deletes) a dynamic token and drops any tunnel connections that are
+/// currently using it — a revoked token could otherwise keep serving traffic
+/// until the client next reconnected (when it would be rejected anyway).
 pub(crate) async fn tokens_revoke_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -351,8 +352,30 @@ pub(crate) async fn tokens_revoke_handler(
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);
+    // Force-disconnect every live client that connected with this token; their
+    // read loops end and they leave the routing pool immediately.
+    let mut dropped = 0usize;
+    {
+      let clients = state.clients.lock().await;
+      for handle in clients.values() {
+        if handle.perms.token_id.as_deref() == Some(id.as_str()) {
+          handle.disconnect.notify_one();
+          dropped += 1;
+        }
+      }
+    }
+    if dropped > 0 {
+      info!(
+        "Disconnecting {} live client(s) using the revoked token {}",
+        dropped, id
+      );
+    }
     state
-      .audit("token_revoked", &actor_ip, &format!("id={}", id))
+      .audit(
+        "token_revoked",
+        &actor_ip,
+        &format!("id={} disconnected_clients={}", id, dropped),
+      )
       .await;
     state
       .emit_event("token_revoked", serde_json::json!({"id": id}))

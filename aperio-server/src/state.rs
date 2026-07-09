@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore, broadcast, mpsc, oneshot, watch};
+use tokio::sync::{Mutex, Notify, Semaphore, broadcast, mpsc, oneshot, watch};
 
 use crate::oidc;
 use crate::store::audit::AuditLog;
@@ -172,6 +172,10 @@ pub(crate) const REQUEST_STREAM_THRESHOLD: u64 = 256 * 1024;
 pub(crate) struct ClientHandle {
   /// Sender channel to push messages to the client.
   pub(crate) tx: mpsc::Sender<Message>,
+  /// Notified to force this connection's read loop to end (e.g. when the token
+  /// it connected with is revoked), so the client leaves the routing pool at
+  /// once instead of serving until it next reconnects.
+  pub(crate) disconnect: Arc<Notify>,
   /// Instant when client connection was established.
   pub(crate) connected_at: Instant,
   /// Client remote IP address.

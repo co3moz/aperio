@@ -316,6 +316,7 @@ async fn test_proxy_handler_success() {
     "mock-client-1".to_string(),
     ClientHandle {
       tx: tx_write,
+      disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
       connected_at: Instant::now(),
       client_ip: "127.0.0.1".to_string(),
       request_count: client_req_count,
@@ -548,6 +549,7 @@ fn mock_client(
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     tx,
+    disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
     connected_at: Instant::now(),
     client_ip: "127.0.0.1".to_string(),
     request_count: Arc::new(AtomicU64::new(0)),

@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- Revoking a dynamic token now **immediately drops any tunnel connections currently using it**, instead of letting them keep serving traffic until they next reconnected (when they would be rejected anyway). The disconnected client leaves the routing pool at once, and its reconnect attempts are refused with the usual 401.
+
 ### Changed
 
 - A tunnel connection rejected by the server for a bad/expired/revoked token now logs an explicit **authentication failure** (with the HTTP 401/403 status and where to check the token) instead of dumping the raw HTTP response struct, so the cause is obvious in the client logs.

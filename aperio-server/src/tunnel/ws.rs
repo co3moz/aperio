@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::{Notify, Semaphore, mpsc};
 use tracing::{debug, error, info, warn};
 
 use crate::auth::authorize_tunnel_token;
@@ -233,6 +233,9 @@ pub(crate) async fn handle_socket(
     assigned_hostnames.push(h.clone());
   }
 
+  // Signalled to force this connection's read loop to end (e.g. token revoke).
+  let disconnect = Arc::new(Notify::new());
+
   // Register active client
   {
     let mut clients = state.clients.lock().await;
@@ -240,6 +243,7 @@ pub(crate) async fn handle_socket(
       client_id.clone(),
       ClientHandle {
         tx: tx_write.clone(),
+        disconnect: disconnect.clone(),
         connected_at: Instant::now(),
         client_ip: client_ip.clone(),
         request_count: client_req_count.clone(),
@@ -304,8 +308,16 @@ pub(crate) async fn handle_socket(
     .saturating_mul(4)
     .max(8 * 1024 * 1024);
 
-  // Read loop
-  while let Some(result) = ws_receiver.next().await {
+  // Read loop. Ends on the client closing the socket, or when `disconnect` is
+  // signalled (e.g. the token this client connected with was revoked), which
+  // yields `None` so the loop falls through to the normal cleanup below.
+  while let Some(result) = tokio::select! {
+    msg = ws_receiver.next() => msg,
+    _ = disconnect.notified() => {
+      info!("Force-disconnecting tunnel client {} (server request, e.g. token revoked)", client_id);
+      None
+    }
+  } {
     match result {
       Ok(msg) => {
         let text_opt = match msg {
