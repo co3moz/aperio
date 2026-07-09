@@ -115,6 +115,11 @@ fn request_path_traversal_detected_literal_and_encoded() {
 
   // Backslash separator variant.
   assert!(request_path_has_traversal("/public\\..\\admin"));
+
+  // Encoded traversal at the very end of the path (the `%XX` bounds check
+  // must still decode a sequence whose last byte is the final byte).
+  assert!(request_path_has_traversal("/public/%2e%2e"));
+  assert!(request_path_has_traversal("/public/.%2e"));
 }
 
 // --- hostname / subdomain normalization -------------------------------------
