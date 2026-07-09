@@ -35,7 +35,8 @@ use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler}
 use crate::api::metrics::metrics_handler;
 use crate::api::settings::{settings_get_handler, settings_put_handler};
 use crate::api::tokens::{
-  tokens_create_handler, tokens_list_handler, tokens_revoke_handler, tokens_update_handler,
+  tokens_create_handler, tokens_list_handler, tokens_refresh_handler, tokens_revoke_handler,
+  tokens_update_handler,
 };
 use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
 use crate::api::webhooks::{
@@ -680,6 +681,13 @@ async fn main() {
   // session middleware on purpose: it authenticates with the master token in
   // a header (or a session cookie), so CI jobs can mint ephemeral tunnels
   // even when the dashboard is disabled.
+  // Token self-refresh. Also outside the session middleware: it authenticates
+  // with the token secret itself, so a CI job or client can keep its
+  // short-lived token alive without dashboard credentials.
+  app = app.route(
+    "/aperio/api/tokens/refresh",
+    axum::routing::post(tokens_refresh_handler),
+  );
   app = app.route(
     "/aperio/api/tunnels",
     axum::routing::post(tunnels_create_handler),

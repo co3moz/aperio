@@ -30,6 +30,10 @@ pub struct ApiToken {
   pub created_at: u64,
   /// Optional unix timestamp (seconds) after which the token is rejected.
   pub expires_at: Option<u64>,
+  /// The lifetime (seconds) the token was created/updated with, remembered so
+  /// a refresh can reset the expiry to the same window. `None` = never expires.
+  #[serde(default)]
+  pub ttl_seconds: Option<u64>,
   /// Optional request rate limit (requests/second, token bucket) applied to
   /// traffic served by clients authenticated with this token.
   #[serde(default)]
@@ -143,6 +147,7 @@ impl TokenStore {
       allowed_ips,
       created_at: now_secs(),
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
+      ttl_seconds,
       max_rps,
       daily_max_bytes,
       allow_public,
@@ -182,6 +187,7 @@ impl TokenStore {
     }
     if let Some(ttl) = ttl_seconds {
       token.expires_at = ttl.map(|t| now_secs().saturating_add(t));
+      token.ttl_seconds = ttl;
     }
     if let Some(rps) = max_rps {
       token.max_rps = rps.filter(|v| *v > 0.0);
@@ -224,6 +230,24 @@ impl TokenStore {
       .tokens
       .iter()
       .find(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())
+  }
+
+  /// Slides the expiry of the (non-expired) token matching `secret` forward by
+  /// its own creation TTL, so a short-lived token stays valid while its holder
+  /// keeps using it. Returns the refreshed record. `None` when the secret is
+  /// unknown, already expired, or the token has no TTL (nothing to refresh —
+  /// it never expires).
+  pub fn refresh(&mut self, secret: &str) -> Option<ApiToken> {
+    let hash = hash_token(secret);
+    let token = self
+      .tokens
+      .iter_mut()
+      .find(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())?;
+    let ttl = token.ttl_seconds?;
+    token.expires_at = Some(now_secs().saturating_add(ttl));
+    let refreshed = token.clone();
+    self.persist();
+    Some(refreshed)
   }
 }
 
@@ -312,6 +336,59 @@ mod tests {
       })
       .collect();
     assert_eq!(backups.len(), 1, "corrupt file should be preserved");
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_refresh_slides_expiry_by_creation_ttl() {
+    let dir = temp_dir();
+    let mut store = TokenStore::load(&dir);
+    let (record, secret) = store.create(
+      "ci".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      Some(3600),
+      None,
+      None,
+      false,
+    );
+    let first_expiry = record.expires_at.unwrap();
+
+    // Refresh answers with a new expiry >= the original (now + same TTL).
+    let refreshed = store.refresh(&secret).expect("refresh should succeed");
+    assert!(refreshed.expires_at.unwrap() >= first_expiry);
+    assert_eq!(refreshed.ttl_seconds, Some(3600));
+
+    // A wrong secret refreshes nothing.
+    assert!(store.refresh("apr_wrong").is_none());
+
+    // A never-expiring token has nothing to refresh.
+    let (_, forever) = store.create(
+      "forever".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+    );
+    assert!(store.refresh(&forever).is_none());
+
+    // An already-expired token cannot resurrect itself.
+    let (_, dead) = store.create(
+      "dead".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      Some(0),
+      None,
+      None,
+      false,
+    );
+    assert!(store.refresh(&dead).is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
   }

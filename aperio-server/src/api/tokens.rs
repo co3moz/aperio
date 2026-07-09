@@ -335,6 +335,66 @@ pub(crate) async fn tokens_update_handler(
   }
 }
 
+/// Refreshes a short-lived dynamic token: the caller presents the token
+/// secret itself (Bearer / x-auth-token) and, when the token was created with
+/// a TTL, its expiry slides forward by that same TTL. Registered outside the
+/// dashboard session middleware on purpose — the typical caller is a CI job
+/// or long-running client that only holds the token, not a dashboard session.
+/// Tokens without a TTL are not refreshable (they never expire), and an
+/// already-expired token cannot resurrect itself.
+pub(crate) async fn tokens_refresh_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  // Rate limit before touching the store so secrets cannot be guessed faster
+  // than the normal per-IP budget.
+  if !state.check_rate_limit(actor_ip).await {
+    return StatusCode::TOO_MANY_REQUESTS.into_response();
+  }
+  let Some(secret) = crate::auth::extract_token(&headers) else {
+    return (
+      StatusCode::UNAUTHORIZED,
+      "Present the token secret as a Bearer token",
+    )
+      .into_response();
+  };
+  let refreshed = state.token_store.lock().await.refresh(&secret);
+  match refreshed {
+    Some(record) => {
+      info!(
+        "Dynamic token refreshed: {} (id={}, new expires_at={:?})",
+        record.name, record.id, record.expires_at
+      );
+      state
+        .audit(
+          "token_refreshed",
+          &actor_ip.to_string(),
+          &format!("id={} expires_at={:?}", record.id, record.expires_at),
+        )
+        .await;
+      Json(serde_json::json!({
+        "status": "ok",
+        "id": record.id,
+        "expires_at": record.expires_at,
+      }))
+      .into_response()
+    }
+    None => (
+      StatusCode::UNAUTHORIZED,
+      "Unknown, expired, or non-expiring token",
+    )
+      .into_response(),
+  }
+}
+
 /// Revokes (deletes) a dynamic token and drops any tunnel connections that are
 /// currently using it — a revoked token could otherwise keep serving traffic
 /// until the client next reconnected (when it would be rejected anyway).

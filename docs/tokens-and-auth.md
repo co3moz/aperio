@@ -17,9 +17,20 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 - **Rate limit** — optional requests/second cap for the traffic served through this token; excess requests answer `429`.
 - **Daily quota** — optional bytes/day cap (request + response payload), answering `429` once exhausted until local midnight (in-memory tracking; a restart resets the day's usage).
 
-A client declaring a bind its token doesn't permit gets the declaration ignored (and logged). Tokens can be edited in place — scope, IPs, expiry change while the secret stays the same — or revoked, which rejects new connections while existing tunnels stay up until they drop.
+A client declaring a bind its token doesn't permit gets the declaration ignored (and logged). Tokens can be edited in place — scope, IPs, expiry change while the secret stays the same — or revoked, which immediately drops the tunnel connections using the token and rejects reconnects.
 
 Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown exactly once at creation.
+
+### Short-lived tokens & refresh
+
+A token created with a lifetime can slide its own expiry forward — mint it with a short TTL and let the holder keep it alive only while it is actually in use:
+
+```bash
+curl -X POST -H "Authorization: Bearer $APERIO_TOKEN" https://tunnel.example.com/aperio/api/tokens/refresh
+# → { "status": "ok", "id": "…", "expires_at": 1780000000 }
+```
+
+The endpoint authenticates with the token secret itself (no dashboard session needed), so a CI job or a long-running client can refresh on a timer. Each refresh resets the expiry to *now + the TTL the token was created with*. Never-expiring tokens are not refreshable, an expired token cannot resurrect itself, and each refresh writes a `token_refreshed` audit event.
 
 ## Protecting proxied traffic
 
