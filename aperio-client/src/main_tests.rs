@@ -43,6 +43,8 @@ fn test_build_specs_tunnels_only() {
   settings.tunnels = vec![protocol::TunnelDecl {
     target: "127.0.0.1:27017".to_string(),
     protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs.len(), 1);
@@ -57,12 +59,16 @@ fn test_build_specs_tunnels_validation() {
   settings.tunnels = vec![protocol::TunnelDecl {
     target: "127.0.0.1:53".to_string(),
     protocol: "udp".to_string(),
+    encrypt: false,
+    psk: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].tunnels[0].protocol, "udp");
   settings.tunnels = vec![protocol::TunnelDecl {
     target: "127.0.0.1:53".to_string(),
     protocol: "sctp".to_string(),
+    encrypt: false,
+    psk: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("only tcp and udp"), "got: {err}");
@@ -72,10 +78,14 @@ fn test_build_specs_tunnels_validation() {
     protocol::TunnelDecl {
       target: "127.0.0.1:53".to_string(),
       protocol: "tcp".to_string(),
+      encrypt: false,
+      psk: None,
     },
     protocol::TunnelDecl {
       target: "127.0.0.1:53".to_string(),
       protocol: "udp".to_string(),
+      encrypt: false,
+      psk: None,
     },
   ];
   assert!(build_specs(&settings, "base-id", false).is_ok());
@@ -84,6 +94,8 @@ fn test_build_specs_tunnels_validation() {
   settings.tunnels = vec![protocol::TunnelDecl {
     target: "27017".to_string(),
     protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("host:port"), "got: {err}");
@@ -92,6 +104,8 @@ fn test_build_specs_tunnels_validation() {
   let decl = protocol::TunnelDecl {
     target: "127.0.0.1:27017".to_string(),
     protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
   };
   settings.tunnels = vec![decl.clone(), decl];
   let err = build_specs(&settings, "base-id", false).unwrap_err();

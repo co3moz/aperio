@@ -39,10 +39,64 @@ pub(crate) async fn handle_tcp_open(
   active_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
   mut bytes_rx: mpsc::Receiver<Vec<u8>>,
   mut abort_rx: mpsc::Receiver<()>,
+  e2e: Option<crate::e2e::E2eParams>,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-  info!("Opening TCP stream {} to {}", stream_id, target_addr);
+  info!(
+    "Opening TCP stream {} to {}{}",
+    stream_id,
+    target_addr,
+    if e2e.is_some() {
+      " (end-to-end encrypted)"
+    } else {
+      ""
+    }
+  );
+  let send_close = |tx: mpsc::Sender<Message>, id: String| async move {
+    let close = TunnelMessage::TcpClose { stream_id: id };
+    if let Ok(json) = serde_json::to_string(&close) {
+      let _ = tx.send(Message::Text(json)).await;
+    }
+  };
+
+  // End-to-end handshake (encrypt: true): exchange ephemeral X25519 keys
+  // with the binder before any payload byte flows. Every relayed frame
+  // afterwards is AEAD-sealed; the server only sees ciphertext.
+  let (mut sealer, mut opener) = if let Some(params) = e2e {
+    let hs = crate::e2e::Handshake::new(crate::e2e::Role::Responder, params.psk);
+    let hs_msg = TunnelMessage::TcpData {
+      stream_id: stream_id.clone(),
+      data: BASE64_STANDARD.encode(&hs.frame),
+    };
+    let sent = match serde_json::to_string(&hs_msg) {
+      Ok(json) => tunnel_tx.send(Message::Text(json)).await.is_ok(),
+      Err(_) => false,
+    };
+    let peer_frame = if sent {
+      tokio::time::timeout(Duration::from_secs(10), bytes_rx.recv())
+        .await
+        .ok()
+        .flatten()
+    } else {
+      None
+    };
+    match peer_frame.and_then(|frame| hs.complete(&frame)) {
+      Some(session) => (Some(session.sealer), Some(session.opener)),
+      None => {
+        error!(
+          "E2E handshake failed for encrypted tunnel stream {}; closing",
+          stream_id
+        );
+        active_streams.lock().await.remove(&stream_id);
+        send_close(tunnel_tx.clone(), stream_id).await;
+        return;
+      }
+    }
+  } else {
+    (None, None)
+  };
+
   let connect = tokio::time::timeout(
     Duration::from_secs(10),
     tokio::net::TcpStream::connect(&target_addr),
@@ -56,12 +110,7 @@ pub(crate) async fn handle_tcp_open(
         target_addr, stream_id
       );
       active_streams.lock().await.remove(&stream_id);
-      let close = TunnelMessage::TcpClose {
-        stream_id: stream_id.clone(),
-      };
-      if let Ok(json) = serde_json::to_string(&close) {
-        let _ = tunnel_tx.send(Message::Text(json)).await;
-      }
+      send_close(tunnel_tx.clone(), stream_id).await;
       return;
     }
   };
@@ -77,9 +126,16 @@ pub(crate) async fn handle_tcp_open(
       match read_half.read(&mut buf).await {
         Ok(0) | Err(_) => break,
         Ok(n) => {
+          let payload = match &mut sealer {
+            Some(s) => match s.seal(&buf[..n]) {
+              Some(sealed) => sealed,
+              None => break,
+            },
+            None => buf[..n].to_vec(),
+          };
           let msg = TunnelMessage::TcpData {
             stream_id: stream_id_up.clone(),
-            data: BASE64_STANDARD.encode(&buf[..n]),
+            data: BASE64_STANDARD.encode(&payload),
           };
           if let Ok(json) = serde_json::to_string(&msg)
             && tunnel_tx_up.send(Message::Text(json)).await.is_err()
@@ -98,13 +154,26 @@ pub(crate) async fn handle_tcp_open(
   });
 
   // Tunnel -> backend
+  let stream_id_down = stream_id.clone();
   let down_task = tokio::spawn(async move {
     loop {
       tokio::select! {
         _ = abort_rx.recv() => break,
         chunk = bytes_rx.recv() => match chunk {
           Some(bytes) => {
-            if write_half.write_all(&bytes).await.is_err() {
+            let plain = match &mut opener {
+              Some(o) => match o.open(&bytes) {
+                Some(p) => p,
+                None => {
+                  // Tampering, reordering, or a PSK mismatch: kill the
+                  // stream rather than feed corrupt bytes to the backend.
+                  error!("E2E decryption failed on tunnel stream {}; closing", stream_id_down);
+                  break;
+                }
+              },
+              None => bytes,
+            };
+            if write_half.write_all(&plain).await.is_err() {
               break;
             }
           }
@@ -195,7 +264,7 @@ pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
     let ws_url = ws_url.clone();
     let token = token.to_string();
     tokio::spawn(async move {
-      bridge_connection(sock, &ws_url, &token).await;
+      bridge_connection(sock, &ws_url, &token, false, None).await;
       info!("TCP bridge: connection from {} closed", peer);
     });
   }
@@ -204,7 +273,18 @@ pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
 /// Relays one accepted local TCP connection over a fresh WebSocket stream to
 /// the server's `/aperio/tcp` endpoint (query parameters select a specific
 /// peer client / declared tunnel target). Returns when either side closes.
-pub(crate) async fn bridge_connection(mut sock: tokio::net::TcpStream, ws_url: &str, token: &str) {
+///
+/// With `encrypt`, an end-to-end X25519 handshake with the declaring client
+/// runs first and every relayed frame is AEAD-sealed — the server only sees
+/// ciphertext. `psk` (when both sides configure the same one) protects the
+/// exchange against an actively hostile server.
+pub(crate) async fn bridge_connection(
+  mut sock: tokio::net::TcpStream,
+  ws_url: &str,
+  token: &str,
+  encrypt: bool,
+  psk: Option<String>,
+) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
   // Open a fresh tunnel stream for this connection.
@@ -229,6 +309,37 @@ pub(crate) async fn bridge_connection(mut sock: tokio::net::TcpStream, ws_url: &
     }
   };
   let (mut ws_tx, mut ws_rx) = ws.split();
+
+  // End-to-end handshake with the declaring client (encrypted tunnels).
+  let (mut sealer, mut opener) = if encrypt {
+    let hs = crate::e2e::Handshake::new(crate::e2e::Role::Initiator, psk);
+    if ws_tx.send(Message::Binary(hs.frame.clone())).await.is_err() {
+      return;
+    }
+    // The first binary frame from the peer is its handshake.
+    let peer_frame = tokio::time::timeout(Duration::from_secs(10), async {
+      while let Some(Ok(msg)) = ws_rx.next().await {
+        if let Message::Binary(bytes) = msg {
+          return Some(bytes);
+        }
+      }
+      None
+    })
+    .await
+    .ok()
+    .flatten();
+    match peer_frame.and_then(|frame| hs.complete(&frame)) {
+      Some(session) => (Some(session.sealer), Some(session.opener)),
+      None => {
+        error!("E2E handshake with the declaring client failed; closing the tunnel stream");
+        let _ = ws_tx.send(Message::Close(None)).await;
+        return;
+      }
+    }
+  } else {
+    (None, None)
+  };
+
   let (mut tcp_read, mut tcp_write) = sock.split();
 
   let to_server = async {
@@ -237,11 +348,14 @@ pub(crate) async fn bridge_connection(mut sock: tokio::net::TcpStream, ws_url: &
       match tcp_read.read(&mut buf).await {
         Ok(0) | Err(_) => break,
         Ok(n) => {
-          if ws_tx
-            .send(Message::Binary(buf[..n].to_vec()))
-            .await
-            .is_err()
-          {
+          let payload = match &mut sealer {
+            Some(s) => match s.seal(&buf[..n]) {
+              Some(sealed) => sealed,
+              None => break,
+            },
+            None => buf[..n].to_vec(),
+          };
+          if ws_tx.send(Message::Binary(payload)).await.is_err() {
             break;
           }
         }
@@ -254,7 +368,18 @@ pub(crate) async fn bridge_connection(mut sock: tokio::net::TcpStream, ws_url: &
     while let Some(Ok(msg)) = ws_rx.next().await {
       match msg {
         Message::Binary(bytes) => {
-          if tcp_write.write_all(&bytes).await.is_err() {
+          let plain = match &mut opener {
+            Some(o) => match o.open(&bytes) {
+              Some(p) => p,
+              None => {
+                // Key mismatch (wrong PSK / MITM) or tampering: fail closed.
+                error!("E2E decryption failed on the tunnel stream; closing");
+                break;
+              }
+            },
+            None => bytes,
+          };
+          if tcp_write.write_all(&plain).await.is_err() {
             break;
           }
         }

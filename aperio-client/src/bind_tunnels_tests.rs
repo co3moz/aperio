@@ -41,6 +41,7 @@ fn entry(token: Option<&str>, overrides: &[(&str, u16)]) -> BindTunnelEntry {
   BindTunnelEntry {
     token: token.map(|t| t.to_string()),
     overrides: overrides.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+    psk: None,
   }
 }
 
@@ -106,6 +107,8 @@ fn test_local_port_for() {
   let decl = |target: &str| TunnelDecl {
     target: target.to_string(),
     protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
   };
   let spec = BindSpec {
     client_id: "c".to_string(),
@@ -113,6 +116,7 @@ fn test_local_port_for() {
     overrides: [("127.0.0.1:27017".to_string(), 15000u16)]
       .into_iter()
       .collect(),
+    psk: None,
   };
   // The override wins over the declared port.
   assert_eq!(local_port_for(&spec, &decl("127.0.0.1:27017")), Some(15000));

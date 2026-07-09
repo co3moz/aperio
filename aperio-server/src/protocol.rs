@@ -61,6 +61,10 @@ pub struct TunnelDecl {
   /// Transport protocol: `tcp` or `udp` (best-effort datagram relay).
   #[serde(default = "default_tcp")]
   pub protocol: String,
+  /// The tunnel is end-to-end encrypted between the two clients; the server
+  /// only relays ciphertext. Relayed to binders via tunnel discovery.
+  #[serde(default)]
+  pub encrypt: bool,
 }
 
 /// Message structure exchanged over the WebSocket reverse tunnel.

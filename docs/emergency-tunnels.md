@@ -66,6 +66,25 @@ bind-tunnels:
 - **The declaring client dials only what it declared.** A `TcpOpen`/`UdpOpen` for an address outside its own `tunnels:` list is refused — the tunnel analogue of the HTTP SSRF guard. A compromised server cannot turn the client into a generic port scanner.
 - Streams are audited on the server (`tcp_stream_opened` / `udp_stream_opened`, with client and target).
 
+## End-to-end encryption
+
+By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange as the first frame of every stream and seal everything after it with ChaCha20-Poly1305 — the server relays only ciphertext.
+
+```yaml
+# Declaring side (aperio.yaml)
+tunnels:
+  - target: 127.0.0.1:5432
+    encrypt: true
+    psk: a-long-random-string     # optional, never sent anywhere
+
+# Binder side (aperio.yaml)
+bind-tunnels:
+  '018f3c1e-...-client-a':
+    psk: a-long-random-string     # must match the declaring side
+```
+
+A passive server learns nothing either way. An **active** server could man-in-the-middle the plain key exchange, which is what the optional `psk` closes: it is mixed into the key derivation on both ends (never transmitted — note it is stripped from the tunnel announcement), so a MITM without it derives mismatched keys and the very first sealed frame fails to open; the stream dies instead of leaking data. Tampered, reordered, or replayed frames also fail closed. `encrypt` is TCP-only; the binder discovers the flag via tunnel discovery, so only the PSK needs out-of-band coordination.
+
 ## UDP tunnels
 
 A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer — enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic for 60 seconds expires (the next datagram opens a fresh one); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput — it's a break-glass path, same as TCP.

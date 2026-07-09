@@ -24,6 +24,8 @@ struct BindSpec {
   token: String,
   /// Declared target → local port override.
   overrides: HashMap<String, u16>,
+  /// Pre-shared key for this peer's end-to-end encrypted tunnels.
+  psk: Option<String>,
 }
 
 /// Seconds between discovery retries for peers that are not connected yet.
@@ -97,6 +99,14 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
         continue;
       }
 
+      if decl.encrypt && decl.protocol != "tcp" {
+        error!(
+          "Tunnel {} of client {} declares encrypt with protocol {}; only tcp tunnels support end-to-end encryption — not binding",
+          decl.target, spec.client_id, decl.protocol
+        );
+        continue;
+      }
+
       if decl.protocol == "udp" {
         let ws_url = match tunnel_ws_url(&server, "/aperio/udp", &spec.client_id, &decl.target) {
           Ok(u) => u,
@@ -143,14 +153,32 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
         }
       };
       let token = spec.token.clone();
+      let (encrypt, psk) = (decl.encrypt, spec.psk.clone());
+      if encrypt {
+        info!(
+          "Tunnel {} of client {} is end-to-end encrypted{}",
+          decl.target,
+          spec.client_id,
+          if psk.is_some() {
+            " (with PSK)"
+          } else {
+            " (no PSK — an actively hostile server could MITM; configure a psk on both sides)"
+          }
+        );
+      } else if psk.is_some() {
+        warn!(
+          "A psk is configured for client {} but tunnel {} is not declared encrypted; the psk is unused for it",
+          spec.client_id, decl.target
+        );
+      }
       tokio::spawn(async move {
         loop {
           match listener.accept().await {
             Ok((sock, peer)) => {
               info!("Tunnel connection from {} -> {}", peer, ws_url);
-              let (ws_url, token) = (ws_url.clone(), token.clone());
+              let (ws_url, token, psk) = (ws_url.clone(), token.clone(), psk.clone());
               tokio::spawn(async move {
-                bridge_connection(sock, &ws_url, &token).await;
+                bridge_connection(sock, &ws_url, &token, encrypt, psk).await;
               });
             }
             Err(e) => {
@@ -201,6 +229,7 @@ fn build_bind_specs(settings: &ClientSettings, cli_id: &str) -> Result<Vec<BindS
       overrides: entry
         .map(|e| trimmed_entry(&e.overrides))
         .unwrap_or_default(),
+      psk: entry.and_then(|e| e.psk.clone()),
     }]);
   }
 
@@ -228,6 +257,7 @@ fn build_bind_specs(settings: &ClientSettings, cli_id: &str) -> Result<Vec<BindS
         client_id: id.trim().to_string(),
         token,
         overrides: trimmed_entry(&entry.overrides),
+        psk: entry.psk.clone(),
       })
     })
     .collect()

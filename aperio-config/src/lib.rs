@@ -28,6 +28,15 @@ pub struct TunnelDecl {
   #[serde(default = "default_tcp")]
   #[schemars(extend("examples" = ["tcp", "udp"]))]
   pub protocol: String,
+  /// End-to-end encrypt this tunnel between the two clients (X25519 +
+  /// ChaCha20-Poly1305); the server only relays ciphertext. TCP only.
+  #[serde(default)]
+  pub encrypt: bool,
+  /// Pre-shared key mixed into the key derivation of an encrypted tunnel,
+  /// protecting against an actively hostile server. Never sent anywhere —
+  /// the binder configures the same value in its `bind-tunnels` entry.
+  #[serde(default, skip_serializing)]
+  pub psk: Option<String>,
 }
 
 /// Header edits applied to one direction of proxied traffic (request or
@@ -155,6 +164,9 @@ pub struct BindTunnelEntry {
   /// Map a declared tunnel target to a specific local port instead of reusing the target's.
   #[serde(default, rename = "override")]
   pub overrides: HashMap<String, u16>,
+  /// Pre-shared key for this peer's end-to-end encrypted tunnels; must match
+  /// the `psk` the declaring client configured. Never sent to the server.
+  pub psk: Option<String>,
 }
 
 /// The Aperio client configuration file (`aperio.yaml` or `~/.aperio.yaml`).

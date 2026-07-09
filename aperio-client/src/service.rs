@@ -606,11 +606,11 @@ pub(crate) async fn run_service(
                                                       .tunnels
                                                       .iter()
                                                       .find(|d| d.target == *t && d.protocol == "tcp")
-                                                      .map(|d| d.target.clone()),
-                                                  None => spec.tcp_target.clone(),
+                                                      .map(|d| (d.target.clone(), d.encrypt, d.psk.clone())),
+                                                  None => spec.tcp_target.clone().map(|t| (t, false, None)),
                                               };
                                               match resolved {
-                                                  Some(target_addr) => {
+                                                  Some((target_addr, encrypt, psk)) => {
                                                       // Register the stream handle synchronously, BEFORE
                                                       // spawning: TcpData for this stream can arrive on the
                                                       // very next tunnel frame and would be dropped if the
@@ -625,7 +625,8 @@ pub(crate) async fn run_service(
                                                       let tx = tx_write.clone();
                                                       let streams = active_tcp_streams.clone();
                                                       tokio::spawn(async move {
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx).await;
+                                                          let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e).await;
                                                       });
                                                   }
                                                   None => {

@@ -7,6 +7,7 @@ use tracing::{error, info, warn};
 mod bind_tunnels;
 mod check;
 mod config;
+mod e2e;
 mod protocol;
 mod proxy;
 mod service;
@@ -512,7 +513,24 @@ fn validate_tunnels(
         target, protocol
       ));
     }
-    out.push(crate::protocol::TunnelDecl { target, protocol });
+    if decl.encrypt && protocol != "tcp" {
+      return Err(format!(
+        "CRITICAL ERROR: tunnel '{}' sets encrypt: true, which is only supported for tcp tunnels",
+        target
+      ));
+    }
+    if decl.psk.is_some() && !decl.encrypt {
+      return Err(format!(
+        "CRITICAL ERROR: tunnel '{}' sets a psk without encrypt: true",
+        target
+      ));
+    }
+    out.push(crate::protocol::TunnelDecl {
+      target,
+      protocol,
+      encrypt: decl.encrypt,
+      psk: decl.psk.clone(),
+    });
   }
   Ok(out)
 }
