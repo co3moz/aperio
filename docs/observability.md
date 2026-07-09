@@ -21,6 +21,8 @@ Exposed metrics include `aperio_requests_total`, `aperio_requests_success_total`
 
 Request latency is exposed as the `aperio_request_duration_seconds` histogram (buckets from 5 ms to 30 s), so p95/p99 can be plotted in Grafana with the usual `histogram_quantile(0.99, rate(aperio_request_duration_seconds_bucket[5m]))` query.
 
+For quota and billing dashboards, per-tenant counters are exposed with `token` and `hostname` labels: `aperio_token_requests_total`, `aperio_token_requests_failed_total`, `aperio_token_bytes_received_total`, `aperio_token_bytes_sent_total` (the label value is the token name, `master` for the master token), and the same four as `aperio_hostname_*_total{hostname=...}` attributed to the request hostname. These are backed by the persistent stats store, so they survive restarts; at most 200 distinct labels are tracked per family, with overflow folded into `__other`.
+
 ## Distributed tracing (OpenTelemetry)
 
 Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.

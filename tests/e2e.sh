@@ -335,6 +335,8 @@ METRICS="$(curl -s "$BASE/aperio/metrics?token=${METRICS_TOKEN}")"
 assert_contains "$METRICS" 'aperio_requests_total' "metrics expose the request counter"
 assert_contains "$METRICS" 'aperio_connected_clients' "metrics expose the client gauge"
 assert_contains "$METRICS" 'aperio_request_duration_seconds_bucket' "metrics expose the duration histogram"
+assert_contains "$METRICS" 'aperio_token_requests_total{token="' "metrics expose per-token counters"
+assert_contains "$METRICS" 'aperio_hostname_requests_total{hostname="' "metrics expose per-hostname counters"
 METRICS="$(curl -s -H "Authorization: Bearer ${METRICS_TOKEN}" "$BASE/aperio/metrics")"
 assert_contains "$METRICS" 'aperio_requests_total' "metrics accept the Bearer form too"
 

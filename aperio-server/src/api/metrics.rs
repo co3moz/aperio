@@ -9,6 +9,43 @@ use std::sync::atomic::Ordering;
 
 use crate::auth::constant_time_eq_str;
 use crate::state::AppState;
+use crate::store::stats::PeriodStats;
+
+/// Escapes a Prometheus label value (backslash, double quote, newline).
+fn escape_label(value: &str) -> String {
+  value
+    .replace('\\', "\\\\")
+    .replace('"', "\\\"")
+    .replace('\n', "\\n")
+}
+
+/// Renders one labelled counter family from a label → stats map, sorted by
+/// label for a stable scrape output.
+fn render_labeled(
+  out: &mut String,
+  name: &str,
+  help: &str,
+  label: &str,
+  entries: &std::collections::HashMap<String, PeriodStats>,
+  value: impl Fn(&PeriodStats) -> u64,
+) {
+  if entries.is_empty() {
+    return;
+  }
+  out.push_str(&format!("# HELP {} {}\n", name, help));
+  out.push_str(&format!("# TYPE {} counter\n", name));
+  let mut sorted: Vec<(&String, &PeriodStats)> = entries.iter().collect();
+  sorted.sort_by_key(|(k, _)| k.as_str());
+  for (key, stats) in sorted {
+    out.push_str(&format!(
+      "{}{{{}=\"{}\"}} {}\n",
+      name,
+      label,
+      escape_label(key),
+      value(stats)
+    ));
+  }
+}
 
 /// Prometheus text-format metrics endpoint (`/aperio/metrics`).
 /// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
@@ -41,6 +78,7 @@ pub(crate) async fn metrics_handler(
     .map(|(id, c)| (id.clone(), c.request_count.load(Ordering::SeqCst)))
     .collect();
   drop(clients);
+  let persistent = state.persistent_stats.lock().await.snapshot();
   let pending = state.pending_requests.lock().await.len();
   let ws_streams = state.ws_streams.lock().await.len();
   let uptime = state.server_start_time.elapsed().as_secs();
@@ -92,6 +130,74 @@ pub(crate) async fn metrics_handler(
       id, count
     ));
   }
+
+  // Per-token and per-hostname counters (restart-surviving, from the
+  // persistent stats store) for quota/billing dashboards. Labels beyond the
+  // store's cap are folded into `__other`.
+  render_labeled(
+    &mut out,
+    "aperio_token_requests_total",
+    "Proxied requests attributed to a token (label `master` = the master token).",
+    "token",
+    &persistent.by_token,
+    |p| p.requests,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_token_requests_failed_total",
+    "Failed (5xx / gateway error) proxied requests attributed to a token.",
+    "token",
+    &persistent.by_token,
+    |p| p.failed,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_token_bytes_received_total",
+    "Request body bytes received from visitors, attributed to a token.",
+    "token",
+    &persistent.by_token,
+    |p| p.bytes_received,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_token_bytes_sent_total",
+    "Response body bytes sent to visitors, attributed to a token.",
+    "token",
+    &persistent.by_token,
+    |p| p.bytes_sent,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_hostname_requests_total",
+    "Proxied requests attributed to a request hostname.",
+    "hostname",
+    &persistent.by_hostname,
+    |p| p.requests,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_hostname_requests_failed_total",
+    "Failed (5xx / gateway error) proxied requests attributed to a request hostname.",
+    "hostname",
+    &persistent.by_hostname,
+    |p| p.failed,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_hostname_bytes_received_total",
+    "Request body bytes received from visitors, attributed to a request hostname.",
+    "hostname",
+    &persistent.by_hostname,
+    |p| p.bytes_received,
+  );
+  render_labeled(
+    &mut out,
+    "aperio_hostname_bytes_sent_total",
+    "Response body bytes sent to visitors, attributed to a request hostname.",
+    "hostname",
+    &persistent.by_hostname,
+    |p| p.bytes_sent,
+  );
 
   (
     StatusCode::OK,
