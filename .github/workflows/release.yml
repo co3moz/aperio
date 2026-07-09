@@ -98,10 +98,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Generate versioned aperio.yaml schema
+      # Two copies of the same schema: a versioned one for pinning, and a
+      # versionless one so schema managers (editor yaml.schemas, SchemaStore,
+      # $schema references) get a stable URL that always serves the latest:
+      # releases/latest/download/aperio-client.schema.json
+      - name: Generate aperio.yaml schema (versioned + stable name)
         run: |
           mkdir -p dist-pkg
           cargo run --locked -p aperio-config > "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json"
+          cp "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json" dist-pkg/aperio-client.schema.json
 
       - name: Upload schema artifact
         uses: actions/upload-artifact@v4

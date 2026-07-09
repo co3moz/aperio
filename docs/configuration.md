@@ -177,7 +177,11 @@ Building the client emits a JSON Schema for `aperio.yaml` to `schemas/aperio-cli
 }
 ```
 
-Run `cargo build -p aperio-client` once to generate it (or `cargo run -p aperio-config > schemas/aperio-client.schema.json`). Tagged releases also attach a versioned `aperio-client.<tag>.json` as a release asset.
+Run `cargo build -p aperio-client` once to generate it (or `cargo run -p aperio-config > schemas/aperio-client.schema.json`). Tagged releases attach the schema as a release asset twice: a versioned `aperio-client.<tag>.json` for pinning, and a stable-named `aperio-client.schema.json` so schema managers can point at a URL that always serves the latest release:
+
+```
+https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.json
+```
 
 ## Server
 
