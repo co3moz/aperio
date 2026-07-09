@@ -18,8 +18,9 @@ use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_
 use crate::state::{AppState, ClientDetail, EnhancedServerStats, RequestLog};
 use crate::store::stats::{self};
 
-/// Handler returning live statistics and active connections detail in JSON.
-pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
+/// Computes the live statistics + active-connection snapshot shared by the
+/// `/api/stats` endpoint and the SSE live stream.
+pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
   let raw_stats = state.stats.lock().await.clone();
   let clients = state.clients.lock().await;
 
@@ -92,7 +93,7 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
     .cloned()
     .unwrap_or_default();
 
-  Json(EnhancedServerStats {
+  EnhancedServerStats {
     total_requests: raw_stats.total_requests,
     successful_requests: raw_stats.successful_requests,
     failed_requests: raw_stats.failed_requests,
@@ -104,7 +105,12 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
     persistent,
     avg_response_ms,
     today,
-  })
+  }
+}
+
+/// Handler returning the live statistics + active connections detail in JSON.
+pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
+  Json(compute_stats(&state).await)
 }
 
 /// Handler returning the list of recent HTTP logs in JSON.
@@ -113,31 +119,53 @@ pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec
   Json(logs.iter().cloned().collect())
 }
 
-/// Server-Sent Events stream of live traffic: each proxied request is emitted
-/// as one JSON `RequestLog` event as it completes, so the dashboard traffic
-/// table updates instantly instead of polling. A subscriber that falls behind
-/// the broadcast buffer skips the lagged span rather than closing the stream.
-pub(crate) async fn traffic_stream_handler(
+/// Server-Sent Events stream powering the dashboard's live view, so it doesn't
+/// poll: named `traffic` events (one per proxied request, as it completes) and
+/// periodic `stats` events (the same snapshot as `/api/stats`, pushed every 2s
+/// and once immediately on connect). A subscriber that falls behind the traffic
+/// buffer skips the lagged span rather than closing the stream.
+pub(crate) async fn live_stream_handler(
   State(state): State<Arc<AppState>>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
+  use std::time::Duration;
   use tokio::sync::broadcast::error::RecvError;
+  use tokio::time::MissedTickBehavior;
+
   let rx = state.traffic_tx.subscribe();
-  let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-    loop {
-      match rx.recv().await {
-        Ok(log) => {
-          let event = Event::default()
-            .json_data(&log)
-            .unwrap_or_else(|_| Event::default());
-          return Some((Ok(event), rx));
+  let mut interval = tokio::time::interval(Duration::from_secs(2));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+  let stream = futures_util::stream::unfold(
+    (state, rx, interval),
+    |(state, mut rx, mut interval)| async move {
+      loop {
+        tokio::select! {
+          // The first tick fires immediately, seeding the initial snapshot.
+          _ = interval.tick() => {
+            let snapshot = compute_stats(&state).await;
+            let event = Event::default()
+              .event("stats")
+              .json_data(&snapshot)
+              .unwrap_or_else(|_| Event::default());
+            return Some((Ok(event), (state, rx, interval)));
+          }
+          recv = rx.recv() => match recv {
+            Ok(log) => {
+              let event = Event::default()
+                .event("traffic")
+                .json_data(&log)
+                .unwrap_or_else(|_| Event::default());
+              return Some((Ok(event), (state, rx, interval)));
+            }
+            // Slow subscriber: drop the missed span and keep streaming.
+            Err(RecvError::Lagged(_)) => continue,
+            // Server shutting down / sender gone: end the stream.
+            Err(RecvError::Closed) => return None,
+          }
         }
-        // Slow subscriber: drop the missed span and keep streaming.
-        Err(RecvError::Lagged(_)) => continue,
-        // Server shutting down / sender gone: end the stream.
-        Err(RecvError::Closed) => return None,
       }
-    }
-  });
+    },
+  );
   Sse::new(stream).keep_alive(KeepAlive::default())
 }
 

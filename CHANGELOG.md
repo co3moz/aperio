@@ -12,6 +12,7 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- The dashboard's **stats/overview now stream over the same SSE connection as the traffic table** instead of polling `/api/stats` every 2 seconds: `/aperio/api/stream` emits named `stats` events (the connections list + counters, pushed every 2s and once on connect) alongside `traffic` events. Only the session-lifetime check is still polled (once a minute); the REST `/api/stats` and `/api/logs` endpoints remain as the seed and the polling fallback used when the stream can't be established.
 - A tunnel connection rejected by the server for a bad/expired/revoked token now logs an explicit **authentication failure** (with the HTTP 401/403 status and where to check the token) instead of dumping the raw HTTP response struct, so the cause is obvious in the client logs.
 - The generated `aperio.yaml` JSON Schema now carries purpose-oriented one-line field descriptions and `examples` for format-sensitive values (server URL/token, `target`, `hostname`/`path`, `bandwidth`, `auth`, tunnel targets, `client_id`, …), so editors surface a concrete sample and the meaning of each key while editing.
 

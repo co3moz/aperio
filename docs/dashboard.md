@@ -4,7 +4,7 @@ The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a sep
 
 ## Live overview
 
-Connected clients, a request-rate chart, lifetime average response time, and today's traffic — persisted across restarts.
+Connected clients, a request-rate chart, lifetime average response time, and today's traffic — persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s) and `traffic` events (one per request) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
 
 ## Clients table
 
