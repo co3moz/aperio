@@ -401,6 +401,13 @@ pub(crate) async fn route_is_public(
   uri_path: &str,
   request_host: Option<&str>,
 ) -> bool {
+  // A traversal segment can widen the matched scope (`/public/../admin`
+  // matches a `/public` path bind) and a backend that resolves `..` would then
+  // serve the sibling path without the gate — never treat such a path as
+  // public; it falls back to the normal login gate.
+  if request_path_has_traversal(uri_path) {
+    return false;
+  }
   let clients = state.clients.lock().await;
   let Some((pool, _)) = select_client_pool(
     &clients,
@@ -442,6 +449,11 @@ pub(crate) async fn route_visitor_auth(
   if state.config().ignore_client_auth {
     return None;
   }
+  // Mirror `route_is_public`: a traversal path must not select (or unlock) a
+  // client's per-service credentials for a scope it could escape from.
+  if request_path_has_traversal(uri_path) {
+    return None;
+  }
   let clients = state.clients.lock().await;
   let (pool, _) = select_client_pool(
     &clients,
@@ -467,6 +479,24 @@ pub(crate) async fn route_visitor_auth(
     }
   }
   creds.map(str::to_string)
+}
+
+/// True when any connected client that could serve this host declares a
+/// per-service visitor password. Used for traversal paths, where the matched
+/// path scope cannot be trusted: the gate must assume the strictest override
+/// present on the host instead of resolving one per path bind.
+pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option<&str>) -> bool {
+  if state.config().ignore_client_auth {
+    return false;
+  }
+  let clients = state.clients.lock().await;
+  clients.values().any(|c| {
+    c.visitor_auth.is_some()
+      && match request_host {
+        Some(h) => c.matches_host(h) || !c.has_hostname_bind(),
+        None => !c.has_hostname_bind(),
+      }
+  })
 }
 
 /// Polls the routing pool until a candidate appears or the deadline passes.

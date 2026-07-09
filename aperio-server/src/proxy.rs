@@ -113,6 +113,9 @@ fn login_redirect(login_path: &str, uri_str: &str) -> Response {
 /// Applies the visitor-auth gate for a proxied request to (host, path), shared
 /// by the HTTP and WebSocket proxy paths.
 ///
+/// 0. A request path containing a traversal segment never weakens the gate:
+///    it is treated as covered by no public/override/share scope and, when any
+///    gate could apply on the host, requires a full session.
 /// 1. When a client declared a per-service visitor password for this route
 ///    (`route_visitor_auth`), it supersedes the server's own gate: the visitor
 ///    must hold a session valid for this host (a host-scoped login, or any
@@ -128,6 +131,26 @@ pub(crate) async fn check_visitor_gate(
   host: Option<&str>,
 ) -> VisitorGate {
   let path = uri.path();
+
+  // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
+  // bind, but a backend that resolves `..` serves `/b` — so such a path is
+  // never public, never unlocks a client's per-service credentials or a share
+  // scope (share checks reject it too), and when any gate could apply on this
+  // host it requires a full (global) session.
+  if crate::routing::request_path_has_traversal(path) {
+    let gated = state.config().auth_credentials.is_some()
+      || state.oidc.is_some()
+      || crate::routing::host_has_visitor_auth(state, host).await;
+    if !gated || validate_session(state, headers).await {
+      return VisitorGate::Allow;
+    }
+    let login_path = if state.oidc.is_some() {
+      "/aperio/oidc/login"
+    } else {
+      "/aperio/auth"
+    };
+    return VisitorGate::Deny(login_redirect(login_path, &uri.to_string()));
+  }
 
   // 1. Client-declared per-service visitor password override.
   if crate::routing::route_visitor_auth(state, path, host)
