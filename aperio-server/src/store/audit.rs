@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
@@ -6,6 +7,9 @@ use tracing::{error, info, warn};
 
 /// Maximum number of audit events kept in memory for the dashboard.
 const AUDIT_RECENT_CAP: usize = 200;
+
+/// `prev` value of the first event in a brand-new log (no predecessor).
+const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// A single administrative/security event.
 #[derive(Serialize, Deserialize, Clone)]
@@ -20,6 +24,22 @@ pub struct AuditEvent {
   pub actor_ip: String,
   /// Free-form details (token name, client id, hostname, ...).
   pub details: String,
+  /// SHA-256 (hex) of the previous line exactly as written to the file,
+  /// forming a tamper-evident hash chain. All-zeros for the first event;
+  /// empty on lines written before the chain existed.
+  #[serde(default)]
+  pub prev: String,
+}
+
+/// Hex SHA-256 of a raw audit line (without the trailing newline).
+fn line_hash(line: &str) -> String {
+  let mut hasher = Sha256::default();
+  hasher.update(line.as_bytes());
+  hasher
+    .finalize()
+    .iter()
+    .map(|b| format!("{:02x}", b))
+    .collect()
 }
 
 /// Append-only audit log: events go to `<data_dir>/audit.jsonl` and a bounded
@@ -38,6 +58,9 @@ pub struct AuditLog {
   max_files: usize,
   /// Size of the active file, tracked to avoid a stat per event.
   current_size: u64,
+  /// Hash of the last line written, carried into the next event's `prev`
+  /// field. Survives rotation so the chain spans generations.
+  last_hash: String,
 }
 
 impl AuditLog {
@@ -49,11 +72,24 @@ impl AuditLog {
   pub fn load(data_dir: &str, max_size: u64, max_files: usize) -> Self {
     let path = PathBuf::from(data_dir).join("audit.jsonl");
     let mut recent = VecDeque::with_capacity(AUDIT_RECENT_CAP);
+    let mut last_hash = GENESIS_HASH.to_string();
     if let Ok(raw) = std::fs::read_to_string(&path) {
       for line in raw.lines().rev().take(AUDIT_RECENT_CAP) {
         if let Ok(ev) = serde_json::from_str::<AuditEvent>(line) {
           recent.push_front(ev);
         }
+      }
+      if let Some(last) = raw.lines().rfind(|l| !l.trim().is_empty()) {
+        last_hash = line_hash(last);
+      }
+    }
+    if last_hash == GENESIS_HASH {
+      // Active file empty (e.g. restart right after rotation): continue the
+      // chain from the newest rotated generation instead of restarting it.
+      if let Ok(raw) = std::fs::read_to_string(format!("{}.1", path.display()))
+        && let Some(last) = raw.lines().rfind(|l| !l.trim().is_empty())
+      {
+        last_hash = line_hash(last);
       }
     }
     if !recent.is_empty() {
@@ -63,6 +99,12 @@ impl AuditLog {
         path
       );
     }
+    if let Ok(Some(broken)) = verify_chain(&path) {
+      warn!(
+        "Audit log hash chain broken at line {} of {:?} — the file may have been tampered with",
+        broken, path
+      );
+    }
     let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     AuditLog {
       path,
@@ -70,6 +112,7 @@ impl AuditLog {
       max_size,
       max_files,
       current_size,
+      last_hash,
     }
   }
 
@@ -85,6 +128,7 @@ impl AuditLog {
       event: event.to_string(),
       actor_ip: actor_ip.to_string(),
       details: details.to_string(),
+      prev: self.last_hash.clone(),
     };
     if self.recent.len() >= AUDIT_RECENT_CAP {
       self.recent.pop_front();
@@ -99,6 +143,7 @@ impl AuditLog {
           .and_then(|mut f| writeln!(f, "{}", line));
         match res {
           Ok(()) => {
+            self.last_hash = line_hash(&line);
             self.current_size += line.len() as u64 + 1;
             if self.max_size > 0 && self.current_size >= self.max_size {
               self.rotate();
@@ -141,6 +186,34 @@ impl AuditLog {
   pub fn recent(&self) -> Vec<AuditEvent> {
     self.recent.iter().cloned().collect()
   }
+}
+
+/// Verifies the hash chain of one audit file: every line's `prev` must equal
+/// the SHA-256 of the line before it. Returns the 1-based number of the first
+/// line that breaks the chain (tampered, reordered, or deleted predecessor),
+/// or `None` if the chain is intact. Pre-chain lines (empty `prev`) and a
+/// leading genesis/rotation boundary are accepted.
+pub fn verify_chain(path: &std::path::Path) -> std::io::Result<Option<usize>> {
+  let raw = std::fs::read_to_string(path)?;
+  let mut prev_line: Option<&str> = None;
+  for (idx, line) in raw.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+    let Ok(ev) = serde_json::from_str::<AuditEvent>(line) else {
+      return Ok(Some(idx + 1));
+    };
+    // Lines written before the chain existed carry no `prev`; skip them but
+    // still let them anchor the next line's hash.
+    if !ev.prev.is_empty() {
+      match prev_line {
+        Some(p) if ev.prev != line_hash(p) => return Ok(Some(idx + 1)),
+        // First line of the file: genesis for a fresh log, or the hash of a
+        // rotated-away predecessor — not checkable from this file alone.
+        None => {}
+        _ => {}
+      }
+    }
+    prev_line = Some(line);
+  }
+  Ok(None)
 }
 
 #[cfg(test)]
