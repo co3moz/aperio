@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -104,6 +105,140 @@ jobs:
         with:
           name: config-schema
           path: dist-pkg/*
+
+  # Docker images are built only on a version tag (not on every push). Each
+  # arch is built natively (arm64 on an ARM runner, no slow QEMU) and pushed
+  # under a per-arch tag; merge-docker then stitches them into the final
+  # multi-arch manifests.
+  docker-amd:
+    name: Build & Push Docker AMD64
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: aperio-server
+            dockerfile: ./aperio-server/Dockerfile
+          - image: aperio-client
+            dockerfile: ./aperio-client/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: suffix=-amd64
+          tags: type=raw,value=${{ github.ref_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-amd64
+
+  docker-arm:
+    name: Build & Push Docker ARM64
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        include:
+          - image: aperio-server
+            dockerfile: ./aperio-server/Dockerfile
+          - image: aperio-client
+            dockerfile: ./aperio-client/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: suffix=-arm64
+          tags: type=raw,value=${{ github.ref_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-arm64
+
+  merge-docker:
+    name: Create Multi-Arch Manifests
+    runs-on: ubuntu-latest
+    needs: [docker-amd, docker-arm]
+    strategy:
+      matrix:
+        image: [aperio-server, aperio-client]
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Publish the multi-arch tags for this release: the exact version tag
+      # always, plus semver (0.2.0 / 0.2 / 0) and `latest` for a stable
+      # release. A pre-release (a tag with a `-suffix`, e.g. v1.0.0-rc1) only
+      # gets its exact tag, so `latest` keeps pointing at the last stable one.
+      - name: Create and push multi-arch tags
+        run: |
+          set -euo pipefail
+          BASE="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
+          REF="${{ github.ref_name }}"        # e.g. v0.2.0
+          SEMVER="${REF#v}"                    # e.g. 0.2.0
+
+          TAGS=("$REF")
+          if [[ "$SEMVER" != *-* ]]; then
+            [ "$SEMVER" != "$REF" ] && TAGS+=("$SEMVER")
+            TAGS+=("${SEMVER%.*}" "${SEMVER%%.*}" "latest")
+          fi
+
+          for TAG in "${TAGS[@]}"; do
+            echo "Tagging ${BASE}:${TAG}"
+            docker buildx imagetools create --tag "${BASE}:${TAG}" \
+              "${BASE}:${REF}-amd64" \
+              "${BASE}:${REF}-arm64"
+          done
 
   release:
     name: Publish GitHub Release

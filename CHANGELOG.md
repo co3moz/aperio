@@ -34,6 +34,7 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **Docker images are now published on release, not on every push.** The multi-arch `ghcr.io/.../aperio-server` and `aperio-client` images are built by the release workflow when a version tag is pushed, and tagged with that version (`v0.2.0`, `0.2.0`, `0.2`, `0`); `latest` tracks the most recent **stable** release (a pre-release tag like `v1.0.0-rc1` only publishes its exact tag and never moves `latest`). The `rust.yml` CI on `main`/`master` and PRs now runs only build/lint/test, coverage, dependency audit, and the e2e tunnel test — it no longer builds or pushes Docker images (so `latest` no longer follows the default branch).
 - Dashboard state is now URL-addressable: the active tab and the traffic filters (text, method, status class) live in the query string, so a reload or shared link restores the same view and the browser back button steps between tabs. When a poll keeps failing the dashboard backs off exponentially (up to 16× the base interval) instead of hammering a down server, and the browser tab title and favicon reflect the connection state (green/amber/red) so a backgrounded tab shows tunnel health at a glance.
 - Dashboard accessibility: the status-dot pulse and toast slide-ins are disabled under `prefers-reduced-motion`, and toasts are announced to screen readers via an `aria-live` region.
 
