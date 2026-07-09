@@ -692,7 +692,23 @@ pub(crate) async fn run_service(
             }
           }
           Err(e) => {
-            error!("[{}] Failed to connect to server: {:?}.", label, e);
+            use tokio_tungstenite::tungstenite::Error as WsError;
+            if let WsError::Http(resp) = &e {
+              let code = resp.status().as_u16();
+              if code == 401 || code == 403 {
+                error!(
+                  "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token — it may be wrong, expired, or revoked.",
+                  label, code
+                );
+              } else {
+                error!(
+                  "[{}] Server rejected the connection with HTTP {}.",
+                  label, code
+                );
+              }
+            } else {
+              error!("[{}] Failed to connect to server: {}.", label, e);
+            }
           }
         }
       }

@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- A tunnel connection rejected by the server for a bad/expired/revoked token now logs an explicit **authentication failure** (with the HTTP 401/403 status and where to check the token) instead of dumping the raw HTTP response struct, so the cause is obvious in the client logs.
 - The generated `aperio.yaml` JSON Schema now carries purpose-oriented one-line field descriptions and `examples` for format-sensitive values (server URL/token, `target`, `hostname`/`path`, `bandwidth`, `auth`, tunnel targets, `client_id`, …), so editors surface a concrete sample and the meaning of each key while editing.
 
 ## [0.1.3] - 2026-07-09
