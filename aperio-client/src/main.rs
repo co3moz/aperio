@@ -252,17 +252,27 @@ async fn main() {
   }
 }
 
-/// Spawns one task per service, each with its own cancel channel.
+/// Spawns one task per service connection, each with its own cancel channel.
+/// A service with `connections: N` runs as N parallel tunnel connections; the
+/// first keeps the service's client id, extras derive `<id>-c2`, `<id>-c3`, …
+/// so every connection has a distinct instance id (no shared-id ambiguity for
+/// failover or `--bind-tunnels` lookups).
 fn spawn_services(
   specs: &[ServiceSpec],
   shared: &Shared,
 ) -> Vec<(watch::Sender<bool>, tokio::task::JoinHandle<()>)> {
   specs
     .iter()
-    .map(|spec| {
-      let (cancel_tx, cancel_rx) = watch::channel(false);
-      let handle = tokio::spawn(run_service(spec.clone(), shared.clone(), cancel_rx));
-      (cancel_tx, handle)
+    .flat_map(|spec| {
+      (1..=spec.connections).map(|conn| {
+        let mut spec = spec.clone();
+        if conn > 1 {
+          spec.client_id = format!("{}-c{}", spec.client_id, conn);
+        }
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let handle = tokio::spawn(run_service(spec, shared.clone(), cancel_rx));
+        (cancel_tx, handle)
+      })
     })
     .collect()
 }
@@ -305,6 +315,21 @@ fn build_specs(
 
   let tunnels = validate_tunnels(&settings.tunnels)?;
 
+  // Parallel connections per service: bounded so a typo cannot exhaust the
+  // server's tunnel slots (it also has its own max_tunnels guard).
+  let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
+    let n = raw.unwrap_or(1).max(1);
+    if n > 16 {
+      warn!(
+        "{} requests {} connections; clamping to the maximum of 16",
+        what, n
+      );
+      16
+    } else {
+      n
+    }
+  };
+
   if settings.services.is_empty() || cli_target_given {
     if cli_target_given && !settings.services.is_empty() {
       warn!(
@@ -342,6 +367,7 @@ fn build_specs(
       max_response_body: settings.max_response_body,
       timeout_secs: settings.timeout_secs,
       max_concurrent: settings.max_concurrent,
+      connections: clamp_connections(settings.connections, "the service"),
       priority: settings.priority,
       bandwidth_bps: parse_bw(settings.bandwidth.as_deref()),
       max_message_size: settings.max_message_size,
@@ -405,6 +431,10 @@ fn build_specs(
           .max_concurrent
           .or(settings.max_concurrent)
           .filter(|n| *n > 0),
+        connections: clamp_connections(
+          entry.connections.or(settings.connections),
+          &format!("service '{}'", describe()),
+        ),
         priority: entry.priority.unwrap_or(settings.priority),
         bandwidth_bps: parse_bw(entry.bandwidth.as_deref().or(settings.bandwidth.as_deref())),
         max_message_size: settings.max_message_size,
@@ -516,6 +546,12 @@ fn log_spec(spec: &ServiceSpec) {
   }
   if let Some(bw) = spec.bandwidth_bps {
     info!("- Announced Bandwidth: {} bytes/s", bw);
+  }
+  if spec.connections > 1 {
+    info!(
+      "- Connections: {} parallel tunnel connections (ids {}, {}-c2, ...)",
+      spec.connections, spec.client_id, spec.client_id
+    );
   }
   if let Some(ref t) = spec.tcp_target {
     info!("- TCP Target: {}", t);

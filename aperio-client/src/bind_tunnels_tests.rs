@@ -16,6 +16,7 @@ fn settings_with(
     max_response_body: 50 * 1024 * 1024,
     timeout_secs: 30,
     max_concurrent: None,
+    connections: None,
     priority: 0,
     bandwidth: None,
     max_message_size: 32 * 1024 * 1024,

@@ -13,6 +13,7 @@ fn base_settings() -> ClientSettings {
     max_response_body: 50 * 1024 * 1024,
     timeout_secs: 30,
     max_concurrent: None,
+    connections: None,
     priority: 0,
     bandwidth: None,
     max_message_size: 32 * 1024 * 1024,
@@ -147,6 +148,34 @@ fn test_build_specs_multi_service_fallbacks() {
   assert!(!specs[0].trim_bind);
   assert!(specs[1].trim_bind);
   assert_eq!(specs[0].name.as_deref(), Some("web"));
+}
+
+#[test]
+fn test_build_specs_connections() {
+  // Default is a single connection.
+  let specs = build_specs(&base_settings(), "base-id", false).unwrap();
+  assert_eq!(specs[0].connections, 1);
+
+  // Configured values pass through; per-entry overrides the top level;
+  // out-of-range values are clamped to 16.
+  let mut settings = base_settings();
+  settings.connections = Some(3);
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("web".to_string()),
+      target: Some("http://localhost:3000".to_string()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("api".to_string()),
+      target: Some("http://localhost:4000".to_string()),
+      connections: Some(99),
+      ..Default::default()
+    },
+  ];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].connections, 3);
+  assert_eq!(specs[1].connections, 16);
 }
 
 #[test]

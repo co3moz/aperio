@@ -140,7 +140,9 @@ services:
     path: /docs
 ```
 
-Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
+Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry.
+
+`connections: N` (1–16, default 1, also valid at the top level or as `APERIO_CONNECTIONS`) opens N parallel tunnel connections for a service. The server pools them like separate clients — its load-balancing strategy spreads requests across them — so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover/`--bind-tunnels` lookups stay unambiguous; `max_concurrent` applies per connection. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
 
 ### Header rules
 

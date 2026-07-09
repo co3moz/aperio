@@ -287,6 +287,8 @@ pub(crate) struct ClientSettings {
   pub(crate) max_response_body: usize,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
+  /// Parallel tunnel connections per service (config files only; 1 = default).
+  pub(crate) connections: Option<u32>,
   pub(crate) priority: u32,
   pub(crate) bandwidth: Option<String>,
   pub(crate) max_message_size: usize,
@@ -490,6 +492,13 @@ pub(crate) fn resolve_settings(
       local.max_concurrent,
       env_parse("APERIO_MAX_CONCURRENT", "APERIO_CLIENT_MAX_CONCURRENT"),
       home.max_concurrent,
+    )
+    .filter(|n| *n > 0),
+    connections: layered(
+      None,
+      local.connections,
+      env_parse("APERIO_CONNECTIONS", "APERIO_CLIENT_CONNECTIONS"),
+      home.connections,
     )
     .filter(|n| *n > 0),
     priority: layered(

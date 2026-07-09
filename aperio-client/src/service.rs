@@ -56,6 +56,9 @@ pub(crate) struct ServiceSpec {
   pub(crate) max_response_body: usize,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
+  /// Parallel tunnel connections for this service (1–16). The supervisor
+  /// spawns one service task per connection, each with a derived client id.
+  pub(crate) connections: u32,
   pub(crate) priority: u32,
   pub(crate) bandwidth_bps: Option<u64>,
   pub(crate) max_message_size: usize,
