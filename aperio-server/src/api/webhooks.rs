@@ -12,7 +12,6 @@ use tracing::info;
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
 use crate::store::audit::{self};
-use crate::store::webhooks::{self};
 
 /// Returns recent audit events (dashboard).
 pub(crate) async fn audit_handler(
