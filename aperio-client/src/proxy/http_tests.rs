@@ -281,6 +281,63 @@ async fn test_handle_incoming_request() {
 }
 
 #[tokio::test]
+async fn test_pass_hostname_sends_exactly_one_host_header() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+
+  tokio::spawn(async move {
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0; 2048];
+      let n = socket.read(&mut buf).await.unwrap();
+      let req_str = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+      // The visitor's Host must be forwarded exactly once (a duplicate is a
+      // protocol violation that strict backends reject with 400).
+      let host_lines = req_str.matches("\r\nhost:").count();
+      assert_eq!(
+        host_lines, 1,
+        "expected exactly one host header, got: {req_str}"
+      );
+      assert!(
+        req_str.contains("host: app.example.com"),
+        "visitor host must be passed through, got: {req_str}"
+      );
+
+      let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+      socket.write_all(response.as_bytes()).await.unwrap();
+    }
+  });
+
+  let mut ctx = test_ctx(&target_url, test_tunnel_tx());
+  ctx.pass_hostname = true;
+
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-host".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![("host".to_string(), "app.example.com".to_string())],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected response variant");
+  };
+  // The mock asserts inside its task; a 200 here means the read succeeded
+  // (an assert failure in the task would leave the connection unanswered).
+  assert_eq!(status, 200);
+}
+
+#[tokio::test]
 async fn test_handle_incoming_request_header_rules() {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;

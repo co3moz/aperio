@@ -286,11 +286,12 @@ pub(crate) async fn handle_incoming_request(
     }
 
     if k_lower == "host" {
+      // Never forwarded from here — the pass_hostname block below adds it
+      // exactly once (reqwest's .header() appends, so adding it in both
+      // places produced a duplicate Host header). Without pass_hostname the
+      // target authority is used instead.
       host_header_val = Some(v.clone());
-      if !ctx.pass_hostname {
-        // Ignore Host header if pass_hostname is disabled (use target authority)
-        continue;
-      }
+      continue;
     }
 
     if let (Ok(name), Ok(val)) = (

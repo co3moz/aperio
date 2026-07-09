@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- With `pass_hostname: true` the client forwarded the visitor's `Host` header **twice** to the local backend (once from the general header loop and once from the pass-hostname step). Lenient backends (e.g. Node) showed a duplicated `host`; strict servers reject multiple Host headers with 400 per RFC 7230. The header is now forwarded exactly once.
+
 ## [0.2.0] - 2026-07-10
 
 ### CI
