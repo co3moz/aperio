@@ -1,6 +1,9 @@
 # Rust build artifacts
 /target/
 
+# Generated JSON Schemas (emitted by the aperio-client build script)
+/schemas/
+
 # IDE configurations
 .idea/
 .vscode/

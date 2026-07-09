@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "aperio-config",
     "aperio-server",
     "aperio-client",
 ]

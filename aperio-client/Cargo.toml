@@ -18,3 +18,8 @@ url = "2.5"
 flate2 = "1"
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive", "wrap_help"] }
+aperio-config = { path = "../aperio-config" }
+
+# Used by build.rs to emit the aperio.yaml JSON Schema into schemas/.
+[build-dependencies]
+aperio-config = { path = "../aperio-config" }

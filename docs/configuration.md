@@ -142,6 +142,21 @@ services:
 
 Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
 
+### Editor autocompletion (JSON Schema)
+
+Building the client emits a JSON Schema for `aperio.yaml` to `schemas/aperio-client.schema.json` (git-ignored — it's a build artifact, regenerated from the parser types so it never drifts). Point your editor's YAML extension at it for completion, hover docs, and validation:
+
+```jsonc
+// .vscode/settings.json (VS Code / Antigravity, with the YAML extension)
+{
+  "yaml.schemas": {
+    "./schemas/aperio-client.schema.json": ["aperio.yaml", "**/aperio.yaml", "~/.aperio.yaml"]
+  }
+}
+```
+
+Run `cargo build -p aperio-client` once to generate it (or `cargo run -p aperio-config > schemas/aperio-client.schema.json`). Tagged releases also attach a versioned `aperio-client.<tag>.json` as a release asset.
+
 ## Server
 
 ### Core

@@ -53,22 +53,9 @@ fn default_true() -> bool {
   true
 }
 
-/// Serde default protocol of a declared tunnel.
-fn default_tcp() -> String {
-  "tcp".to_string()
-}
-
-/// One tunnel declared by a client (`tunnels:` list in aperio.yaml): a
-/// normally unexposed local service that a peer client may reach through
-/// the server with `--bind-tunnels` — same token, explicit client id.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TunnelDecl {
-  /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
-  pub(crate) target: String,
-  /// Transport protocol; only `tcp` is currently supported.
-  #[serde(default = "default_tcp")]
-  pub(crate) protocol: String,
-}
+// The tunnel declaration is shared with the `aperio.yaml` schema crate so the
+// same type serves both the config file and the wire (Ping) form.
+pub(crate) use aperio_config::TunnelDecl;
 
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -84,10 +84,31 @@ jobs:
           name: pkg-${{ matrix.target }}
           path: dist-pkg/*
 
+  schema:
+    name: Generate config schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate versioned aperio.yaml schema
+        run: |
+          mkdir -p dist-pkg
+          cargo run --locked -p aperio-config > "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json"
+
+      - name: Upload schema artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-schema
+          path: dist-pkg/*
+
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, schema]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
