@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-09
+
 ### Security
 
 - Dynamic API tokens are now verified with a constant-time hash comparison instead of `==`. Comparing SHA-256 hashes (not the raw secret) was already low risk, but this keeps the token path consistent with the constant-time master-token check and forecloses a future timing regression.

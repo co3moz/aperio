@@ -32,9 +32,9 @@ CI goes further and merges the E2E integration run into the same report (instrum
 
 ## Releases
 
-Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release — [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version.
+Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release — [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version. The versioned `aperio.yaml` JSON Schema (`aperio-client.<tag>.json`) is attached to the release too.
 
-Docker images are built for every push to master (`ghcr.io/co3moz/aperio-server`, `ghcr.io/co3moz/aperio-client`; multi-arch amd64+arm64), tagged with the branch, the short commit SHA, and `latest`.
+The same tag also builds the multi-arch (amd64+arm64) Docker images `ghcr.io/co3moz/aperio-server` and `ghcr.io/co3moz/aperio-client`, tagged with the version (`v0.2.0`, `0.2.0`, `0.2`, `0`); `latest` tracks the most recent **stable** release (a pre-release tag such as `v1.0.0-rc1` publishes only its exact tag). Docker images are not built on ordinary pushes — the CI workflow (`ci.yml`) only builds, lints, tests, audits, and runs the e2e tunnel test.
 
 ## Conventions
 
