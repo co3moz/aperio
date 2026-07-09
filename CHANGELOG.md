@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Changed
+
+- The generated `aperio.yaml` JSON Schema now carries purpose-oriented one-line field descriptions and `examples` for format-sensitive values (server URL/token, `target`, `hostname`/`path`, `bandwidth`, `auth`, tunnel targets, `client_id`, …), so editors surface a concrete sample and the meaning of each key while editing.
+
 ## [0.1.3] - 2026-07-09
 
 ### Security

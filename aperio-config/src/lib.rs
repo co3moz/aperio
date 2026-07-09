@@ -3,8 +3,10 @@
 //! These are the exact types `aperio-client` deserializes its config file into.
 //! They live in their own crate so the client's build script can emit a JSON
 //! Schema (`schemars`) straight from them — the editor schema and the parser can
-//! never drift apart. Doc comments on the fields below become `description`s in
-//! the generated schema, so they double as the reference for `aperio.yaml`.
+//! never drift apart. The doc comments below become the `description` of each
+//! field in the generated schema, so they double as the `aperio.yaml` reference;
+//! keep them to a single purposeful sentence and add `examples` where the value
+//! has a specific format.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,164 +17,188 @@ fn default_tcp() -> String {
   "tcp".to_string()
 }
 
-/// One tunnel declared by a client (`tunnels:` list in aperio.yaml): a normally
-/// unexposed local service that a peer client may reach through the server with
-/// `--bind-tunnels` — same token, explicit client id. Also the wire form sent
-/// in the tunnel `Ping`.
+/// A private local service (e.g. a database or SSH) this client makes reachable
+/// to a peer running `--bind-tunnels`, without ever exposing it to the public web.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 pub struct TunnelDecl {
-  /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
+  /// Local address this client dials when a peer binds the tunnel.
+  #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
   pub target: String,
-  /// Transport protocol; only `tcp` is currently supported.
+  /// Transport of the tunnel; only `tcp` is supported today.
   #[serde(default = "default_tcp")]
+  #[schemars(extend("examples" = ["tcp"]))]
   pub protocol: String,
 }
 
-/// The `server:` key accepts both the legacy plain URL string and the canonical
-/// nested section.
+/// The Aperio server this client connects to: either a bare URL string, or a
+/// `{ url, token }` section that also carries the tunnel token.
 #[derive(Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ServerValue {
-  /// `server: https://tunnel.example.com` (legacy flat form)
+  /// Server URL only — the token then comes from `token:` or the environment.
   Url(String),
-  /// `server: { url: ..., token: ... }`
+  /// Server URL together with the tunnel token.
   Section {
+    /// URL of the Aperio server this client dials out to.
+    #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
     url: Option<String>,
+    /// Tunnel token (master or a scoped dynamic token) that authorizes this client.
+    #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
     token: Option<String>,
   },
 }
 
-/// One entry of the `services:` list — a single exposed target with its own
-/// binds and knobs. Unset fields fall back to the top-level / layered value
-/// (so shared settings like health cadence live once at the top).
+/// One exposed backend when a single client serves several at once; any unset
+/// field falls back to the top-level value.
 #[derive(Deserialize, Default, Clone, JsonSchema)]
 pub struct ServiceEntry {
-  /// Display name used in logs and the dashboard.
+  /// Label for this service in client logs and the dashboard clients table.
+  #[schemars(extend("examples" = ["web"]))]
   pub name: Option<String>,
-  /// Local backend to expose. Required per entry.
+  /// Local backend this service exposes through the tunnel.
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000"]))]
   pub target: Option<String>,
-  /// Hostname bind for this service, e.g. `app.example.com`.
+  /// Public hostname that should route to this service.
+  #[schemars(extend("examples" = ["app.example.com"]))]
   pub hostname: Option<String>,
-  /// Path bind for this service, e.g. `/api`.
+  /// Public path prefix that should route to this service.
+  #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,
-  /// Strip the path bind before forwarding to the backend.
+  /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
   pub trim_bind: Option<bool>,
-  /// Forward the original `Host` header instead of the target's.
+  /// Forward the visitor's original Host header instead of the target's.
   pub pass_hostname: Option<bool>,
-  /// Local max concurrent requests for this service.
+  /// Most requests this service handles at once before the server queues the rest.
+  #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
-  /// Load-balancing priority tier (0 = primary, higher = standby).
+  /// Failover tier for this service (0 = primary, higher numbers are standbys).
+  #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
-  /// Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`.
+  /// Caps how fast the server streams responses so a slow uplink isn't
+  /// overwhelmed; bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes
+  /// (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
+  #[schemars(extend("examples" = ["8mbit", "500kbit", "2MB"]))]
   pub bandwidth: Option<String>,
-  /// Per-request timeout in seconds.
+  /// Seconds to wait for this backend to respond before failing the request.
+  #[schemars(extend("examples" = [30]))]
   pub timeout: Option<u64>,
-  /// Cap on response bodies read from the backend, in bytes.
+  /// Largest response body, in bytes, this service will relay to a visitor.
+  #[schemars(extend("examples" = [10485760]))]
   pub max_response_body: Option<usize>,
-  /// Max backend redirects to follow transparently (0 passes them through).
+  /// How many backend redirects to follow transparently before passing one through.
+  #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
-  /// Raw TCP target for this service (experimental).
+  /// Raw TCP backend for this service instead of HTTP (experimental).
+  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
-  /// Health endpoint of the local target (path like `/health` or full URL).
+  /// Backend health endpoint the client probes to pull itself from rotation when down.
+  #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
   /// Seconds between backend health probes.
+  #[schemars(extend("examples" = [10]))]
   pub health_interval: Option<u64>,
-  /// Per-probe timeout in seconds.
+  /// Seconds to wait for each health probe before counting it as failed.
+  #[schemars(extend("examples" = [5]))]
   pub health_timeout: Option<u64>,
-  /// Consecutive probe failures before the backend is reported unhealthy.
+  /// Failed probes in a row before the backend is reported unhealthy.
+  #[schemars(extend("examples" = [3]))]
   pub health_threshold: Option<u32>,
-  /// Declare this service public (skip the server's visitor auth gate).
+  /// Serve this service without the server's visitor login (needs a token that allows it).
   pub public: Option<bool>,
-  /// Per-service visitor login as `user:password`: the server gates this
-  /// service behind a login with these credentials, overriding its own
-  /// visitor password for it (needs the same token permission as `public`).
+  /// Gate this service behind your own `user:password` login instead of the server's.
+  #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
 }
 
-/// One `bind-tunnels:` entry: how to reach (and locally map) the tunnels of one
-/// peer client.
+/// A peer client whose declared tunnels this process binds to local ports.
 #[derive(Deserialize, Default, Clone, JsonSchema)]
 pub struct BindTunnelEntry {
-  /// Token the peer client connected with (falls back to the layered server
-  /// token when unset).
+  /// Token the peer connected with; falls back to this client's server token when unset.
+  #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// Local port overrides: declared target → local port. Without an override
-  /// the local listener uses the port of the declared target.
+  /// Map a declared tunnel target to a specific local port instead of reusing the target's.
   #[serde(default, rename = "override")]
   pub overrides: HashMap<String, u16>,
 }
 
-/// Configuration file schema (`aperio.yaml` / `~/.aperio.yaml`). All keys are
-/// optional.
-///
-/// ```yaml
-/// server:
-///   url: https://tunnel.example.com    # Aperio server URL
-///   token: apr_xxxxxxxxxxxxxxxx        # tunnel token (master or dynamic)
-/// target: http://localhost:3000        # local backend to expose
-/// hostname: a.example.com              # optional hostname bind
-/// path: /api                           # optional path bind
-/// ```
+/// The Aperio client configuration file (`aperio.yaml` or `~/.aperio.yaml`).
+/// Every key is optional and can equally be set with a CLI flag or an `APERIO_*`
+/// environment variable; this file is the lowest-friction way to keep them.
 #[derive(Deserialize, Default, JsonSchema)]
 pub struct FileConfig {
-  /// Aperio server URL and token (nested section or a bare URL string).
+  /// The Aperio server to reach and the token to authenticate the tunnel with.
   pub server: Option<ServerValue>,
-  /// Legacy flat `token:` key (canonical form is `server.token`).
+  /// Tunnel token, for when it isn't nested under `server.token`.
+  #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// Single local backend to expose (alternative to a `services:` list).
+  /// Local backend to expose (single-service mode; use `services` for several).
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000"]))]
   pub target: Option<String>,
-  /// Hostname bind, e.g. `app.example.com`.
+  /// Public hostname to claim for this client's traffic.
+  #[schemars(extend("examples" = ["app.example.com"]))]
   pub hostname: Option<String>,
-  /// Path bind, e.g. `/api`.
+  /// Public path prefix to claim for this client's traffic.
+  #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,
-  /// Strip the path bind before forwarding to the backend.
+  /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
   pub trim_bind: Option<bool>,
-  /// Forward the original `Host` header instead of the target's.
+  /// Forward the visitor's original Host header to the backend instead of the target's.
   pub pass_hostname: Option<bool>,
-  /// Local max concurrent requests.
+  /// Most requests handled at once before the server queues the rest.
+  #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
-  /// Cap on response bodies read from the backend, in bytes.
+  /// Largest response body, in bytes, the client will relay to a visitor.
+  #[schemars(extend("examples" = [10485760]))]
   pub max_response_body: Option<usize>,
-  /// Per-request timeout in seconds.
+  /// Seconds to wait for the backend to respond before failing a request.
+  #[schemars(extend("examples" = [30]))]
   pub timeout: Option<u64>,
-  /// Max tunnel message size in bytes.
+  /// Largest single tunnel frame, in bytes, the client will accept.
+  #[schemars(extend("examples" = [33554432]))]
   pub max_message_size: Option<usize>,
-  /// Raw TCP target (experimental).
+  /// Raw TCP backend to expose instead of HTTP (experimental).
+  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
-  /// Health endpoint of the local target (path like `/health` or full URL).
+  /// Backend health endpoint to probe; a failing backend leaves rotation without dropping the tunnel.
+  #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
   /// Seconds between backend health probes.
+  #[schemars(extend("examples" = [10]))]
   pub health_interval: Option<u64>,
-  /// Per-probe timeout in seconds.
+  /// Seconds to wait for each health probe before counting it as failed.
+  #[schemars(extend("examples" = [5]))]
   pub health_timeout: Option<u64>,
-  /// Consecutive probe failures before the backend is reported unhealthy.
+  /// Failed probes in a row before the backend is reported unhealthy.
+  #[schemars(extend("examples" = [3]))]
   pub health_threshold: Option<u32>,
-  /// Load-balancing priority tier (0 = primary, higher = standby).
+  /// Failover tier for this client (0 = primary, higher numbers are standbys).
+  #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
-  /// Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`.
+  /// Caps how fast the server streams responses so a slow uplink isn't
+  /// overwhelmed; bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes
+  /// (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
+  #[schemars(extend("examples" = ["8mbit", "500kbit", "2MB"]))]
   pub bandwidth: Option<String>,
-  /// Max backend redirects to follow transparently (same-host scheme upgrades
-  /// and same-root-domain hops); 0 passes redirects through.
+  /// How many backend redirects to follow transparently before passing one through.
+  #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
-  /// Multiple exposed targets (one tunnel connection each). When non-empty it
-  /// replaces the single top-level `target`.
+  /// Expose several backends from one client, each on its own tunnel connection
+  /// (replaces the single top-level `target`).
   pub services: Option<Vec<ServiceEntry>>,
-  /// Declare the exposed service public: the server skips its visitor password
-  /// / OIDC gate for traffic routed here (requires a token that permits
-  /// publishing public services).
+  /// Serve without the server's visitor login (needs a token that allows it).
   pub public: Option<bool>,
-  /// Per-service visitor login as `user:password`: the server gates traffic
-  /// routed here behind a login with these credentials (top-level default for
-  /// single-service mode; per-entry `auth` overrides it).
+  /// Gate this client behind your own `user:password` login instead of the server's.
+  #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
-  /// Persistent client instance id (a UUID). Defaults to a random UUID per run
-  /// when unset.
+  /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
+  /// can recognize this client; a random one is used when unset.
+  #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
   pub client_id: Option<String>,
-  /// Tunnels declared by this client: normally unexposed local services a peer
-  /// client may bind with `--bind-tunnels` (same token, this client's id).
+  /// Private local services a peer client may reach via `--bind-tunnels`; never
+  /// exposed to the public web.
   pub tunnels: Option<Vec<TunnelDecl>>,
-  /// Peer clients whose declared tunnels this process binds locally when run
-  /// with `--bind-tunnels`. Keys are peer client ids.
+  /// Peer clients whose declared tunnels this process binds to local ports,
+  /// keyed by the peer's client id.
   #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
   pub bind_tunnels: Option<HashMap<String, BindTunnelEntry>>,
 }
