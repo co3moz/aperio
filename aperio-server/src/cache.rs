@@ -41,10 +41,7 @@ pub(crate) fn cache_key(host: Option<&str>, uri: &str) -> String {
 impl ResponseCache {
   /// Returns a fresh entry for the key, dropping it if it has expired.
   pub(crate) fn get(&mut self, key: &str) -> Option<CacheHit> {
-    let expired = match self.entries.get(key) {
-      Some(e) => e.expires_at <= Instant::now(),
-      None => return None,
-    };
+    let expired = self.entries.get(key)?.expires_at <= Instant::now();
     if expired {
       if let Some(e) = self.entries.remove(key) {
         self.total_bytes -= e.body.len() as u64;
