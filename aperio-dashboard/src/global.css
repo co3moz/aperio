@@ -1,4 +1,8 @@
-.radix-themes {
+/* Page background on the ROOT theme wrapper only. Radix Themes portals
+   (tooltips, dropdowns, dialogs) are appended to <body> inside their own
+   .radix-themes wrapper — an unscoped selector here painted every tooltip
+   as a full-height page background covering the screen. */
+#root .radix-themes {
   min-height: 100vh;
   background-color: var(--color-background);
   background-image:
