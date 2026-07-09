@@ -191,6 +191,8 @@ Run `cargo build -p aperio-client` once to generate it (or `cargo run -p aperio-
 | `APERIO_MAX_TUNNELS` | Max simultaneously connected tunnel clients. | `10` |
 | `APERIO_IP_LIMIT_MAX` | Per-IP token bucket burst capacity. | `100` |
 | `APERIO_IP_LIMIT_REFILL` | Per-IP refill rate (requests/second). | `5` |
+| `APERIO_LOGIN_LOCKOUT_THRESHOLD` | Consecutive failed logins from one IP before it is locked out. | `5` |
+| `APERIO_LOGIN_LOCKOUT_SECS` | Base lockout window in seconds; doubles with each repeat lockout (capped at 1 h). A successful login resets the state. | `60` |
 | `APERIO_SERVER_GATEWAY_TIMEOUT` | Seconds to wait for a client to (re)connect before failing a request. | `10` |
 | `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` | Seconds to wait for a client to answer a dispatched request. | `30` |
 | `APERIO_TRUST_PROXY` | `1` = trust `X-Forwarded-For` / `X-Real-IP` for client IPs. Enable **only** behind a trusted reverse proxy. | `0` |

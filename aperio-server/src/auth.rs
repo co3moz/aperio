@@ -24,6 +24,111 @@ pub(crate) async fn auth_page_handler() -> Response {
   serve_embedded("auth.html", false)
 }
 
+/// Per-IP failed-login state for the brute-force lockout.
+struct LoginFailures {
+  /// Consecutive failures since the last success / completed lockout.
+  consecutive: u32,
+  /// Number of lockouts already served, for escalation.
+  lockouts: u32,
+  /// Active lockout end, if any.
+  locked_until: Option<Instant>,
+  /// Last activity, for garbage collection.
+  last_seen: Instant,
+}
+
+/// Escalating per-IP login lockout: after `threshold` consecutive failures the
+/// IP is locked out for `base` seconds, doubling with each subsequent lockout
+/// up to [`LOCKOUT_MAX`]. A successful login clears the state. Pure (caller
+/// supplies `now`), so the policy is unit-testable; [`AppState`] wraps one in
+/// a mutex.
+pub(crate) struct LockoutTracker {
+  threshold: u32,
+  base: Duration,
+  map: HashMap<IpAddr, LoginFailures>,
+}
+
+/// Upper bound on an escalated lockout window.
+const LOCKOUT_MAX: Duration = Duration::from_secs(3600);
+
+impl LockoutTracker {
+  pub(crate) fn new(threshold: u32, base: Duration) -> Self {
+    Self {
+      threshold: threshold.max(1),
+      base: base.max(Duration::from_secs(1)),
+      map: HashMap::new(),
+    }
+  }
+
+  /// From the environment: APERIO_LOGIN_LOCKOUT_THRESHOLD (default 5 failures)
+  /// and APERIO_LOGIN_LOCKOUT_SECS (default 60s base window).
+  pub(crate) fn from_env() -> Self {
+    let threshold = std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")
+      .ok()
+      .and_then(|v| v.parse::<u32>().ok())
+      .unwrap_or(5);
+    let base = std::env::var("APERIO_LOGIN_LOCKOUT_SECS")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .unwrap_or(60);
+    Self::new(threshold, Duration::from_secs(base))
+  }
+
+  /// Remaining lockout for `ip`, if it is currently locked out.
+  pub(crate) fn locked(&mut self, ip: IpAddr, now: Instant) -> Option<Duration> {
+    let entry = self.map.get_mut(&ip)?;
+    match entry.locked_until {
+      Some(until) if until > now => Some(until - now),
+      Some(_) => {
+        // Lockout served: failures start counting from zero again, but the
+        // escalation counter is kept so a repeat offender locks out longer.
+        entry.locked_until = None;
+        entry.consecutive = 0;
+        None
+      }
+      None => None,
+    }
+  }
+
+  /// Records a failed login. Returns the lockout duration when this failure
+  /// crosses the threshold and triggers (or re-triggers) a lockout.
+  pub(crate) fn record_failure(&mut self, ip: IpAddr, now: Instant) -> Option<Duration> {
+    self.gc(now);
+    let entry = self.map.entry(ip).or_insert(LoginFailures {
+      consecutive: 0,
+      lockouts: 0,
+      locked_until: None,
+      last_seen: now,
+    });
+    entry.consecutive += 1;
+    entry.last_seen = now;
+    if entry.consecutive < self.threshold {
+      return None;
+    }
+    entry.consecutive = 0;
+    entry.lockouts = entry.lockouts.saturating_add(1);
+    // base * 2^(lockouts-1), capped.
+    let factor = 1u32 << (entry.lockouts - 1).min(16);
+    let window = self.base.saturating_mul(factor).min(LOCKOUT_MAX);
+    entry.locked_until = Some(now + window);
+    Some(window)
+  }
+
+  /// Clears the failure state after a successful login.
+  pub(crate) fn clear(&mut self, ip: IpAddr) {
+    self.map.remove(&ip);
+  }
+
+  /// Drops stale entries so the map stays bounded (no failures nor lockout
+  /// activity for 24h). Cheap enough to run inline on each recorded failure.
+  fn gc(&mut self, now: Instant) {
+    if self.map.len() > 1024 {
+      self
+        .map
+        .retain(|_, e| now.duration_since(e.last_seen) < Duration::from_secs(24 * 3600));
+    }
+  }
+}
+
 /// Handles login form submission. Validates credentials and sets a session
 /// cookie. Validation is host-aware: server/dashboard/master credentials create
 /// a full (global) session, while a client-set per-service visitor password
@@ -47,6 +152,21 @@ pub(crate) async fn auth_login_handler(
     &cfg.trusted_proxies,
   );
   if !state.check_rate_limit(client_ip).await {
+    return Err(StatusCode::TOO_MANY_REQUESTS);
+  }
+  // Brute-force lockout: an IP over the failed-login threshold is refused
+  // outright (no credential check) until its escalating window passes.
+  if let Some(remaining) = state
+    .login_lockout
+    .lock()
+    .await
+    .locked(client_ip, Instant::now())
+  {
+    warn!(
+      "Login attempt from {} refused: locked out for {}s more",
+      client_ip,
+      remaining.as_secs()
+    );
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
 
@@ -124,8 +244,29 @@ pub(crate) async fn auth_login_handler(
         "invalid credentials",
       )
       .await;
+    // Count towards the lockout; audit when this failure triggers one.
+    let locked = state
+      .login_lockout
+      .lock()
+      .await
+      .record_failure(client_ip, Instant::now());
+    if let Some(window) = locked {
+      warn!(
+        "Locking out {} after repeated failed logins ({}s)",
+        client_ip,
+        window.as_secs()
+      );
+      state
+        .audit(
+          "login_lockout",
+          &client_ip.to_string(),
+          &format!("window_secs={}", window.as_secs()),
+        )
+        .await;
+    }
     return Err(StatusCode::UNAUTHORIZED);
   };
+  state.login_lockout.lock().await.clear(client_ip);
   let scope_desc = match &session_scope {
     Some(h) => format!("session created (scope={})", h),
     None => "session created (global)".to_string(),

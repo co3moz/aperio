@@ -129,3 +129,61 @@ fn safe_redirect_path_blocks_open_redirects() {
   assert_eq!(safe_redirect_path("https://evil.com"), "/");
   assert_eq!(safe_redirect_path("relative"), "/");
 }
+
+// --- LockoutTracker ----------------------------------------------------------
+
+#[test]
+fn lockout_triggers_after_threshold_and_escalates() {
+  let mut t = LockoutTracker::new(3, Duration::from_secs(60));
+  let ip: IpAddr = "203.0.113.5".parse().unwrap();
+  let now = Instant::now();
+
+  // Below the threshold: no lockout.
+  assert_eq!(t.record_failure(ip, now), None);
+  assert_eq!(t.record_failure(ip, now), None);
+  assert!(t.locked(ip, now).is_none());
+
+  // Third failure crosses the threshold: 60s window.
+  assert_eq!(t.record_failure(ip, now), Some(Duration::from_secs(60)));
+  assert!(t.locked(ip, now).is_some());
+  // Still locked just before the window ends; free right after.
+  assert!(t.locked(ip, now + Duration::from_secs(59)).is_some());
+  assert!(t.locked(ip, now + Duration::from_secs(61)).is_none());
+
+  // A repeat offender escalates: the second lockout doubles to 120s.
+  let later = now + Duration::from_secs(120);
+  assert_eq!(t.record_failure(ip, later), None);
+  assert_eq!(t.record_failure(ip, later), None);
+  assert_eq!(t.record_failure(ip, later), Some(Duration::from_secs(120)));
+}
+
+#[test]
+fn lockout_cleared_on_success_and_isolated_per_ip() {
+  let mut t = LockoutTracker::new(2, Duration::from_secs(60));
+  let a: IpAddr = "203.0.113.5".parse().unwrap();
+  let b: IpAddr = "203.0.113.6".parse().unwrap();
+  let now = Instant::now();
+
+  assert_eq!(t.record_failure(a, now), None);
+  // A successful login resets the counter (and the escalation history).
+  t.clear(a);
+  assert_eq!(t.record_failure(a, now), None);
+  assert_eq!(t.record_failure(a, now), Some(Duration::from_secs(60)));
+
+  // Another IP is unaffected by A's lockout.
+  assert!(t.locked(b, now).is_none());
+  assert_eq!(t.record_failure(b, now), None);
+}
+
+#[test]
+fn lockout_window_is_capped() {
+  let mut t = LockoutTracker::new(1, Duration::from_secs(3000));
+  let ip: IpAddr = "203.0.113.7".parse().unwrap();
+  let mut now = Instant::now();
+  // Every failure locks (threshold 1); the second window would be 6000s but
+  // is capped at one hour.
+  assert_eq!(t.record_failure(ip, now), Some(Duration::from_secs(3000)));
+  now += Duration::from_secs(3001);
+  assert!(t.locked(ip, now).is_none());
+  assert_eq!(t.record_failure(ip, now), Some(Duration::from_secs(3600)));
+}

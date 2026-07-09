@@ -110,6 +110,10 @@ async fn test_rate_limiting() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
+      5,
+      std::time::Duration::from_secs(60),
+    )),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
@@ -201,6 +205,10 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
+      5,
+      std::time::Duration::from_secs(60),
+    )),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
@@ -291,6 +299,10 @@ async fn test_proxy_handler_success() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
+      5,
+      std::time::Duration::from_secs(60),
+    )),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),

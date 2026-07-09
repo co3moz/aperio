@@ -520,6 +520,8 @@ pub(crate) struct AppState {
   pub(crate) path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   pub(crate) sessions: Mutex<HashMap<String, SessionInfo>>,
   pub(crate) rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
+  /// Escalating per-IP failed-login lockout (brute-force protection).
+  pub(crate) login_lockout: Mutex<crate::auth::LockoutTracker>,
   /// Per-token request rate buckets (key = dynamic token record id),
   /// enforcing the token's optional `max_rps`.
   pub(crate) token_rate: Mutex<HashMap<String, RateLimitState>>,

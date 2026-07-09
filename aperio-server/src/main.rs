@@ -535,6 +535,7 @@ async fn main() {
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
+    login_lockout: Mutex::new(crate::auth::LockoutTracker::from_env()),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
