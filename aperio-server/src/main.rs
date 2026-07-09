@@ -29,6 +29,7 @@ mod tunnel;
 
 use crate::api::clients::{
   client_enabled_handler, client_override_handler, logs_handler, stats_handler,
+  traffic_stream_handler,
 };
 use crate::api::inspector::{request_detail_handler, request_replay_handler};
 use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler};
@@ -457,6 +458,10 @@ async fn main() {
   let oidc_runtime = oidc::load_from_env().await;
 
   let (client_connected_tx, _) = watch::channel(false);
+  // Live traffic fan-out to dashboard SSE subscribers. A bounded buffer means a
+  // slow/absent subscriber can only fall behind (RecvError::Lagged, skipped on
+  // the read side), never apply backpressure to request handling.
+  let (traffic_tx, _) = tokio::sync::broadcast::channel(256);
 
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
@@ -474,6 +479,7 @@ async fn main() {
       total_bytes_transferred: 0,
     }),
     recent_logs: Mutex::new(VecDeque::with_capacity(100)),
+    traffic_tx,
     config_store: std::sync::RwLock::new(Arc::new(config)),
     config_env_defaults,
     settings_overrides: Mutex::new(settings_overrides),
@@ -523,6 +529,7 @@ async fn main() {
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
       .route("/api/logs", get(logs_handler))
+      .route("/api/stream", get(traffic_stream_handler))
       .route("/api/session", get(auth_session_handler))
       .route(
         "/api/clients/:id/override",

@@ -2,7 +2,10 @@ use axum::{
   Json,
   extract::{ConnectInfo, State},
   http::{HeaderMap, StatusCode},
-  response::{IntoResponse, Response},
+  response::{
+    IntoResponse, Response,
+    sse::{Event, KeepAlive, Sse},
+  },
 };
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -107,6 +110,34 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
 pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec<RequestLog>> {
   let logs = state.recent_logs.lock().await;
   Json(logs.iter().cloned().collect())
+}
+
+/// Server-Sent Events stream of live traffic: each proxied request is emitted
+/// as one JSON `RequestLog` event as it completes, so the dashboard traffic
+/// table updates instantly instead of polling. A subscriber that falls behind
+/// the broadcast buffer skips the lagged span rather than closing the stream.
+pub(crate) async fn traffic_stream_handler(
+  State(state): State<Arc<AppState>>,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
+  use tokio::sync::broadcast::error::RecvError;
+  let rx = state.traffic_tx.subscribe();
+  let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+    loop {
+      match rx.recv().await {
+        Ok(log) => {
+          let event = Event::default()
+            .json_data(&log)
+            .unwrap_or_else(|_| Event::default());
+          return Some((Ok(event), rx));
+        }
+        // Slow subscriber: drop the missed span and keep streaming.
+        Err(RecvError::Lagged(_)) => continue,
+        // Server shutting down / sender gone: end the stream.
+        Err(RecvError::Closed) => return None,
+      }
+    }
+  });
+  Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 /// Request payload for the dashboard client override (overrule) endpoint.

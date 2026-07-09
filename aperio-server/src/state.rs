@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore, mpsc, oneshot, watch};
+use tokio::sync::{Mutex, Semaphore, broadcast, mpsc, oneshot, watch};
 
 use crate::oidc;
 use crate::store::audit::AuditLog;
@@ -483,6 +483,10 @@ pub(crate) struct AppState {
   pub(crate) pending_requests: Mutex<HashMap<String, PendingRequest>>,
   pub(crate) stats: Mutex<ServerStats>,
   pub(crate) recent_logs: Mutex<VecDeque<RequestLog>>,
+  /// Live traffic fan-out: each proxied request's `RequestLog` is broadcast to
+  /// any connected dashboard SSE subscribers (`/aperio/api/stream`). Dropped
+  /// when there are no subscribers.
+  pub(crate) traffic_tx: broadcast::Sender<RequestLog>,
   /// Live server configuration. Dashboard-editable settings swap in a new
   /// `Arc<ServerConfig>`; every access takes a cheap read-lock snapshot via
   /// [`AppState::config`].

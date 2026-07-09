@@ -35,6 +35,7 @@ import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TrafficSection } from './components/TrafficSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { usePoll } from './hooks/usePoll'
+import { useTrafficStream } from './hooks/useTrafficStream'
 import { api, logout } from './lib/api'
 import { formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
@@ -86,7 +87,8 @@ function loadHistory(): number[] {
 
 export default function App() {
   const { data: stats, refresh: refreshStats, error: statsError } = usePoll(api.stats, POLL_INTERVAL_MS)
-  const { data: logs } = usePoll(api.logs, POLL_INTERVAL_MS)
+  // Traffic is pushed live over SSE (falls back to polling if the stream drops).
+  const { logs } = useTrafficStream()
   const { data: session } = usePoll(api.session, 60_000)
   const [inspectId, setInspectId] = useState<string | null>(null)
   const [page, setPage] = useState<Page>(pageFromUrl)

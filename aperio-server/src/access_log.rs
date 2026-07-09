@@ -42,7 +42,7 @@ pub(crate) async fn log_request_success(
       logs.pop_front();
     }
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    logs.push_back(RequestLog {
+    let entry = RequestLog {
       id: id.clone(),
       timestamp,
       method: method.to_string(),
@@ -50,7 +50,10 @@ pub(crate) async fn log_request_success(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: None,
-    });
+    };
+    // Fan out to live dashboard SSE subscribers (ignored when there are none).
+    let _ = state.traffic_tx.send(entry.clone());
+    logs.push_back(entry);
   }
   // Structured access event: with the JSON log format every field below
   // becomes a top-level key, directly usable by log pipelines.
@@ -100,7 +103,7 @@ pub(crate) async fn log_request_failure(
       logs.pop_front();
     }
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    logs.push_back(RequestLog {
+    let entry = RequestLog {
       id: id.clone(),
       timestamp,
       method: method.to_string(),
@@ -108,7 +111,10 @@ pub(crate) async fn log_request_failure(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: error.map(|s| s.to_string()),
-    });
+    };
+    // Fan out to live dashboard SSE subscribers (ignored when there are none).
+    let _ = state.traffic_tx.send(entry.clone());
+    logs.push_back(entry);
   }
   warn!(
     target: "aperio_access",
