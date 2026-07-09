@@ -507,20 +507,18 @@ pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
 /// otherwise spoof these headers to bypass rate limiting.
 ///
 /// Resolution order (all only under `trust_proxy`):
-/// 1. An explicitly configured `real_ip_header` (APERIO_REAL_IP_HEADER).
-/// 2. `CF-Connecting-IP` — Cloudflare always sends the true visitor address
-///    here, even when an intermediate proxy (e.g. Traefik) rewrites
-///    X-Forwarded-For down to its immediate peer (the Cloudflare edge). It is
-///    consulted automatically so the common `Cloudflare → reverse proxy →
-///    aperio` chain resolves the real client without extra configuration. When
-///    it is used but `X-Forwarded-For` starts with a *different* address, an
-///    intermediate proxy has clearly rewritten XFF — [`warn_if_xff_rewritten`]
-///    flags that misconfiguration once so the operator can fix the chain.
-/// 3. The first `X-Forwarded-For` entry.
-/// 4. `X-Real-IP`.
-///
-/// Any explicit `real_ip_header` still wins, so an operator can override the
-/// automatic Cloudflare behavior (e.g. point at `True-Client-IP`).
+/// 1. A configured `real_ip_header` (APERIO_REAL_IP_HEADER, or
+///    `CF-Connecting-IP` via the APERIO_TRUST_CF_HEADER opt-in). Never
+///    consulted automatically: any visitor can send such a header, and an
+///    intermediate proxy that was never told about it will pass it through
+///    untouched — trusting it implicitly would let clients spoof their IP for
+///    rate limiting, audit logs, and token IP allowlists. When the configured
+///    header is Cloudflare's and `X-Forwarded-For` starts with a *different*
+///    address, an intermediate proxy has rewritten XFF —
+///    [`warn_if_xff_rewritten`] flags that misconfiguration once so the
+///    operator can fix the chain.
+/// 2. The first `X-Forwarded-For` entry.
+/// 3. `X-Real-IP`.
 pub(crate) fn extract_client_ip(
   headers: &HeaderMap,
   fallback: IpAddr,
@@ -533,13 +531,9 @@ pub(crate) fn extract_client_ip(
       && let Ok(value_str) = value.to_str()
       && let Ok(parsed) = value_str.trim().parse::<IpAddr>()
     {
-      return parsed;
-    }
-    if let Some(cf) = headers.get("cf-connecting-ip")
-      && let Ok(cf_str) = cf.to_str()
-      && let Ok(parsed) = cf_str.trim().parse::<IpAddr>()
-    {
-      warn_if_xff_rewritten(headers, parsed);
+      if name.eq_ignore_ascii_case("cf-connecting-ip") {
+        warn_if_xff_rewritten(headers, parsed);
+      }
       return parsed;
     }
     if let Some(xff) = headers.get("x-forwarded-for")
@@ -577,10 +571,11 @@ fn cloudflare_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) -> bool {
     .is_some_and(|first| first != cf_ip)
 }
 
-/// Emits a one-time warning when we fall back to `CF-Connecting-IP` because an
-/// intermediate proxy (e.g. Traefik that does not trust Cloudflare's forwarded
-/// headers) rewrote `X-Forwarded-For`. The Cloudflare header is still used for
-/// the real client IP; the warning points the operator at the actual fix.
+/// Emits a one-time warning when the configured `CF-Connecting-IP` real-IP
+/// header is used but an intermediate proxy (e.g. Traefik that does not trust
+/// Cloudflare's forwarded headers) rewrote `X-Forwarded-For`. The Cloudflare
+/// header is still used for the real client IP; the warning points the
+/// operator at the actual fix.
 fn warn_if_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) {
   if XFF_MISMATCH_WARNED.load(Ordering::Relaxed) || !cloudflare_xff_rewritten(headers, cf_ip) {
     return;

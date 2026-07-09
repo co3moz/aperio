@@ -267,30 +267,30 @@ fn client_ip_custom_header_takes_precedence() {
 }
 
 #[test]
-fn client_ip_cloudflare_auto_detected() {
+fn client_ip_cloudflare_only_when_configured() {
   // Cloudflare → Traefik: Traefik rewrote XFF down to the Cloudflare edge, but
-  // CF-Connecting-IP still carries the true visitor. It is preferred with no
-  // real_ip_header configured.
+  // CF-Connecting-IP still carries the true visitor. It is honored when
+  // configured as the real-IP header (APERIO_TRUST_CF_HEADER resolves to this).
   let mut h = HeaderMap::new();
   h.insert("cf-connecting-ip", "203.0.113.18".parse().unwrap());
   h.insert("x-forwarded-for", "162.158.19.179".parse().unwrap());
   assert_eq!(
-    extract_client_ip(&h, ip("1.1.1.1"), true, None),
+    extract_client_ip(&h, ip("1.1.1.1"), true, Some("cf-connecting-ip")),
     ip("203.0.113.18")
   );
 
-  // An explicit real_ip_header still wins over the automatic Cloudflare header.
-  let mut both = HeaderMap::new();
-  both.insert("cf-connecting-ip", "203.0.113.18".parse().unwrap());
-  both.insert("true-client-ip", "7.7.7.7".parse().unwrap());
+  // Without that configuration the header is NOT trusted: any visitor can send
+  // CF-Connecting-IP, and a non-Cloudflare proxy passes it through untouched —
+  // trusting it implicitly would let clients spoof rate limiting, audit logs,
+  // and token IP allowlists. XFF (set by the trusted proxy) wins instead.
   assert_eq!(
-    extract_client_ip(&both, ip("1.1.1.1"), true, Some("true-client-ip")),
-    ip("7.7.7.7")
+    extract_client_ip(&h, ip("1.1.1.1"), true, None),
+    ip("162.158.19.179")
   );
 
   // Without trust_proxy the header is ignored entirely.
   assert_eq!(
-    extract_client_ip(&h, ip("1.1.1.1"), false, None),
+    extract_client_ip(&h, ip("1.1.1.1"), false, Some("cf-connecting-ip")),
     ip("1.1.1.1")
   );
 }

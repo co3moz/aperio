@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- `CF-Connecting-IP` is **no longer trusted automatically** for client IP resolution (introduced in 0.1.3): any visitor can send that header and a non-Cloudflare proxy passes it through untouched, so on deployments not behind Cloudflare it let clients spoof their IP for rate limiting, audit/access logs, and dynamic-token IP allowlists. Behind Cloudflare, set the new `APERIO_TRUST_CF_HEADER=1` (shorthand for `APERIO_REAL_IP_HEADER=CF-Connecting-IP`); the rewritten-`X-Forwarded-For` diagnostic warning still fires when that header is configured.
 - Revoking a dynamic token now **immediately drops any tunnel connections currently using it**, instead of letting them keep serving traffic until they next reconnected (when they would be rejected anyway). The disconnected client leaves the routing pool at once, and its reconnect attempts are refused with the usual 401.
 
 ### Changed

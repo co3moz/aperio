@@ -162,15 +162,27 @@ async fn main() {
   // Optional real-IP header consulted before X-Forwarded-For (only with
   // trust_proxy). Needed behind CDN → proxy chains where the proxy resets
   // XFF to the CDN edge address, e.g. APERIO_REAL_IP_HEADER=CF-Connecting-IP.
+  // APERIO_TRUST_CF_HEADER=1 is shorthand for the common Cloudflare chain: it
+  // resolves to APERIO_REAL_IP_HEADER=CF-Connecting-IP (an explicit
+  // APERIO_REAL_IP_HEADER still wins). Deliberately opt-in — any visitor can
+  // send that header, so trusting it automatically would let clients spoof
+  // their IP for rate limiting, audit logs, and token IP allowlists on
+  // deployments that are not actually behind Cloudflare.
+  let trust_cf_header = std::env::var("APERIO_TRUST_CF_HEADER")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
   let real_ip_header = std::env::var("APERIO_REAL_IP_HEADER")
     .ok()
     .map(|v| v.trim().to_ascii_lowercase())
-    .filter(|v| !v.is_empty());
+    .filter(|v| !v.is_empty())
+    .or_else(|| trust_cf_header.then(|| "cf-connecting-ip".to_string()));
   if let Some(ref h) = real_ip_header {
     if trust_proxy {
       info!("Real client IP is read from the '{}' header", h);
     } else {
-      warn!("APERIO_REAL_IP_HEADER is set but APERIO_TRUST_PROXY is off; the header is ignored");
+      warn!(
+        "APERIO_REAL_IP_HEADER / APERIO_TRUST_CF_HEADER is set but APERIO_TRUST_PROXY is off; the header is ignored"
+      );
     }
   }
 
