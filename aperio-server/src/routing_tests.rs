@@ -43,6 +43,7 @@ fn base_handle() -> ClientHandle {
     visitor_auth: None,
     visitor_auth_denied_warned: false,
     tunnels: Vec::new(),
+    cache: false,
   }
 }
 

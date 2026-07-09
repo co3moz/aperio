@@ -26,6 +26,7 @@ fn base_settings() -> ClientSettings {
     public: false,
     visitor_auth: None,
     headers: None,
+    cache: false,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

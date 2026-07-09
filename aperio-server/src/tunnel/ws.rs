@@ -274,6 +274,7 @@ pub(crate) async fn handle_socket(
         visitor_auth: None,
         visitor_auth_denied_warned: false,
         tunnels: Vec::new(),
+        cache: false,
       },
     );
     drop(clients);
@@ -576,6 +577,7 @@ pub(crate) async fn handle_socket(
               public,
               visitor_auth,
               tunnels,
+              cache,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -622,6 +624,15 @@ pub(crate) async fn handle_socket(
                     );
                   }
                   handle.tcp_enabled = tcp;
+                  if handle.cache != cache {
+                    handle.cache = cache;
+                    if cache {
+                      info!(
+                        "Client {} opted into the server-side response cache",
+                        client_id
+                      );
+                    }
+                  }
                   if handle.tunnels != tunnels {
                     info!(
                       "Client {} declares {} bindable tunnel(s)",

@@ -313,6 +313,8 @@ pub(crate) struct SelectedClient {
   pub(crate) instance_id: Option<String>,
   /// Tunnel protocol version the client announced (None until known).
   pub(crate) protocol: Option<u32>,
+  /// The client opted into the server-side response cache (Ping `cache`).
+  pub(crate) cache: bool,
 }
 
 /// Returns the pool member matching an affinity value — either a client's
@@ -389,6 +391,7 @@ pub(crate) async fn pick_proxy_client(
     token_id: c.perms.token_id.clone(),
     instance_id: c.reported_instance_id.clone(),
     protocol: c.client_protocol,
+    cache: c.cache,
   })
 }
 

@@ -141,6 +141,9 @@ pub struct ServiceEntry {
   /// Request/response header add-remove rules for this service (replaces the
   /// top-level `headers` when set).
   pub headers: Option<HeaderRules>,
+  /// Let the server cache this service's GET responses (per their
+  /// `Cache-Control`); effective only when the server enables APERIO_CACHE.
+  pub cache: Option<bool>,
 }
 
 /// A peer client whose declared tunnels this process binds to local ports.
@@ -227,6 +230,9 @@ pub struct FileConfig {
   /// Gate this client behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
+  /// Let the server cache GET responses (per their `Cache-Control`);
+  /// effective only when the server enables APERIO_CACHE.
+  pub cache: Option<bool>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

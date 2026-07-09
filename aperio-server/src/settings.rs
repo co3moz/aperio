@@ -75,6 +75,13 @@ pub(crate) struct ServerConfig {
   /// Allow failover for non-idempotent methods too
   /// (APERIO_FAILOVER_ALL_METHODS).
   pub(crate) failover_all_methods: bool,
+  /// Server-side GET response cache (APERIO_CACHE). Effective only for
+  /// clients that announced `cache: true`, and only for responses whose
+  /// `Cache-Control` explicitly allows shared caching. Env-only.
+  pub(crate) cache_enabled: bool,
+  /// Total response-cache budget in bytes (APERIO_CACHE_MAX_BYTES,
+  /// default 64 MiB). Env-only.
+  pub(crate) cache_max_bytes: u64,
 }
 
 /// What happens when a tunnel client is lost while a request is in flight

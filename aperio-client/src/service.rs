@@ -80,6 +80,9 @@ pub(crate) struct ServiceSpec {
   /// Header add/remove rules for this service's proxied HTTP traffic
   /// (config `headers:`; None = pass through untouched).
   pub(crate) headers: Option<crate::config::HeaderRules>,
+  /// Opt this service into the server-side response cache (announced via
+  /// Ping; effective only when the server enables APERIO_CACHE).
+  pub(crate) cache: bool,
 }
 
 impl ServiceSpec {
@@ -270,11 +273,12 @@ pub(crate) async fn run_service(
             let service_name_ping = spec.name.clone();
             let tunnels_ping = spec.tunnels.clone();
             let visitor_auth_ping = spec.visitor_auth.clone();
-            let (max_concurrent, priority, bandwidth_bps, public) = (
+            let (max_concurrent, priority, bandwidth_bps, public, cache) = (
               spec.max_concurrent,
               spec.priority,
               spec.bandwidth_bps,
               spec.public,
+              spec.cache,
             );
 
             let ping_task = tokio::spawn(async move {
@@ -322,6 +326,7 @@ pub(crate) async fn run_service(
                   public,
                   visitor_auth: visitor_auth_ping.clone(),
                   tunnels: tunnels_ping.clone(),
+                  cache,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

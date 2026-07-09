@@ -305,6 +305,8 @@ pub(crate) struct ClientSettings {
   /// Header add/remove rules for proxied traffic (config files only;
   /// per-service `headers:` entries override this).
   pub(crate) headers: Option<HeaderRules>,
+  /// Opt into the server-side response cache (server must enable APERIO_CACHE).
+  pub(crate) cache: bool,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -582,6 +584,13 @@ pub(crate) fn resolve_settings(
     )
     .and_then(nonempty),
     headers: local.headers.clone().or_else(|| home.headers.clone()),
+    cache: layered(
+      None,
+      local.cache,
+      env_bool("APERIO_CACHE", "APERIO_CLIENT_CACHE"),
+      home.cache,
+    )
+    .unwrap_or(false),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

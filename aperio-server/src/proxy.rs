@@ -411,6 +411,61 @@ async fn proxy_http_request(
       .into_response();
   }
 
+  // Server-side response cache (APERIO_CACHE + the client's `cache: true`):
+  // a fresh cached GET answer skips the tunnel round-trip entirely. Only
+  // credential-less plain GETs qualify, and only responses whose
+  // Cache-Control explicitly allowed shared caching were stored.
+  let cache_eligible = state.config().cache_enabled
+    && selected.cache
+    && crate::cache::request_cacheable(&method_str, &headers);
+  let cache_key = crate::cache::cache_key(request_host.as_deref(), &uri_str);
+  if cache_eligible && let Some(hit) = state.response_cache.lock().await.get(&cache_key) {
+    let duration = start_time.elapsed();
+    let body_len = hit.body.len() as u64;
+    {
+      let mut stats = state.stats.lock().await;
+      stats.total_requests += 1;
+      stats.successful_requests += 1;
+      stats.total_bytes_transferred += body_len;
+    }
+    state.persistent_stats.lock().await.record_request_labeled(
+      true,
+      0,
+      body_len,
+      duration.as_millis() as u64,
+      Some(selected.token_name.as_deref().unwrap_or("master")),
+      request_host.as_deref(),
+    );
+    let request_id = uuid::Uuid::new_v4().to_string();
+    log_request_success(
+      &state,
+      request_id,
+      &method_str,
+      &uri_str,
+      hit.status,
+      duration,
+      request_host.as_deref(),
+      Some(&selected.id),
+      selected.token_name.as_deref(),
+    )
+    .await;
+    telemetry::record_status(&tracing::Span::current(), hit.status);
+    let mut builder = Response::builder()
+      .status(StatusCode::from_u16(hit.status).unwrap_or(StatusCode::OK))
+      .header("x-aperio-cache", "hit");
+    for (k, v) in hit.headers.iter() {
+      if let (Ok(name), Ok(value)) = (
+        HeaderName::from_bytes(k.as_bytes()),
+        HeaderValue::from_str(v),
+      ) {
+        builder = builder.header(name, value);
+      }
+    }
+    return builder
+      .body(Body::from(hit.body))
+      .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "cache error").into_response());
+  }
+
   // Protocol v2 upload streaming: large (or chunked) request bodies are
   // forwarded as RequestStart/Chunk/End frames instead of being buffered,
   // when the selected client speaks v2. Streamed requests cannot fail over
@@ -795,6 +850,23 @@ async fn proxy_http_request(
             request_host.as_deref(),
           );
         }
+        // Store cacheable buffered GET responses for the advertised
+        // Cache-Control lifetime (streamed responses are never cached).
+        if cache_eligible
+          && tunnel_res.stream_rx.is_none()
+          && status_code == StatusCode::OK
+          && let Some(ttl) = crate::cache::response_cache_ttl(&tunnel_res.headers)
+        {
+          state.response_cache.lock().await.insert(
+            cache_key.clone(),
+            tunnel_res.status,
+            tunnel_res.headers.clone(),
+            res_bytes.clone(),
+            ttl,
+            state.config().cache_max_bytes,
+          );
+        }
+
         // Feed the serving token's daily byte quota (request + response).
         state
           .add_token_bytes(

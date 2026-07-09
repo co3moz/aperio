@@ -256,6 +256,9 @@ pub(crate) struct ClientHandle {
   /// unexposed local services a peer client may bind with `--bind-tunnels`
   /// (same token, explicit client id required).
   pub(crate) tunnels: Vec<crate::protocol::TunnelDecl>,
+  /// The client opted its service into the server-side response cache
+  /// (`cache: true` via Ping). Effective only with APERIO_CACHE on.
+  pub(crate) cache: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -557,6 +560,8 @@ pub(crate) struct AppState {
   /// stream_id → consumer sender. Same handle shape as TCP; the payloads are
   /// whole datagrams instead of stream bytes.
   pub(crate) udp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
+  /// Server-side GET response cache (APERIO_CACHE; see the cache module).
+  pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
   /// Hostnames currently in maintenance mode (`*` = every hostname).
   /// Requests to them get a 503 page even while clients are connected.
   /// In-memory only, like bind overrides: cleared by a server restart.

@@ -381,6 +381,7 @@ fn build_specs(
       visitor_auth: settings.visitor_auth.clone(),
       tunnels,
       headers: settings.headers.clone(),
+      cache: settings.cache,
     }]);
   }
 
@@ -469,6 +470,7 @@ fn build_specs(
           .or_else(|| settings.visitor_auth.clone()),
         tunnels: tunnels.clone(),
         headers: entry.headers.clone().or_else(|| settings.headers.clone()),
+        cache: entry.cache.unwrap_or(settings.cache),
       })
     })
     .collect()

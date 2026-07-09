@@ -79,6 +79,8 @@ async fn test_rate_limiting() {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    cache_enabled: false,
+    cache_max_bytes: 64 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -131,6 +133,7 @@ async fn test_rate_limiting() {
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
+    response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
@@ -174,6 +177,8 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    cache_enabled: false,
+    cache_max_bytes: 64 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -227,6 +232,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
+    response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
@@ -270,6 +276,8 @@ async fn test_proxy_handler_success() {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    cache_enabled: false,
+    cache_max_bytes: 64 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(true);
@@ -322,6 +330,7 @@ async fn test_proxy_handler_success() {
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
+    response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
@@ -364,6 +373,7 @@ async fn test_proxy_handler_success() {
       visitor_auth: None,
       visitor_auth_denied_warned: false,
       tunnels: Vec::new(),
+      cache: false,
     },
   );
 
@@ -606,6 +616,7 @@ fn mock_client(
     visitor_auth: None,
     visitor_auth_denied_warned: false,
     tunnels: Vec::new(),
+    cache: false,
   }
 }
 
@@ -718,6 +729,8 @@ fn test_apply_settings_overrides() {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    cache_enabled: false,
+    cache_max_bytes: 64 * 1024 * 1024,
   };
 
   let overrides = SettingsOverrides {

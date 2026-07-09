@@ -113,6 +113,10 @@ pub(crate) enum TunnelMessage {
     /// `--bind-tunnels` with the same token and this client's id.
     #[serde(default)]
     tunnels: Vec<TunnelDecl>,
+    /// Opt this service into the server-side response cache (effective only
+    /// when the server enables APERIO_CACHE).
+    #[serde(default)]
+    cache: bool,
   },
   Pong {
     timestamp: u64,

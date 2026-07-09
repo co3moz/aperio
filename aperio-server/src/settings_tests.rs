@@ -28,6 +28,8 @@ fn base_config() -> ServerConfig {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    cache_enabled: false,
+    cache_max_bytes: 64 * 1024 * 1024,
   }
 }
 

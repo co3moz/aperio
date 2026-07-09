@@ -17,6 +17,7 @@ use tracing::{error, info, warn};
 mod access_log;
 mod api;
 mod auth;
+mod cache;
 mod oidc;
 mod protocol;
 mod proxy;
@@ -234,6 +235,23 @@ async fn main() {
   let metrics_token = std::env::var("APERIO_METRICS_TOKEN")
     .ok()
     .filter(|t| !t.trim().is_empty());
+
+  // Server-side GET response cache (default: disabled). Only effective for
+  // clients that announce `cache: true`, and strictly Cache-Control-driven.
+  let cache_enabled = std::env::var("APERIO_CACHE")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let cache_max_bytes = std::env::var("APERIO_CACHE_MAX_BYTES")
+    .ok()
+    .and_then(|v| v.trim().parse::<u64>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(64 * 1024 * 1024);
+  if cache_enabled {
+    info!(
+      "Response cache is enabled ({} byte budget) for services that opt in with cache: true",
+      cache_max_bytes
+    );
+  }
 
   // Tunnel frame compression (zlib). Offered to clients on connect; enabled
   // per connection once the client acknowledges support.
@@ -456,6 +474,8 @@ async fn main() {
     failover_max_jumps,
     failover_window,
     failover_all_methods,
+    cache_enabled,
+    cache_max_bytes,
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and
@@ -556,6 +576,7 @@ async fn main() {
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
+    response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log,
     duration_histogram: DurationHistogram::default(),
