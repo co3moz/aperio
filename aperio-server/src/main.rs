@@ -176,6 +176,29 @@ async fn main() {
     .map(|v| v.trim().to_ascii_lowercase())
     .filter(|v| !v.is_empty())
     .or_else(|| trust_cf_header.then(|| "cf-connecting-ip".to_string()));
+  // Trusted proxy/CDN egress ranges (comma-separated IPs/CIDRs). When set,
+  // the client IP is resolved by walking the X-Forwarded-For chain from the
+  // nearest hop backwards past trusted addresses — the CDN-agnostic model
+  // that works for any proxy chain. Implies trust_proxy.
+  let trusted_proxies = match std::env::var("APERIO_TRUSTED_PROXIES") {
+    Ok(raw) => match crate::routing::parse_trusted_proxies(&raw) {
+      Ok(list) => list,
+      Err(e) => {
+        error!(
+          "APERIO_TRUSTED_PROXIES is invalid ({e}); refusing to start with a partial trusted set"
+        );
+        return;
+      }
+    },
+    Err(_) => Vec::new(),
+  };
+  let trust_proxy = trust_proxy || !trusted_proxies.is_empty();
+  if !trusted_proxies.is_empty() {
+    info!(
+      "Trusted proxy ranges configured ({} entries): client IPs resolve via the X-Forwarded-For chain walk",
+      trusted_proxies.len()
+    );
+  }
   if let Some(ref h) = real_ip_header {
     if trust_proxy {
       info!("Real client IP is read from the '{}' header", h);
@@ -416,6 +439,7 @@ async fn main() {
     trust_proxy,
     ignore_client_auth,
     real_ip_header,
+    trusted_proxies,
     secure_cookies,
     require_hostname_bind,
     metrics_token,

@@ -43,6 +43,7 @@ pub(crate) async fn request_replay_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
   let captured = {

@@ -51,6 +51,7 @@ pub(crate) async fn tcp_ws_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
@@ -171,6 +172,7 @@ pub(crate) async fn tunnels_list_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();

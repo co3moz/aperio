@@ -63,6 +63,7 @@ pub(crate) async fn tunnels_create_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   // Rate limit before auth so credential guessing is throttled like login.
   if !state.check_rate_limit(client_ip).await {
@@ -209,6 +210,7 @@ pub(crate) async fn tunnels_delete_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   if !state.check_rate_limit(client_ip).await {
     return StatusCode::TOO_MANY_REQUESTS.into_response();

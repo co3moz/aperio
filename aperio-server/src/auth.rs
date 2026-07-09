@@ -44,6 +44,7 @@ pub(crate) async fn auth_login_handler(
     addr.ip(),
     cfg.trust_proxy,
     cfg.real_ip_header.as_deref(),
+    &cfg.trusted_proxies,
   );
   if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
@@ -307,7 +308,7 @@ pub(crate) fn ip_allowed(ip: IpAddr, allowed: &[String]) -> bool {
 }
 
 /// True when `ip` falls inside the CIDR `base/bits` (families must match).
-fn cidr_contains(base: IpAddr, bits: u32, ip: IpAddr) -> bool {
+pub(crate) fn cidr_contains(base: IpAddr, bits: u32, ip: IpAddr) -> bool {
   match (base, ip) {
     (IpAddr::V4(b), IpAddr::V4(i)) => {
       if bits > 32 {
@@ -461,6 +462,7 @@ pub(crate) async fn oidc_login_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
@@ -529,6 +531,7 @@ pub(crate) async fn oidc_callback_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   if !state.check_rate_limit(caller_ip).await {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();

@@ -65,6 +65,7 @@ async fn test_rate_limiting() {
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
+    trusted_proxies: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,
@@ -154,6 +155,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
+    trusted_proxies: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,
@@ -244,6 +246,7 @@ async fn test_proxy_handler_success() {
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
+    trusted_proxies: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,
@@ -442,13 +445,13 @@ fn test_extract_client_ip_trusted() {
 
   // No headers → fallback to socket address
   let headers = HeaderMap::new();
-  assert_eq!(extract_client_ip(&headers, direct, true, None), direct);
+  assert_eq!(extract_client_ip(&headers, direct, true, None, &[]), direct);
 
   // X-Forwarded-For with single IP
   let mut headers = HeaderMap::new();
   headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
   assert_eq!(
-    extract_client_ip(&headers, direct, true, None),
+    extract_client_ip(&headers, direct, true, None, &[]),
     "198.51.100.10".parse::<IpAddr>().unwrap()
   );
 
@@ -459,7 +462,7 @@ fn test_extract_client_ip_trusted() {
     HeaderValue::from_static("198.51.100.10, 10.0.0.1, 10.0.0.2"),
   );
   assert_eq!(
-    extract_client_ip(&headers, direct, true, None),
+    extract_client_ip(&headers, direct, true, None, &[]),
     "198.51.100.10".parse::<IpAddr>().unwrap()
   );
 
@@ -467,14 +470,14 @@ fn test_extract_client_ip_trusted() {
   let mut headers = HeaderMap::new();
   headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
   assert_eq!(
-    extract_client_ip(&headers, direct, true, None),
+    extract_client_ip(&headers, direct, true, None, &[]),
     "198.51.100.20".parse::<IpAddr>().unwrap()
   );
 
   // Malformed X-Forwarded-For → fallback
   let mut headers = HeaderMap::new();
   headers.insert("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
-  assert_eq!(extract_client_ip(&headers, direct, true, None), direct);
+  assert_eq!(extract_client_ip(&headers, direct, true, None, &[]), direct);
 
   // A configured real-IP header (e.g. CF-Connecting-IP) wins over
   // X-Forwarded-For, which chained proxies often reset to the CDN edge.
@@ -485,12 +488,12 @@ fn test_extract_client_ip_trusted() {
   );
   headers.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.18"));
   assert_eq!(
-    extract_client_ip(&headers, direct, true, Some("cf-connecting-ip")),
+    extract_client_ip(&headers, direct, true, Some("cf-connecting-ip"), &[]),
     "203.0.113.18".parse::<IpAddr>().unwrap()
   );
   // ...but only when trust_proxy is on.
   assert_eq!(
-    extract_client_ip(&headers, direct, false, Some("cf-connecting-ip")),
+    extract_client_ip(&headers, direct, false, Some("cf-connecting-ip"), &[]),
     direct
   );
 }
@@ -502,16 +505,25 @@ fn test_extract_client_ip_untrusted_ignores_headers() {
   // When trust_proxy is false, spoofed X-Forwarded-For must be ignored.
   let mut headers = HeaderMap::new();
   headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.10"));
-  assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
+  assert_eq!(
+    extract_client_ip(&headers, direct, false, None, &[]),
+    direct
+  );
 
   // Spoofed X-Real-IP must also be ignored.
   let mut headers = HeaderMap::new();
   headers.insert("x-real-ip", HeaderValue::from_static("198.51.100.20"));
-  assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
+  assert_eq!(
+    extract_client_ip(&headers, direct, false, None, &[]),
+    direct
+  );
 
   // No headers → fallback to socket address
   let headers = HeaderMap::new();
-  assert_eq!(extract_client_ip(&headers, direct, false, None), direct);
+  assert_eq!(
+    extract_client_ip(&headers, direct, false, None, &[]),
+    direct
+  );
 }
 
 /// Generous health threshold so mock clients (no pings) stay eligible.
@@ -677,6 +689,7 @@ fn test_apply_settings_overrides() {
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
+    trusted_proxies: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,

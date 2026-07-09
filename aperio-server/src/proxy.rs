@@ -204,6 +204,7 @@ pub(crate) async fn proxy_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
 
   // Maintenance mode wins over everything else (including WS upgrades):

@@ -85,6 +85,7 @@ pub(crate) async fn ws_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   );
   let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
     Some(p) => p,

@@ -50,6 +50,7 @@ pub(crate) async fn webhooks_create_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
   let name = payload.name.trim().to_string();
@@ -98,6 +99,7 @@ pub(crate) async fn webhooks_delete_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
   if state.webhook_store.lock().await.delete(&id) {

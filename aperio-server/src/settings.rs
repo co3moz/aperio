@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::time::Duration;
 
 use crate::routing::normalize_random_subdomain_pattern;
@@ -25,6 +26,14 @@ pub(crate) struct ServerConfig {
   /// Header consulted first for the real client IP when trust_proxy is on
   /// (APERIO_REAL_IP_HEADER, e.g. `CF-Connecting-IP` behind Cloudflare).
   pub(crate) real_ip_header: Option<String>,
+  /// Trusted reverse-proxy / CDN egress ranges (APERIO_TRUSTED_PROXIES, a
+  /// comma-separated list of IPs or CIDRs). When set (and `trust_proxy` is on),
+  /// the real client IP is resolved by walking the `X-Forwarded-For` chain plus
+  /// the direct socket peer from right to left and taking the first address
+  /// that is NOT one of these — the standard "trust proxy" model that works for
+  /// any CDN/proxy chain, not just Cloudflare. Empty = legacy behavior (first
+  /// XFF entry).
+  pub(crate) trusted_proxies: Vec<(IpAddr, u32)>,
   /// When true, session cookies include the `Secure` flag so browsers only
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).

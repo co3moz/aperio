@@ -169,6 +169,7 @@ pub(crate) async fn tokens_create_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
   let name = payload.name.trim().to_string();
@@ -257,6 +258,7 @@ pub(crate) async fn tokens_update_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
 
@@ -347,6 +349,7 @@ pub(crate) async fn tokens_revoke_handler(
     addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
   )
   .to_string();
   let revoked = state.token_store.lock().await.revoke(&id);
