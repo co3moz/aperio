@@ -110,8 +110,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Prebuilt binary instead of `cargo install` (no multi-minute compile).
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@cargo-audit
+
+      # Cache the RustSec advisory database between runs; a stale copy is
+      # refreshed by cargo-audit's own git pull, so a weekly key is plenty.
+      - name: Cache advisory database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/advisory-db
+          key: advisory-db-${{ github.run_id }}
+          restore-keys: advisory-db-
 
       # Scans Cargo.lock against the RustSec advisory database. Fails the
       # build on known vulnerabilities in the dependency tree.

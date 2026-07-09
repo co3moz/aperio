@@ -4,8 +4,12 @@ RUN apk add --no-cache musl-dev
 
 WORKDIR /usr/src/aperio
 COPY Cargo.toml Cargo.lock ./
-COPY aperio-client/Cargo.toml ./aperio-client/
+COPY aperio-client/Cargo.toml aperio-client/build.rs ./aperio-client/
 COPY aperio-server/Cargo.toml ./aperio-server/
+# aperio-config is a real dependency of the client and its build script, so its
+# full (tiny, rarely-changing) source is needed to compile — not just the manifest.
+COPY aperio-config/Cargo.toml ./aperio-config/
+COPY aperio-config/src/ ./aperio-config/src/
 
 RUN mkdir -p aperio-client/src && echo "fn main() {}" > aperio-client/src/main.rs
 RUN mkdir -p aperio-server/src && echo "fn main() {}" > aperio-server/src/main.rs

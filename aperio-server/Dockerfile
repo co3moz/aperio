@@ -17,9 +17,13 @@ WORKDIR /usr/src/aperio
 COPY Cargo.toml Cargo.lock ./
 COPY aperio-server/Cargo.toml aperio-server/build.rs ./aperio-server/
 COPY aperio-client/Cargo.toml ./aperio-client/
+# aperio-config is a workspace member, so its manifest must exist for the
+# workspace to resolve — even though aperio-server does not depend on it.
+COPY aperio-config/Cargo.toml ./aperio-config/
 
 RUN mkdir -p aperio-server/src && echo "fn main() {}" > aperio-server/src/main.rs
 RUN mkdir -p aperio-client/src && echo "fn main() {}" > aperio-client/src/main.rs
+RUN mkdir -p aperio-config/src && echo "" > aperio-config/src/lib.rs
 RUN cargo build --locked --release -p aperio-server
 RUN rm -rf aperio-server/src
 
