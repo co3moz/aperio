@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-10
+
 ### Security
 
 - The **visitor-auth gate now rejects path traversal** the same way share links do (0.1.3 only fixed the share-link scope check despite claiming both): a request path with a `..`/`.` segment (literal or single-percent-encoded) is never treated as public, never unlocks a client-set per-service password, and requires a full session whenever a gate could apply on the host. Previously `/public/../gated` matched a `/public` path bind, skipped the gate as "public", and a backend that resolves `..` served the gated sibling path.
