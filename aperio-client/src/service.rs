@@ -166,6 +166,9 @@ pub(crate) async fn run_service(
   // fleet of clients does not stampede the server after a restart; the
   // counter resets once a connection proves stable.
   let mut reconnect_attempt: u32 = 0;
+  // Set when the server announces a graceful shutdown: the next reconnect
+  // skips the exponential backoff (one short jittered delay instead).
+  let mut fast_reconnect = false;
   'outer: loop {
     if *cancel.borrow() {
       break;
@@ -346,6 +349,7 @@ pub(crate) async fn run_service(
 
             // Read messages from Server
             let mut version_skew_warned = false;
+            let mut server_announced_shutdown = false;
             loop {
               tokio::select! {
                   _ = abort_rx.recv() => {
@@ -642,6 +646,12 @@ pub(crate) async fn run_service(
                                           TunnelMessage::HostnameAssigned { hostname } => {
                                               info!("[{}] Server assigned hostname to this client: {}", label, hostname);
                                           }
+                                          TunnelMessage::ServerShutdown {} => {
+                                              // The server is restarting: skip the reconnect backoff
+                                              // once the socket drops so downtime stays minimal.
+                                              info!("[{}] Server announced a graceful shutdown; will reconnect aggressively.", label);
+                                              server_announced_shutdown = true;
+                                          }
                                           TunnelMessage::Pong { timestamp, version, protocol } => {
                                               debug!("Pong received: {}", timestamp);
                                               if let Some(p) = protocol {
@@ -690,6 +700,7 @@ pub(crate) async fn run_service(
             if connected_at.elapsed() >= Duration::from_secs(RECONNECT_STABLE_SECS) {
               reconnect_attempt = 0;
             }
+            fast_reconnect = server_announced_shutdown;
           }
           Err(e) => {
             use tokio_tungstenite::tungstenite::Error as WsError;
@@ -725,14 +736,30 @@ pub(crate) async fn run_service(
     if *cancel.borrow() {
       break 'outer;
     }
-    reconnect_attempt = reconnect_attempt.saturating_add(1);
-    let delay = reconnect_delay(reconnect_attempt);
-    info!(
-      "[{}] Retrying connection in {:.1} seconds (attempt {})...",
-      label,
-      delay.as_secs_f64(),
-      reconnect_attempt
-    );
+    let delay = if fast_reconnect {
+      // The server told us it is restarting: come back right away (with a
+      // little jitter so a fleet does not stampede), and reset the backoff
+      // so a slow restart falls back to the normal schedule from the start.
+      fast_reconnect = false;
+      reconnect_attempt = 0;
+      let d = fast_reconnect_delay();
+      info!(
+        "[{}] Server shutdown announced; reconnecting in {:.2} seconds...",
+        label,
+        d.as_secs_f64()
+      );
+      d
+    } else {
+      reconnect_attempt = reconnect_attempt.saturating_add(1);
+      let d = reconnect_delay(reconnect_attempt);
+      info!(
+        "[{}] Retrying connection in {:.1} seconds (attempt {})...",
+        label,
+        d.as_secs_f64(),
+        reconnect_attempt
+      );
+      d
+    };
     tokio::select! {
       _ = tokio::time::sleep(delay) => {}
       _ = cancel.changed() => break 'outer,
@@ -766,6 +793,18 @@ fn reconnect_delay(attempt: u32) -> Duration {
     .subsec_nanos() as u64;
   let jitter = nanos % (cap / 2 + 1);
   Duration::from_millis(cap / 2 + jitter)
+}
+
+/// Reconnect delay used after the server announces a graceful shutdown:
+/// 100–500 ms of clock-derived jitter, no exponential backoff. Short enough
+/// that a rolling restart is barely visible, jittered enough that a fleet of
+/// clients does not stampede the returning server.
+fn fast_reconnect_delay() -> Duration {
+  let nanos = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .subsec_nanos() as u64;
+  Duration::from_millis(100 + nanos % 401)
 }
 
 #[cfg(test)]

@@ -204,6 +204,10 @@ pub(crate) enum TunnelMessage {
   TcpData { stream_id: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
   TcpClose { stream_id: String },
+  /// Server → client: the server is shutting down gracefully and the tunnel
+  /// is about to drop. The client switches to aggressive (no-backoff)
+  /// reconnect so downtime is limited to the actual restart window.
+  ServerShutdown {},
   /// Server → client: offers zlib compression for subsequent tunnel frames.
   CompressionStart {},
   /// Client → server: compression accepted; both sides may now send

@@ -1,6 +1,7 @@
 use axum::{
   Router,
   body::Body,
+  extract::ws::Message,
   http::StatusCode,
   response::Response,
   routing::{any, get},
@@ -47,6 +48,7 @@ use crate::auth::{
   auth_login_handler, auth_logout_handler, auth_page_handler, auth_session_handler,
   oidc_callback_handler, oidc_login_handler, safe_redirect_path, validate_session,
 };
+use crate::protocol::TunnelMessage;
 use crate::proxy::proxy_handler;
 use crate::routing::normalize_random_subdomain_pattern;
 use crate::settings::{
@@ -749,7 +751,7 @@ async fn main() {
     listener,
     app.into_make_service_with_connect_info::<SocketAddr>(),
   )
-  .with_graceful_shutdown(shutdown_signal())
+  .with_graceful_shutdown(shutdown_signal(shutdown_state.clone()))
   .await
   .unwrap();
 
@@ -761,7 +763,10 @@ async fn main() {
 }
 
 /// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.
-async fn shutdown_signal() {
+/// Before handing control back to axum (which drops the tunnel sockets), a
+/// `ServerShutdown` message is broadcast to every connected client so they
+/// reconnect aggressively instead of waiting out their normal backoff.
+async fn shutdown_signal(state: Arc<AppState>) {
   let ctrl_c = async {
     tokio::signal::ctrl_c()
       .await
@@ -785,6 +790,21 @@ async fn shutdown_signal() {
   }
 
   info!("Shutdown signal received, closing Aperio Server connections...");
+
+  if let Ok(json) = serde_json::to_string(&TunnelMessage::ServerShutdown {}) {
+    let clients = state.clients.lock().await;
+    let notified = clients.len();
+    for client in clients.values() {
+      // try_send: a client with a full queue must not stall the shutdown.
+      let _ = client.tx.try_send(Message::Text(json.clone()));
+    }
+    drop(clients);
+    if notified > 0 {
+      info!("Notified {} tunnel client(s) of the shutdown", notified);
+      // Give the writer tasks a moment to flush the frame out.
+      tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+  }
 }
 
 #[cfg(test)]

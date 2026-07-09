@@ -21,3 +21,15 @@ fn test_reconnect_delay_bounds() {
     }
   }
 }
+
+#[test]
+fn test_fast_reconnect_delay_bounds() {
+  // Post-ServerShutdown reconnects skip the backoff: 100–500 ms jitter.
+  for _ in 0..50 {
+    let d = fast_reconnect_delay().as_millis() as u64;
+    assert!(
+      (100..=500).contains(&d),
+      "fast reconnect delay {d}ms outside [100ms, 500ms]"
+    );
+  }
+}
