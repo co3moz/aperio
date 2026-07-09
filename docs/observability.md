@@ -74,6 +74,6 @@ ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.ti
 
 ## Persistent statistics
 
-Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/stats.json` — flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
+Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/aperio.db` (SQLite) — flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
 
 Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into an `(other)` bucket so unbounded hostname cardinality cannot grow the stats file.

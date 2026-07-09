@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use tracing::{error, info};
 
 /// Counters for a single calendar period (day/week/month/year).
@@ -82,10 +81,11 @@ impl PersistentStats {
 /// Retention per period kind: (prefix, max buckets kept).
 const RETENTION: [(&str, usize); 4] = [("d:", 60), ("w:", 26), ("m:", 24), ("y:", 10)];
 
-/// Disk-backed statistics store (`<data_dir>/stats.json`). Mutations mark the
-/// store dirty; a background task flushes periodically.
+/// Disk-backed statistics store (the `stats` table of the shared SQLite
+/// store, `<data_dir>/aperio.db`). Mutations mark the store dirty; a
+/// background task flushes periodically.
 pub struct StatsStore {
-  path: PathBuf,
+  conn: rusqlite::Connection,
   stats: PersistentStats,
   dirty: bool,
 }
@@ -103,19 +103,22 @@ pub fn period_keys() -> [String; 4] {
 
 impl StatsStore {
   pub fn load(data_dir: &str) -> Self {
-    let path = PathBuf::from(data_dir).join("stats.json");
-    let stats = std::fs::read_to_string(&path)
+    let conn = crate::store::open_db(data_dir);
+    let stats = conn
+      .query_row("SELECT data FROM stats WHERE key = 'stats'", [], |row| {
+        row.get::<_, String>(0)
+      })
       .ok()
       .and_then(|raw| serde_json::from_str::<PersistentStats>(&raw).ok())
       .unwrap_or_default();
     if stats.total_requests > 0 {
       info!(
-        "Loaded persistent stats from {:?} (total_requests={})",
-        path, stats.total_requests
+        "Loaded persistent stats from the store (total_requests={})",
+        stats.total_requests
       );
     }
     StatsStore {
-      path,
+      conn,
       stats,
       dirty: false,
     }
@@ -212,17 +215,21 @@ impl StatsStore {
     }
   }
 
-  /// Writes to disk when there are unsaved changes.
+  /// Writes to the store when there are unsaved changes.
   pub fn save_if_dirty(&mut self) {
     if !self.dirty {
       return;
     }
     match serde_json::to_string(&self.stats) {
       Ok(json) => {
-        if let Err(e) = std::fs::write(&self.path, json) {
-          error!("Failed to persist stats to {:?}: {}", self.path, e);
-        } else {
-          self.dirty = false;
+        let res = self.conn.execute(
+          "INSERT INTO stats (key, data) VALUES ('stats', ?1)
+           ON CONFLICT(key) DO UPDATE SET data = excluded.data",
+          rusqlite::params![json],
+        );
+        match res {
+          Ok(_) => self.dirty = false,
+          Err(e) => error!("Failed to persist stats to the store: {}", e),
         }
       }
       Err(e) => error!("Failed to serialize persistent stats: {}", e),

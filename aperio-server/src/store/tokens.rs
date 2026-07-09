@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{error, info, warn};
+use tracing::info;
 
 /// A dynamic API token created from the dashboard. The secret itself is never
 /// stored — only its SHA-256 hash. Permissions restrict which hostname/path
@@ -55,67 +54,39 @@ impl ApiToken {
   }
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct TokenFile {
-  tokens: Vec<ApiToken>,
-}
-
-/// Persistent store for dynamic API tokens, backed by a JSON file inside the
-/// data directory (`APERIO_DATA_DIR`, default `./data`).
+/// Persistent store for dynamic API tokens, backed by the `tokens` table of
+/// the shared SQLite store (`<data_dir>/aperio.db`).
 pub struct TokenStore {
-  path: PathBuf,
+  conn: rusqlite::Connection,
   tokens: Vec<ApiToken>,
 }
 
 impl TokenStore {
-  /// Loads the token store from `<data_dir>/tokens.json`, creating the data
-  /// directory when missing. A corrupt file is treated as empty (with a log).
+  /// Opens the shared store and loads all token records.
   pub fn load(data_dir: &str) -> Self {
-    let dir = PathBuf::from(data_dir);
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-      warn!("Could not create data directory {:?}: {}", dir, e);
-    }
-    let path = dir.join("tokens.json");
-    let tokens = match std::fs::read_to_string(&path) {
-      Ok(raw) => match serde_json::from_str::<TokenFile>(&raw) {
-        Ok(file) => file.tokens,
-        Err(e) => {
-          // Preserve the unparseable file instead of silently discarding every
-          // token (the next write would otherwise overwrite it with an empty
-          // store). An operator can inspect/restore the backup.
-          let backup = crate::store::backup_corrupt(&path);
-          error!(
-            "Failed to parse {:?}: {} — backed up to {:?}, starting with empty token store",
-            path, e, backup
-          );
-          Vec::new()
-        }
-      },
-      Err(_) => Vec::new(),
-    };
+    let conn = crate::store::open_db(data_dir);
+    let tokens: Vec<ApiToken> = crate::store::load_all(&conn, "tokens");
     if !tokens.is_empty() {
       info!(
-        "Loaded {} dynamic API token(s) from {:?}",
-        tokens.len(),
-        path
+        "Loaded {} dynamic API token(s) from the store",
+        tokens.len()
       );
     }
-    TokenStore { path, tokens }
+    TokenStore { conn, tokens }
   }
 
-  /// Writes the current token list back to disk.
-  fn persist(&self) {
-    let file = TokenFile {
-      tokens: self.tokens.clone(),
-    };
-    match serde_json::to_string_pretty(&file) {
-      Ok(json) => {
-        if let Err(e) = crate::store::atomic_write(&self.path, json.as_bytes()) {
-          error!("Failed to persist token store to {:?}: {}", self.path, e);
-        }
-      }
-      Err(e) => error!("Failed to serialize token store: {}", e),
-    }
+  /// Writes the current token list back to the store (one transaction).
+  fn persist(&mut self) {
+    let rows: Vec<(String, String)> = self
+      .tokens
+      .iter()
+      .filter_map(|t| {
+        serde_json::to_string(t)
+          .ok()
+          .map(|json| (t.id.clone(), json))
+      })
+      .collect();
+    crate::store::replace_all(&mut self.conn, "tokens", &rows);
   }
 
   /// Creates a new token, persists it, and returns the record together with
@@ -315,24 +286,24 @@ mod tests {
   }
 
   #[test]
-  fn test_corrupt_token_file_is_backed_up_not_discarded() {
+  fn test_corrupt_db_is_backed_up_not_discarded() {
     let dir = temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    let path = std::path::PathBuf::from(&dir).join("tokens.json");
-    std::fs::write(&path, "{ this is not valid json").unwrap();
+    let path = std::path::PathBuf::from(&dir).join("aperio.db");
+    std::fs::write(&path, "this is not a sqlite database at all").unwrap();
 
-    // Loading a corrupt store starts empty but must not overwrite the bad file.
+    // Loading a corrupt store starts empty but preserves the bad file.
     let store = TokenStore::load(&dir);
     assert!(store.list().is_empty());
 
-    // The original file was renamed aside as <name>.corrupt.<epoch>.
+    // The original file was renamed aside as aperio.db.corrupt.<epoch>.
     let backups: Vec<_> = std::fs::read_dir(&dir)
       .unwrap()
       .filter_map(|e| e.ok())
       .filter(|e| {
         e.file_name()
           .to_string_lossy()
-          .starts_with("tokens.json.corrupt.")
+          .starts_with("aperio.db.corrupt.")
       })
       .collect();
     assert_eq!(backups.len(), 1, "corrupt file should be preserved");

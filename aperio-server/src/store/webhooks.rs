@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// A webhook definition: which events to deliver to which URL.
 #[derive(Serialize, Deserialize, Clone)]
@@ -26,54 +25,34 @@ impl Webhook {
   }
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct WebhookFile {
-  webhooks: Vec<Webhook>,
-}
-
-/// Persistent store of webhook definitions (`<data_dir>/webhooks.json`).
+/// Persistent store of webhook definitions, backed by the `webhooks` table
+/// of the shared SQLite store (`<data_dir>/aperio.db`).
 pub struct WebhookStore {
-  path: PathBuf,
+  conn: rusqlite::Connection,
   webhooks: Vec<Webhook>,
 }
 
 impl WebhookStore {
   pub fn load(data_dir: &str) -> Self {
-    let path = PathBuf::from(data_dir).join("webhooks.json");
-    let webhooks = match std::fs::read_to_string(&path) {
-      Ok(raw) => match serde_json::from_str::<WebhookFile>(&raw) {
-        Ok(file) => file.webhooks,
-        Err(e) => {
-          // Preserve the unparseable file instead of silently discarding every
-          // webhook (the next write would overwrite it with an empty store).
-          let backup = crate::store::backup_corrupt(&path);
-          error!(
-            "Failed to parse {:?}: {} — backed up to {:?}, starting with no webhooks",
-            path, e, backup
-          );
-          Vec::new()
-        }
-      },
-      Err(_) => Vec::new(),
-    };
+    let conn = crate::store::open_db(data_dir);
+    let webhooks: Vec<Webhook> = crate::store::load_all(&conn, "webhooks");
     if !webhooks.is_empty() {
-      info!("Loaded {} webhook(s) from {:?}", webhooks.len(), path);
+      info!("Loaded {} webhook(s) from the store", webhooks.len());
     }
-    WebhookStore { path, webhooks }
+    WebhookStore { conn, webhooks }
   }
 
-  fn persist(&self) {
-    let file = WebhookFile {
-      webhooks: self.webhooks.clone(),
-    };
-    match serde_json::to_string_pretty(&file) {
-      Ok(json) => {
-        if let Err(e) = crate::store::atomic_write(&self.path, json.as_bytes()) {
-          error!("Failed to persist webhooks to {:?}: {}", self.path, e);
-        }
-      }
-      Err(e) => error!("Failed to serialize webhooks: {}", e),
-    }
+  fn persist(&mut self) {
+    let rows: Vec<(String, String)> = self
+      .webhooks
+      .iter()
+      .filter_map(|w| {
+        serde_json::to_string(w)
+          .ok()
+          .map(|json| (w.id.clone(), json))
+      })
+      .collect();
+    crate::store::replace_all(&mut self.conn, "webhooks", &rows);
   }
 
   pub fn create(

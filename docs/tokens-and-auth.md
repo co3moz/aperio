@@ -19,7 +19,7 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 
 A client declaring a bind its token doesn't permit gets the declaration ignored (and logged). Tokens can be edited in place — scope, IPs, expiry change while the secret stays the same — or revoked, which immediately drops the tunnel connections using the token and rejects reconnects.
 
-Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/tokens.json` and shown exactly once at creation.
+Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/aperio.db` (SQLite) and shown exactly once at creation.
 
 ### Short-lived tokens & refresh
 
