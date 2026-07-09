@@ -29,7 +29,7 @@ pub(crate) struct ServerStats {
 }
 
 /// Details of an active tunnel client connection.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, utoipa::ToSchema)]
 pub(crate) struct ClientDetail {
   /// Unique client UUID.
   pub(crate) id: String,
@@ -87,7 +87,7 @@ pub(crate) struct ClientDetail {
 }
 
 /// Enhanced metrics stats combined with active client details.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, utoipa::ToSchema)]
 pub(crate) struct EnhancedServerStats {
   /// Total incoming request count.
   pub(crate) total_requests: u64,
@@ -114,7 +114,7 @@ pub(crate) struct EnhancedServerStats {
 }
 
 /// Structure representing a logged HTTP transaction.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, utoipa::ToSchema)]
 pub(crate) struct RequestLog {
   /// Request UUID.
   pub(crate) id: String,

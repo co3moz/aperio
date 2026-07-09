@@ -642,6 +642,10 @@ async fn main() {
       .route(
         "/api/webhooks/:id",
         axum::routing::delete(webhooks_delete_handler),
+      )
+      .route(
+        "/api/openapi.json",
+        get(crate::api::openapi::openapi_handler),
       );
 
     let state_clone = state.clone();

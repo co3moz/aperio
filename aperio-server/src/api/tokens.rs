@@ -31,6 +31,9 @@ pub(crate) struct TokenView {
 }
 
 /// Lists dynamic API tokens (metadata only, secrets are never returned).
+#[utoipa::path(get, path = "/aperio/api/tokens", tag = "tokens",
+  description = "Lists dynamic API tokens (hashes stripped; only the display prefix is exposed).",
+  responses((status = 200, description = "Token records", body = serde_json::Value)))]
 pub(crate) async fn tokens_list_handler(
   State(state): State<Arc<AppState>>,
 ) -> Json<Vec<TokenView>> {
@@ -57,7 +60,7 @@ pub(crate) async fn tokens_list_handler(
 }
 
 /// Payload for creating a dynamic token from the dashboard.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct TokenCreateRequest {
   pub(crate) name: String,
   /// Allowed hostnames; `["*"]` (or empty) = all hostnames.
@@ -84,7 +87,7 @@ pub(crate) struct TokenCreateRequest {
 
 /// Payload for editing an existing token's scope without changing the secret.
 /// Absent fields are left untouched; `ttl_seconds: 0` clears the expiry.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct TokenUpdateRequest {
   pub(crate) name: Option<String>,
   pub(crate) hostnames: Option<Vec<String>>,
@@ -158,6 +161,10 @@ pub(crate) fn validate_token_perms(
 }
 
 /// Creates a dynamic token. The plaintext secret is returned exactly once.
+#[utoipa::path(post, path = "/aperio/api/tokens", tag = "tokens",
+  description = "Creates a dynamic token; the plaintext secret is returned exactly once.",
+  request_body = TokenCreateRequest,
+  responses((status = 200, description = "Created token + secret", body = serde_json::Value), (status = 400, description = "Invalid permissions")))]
 pub(crate) async fn tokens_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -246,6 +253,11 @@ pub(crate) async fn tokens_create_handler(
 
 /// Edits an existing token's scope (name, hostnames, paths, allowed IPs,
 /// expiry) without changing the secret. Live connections are unaffected.
+#[utoipa::path(put, path = "/aperio/api/tokens/{id}", tag = "tokens",
+  description = "Edits a token's scope/limits/expiry in place without changing the secret.",
+  params(("id" = String, Path, description = "Token record id")),
+  request_body = TokenUpdateRequest,
+  responses((status = 200, description = "Updated record", body = serde_json::Value), (status = 404, description = "Unknown token id")))]
 pub(crate) async fn tokens_update_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -342,6 +354,9 @@ pub(crate) async fn tokens_update_handler(
 /// or long-running client that only holds the token, not a dashboard session.
 /// Tokens without a TTL are not refreshable (they never expire), and an
 /// already-expired token cannot resurrect itself.
+#[utoipa::path(post, path = "/aperio/api/tokens/refresh", tag = "tokens",
+  description = "Slides a TTL-token's expiry forward by its creation TTL. Authenticates with the token secret itself (Bearer); no dashboard session needed. Rate-limited per IP.",
+  responses((status = 200, description = "New expiry", body = serde_json::Value), (status = 401, description = "Unknown/expired secret"), (status = 409, description = "Token never expires")))]
 pub(crate) async fn tokens_refresh_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -398,6 +413,10 @@ pub(crate) async fn tokens_refresh_handler(
 /// Revokes (deletes) a dynamic token and drops any tunnel connections that are
 /// currently using it — a revoked token could otherwise keep serving traffic
 /// until the client next reconnected (when it would be rejected anyway).
+#[utoipa::path(delete, path = "/aperio/api/tokens/{id}", tag = "tokens",
+  description = "Revokes a token and immediately drops any tunnel connections using it.",
+  params(("id" = String, Path, description = "Token record id")),
+  responses((status = 200, description = "Revoked"), (status = 404, description = "Unknown token id")))]
 pub(crate) async fn tokens_revoke_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,

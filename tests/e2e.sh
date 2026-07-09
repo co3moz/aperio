@@ -375,6 +375,13 @@ AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
 assert_contains "$AUDIT" 'client_connected' "audit log records the client connection"
 assert_contains "$AUDIT" 'webhook_created' "audit log records the webhook creation"
 
+step "OpenAPI spec"
+SPEC="$(curl -s -b "$COOKIES" "$BASE/aperio/api/openapi.json")"
+assert_contains "$SPEC" '"openapi"' "openapi document is served"
+assert_contains "$SPEC" '/aperio/api/tokens/refresh' "openapi document covers the token refresh endpoint"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/openapi.json")"
+assert_status 302 "$CODE" "openapi document requires a dashboard session"
+
 step "Structured access log"
 [ -f "$ACCESS_LOG" ] || fail "access log file was not created"
 assert_contains "$(cat "$ACCESS_LOG")" '"uri":"/hello' "access log records proxied requests"

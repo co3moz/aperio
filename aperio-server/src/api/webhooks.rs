@@ -14,6 +14,9 @@ use crate::state::AppState;
 use crate::store::audit::{self};
 
 /// Returns recent audit events (dashboard).
+#[utoipa::path(get, path = "/aperio/api/audit", tag = "dashboard",
+  description = "The most recent audit events (bounded ring buffer; the durable log is audit.jsonl).",
+  responses((status = 200, description = "Recent audit events", body = Vec<audit::AuditEvent>)))]
 pub(crate) async fn audit_handler(
   State(state): State<Arc<AppState>>,
 ) -> Json<Vec<audit::AuditEvent>> {
@@ -21,7 +24,7 @@ pub(crate) async fn audit_handler(
 }
 
 /// Payload for creating a webhook definition.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct WebhookCreateRequest {
   pub(crate) name: String,
   pub(crate) url: String,
@@ -36,6 +39,9 @@ pub(crate) struct WebhookCreateRequest {
 
 /// Lists webhook definitions. The signing secret itself is never returned —
 /// only whether one is set.
+#[utoipa::path(get, path = "/aperio/api/webhooks", tag = "webhooks",
+  description = "Lists webhook definitions (signing secrets are never exposed, only a signed flag).",
+  responses((status = 200, description = "Webhook definitions", body = serde_json::Value)))]
 pub(crate) async fn webhooks_list_handler(
   State(state): State<Arc<AppState>>,
 ) -> Json<Vec<serde_json::Value>> {
@@ -59,6 +65,10 @@ pub(crate) async fn webhooks_list_handler(
 }
 
 /// Creates a webhook definition. Only http/https URLs are accepted.
+#[utoipa::path(post, path = "/aperio/api/webhooks", tag = "webhooks",
+  description = "Creates a webhook; an optional HMAC signing secret (16-128 chars) enables signed deliveries.",
+  request_body = WebhookCreateRequest,
+  responses((status = 200, description = "Created webhook", body = serde_json::Value), (status = 400, description = "Invalid URL/secret")))]
 pub(crate) async fn webhooks_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -128,6 +138,10 @@ pub(crate) async fn webhooks_create_handler(
 }
 
 /// Deletes a webhook definition.
+#[utoipa::path(delete, path = "/aperio/api/webhooks/{id}", tag = "webhooks",
+  description = "Deletes a webhook definition.",
+  params(("id" = String, Path, description = "Webhook id")),
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown id")))]
 pub(crate) async fn webhooks_delete_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,

@@ -18,6 +18,9 @@ use crate::state::AppState;
 
 /// Returns the dashboard-editable settings: effective values, environment
 /// defaults, and the persisted overrides.
+#[utoipa::path(get, path = "/aperio/api/settings", tag = "dashboard",
+  description = "Effective server settings plus which keys are overridden from the dashboard.",
+  responses((status = 200, description = "Current settings", body = serde_json::Value)))]
 pub(crate) async fn settings_get_handler(
   State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
@@ -33,6 +36,10 @@ pub(crate) async fn settings_get_handler(
 /// missing/null fields fall back to the environment default. Changes apply
 /// live (config swap), persist to `<data_dir>/settings.json`, and are
 /// audited with the list of overridden keys.
+#[utoipa::path(put, path = "/aperio/api/settings", tag = "dashboard",
+  description = "Applies dashboard settings overrides live and persists them (missing keys keep env defaults).",
+  request_body = SettingsOverrides,
+  responses((status = 200, description = "Settings applied", body = serde_json::Value), (status = 400, description = "Invalid value")))]
 pub(crate) async fn settings_put_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,

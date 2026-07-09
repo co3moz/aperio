@@ -13,7 +13,7 @@ use crate::routing::{extract_client_ip, normalize_hostname_bind};
 use crate::state::AppState;
 
 /// Payload for toggling maintenance mode on a hostname (dashboard).
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct MaintenanceRequest {
   /// Hostname to toggle, or `*` for every hostname.
   pub(crate) hostname: String,
@@ -21,6 +21,9 @@ pub(crate) struct MaintenanceRequest {
 }
 
 /// Lists hostnames currently in maintenance mode.
+#[utoipa::path(get, path = "/aperio/api/maintenance", tag = "dashboard",
+  description = "Hostnames currently in maintenance mode (`*` = every hostname).",
+  responses((status = 200, description = "Hostname list", body = Vec<String>)))]
 pub(crate) async fn maintenance_list_handler(
   State(state): State<Arc<AppState>>,
 ) -> Json<Vec<String>> {
@@ -32,6 +35,10 @@ pub(crate) async fn maintenance_list_handler(
 
 /// Enables/disables maintenance mode for a hostname. In-memory only, like
 /// bind overrides: a server restart clears all maintenance flags.
+#[utoipa::path(post, path = "/aperio/api/maintenance", tag = "dashboard",
+  description = "Turns maintenance mode on/off for a hostname (503 page while on). In-memory; cleared by a restart.",
+  request_body = MaintenanceRequest,
+  responses((status = 200, description = "Maintenance state changed")))]
 pub(crate) async fn maintenance_set_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,

@@ -6,7 +6,7 @@ use tracing::info;
 /// A dynamic API token created from the dashboard. The secret itself is never
 /// stored — only its SHA-256 hash. Permissions restrict which hostname/path
 /// binds a client authenticated with this token may claim.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct ApiToken {
   /// Unique token record ID (UUID).
   pub id: String,

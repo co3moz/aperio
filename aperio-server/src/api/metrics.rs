@@ -51,6 +51,10 @@ fn render_labeled(
 /// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
 /// `?token=<value>` (convenient for Prometheus scrape configs) or as an
 /// `Authorization: Bearer <value>` header.
+#[utoipa::path(get, path = "/aperio/metrics", tag = "public",
+  description = "Prometheus text-format metrics. Requires the metrics token as `?token=` or `Authorization: Bearer`.",
+  params(("token" = Option<String>, Query, description = "Metrics token (alternative to the Authorization header)")),
+  responses((status = 200, description = "Prometheus exposition", body = String), (status = 401, description = "Missing/invalid token")))]
 pub(crate) async fn metrics_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,

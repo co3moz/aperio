@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tracing::{error, info};
 
 /// Counters for a single calendar period (day/week/month/year).
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, utoipa::ToSchema)]
 pub struct PeriodStats {
   pub requests: u64,
   pub success: u64,
@@ -14,7 +14,7 @@ pub struct PeriodStats {
 }
 
 /// Counters that survive server restarts, plus per-period breakdowns.
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, utoipa::ToSchema)]
 pub struct PersistentStats {
   /// All-time totals — never reset.
   pub total_requests: u64,

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 /// A webhook definition: which events to deliver to which URL.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct Webhook {
   pub id: String,
   pub name: String,

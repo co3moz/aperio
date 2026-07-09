@@ -282,3 +282,4 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. | — |
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
+| `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |

@@ -105,7 +105,7 @@ pub(crate) enum FailoverMode {
 /// key) keeps the environment-derived default; empty strings clear optional
 /// values (pages, subdomain suffix, visitor auth). The master token,
 /// HOST/PORT, proxy trust, cookie security and OIDC remain env-only.
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, utoipa::ToSchema)]
 pub(crate) struct SettingsOverrides {
   pub(crate) gateway_timeout_secs: Option<u64>,
   pub(crate) gateway_response_timeout_secs: Option<u64>,

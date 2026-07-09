@@ -16,6 +16,10 @@ use crate::routing::{apply_lb_strategy, extract_client_ip, select_client_pool};
 use crate::state::{AppState, PendingRequest, TunnelResponse};
 
 /// Returns the full captured detail of a recent request (dashboard inspector).
+#[utoipa::path(get, path = "/aperio/api/requests/{id}", tag = "dashboard",
+  description = "Full captured transaction (headers and possibly-truncated bodies) for the request inspector.",
+  params(("id" = String, Path, description = "Request id from the traffic log")),
+  responses((status = 200, description = "Captured transaction", body = serde_json::Value), (status = 404, description = "Not captured (or evicted)")))]
 pub(crate) async fn request_detail_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -32,6 +36,10 @@ pub(crate) async fn request_detail_handler(
 }
 
 /// Replays a captured request through the tunnel and returns the new outcome.
+#[utoipa::path(post, path = "/aperio/api/requests/{id}/replay", tag = "dashboard",
+  description = "Re-dispatches a captured request through the tunnel and returns the fresh response.",
+  params(("id" = String, Path, description = "Request id from the traffic log")),
+  responses((status = 200, description = "Replay result", body = serde_json::Value), (status = 404, description = "Not captured"), (status = 409, description = "Body was truncated; replay disabled")))]
 pub(crate) async fn request_replay_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,

@@ -109,11 +109,17 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
 }
 
 /// Handler returning the live statistics + active connections detail in JSON.
+#[utoipa::path(get, path = "/aperio/api/stats", tag = "dashboard",
+  description = "Live statistics snapshot: counters, persistent stats, and the active client connections.",
+  responses((status = 200, description = "Current statistics", body = EnhancedServerStats)))]
 pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
   Json(compute_stats(&state).await)
 }
 
 /// Handler returning the list of recent HTTP logs in JSON.
+#[utoipa::path(get, path = "/aperio/api/logs", tag = "dashboard",
+  description = "The most recent proxied requests (bounded ring buffer).",
+  responses((status = 200, description = "Recent request log entries", body = Vec<RequestLog>)))]
 pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec<RequestLog>> {
   let logs = state.recent_logs.lock().await;
   Json(logs.iter().cloned().collect())
@@ -124,6 +130,9 @@ pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec
 /// periodic `stats` events (the same snapshot as `/api/stats`, pushed every 2s
 /// and once immediately on connect). A subscriber that falls behind the traffic
 /// buffer skips the lagged span rather than closing the stream.
+#[utoipa::path(get, path = "/aperio/api/stream", tag = "dashboard",
+  description = "Server-Sent Events stream: named `traffic` events (one per proxied request) and periodic `stats` events.",
+  responses((status = 200, description = "SSE stream (text/event-stream)")))]
 pub(crate) async fn live_stream_handler(
   State(state): State<Arc<AppState>>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
@@ -173,7 +182,7 @@ pub(crate) async fn live_stream_handler(
 /// Each field fully replaces the corresponding override: a non-empty string
 /// sets it, an empty string or `null` clears it. Overrides are in-memory only
 /// and disappear when the client reconnects or the server restarts.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct ClientOverrideRequest {
   pub(crate) hostname_bind: Option<String>,
   pub(crate) path_bind: Option<String>,
@@ -181,6 +190,11 @@ pub(crate) struct ClientOverrideRequest {
 
 /// Applies a temporary hostname/path bind override to a connected client.
 /// Protected by the dashboard session middleware.
+#[utoipa::path(post, path = "/aperio/api/clients/{id}/override", tag = "dashboard",
+  description = "Temporarily overrule a client's hostname/path bind server-side (empty values clear the override).",
+  params(("id" = String, Path, description = "Client connection id")),
+  request_body = ClientOverrideRequest,
+  responses((status = 200, description = "Override applied"), (status = 404, description = "No such client")))]
 pub(crate) async fn client_override_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
@@ -249,13 +263,18 @@ pub(crate) async fn client_override_handler(
 }
 
 /// Payload for the client enable/disable toggle.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct ClientEnabledRequest {
   pub(crate) enabled: bool,
 }
 
 /// Dashboard kill switch: temporarily removes a connected client from the
 /// routing pool (or puts it back). In-flight requests always complete.
+#[utoipa::path(post, path = "/aperio/api/clients/{id}/enabled", tag = "dashboard",
+  description = "Kill switch: enable/disable routing to one client without dropping its tunnel.",
+  params(("id" = String, Path, description = "Client connection id")),
+  request_body = ClientEnabledRequest,
+  responses((status = 200, description = "State changed"), (status = 404, description = "No such client")))]
 pub(crate) async fn client_enabled_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,

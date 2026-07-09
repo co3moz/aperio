@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 /// Payload for the programmatic tunnel provisioning endpoint
 /// (`POST /aperio/api/tunnels`).
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct TunnelCreateRequest {
   /// Label for the ephemeral token; defaults to "tunnel".
   pub(crate) name: Option<String>,
@@ -52,6 +52,10 @@ async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
 /// dynamic token and returns it together with the hostname (once — the
 /// secret is never shown again). Designed for automation such as per-PR
 /// preview environments.
+#[utoipa::path(post, path = "/aperio/api/tunnels", tag = "tunnels",
+  description = "Programmatically provisions an ephemeral tunnel (scoped short-lived token + hostname). Master token (header) or dashboard session.",
+  request_body = TunnelCreateRequest,
+  responses((status = 200, description = "Ephemeral tunnel token + hostname", body = serde_json::Value), (status = 401, description = "Unauthorized")))]
 pub(crate) async fn tunnels_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -199,6 +203,10 @@ pub(crate) async fn tunnels_create_handler(
 /// the tunnel would otherwise keep serving until its client reconnected).
 /// Same authentication as tunnel creation so CI jobs can clean up after
 /// themselves.
+#[utoipa::path(delete, path = "/aperio/api/tunnels/{id}", tag = "tunnels",
+  description = "Deletes an ephemeral tunnel: revokes its token and drops its live connection.",
+  params(("id" = String, Path, description = "Ephemeral tunnel (token) id")),
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown id")))]
 pub(crate) async fn tunnels_delete_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,

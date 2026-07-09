@@ -18,7 +18,7 @@ use crate::routing::{
 use crate::state::AppState;
 
 /// Payload for generating a share link (dashboard).
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct ShareCreateRequest {
   /// Hostname the link grants access to.
   pub(crate) hostname: String,
@@ -32,6 +32,10 @@ pub(crate) struct ShareCreateRequest {
 /// to an auth-protected proxied site without a dashboard login. Stateless —
 /// the token is HMAC-signed and simply expires; there is nothing to list or
 /// revoke individually (rotating the master token invalidates all links).
+#[utoipa::path(post, path = "/aperio/api/share", tag = "dashboard",
+  description = "Mints a signed, expiring share link that grants visitors gate-free access to a host/path scope.",
+  request_body = ShareCreateRequest,
+  responses((status = 200, description = "Share URL + expiry", body = serde_json::Value), (status = 400, description = "Invalid scope/ttl")))]
 pub(crate) async fn share_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,

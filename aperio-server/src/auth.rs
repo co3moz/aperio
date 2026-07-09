@@ -136,6 +136,9 @@ impl LockoutTracker {
 /// or other hosts). A client override replaces the server's own visitor
 /// password for that route — the server password no longer works there (master
 /// and dashboard credentials always do).
+#[utoipa::path(post, path = "/aperio/auth", tag = "auth",
+  description = "Login form submission (form-encoded username/password). On success sets the aperio_session cookie and redirects. Rate-limited with an escalating per-IP lockout.",
+  responses((status = 302, description = "Redirect (success or back to the form)"), (status = 429, description = "Locked out / rate limited")))]
 pub(crate) async fn auth_login_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -311,6 +314,9 @@ fn session_cookie(headers: &HeaderMap) -> Option<&str> {
 
 /// Logs out the current dashboard session: drops it from the session store and
 /// expires the cookie. Always answers 200 so a stale cookie still clears.
+#[utoipa::path(post, path = "/aperio/auth/logout", tag = "auth",
+  description = "Drops the server-side session and expires the session cookie.",
+  responses((status = 200, description = "Logged out")))]
 pub(crate) async fn auth_logout_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
@@ -342,6 +348,9 @@ pub(crate) struct SessionStatus {
   pub(crate) expires_in_seconds: u64,
 }
 
+#[utoipa::path(get, path = "/aperio/api/session", tag = "auth",
+  description = "Remaining lifetime of the presented dashboard session.",
+  responses((status = 200, description = "Session info", body = serde_json::Value), (status = 401, description = "No valid session")))]
 pub(crate) async fn auth_session_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,

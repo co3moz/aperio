@@ -12,7 +12,7 @@ const AUDIT_RECENT_CAP: usize = 200;
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// A single administrative/security event.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct AuditEvent {
   /// Unix timestamp in seconds.
   pub ts: u64,

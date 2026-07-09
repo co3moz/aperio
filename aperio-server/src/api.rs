@@ -14,6 +14,7 @@ pub(crate) mod clients;
 pub(crate) mod inspector;
 pub(crate) mod maintenance;
 pub(crate) mod metrics;
+pub(crate) mod openapi;
 pub(crate) mod settings;
 pub(crate) mod tokens;
 pub(crate) mod tunnels;
@@ -82,6 +83,9 @@ pub(crate) async fn dashboard_asset_handler(
 }
 
 /// Health check endpoint returning status, active connection counts, and uptime.
+#[utoipa::path(get, path = "/aperio/health", tag = "public",
+  description = "Liveness probe: server version, tunnel protocol version, and connected client count. No authentication.",
+  responses((status = 200, description = "Server is up", body = serde_json::Value)))]
 pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
   let clients_count = state.clients.lock().await.len();
   let stats = state.stats.lock().await;
