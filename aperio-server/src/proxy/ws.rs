@@ -16,12 +16,11 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
 use crate::access_log::{log_request_failure, sanitize_uri};
-use crate::auth::{safe_redirect_path, validate_session};
 use crate::protocol::TunnelMessage;
 use crate::proxy::gateway_timeout_response;
 use crate::routing::{extract_request_host, pick_proxy_client};
 use crate::settings::LbStrategy;
-use crate::share::{check_share_access, cookie_value};
+use crate::share::cookie_value;
 use crate::state::{AppState, PendingRequest, TunnelResponse, WsStreamMessage};
 
 /// Handles a WebSocket upgrade request from a public client.
@@ -58,40 +57,18 @@ pub(crate) async fn handle_ws_proxy(
       .into_response();
   }
 
-  // 2. Session/Auth check. Routes served exclusively by public-declared
-  // clients (token permitting) skip the gate, mirroring the HTTP path.
-  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
-  let auth_required = auth_configured
-    && !crate::routing::route_is_public(
-      &state,
-      uri.path(),
-      extract_request_host(&headers).as_deref(),
-    )
-    .await;
-  if auth_required && !validate_session(&state, &headers).await {
-    // A share cookie set during the page load also covers its WebSockets.
-    let share_ok = check_share_access(
-      &state,
-      &headers,
-      &uri,
-      extract_request_host(&headers).as_deref(),
-    )
-    .is_some();
-    if !share_ok {
-      // Prefer the OIDC SSO flow when configured; fall back to the built-in
-      // password login page otherwise.
-      let login_path = if state.oidc.is_some() {
-        "/aperio/oidc/login"
-      } else {
-        "/aperio/auth"
-      };
-      let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
-      return Response::builder()
-        .status(StatusCode::FOUND)
-        .header("Location", redirect_url)
-        .body(Body::empty())
-        .unwrap();
-    }
+  // 2. Visitor-auth gate (shared with the HTTP path): a client-declared
+  // per-service password supersedes the server's own gate; public routes skip
+  // it. A share cookie set during the page load also covers its WebSockets.
+  if let crate::proxy::VisitorGate::Deny(resp) = crate::proxy::check_visitor_gate(
+    &state,
+    &headers,
+    &uri,
+    extract_request_host(&headers).as_deref(),
+  )
+  .await
+  {
+    return resp;
   }
 
   // 3. Wait for connection

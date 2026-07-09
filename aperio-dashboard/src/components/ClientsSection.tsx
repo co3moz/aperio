@@ -454,6 +454,13 @@ export function ClientsSection({
                           </Badge>
                         </Tooltip>
                       )}
+                      {c.visitor_auth && (
+                        <Tooltip content="This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service">
+                          <Badge color="jade" size="1">
+                            custom auth
+                          </Badge>
+                        </Tooltip>
+                      )}
                       {c.version && (
                         <Text size="1" color="gray">
                           v{c.version}

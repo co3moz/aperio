@@ -106,6 +106,14 @@ pub enum TunnelMessage {
     /// for traffic routed here (honored only when the token permits it).
     #[serde(default)]
     public: bool,
+    /// Per-service visitor credentials ("user:password") declared by the
+    /// client: the server gates traffic routed here behind a login with these
+    /// credentials, overriding (or, when the server has none, introducing) the
+    /// visitor auth gate. Honored only when the token may control the visitor
+    /// gate (same permission as `public`) and the server has not set
+    /// APERIO_IGNORE_CLIENT_AUTH. None = no override.
+    #[serde(default)]
+    visitor_auth: Option<String>,
     /// Tunnels declared by the client (`tunnels:` list): normally
     /// unexposed local services reachable by a peer client via
     /// `--bind-tunnels` with the same token and this client's id.

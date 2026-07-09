@@ -18,6 +18,10 @@ pub(crate) struct ServerConfig {
   /// client IP resolution. Only enable when running behind a trusted reverse
   /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
   pub(crate) trust_proxy: bool,
+  /// When true, the server ignores any client-declared visitor password
+  /// override (Ping `visitor_auth`) and keeps full control of the visitor gate
+  /// with its own APERIO_SERVER_AUTH / OIDC. Env-only (APERIO_IGNORE_CLIENT_AUTH).
+  pub(crate) ignore_client_auth: bool,
   /// Header consulted first for the real client IP when trust_proxy is on
   /// (APERIO_REAL_IP_HEADER, e.g. `CF-Connecting-IP` behind Cloudflare).
   pub(crate) real_ip_header: Option<String>,

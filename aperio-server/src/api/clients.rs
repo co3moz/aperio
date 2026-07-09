@@ -61,6 +61,7 @@ pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<En
       version: handle.client_version.clone(),
       service: handle.service_name.clone(),
       public: handle.public,
+      visitor_auth: handle.visitor_auth.is_some(),
       protocol: handle.client_protocol,
       protocol_mismatch: handle
         .client_protocol

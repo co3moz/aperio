@@ -114,6 +114,13 @@ pub(crate) enum TunnelMessage {
     /// permits publishing public services).
     #[serde(default)]
     public: bool,
+    /// Per-service visitor credentials ("user:password") declared by the
+    /// client: the server gates traffic routed here behind a login with these
+    /// credentials (honored only when the token may control the visitor gate,
+    /// same permission as `public`, and the server has not set
+    /// APERIO_IGNORE_CLIENT_AUTH). None = no override.
+    #[serde(default)]
+    visitor_auth: Option<String>,
     /// Tunnels declared by this client (`tunnels:` list): normally
     /// unexposed local services reachable by a peer client via
     /// `--bind-tunnels` with the same token and this client's id.

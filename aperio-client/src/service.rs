@@ -64,6 +64,9 @@ pub(crate) struct ServiceSpec {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
+  /// Per-service visitor login (`user:password`) the server should gate this
+  /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
+  pub(crate) visitor_auth: Option<String>,
   /// Tunnels declared by this client process (`tunnels:` list): normally
   /// unexposed local services a peer client may bind with `--bind-tunnels`.
   /// Announced via Ping on every connection of the process.
@@ -250,6 +253,7 @@ pub(crate) async fn run_service(
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
             let tunnels_ping = spec.tunnels.clone();
+            let visitor_auth_ping = spec.visitor_auth.clone();
             let (max_concurrent, priority, bandwidth_bps, public) = (
               spec.max_concurrent,
               spec.priority,
@@ -300,6 +304,7 @@ pub(crate) async fn run_service(
                   bandwidth_bps,
                   service: service_name_ping.clone(),
                   public,
+                  visitor_auth: visitor_auth_ping.clone(),
                   tunnels: tunnels_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)

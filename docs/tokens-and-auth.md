@@ -39,6 +39,15 @@ Two options put a gate in front of everything the tunnel serves:
 
 A client can opt its own service out of the gate by declaring itself **public** (`--public`, yaml `public: true`, or `APERIO_PUBLIC=1`) — useful when one Aperio server fronts both protected internal tools and a public site. Two safety rules apply: the client's token must carry the *may publish public services* permission (off by default; master always may), and the gate is only skipped for routes served exclusively by public clients — if a protected and a public client share the same hostname, the gate stays.
 
+### Client-set visitor password (per service)
+
+Instead of opting out, a client can supply its **own** visitor login for its service — `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth: user:password`. The server then shows the normal login form for that service and accepts only these credentials, whether or not the server itself set `APERIO_SERVER_AUTH`:
+
+- It reuses the same *may publish public services* token permission (master always may); a client without it has its `auth` ignored (and logged).
+- When set, it **supersedes** the server's own visitor password *for that service*: the `APERIO_SERVER_AUTH` credentials no longer work there — only the client's credentials, plus the always-valid `aperio:<master token>` and the dashboard password.
+- A successful login with client credentials yields a session **scoped to that hostname only** — it never unlocks the dashboard or another host. (If several path-bound services share one hostname with *different* `auth`, a login covers the whole hostname; give each its own hostname to isolate them. All clients serving one route must declare the same `auth`, mirroring the `public` rule.)
+- The server operator can turn the whole feature off with **`APERIO_IGNORE_CLIENT_AUTH=1`**, which makes the server ignore every client-declared `auth` and keep sole control of the gate with its own `APERIO_SERVER_AUTH` / OIDC.
+
 To let specific people through a protected site *without* an account, use [Share Links](share-links.md).
 
 ## Dashboard access

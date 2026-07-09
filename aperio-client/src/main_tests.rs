@@ -23,6 +23,7 @@ fn base_settings() -> ClientSettings {
     health_timeout: 5,
     health_threshold: 2,
     public: false,
+    visitor_auth: None,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

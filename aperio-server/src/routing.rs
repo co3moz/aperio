@@ -417,6 +417,58 @@ pub(crate) async fn route_is_public(
       .all(|id| clients.get(id).is_some_and(|c| c.public))
 }
 
+/// True when `creds` is a well-formed visitor login (`user:password` with both
+/// parts non-empty). The password may itself contain `:` (split on the first).
+pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
+  match creds.split_once(':') {
+    Some((user, pass)) => !user.is_empty() && !pass.is_empty(),
+    None => false,
+  }
+}
+
+/// Resolves the client-declared visitor credentials for a route, if any.
+///
+/// Returns `Some("user:password")` only when the serving pool is non-empty and
+/// *every* client in it declares the *same* override — mirroring the "all
+/// members must agree" rule of [`route_is_public`], so a request can never be
+/// gated by (or leak past) an override that only some pool members set. Returns
+/// `None` (use the server's own gate) when the pool is empty, mixed, declares
+/// differing credentials, or the server set `APERIO_IGNORE_CLIENT_AUTH`.
+pub(crate) async fn route_visitor_auth(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+) -> Option<String> {
+  if state.config().ignore_client_auth {
+    return None;
+  }
+  let clients = state.clients.lock().await;
+  let (pool, _) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  )?;
+  if pool.is_empty() {
+    return None;
+  }
+  let mut creds: Option<&str> = None;
+  for id in &pool {
+    match clients.get(id).and_then(|c| c.visitor_auth.as_deref()) {
+      Some(c) => match creds {
+        None => creds = Some(c),
+        Some(existing) if existing == c => {}
+        // Differing overrides in the same pool: ambiguous, fall back.
+        Some(_) => return None,
+      },
+      // A pool member without an override: not unanimous, fall back.
+      None => return None,
+    }
+  }
+  creds.map(str::to_string)
+}
+
 /// Polls the routing pool until a candidate appears or the deadline passes.
 pub(crate) async fn wait_for_candidate(
   state: &AppState,

@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 use tracing::{Instrument, error, warn};
 
 use crate::access_log::{log_request_failure, log_request_success};
-use crate::auth::{safe_redirect_path, validate_session};
+use crate::auth::{safe_redirect_path, validate_session, validate_session_for_host};
 use crate::protocol::{FRAME_REQUEST_CHUNK, TunnelMessage, encode_binary_frame};
 use crate::routing::{
   extract_client_ip, extract_request_host, method_retryable, pick_proxy_client, wait_for_candidate,
@@ -88,6 +88,82 @@ fn is_websocket_upgrade(method: &Method, headers: &HeaderMap) -> bool {
     .and_then(|v| v.to_str().ok())
     .is_some_and(|v| v.to_lowercase().contains("upgrade"));
   has_upgrade_header && has_connection_upgrade
+}
+
+/// Outcome of the visitor-auth gate for a proxied request.
+pub(crate) enum VisitorGate {
+  /// The visitor may proceed.
+  Allow,
+  /// The visitor is not authorized; reply with this response (a login/OIDC
+  /// redirect, or a share-link redirect).
+  Deny(Response),
+}
+
+/// Builds a 302 to the login flow, preserving the original path so the visitor
+/// returns to it after authenticating.
+fn login_redirect(login_path: &str, uri_str: &str) -> Response {
+  let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(uri_str));
+  Response::builder()
+    .status(StatusCode::FOUND)
+    .header("Location", redirect_url)
+    .body(Body::empty())
+    .unwrap()
+}
+
+/// Applies the visitor-auth gate for a proxied request to (host, path), shared
+/// by the HTTP and WebSocket proxy paths.
+///
+/// 1. When a client declared a per-service visitor password for this route
+///    (`route_visitor_auth`), it supersedes the server's own gate: the visitor
+///    must hold a session valid for this host (a host-scoped login, or any
+///    global session) — or a share cookie/link that covers the route. The login
+///    always uses the password form (never OIDC), since the credentials are the
+///    client's.
+/// 2. Otherwise the server's own gate applies: public routes skip it; a
+///    configured server password / OIDC requires a global session or a share.
+pub(crate) async fn check_visitor_gate(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+  uri: &axum::http::Uri,
+  host: Option<&str>,
+) -> VisitorGate {
+  let path = uri.path();
+
+  // 1. Client-declared per-service visitor password override.
+  if crate::routing::route_visitor_auth(state, path, host)
+    .await
+    .is_some()
+  {
+    if validate_session_for_host(state, headers, host).await {
+      return VisitorGate::Allow;
+    }
+    return match check_share_access(state, headers, uri, host) {
+      Some(Some(redirect)) => VisitorGate::Deny(redirect),
+      Some(None) => VisitorGate::Allow,
+      None => VisitorGate::Deny(login_redirect("/aperio/auth", &uri.to_string())),
+    };
+  }
+
+  // 2. Server's own visitor gate.
+  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  if !auth_configured || crate::routing::route_is_public(state, path, host).await {
+    return VisitorGate::Allow;
+  }
+  if validate_session(state, headers).await {
+    return VisitorGate::Allow;
+  }
+  match check_share_access(state, headers, uri, host) {
+    Some(Some(redirect)) => VisitorGate::Deny(redirect),
+    Some(None) => VisitorGate::Allow,
+    None => {
+      let login_path = if state.oidc.is_some() {
+        "/aperio/oidc/login"
+      } else {
+        "/aperio/auth"
+      };
+      VisitorGate::Deny(login_redirect(login_path, &uri.to_string()))
+    }
+  }
 }
 
 /// Proxy handler for forwarding all incoming HTTP requests to active client.
@@ -174,43 +250,17 @@ async fn proxy_http_request(
       .into_response();
   }
 
-  // 2. Session/Auth check (if configured). Routes served exclusively by
-  // clients that declared themselves public (token permitting) skip the gate.
-  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
-  let auth_required = auth_configured
-    && !crate::routing::route_is_public(
-      &state,
-      uri.path(),
-      extract_request_host(&headers).as_deref(),
-    )
-    .await;
-  if auth_required && !validate_session(&state, &headers).await {
-    // Share links: a signed, expiring token grants access to this
-    // hostname/path without a dashboard session.
-    match check_share_access(
-      &state,
-      &headers,
-      &uri,
-      extract_request_host(&headers).as_deref(),
-    ) {
-      Some(Some(redirect)) => return redirect,
-      Some(None) => { /* valid share cookie — proceed */ }
-      None => {
-        // Prefer the OIDC SSO flow when configured; fall back to the
-        // built-in password login page otherwise.
-        let login_path = if state.oidc.is_some() {
-          "/aperio/oidc/login"
-        } else {
-          "/aperio/auth"
-        };
-        let redirect_url = format!("{}?redirect={}", login_path, safe_redirect_path(&uri_str));
-        return Response::builder()
-          .status(StatusCode::FOUND)
-          .header("Location", redirect_url)
-          .body(Body::empty())
-          .unwrap();
-      }
-    }
+  // 2. Visitor-auth gate: a client-declared per-service password (if any)
+  // supersedes the server's own visitor password / OIDC; public routes skip it.
+  if let VisitorGate::Deny(resp) = check_visitor_gate(
+    &state,
+    &headers,
+    &uri,
+    extract_request_host(&headers).as_deref(),
+  )
+  .await
+  {
+    return resp;
   }
 
   // 3. Wait for connection if client is disconnected.

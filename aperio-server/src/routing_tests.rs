@@ -39,6 +39,8 @@ fn base_handle() -> ClientHandle {
     service_name: None,
     public: false,
     public_denied_warned: false,
+    visitor_auth: None,
+    visitor_auth_denied_warned: false,
     tunnels: Vec::new(),
   }
 }
@@ -482,4 +484,20 @@ fn is_healthy_threshold() {
   assert!(h.is_healthy(Duration::from_secs(60)));
   // A zero threshold is never satisfied (elapsed is never < 0).
   assert!(!h.is_healthy(Duration::ZERO));
+}
+
+// --- valid_visitor_creds ----------------------------------------------------
+
+#[test]
+fn visitor_creds_require_user_and_password() {
+  assert!(valid_visitor_creds("user:password"));
+  assert!(valid_visitor_creds("u:p"));
+  // The password may itself contain ':' (only the first is the separator).
+  assert!(valid_visitor_creds("user:pa:ss"));
+  // Missing separator or an empty half is rejected.
+  assert!(!valid_visitor_creds("userpassword"));
+  assert!(!valid_visitor_creds(":password"));
+  assert!(!valid_visitor_creds("user:"));
+  assert!(!valid_visitor_creds(""));
+  assert!(!valid_visitor_creds(":"));
 }

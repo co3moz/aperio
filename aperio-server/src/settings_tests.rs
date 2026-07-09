@@ -12,6 +12,7 @@ fn base_config() -> ServerConfig {
     ip_limit_refill: 10.0,
     auth_credentials: None,
     trust_proxy: false,
+    ignore_client_auth: false,
     real_ip_header: None,
     secure_cookies: false,
     require_hostname_bind: false,

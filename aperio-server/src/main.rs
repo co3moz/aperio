@@ -149,6 +149,17 @@ async fn main() {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
 
+  // When enabled, the server ignores any client-declared visitor password
+  // override and keeps full control of the visitor gate with its own settings.
+  let ignore_client_auth = std::env::var("APERIO_IGNORE_CLIENT_AUTH")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  if ignore_client_auth {
+    info!(
+      "APERIO_IGNORE_CLIENT_AUTH is set: client-declared visitor password overrides are ignored"
+    );
+  }
+
   // Optional real-IP header consulted before X-Forwarded-For (only with
   // trust_proxy). Needed behind CDN → proxy chains where the proxy resets
   // XFF to the CDN edge address, e.g. APERIO_REAL_IP_HEADER=CF-Connecting-IP.
@@ -392,6 +403,7 @@ async fn main() {
     ip_limit_refill,
     auth_credentials,
     trust_proxy,
+    ignore_client_auth,
     real_ip_header,
     secure_cookies,
     require_hostname_bind,

@@ -141,6 +141,13 @@ pub(crate) struct CommonOpts {
   /// (yaml: public, env: APERIO_PUBLIC)
   #[arg(long, global = true)]
   pub(crate) public: bool,
+  /// Per-service visitor login as `user:password`: the server gates this
+  /// service behind a login with these credentials, overriding its own
+  /// APERIO_SERVER_AUTH for this service (needs the same token permission as
+  /// `public`; ignored if the server sets APERIO_IGNORE_CLIENT_AUTH)
+  /// (yaml: auth, env: APERIO_VISITOR_AUTH)
+  #[arg(long = "visitor-auth", global = true, value_name = "USER:PASSWORD")]
+  pub(crate) visitor_auth: Option<String>,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -247,6 +254,8 @@ pub(crate) struct ServiceEntry {
   pub(crate) health_threshold: Option<u32>,
   /// Declare this service public (skip the server's visitor auth gate).
   pub(crate) public: Option<bool>,
+  /// Per-service visitor login as `user:password` (see [`CommonOpts::visitor_auth`]).
+  pub(crate) auth: Option<String>,
 }
 
 /// Configuration file schema (`aperio.yaml` / `~/.aperio.yaml`). All keys
@@ -317,6 +326,10 @@ pub(crate) struct FileConfig {
   /// password / OIDC gate for traffic routed here (requires a token that
   /// permits publishing public services).
   pub(crate) public: Option<bool>,
+  /// Per-service visitor login as `user:password`: the server gates traffic
+  /// routed here behind a login with these credentials (top-level default for
+  /// single-service mode; per-entry `auth` overrides it).
+  pub(crate) auth: Option<String>,
   /// Persistent client instance id (a UUID). Defaults to a random UUID per
   /// run when unset.
   pub(crate) client_id: Option<String>,
@@ -456,6 +469,8 @@ pub(crate) struct ClientSettings {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
+  /// Per-service visitor login as `user:password` (None = no override).
+  pub(crate) visitor_auth: Option<String>,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -718,6 +733,13 @@ pub(crate) fn resolve_settings(
         home.public,
       )
       .unwrap_or(false),
+    visitor_auth: layered(
+      o.visitor_auth.clone(),
+      local.auth.clone(),
+      env2("APERIO_VISITOR_AUTH", "APERIO_VISITOR_AUTH"),
+      home.auth.clone(),
+    )
+    .and_then(nonempty),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

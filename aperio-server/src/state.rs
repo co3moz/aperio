@@ -59,6 +59,9 @@ pub(crate) struct ClientDetail {
   pub(crate) service: Option<String>,
   /// True when this client serves its traffic without the visitor auth gate.
   pub(crate) public: bool,
+  /// True when this client gates its service behind a client-set visitor
+  /// login (the credentials themselves are never exposed to the dashboard).
+  pub(crate) visitor_auth: bool,
   /// Tunnel protocol version announced via Ping.
   pub(crate) protocol: Option<u32>,
   /// True when the announced protocol version differs from the server's.
@@ -239,6 +242,12 @@ pub(crate) struct ClientHandle {
   pub(crate) public: bool,
   /// Ensures the "public requested but not permitted" warning logs once.
   pub(crate) public_denied_warned: bool,
+  /// Client-declared visitor login (`user:password`) for this service, honored
+  /// only when the token may control the visitor gate. `None` = no override.
+  pub(crate) visitor_auth: Option<String>,
+  /// Ensures the "visitor_auth requested but not permitted/invalid" warning
+  /// logs once per connection.
+  pub(crate) visitor_auth_denied_warned: bool,
   /// Tunnels declared by the client via Ping (`tunnels:` list): normally
   /// unexposed local services a peer client may bind with `--bind-tunnels`
   /// (same token, explicit client id required).
@@ -466,6 +475,11 @@ impl DurationHistogram {
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 pub(crate) struct SessionInfo {
   pub(crate) expires_at: Instant,
+  /// When `Some(host)`, the session only authorizes proxied traffic for that
+  /// exact request host — a login against a client-set visitor password. It
+  /// never authorizes the dashboard or other hosts. `None` = a full/global
+  /// session (server password, dashboard password, master token, or OIDC).
+  pub(crate) scope_host: Option<String>,
 }
 
 /// Connection liveness state, kept under a single lock for consistent snapshots.

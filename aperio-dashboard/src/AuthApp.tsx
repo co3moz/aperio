@@ -21,14 +21,18 @@ export function AuthApp() {
     e.preventDefault()
     setError(false)
     setBusy(true)
+    // Forward the intended destination so the server can pick the right
+    // credentials (a client-set per-service password vs. the server's own) and
+    // scope the session accordingly.
+    const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/'
+    const dest = safeRedirect(raw)
     try {
-      const res = await fetch('/aperio/auth', {
+      const res = await fetch(`/aperio/auth?redirect=${encodeURIComponent(dest)}`, {
         method: 'POST',
         headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
       })
       if (res.ok) {
-        const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/'
-        window.location.href = safeRedirect(raw)
+        window.location.href = dest
         return
       }
       setError(true)

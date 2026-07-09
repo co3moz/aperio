@@ -266,6 +266,8 @@ pub(crate) async fn handle_socket(
         service_name: None,
         public: false,
         public_denied_warned: false,
+        visitor_auth: None,
+        visitor_auth_denied_warned: false,
         tunnels: Vec::new(),
       },
     );
@@ -514,6 +516,7 @@ pub(crate) async fn handle_socket(
               bandwidth_bps,
               service,
               public,
+              visitor_auth,
               tunnels,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
@@ -629,6 +632,48 @@ pub(crate) async fn handle_socket(
                     if effective_public {
                       info!(
                         "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
+                        client_id
+                      );
+                    }
+                  }
+                  // Client-declared visitor password override: honored only
+                  // when the token may control the visitor gate (same
+                  // permission as `public`) and the value is a well-formed
+                  // "user:password". None/empty clears any previous override.
+                  let requested_auth = visitor_auth
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                  let effective_auth = match requested_auth {
+                    Some(_) if !handle.perms.allow_public => {
+                      if !handle.visitor_auth_denied_warned {
+                        handle.visitor_auth_denied_warned = true;
+                        warn!(
+                          "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
+                          client_id
+                        );
+                      }
+                      None
+                    }
+                    Some(ref creds) if !crate::routing::valid_visitor_creds(creds) => {
+                      if !handle.visitor_auth_denied_warned {
+                        handle.visitor_auth_denied_warned = true;
+                        warn!(
+                          "Client {} declared an invalid visitor password (expected user:password); ignoring it",
+                          client_id
+                        );
+                      }
+                      None
+                    }
+                    other => other,
+                  };
+                  if handle.visitor_auth != effective_auth {
+                    let now_set = effective_auth.is_some();
+                    handle.visitor_auth = effective_auth;
+                    if now_set {
+                      info!(
+                        "Client {} gates its service behind a client-set visitor login",
                         client_id
                       );
                     }

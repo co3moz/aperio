@@ -24,24 +24,56 @@ pub(crate) async fn auth_page_handler() -> Response {
   serve_embedded("auth.html", false)
 }
 
-/// Handles login form submission. Validates credentials and sets a session cookie.
+/// Handles login form submission. Validates credentials and sets a session
+/// cookie. Validation is host-aware: server/dashboard/master credentials create
+/// a full (global) session, while a client-set per-service visitor password
+/// creates a session scoped to that host only (it never unlocks the dashboard
+/// or other hosts). A client override replaces the server's own visitor
+/// password for that route — the server password no longer works there (master
+/// and dashboard credentials always do).
 pub(crate) async fn auth_login_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
   headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+  let cfg = state.config();
   // Rate limit login attempts per IP to mitigate brute-force attacks.
   let client_ip = extract_client_ip(
     &headers,
     addr.ip(),
-    state.config().trust_proxy,
-    state.config().real_ip_header.as_deref(),
+    cfg.trust_proxy,
+    cfg.real_ip_header.as_deref(),
   );
   if !state.check_rate_limit(client_ip).await {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
 
-  let mut authenticated = false;
+  // Host the visitor is authenticating for (a proxied site or the dashboard).
+  let host = headers
+    .get("host")
+    .and_then(|v| v.to_str().ok())
+    .map(|h| h.split(':').next().unwrap_or(h).trim().to_ascii_lowercase())
+    .filter(|h| !h.is_empty());
+
+  // The route the visitor was heading to selects which service's client-set
+  // credentials apply. A dashboard login (redirect under /aperio) never uses a
+  // client override — the dashboard is always gated by server-level creds.
+  let redirect_path = query
+    .get("redirect")
+    .map(|r| safe_redirect_path(r).to_string())
+    .unwrap_or_else(|| "/".to_string());
+  let custom_creds = if redirect_path.starts_with("/aperio") {
+    None
+  } else {
+    crate::routing::route_visitor_auth(&state, &redirect_path, host.as_deref()).await
+  };
+
+  // The scope of the session to create, based on which credential matched:
+  //   Some(None)       -> global (server / dashboard / master credentials)
+  //   Some(Some(host)) -> scoped to this host (client-set visitor credentials)
+  //   None             -> authentication failed
+  let mut scope: Option<Option<String>> = None;
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
     && let Some(stripped) = auth_str.strip_prefix("Basic ")
@@ -50,29 +82,40 @@ pub(crate) async fn auth_login_handler(
     if let Ok(decoded) = BASE64_STANDARD.decode(stripped)
       && let Ok(decoded_str) = String::from_utf8(decoded)
     {
-      // Allow APERIO_SERVER_AUTH credentials if configured
-      if let Some(ref creds) = state.config().auth_credentials
-        && constant_time_eq_str(&decoded_str, creds)
-      {
-        authenticated = true;
+      // Master token (aperio:<token>) always grants full access.
+      if constant_time_eq_str(&decoded_str, &format!("aperio:{}", cfg.token)) {
+        scope = Some(None);
       }
-      // Always allow token as password with username "aperio"
-      if !authenticated
-        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", state.config().token))
-      {
-        authenticated = true;
-      }
-      // Allow APERIO_DASHBOARD_AUTH as password with username "aperio"
-      if !authenticated
+      // Dashboard password (aperio:<pass>) grants full access.
+      if scope.is_none()
         && let Ok(dash_pass) = std::env::var("APERIO_DASHBOARD_AUTH")
+        && !dash_pass.trim().is_empty()
         && constant_time_eq_str(&decoded_str, &format!("aperio:{}", dash_pass))
       {
-        authenticated = true;
+        scope = Some(None);
+      }
+      // Client-set visitor credentials for this route -> host-scoped session.
+      if scope.is_none()
+        && let Some(ref creds) = custom_creds
+        && let Some(ref h) = host
+        && constant_time_eq_str(&decoded_str, creds)
+      {
+        scope = Some(Some(h.clone()));
+      }
+      // Server visitor password -> full access, but only when the route is not
+      // under a client override (an override supersedes the server's own creds
+      // for that route).
+      if scope.is_none()
+        && custom_creds.is_none()
+        && let Some(ref creds) = cfg.auth_credentials
+        && constant_time_eq_str(&decoded_str, creds)
+      {
+        scope = Some(None);
       }
     }
   }
 
-  if !authenticated {
+  let Some(session_scope) = scope else {
     state
       .audit(
         "login_failed",
@@ -81,9 +124,13 @@ pub(crate) async fn auth_login_handler(
       )
       .await;
     return Err(StatusCode::UNAUTHORIZED);
-  }
+  };
+  let scope_desc = match &session_scope {
+    Some(h) => format!("session created (scope={})", h),
+    None => "session created (global)".to_string(),
+  };
   state
-    .audit("login_success", &client_ip.to_string(), "session created")
+    .audit("login_success", &client_ip.to_string(), &scope_desc)
     .await;
 
   // Create session
@@ -92,14 +139,11 @@ pub(crate) async fn auth_login_handler(
     session_token.clone(),
     SessionInfo {
       expires_at: Instant::now() + Duration::from_secs(86400),
+      scope_host: session_scope,
     },
   );
 
-  let secure_flag = if state.config().secure_cookies {
-    "; Secure"
-  } else {
-    ""
-  };
+  let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
   let cookie = format!(
     "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
     session_token, secure_flag
@@ -327,8 +371,11 @@ pub(crate) fn constant_time_eq_str(a: &str, b: &str) -> bool {
   da.ct_eq(&db).into()
 }
 
-/// Validates the `aperio_session` cookie and returns true if the session is still active.
-pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
+/// Resolves the scope of the active `aperio_session` cookie:
+/// - `Some(None)` — a valid global session (dashboard + all proxied hosts).
+/// - `Some(Some(host))` — a valid session scoped to `host` only.
+/// - `None` — no valid session.
+async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<String>> {
   // Lazy garbage collection of expired sessions (runs at most once per 5 minutes).
   {
     let mut last_gc = state.last_session_gc.lock().await;
@@ -340,30 +387,42 @@ pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> b
     }
   }
 
-  if let Some(cookie_header) = headers.get("cookie")
-    && let Ok(cookie_str) = cookie_header.to_str()
-  {
-    for part in cookie_str.split(';') {
-      let kv: Vec<&str> = part.trim().splitn(2, '=').collect();
-      if kv.len() == 2 && kv[0] == "aperio_session" {
-        // Reject cookie values that are not valid UUIDs (session tokens are
-        // always generated with uuid::Uuid::new_v4). This avoids unnecessary
-        // HashMap lookups and prevents injection of malformed keys.
-        if uuid::Uuid::parse_str(kv[1]).is_err() {
-          return false;
-        }
-        let mut sessions = state.sessions.lock().await;
-        if let Some(info) = sessions.get(kv[1]) {
-          if info.expires_at > Instant::now() {
-            return true;
-          }
-          sessions.remove(kv[1]);
-        }
-        return false;
-      }
-    }
+  let token = session_cookie(headers)?;
+  // Reject cookie values that are not valid UUIDs (session tokens are always
+  // generated with uuid::Uuid::new_v4). This avoids unnecessary HashMap lookups
+  // and prevents injection of malformed keys.
+  if uuid::Uuid::parse_str(token).is_err() {
+    return None;
   }
-  false
+  let mut sessions = state.sessions.lock().await;
+  if let Some(info) = sessions.get(token) {
+    if info.expires_at > Instant::now() {
+      return Some(info.scope_host.clone());
+    }
+    sessions.remove(token);
+  }
+  None
+}
+
+/// Validates the `aperio_session` cookie for full (global) access — the
+/// dashboard, tunnel provisioning, and any proxied host. A host-scoped session
+/// (a client-set visitor password login) does NOT satisfy this.
+pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
+  matches!(session_scope(state, headers).await, Some(None))
+}
+
+/// Validates the `aperio_session` cookie for a proxied request to `host`.
+/// Accepts a global session, or a session scoped to exactly this host.
+pub(crate) async fn validate_session_for_host(
+  state: &AppState,
+  headers: &HeaderMap,
+  host: Option<&str>,
+) -> bool {
+  match session_scope(state, headers).await {
+    Some(None) => true,
+    Some(Some(scope)) => host.is_some_and(|h| h == scope),
+    None => false,
+  }
 }
 
 /// Derives the OIDC redirect URI for this deployment: the explicit override
@@ -578,12 +637,13 @@ pub(crate) async fn oidc_callback_handler(
     )
     .await;
 
-  // Create a session identical to the password login flow.
+  // Create a global session identical to the password login flow.
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
     session_token.clone(),
     SessionInfo {
       expires_at: Instant::now() + Duration::from_secs(86400),
+      scope_host: None,
     },
   );
   let secure_flag = if state.config().secure_cookies {

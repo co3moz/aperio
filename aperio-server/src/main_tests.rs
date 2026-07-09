@@ -63,6 +63,7 @@ async fn test_rate_limiting() {
     ip_limit_refill: 0.0, // No refill for testing strict burst limit
     auth_credentials: None,
     trust_proxy: false,
+    ignore_client_auth: false,
     real_ip_header: None,
     secure_cookies: false,
     require_hostname_bind: false,
@@ -151,6 +152,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     ip_limit_refill: 10.0,
     auth_credentials: None,
     trust_proxy: false,
+    ignore_client_auth: false,
     real_ip_header: None,
     secure_cookies: false,
     require_hostname_bind: false,
@@ -240,6 +242,7 @@ async fn test_proxy_handler_success() {
     ip_limit_refill: 10.0,
     auth_credentials: None,
     trust_proxy: false,
+    ignore_client_auth: false,
     real_ip_header: None,
     secure_cookies: false,
     require_hostname_bind: false,
@@ -339,6 +342,8 @@ async fn test_proxy_handler_success() {
       service_name: None,
       public: false,
       public_denied_warned: false,
+      visitor_auth: None,
+      visitor_auth_denied_warned: false,
       tunnels: Vec::new(),
     },
   );
@@ -569,6 +574,8 @@ fn mock_client(
     service_name: None,
     public: false,
     public_denied_warned: false,
+    visitor_auth: None,
+    visitor_auth_denied_warned: false,
     tunnels: Vec::new(),
   }
 }
@@ -666,6 +673,7 @@ fn test_apply_settings_overrides() {
     ip_limit_refill: 5.0,
     auth_credentials: None,
     trust_proxy: false,
+    ignore_client_auth: false,
     real_ip_header: None,
     secure_cookies: false,
     require_hostname_bind: false,

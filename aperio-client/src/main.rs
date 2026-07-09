@@ -351,6 +351,7 @@ fn build_specs(
       health_timeout: settings.health_timeout,
       health_threshold: settings.health_threshold,
       public: settings.public,
+      visitor_auth: settings.visitor_auth.clone(),
       tunnels,
     }]);
   }
@@ -429,6 +430,11 @@ fn build_specs(
           .unwrap_or(settings.health_threshold)
           .max(1),
         public: entry.public.unwrap_or(settings.public),
+        visitor_auth: entry
+          .auth
+          .clone()
+          .filter(|s| !s.trim().is_empty())
+          .or_else(|| settings.visitor_auth.clone()),
         tunnels: tunnels.clone(),
       })
     })
@@ -513,6 +519,9 @@ fn log_spec(spec: &ServiceSpec) {
   }
   if spec.public {
     info!("- Public: visitor auth gate skipped for this service (token permitting)");
+  }
+  if spec.visitor_auth.is_some() {
+    info!("- Visitor auth: this service is gated behind a client-set login (token permitting)");
   }
   for t in &spec.tunnels {
     info!(
