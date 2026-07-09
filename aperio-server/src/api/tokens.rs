@@ -352,18 +352,7 @@ pub(crate) async fn tokens_revoke_handler(
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);
-    // Force-disconnect every live client that connected with this token; their
-    // read loops end and they leave the routing pool immediately.
-    let mut dropped = 0usize;
-    {
-      let clients = state.clients.lock().await;
-      for handle in clients.values() {
-        if handle.perms.token_id.as_deref() == Some(id.as_str()) {
-          handle.disconnect.notify_one();
-          dropped += 1;
-        }
-      }
-    }
+    let dropped = state.disconnect_token_clients(&id).await;
     if dropped > 0 {
       info!(
         "Disconnecting {} live client(s) using the revoked token {}",

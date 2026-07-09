@@ -583,6 +583,22 @@ impl AppState {
     let subs = self.webhook_store.lock().await.subscribers(event);
     webhooks::dispatch(subs, event, data);
   }
+
+  /// Force-disconnects every live tunnel connection authenticated with the
+  /// given dynamic token: their read loops end and they leave the routing pool
+  /// immediately, instead of serving until they next reconnect (when the
+  /// revoked token would be rejected anyway). Returns how many were dropped.
+  pub(crate) async fn disconnect_token_clients(&self, token_id: &str) -> usize {
+    let clients = self.clients.lock().await;
+    let mut dropped = 0usize;
+    for handle in clients.values() {
+      if handle.perms.token_id.as_deref() == Some(token_id) {
+        handle.disconnect.notify_one();
+        dropped += 1;
+      }
+    }
+    dropped
+  }
 }
 
 impl AppState {

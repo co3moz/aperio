@@ -193,8 +193,10 @@ pub(crate) async fn tunnels_create_handler(
     .into_response()
 }
 
-/// Tears down a provisioned tunnel by revoking its ephemeral token. Same
-/// authentication as tunnel creation so CI jobs can clean up after
+/// Tears down a provisioned tunnel by revoking its ephemeral token and
+/// dropping any live connections using it (mirroring dynamic-token revoke —
+/// the tunnel would otherwise keep serving until its client reconnected).
+/// Same authentication as tunnel creation so CI jobs can clean up after
 /// themselves.
 pub(crate) async fn tunnels_delete_handler(
   State(state): State<Arc<AppState>>,
@@ -228,11 +230,18 @@ pub(crate) async fn tunnels_delete_handler(
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Ephemeral tunnel deleted: {}", id);
+    let dropped = state.disconnect_token_clients(&id).await;
+    if dropped > 0 {
+      info!(
+        "Disconnecting {} live client(s) using the deleted tunnel {}",
+        dropped, id
+      );
+    }
     state
       .audit(
         "tunnel_deleted",
         &client_ip.to_string(),
-        &format!("id={}", id),
+        &format!("id={} disconnected_clients={}", id, dropped),
       )
       .await;
     state
