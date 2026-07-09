@@ -63,7 +63,7 @@ use crate::store::audit::AuditLog;
 use crate::store::stats::StatsStore;
 use crate::store::tokens::TokenStore;
 use crate::store::webhooks::WebhookStore;
-use crate::tunnel::tcp::{tcp_ws_handler, tunnels_list_handler};
+use crate::tunnel::tcp::{tcp_ws_handler, tunnels_list_handler, udp_ws_handler};
 use crate::tunnel::ws::ws_handler;
 
 #[tokio::main]
@@ -555,6 +555,7 @@ async fn main() {
     oidc: oidc_runtime,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
+    udp_streams: Mutex::new(HashMap::new()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log,
     duration_histogram: DurationHistogram::default(),
@@ -700,6 +701,7 @@ async fn main() {
   );
   app = app.route("/aperio/ws", get(ws_handler));
   app = app.route("/aperio/tcp", get(tcp_ws_handler));
+  app = app.route("/aperio/udp", get(udp_ws_handler));
   // Tunnel discovery for --bind-tunnels consumers: same token the client
   // connected with (or master), explicit client id — never a listing.
   app = app.route("/aperio/tunnels/:client_id", get(tunnels_list_handler));

@@ -59,8 +59,9 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
   drop(ready_tx);
 
   // Local ports already claimed, for cross-client conflict detection:
-  // port → (client id, declared target).
-  let mut claimed: HashMap<u16, (String, String)> = HashMap::new();
+  // (protocol, port) → (client id, declared target). TCP and UDP live in
+  // separate port spaces, so the protocol is part of the key.
+  let mut claimed: HashMap<(String, u16), (String, String)> = HashMap::new();
   let mut listeners = 0usize;
 
   while let Some((spec, tunnels)) = ready_rx.recv().await {
@@ -80,9 +81,11 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
         );
         continue;
       };
-      if let Some((other_client, other_target)) = claimed.get(&port) {
+      let claim_key = (decl.protocol.clone(), port);
+      if let Some((other_client, other_target)) = claimed.get(&claim_key) {
         error!(
-          "Local port {} conflicts: client {} target {} and client {} target {} — define an override rule (bind-tunnels: {}: override: '{}': <port>); not binding",
+          "Local {} port {} conflicts: client {} target {} and client {} target {} — define an override rule (bind-tunnels: {}: override: '{}': <port>); not binding",
+          decl.protocol,
           port,
           other_client,
           other_target,
@@ -93,6 +96,28 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
         );
         continue;
       }
+
+      if decl.protocol == "udp" {
+        let ws_url = match tunnel_ws_url(&server, "/aperio/udp", &spec.client_id, &decl.target) {
+          Ok(u) => u,
+          Err(e) => {
+            error!("Failed to build tunnel URL: {}", e);
+            continue;
+          }
+        };
+        claimed.insert(claim_key, (spec.client_id.clone(), decl.target.clone()));
+        listeners += 1;
+        info!(
+          "Tunnel bound: 127.0.0.1:{} -> client {} -> {} (udp)",
+          port, spec.client_id, decl.target
+        );
+        let token = spec.token.clone();
+        tokio::spawn(async move {
+          crate::udp::run_udp_bind(port, ws_url, token).await;
+        });
+        continue;
+      }
+
       let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => l,
         Err(e) => {
@@ -103,14 +128,14 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
           continue;
         }
       };
-      claimed.insert(port, (spec.client_id.clone(), decl.target.clone()));
+      claimed.insert(claim_key, (spec.client_id.clone(), decl.target.clone()));
       listeners += 1;
       info!(
         "Tunnel bound: 127.0.0.1:{} -> client {} -> {} ({})",
         port, spec.client_id, decl.target, decl.protocol
       );
 
-      let ws_url = match tunnel_ws_url(&server, &spec.client_id, &decl.target) {
+      let ws_url = match tunnel_ws_url(&server, "/aperio/tcp", &spec.client_id, &decl.target) {
         Ok(u) => u,
         Err(e) => {
           error!("Failed to build tunnel URL: {}", e);
@@ -221,9 +246,14 @@ fn local_port_for(spec: &BindSpec, decl: &TunnelDecl) -> Option<u16> {
 }
 
 /// WebSocket URL selecting a specific peer client and declared target on the
-/// server's `/aperio/tcp` endpoint.
-fn tunnel_ws_url(server: &str, client_id: &str, target: &str) -> Result<String, String> {
-  let base = build_ws_url_with_path(server, "/aperio/tcp")?;
+/// server's stream endpoint (`/aperio/tcp` or `/aperio/udp`).
+fn tunnel_ws_url(
+  server: &str,
+  path: &str,
+  client_id: &str,
+  target: &str,
+) -> Result<String, String> {
+  let base = build_ws_url_with_path(server, path)?;
   let mut parsed = url::Url::parse(&base).map_err(|e| e.to_string())?;
   parsed
     .query_pairs_mut()

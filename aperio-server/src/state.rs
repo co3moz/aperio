@@ -553,6 +553,10 @@ pub(crate) struct AppState {
   pub(crate) oidc_states: Mutex<HashMap<String, (String, Instant)>>,
   /// Active experimental TCP tunnel streams: stream_id → consumer sender.
   pub(crate) tcp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
+  /// Active UDP relay streams (declared `protocol: udp` tunnels):
+  /// stream_id → consumer sender. Same handle shape as TCP; the payloads are
+  /// whole datagrams instead of stream bytes.
+  pub(crate) udp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
   /// Hostnames currently in maintenance mode (`*` = every hostname).
   /// Requests to them get a 503 page even while clients are connected.
   /// In-memory only, like bind overrides: cleared by a server restart.

@@ -122,7 +122,13 @@ fn test_local_port_for() {
 
 #[test]
 fn test_tunnel_ws_url() {
-  let url = tunnel_ws_url("https://tunnel.example.com", "client-1", "127.0.0.1:27017").unwrap();
+  let url = tunnel_ws_url(
+    "https://tunnel.example.com",
+    "/aperio/tcp",
+    "client-1",
+    "127.0.0.1:27017",
+  )
+  .unwrap();
   assert!(
     url.starts_with("wss://tunnel.example.com/aperio/tcp?"),
     "got: {url}"
@@ -130,4 +136,16 @@ fn test_tunnel_ws_url() {
   assert!(url.contains("client=client-1"), "got: {url}");
   // The target is percent-encoded into the query.
   assert!(url.contains("target=127.0.0.1%3A27017"), "got: {url}");
+  // The UDP endpoint uses the same query shape.
+  let udp = tunnel_ws_url(
+    "https://tunnel.example.com",
+    "/aperio/udp",
+    "client-1",
+    "127.0.0.1:5353",
+  )
+  .unwrap();
+  assert!(
+    udp.starts_with("wss://tunnel.example.com/aperio/udp?"),
+    "got: {udp}"
+  );
 }

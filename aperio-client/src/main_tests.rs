@@ -51,13 +51,32 @@ fn test_build_specs_tunnels_only() {
 #[test]
 fn test_build_specs_tunnels_validation() {
   let mut settings = base_settings();
-  // UDP is not supported yet.
+  // UDP is accepted alongside TCP; anything else is rejected.
   settings.tunnels = vec![protocol::TunnelDecl {
     target: "127.0.0.1:53".to_string(),
     protocol: "udp".to_string(),
   }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].tunnels[0].protocol, "udp");
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:53".to_string(),
+    protocol: "sctp".to_string(),
+  }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
-  assert!(err.contains("only tcp"), "got: {err}");
+  assert!(err.contains("only tcp and udp"), "got: {err}");
+
+  // The same target may be declared once per protocol (e.g. DNS tcp+udp).
+  settings.tunnels = vec![
+    protocol::TunnelDecl {
+      target: "127.0.0.1:53".to_string(),
+      protocol: "tcp".to_string(),
+    },
+    protocol::TunnelDecl {
+      target: "127.0.0.1:53".to_string(),
+      protocol: "udp".to_string(),
+    },
+  ];
+  assert!(build_specs(&settings, "base-id", false).is_ok());
 
   // Targets must be host:port.
   settings.tunnels = vec![protocol::TunnelDecl {

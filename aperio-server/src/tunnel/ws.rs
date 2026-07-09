@@ -486,6 +486,51 @@ pub(crate) async fn handle_socket(
                 }
               }
             }
+            TunnelMessage::UdpDatagram { stream_id, data } => {
+              let consumer_tx = {
+                let streams = state.udp_streams.lock().await;
+                match streams.get(&stream_id) {
+                  Some(h) if h.client_id == client_id => Some(h.tx.clone()),
+                  Some(_) => {
+                    warn!(
+                      "UdpDatagram for stream {} rejected: not owned by client {}",
+                      stream_id, client_id
+                    );
+                    None
+                  }
+                  None => None,
+                }
+              };
+              if let Some(consumer_tx) = consumer_tx {
+                use base64::prelude::*;
+                match BASE64_STANDARD.decode(&data) {
+                  Ok(bytes) => {
+                    // Best-effort: a congested consumer drops datagrams.
+                    if let Err(mpsc::error::TrySendError::Closed(_)) =
+                      consumer_tx.try_send(TcpConsumerMsg::Data(bytes))
+                    {
+                      state.udp_streams.lock().await.remove(&stream_id);
+                    }
+                  }
+                  Err(_) => {
+                    warn!(
+                      "Failed to decode Base64 UdpDatagram for stream {}",
+                      stream_id
+                    );
+                  }
+                }
+              }
+            }
+            TunnelMessage::UdpClose { stream_id } => {
+              let removed = state.udp_streams.lock().await.remove(&stream_id);
+              if let Some(h) = removed {
+                if h.client_id == client_id {
+                  let _ = h.tx.send(TcpConsumerMsg::Close).await;
+                } else {
+                  state.udp_streams.lock().await.insert(stream_id, h);
+                }
+              }
+            }
             TunnelMessage::CompressionAck {} => {
               info!("Client {} acknowledged tunnel compression", client_id);
               compress_out.store(true, Ordering::SeqCst);
@@ -886,9 +931,9 @@ pub(crate) async fn handle_socket(
     streams.retain(|_, handle| handle.client_id != client_id);
   }
 
-  // Close TCP tunnel streams owned by the disconnected client.
-  {
-    let mut streams = state.tcp_streams.lock().await;
+  // Close TCP and UDP tunnel streams owned by the disconnected client.
+  for map in [&state.tcp_streams, &state.udp_streams] {
+    let mut streams = map.lock().await;
     let closing: Vec<_> = streams
       .iter()
       .filter(|(_, h)| h.client_id == client_id)

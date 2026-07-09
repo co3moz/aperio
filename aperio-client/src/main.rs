@@ -11,6 +11,7 @@ mod protocol;
 mod proxy;
 mod service;
 mod tcp;
+mod udp;
 
 use check::run_check;
 use config::{
@@ -454,9 +455,9 @@ fn validate_tunnels(
   for decl in raw {
     let target = decl.target.trim().to_string();
     let protocol = decl.protocol.trim().to_ascii_lowercase();
-    if protocol != "tcp" {
+    if protocol != "tcp" && protocol != "udp" {
       return Err(format!(
-        "CRITICAL ERROR: tunnel '{}' declares protocol '{}'; only tcp is supported for now",
+        "CRITICAL ERROR: tunnel '{}' declares protocol '{}'; only tcp and udp are supported",
         target, decl.protocol
       ));
     }
@@ -473,10 +474,10 @@ fn validate_tunnels(
         decl.target
       ));
     }
-    if !seen.insert(target.clone()) {
+    if !seen.insert((target.clone(), protocol.clone())) {
       return Err(format!(
-        "CRITICAL ERROR: tunnel target '{}' is declared more than once",
-        target
+        "CRITICAL ERROR: tunnel target '{}' ({}) is declared more than once",
+        target, protocol
       ));
     }
     out.push(crate::protocol::TunnelDecl { target, protocol });

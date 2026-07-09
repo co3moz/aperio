@@ -58,7 +58,7 @@ fn default_tcp() -> String {
 pub struct TunnelDecl {
   /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
   pub target: String,
-  /// Transport protocol; only `tcp` is currently supported.
+  /// Transport protocol: `tcp` or `udp` (best-effort datagram relay).
   #[serde(default = "default_tcp")]
   pub protocol: String,
 }
@@ -211,6 +211,15 @@ pub enum TunnelMessage {
   TcpData { stream_id: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
   TcpClose { stream_id: String },
+  /// Server → client: open a UDP relay for this stream toward one of the
+  /// client's declared `protocol: udp` tunnels. The client only ever sends
+  /// to addresses it itself declared, regardless of what the server asks.
+  UdpOpen { stream_id: String, target: String },
+  /// One UDP datagram relayed through the tunnel (Base64). Best-effort:
+  /// datagrams are dropped, never queued unboundedly, when a hop is slow.
+  UdpDatagram { stream_id: String, data: String },
+  /// Tears down a UDP relay (either side; also sent on idle expiry).
+  UdpClose { stream_id: String },
   /// Server → client: the server is shutting down gracefully and the tunnel
   /// is about to drop. Clients switch to aggressive (no-backoff) reconnect so
   /// downtime is limited to the actual restart window. Older clients ignore

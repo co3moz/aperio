@@ -15,8 +15,10 @@ server:
 target: http://localhost:3000     # optional — a client may declare only tunnels
 tunnels:
   - target: 127.0.0.1:27017       # MongoDB, never exposed
-    protocol: tcp                 # only tcp is supported for now
+    protocol: tcp                 # tcp (default) or udp
   - target: 127.0.0.1:22
+  - target: 127.0.0.1:53          # e.g. an internal DNS resolver
+    protocol: udp
 ```
 
 The client announces the list to the server via its heartbeat and logs its **client id** at startup (`- Client ID: ...`). Make the id survive restarts with `--client-id <uuid>` / `APERIO_CLIENT_ID` / yaml `client_id` — otherwise a new random UUID is generated per run and your bind configuration goes stale. A config with only `tunnels:` (no `target`, no `services:`) is valid: the connection then exists purely for emergencies.
@@ -61,11 +63,14 @@ bind-tunnels:
 
 - **Same token.** The binder must present exactly the token the declaring client connected with. A different valid token gets `403`. The reasoning: whoever operates that client already holds its token; nothing new is granted.
 - **Explicit client id, always.** Even the master token must name a client id — there is no "list all tunnels" call. (The master token may bind any client's tunnels; dynamic tokens only clients using the very same token.)
-- **The declaring client dials only what it declared.** A `TcpOpen` for an address outside its own `tunnels:` list is refused — the TCP analogue of the HTTP SSRF guard. A compromised server cannot turn the client into a generic port scanner.
-- Streams are audited on the server (`tcp_stream_opened`, with client and target).
+- **The declaring client dials only what it declared.** A `TcpOpen`/`UdpOpen` for an address outside its own `tunnels:` list is refused — the tunnel analogue of the HTTP SSRF guard. A compromised server cannot turn the client into a generic port scanner.
+- Streams are audited on the server (`tcp_stream_opened` / `udp_stream_opened`, with client and target).
+
+## UDP tunnels
+
+A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer — enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic for 60 seconds expires (the next datagram opens a fresh one); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput — it's a break-glass path, same as TCP.
 
 ## Limitations
 
-- `protocol: tcp` only for now; `udp` declarations are rejected at startup.
 - Tunnel lists are discovered once when the binder starts (or when the peer first appears); re-run the binder after changing a peer's `tunnels:` list.
 - Client ids are self-reported by clients. Tokens gate everything, but treat ids as identifiers, not secrets.

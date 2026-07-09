@@ -24,9 +24,9 @@ pub struct TunnelDecl {
   /// Local address this client dials when a peer binds the tunnel.
   #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
   pub target: String,
-  /// Transport of the tunnel; only `tcp` is supported today.
+  /// Transport of the tunnel: `tcp` (default) or `udp` (best-effort datagram relay).
   #[serde(default = "default_tcp")]
-  #[schemars(extend("examples" = ["tcp"]))]
+  #[schemars(extend("examples" = ["tcp", "udp"]))]
   pub protocol: String,
 }
 

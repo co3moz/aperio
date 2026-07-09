@@ -157,6 +157,190 @@ pub(crate) async fn tcp_ws_handler(
   ws.on_upgrade(move |socket| relay_tcp_consumer(state, socket, client_id, client_tx, target))
 }
 
+/// UDP tunneling endpoint (`GET /aperio/udp`, WebSocket). Each binary
+/// WebSocket frame = one UDP datagram, relayed best-effort to a specific
+/// client's declared `protocol: udp` tunnel target. Unlike `/aperio/tcp`
+/// there is no legacy parameterless mode: `?client=<id>&target=<host:port>`
+/// is required, with the same same-token authorization rule.
+pub(crate) async fn udp_ws_handler(
+  ws: WebSocketUpgrade,
+  headers: HeaderMap,
+  Query(params): Query<HashMap<String, String>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  State(state): State<Arc<AppState>>,
+) -> Response {
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  if !state.check_rate_limit(caller_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
+  let Some(perms) = authorize_tunnel_token(&state, &headers, caller_ip).await else {
+    info!("Unauthorized UDP tunnel attempt blocked.");
+    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+  };
+
+  let (Some(id), Some(target)) = (
+    params
+      .get("client")
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty()),
+    params
+      .get("target")
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty()),
+  ) else {
+    return (
+      StatusCode::BAD_REQUEST,
+      "UDP tunneling requires client and target parameters",
+    )
+      .into_response();
+  };
+
+  let (client_id, client_tx) = {
+    let clients = state.clients.lock().await;
+    let found = clients
+      .iter()
+      .find(|(cid, c)| **cid == id || c.reported_instance_id.as_deref() == Some(&id));
+    let Some((cid, c)) = found else {
+      return (StatusCode::NOT_FOUND, "No such client connected").into_response();
+    };
+    if !same_token(&perms, &c.perms) {
+      info!(
+        "UDP tunnel bind for client {} rejected: token mismatch (binding requires the same token the client connected with)",
+        id
+      );
+      return (
+        StatusCode::FORBIDDEN,
+        "Tunnel binding requires the same token the client connected with",
+      )
+        .into_response();
+    }
+    if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
+      return (StatusCode::SERVICE_UNAVAILABLE, "Client is not available").into_response();
+    }
+    if !c
+      .tunnels
+      .iter()
+      .any(|d| d.target == target && d.protocol == "udp")
+    {
+      return (
+        StatusCode::NOT_FOUND,
+        "The client does not declare this UDP tunnel target",
+      )
+        .into_response();
+    }
+    (cid.clone(), c.tx.clone())
+  };
+
+  state
+    .audit(
+      "udp_stream_opened",
+      &caller_ip.to_string(),
+      &format!("client={} target={}", client_id, target),
+    )
+    .await;
+
+  ws.on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target))
+}
+
+/// Relays datagrams between a consumer WebSocket (one binary frame = one
+/// datagram) and the declaring client's tunnel. Best-effort: a full channel
+/// drops datagrams instead of applying backpressure.
+async fn relay_udp_consumer(
+  state: Arc<AppState>,
+  consumer_ws: WebSocket,
+  client_id: String,
+  client_tx: mpsc::Sender<Message>,
+  target: String,
+) {
+  let stream_id = uuid::Uuid::new_v4().to_string();
+  let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
+  state.udp_streams.lock().await.insert(
+    stream_id.clone(),
+    TcpStreamHandle {
+      tx: relay_tx,
+      client_id: client_id.clone(),
+    },
+  );
+
+  let open = TunnelMessage::UdpOpen {
+    stream_id: stream_id.clone(),
+    target,
+  };
+  if let Ok(json) = serde_json::to_string(&open)
+    && client_tx.send(Message::Text(json)).await.is_err()
+  {
+    state.udp_streams.lock().await.remove(&stream_id);
+    return;
+  }
+
+  let (mut ws_sender, mut ws_receiver) = consumer_ws.split();
+
+  // Consumer → tunnel (each frame is one datagram)
+  let stream_id_up = stream_id.clone();
+  let client_tx_up = client_tx.clone();
+  let up_task = tokio::spawn(async move {
+    use base64::prelude::*;
+    while let Some(Ok(msg)) = ws_receiver.next().await {
+      let bytes = match msg {
+        Message::Binary(b) => b,
+        Message::Close(_) => break,
+        _ => continue,
+      };
+      let data_msg = TunnelMessage::UdpDatagram {
+        stream_id: stream_id_up.clone(),
+        data: BASE64_STANDARD.encode(&bytes),
+      };
+      let Ok(json) = serde_json::to_string(&data_msg) else {
+        continue;
+      };
+      // Best-effort: drop the datagram when the tunnel is congested.
+      if let Err(mpsc::error::TrySendError::Closed(_)) = client_tx_up.try_send(Message::Text(json))
+      {
+        break;
+      }
+    }
+    let close = TunnelMessage::UdpClose {
+      stream_id: stream_id_up.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&close) {
+      let _ = client_tx_up.send(Message::Text(json)).await;
+    }
+  });
+
+  // Tunnel → consumer
+  let down_task = tokio::spawn(async move {
+    while let Some(msg) = relay_rx.recv().await {
+      match msg {
+        TcpConsumerMsg::Data(bytes) => {
+          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
+            break;
+          }
+        }
+        TcpConsumerMsg::Close => {
+          let _ = ws_sender.send(Message::Close(None)).await;
+          break;
+        }
+      }
+    }
+  });
+
+  let up_abort = up_task.abort_handle();
+  let down_abort = down_task.abort_handle();
+  tokio::select! {
+    _ = up_task => down_abort.abort(),
+    _ = down_task => up_abort.abort(),
+  }
+
+  state.udp_streams.lock().await.remove(&stream_id);
+  debug!("UDP tunnel stream {} closed", stream_id);
+}
+
 /// Tunnel discovery endpoint (`GET /aperio/tunnels/:client_id`): returns the
 /// tunnels a connected client declared, for `--bind-tunnels` consumers. Same
 /// authorization rule as the stream endpoint: the same token the client

@@ -31,6 +31,7 @@ use crate::proxy::http::{
 };
 use crate::proxy::ws::{WsStreamHandle, handle_upgrade_request};
 use crate::tcp::{TcpStreamHandle, handle_tcp_open};
+use crate::udp::{UdpStreamHandle, handle_udp_open};
 
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
@@ -227,6 +228,10 @@ pub(crate) async fn run_service(
 
             // Active raw TCP tunnel streams: stream_id → handle
             let active_tcp_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>> =
+              Arc::new(Mutex::new(HashMap::new()));
+
+            // Active UDP relay streams: stream_id → handle
+            let active_udp_streams: Arc<Mutex<HashMap<String, UdpStreamHandle>>> =
               Arc::new(Mutex::new(HashMap::new()));
 
             // Outgoing compression is enabled after the server's offer is Acked.
@@ -625,6 +630,56 @@ pub(crate) async fn run_service(
                                                           let _ = tx_write.send(Message::Text(json)).await;
                                                       }
                                                   }
+                                              }
+                                          }
+                                          TunnelMessage::UdpOpen { stream_id, target } => {
+                                              // SSRF guard: only declared protocol: udp targets
+                                              // are ever dialed, mirroring TcpOpen.
+                                              let resolved = spec
+                                                  .tunnels
+                                                  .iter()
+                                                  .find(|d| d.target == target && d.protocol == "udp")
+                                                  .map(|d| d.target.clone());
+                                              match resolved {
+                                                  Some(target_addr) => {
+                                                      // Register synchronously, like TcpOpen: datagrams
+                                                      // can arrive on the very next tunnel frame.
+                                                      let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(64);
+                                                      let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
+                                                      active_udp_streams.lock().await.insert(
+                                                          stream_id.clone(),
+                                                          UdpStreamHandle { tx: dg_tx, abort_tx },
+                                                      );
+                                                      let tx = tx_write.clone();
+                                                      let streams = active_udp_streams.clone();
+                                                      tokio::spawn(async move {
+                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx).await;
+                                                      });
+                                                  }
+                                                  None => {
+                                                      warn!("UdpOpen for undeclared target {}; refusing", target);
+                                                      let close = TunnelMessage::UdpClose { stream_id };
+                                                      if let Ok(json) = serde_json::to_string(&close) {
+                                                          let _ = tx_write.send(Message::Text(json)).await;
+                                                      }
+                                                  }
+                                              }
+                                          }
+                                          TunnelMessage::UdpDatagram { stream_id, data } => {
+                                              let streams = active_udp_streams.lock().await;
+                                              if let Some(handle) = streams.get(&stream_id) {
+                                                  match BASE64_STANDARD.decode(&data) {
+                                                      // Best-effort: drop when the relay is congested.
+                                                      Ok(bytes) => { let _ = handle.tx.try_send(bytes); }
+                                                      Err(_) => warn!("Failed to decode Base64 UdpDatagram for stream {}", stream_id),
+                                                  }
+                                              }
+                                          }
+                                          TunnelMessage::UdpClose { stream_id } => {
+                                              let mut streams = active_udp_streams.lock().await;
+                                              if let Some(handle) = streams.remove(&stream_id) {
+                                                  let _ = handle.abort_tx.send(()).await;
+                                                  debug!("Closed UDP relay {}", stream_id);
                                               }
                                           }
                                           TunnelMessage::TcpData { stream_id, data } => {
