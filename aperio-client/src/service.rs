@@ -26,7 +26,9 @@ use crate::protocol::{
   FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelDecl, TunnelMessage,
   compress_frame, decode_binary_frame, decompress_frame,
 };
-use crate::proxy::http::{ForwardContext, ForwardRequest, handle_incoming_request};
+use crate::proxy::http::{
+  ForwardContext, ForwardRequest, HeaderTransform, handle_incoming_request,
+};
 use crate::proxy::ws::{WsStreamHandle, handle_upgrade_request};
 use crate::tcp::{TcpStreamHandle, handle_tcp_open};
 
@@ -71,6 +73,9 @@ pub(crate) struct ServiceSpec {
   /// unexposed local services a peer client may bind with `--bind-tunnels`.
   /// Announced via Ping on every connection of the process.
   pub(crate) tunnels: Vec<TunnelDecl>,
+  /// Header add/remove rules for this service's proxied HTTP traffic
+  /// (config `headers:`; None = pass through untouched).
+  pub(crate) headers: Option<crate::config::HeaderRules>,
 }
 
 impl ServiceSpec {
@@ -337,6 +342,12 @@ pub(crate) async fn run_service(
               trim_bind: spec.trim_bind,
               max_response_body_size: spec.max_response_body,
               tunnel_tx: tx_write.clone(),
+              request_headers: HeaderTransform::compile(
+                spec.headers.as_ref().and_then(|h| h.request.as_ref()),
+              ),
+              response_headers: HeaderTransform::compile(
+                spec.headers.as_ref().and_then(|h| h.response.as_ref()),
+              ),
             });
 
             // Protocol version the server announced via Pong; v2 enables

@@ -18,7 +18,37 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
     trim_bind: false,
     max_response_body_size: 1024 * 1024,
     tunnel_tx,
+    request_headers: HeaderTransform::default(),
+    response_headers: HeaderTransform::default(),
   }
+}
+
+#[test]
+fn test_header_transform_apply() {
+  // No rules = identity (fast path).
+  let noop = HeaderTransform::default();
+  let headers = vec![("x-a".to_string(), "1".to_string())];
+  assert_eq!(noop.apply(headers.clone()), headers);
+
+  let directives = aperio_config::HeaderDirectives {
+    add: [("X-Env".to_string(), "staging".to_string())]
+      .into_iter()
+      .collect(),
+    remove: vec!["Server".to_string()],
+  };
+  let t = HeaderTransform::compile(Some(&directives));
+  let out = t.apply(vec![
+    ("server".to_string(), "nginx".to_string()), // removed (case-insensitive)
+    ("x-env".to_string(), "prod".to_string()),   // replaced by the add
+    ("x-keep".to_string(), "yes".to_string()),
+  ]);
+  assert_eq!(
+    out,
+    vec![
+      ("x-keep".to_string(), "yes".to_string()),
+      ("X-Env".to_string(), "staging".to_string()),
+    ]
+  );
 }
 
 #[test]
@@ -248,6 +278,80 @@ async fn test_handle_incoming_request() {
   } else {
     panic!("Expected response variant");
   }
+}
+
+#[tokio::test]
+async fn test_handle_incoming_request_header_rules() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+
+  tokio::spawn(async move {
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0; 2048];
+      let n = socket.read(&mut buf).await.unwrap();
+      let req_str = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+      // The request rules injected a header and stripped another.
+      assert!(req_str.contains("x-env: staging"), "got: {req_str}");
+      assert!(!req_str.contains("x-secret"), "got: {req_str}");
+
+      let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nServer: mock\r\nX-Old: 1\r\n\r\nok";
+      socket.write_all(response.as_bytes()).await.unwrap();
+    }
+  });
+
+  let mut ctx = test_ctx(&target_url, test_tunnel_tx());
+  ctx.request_headers = HeaderTransform::compile(Some(&aperio_config::HeaderDirectives {
+    add: [("X-Env".to_string(), "staging".to_string())]
+      .into_iter()
+      .collect(),
+    remove: vec!["X-Secret".to_string()],
+  }));
+  ctx.response_headers = HeaderTransform::compile(Some(&aperio_config::HeaderDirectives {
+    add: [("X-Served-By".to_string(), "aperio".to_string())]
+      .into_iter()
+      .collect(),
+    remove: vec!["Server".to_string()],
+  }));
+
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-headers".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![("x-secret".to_string(), "leak-me-not".to_string())],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+
+  let TunnelMessage::Response { headers, .. } = result else {
+    panic!("Expected response variant");
+  };
+  assert!(
+    headers
+      .iter()
+      .any(|(k, v)| k == "X-Served-By" && v == "aperio"),
+    "got: {headers:?}"
+  );
+  assert!(
+    !headers
+      .iter()
+      .any(|(k, _)| k.eq_ignore_ascii_case("server")),
+    "got: {headers:?}"
+  );
+  // Untouched backend headers pass through.
+  assert!(
+    headers.iter().any(|(k, _)| k == "x-old"),
+    "got: {headers:?}"
+  );
 }
 
 #[tokio::test]

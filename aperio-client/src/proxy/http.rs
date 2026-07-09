@@ -98,6 +98,49 @@ pub(crate) fn redirect_policy(max_hops: usize) -> reqwest::redirect::Policy {
   })
 }
 
+/// Compiled form of the config `headers:` add/remove rules for one traffic
+/// direction: removals are matched case-insensitively, additions replace any
+/// existing header of the same name.
+#[derive(Default)]
+pub(crate) struct HeaderTransform {
+  /// Headers to set (original-case name, value).
+  add: Vec<(String, String)>,
+  /// Lowercased names to strip (includes the names being re-added).
+  remove: std::collections::HashSet<String>,
+}
+
+impl HeaderTransform {
+  /// Compiles the config directives for one direction (None = no edits).
+  pub(crate) fn compile(directives: Option<&aperio_config::HeaderDirectives>) -> Self {
+    let Some(d) = directives else {
+      return HeaderTransform::default();
+    };
+    let mut remove: std::collections::HashSet<String> =
+      d.remove.iter().map(|n| n.to_ascii_lowercase()).collect();
+    let add: Vec<(String, String)> = d.add.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    for (name, _) in &add {
+      remove.insert(name.to_ascii_lowercase());
+    }
+    HeaderTransform { add, remove }
+  }
+
+  /// True when there is nothing to do (the fast path for most services).
+  fn is_empty(&self) -> bool {
+    self.add.is_empty() && self.remove.is_empty()
+  }
+
+  /// Applies the rules to a header list: strips removals (and old values of
+  /// re-added names), then appends the additions.
+  pub(crate) fn apply(&self, mut headers: Vec<(String, String)>) -> Vec<(String, String)> {
+    if self.is_empty() {
+      return headers;
+    }
+    headers.retain(|(k, _)| !self.remove.contains(&k.to_ascii_lowercase()));
+    headers.extend(self.add.iter().cloned());
+    headers
+  }
+}
+
 /// Per-connection constants for request forwarding, so per-request calls
 /// only carry the request itself.
 pub(crate) struct ForwardContext {
@@ -114,6 +157,10 @@ pub(crate) struct ForwardContext {
   pub(crate) max_response_body_size: usize,
   /// Write half of the tunnel, used for streamed responses.
   pub(crate) tunnel_tx: mpsc::Sender<Message>,
+  /// Header edits applied to forwarded requests (config `headers.request`).
+  pub(crate) request_headers: HeaderTransform,
+  /// Header edits applied to backend responses (config `headers.response`).
+  pub(crate) response_headers: HeaderTransform,
 }
 
 /// One proxied request as received from the tunnel.
@@ -218,6 +265,10 @@ pub(crate) async fn handle_incoming_request(
 
   let mut builder = ctx.client.request(method, dest_url);
 
+  // Config header rules first; the critical strips below still apply to
+  // anything they add, so tunnel-managed headers cannot be smuggled in.
+  let headers = ctx.request_headers.apply(headers);
+
   // Map Headers
   let mut host_header_val = None;
   for (k, v) in headers.iter() {
@@ -287,6 +338,7 @@ pub(crate) async fn handle_incoming_request(
           res_headers.push((k.to_string(), v_str.to_string()));
         }
       }
+      let res_headers = ctx.response_headers.apply(res_headers);
 
       // Read the body incrementally. Bodies up to the stream threshold are
       // buffered and returned as a single Response message; larger bodies

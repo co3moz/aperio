@@ -140,7 +140,25 @@ services:
     path: /docs
 ```
 
-Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
+Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
+
+### Header rules
+
+A `headers:` section (top-level, or per `services:` entry — the entry replaces the top-level section entirely when set) edits proxied HTTP traffic on the client: `request` rules apply to what the local backend receives, `response` rules to what the visitor receives. `add` sets a header, replacing any existing value of the same name; `remove` strips headers case-insensitively:
+
+```yaml
+headers:
+  request:
+    add:
+      X-Forwarded-Env: staging
+    remove: [X-Internal-Debug]
+  response:
+    add:
+      X-Served-By: aperio
+    remove: [Server, X-Powered-By]
+```
+
+Hop-by-hop and tunnel-critical headers (`Connection`, `Upgrade`, `Sec-WebSocket-*`, …) stay managed by Aperio regardless of these rules, and WebSocket upgrade traffic is not affected. Config file only (no CLI/env form); hot-reload applies edits within ~5 s.
 
 ### Editor autocompletion (JSON Schema)
 

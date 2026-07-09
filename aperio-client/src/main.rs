@@ -353,6 +353,7 @@ fn build_specs(
       public: settings.public,
       visitor_auth: settings.visitor_auth.clone(),
       tunnels,
+      headers: settings.headers.clone(),
     }]);
   }
 
@@ -436,6 +437,7 @@ fn build_specs(
           .filter(|s| !s.trim().is_empty())
           .or_else(|| settings.visitor_auth.clone()),
         tunnels: tunnels.clone(),
+        headers: entry.headers.clone().or_else(|| settings.headers.clone()),
       })
     })
     .collect()

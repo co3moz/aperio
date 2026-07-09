@@ -30,6 +30,32 @@ pub struct TunnelDecl {
   pub protocol: String,
 }
 
+/// Header edits applied to one direction of proxied traffic (request or
+/// response): `add` sets headers (replacing any existing value of the same
+/// name), `remove` strips headers by name (case-insensitive).
+#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+pub struct HeaderDirectives {
+  /// Headers to set, name → value; replaces an existing header of the same name.
+  #[serde(default)]
+  #[schemars(extend("examples" = [{"X-Forwarded-Env": "staging"}]))]
+  pub add: HashMap<String, String>,
+  /// Header names to strip (case-insensitive).
+  #[serde(default)]
+  #[schemars(extend("examples" = [["Server", "X-Powered-By"]]))]
+  pub remove: Vec<String>,
+}
+
+/// Header add/remove rules for proxied HTTP traffic: `request` edits what the
+/// local backend receives, `response` edits what the visitor receives.
+/// Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
+#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+pub struct HeaderRules {
+  /// Edits applied to forwarded requests before they reach the local backend.
+  pub request: Option<HeaderDirectives>,
+  /// Edits applied to backend responses before they return to the visitor.
+  pub response: Option<HeaderDirectives>,
+}
+
 /// The Aperio server this client connects to: either a bare URL string, or a
 /// `{ url, token }` section that also carries the tunnel token.
 #[derive(Deserialize, JsonSchema)]
@@ -108,6 +134,9 @@ pub struct ServiceEntry {
   /// Gate this service behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
+  /// Request/response header add-remove rules for this service (replaces the
+  /// top-level `headers` when set).
+  pub headers: Option<HeaderRules>,
 }
 
 /// A peer client whose declared tunnels this process binds to local ports.
@@ -194,6 +223,9 @@ pub struct FileConfig {
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
   pub client_id: Option<String>,
+  /// Request/response header add-remove rules applied by this client to
+  /// proxied HTTP traffic (services may override with their own `headers`).
+  pub headers: Option<HeaderRules>,
   /// Private local services a peer client may reach via `--bind-tunnels`; never
   /// exposed to the public web.
   pub tunnels: Option<Vec<TunnelDecl>>,

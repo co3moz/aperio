@@ -21,7 +21,7 @@ use tracing::{error, info, warn};
 use crate::protocol::TunnelDecl;
 // The `aperio.yaml` structs live in the shared `aperio-config` crate so the
 // build script can derive a JSON Schema from the exact types parsed here.
-pub(crate) use aperio_config::{BindTunnelEntry, FileConfig, ServiceEntry};
+pub(crate) use aperio_config::{BindTunnelEntry, FileConfig, HeaderRules, ServiceEntry};
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -300,6 +300,9 @@ pub(crate) struct ClientSettings {
   pub(crate) public: bool,
   /// Per-service visitor login as `user:password` (None = no override).
   pub(crate) visitor_auth: Option<String>,
+  /// Header add/remove rules for proxied traffic (config files only;
+  /// per-service `headers:` entries override this).
+  pub(crate) headers: Option<HeaderRules>,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -569,6 +572,7 @@ pub(crate) fn resolve_settings(
       home.auth.clone(),
     )
     .and_then(nonempty),
+    headers: local.headers.clone().or_else(|| home.headers.clone()),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),
