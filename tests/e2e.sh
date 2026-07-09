@@ -636,6 +636,7 @@ CHECK_OUT="$(env APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
   "$CLIENT_BIN" check --server-url "$BASE" --server-token "$TOKEN")" \
   || fail "check exited non-zero: $CHECK_OUT"
 assert_contains "$CHECK_OUT" "All checks passed" "check passes end to end"
+assert_contains "$CHECK_OUT" "WS handshake" "check reports the token handshake round-trip"
 assert_contains "$CHECK_OUT" "(from CLI argument)" "check shows the CLI layer"
 assert_contains "$CHECK_OUT" "(from environment)" "check shows the environment layer"
 

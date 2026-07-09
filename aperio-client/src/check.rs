@@ -58,6 +58,32 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       &mut failures,
     ),
   }
+  // Visitor-auth overrides must be "user:password" — a value without the
+  // colon separator would be silently unusable at login time.
+  let auth_probes: Vec<(String, &String)> = settings
+    .visitor_auth
+    .iter()
+    .map(|a| ("visitor auth".to_string(), a))
+    .chain(settings.services.iter().enumerate().filter_map(|(i, s)| {
+      s.auth.as_ref().map(|a| {
+        let name = s.name.clone().unwrap_or_else(|| format!("services[{}]", i));
+        (format!("visitor auth for '{}'", name), a)
+      })
+    }))
+    .collect();
+  for (label, auth) in auth_probes {
+    match auth.split_once(':') {
+      Some((user, pass_part)) if !user.is_empty() && !pass_part.is_empty() => {
+        pass(&label, "user:password format valid".to_string())
+      }
+      _ => fail(
+        &label,
+        "must be \"user:password\" with a non-empty user and password".to_string(),
+        &mut failures,
+      ),
+    }
+  }
+
   match &target {
     Some(t) => pass("target", format!("{}{}", t, from(sources.target))),
     None if !settings.services.is_empty() => pass(
@@ -152,31 +178,40 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
             "could not build handshake request".to_string(),
             &mut failures,
           ),
-          Some(req) => match tokio::time::timeout(Duration::from_secs(5), connect_async(req)).await
-          {
-            Ok(Ok((mut ws, _))) => {
-              let _ = ws.close(None).await;
-              pass("token check", "accepted by the server".to_string());
-            }
-            Ok(Err(tokio_tungstenite::tungstenite::Error::Http(resp))) => fail(
-              "token check",
-              format!(
-                "server rejected the handshake with HTTP {} (invalid or expired token?)",
-                resp.status()
+          Some(req) => {
+            let started = std::time::Instant::now();
+            match tokio::time::timeout(Duration::from_secs(5), connect_async(req)).await {
+              Ok(Ok((mut ws, _))) => {
+                let rtt = started.elapsed();
+                let _ = ws.close(None).await;
+                pass(
+                  "token check",
+                  format!(
+                    "accepted by the server (WS handshake {} ms)",
+                    rtt.as_millis()
+                  ),
+                );
+              }
+              Ok(Err(tokio_tungstenite::tungstenite::Error::Http(resp))) => fail(
+                "token check",
+                format!(
+                  "server rejected the handshake with HTTP {} (invalid or expired token?)",
+                  resp.status()
+                ),
+                &mut failures,
               ),
-              &mut failures,
-            ),
-            Ok(Err(e)) => fail(
-              "token check",
-              format!("handshake failed: {e}"),
-              &mut failures,
-            ),
-            Err(_) => fail(
-              "token check",
-              "handshake timed out".to_string(),
-              &mut failures,
-            ),
-          },
+              Ok(Err(e)) => fail(
+                "token check",
+                format!("handshake failed: {e}"),
+                &mut failures,
+              ),
+              Err(_) => fail(
+                "token check",
+                "handshake timed out".to_string(),
+                &mut failures,
+              ),
+            }
+          }
         }
       }
     }
@@ -233,6 +268,24 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
           &mut failures,
         ),
       }
+    }
+  }
+
+  // --- 5. TCP targets (legacy tcp_target + declared tunnels) --------------
+  // These are raw TCP services, so reachability is probed with a plain
+  // connect instead of an HTTP request.
+  let mut tcp_probes: Vec<(String, String)> = Vec::new();
+  if let Some(t) = &settings.tcp_target {
+    tcp_probes.push(("tcp target".to_string(), t.clone()));
+  }
+  for decl in &settings.tunnels {
+    tcp_probes.push((format!("tunnel '{}'", decl.target), decl.target.clone()));
+  }
+  for (label, addr) in &tcp_probes {
+    match tokio::time::timeout(Duration::from_secs(5), tokio::net::TcpStream::connect(addr)).await {
+      Ok(Ok(_)) => pass(label, format!("{addr} accepts TCP connections")),
+      Ok(Err(e)) => fail(label, format!("{addr} unreachable: {e}"), &mut failures),
+      Err(_) => fail(label, format!("{addr} connect timed out"), &mut failures),
     }
   }
 
