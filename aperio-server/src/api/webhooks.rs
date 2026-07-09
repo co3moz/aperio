@@ -29,13 +29,34 @@ pub(crate) struct WebhookCreateRequest {
   /// Subscribed events; `["*"]` (or empty) = all events.
   #[serde(default)]
   pub(crate) events: Vec<String>,
+  /// Optional HMAC signing secret; deliveries then carry
+  /// `X-Aperio-Signature` / `X-Aperio-Timestamp` headers.
+  #[serde(default)]
+  pub(crate) secret: Option<String>,
 }
 
-/// Lists webhook definitions.
+/// Lists webhook definitions. The signing secret itself is never returned —
+/// only whether one is set.
 pub(crate) async fn webhooks_list_handler(
   State(state): State<Arc<AppState>>,
-) -> Json<Vec<webhooks::Webhook>> {
-  Json(state.webhook_store.lock().await.list().to_vec())
+) -> Json<Vec<serde_json::Value>> {
+  let hooks = state.webhook_store.lock().await.list().to_vec();
+  Json(
+    hooks
+      .into_iter()
+      .map(|w| {
+        serde_json::json!({
+          "id": w.id,
+          "name": w.name,
+          "url": w.url,
+          "events": w.events,
+          "enabled": w.enabled,
+          "created_at": w.created_at,
+          "signed": w.secret.is_some(),
+        })
+      })
+      .collect(),
+  )
 }
 
 /// Creates a webhook definition. Only http/https URLs are accepted.
@@ -71,8 +92,28 @@ pub(crate) async fn webhooks_create_handler(
     .map(|e| e.trim().to_string())
     .filter(|e| !e.is_empty())
     .collect();
+  let secret = payload
+    .secret
+    .as_deref()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string);
+  if secret
+    .as_deref()
+    .is_some_and(|s| s.len() < 16 || s.len() > 128)
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Webhook signing secret must be 16-128 characters",
+    )
+      .into_response();
+  }
 
-  let hook = state.webhook_store.lock().await.create(name, url, events);
+  let hook = state
+    .webhook_store
+    .lock()
+    .await
+    .create(name, url, events, secret);
   info!("Webhook created: {} -> {}", hook.name, hook.url);
   state
     .audit(

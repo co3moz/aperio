@@ -55,6 +55,21 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 
 Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`.
 
+### Signed deliveries
+
+Give a webhook a **signing secret** (16–128 chars, set at creation; never shown again) and every delivery carries:
+
+- `X-Aperio-Timestamp`: Unix seconds at send time.
+- `X-Aperio-Signature`: `sha256=<hex HMAC-SHA256 over "<timestamp>.<raw body>">` with the shared secret.
+
+Verify by recomputing the MAC over the exact received body bytes and comparing in constant time; reject stale timestamps (e.g. > 5 minutes old) to block replays:
+
+```python
+import hmac, hashlib
+expected = hmac.new(secret, f"{ts}.".encode() + raw_body, hashlib.sha256).hexdigest()
+ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.time() - int(ts)) < 300
+```
+
 ## Persistent statistics
 
 Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/stats.json` — flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.

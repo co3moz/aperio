@@ -27,6 +27,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [events, setEvents] = useState('*')
+  const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const toast = useToast()
@@ -36,6 +37,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
       setName('')
       setUrl('')
       setEvents('*')
+      setSecret('')
       setError(null)
     }
     setOpen(next)
@@ -45,7 +47,12 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
     setBusy(true)
     setError(null)
     try {
-      await api.createWebhook({ name: name.trim(), url: url.trim(), events: splitList(events) })
+      await api.createWebhook({
+        name: name.trim(),
+        url: url.trim(),
+        events: splitList(events),
+        ...(secret.trim() ? { secret: secret.trim() } : {}),
+      })
       setOpen(false)
       toast(`Webhook "${name.trim()}" added`, 'green')
       onCreated()
@@ -90,6 +97,20 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
               EVENTS (COMMA SEPARATED, * = ALL)
             </Text>
             <TextField.Root value={events} onChange={(e) => setEvents(e.target.value)} placeholder="*" />
+          </label>
+          <label>
+            <Text as="div" size="1" weight="medium" color="gray" mb="1">
+              SIGNING SECRET (OPTIONAL, 16-128 CHARS)
+            </Text>
+            <TextField.Root
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="shared secret for X-Aperio-Signature"
+            />
+            <Text as="div" size="1" color="gray" mt="1">
+              Deliveries carry X-Aperio-Signature (HMAC-SHA256 over "timestamp.body") and
+              X-Aperio-Timestamp so the receiver can verify origin and freshness.
+            </Text>
           </label>
           {error && (
             <Callout.Root color="red" size="1">
@@ -178,7 +199,16 @@ export function WebhooksSection() {
           ) : (
             hooks.map((h) => (
               <Table.Row key={h.id}>
-                <Table.Cell>{h.name}</Table.Cell>
+                <Table.Cell>
+                  <Flex align="center" gap="1">
+                    {h.name}
+                    {h.signed && (
+                      <Badge color="green" size="1">
+                        signed
+                      </Badge>
+                    )}
+                  </Flex>
+                </Table.Cell>
                 <Table.Cell>
                   <Code size="2" style={{ wordBreak: 'break-all' }}>
                     {h.url}
