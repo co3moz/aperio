@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -84,6 +85,8 @@ jobs:
         with:
           name: pkg-${{ matrix.target }}
           path: dist-pkg/*
+          # Only needed for the release job in this same run — keep storage low.
+          retention-days: 1
 
   schema:
     name: Generate config schema
@@ -105,6 +108,7 @@ jobs:
         with:
           name: config-schema
           path: dist-pkg/*
+          retention-days: 1
 
   # Docker images are built only on a version tag (not on every push). Each
   # arch is built natively (arm64 on an ARM runner, no slow QEMU) and pushed
@@ -245,14 +249,34 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, schema]
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist-pkg
-          merge-multiple: true
+      # `actions/download-artifact` intermittently fails ("Artifact download
+      # failed after 5 retries") on GitHub's artifact backend. Pull the run's
+      # artifacts with the gh CLI and retry a few times so a transient hiccup
+      # doesn't publish a release with no assets. Each artifact lands under
+      # dist-pkg/<artifact-name>/.
+      - name: Download release assets (with retry)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist-pkg
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --dir dist-pkg; then
+              ok=1
+              echo "Downloaded artifacts on attempt ${attempt}"
+              break
+            fi
+            echo "Attempt ${attempt} failed; retrying in 15s..."
+            sleep 15
+          done
+          if [ "${ok}" -ne 1 ]; then
+            echo "::error::Failed to download run artifacts after 5 attempts"
+            exit 1
+          fi
+          ls -R dist-pkg
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist-pkg/*
+          files: dist-pkg/**/*
           generate_release_notes: true
