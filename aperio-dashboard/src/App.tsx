@@ -68,6 +68,8 @@ export default function App() {
   // fallback if it drops); only the session lifetime is still polled.
   const { logs, stats, error: statsError, refreshStats } = useLiveData()
   const { data: session } = usePoll(api.session, 60_000)
+  // The server version only changes on restart; a slow poll keeps it honest.
+  const { data: health } = usePoll(api.health, 300_000)
   const [inspectId, setInspectId] = useState<string | null>(null)
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -166,6 +168,7 @@ export default function App() {
         page={page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}
+        version={health?.version ?? null}
         onSignOut={() => void signOut()}
       />
       <SidebarInset>

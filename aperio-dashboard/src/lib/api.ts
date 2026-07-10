@@ -201,6 +201,12 @@ function json(method: string, body: unknown): RequestInit {
 
 export const api = {
   stats: () => request<ServerStats>('/stats'),
+  /** Public liveness probe (outside /api, no session needed). */
+  health: async () => {
+    const res = await fetch('/aperio/health')
+    if (!res.ok) throw new ApiError(res.status, await res.text())
+    return res.json() as Promise<{ version: string; protocol: number }>
+  },
   logs: () => request<RequestLog[]>('/logs'),
   session: () => request<{ expires_in_seconds: number }>('/session'),
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),

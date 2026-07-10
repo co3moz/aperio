@@ -33,11 +33,13 @@ export function AppSidebar({
   page,
   onNavigate,
   sessionSeconds,
+  version,
   onSignOut,
 }: {
   page: Page
   onNavigate: (page: Page) => void
   sessionSeconds: number | null
+  version: string | null
   onSignOut: () => void
 }) {
   return (
@@ -51,7 +53,9 @@ export function AppSidebar({
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <span className="font-heading truncate font-semibold">Aperio</span>
-                <span className="truncate text-xs text-muted-foreground">Reverse tunnels</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {version ? `v${version}` : '…'}
+                </span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
