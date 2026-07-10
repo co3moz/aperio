@@ -215,6 +215,11 @@ impl StatsStore {
     }
   }
 
+  /// Lifetime proxied-request count (cheap accessor for the first-run check).
+  pub fn lifetime_requests(&self) -> u64 {
+    self.stats.total_requests
+  }
+
   /// Writes to the store when there are unsaved changes.
   pub fn save_if_dirty(&mut self) {
     if !self.dirty {

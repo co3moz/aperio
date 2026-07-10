@@ -519,6 +519,9 @@ pub(crate) struct AppState {
   pub(crate) settings_overrides: Mutex<SettingsOverrides>,
   /// Path of the persisted overrides file (`<data_dir>/settings.json`).
   pub(crate) settings_path: std::path::PathBuf,
+  /// True when the admin dashboard is served (APERIO_DASHBOARD != 0); the
+  /// first-run helper redirect to /aperio only makes sense when it is.
+  pub(crate) dashboard_enabled: bool,
   /// Flipped to true once a shutdown signal arrives; long-lived streams
   /// (dashboard SSE) watch it and end so graceful shutdown can complete.
   pub(crate) shutdown: watch::Sender<bool>,

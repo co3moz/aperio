@@ -547,6 +547,11 @@ async fn main() {
   let audit_max_size = config.audit_max_size;
   let audit_max_files = config.audit_max_files;
 
+  // Dashboard defaults to enabled. Set APERIO_DASHBOARD=0 to disable.
+  let dashboard_enabled = !std::env::var("APERIO_DASHBOARD")
+    .map(|val| val == "0" || val.to_lowercase() == "false")
+    .unwrap_or(false);
+
   let (client_connected_tx, _) = watch::channel(false);
   let (shutdown_tx, _) = watch::channel(false);
   // Live traffic fan-out to dashboard SSE subscribers. A bounded buffer means a
@@ -557,6 +562,7 @@ async fn main() {
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
     client_connected: client_connected_tx,
+    dashboard_enabled,
     shutdown: shutdown_tx,
     connection_state: Mutex::new(ConnectionState {
       connected: false,
@@ -608,11 +614,6 @@ async fn main() {
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));
-
-  // Dashboard defaults to enabled. Set APERIO_DASHBOARD=0 to disable.
-  let dashboard_enabled = !std::env::var("APERIO_DASHBOARD")
-    .map(|val| val == "0" || val.to_lowercase() == "false")
-    .unwrap_or(false);
 
   if dashboard_enabled {
     let dashboard_auth = std::env::var("APERIO_DASHBOARD_AUTH").ok();

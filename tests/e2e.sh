@@ -211,8 +211,12 @@ assert_contains "$HEALTH" '"status":"healthy"' "health reports healthy"
 assert_contains "$HEALTH" '"protocol":' "health reports the tunnel protocol version"
 assert_contains "$HEALTH" '"ui_language"' "health reports the default UI language"
 
-step "504 when no client is connected"
+step "First-run redirect and 504 when no client is connected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")"
+assert_status 307 "$CODE" "fresh install redirects the bare root to the dashboard"
+LOCATION="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/")"
+assert_contains "$LOCATION" '/aperio' "redirect points at /aperio"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/hello")"
 assert_status 504 "$CODE" "proxying without a client returns 504"
 
 step "Tunnel proxying through a connected client"

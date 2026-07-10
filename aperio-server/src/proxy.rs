@@ -213,6 +213,24 @@ pub(crate) async fn proxy_handler(
     return maintenance_response(&state);
   }
 
+  // First-run convenience: on a fresh install (no client has ever connected,
+  // no request ever proxied) a visit to the bare root is almost certainly the
+  // operator checking their new server — send them to the dashboard with a
+  // temporary redirect. The moment a client connects or any traffic flows,
+  // this never triggers again.
+  if state.dashboard_enabled
+    && method == axum::http::Method::GET
+    && uri.path() == "/"
+    && state.clients.lock().await.is_empty()
+    && state.persistent_stats.lock().await.lifetime_requests() == 0
+  {
+    return Response::builder()
+      .status(StatusCode::TEMPORARY_REDIRECT)
+      .header("location", "/aperio")
+      .body(Body::empty())
+      .unwrap();
+  }
+
   // Detect WebSocket upgrade requests and handle separately
   if is_websocket_upgrade(&method, &headers) {
     return ws::handle_ws_proxy(state, req, method, uri, headers, addr, caller_ip).await;

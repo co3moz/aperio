@@ -114,6 +114,7 @@ async fn test_rate_limiting() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
@@ -220,6 +221,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
@@ -252,13 +254,34 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     duration_histogram: DurationHistogram::default(),
   });
 
+  // A fresh install (no client ever, no traffic ever) redirects the bare
+  // root to the dashboard instead of showing a 504.
   let response = proxy_handler(
-    State(state),
+    State(state.clone()),
     ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
     axum::extract::Request::new(Body::empty()),
   )
   .await;
+  assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+  assert_eq!(
+    response
+      .headers()
+      .get("location")
+      .unwrap()
+      .to_str()
+      .unwrap(),
+    "/aperio"
+  );
 
+  // Any other path still answers 504 while no client is connected.
+  let mut req = axum::extract::Request::new(Body::empty());
+  *req.uri_mut() = "/hello".parse().unwrap();
+  let response = proxy_handler(
+    State(state),
+    ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))),
+    req,
+  )
+  .await;
   assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
 }
 
@@ -325,6 +348,7 @@ async fn test_proxy_handler_success() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
