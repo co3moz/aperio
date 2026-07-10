@@ -186,9 +186,13 @@ export class ApiError extends Error {
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`/aperio/api${path}`, init)
   // The session middleware answers expired sessions with a redirect to the
-  // login page; navigate there instead of trying to parse HTML as JSON.
+  // login page; navigate there instead of trying to parse HTML as JSON. The
+  // server's redirect parameter points at the API endpoint that happened to
+  // hit the expiry — replace it with the dashboard page the user is actually
+  // on, so a successful login lands back there instead of on raw JSON.
   if (res.redirected && new URL(res.url).pathname === '/aperio/auth') {
-    window.location.assign(res.url)
+    const here = `${window.location.pathname}${window.location.search}`
+    window.location.assign(`/aperio/auth?redirect=${encodeURIComponent(here)}`)
     throw new ApiError(401, 'session expired')
   }
   if (!res.ok) throw new ApiError(res.status, await res.text())
