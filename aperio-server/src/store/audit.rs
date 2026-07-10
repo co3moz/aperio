@@ -124,7 +124,8 @@ impl AuditLog {
       .as_secs();
     let ev = AuditEvent {
       ts: now,
-      timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+      // RFC3339 with offset so the display timestamp is unambiguous across zones.
+      timestamp: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
       event: event.to_string(),
       actor_ip: actor_ip.to_string(),
       details: details.to_string(),

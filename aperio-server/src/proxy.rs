@@ -908,7 +908,7 @@ async fn proxy_http_request(
           }
           captured.push_back(CapturedRequest {
             id: request_id.clone(),
-            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            timestamp: Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
             method: method_str.clone(),
             uri: uri_str.clone(),
             req_headers: capture_req_headers.clone(),

@@ -14,7 +14,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePoll } from '@/hooks/usePoll'
 import { api } from '@/lib/api'
-import { formatRelativeTime } from '@/lib/format'
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 
 export function AuditSection() {
   const { data: events, refresh } = usePoll(api.audit, 10_000)
@@ -58,7 +58,7 @@ export function AuditSection() {
                       >
                         {formatRelativeTime(ev.ts)}
                       </TooltipTrigger>
-                      <TooltipContent>{ev.timestamp}</TooltipContent>
+                      <TooltipContent>{formatAbsoluteTime(ev.ts)}</TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell>

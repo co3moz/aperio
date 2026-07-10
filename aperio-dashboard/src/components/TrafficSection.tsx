@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { RequestLog } from '@/lib/api'
-import { formatRelativeTime } from '@/lib/format'
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { readParams, writeParams } from '@/lib/url'
 import { cn } from '@/lib/utils'
 
@@ -306,7 +306,7 @@ export function TrafficSection({
                       >
                         {formatRelativeTime(log.timestamp)}
                       </TooltipTrigger>
-                      <TooltipContent>{log.timestamp}</TooltipContent>
+                      <TooltipContent>{formatAbsoluteTime(log.timestamp)}</TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell>

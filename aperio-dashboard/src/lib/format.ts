@@ -27,12 +27,21 @@ export function formatUptime(seconds: number): string {
 }
 
 /**
- * Renders an absolute time as a compact "12s ago" style label. Accepts either
- * unix seconds (audit `ts`) or the server's local `%Y-%m-%d %H:%M:%S` string;
- * returns the raw input unchanged when it cannot be parsed.
+ * Parses a server timestamp to epoch milliseconds. Accepts unix seconds
+ * (audit `ts`), RFC3339 strings (current servers, offset included), or the
+ * legacy naive `%Y-%m-%d %H:%M:%S` form (interpreted in the browser's zone —
+ * the best possible guess since it carries no offset). NaN when unparseable.
+ */
+function parseTimestamp(input: string | number): number {
+  return typeof input === 'number' ? input * 1000 : Date.parse(input.replace(' ', 'T'))
+}
+
+/**
+ * Renders an absolute time as a compact "12s ago" style label; returns the
+ * raw input unchanged when it cannot be parsed.
  */
 export function formatRelativeTime(input: string | number): string {
-  const ms = typeof input === 'number' ? input * 1000 : Date.parse(input.replace(' ', 'T'))
+  const ms = parseTimestamp(input)
   if (Number.isNaN(ms)) return String(input)
   const diff = Date.now() - ms
   if (diff < 1000) return 'just now'
@@ -44,6 +53,16 @@ export function formatRelativeTime(input: string | number): string {
   if (h < 24) return `${h}h ago`
   const d = Math.floor(h / 24)
   return `${d}d ago`
+}
+
+/**
+ * Renders an absolute time in the browser's local timezone (tooltips). Falls
+ * back to the raw input when it cannot be parsed.
+ */
+export function formatAbsoluteTime(input: string | number): string {
+  const ms = parseTimestamp(input)
+  if (Number.isNaN(ms)) return String(input)
+  return new Date(ms).toLocaleString()
 }
 
 export function formatLastPing(secondsAgo: number | null): string {
