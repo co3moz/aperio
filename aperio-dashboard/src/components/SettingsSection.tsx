@@ -3,8 +3,15 @@ import { useEffect, useState } from 'react'
 import { SectionHeader } from './shared'
 import { TintBadge } from './badges'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -29,25 +36,68 @@ interface FieldSpec {
   hint?: string
 }
 
-const FIELDS: FieldSpec[] = [
-  { key: 'gateway_timeout_secs', label: 'Gateway timeout (s)', kind: 'number', hint: 'Seconds to wait for a client to (re)connect before failing a request' },
-  { key: 'gateway_response_timeout_secs', label: 'Response timeout (s)', kind: 'number', hint: 'Seconds to wait for a client to answer a dispatched request' },
-  { key: 'max_body_size', label: 'Max request body (bytes)', kind: 'number' },
-  { key: 'max_tunnels', label: 'Max tunnel clients', kind: 'number' },
-  { key: 'client_down_threshold_secs', label: 'Client down threshold (s)', kind: 'number', hint: 'Missed-heartbeat window before a client leaves routing' },
-  { key: 'require_hostname_bind', label: 'Require hostname bind', kind: 'boolean', hint: 'Strict multi-tenant mode: unbound clients never receive traffic' },
-  { key: 'lb_strategy', label: 'Load balancing', kind: 'select', options: ['round-robin', 'primary-standby', 'sticky'] },
-  { key: 'failover_mode', label: 'In-flight failover', kind: 'select', options: ['fail', 'retry', 'wait', 'retry-wait'] },
-  { key: 'failover_max_jumps', label: 'Failover max jumps', kind: 'number' },
-  { key: 'failover_window_secs', label: 'Failover window (s)', kind: 'number' },
-  { key: 'failover_all_methods', label: 'Failover non-idempotent methods', kind: 'boolean', hint: 'POST/PATCH may reach a backend twice when enabled' },
-  { key: 'ip_limit_max', label: 'IP rate limit burst', kind: 'number' },
-  { key: 'ip_limit_refill', label: 'IP rate limit refill (req/s)', kind: 'number' },
-  { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
-  { key: 'random_subdomain_suffix', label: 'Random subdomain suffix', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * is replaced with a random label; empty = disabled' },
-  { key: 'auth_credentials', label: 'Visitor password', kind: 'text', hint: 'user:password put in front of all proxied traffic; empty = disabled' },
-  { key: 'custom_504_page', label: 'Custom 504 page (HTML)', kind: 'textarea' },
-  { key: 'custom_503_page', label: 'Custom 503 maintenance page (HTML)', kind: 'textarea' },
+interface GroupSpec {
+  title: string
+  description: string
+  fields: FieldSpec[]
+}
+
+// Related settings live together; unrelated ones get their own card.
+const GROUPS: GroupSpec[] = [
+  {
+    title: 'Gateway & Requests',
+    description: 'Timeouts and size limits applied to every proxied request.',
+    fields: [
+      { key: 'gateway_timeout_secs', label: 'Gateway timeout (s)', kind: 'number', hint: 'Wait for a client to (re)connect before failing a request' },
+      { key: 'gateway_response_timeout_secs', label: 'Response timeout (s)', kind: 'number', hint: 'Wait for a client to answer a dispatched request' },
+      { key: 'max_body_size', label: 'Max request body (bytes)', kind: 'number', hint: 'Requests with larger bodies are rejected up front' },
+    ],
+  },
+  {
+    title: 'Capacity & Health',
+    description: 'How many clients may connect and when one counts as down.',
+    fields: [
+      { key: 'max_tunnels', label: 'Max tunnel clients', kind: 'number', hint: 'Connection attempts beyond this are refused' },
+      { key: 'client_down_threshold_secs', label: 'Client down threshold (s)', kind: 'number', hint: 'Missed-heartbeat window before a client leaves routing' },
+    ],
+  },
+  {
+    title: 'Routing & Failover',
+    description: 'How requests pick a client and what happens when one is lost mid-request.',
+    fields: [
+      { key: 'lb_strategy', label: 'Load balancing', kind: 'select', options: ['round-robin', 'primary-standby', 'sticky'], hint: 'Strategy for picking a client from the routed pool' },
+      { key: 'require_hostname_bind', label: 'Require hostname bind', kind: 'boolean', hint: 'Strict multi-tenant mode: unbound clients never receive traffic' },
+      { key: 'failover_mode', label: 'In-flight failover', kind: 'select', options: ['fail', 'retry', 'wait', 'retry-wait'], hint: 'Reaction when the serving client drops mid-request' },
+      { key: 'failover_max_jumps', label: 'Failover max jumps', kind: 'number', hint: 'Re-dispatch attempts per request' },
+      { key: 'failover_window_secs', label: 'Failover window (s)', kind: 'number', hint: 'Total time budget across all jumps' },
+      { key: 'failover_all_methods', label: 'Failover non-idempotent methods', kind: 'boolean', hint: 'POST/PATCH may reach a backend twice when enabled' },
+    ],
+  },
+  {
+    title: 'Rate Limiting',
+    description: 'Per-visitor-IP token bucket for proxied requests.',
+    fields: [
+      { key: 'ip_limit_max', label: 'Burst size', kind: 'number', hint: 'Requests a single IP may fire at once' },
+      { key: 'ip_limit_refill', label: 'Refill rate (req/s)', kind: 'number', hint: 'Sustained requests per second per IP' },
+    ],
+  },
+  {
+    title: 'Tunnels & Domains',
+    description: 'Behavior of the tunnel links and automatic hostnames.',
+    fields: [
+      { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
+      { key: 'random_subdomain_suffix', label: 'Random subdomain pattern', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled' },
+    ],
+  },
+  {
+    title: 'Visitor Experience',
+    description: 'What visitors see in front of and around the proxied services.',
+    fields: [
+      { key: 'auth_credentials', label: 'Visitor password', kind: 'text', hint: 'user:password gate in front of all proxied traffic; empty = disabled' },
+      { key: 'custom_504_page', label: 'Custom 504 page (HTML)', kind: 'textarea', hint: 'Shown when no client answers in time' },
+      { key: 'custom_503_page', label: 'Custom 503 maintenance page (HTML)', kind: 'textarea', hint: 'Shown for hostnames in maintenance mode' },
+    ],
+  },
 ]
 
 /**
@@ -116,7 +166,7 @@ export function SettingsSection() {
       case 'select':
         return (
           <Select value={String(value ?? '')} onValueChange={(v) => setField(f.key, v as string)}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -137,16 +187,11 @@ export function SettingsSection() {
               const n = Number(e.target.value)
               if (Number.isFinite(n)) setField(f.key, n)
             }}
-            className="w-36"
           />
         )
       case 'text':
         return (
-          <Input
-            value={String(value ?? '')}
-            onChange={(e) => setField(f.key, e.target.value)}
-            className="w-72"
-          />
+          <Input value={String(value ?? '')} onChange={(e) => setField(f.key, e.target.value)} />
         )
       case 'textarea':
         return (
@@ -160,70 +205,97 @@ export function SettingsSection() {
     }
   }
 
+  // Override marker + one-click reset to the env default, shown next to the
+  // field label so the state of every setting is visible at a glance.
+  const overrideControls = (f: FieldSpec) => {
+    const overridden = overrides[f.key] !== undefined && overrides[f.key] !== null
+    if (!overridden) return null
+    return (
+      <span className="inline-flex items-center gap-1">
+        <TintBadge tint="amber">override</TintBadge>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => resetField(f.key)}
+                aria-label={`Reset ${f.label} to default`}
+              />
+            }
+          >
+            <RotateCcwIcon />
+          </TooltipTrigger>
+          <TooltipContent>
+            Reset to env default ({JSON.stringify(data.defaults[f.key])})
+          </TooltipContent>
+        </Tooltip>
+      </span>
+    )
+  }
+
+  const field = (f: FieldSpec) => {
+    if (f.kind === 'boolean') {
+      // Booleans read best as a bordered row with the switch on the right.
+      return (
+        <div key={f.key} className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              {f.label} {overrideControls(f)}
+            </span>
+            {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
+          </div>
+          {control(f)}
+        </div>
+      )
+    }
+    return (
+      <div key={f.key} className={cn('flex flex-col gap-1.5', f.kind === 'textarea' && 'sm:col-span-2')}>
+        <Label className="flex items-center gap-2">
+          {f.label} {overrideControls(f)}
+        </Label>
+        {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
+        {control(f)}
+      </div>
+    )
+  }
+
   return (
-    <section className="flex flex-col gap-3">
-      <SectionHeader title="Server Settings">
+    <section className="flex flex-col gap-4">
+      <SectionHeader
+        title="Server Settings"
+        description="Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only."
+      >
+        {dirty && <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>}
         <Button onClick={save} disabled={!dirty || busy}>
           {busy && <Spinner />} Save & apply
         </Button>
       </SectionHeader>
-      <Card className="py-5">
-        <CardContent className="flex flex-col gap-4 px-5">
-          <p className="text-xs text-muted-foreground">
-            Environment variables provide the defaults; edits below become overrides that apply
-            immediately and persist across restarts ({'<data_dir>'}/settings.json). The master
-            token, HOST/PORT, proxy trust and OIDC stay env-only.
-          </p>
-          {message && (
-            <p
-              className={cn(
-                'rounded-2xl border px-3 py-2 text-sm',
-                message.ok
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                  : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
-              )}
-            >
-              {message.text}
-            </p>
+      {message && (
+        <p
+          className={cn(
+            'rounded-3xl border px-4 py-3 text-sm',
+            message.ok
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+              : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
           )}
-          {FIELDS.map((f) => {
-            const overridden = overrides[f.key] !== undefined && overrides[f.key] !== null
-            return (
-              <div key={f.key} className="flex flex-wrap items-center gap-3">
-                <div className="flex w-64 shrink-0 flex-col">
-                  <span className="text-sm">{f.label}</span>
-                  {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
-                </div>
-                <div className="min-w-40 flex-1">{control(f)}</div>
-                {overridden ? (
-                  <div className="flex items-center gap-2">
-                    <TintBadge tint="amber">override</TintBadge>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-xs"
-                            variant="ghost"
-                            onClick={() => resetField(f.key)}
-                            aria-label={`Reset ${f.label} to default`}
-                          />
-                        }
-                      >
-                        <RotateCcwIcon />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Reset to env default ({JSON.stringify(data.defaults[f.key])})
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                ) : (
-                  <span className="text-xs text-muted-foreground">default</span>
-                )}
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
+        >
+          {message.text}
+        </p>
+      )}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {GROUPS.map((group) => (
+          <Card key={group.title} className="gap-4 py-5">
+            <CardHeader className="px-5">
+              <CardTitle className="font-heading text-base">{group.title}</CardTitle>
+              <CardDescription>{group.description}</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 px-5 sm:grid-cols-2">
+              {group.fields.map(field)}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </section>
   )
 }
