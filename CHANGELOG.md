@@ -9,6 +9,7 @@ project follows semantic versioning per release tag.
 ### Added
 
 - **Seven more server settings are dashboard-editable** (live overrides like the rest): the response cache (`cache_enabled`, `cache_max_bytes` — disabling clears stored entries), the global concurrency limit (`max_concurrent_requests`, now enforced by a live-adjustable counter instead of a fixed semaphore), login brute-force lockout (`login_lockout_threshold`, `login_lockout_secs`), and audit log rotation (`audit_max_size`, `audit_max_files`). New Settings cards: *Caching* and *Security & Audit*.
+- Byte-sized settings (max request body, cache budget, audit rotation size) now use a **human-friendly size input**: type `10 MB`, `1.5 GB`, `512K`, or plain bytes — the parsed size and exact byte count are shown underneath, and invalid input is flagged without being applied.
 - **Read-only environment reference on the Settings page**: security- and startup-critical flags (`APERIO_TRUST_PROXY`, `APERIO_TRUSTED_PROXIES`, `APERIO_TRUST_CF_HEADER`, `APERIO_REAL_IP_HEADER`, `APERIO_SECURE_COOKIES`, `APERIO_IGNORE_CLIENT_AUTH`, `APERIO_OIDC_*`, `APERIO_METRICS` + token presence, `APERIO_ACCESS_LOG`) are listed with their current values (secrets shown only as set/not set) plus instructions for changing them — Docker or native, detected from the server's runtime.
 
 ### Changed

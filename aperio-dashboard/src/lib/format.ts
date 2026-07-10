@@ -6,6 +6,23 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
+/**
+ * Parses a human byte-size string to bytes: "10mb", "1.5 GB", "512K", or a
+ * plain number (= bytes). Binary units (1 KB = 1024 B). Null when invalid.
+ */
+export function parseByteSize(input: string): number | null {
+  const m = input
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:[.,]\d+)?)\s*(b|kb?|mb?|gb?|tb?)?$/)
+  if (!m) return null
+  const value = parseFloat(m[1].replace(',', '.'))
+  if (!Number.isFinite(value)) return null
+  const exp = { b: 0, k: 1, kb: 1, m: 2, mb: 2, g: 3, gb: 3, t: 4, tb: 4 }[m[2] ?? 'b']
+  if (exp === undefined) return null
+  return Math.round(value * 1024 ** exp)
+}
+
 /** Formats a bytes/second capacity as a bit-rate (e.g. 1000000 → "8 Mbit/s"). */
 export function formatBandwidth(bytesPerSec: number): string {
   const bits = bytesPerSec * 8

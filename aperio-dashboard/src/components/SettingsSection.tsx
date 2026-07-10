@@ -38,9 +38,10 @@ import {
   type SettingsOverrides,
   type SettingsPayload,
 } from '@/lib/api'
+import { formatBytes, parseByteSize } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-type FieldKind = 'number' | 'boolean' | 'select' | 'text' | 'textarea'
+type FieldKind = 'number' | 'bytes' | 'boolean' | 'select' | 'text' | 'textarea'
 
 interface FieldSpec {
   key: string
@@ -64,7 +65,7 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { key: 'gateway_timeout_secs', label: 'Gateway timeout (s)', kind: 'number', hint: 'Wait for a client to (re)connect before failing a request' },
       { key: 'gateway_response_timeout_secs', label: 'Response timeout (s)', kind: 'number', hint: 'Wait for a client to answer a dispatched request' },
-      { key: 'max_body_size', label: 'Max request body (bytes)', kind: 'number', hint: 'Requests with larger bodies are rejected up front' },
+      { key: 'max_body_size', label: 'Max request body', kind: 'bytes', hint: 'Requests with larger bodies are rejected up front' },
     ],
   },
   {
@@ -109,7 +110,7 @@ const GROUPS: GroupSpec[] = [
     description: 'Server-side response cache for services that opt in with cache: true.',
     fields: [
       { key: 'cache_enabled', label: 'Response cache', kind: 'boolean', hint: 'Cache-Control-driven GET cache; disabling clears stored entries' },
-      { key: 'cache_max_bytes', label: 'Cache budget (bytes)', kind: 'number', hint: 'Total memory for cached responses; entries closest to expiry are evicted first' },
+      { key: 'cache_max_bytes', label: 'Cache budget', kind: 'bytes', hint: 'Total memory for cached responses; entries closest to expiry are evicted first' },
     ],
   },
   {
@@ -118,7 +119,7 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { key: 'login_lockout_threshold', label: 'Login lockout threshold', kind: 'number', hint: 'Consecutive failures per IP before a lockout starts' },
       { key: 'login_lockout_secs', label: 'Login lockout base (s)', kind: 'number', hint: 'First lockout duration; doubles per repeat offense' },
-      { key: 'audit_max_size', label: 'Audit rotation size (bytes)', kind: 'number', hint: 'audit.jsonl rotates past this size; 0 = never rotate' },
+      { key: 'audit_max_size', label: 'Audit rotation size', kind: 'bytes', hint: 'audit.jsonl rotates past this size; 0 = never rotate' },
       { key: 'audit_max_files', label: 'Audit generations kept', kind: 'number', hint: 'Rotated audit.jsonl.N files to keep; oldest is dropped' },
     ],
   },
@@ -132,6 +133,58 @@ const GROUPS: GroupSpec[] = [
     ],
   },
 ]
+
+/** Renders `bytes` as an editable human string when it maps cleanly to a
+ *  unit ("10 MB"), otherwise as the raw number. */
+function bytesToInput(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return ''
+  if (bytes === 0) return '0'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  for (let i = units.length - 1; i >= 0; i--) {
+    const size = 1024 ** i
+    if (bytes % size === 0 && bytes >= size) return `${bytes / size} ${units[i]}`
+  }
+  return String(bytes)
+}
+
+/**
+ * Byte-size input: accepts "10mb", "1.5 GB", "512K" or plain bytes, shows the
+ * parsed size underneath, and only propagates valid values.
+ */
+function BytesInput({ value, onChange }: { value: number; onChange: (bytes: number) => void }) {
+  const [text, setText] = useState(() => bytesToInput(value))
+  const [lastValue, setLastValue] = useState(value)
+  // Re-derive the text when the value changes from the outside (reset button,
+  // reload) rather than from our own onChange.
+  if (value !== lastValue) {
+    setLastValue(value)
+    if (parseByteSize(text) !== value) setText(bytesToInput(value))
+  }
+  const parsed = parseByteSize(text)
+  const invalid = text.trim() !== '' && parsed === null
+  return (
+    <div className="flex flex-col gap-1">
+      <Input
+        value={text}
+        placeholder="e.g. 10 MB, 1 GB, 65536"
+        aria-invalid={invalid || undefined}
+        onChange={(e) => {
+          setText(e.target.value)
+          const bytes = parseByteSize(e.target.value)
+          if (bytes !== null) {
+            setLastValue(bytes)
+            onChange(bytes)
+          }
+        }}
+      />
+      <span className="text-xs text-muted-foreground">
+        {invalid
+          ? 'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes'
+          : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
+      </span>
+    </div>
+  )
+}
 
 // What each env-only flag does, shown in the read-only reference table.
 const ENV_FLAG_DESCRIPTIONS: Record<string, string> = {
@@ -306,6 +359,9 @@ export function SettingsSection() {
             }}
           />
         )
+      case 'bytes':
+        return <BytesInput value={Number(value ?? 0)} onChange={(bytes) => setField(f.key, bytes)} />
+
       case 'text':
         return (
           <Input value={String(value ?? '')} onChange={(e) => setField(f.key, e.target.value)} />
