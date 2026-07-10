@@ -42,6 +42,7 @@ import { api, ApiError, type TokenView } from '@/lib/api'
 import { formatExpiry, splitList } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
+import { useHasRole } from '@/lib/session'
 
 function BadgeList({ items, fallback, tint }: { items: string[]; fallback: string; tint: Tint }) {
   const shown = items.length ? items : [fallback]
@@ -322,13 +323,14 @@ function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void 
 
 export function TokensSection() {
   const { t } = useI18n()
+  const canMutate = useHasRole('operator')
   const { data: tokens, refresh } = usePoll(api.tokens, 10_000)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('API Tokens')}>
-        <TokenFormDialog editing={null} onSaved={refresh} onCreated={setCreatedSecret} />
+        {canMutate && <TokenFormDialog editing={null} onSaved={refresh} onCreated={setCreatedSecret} />}
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
@@ -386,8 +388,14 @@ export function TokensSection() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
-                      <TokenFormDialog editing={tok} onSaved={refresh} onCreated={setCreatedSecret} />
-                      <RevokeButton token={tok} onDone={refresh} />
+                      {canMutate ? (
+                        <>
+                          <TokenFormDialog editing={tok} onSaved={refresh} onCreated={setCreatedSecret} />
+                          <RevokeButton token={tok} onDone={refresh} />
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

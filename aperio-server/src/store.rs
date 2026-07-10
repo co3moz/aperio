@@ -9,6 +9,7 @@ use tracing::{error, warn};
 pub(crate) mod audit;
 pub(crate) mod stats;
 pub(crate) mod tokens;
+pub(crate) mod users;
 pub(crate) mod webhooks;
 
 /// Opens (creating if needed) the shared SQLite store `<data_dir>/aperio.db`
@@ -54,7 +55,8 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
   conn.execute_batch(
     "CREATE TABLE IF NOT EXISTS tokens   (id  TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS webhooks (id  TEXT PRIMARY KEY, data TEXT NOT NULL);
-     CREATE TABLE IF NOT EXISTS stats    (key TEXT PRIMARY KEY, data TEXT NOT NULL);",
+     CREATE TABLE IF NOT EXISTS stats    (key TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS users    (id  TEXT PRIMARY KEY, data TEXT NOT NULL);",
   )?;
   Ok(conn)
 }

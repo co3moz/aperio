@@ -132,6 +132,7 @@ async fn test_rate_limiting() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
@@ -239,6 +240,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
@@ -366,6 +368,7 @@ async fn test_proxy_handler_success() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
@@ -598,6 +601,11 @@ fn test_extract_client_ip_untrusted_ignores_headers() {
 
 /// Generous health threshold so mock clients (no pings) stay eligible.
 const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
+
+fn test_user_store() -> crate::store::users::UserStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-users-{}", uuid::Uuid::new_v4()));
+  crate::store::users::UserStore::load(&dir.to_string_lossy())
+}
 
 fn test_token_store() -> TokenStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));

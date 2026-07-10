@@ -487,6 +487,11 @@ pub(crate) struct SessionInfo {
   /// never authorizes the dashboard or other hosts. `None` = a full/global
   /// session (server password, dashboard password, master token, or OIDC).
   pub(crate) scope_host: Option<String>,
+  /// Dashboard identity: the user this session belongs to (None = master
+  /// token / dashboard password / visitor session).
+  pub(crate) username: Option<String>,
+  /// Dashboard role checked by the authorization middleware.
+  pub(crate) role: crate::store::users::Role,
 }
 
 /// Connection liveness state, kept under a single lock for consistent snapshots.
@@ -549,6 +554,8 @@ pub(crate) struct AppState {
   pub(crate) pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
   /// Persistent store of dashboard-created dynamic API tokens.
   pub(crate) token_store: Mutex<TokenStore>,
+  /// Dashboard users (role-based access; separate from tunnel tokens).
+  pub(crate) users: Mutex<crate::store::users::UserStore>,
   /// In-flight streamed response bodies: request_id → chunk sender.
   pub(crate) response_streams: Mutex<HashMap<String, ResponseStreamHandle>>,
   /// Recently captured HTTP transactions for the dashboard inspector.

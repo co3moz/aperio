@@ -18,6 +18,7 @@ use crate::oidc;
 use crate::api::serve_embedded;
 use crate::routing::extract_client_ip;
 use crate::state::{AppState, ClientPerms, SessionInfo};
+use crate::store::users::Role;
 
 /// Serves the login page from the embedded dashboard build.
 pub(crate) async fn auth_page_handler() -> Response {
@@ -191,6 +192,9 @@ pub(crate) async fn auth_login_handler(
   //   Some(Some(host)) -> scoped to this host (client-set visitor credentials)
   //   None             -> authentication failed
   let mut scope: Option<Option<String>> = None;
+  // Dashboard identity of the matched credential (username + role); master
+  // and dashboard-password logins act as the built-in admin "aperio".
+  let mut identity: (Option<String>, Role) = (None, Role::Admin);
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
     && let Some(stripped) = auth_str.strip_prefix("Basic ")
@@ -210,6 +214,14 @@ pub(crate) async fn auth_login_handler(
         && constant_time_eq_str(&decoded_str, &format!("aperio:{}", dash_pass))
       {
         scope = Some(None);
+      }
+      // Dashboard users (username:password) -> full session with their role.
+      if scope.is_none()
+        && let Some((username, password)) = decoded_str.split_once(':')
+        && let Some(user) = state.users.lock().await.verify(username, password)
+      {
+        scope = Some(None);
+        identity = (Some(user.username.clone()), user.role);
       }
       // Client-set visitor credentials for this route -> host-scoped session.
       if scope.is_none()
@@ -263,9 +275,14 @@ pub(crate) async fn auth_login_handler(
     return Err(StatusCode::UNAUTHORIZED);
   };
   state.login_lockout.lock().await.clear(client_ip);
-  let scope_desc = match &session_scope {
-    Some(h) => format!("session created (scope={})", h),
-    None => "session created (global)".to_string(),
+  let scope_desc = match (&session_scope, &identity.0) {
+    (Some(h), _) => format!("session created (scope={})", h),
+    (None, Some(user)) => format!(
+      "session created (user={}, role={})",
+      user,
+      identity.1.as_str()
+    ),
+    (None, None) => "session created (global)".to_string(),
   };
   state
     .audit("login_success", &client_ip.to_string(), &scope_desc)
@@ -278,6 +295,8 @@ pub(crate) async fn auth_login_handler(
     SessionInfo {
       expires_at: Instant::now() + Duration::from_secs(86400),
       scope_host: session_scope,
+      username: identity.0,
+      role: identity.1,
     },
   );
 
@@ -339,6 +358,11 @@ pub(crate) async fn auth_logout_handler(
 pub(crate) struct SessionStatus {
   /// Seconds until the current session cookie expires.
   pub(crate) expires_in_seconds: u64,
+  /// Username of the session's dashboard user ("aperio" for the built-in
+  /// master/dashboard credentials and OIDC logins).
+  pub(crate) username: String,
+  /// Role the middleware enforces for this session.
+  pub(crate) role: &'static str,
 }
 
 #[utoipa::path(get, path = "/aperio/api/session", tag = "auth",
@@ -348,21 +372,30 @@ pub(crate) async fn auth_session_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  let remaining = match session_cookie(&headers) {
+  let (remaining, username, role) = match session_cookie(&headers) {
     Some(token) => {
       let sessions = state.sessions.lock().await;
       match sessions.get(token) {
-        Some(info) => info
-          .expires_at
-          .saturating_duration_since(Instant::now())
-          .as_secs(),
-        None => 0,
+        Some(info) => (
+          info
+            .expires_at
+            .saturating_duration_since(Instant::now())
+            .as_secs(),
+          info
+            .username
+            .clone()
+            .unwrap_or_else(|| "aperio".to_string()),
+          info.role.as_str(),
+        ),
+        None => (0, "aperio".to_string(), Role::Admin.as_str()),
       }
     }
-    None => 0,
+    None => (0, "aperio".to_string(), Role::Admin.as_str()),
   };
   Json(SessionStatus {
     expires_in_seconds: remaining,
+    username,
+    role,
   })
   .into_response()
 }
@@ -553,6 +586,18 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
 /// (a client-set visitor password login) does NOT satisfy this.
 pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
   matches!(session_scope(state, headers).await, Some(None))
+}
+
+/// Role of the presented global dashboard session, or None when the session
+/// is missing/expired/host-scoped.
+pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {
+  let token = session_cookie(headers)?;
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(token)?;
+  if info.expires_at <= Instant::now() || info.scope_host.is_some() {
+    return None;
+  }
+  Some(info.role)
 }
 
 /// Validates the `aperio_session` cookie for a proxied request to `host`.
@@ -783,13 +828,16 @@ pub(crate) async fn oidc_callback_handler(
     )
     .await;
 
-  // Create a global session identical to the password login flow.
+  // Create a global session identical to the password login flow. OIDC
+  // logins are allowlisted identities and act as admins.
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
     session_token.clone(),
     SessionInfo {
       expires_at: Instant::now() + Duration::from_secs(86400),
       scope_host: None,
+      username: Some(email.clone()),
+      role: Role::Admin,
     },
   );
   let secure_flag = if state.config().secure_cookies {

@@ -40,6 +40,7 @@ import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError, type Webhook } from '@/lib/api'
 import { splitList } from '@/lib/format'
 import { useI18n } from '@/i18n'
+import { useHasRole } from '@/lib/session'
 
 const KNOWN_EVENTS =
   'client_connected, client_disconnected, client_draining, token_created, token_revoked, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off'
@@ -191,12 +192,13 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
 
 export function WebhooksSection() {
   const { t } = useI18n()
+  const canMutate = useHasRole('operator')
   const { data: hooks, refresh } = usePoll(api.webhooks, 15_000)
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Webhooks')}>
-        <CreateWebhookDialog onCreated={refresh} />
+        {canMutate && <CreateWebhookDialog onCreated={refresh} />}
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
@@ -236,7 +238,11 @@ export function WebhooksSection() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end">
-                      <DeleteWebhookButton hook={h} onDone={refresh} />
+                      {canMutate ? (
+                        <DeleteWebhookButton hook={h} onDone={refresh} />
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -12,6 +12,7 @@ import {
   Settings2Icon,
   WebhookIcon,
 } from 'lucide-react'
+import { UsersIcon } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -25,6 +26,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
+import type { Role } from '@/lib/api'
 import { formatUptime } from '@/lib/format'
 
 export type Page =
@@ -38,12 +40,15 @@ export type Page =
   | 'settings'
   | 'webhooks'
   | 'audit'
+  | 'users'
 
 export interface PageSpec {
   id: Page
   label: string
   icon: typeof GlobeIcon
   hint: string
+  /** Minimum role that may see/open this page (default: viewer). */
+  minRole?: Role
 }
 
 export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
@@ -72,7 +77,8 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'System',
     pages: [
-      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration' },
+      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration', minRole: 'admin' },
+      { id: 'users', label: 'Users', icon: UsersIcon, hint: 'Dashboard access & roles', minRole: 'admin' },
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
     ],
@@ -81,20 +87,30 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
 
 export const PAGES: PageSpec[] = PAGE_GROUPS.flatMap((g) => g.pages)
 
+const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
+
+/** Pages the given role may access. */
+export function pagesForRole(role: Role): PageSpec[] {
+  return PAGES.filter((p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'])
+}
+
 export function AppSidebar({
   page,
   onNavigate,
   sessionSeconds,
   version,
+  role,
   onSignOut,
 }: {
   page: Page
   onNavigate: (page: Page) => void
   sessionSeconds: number | null
   version: string | null
+  role: Role
   onSignOut: () => void
 }) {
   const { t } = useI18n()
+  const order = ROLE_ORDER[role]
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -115,27 +131,31 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {PAGE_GROUPS.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{t(group.label)}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.pages.map((p) => (
-                  <SidebarMenuItem key={p.id}>
-                    <SidebarMenuButton
-                      tooltip={t(p.label)}
-                      isActive={page === p.id}
-                      onClick={() => onNavigate(p.id)}
-                    >
-                      <p.icon />
-                      <span>{t(p.label)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        {PAGE_GROUPS.map((group) => {
+          const pages = group.pages.filter((p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'])
+          if (pages.length === 0) return null
+          return (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel>{t(group.label)}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {pages.map((p) => (
+                    <SidebarMenuItem key={p.id}>
+                      <SidebarMenuButton
+                        tooltip={t(p.label)}
+                        isActive={page === p.id}
+                        onClick={() => onNavigate(p.id)}
+                      >
+                        <p.icon />
+                        <span>{t(p.label)}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )
+        })}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

@@ -14,6 +14,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { api, ApiError } from '@/lib/api'
 import { useI18n } from '@/i18n'
+import { useHasRole } from '@/lib/session'
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
@@ -48,6 +49,7 @@ const TTL_OPTIONS = [
  */
 export function ShareLinksSection() {
   const { t } = useI18n()
+  const canMutate = useHasRole('operator')
   const [hostname, setHostname] = useState('')
   const [path, setPath] = useState('')
   const [ttl, setTtl] = useState(TTL_OPTIONS[2].value)
@@ -83,6 +85,7 @@ export function ShareLinksSection() {
           <p className="text-sm text-muted-foreground">
             {t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.')}
           </p>
+          {canMutate && (
           <form onSubmit={create} className="flex flex-wrap items-center gap-2">
             <Input
               value={hostname}
@@ -112,6 +115,7 @@ export function ShareLinksSection() {
               {busy ? <Spinner /> : <Link2Icon />} {t('Create link')}
             </Button>
           </form>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {result && (
             <div className="flex flex-wrap items-center gap-2 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">

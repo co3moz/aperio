@@ -49,6 +49,10 @@ use utoipa::OpenApi;
     crate::auth::auth_login_handler,
     crate::auth::auth_logout_handler,
     crate::auth::auth_session_handler,
+    crate::api::users::users_list_handler,
+    crate::api::users::users_create_handler,
+    crate::api::users::users_update_handler,
+    crate::api::users::users_delete_handler,
   ),
   tags(
     (name = "public", description = "Unauthenticated (or token-gated) operational endpoints"),
@@ -56,7 +60,8 @@ use utoipa::OpenApi;
     (name = "dashboard", description = "Statistics, traffic, clients, inspector, settings, maintenance, share links"),
     (name = "tokens", description = "Dynamic API token lifecycle"),
     (name = "tunnels", description = "Programmatic ephemeral tunnel provisioning"),
-    (name = "webhooks", description = "Webhook definitions and the audit trail")
+    (name = "webhooks", description = "Webhook definitions and the audit trail"),
+    (name = "users", description = "Dashboard users and roles (admin only)")
   )
 )]
 pub(crate) struct ApiDoc;
@@ -100,6 +105,8 @@ mod tests {
       "/aperio/api/webhooks/{id}",
       "/aperio/auth",
       "/aperio/auth/logout",
+      "/aperio/api/users",
+      "/aperio/api/users/{id}",
     ] {
       assert!(
         paths.iter().any(|p| p.as_str() == expected),

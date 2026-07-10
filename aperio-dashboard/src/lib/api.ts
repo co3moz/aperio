@@ -174,6 +174,22 @@ export interface SettingsPayload {
   environment: EnvironmentReport
 }
 
+export type Role = 'viewer' | 'operator' | 'admin'
+
+export interface SessionInfo {
+  expires_in_seconds: number
+  username: string
+  role: Role
+}
+
+export interface DashboardUser {
+  id: string
+  username: string
+  role: Role
+  created_at: number
+  enabled: boolean
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -225,7 +241,15 @@ export const api = {
     return res.json() as Promise<{ version: string; protocol: number }>
   },
   logs: () => request<RequestLog[]>('/logs'),
-  session: () => request<{ expires_in_seconds: number }>('/session'),
+  session: () => request<SessionInfo>('/session'),
+  users: () => request<DashboardUser[]>('/users'),
+  createUser: (payload: { username: string; password: string; role: Role }) =>
+    request<DashboardUser>('/users', json('POST', payload)),
+  updateUser: (
+    id: string,
+    payload: { role?: Role; enabled?: boolean; password?: string },
+  ) => mutate(`/users/${encodeURIComponent(id)}`, json('PUT', payload)),
+  deleteUser: (id: string) => mutate(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),

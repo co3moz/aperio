@@ -399,6 +399,40 @@ assert_contains "$SPEC" '/aperio/api/tokens/refresh' "openapi document covers th
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/openapi.json")"
 assert_status 302 "$CODE" "openapi document requires a dashboard session"
 
+step "Dashboard users & role-based access"
+# Master-token session is a built-in admin: it can create users.
+USER="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"e2e-viewer","password":"viewer-password","role":"viewer"}' "$BASE/aperio/api/users")" \
+  || fail "user creation failed"
+assert_contains "$USER" '"role":"viewer"' "created a viewer user"
+assert_contains "$USER" '"username":"e2e-viewer"' "the created user carries its username"
+USER_ID="$(echo "$USER" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$USER_ID" ] || fail "could not parse the user id: $USER"
+# Short passwords and the reserved name are rejected.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"e2e-x","password":"short","role":"viewer"}' "$BASE/aperio/api/users")"
+assert_status 400 "$CODE" "a short password is rejected"
+# The viewer can log in and read, but not mutate or reach admin-only routes.
+VCOOKIES="$LOG_DIR/viewer-cookies.txt"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$VCOOKIES" -X POST -u 'e2e-viewer:viewer-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "viewer can sign in"
+SESSION="$(curl -s -b "$VCOOKIES" "$BASE/aperio/api/session")"
+assert_contains "$SESSION" '"role":"viewer"' "session reports the viewer role"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$VCOOKIES" "$BASE/aperio/api/stats")"
+assert_status 200 "$CODE" "viewer can read stats"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$VCOOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"nope","hostnames":["*"]}' "$BASE/aperio/api/tokens")"
+assert_status 403 "$CODE" "viewer cannot create a token (needs operator)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$VCOOKIES" "$BASE/aperio/api/users")"
+assert_status 403 "$CODE" "viewer cannot list users (admin only)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$VCOOKIES" "$BASE/aperio/api/settings")"
+assert_status 403 "$CODE" "viewer cannot read settings (admin only)"
+# Delete the user; the admin session still can.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/users/${USER_ID}")"
+assert_status 200 "$CODE" "admin can delete the user"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$VCOOKIES" -X POST -u 'e2e-viewer:viewer-password' "$BASE/aperio/auth")"
+assert_status 401 "$CODE" "the deleted user can no longer sign in"
+
 step "Structured access log"
 [ -f "$ACCESS_LOG" ] || fail "access log file was not created"
 assert_contains "$(cat "$ACCESS_LOG")" '"uri":"/hello' "access log records proxied requests"

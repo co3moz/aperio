@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError } from '@/lib/api'
 import { useI18n } from '@/i18n'
+import { useHasRole } from '@/lib/session'
 
 /**
  * Per-hostname maintenance switch: listed hostnames answer with the 503
@@ -18,6 +19,7 @@ import { useI18n } from '@/i18n'
  */
 export function MaintenanceSection() {
   const { t } = useI18n()
+  const canMutate = useHasRole('operator')
   const { data: hosts, refresh } = usePoll(api.maintenance, 10_000)
   const [hostname, setHostname] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -55,6 +57,7 @@ export function MaintenanceSection() {
       <SectionHeader title={t('Maintenance Mode')} />
       <Card className="py-5">
         <CardContent className="flex flex-col gap-4 px-5">
+          {canMutate && (
           <form onSubmit={enable} className="flex flex-wrap items-center gap-2">
             <Input
               value={hostname}
@@ -71,6 +74,7 @@ export function MaintenanceSection() {
               {busy ? <Spinner /> : <TriangleAlertIcon />} {t('Enable maintenance')}
             </Button>
           </form>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!hosts || hosts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -84,22 +88,24 @@ export function MaintenanceSection() {
                   className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-amber-500/15 py-1 pl-3 pr-1 text-sm font-medium text-amber-700 dark:text-amber-400"
                 >
                   {h === '*' ? t('* (all hostnames)') : h}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="rounded-full text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
-                          onClick={() => void disable(h)}
-                          aria-label={t('End maintenance for {host}', { host: h })}
-                        />
-                      }
-                    >
-                      <XIcon />
-                    </TooltipTrigger>
-                    <TooltipContent>{t('End maintenance')}</TooltipContent>
-                  </Tooltip>
+                  {canMutate && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            className="rounded-full text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+                            onClick={() => void disable(h)}
+                            aria-label={t('End maintenance for {host}', { host: h })}
+                          />
+                        }
+                      >
+                        <XIcon />
+                      </TooltipTrigger>
+                      <TooltipContent>{t('End maintenance')}</TooltipContent>
+                    </Tooltip>
+                  )}
                 </span>
               ))}
             </div>

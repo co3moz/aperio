@@ -1,6 +1,6 @@
 import { CheckIcon, LanguagesIcon, MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppSidebar, PAGES, type Page } from './components/AppSidebar'
+import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
@@ -13,6 +13,7 @@ import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TrafficSection } from './components/TrafficSection'
+import { UsersSection } from './components/UsersSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +34,7 @@ import { formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { LANGUAGES, useI18n } from '@/i18n'
+import { SessionProvider } from '@/lib/session'
 import { cn } from '@/lib/utils'
 
 const POLL_INTERVAL_MS = 2000
@@ -151,9 +153,22 @@ export default function App() {
     window.location.assign('/aperio/auth')
   }, [])
 
+  // Until the session loads, assume the least privilege so admin-only pages
+  // never flash; the server is the real gate regardless.
+  const role = session?.role ?? 'viewer'
+  const allowedPages = useMemo(() => pagesForRole(role), [role])
+
+  // A role that can't see the current page (e.g. a viewer landing on a
+  // bookmarked ?tab=settings) is bounced to the overview.
+  useEffect(() => {
+    if (session && !allowedPages.some((p) => p.id === page)) {
+      goto('overview')
+    }
+  }, [session, allowedPages, page, goto])
+
   const commands = useMemo<Command[]>(
     () => [
-      ...PAGES.map((p) => ({
+      ...allowedPages.map((p) => ({
         id: `nav-${p.id}`,
         label: t('Go to {page}', { page: t(p.label) }),
         hint: t('Navigate'),
@@ -169,18 +184,22 @@ export default function App() {
       },
       { id: 'sign-out', label: t('Sign out'), hint: t('Session'), run: () => void signOut() },
     ],
-    [appearance, toggle, goto, signOut, t],
+    [allowedPages, appearance, toggle, goto, signOut, t],
   )
 
   const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
+  // Render nothing role-restricted until the redirect effect settles.
+  const canView = !session || allowedPages.some((p) => p.id === page)
 
   return (
+    <SessionProvider username={session?.username ?? 'aperio'} role={role}>
     <SidebarProvider>
       <AppSidebar
         page={page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
+        role={role}
         onSignOut={() => void signOut()}
       />
       <SidebarInset>
@@ -242,6 +261,12 @@ export default function App() {
                 {appearance === 'dark' ? t('Switch to light theme') : t('Switch to dark theme')}
               </TooltipContent>
             </Tooltip>
+            {session && (
+              <Badge variant="outline" className="hidden gap-1.5 rounded-full px-2.5 py-1 lg:inline-flex">
+                <span className="text-muted-foreground">{session.username}</span>
+                <span className="text-primary">{role === 'admin' ? t('Admin') : role === 'operator' ? t('Operator') : t('Viewer')}</span>
+              </Badge>
+            )}
             <Badge
               variant="outline"
               className={cn(
@@ -274,23 +299,28 @@ export default function App() {
                 : t('Cannot reach the server. Retrying automatically…')}
             </div>
           )}
-          {page === 'overview' && (
+          {canView && (
             <>
-              <StatsCards stats={stats} />
-              <ActivityChart history={history} />
+              {page === 'overview' && (
+                <>
+                  <StatsCards stats={stats} />
+                  <ActivityChart history={history} />
+                </>
+              )}
+              {page === 'clients' && (
+                <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+              )}
+              {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
+              {page === 'breakdown' && <TrafficBreakdownSection stats={stats} />}
+              {page === 'tokens' && <TokensSection />}
+              {page === 'share' && <ShareLinksSection />}
+              {page === 'maintenance' && <MaintenanceSection />}
+              {page === 'settings' && <SettingsSection />}
+              {page === 'users' && <UsersSection />}
+              {page === 'webhooks' && <WebhooksSection />}
+              {page === 'audit' && <AuditSection />}
             </>
           )}
-          {page === 'clients' && (
-            <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
-          )}
-          {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
-          {page === 'breakdown' && <TrafficBreakdownSection stats={stats} />}
-          {page === 'tokens' && <TokensSection />}
-          {page === 'share' && <ShareLinksSection />}
-          {page === 'maintenance' && <MaintenanceSection />}
-          {page === 'settings' && <SettingsSection />}
-          {page === 'webhooks' && <WebhooksSection />}
-          {page === 'audit' && <AuditSection />}
         </main>
 
         <footer className="border-t py-3 text-center text-xs text-muted-foreground">
@@ -303,5 +333,6 @@ export default function App() {
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
       <InspectorDialog id={inspectId} onClose={() => setInspectId(null)} />
     </SidebarProvider>
+    </SessionProvider>
   )
 }

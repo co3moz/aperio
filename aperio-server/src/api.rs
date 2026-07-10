@@ -18,6 +18,7 @@ pub(crate) mod openapi;
 pub(crate) mod settings;
 pub(crate) mod tokens;
 pub(crate) mod tunnels;
+pub(crate) mod users;
 pub(crate) mod webhooks;
 
 /// Dashboard frontend built from `aperio-dashboard/` (Vite + React) by

@@ -20,8 +20,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 futures-util = "0.3"
 chrono = "0.4"
-# Single-file persistent store (tokens/webhooks/stats) at <data_dir>/aperio.db.
+# Single-file persistent store (tokens/webhooks/stats/users) at <data_dir>/aperio.db.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Password hashing for dashboard users.
+argon2 = "0.5"
 # OpenAPI spec generation for the admin API (/aperio/api/openapi.json).
 utoipa = { version = "5", features = ["axum_extras"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

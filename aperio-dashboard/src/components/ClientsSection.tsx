@@ -41,6 +41,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api, ApiError, type ClientDetail } from '@/lib/api'
 import { formatBandwidth, formatLastPing, formatUptime } from '@/lib/format'
 import { useI18n } from '@/i18n'
+import { useHasRole } from '@/lib/session'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
 // set and is shown highlighted with the client-reported values struck through.
@@ -321,6 +322,7 @@ export function ClientsSection({
   onChanged: () => void
 }) {
   const { t } = useI18n()
+  const canMutate = useHasRole('operator')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'connected', dir: -1 })
 
@@ -369,7 +371,7 @@ export function ClientsSection({
             className="w-56 pl-8"
           />
         </div>
-        {clients.length > 1 && (
+        {canMutate && clients.length > 1 && (
           <>
             <BulkDisableButton count={filtered.length} onConfirm={() => void bulkSet(false)} />
             <Button size="sm" variant="outline" onClick={() => void bulkSet(true)}>
@@ -377,7 +379,7 @@ export function ClientsSection({
             </Button>
           </>
         )}
-        <AddClientWizard />
+        {canMutate && <AddClientWizard />}
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
@@ -513,8 +515,14 @@ export function ClientsSection({
                   <TableCell className="tabular-nums">{c.request_count}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
-                      <OverruleDialog client={c} onDone={onChanged} />
-                      <EnableToggle client={c} onDone={onChanged} />
+                      {canMutate ? (
+                        <>
+                          <OverruleDialog client={c} onDone={onChanged} />
+                          <EnableToggle client={c} onDone={onChanged} />
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

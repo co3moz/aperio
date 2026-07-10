@@ -47,7 +47,7 @@ use crate::api::webhooks::{
 use crate::api::{dashboard_asset_handler, dashboard_handler, health_handler};
 use crate::auth::{
   auth_login_handler, auth_logout_handler, auth_page_handler, auth_session_handler,
-  oidc_callback_handler, oidc_login_handler, safe_redirect_path, validate_session,
+  oidc_callback_handler, oidc_login_handler, safe_redirect_path,
 };
 use crate::protocol::TunnelMessage;
 use crate::proxy::proxy_handler;
@@ -598,6 +598,7 @@ async fn main() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(token_store),
+    users: Mutex::new(crate::store::users::UserStore::load(&data_dir)),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
@@ -672,6 +673,15 @@ async fn main() {
       .route(
         "/api/openapi.json",
         get(crate::api::openapi::openapi_handler),
+      )
+      .route(
+        "/api/users",
+        get(crate::api::users::users_list_handler).post(crate::api::users::users_create_handler),
+      )
+      .route(
+        "/api/users/:id",
+        axum::routing::put(crate::api::users::users_update_handler)
+          .delete(crate::api::users::users_delete_handler),
       );
 
     let state_clone = state.clone();
@@ -679,9 +689,22 @@ async fn main() {
       move |req: axum::extract::Request, next: axum::middleware::Next| {
         let state = state_clone.clone();
         async move {
-          // Check for valid session cookie
-          if validate_session(&state, req.headers()).await {
-            return next.run(req).await;
+          // Check for valid session cookie, then enforce the role floor of
+          // the route: user management and settings are admin-only, any
+          // other mutation needs operator, reads are open to viewers.
+          if let Some(role) = crate::auth::dashboard_role(&state, req.headers()).await {
+            let required = required_role(req.uri().path(), req.method());
+            if role >= required {
+              return next.run(req).await;
+            }
+            return Response::builder()
+              .status(StatusCode::FORBIDDEN)
+              .body(Body::from(format!(
+                "This action requires the {} role (you are {})",
+                required.as_str(),
+                role.as_str()
+              )))
+              .unwrap();
           }
           // Redirect to login page, preserving the original path. The nested
           // router sees the path with the /aperio prefix stripped ("/" for
@@ -813,6 +836,21 @@ async fn main() {
 
   // Flush any buffered OTLP spans before exit.
   otel_guard.shutdown();
+}
+
+/// Minimum dashboard role a route requires. User management and server
+/// settings can change who controls the server — admin only. Everything
+/// else: reads for viewers, mutations for operators.
+fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users::Role {
+  use crate::store::users::Role;
+  if path.starts_with("/api/users") || path == "/api/settings" {
+    return Role::Admin;
+  }
+  if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
+    Role::Viewer
+  } else {
+    Role::Operator
+  }
 }
 
 /// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.

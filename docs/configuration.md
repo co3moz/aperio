@@ -18,6 +18,8 @@ The rule: take the CLI flag, drop the dashes, uppercase it, prefix `APERIO_` —
 
 The server is configured through environment variables only (no yaml, no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides on top of the env defaults (`APERIO_DATA_DIR/settings.json`). Security- and startup-critical flags (proxy trust, cookies, OIDC, metrics, access log) stay env-only; the dashboard settings page lists them read-only with their current values.
 
+**Dashboard users and roles.** Beyond the master token and the optional `APERIO_DASHBOARD_AUTH` password (both of which always sign in as a built-in admin named `aperio`), admins can create named dashboard users from the *Users* page, each with a role: **viewer** (read-only — statistics, traffic, audit), **operator** (day-to-day operations — clients, tokens, webhooks, maintenance, share links), or **admin** (everything, including server settings and user management). Passwords are stored as Argon2id hashes in `APERIO_DATA_DIR/aperio.db`. The role floor of every dashboard route is enforced server-side (a viewer gets `403` on any mutation, and on the admin-only settings/users routes); the UI additionally hides controls a role cannot use. OIDC logins act as admins.
+
 ## Client
 
 ### Precedence
@@ -288,3 +290,4 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
 | `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |
+| `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
