@@ -1,26 +1,6 @@
-import {
-  ExclamationTriangleIcon,
-  ExitIcon,
-  GlobeIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  SunIcon,
-} from '@radix-ui/react-icons'
-import {
-  Badge,
-  Box,
-  Button,
-  Callout,
-  Container,
-  Flex,
-  Heading,
-  IconButton,
-  Separator,
-  TabNav,
-  Text,
-  Tooltip,
-} from '@radix-ui/themes'
+import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AppSidebar, PAGES, type Page } from './components/AppSidebar'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
@@ -34,12 +14,19 @@ import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TrafficSection } from './components/TrafficSection'
 import { WebhooksSection } from './components/WebhooksSection'
+import { StatusDot } from './components/shared'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
 import { api, logout } from './lib/api'
 import { formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
+import { cn } from '@/lib/utils'
 
 const POLL_INTERVAL_MS = 2000
 const HISTORY_LENGTH = 30
@@ -47,15 +34,6 @@ const HISTORY_KEY = 'aperio-activity-history'
 // Restore the sparkline only if the saved sample is recent, so a tab reopened
 // much later starts clean instead of replaying stale bars.
 const HISTORY_MAX_AGE_MS = 15_000
-
-type Page = 'overview' | 'traffic' | 'access' | 'system'
-
-const PAGES: { id: Page; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'traffic', label: 'Traffic' },
-  { id: 'access', label: 'Access' },
-  { id: 'system', label: 'System' },
-]
 
 function isPage(value: string | null): value is Page {
   return PAGES.some((p) => p.id === value)
@@ -142,7 +120,7 @@ export default function App() {
       : statsError
         ? 'Aperio · Disconnected'
         : 'Aperio · Waiting'
-    const color = connected ? '#30a46c' : statsError ? '#e5484d' : '#f5a623'
+    const color = connected ? '#84cc16' : statsError ? '#ef4444' : '#f59e0b'
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${color}"/></svg>`
     let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
     if (!link) {
@@ -165,12 +143,14 @@ export default function App() {
         id: `nav-${p.id}`,
         label: `Go to ${p.label}`,
         hint: 'Navigate',
+        icon: p.icon,
         run: () => goto(p.id),
       })),
       {
         id: 'toggle-theme',
         label: `Switch to ${appearance === 'dark' ? 'light' : 'dark'} theme`,
         hint: 'Appearance',
+        icon: appearance === 'dark' ? SunIcon : MoonIcon,
         run: toggle,
       },
       { id: 'sign-out', label: 'Sign out', hint: 'Session', run: () => void signOut() },
@@ -178,95 +158,89 @@ export default function App() {
     [appearance, toggle, goto, signOut],
   )
 
+  const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
+
   return (
-    <Flex direction="column" minHeight="100vh">
-      <Box position="sticky" top="0" className="app-header">
-        <Container size="4" px="5">
-          <Flex justify="between" align="center" pt="4" pb="2">
-            <Flex align="center" gap="2">
-              <GlobeIcon width="22" height="22" color="var(--indigo-9)" />
-              <Heading
-                size="6"
-                style={{
-                  background: 'linear-gradient(135deg, var(--gray-12), var(--indigo-11))',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                }}
-              >
-                Aperio
-              </Heading>
-            </Flex>
-            <Flex align="center" gap="3">
-              <Tooltip content="Command menu (⌘K / Ctrl+K)">
-                <IconButton
-                  size="2"
-                  variant="ghost"
-                  color="gray"
-                  onClick={() => setPaletteOpen(true)}
-                  aria-label="Open command menu"
-                >
-                  <MagnifyingGlassIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip content={`Switch to ${appearance === 'dark' ? 'light' : 'dark'} theme`}>
-                <IconButton
-                  size="2"
-                  variant="ghost"
-                  color="gray"
-                  onClick={toggle}
-                  aria-label="Toggle color theme"
-                >
-                  {appearance === 'dark' ? <SunIcon /> : <MoonIcon />}
-                </IconButton>
-              </Tooltip>
-              <Badge size="2" color={connected ? 'green' : 'red'} variant="surface" radius="full">
-                <span className={`status-dot ${connected ? 'active' : 'inactive'}`} />
-                {connected ? 'Connected & Active' : 'Offline (Waiting for Client)'}
-              </Badge>
-              <Tooltip
-                content={
-                  session
-                    ? `Session expires in ${formatUptime(session.expires_in_seconds)}`
-                    : 'Sign out'
+    <SidebarProvider>
+      <AppSidebar
+        page={page}
+        onNavigate={goto}
+        sessionSeconds={session?.expires_in_seconds ?? null}
+        onSignOut={() => void signOut()}
+      />
+      <SidebarInset>
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 !h-4" />
+          <div className="flex min-w-0 flex-col">
+            <span className="font-heading truncate text-sm font-semibold leading-tight">
+              {active.label}
+            </span>
+            <span className="hidden truncate text-xs text-muted-foreground sm:block">
+              {active.hint}
+            </span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <SearchIcon />
+              <span className="hidden sm:inline">Search…</span>
+              <kbd className="pointer-events-none hidden rounded-md border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-block">
+                ⌘K
+              </kbd>
+            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggle}
+                    aria-label="Toggle color theme"
+                  />
                 }
               >
-                <Button size="1" variant="soft" color="gray" onClick={() => void signOut()}>
-                  <ExitIcon /> Sign out
-                </Button>
-              </Tooltip>
-            </Flex>
-          </Flex>
-          <TabNav.Root>
-            {PAGES.map((p) => (
-              <TabNav.Link
-                key={p.id}
-                href={`?tab=${p.id}`}
-                active={page === p.id}
-                onClick={(e) => {
-                  e.preventDefault()
-                  goto(p.id)
-                }}
-              >
-                {p.label}
-              </TabNav.Link>
-            ))}
-          </TabNav.Root>
-        </Container>
-      </Box>
+                {appearance === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </TooltipTrigger>
+              <TooltipContent>
+                Switch to {appearance === 'dark' ? 'light' : 'dark'} theme
+              </TooltipContent>
+            </Tooltip>
+            <Badge
+              variant="outline"
+              className={cn(
+                'gap-1.5 rounded-full px-2.5 py-1',
+                connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+              )}
+            >
+              <StatusDot active={connected} />
+              <span className="hidden md:inline">
+                {connected ? 'Connected & Active' : 'Offline (Waiting for Client)'}
+              </span>
+              <span className="md:hidden">{connected ? 'Online' : 'Offline'}</span>
+            </Badge>
+          </div>
+        </header>
 
-      <Container size="4" px="5" flexGrow="1">
-        <Flex direction="column" gap="6" py="6">
+        <main className="flex flex-1 flex-col gap-6 p-4 md:p-6">
           {statsError && (
-            <Callout.Root color={stats ? 'amber' : 'red'} size="1">
-              <Callout.Icon>
-                <ExclamationTriangleIcon />
-              </Callout.Icon>
-              <Callout.Text>
-                {stats
-                  ? "Dashboard data isn't updating — the values shown may be stale."
-                  : 'Cannot reach the server. Retrying automatically…'}
-              </Callout.Text>
-            </Callout.Root>
+            <div
+              className={cn(
+                'flex items-center gap-2 rounded-3xl border px-4 py-3 text-sm',
+                stats
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                  : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
+              )}
+            >
+              <TriangleAlertIcon className="size-4 shrink-0" />
+              {stats
+                ? "Dashboard data isn't updating — the values shown may be stale."
+                : 'Cannot reach the server. Retrying automatically…'}
+            </div>
           )}
           {page === 'overview' && (
             <>
@@ -295,18 +269,15 @@ export default function App() {
               <AuditSection />
             </>
           )}
-        </Flex>
-      </Container>
+        </main>
 
-      <Separator size="4" />
-      <Flex justify="center" py="4">
-        <Text size="1" color="gray">
+        <footer className="border-t py-3 text-center text-xs text-muted-foreground">
           Aperio Reverse Tunneling System • Server Uptime: {formatUptime(stats?.uptime_seconds ?? 0)}
-        </Text>
-      </Flex>
+        </footer>
+      </SidebarInset>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
       <InspectorDialog id={inspectId} onClose={() => setInspectId(null)} />
-    </Flex>
+    </SidebarProvider>
   )
 }

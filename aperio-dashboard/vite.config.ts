@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -6,11 +7,19 @@ import { defineConfig } from 'vite'
 // /aperio/ prefix. The build is tuned to produce as few files as possible:
 // one CSS bundle, no preload polyfill, and small assets inlined as data URIs.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   base: '/aperio/',
   build: {
     cssCodeSplit: false,
-    assetsInlineLimit: 1024 * 1024,
+    // Small assets become data URIs, but font files stay separate so the
+    // browser only fetches the unicode-range subsets it actually renders
+    // (inlining every Noto Sans subset would balloon the CSS bundle).
+    assetsInlineLimit: 8 * 1024,
     modulePreload: { polyfill: false },
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

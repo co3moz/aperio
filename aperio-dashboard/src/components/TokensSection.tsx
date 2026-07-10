@@ -1,35 +1,57 @@
-import { CheckIcon, CopyIcon, Pencil1Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { CopyButton, EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import { TintBadge, type Tint } from './badges'
 import {
   AlertDialog,
-  Badge,
-  Button,
-  Callout,
-  Checkbox,
-  Code,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
   Dialog,
-  Flex,
-  Heading,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import {
   Table,
-  Text,
-  TextField,
-} from '@radix-ui/themes'
-import { useState } from 'react'
-import { usePoll } from '../hooks/usePoll'
-import { useToast } from '../hooks/useToast'
-import { api, ApiError, type TokenView } from '../lib/api'
-import { formatExpiry, splitList } from '../lib/format'
-import { EmptyRow, SkeletonRows } from './ClientsSection'
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { usePoll } from '@/hooks/usePoll'
+import { api, ApiError, type TokenView } from '@/lib/api'
+import { formatExpiry, splitList } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
-function BadgeList({ items, fallback, color }: { items: string[]; fallback: string; color: 'indigo' | 'gray' }) {
+function BadgeList({ items, fallback, tint }: { items: string[]; fallback: string; tint: Tint }) {
   const shown = items.length ? items : [fallback]
   return (
-    <Flex gap="1" wrap="wrap">
+    <div className="flex flex-wrap gap-1">
       {shown.map((item) => (
-        <Badge key={item} color={color}>
+        <TintBadge key={item} tint={tint}>
           {item}
-        </Badge>
+        </TintBadge>
       ))}
-    </Flex>
+    </div>
   )
 }
 
@@ -72,7 +94,6 @@ function TokenFormDialog({
   const [form, setForm] = useState<TokenFormState>(formFromToken(editing))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
 
   const openDialog = (next: boolean) => {
     if (next) {
@@ -107,7 +128,7 @@ function TokenFormDialog({
           allow_public: form.allowPublic,
         })
         onSaved()
-        toast(`Token "${editing.name}" updated`, 'green')
+        toast.success(`Token "${editing.name}" updated`)
       } else {
         if (!form.name.trim()) {
           setError('Token name is required')
@@ -125,7 +146,7 @@ function TokenFormDialog({
         })
         onSaved()
         onCreated(created.token)
-        toast(`Token "${form.name.trim()}" created`, 'green')
+        toast.success(`Token "${form.name.trim()}" created`)
       }
       setOpen(false)
     } catch (e) {
@@ -141,185 +162,157 @@ function TokenFormDialog({
     [K in keyof TokenFormState]: TokenFormState[K] extends string ? K : never
   }[keyof TokenFormState]
   const field = (label: string, key: TextKey, placeholder: string) => (
-    <label>
-      <Text as="div" size="1" weight="medium" color="gray" mb="1">
-        {label}
-      </Text>
-      <TextField.Root value={form[key]} onChange={set(key)} placeholder={placeholder} />
-    </label>
+    <div className="grid gap-2">
+      <Label htmlFor={`tok-${key}`}>{label}</Label>
+      <Input id={`tok-${key}`} value={form[key]} onChange={set(key)} placeholder={placeholder} />
+    </div>
   )
 
   return (
-    <Dialog.Root open={open} onOpenChange={openDialog}>
-      <Dialog.Trigger>
+    <Dialog open={open} onOpenChange={openDialog}>
+      <DialogTrigger
+        render={
+          editing ? <Button size="xs" variant="outline" /> : <Button size="sm" />
+        }
+      >
         {editing ? (
-          <Button size="1" variant="soft">
-            <Pencil1Icon /> Edit
-          </Button>
+          <>
+            <PencilIcon /> Edit
+          </>
         ) : (
-          <Button size="2" variant="soft">
+          <>
             <PlusIcon /> Create Token
-          </Button>
+          </>
         )}
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="480px">
-        <Dialog.Title>{editing ? `Edit token "${editing.name}"` : 'Create API token'}</Dialog.Title>
-        <Dialog.Description size="2" color="gray">
-          {editing
-            ? 'Adjusts the token scope in place; the secret never changes.'
-            : 'Creates a dynamic tunnel token with a restricted scope.'}
-        </Dialog.Description>
-        <Flex direction="column" gap="3" mt="4">
-          {!editing && field('NAME', 'name', 'staging deploys')}
-          {field('ALLOWED HOSTNAMES (COMMA SEPARATED, * = ALL)', 'hostnames', '*')}
-          {field('ALLOWED PATH BINDS (COMMA SEPARATED, * = ALL)', 'paths', '*')}
-          {field('ALLOWED SOURCE IPS / CIDRS', 'ips', '0.0.0.0/0')}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{editing ? `Edit token "${editing.name}"` : 'Create API token'}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? 'Adjusts the token scope in place; the secret never changes.'
+              : 'Creates a dynamic tunnel token with a restricted scope.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          {!editing && field('Name', 'name', 'staging deploys')}
+          {field('Allowed hostnames (comma separated, * = all)', 'hostnames', '*')}
+          {field('Allowed path binds (comma separated, * = all)', 'paths', '*')}
+          {field('Allowed source IPs / CIDRs', 'ips', '0.0.0.0/0')}
           {field(
             editing
-              ? 'NEW LIFETIME IN SECONDS FROM NOW (0 = NEVER, EMPTY = KEEP)'
-              : 'LIFETIME IN SECONDS (EMPTY = NEVER EXPIRES)',
+              ? 'New lifetime in seconds from now (0 = never, empty = keep)'
+              : 'Lifetime in seconds (empty = never expires)',
             'ttl',
             '',
           )}
           {field(
             editing
-              ? 'RATE LIMIT (REQ/S, 0 = NO LIMIT, EMPTY = KEEP)'
-              : 'RATE LIMIT (REQ/S, EMPTY = NO LIMIT)',
+              ? 'Rate limit (req/s, 0 = no limit, empty = keep)'
+              : 'Rate limit (req/s, empty = no limit)',
             'maxRps',
             '',
           )}
           {field(
             editing
-              ? 'DAILY TRAFFIC QUOTA (MB, 0 = NO QUOTA, EMPTY = KEEP)'
-              : 'DAILY TRAFFIC QUOTA (MB, EMPTY = NO QUOTA)',
+              ? 'Daily traffic quota (MB, 0 = no quota, empty = keep)'
+              : 'Daily traffic quota (MB, empty = no quota)',
             'dailyMaxMb',
             '',
           )}
-          <label>
-            <Flex align="center" gap="2">
-              <Checkbox
-                checked={form.allowPublic}
-                onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
-              />
-              <Text size="1" weight="medium" color="gray">
-                MAY PUBLISH PUBLIC SERVICES (VISITOR AUTH GATE SKIPPED)
-              </Text>
-            </Flex>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.allowPublic}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
+            />
+            May publish public services (visitor auth gate skipped)
           </label>
-          {error && (
-            <Callout.Root color="red" size="1">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
-        </Flex>
-        <Flex gap="3" mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </Dialog.Close>
-          <Button onClick={submit} loading={busy}>
-            {editing ? 'Save' : 'Create'}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+          <Button onClick={submit} disabled={busy}>
+            {busy && <Spinner />} {editing ? 'Save' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 // Shows the freshly created secret exactly once, with a copy button.
 function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClose: () => void }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(secret ?? '')
-      setCopied(true)
-    } catch {
-      // Clipboard may be unavailable; the secret stays selectable below.
-    }
-  }
-
   return (
-    <Dialog.Root
+    <Dialog
       open={secret !== null}
       onOpenChange={(open) => {
-        if (!open) {
-          setCopied(false)
-          onClose()
-        }
+        if (!open) onClose()
       }}
     >
-      <Dialog.Content maxWidth="480px">
-        <Dialog.Title>Token created</Dialog.Title>
-        <Dialog.Description size="2" color="gray">
-          Copy it now — it will NOT be shown again.
-        </Dialog.Description>
-        <Flex align="center" gap="3" mt="4">
-          <Code size="2" style={{ wordBreak: 'break-all' }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Token created</DialogTitle>
+          <DialogDescription>Copy it now — it will NOT be shown again.</DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-3">
+          <code className="min-w-0 flex-1 break-all rounded-2xl bg-muted px-3 py-2 font-mono text-sm">
             {secret}
-          </Code>
-          <Button size="1" variant="soft" onClick={copy}>
-            {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
+          </code>
+          <CopyButton value={secret ?? ''} size="sm" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
           </Button>
-        </Flex>
-        <Flex mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Close
-            </Button>
-          </Dialog.Close>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
 
   const revoke = async () => {
     setBusy(true)
     try {
       await api.revokeToken(token.id)
-      toast(`Token "${token.name}" revoked`, 'gray')
+      toast.info(`Token "${token.name}" revoked`)
       onDone()
     } catch {
-      toast(`Could not revoke token "${token.name}"`, 'red')
+      toast.error(`Could not revoke token "${token.name}"`)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger>
-        <Button size="1" variant="soft" color="red" loading={busy}>
-          <TrashIcon /> Revoke
-        </Button>
-      </AlertDialog.Trigger>
-      <AlertDialog.Content maxWidth="440px">
-        <AlertDialog.Title>
-          Revoke token "{token.name}" ({token.token_prefix}…)?
-        </AlertDialog.Title>
-        <AlertDialog.Description size="2">
-          New connections with this token will be rejected.
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button color="red" onClick={revoke}>
-              Revoke
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="xs" variant="destructive" disabled={busy} />}>
+        <Trash2Icon /> Revoke
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Revoke token "{token.name}" ({token.token_prefix}…)?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            New connections with this token will be rejected.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+            onClick={() => void revoke()}
+          >
+            Revoke
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -328,86 +321,77 @@ export function TokensSection() {
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex justify="between" align="center">
-        <Heading size="4">API Tokens</Heading>
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="API Tokens">
         <TokenFormDialog editing={null} onSaved={refresh} onCreated={setCreatedSecret} />
-      </Flex>
-      <Table.Root variant="surface">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeaderCell>Name</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Prefix</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Hostnames</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Paths</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Allowed IPs</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Limits</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Expires</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {tokens === null ? (
-            <SkeletonRows rows={4} cols={8} />
-          ) : tokens.length === 0 ? (
-            <EmptyRow colSpan={8}>No dynamic tokens created</EmptyRow>
-          ) : (
-            tokens.map((t) => (
-              <Table.Row key={t.id}>
-                <Table.Cell>{t.name}</Table.Cell>
-                <Table.Cell>
-                  <Code size="2">{t.token_prefix}…</Code>
-                </Table.Cell>
-                <Table.Cell>
-                  <BadgeList items={t.hostnames} fallback="*" color="indigo" />
-                </Table.Cell>
-                <Table.Cell>
-                  <BadgeList items={t.paths} fallback="*" color="indigo" />
-                </Table.Cell>
-                <Table.Cell>
-                  <BadgeList items={t.allowed_ips} fallback="0.0.0.0/0" color="gray" />
-                </Table.Cell>
-                <Table.Cell>
-                  <Flex gap="1" wrap="wrap">
-                    {t.max_rps != null && (
-                      <Badge color="orange" size="1">
-                        {t.max_rps} req/s
-                      </Badge>
-                    )}
-                    {t.daily_max_bytes != null && (
-                      <Badge color="orange" size="1">
-                        {Math.round(t.daily_max_bytes / (1024 * 1024))} MB/day
-                      </Badge>
-                    )}
-                    {t.allow_public && (
-                      <Badge color="green" size="1">
-                        public ok
-                      </Badge>
-                    )}
-                    {t.max_rps == null && t.daily_max_bytes == null && !t.allow_public && (
-                      <Text size="2" color="gray">
-                        —
-                      </Text>
-                    )}
-                  </Flex>
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="2" color={t.expired ? 'red' : undefined}>
-                    {formatExpiry(t.expires_at, t.expired)}
-                  </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <Flex gap="2">
-                    <TokenFormDialog editing={t} onSaved={refresh} onCreated={setCreatedSecret} />
-                    <RevokeButton token={t} onDone={refresh} />
-                  </Flex>
-                </Table.Cell>
-              </Table.Row>
-            ))
-          )}
-        </Table.Body>
-      </Table.Root>
+      </SectionHeader>
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Prefix</TableHead>
+              <TableHead>Hostnames</TableHead>
+              <TableHead>Paths</TableHead>
+              <TableHead>Allowed IPs</TableHead>
+              <TableHead>Limits</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tokens === null ? (
+              <SkeletonRows rows={4} cols={8} />
+            ) : tokens.length === 0 ? (
+              <EmptyRow colSpan={8}>No dynamic tokens created</EmptyRow>
+            ) : (
+              tokens.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="font-medium">{t.name}</TableCell>
+                  <TableCell>
+                    <code className="font-mono text-xs">{t.token_prefix}…</code>
+                  </TableCell>
+                  <TableCell>
+                    <BadgeList items={t.hostnames} fallback="*" tint="lime" />
+                  </TableCell>
+                  <TableCell>
+                    <BadgeList items={t.paths} fallback="*" tint="lime" />
+                  </TableCell>
+                  <TableCell>
+                    <BadgeList items={t.allowed_ips} fallback="0.0.0.0/0" tint="gray" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {t.max_rps != null && <TintBadge tint="amber">{t.max_rps} req/s</TintBadge>}
+                      {t.daily_max_bytes != null && (
+                        <TintBadge tint="amber">
+                          {Math.round(t.daily_max_bytes / (1024 * 1024))} MB/day
+                        </TintBadge>
+                      )}
+                      {t.allow_public && <TintBadge tint="green">public ok</TintBadge>}
+                      {t.max_rps == null && t.daily_max_bytes == null && !t.allow_public && (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className={cn('text-sm', t.expired && 'text-destructive')}>
+                      {formatExpiry(t.expires_at, t.expired)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-2">
+                      <TokenFormDialog editing={t} onSaved={refresh} onCreated={setCreatedSecret} />
+                      <RevokeButton token={t} onDone={refresh} />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
       <CreatedTokenDialog secret={createdSecret} onClose={() => setCreatedSecret(null)} />
-    </Flex>
+    </section>
   )
 }

@@ -1,21 +1,23 @@
-import { ResetIcon } from '@radix-ui/react-icons'
-import {
-  Badge,
-  Button,
-  Callout,
-  Card,
-  Flex,
-  Heading,
-  IconButton,
-  Select,
-  Switch,
-  Text,
-  TextArea,
-  TextField,
-  Tooltip,
-} from '@radix-ui/themes'
+import { RotateCcwIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { api, ApiError, type SettingsOverrides, type SettingsPayload } from '../lib/api'
+import { SectionHeader } from './shared'
+import { TintBadge } from './badges'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { api, ApiError, type SettingsOverrides, type SettingsPayload } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 type FieldKind = 'number' | 'boolean' | 'select' | 'text' | 'textarea'
 
@@ -110,108 +112,118 @@ export function SettingsSection() {
     const value = valueOf(f.key)
     switch (f.kind) {
       case 'boolean':
-        return (
-          <Switch checked={Boolean(value)} onCheckedChange={(v) => setField(f.key, v)} />
-        )
+        return <Switch checked={Boolean(value)} onCheckedChange={(v) => setField(f.key, v)} />
       case 'select':
         return (
-          <Select.Root value={String(value ?? '')} onValueChange={(v) => setField(f.key, v)}>
-            <Select.Trigger />
-            <Select.Content>
+          <Select value={String(value ?? '')} onValueChange={(v) => setField(f.key, v as string)}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {(f.options ?? []).map((o) => (
-                <Select.Item key={o} value={o}>
+                <SelectItem key={o} value={o}>
                   {o}
-                </Select.Item>
+                </SelectItem>
               ))}
-            </Select.Content>
-          </Select.Root>
+            </SelectContent>
+          </Select>
         )
       case 'number':
         return (
-          <TextField.Root
+          <Input
             type="number"
             value={String(value ?? '')}
             onChange={(e) => {
               const n = Number(e.target.value)
               if (Number.isFinite(n)) setField(f.key, n)
             }}
-            style={{ width: 140 }}
+            className="w-36"
           />
         )
       case 'text':
         return (
-          <TextField.Root
+          <Input
             value={String(value ?? '')}
             onChange={(e) => setField(f.key, e.target.value)}
-            style={{ width: 280 }}
+            className="w-72"
           />
         )
       case 'textarea':
         return (
-          <TextArea
+          <Textarea
             value={String(value ?? '')}
             onChange={(e) => setField(f.key, e.target.value)}
             rows={3}
-            style={{ width: '100%', fontFamily: 'var(--code-font-family)', fontSize: 12 }}
+            className="w-full font-mono text-xs"
           />
         )
     }
   }
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex justify="between" align="center">
-        <Heading size="4">Server Settings</Heading>
-        <Button onClick={save} loading={busy} disabled={!dirty}>
-          Save & apply
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Server Settings">
+        <Button onClick={save} disabled={!dirty || busy}>
+          {busy && <Spinner />} Save & apply
         </Button>
-      </Flex>
-      <Card size="3">
-        <Flex direction="column" gap="3">
-          <Text size="1" color="gray">
+      </SectionHeader>
+      <Card className="py-5">
+        <CardContent className="flex flex-col gap-4 px-5">
+          <p className="text-xs text-muted-foreground">
             Environment variables provide the defaults; edits below become overrides that apply
             immediately and persist across restarts ({'<data_dir>'}/settings.json). The master
             token, HOST/PORT, proxy trust and OIDC stay env-only.
-          </Text>
+          </p>
           {message && (
-            <Callout.Root color={message.ok ? 'green' : 'red'} size="1">
-              <Callout.Text>{message.text}</Callout.Text>
-            </Callout.Root>
+            <p
+              className={cn(
+                'rounded-2xl border px-3 py-2 text-sm',
+                message.ok
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
+              )}
+            >
+              {message.text}
+            </p>
           )}
           {FIELDS.map((f) => {
             const overridden = overrides[f.key] !== undefined && overrides[f.key] !== null
             return (
-              <Flex key={f.key} align="center" gap="3" wrap="wrap">
-                <Flex direction="column" style={{ width: 260, flexShrink: 0 }}>
-                  <Text size="2">{f.label}</Text>
-                  {f.hint && (
-                    <Text size="1" color="gray">
-                      {f.hint}
-                    </Text>
-                  )}
-                </Flex>
-                <div style={{ flex: 1, minWidth: 160 }}>{control(f)}</div>
+              <div key={f.key} className="flex flex-wrap items-center gap-3">
+                <div className="flex w-64 shrink-0 flex-col">
+                  <span className="text-sm">{f.label}</span>
+                  {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
+                </div>
+                <div className="min-w-40 flex-1">{control(f)}</div>
                 {overridden ? (
-                  <Flex align="center" gap="2">
-                    <Badge color="amber" size="1">
-                      override
-                    </Badge>
-                    <Tooltip content={`Reset to env default (${JSON.stringify(data.defaults[f.key])})`}>
-                      <IconButton size="1" variant="ghost" onClick={() => resetField(f.key)}>
-                        <ResetIcon />
-                      </IconButton>
+                  <div className="flex items-center gap-2">
+                    <TintBadge tint="amber">override</TintBadge>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            onClick={() => resetField(f.key)}
+                            aria-label={`Reset ${f.label} to default`}
+                          />
+                        }
+                      >
+                        <RotateCcwIcon />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Reset to env default ({JSON.stringify(data.defaults[f.key])})
+                      </TooltipContent>
                     </Tooltip>
-                  </Flex>
+                  </div>
                 ) : (
-                  <Text size="1" color="gray">
-                    default
-                  </Text>
+                  <span className="text-xs text-muted-foreground">default</span>
                 )}
-              </Flex>
+              </div>
             )
           })}
-        </Flex>
+        </CardContent>
       </Card>
-    </Flex>
+    </section>
   )
 }

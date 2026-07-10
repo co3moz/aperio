@@ -1,9 +1,14 @@
-import { Cross2Icon, ExclamationTriangleIcon } from '@radix-ui/react-icons'
-import { Badge, Button, Callout, Card, Flex, Heading, IconButton, Text, TextField, Tooltip } from '@radix-ui/themes'
+import { TriangleAlertIcon, XIcon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { usePoll } from '../hooks/usePoll'
-import { useToast } from '../hooks/useToast'
-import { api, ApiError } from '../lib/api'
+import { toast } from 'sonner'
+import { SectionHeader } from './shared'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { usePoll } from '@/hooks/usePoll'
+import { api, ApiError } from '@/lib/api'
 
 /**
  * Per-hostname maintenance switch: listed hostnames answer with the 503
@@ -15,7 +20,6 @@ export function MaintenanceSection() {
   const [hostname, setHostname] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
 
   const enable = async (e: FormEvent) => {
     e.preventDefault()
@@ -26,7 +30,7 @@ export function MaintenanceSection() {
     try {
       await api.setMaintenance(value, true)
       setHostname('')
-      toast(`Maintenance enabled for ${value}`, 'gray')
+      toast.info(`Maintenance enabled for ${value}`)
       refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -38,63 +42,69 @@ export function MaintenanceSection() {
   const disable = async (host: string) => {
     try {
       await api.setMaintenance(host, false)
-      toast(`Maintenance ended for ${host}`, 'gray')
+      toast.info(`Maintenance ended for ${host}`)
     } finally {
       refresh()
     }
   }
 
   return (
-    <Flex direction="column" gap="3">
-      <Heading size="4">Maintenance Mode</Heading>
-      <Card size="3">
-        <Flex direction="column" gap="3">
-          <form onSubmit={enable}>
-            <Flex gap="2" align="center">
-              <div style={{ flex: 1, maxWidth: 340 }}>
-                <TextField.Root
-                  value={hostname}
-                  onChange={(e) => setHostname(e.target.value)}
-                  placeholder="app.example.com  (* = all hostnames)"
-                />
-              </div>
-              <Button type="submit" loading={busy} variant="soft" color="amber">
-                <ExclamationTriangleIcon /> Enable maintenance
-              </Button>
-            </Flex>
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Maintenance Mode" />
+      <Card className="py-5">
+        <CardContent className="flex flex-col gap-4 px-5">
+          <form onSubmit={enable} className="flex flex-wrap items-center gap-2">
+            <Input
+              value={hostname}
+              onChange={(e) => setHostname(e.target.value)}
+              placeholder="app.example.com  (* = all hostnames)"
+              className="max-w-xs"
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={busy}
+              className="text-amber-700 dark:text-amber-400"
+            >
+              {busy ? <Spinner /> : <TriangleAlertIcon />} Enable maintenance
+            </Button>
           </form>
-          {error && (
-            <Callout.Root color="red" size="1">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           {!hosts || hosts.length === 0 ? (
-            <Text size="2" color="gray">
+            <p className="text-sm text-muted-foreground">
               No hostnames in maintenance. Visitors of a listed hostname get the 503 page while
               its clients stay connected; cleared on server restart.
-            </Text>
+            </p>
           ) : (
-            <Flex gap="2" wrap="wrap">
+            <div className="flex flex-wrap gap-2">
               {hosts.map((h) => (
-                <Badge key={h} color="amber" size="2">
+                <span
+                  key={h}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-amber-500/15 py-1 pl-3 pr-1 text-sm font-medium text-amber-700 dark:text-amber-400"
+                >
                   {h === '*' ? '* (all hostnames)' : h}
-                  <Tooltip content="End maintenance">
-                    <IconButton
-                      size="1"
-                      variant="ghost"
-                      color="amber"
-                      onClick={() => disable(h)}
-                      aria-label={`End maintenance for ${h}`}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          className="rounded-full text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+                          onClick={() => void disable(h)}
+                          aria-label={`End maintenance for ${h}`}
+                        />
+                      }
                     >
-                      <Cross2Icon />
-                    </IconButton>
+                      <XIcon />
+                    </TooltipTrigger>
+                    <TooltipContent>End maintenance</TooltipContent>
                   </Tooltip>
-                </Badge>
+                </span>
               ))}
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </CardContent>
       </Card>
-    </Flex>
+    </section>
   )
 }

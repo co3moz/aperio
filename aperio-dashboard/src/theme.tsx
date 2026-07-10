@@ -1,8 +1,13 @@
-import '@radix-ui/themes/styles.css'
-import './global.css'
-import { Theme } from '@radix-ui/themes'
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { ToastProvider } from './hooks/useToast'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 type Appearance = 'light' | 'dark'
 
@@ -30,14 +35,22 @@ interface ThemeMode {
 
 const ThemeContext = createContext<ThemeMode>({ appearance: 'dark', toggle: () => {} })
 
+/** Current appearance + toggle, for the header button and command menu. */
 export function useThemeMode(): ThemeMode {
   return useContext(ThemeContext)
 }
 
-export function AppTheme({ children }: { children: ReactNode }) {
+/**
+ * App-wide providers: dark/light theme via a `dark` class on <html>
+ * (next-themes injects an inline script the dashboard CSP would block, so
+ * this is hand-rolled), tooltips, and the toast viewport.
+ */
+export function AppProviders({ children }: { children: ReactNode }) {
   const [appearance, setAppearance] = useState<Appearance>(initialAppearance)
 
   useEffect(() => {
+    document.documentElement.classList.toggle('dark', appearance === 'dark')
+    document.documentElement.style.colorScheme = appearance
     try {
       localStorage.setItem(STORAGE_KEY, appearance)
     } catch {
@@ -51,15 +64,10 @@ export function AppTheme({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ appearance, toggle }}>
-      <Theme
-        appearance={appearance}
-        accentColor="indigo"
-        grayColor="slate"
-        radius="large"
-        panelBackground="translucent"
-      >
-        <ToastProvider>{children}</ToastProvider>
-      </Theme>
+      <TooltipProvider delay={300}>
+        {children}
+        <Toaster position="bottom-right" theme={appearance} />
+      </TooltipProvider>
     </ThemeContext.Provider>
   )
 }

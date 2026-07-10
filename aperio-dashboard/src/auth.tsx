@@ -1,12 +1,13 @@
+import '@/index.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthApp } from './AuthApp'
-import { AppTheme } from './theme'
+import { AppProviders } from './theme'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppTheme>
+    <AppProviders>
       <AuthApp />
-    </AppTheme>
+    </AppProviders>
   </StrictMode>,
 )

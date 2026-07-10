@@ -1,22 +1,54 @@
-import { MagnifyingGlassIcon, PauseIcon, PlayIcon } from '@radix-ui/react-icons'
-import { Button, Card, Flex, Grid, Heading, Table, Text, TextField, Tooltip } from '@radix-ui/themes'
+import { PauseIcon, PlayIcon, SearchIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { RequestLog } from '../lib/api'
-import { formatRelativeTime } from '../lib/format'
-import { readParams, writeParams } from '../lib/url'
-import { EmptyRow, SkeletonRows } from './ClientsSection'
+import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { MethodBadge, StatusBadge } from './badges'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { RequestLog } from '@/lib/api'
+import { formatRelativeTime } from '@/lib/format'
+import { readParams, writeParams } from '@/lib/url'
+import { cn } from '@/lib/utils'
 
 // Cap the number of rendered rows so a busy tunnel doesn't paint thousands of
 // DOM nodes each poll; the newest requests are always the ones kept.
 const MAX_ROWS = 200
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-type StatusColor = 'green' | 'indigo' | 'amber' | 'red'
-const STATUS_FILTERS: { key: string; label: string; color: StatusColor }[] = [
-  { key: '2xx', label: '2xx', color: 'green' },
-  { key: '3xx', label: '3xx', color: 'indigo' },
-  { key: '4xx', label: '4xx', color: 'amber' },
-  { key: '5xx', label: '5xx / error', color: 'red' },
+
+const STATUS_FILTERS: { key: string; label: string; bar: string; chip: string }[] = [
+  {
+    key: '2xx',
+    label: '2xx',
+    bar: 'bg-emerald-500',
+    chip: 'data-[active=true]:bg-emerald-500/15 data-[active=true]:text-emerald-700 dark:data-[active=true]:text-emerald-400',
+  },
+  {
+    key: '3xx',
+    label: '3xx',
+    bar: 'bg-sky-500',
+    chip: 'data-[active=true]:bg-sky-500/15 data-[active=true]:text-sky-700 dark:data-[active=true]:text-sky-400',
+  },
+  {
+    key: '4xx',
+    label: '4xx',
+    bar: 'bg-amber-500',
+    chip: 'data-[active=true]:bg-amber-500/15 data-[active=true]:text-amber-700 dark:data-[active=true]:text-amber-400',
+  },
+  {
+    key: '5xx',
+    label: '5xx / error',
+    bar: 'bg-red-500',
+    chip: 'data-[active=true]:bg-red-500/15 data-[active=true]:text-red-700 dark:data-[active=true]:text-red-400',
+  },
 ]
 
 function statusBucket(log: RequestLog): string {
@@ -39,17 +71,23 @@ function percentile(sorted: number[], p: number): number {
 // A chip toggle: clicking the active value clears it (back to "all").
 function FilterChip({
   active,
-  color,
+  className,
   onClick,
   children,
 }: {
   active: boolean
-  color?: StatusColor
+  className?: string
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
-    <Button size="1" variant={active ? 'solid' : 'soft'} color={active ? color : 'gray'} onClick={onClick}>
+    <Button
+      size="xs"
+      variant="outline"
+      data-active={active}
+      className={cn('data-[active=true]:border-transparent', className)}
+      onClick={onClick}
+    >
       {children}
     </Button>
   )
@@ -59,67 +97,66 @@ function FilterChip({
 // window, so the operator sees tail latency and error share at a glance.
 function TrafficStats({ logs }: { logs: RequestLog[] }) {
   const durations = logs.map((l) => l.duration_ms).sort((a, b) => a - b)
-  const p50 = percentile(durations, 50)
-  const p95 = percentile(durations, 95)
-  const p99 = percentile(durations, 99)
+  const metrics = [
+    { label: 'p50', v: percentile(durations, 50) },
+    { label: 'p95', v: percentile(durations, 95) },
+    { label: 'p99', v: percentile(durations, 99) },
+  ]
 
-  const counts: Record<StatusColor, number> = { green: 0, indigo: 0, amber: 0, red: 0 }
-  for (const l of logs) {
-    const bucket = statusBucket(l)
-    const color = STATUS_FILTERS.find((s) => s.key === bucket)?.color ?? 'red'
-    counts[color]++
-  }
+  const counts: Record<string, number> = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 }
+  for (const l of logs) counts[statusBucket(l)]++
   const total = logs.length || 1
 
   return (
-    <Grid columns={{ initial: '1', sm: '2' }} gap="3">
-      <Card size="2">
-        <Text size="1" weight="bold" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Latency (recent {logs.length})
-        </Text>
-        <Flex gap="5" mt="2">
-          {[
-            { label: 'p50', v: p50 },
-            { label: 'p95', v: p95 },
-            { label: 'p99', v: p99 },
-          ].map((m) => (
-            <Flex key={m.label} direction="column">
-              <Text size="1" color="gray">
-                {m.label}
-              </Text>
-              <Text size="5" weight="bold">
-                {m.v} ms
-              </Text>
-            </Flex>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <Card className="gap-3 py-5">
+        <CardHeader className="px-5">
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Latency (recent {logs.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex gap-8 px-5">
+          {metrics.map((m) => (
+            <div key={m.label} className="flex flex-col">
+              <span className="text-xs text-muted-foreground">{m.label}</span>
+              <span className="font-heading text-2xl font-bold tabular-nums">{m.v} ms</span>
+            </div>
           ))}
-        </Flex>
+        </CardContent>
       </Card>
-      <Card size="2">
-        <Text size="1" weight="bold" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Status mix
-        </Text>
-        <Flex mt="2" style={{ height: 10, borderRadius: 5, overflow: 'hidden' }}>
-          {STATUS_FILTERS.map((s) => {
-            const w = (counts[s.color] / total) * 100
-            return w > 0 ? (
-              <Tooltip key={s.key} content={`${s.label}: ${counts[s.color]}`}>
-                <div style={{ width: `${w}%`, background: `var(--${s.color}-9)` }} />
-              </Tooltip>
-            ) : null
-          })}
-        </Flex>
-        <Flex gap="3" mt="2" wrap="wrap">
-          {STATUS_FILTERS.map((s) => (
-            <Flex key={s.key} align="center" gap="1">
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: `var(--${s.color}-9)` }} />
-              <Text size="1" color="gray">
-                {s.label} {counts[s.color]}
-              </Text>
-            </Flex>
-          ))}
-        </Flex>
+      <Card className="gap-3 py-5">
+        <CardHeader className="px-5">
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Status mix
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-5">
+          <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+            {STATUS_FILTERS.map((s) => {
+              const w = (counts[s.key] / total) * 100
+              return w > 0 ? (
+                <Tooltip key={s.key}>
+                  <TooltipTrigger
+                    render={<div className={s.bar} style={{ width: `${w}%` }} />}
+                  />
+                  <TooltipContent>
+                    {s.label}: {counts[s.key]}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null
+            })}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-3">
+            {STATUS_FILTERS.map((s) => (
+              <span key={s.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className={cn('size-2 rounded-sm', s.bar)} />
+                {s.label} {counts[s.key]}
+              </span>
+            ))}
+          </div>
+        </CardContent>
       </Card>
-    </Grid>
+    </div>
   )
 }
 
@@ -166,52 +203,55 @@ export function TrafficSection({
   const visible = matched.slice(-MAX_ROWS).reverse()
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex justify="between" align="center" gap="3" wrap="wrap">
-        <Flex align="center" gap="2">
-          <Heading size="4">Live Tunnel Traffic</Heading>
-          <Tooltip content={paused ? 'Resume live updates' : 'Freeze the table while you inspect'}>
-            <Button size="1" variant="soft" color={paused ? 'amber' : 'gray'} onClick={togglePause}>
-              {paused ? <PlayIcon /> : <PauseIcon />} {paused ? 'Paused' : 'Live'}
-            </Button>
-          </Tooltip>
-        </Flex>
-        <TextField.Root
-          placeholder="Filter by path/method..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{ width: 260 }}
-        >
-          <TextField.Slot>
-            <MagnifyingGlassIcon />
-          </TextField.Slot>
-        </TextField.Root>
-      </Flex>
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Live Tunnel Traffic">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="sm"
+                variant={paused ? 'secondary' : 'outline'}
+                onClick={togglePause}
+              />
+            }
+          >
+            {paused ? <PlayIcon /> : <PauseIcon />} {paused ? 'Paused' : 'Live'}
+          </TooltipTrigger>
+          <TooltipContent>
+            {paused ? 'Resume live updates' : 'Freeze the table while you inspect'}
+          </TooltipContent>
+        </Tooltip>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Filter by path/method..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="w-64 pl-8"
+          />
+        </div>
+      </SectionHeader>
 
       {source.length > 0 && <TrafficStats logs={source} />}
 
-      <Flex gap="2" align="center" wrap="wrap">
-        <Text size="1" color="gray">
-          Method
-        </Text>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Method</span>
         {METHODS.map((m) => (
           <FilterChip
             key={m}
             active={method === m}
-            color="indigo"
+            className="data-[active=true]:bg-primary/15 data-[active=true]:text-primary"
             onClick={() => setMethod((cur) => (cur === m ? null : m))}
           >
             {m}
           </FilterChip>
         ))}
-        <Text size="1" color="gray" ml="2">
-          Status
-        </Text>
+        <span className="ml-2 text-xs text-muted-foreground">Status</span>
         {STATUS_FILTERS.map((s) => (
           <FilterChip
             key={s.key}
             active={statusFilter === s.key}
-            color={s.color}
+            className={s.chip}
             onClick={() => setStatusFilter((cur) => (cur === s.key ? null : s.key))}
           >
             {s.label}
@@ -219,9 +259,8 @@ export function TrafficSection({
         ))}
         {(method || statusFilter || filter) && (
           <Button
-            size="1"
+            size="xs"
             variant="ghost"
-            color="gray"
             onClick={() => {
               setMethod(null)
               setStatusFilter(null)
@@ -231,94 +270,87 @@ export function TrafficSection({
             Clear
           </Button>
         )}
-      </Flex>
+      </div>
 
-      <Table.Root variant="surface">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeaderCell>Timestamp</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Method</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Path</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Status</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Latency</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Details</Table.ColumnHeaderCell>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {logs === null && !paused ? (
-            <SkeletonRows rows={6} cols={6} />
-          ) : visible.length === 0 ? (
-            <EmptyRow colSpan={6} icon={<MagnifyingGlassIcon />}>
-              No requests matching filter
-            </EmptyRow>
-          ) : (
-            visible.map((log) => (
-              <Table.Row
-                key={log.id}
-                className="clickable-row"
-                title="Click to inspect & replay"
-                onClick={() => onInspect(log.id)}
-              >
-                <Table.Cell>
-                  <Tooltip content={log.timestamp}>
-                    <Text size="2" color="gray" style={{ fontFamily: 'var(--code-font-family)' }}>
-                      {formatRelativeTime(log.timestamp)}
-                    </Text>
-                  </Tooltip>
-                </Table.Cell>
-                <Table.Cell>
-                  <MethodBadge method={log.method} />
-                </Table.Cell>
-                <Table.Cell>
-                  <Text
-                    size="2"
-                    style={{
-                      fontFamily: 'var(--code-font-family)',
-                      wordBreak: 'break-all',
-                      maxWidth: 400,
-                      display: 'inline-block',
-                    }}
-                  >
-                    {log.uri}
-                  </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <StatusBadge status={log.status} error={log.error} />
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Timestamp</TableHead>
+              <TableHead>Method</TableHead>
+              <TableHead>Path</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Latency</TableHead>
+              <TableHead>Details</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logs === null && !paused ? (
+              <SkeletonRows rows={6} cols={6} />
+            ) : visible.length === 0 ? (
+              <EmptyRow colSpan={6} icon={<SearchIcon />}>
+                No requests matching filter
+              </EmptyRow>
+            ) : (
+              visible.map((log) => (
+                <TableRow
+                  key={log.id}
+                  className="cursor-pointer"
+                  title="Click to inspect & replay"
+                  onClick={() => onInspect(log.id)}
+                >
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<span className="font-mono text-xs text-muted-foreground" />}
+                      >
+                        {formatRelativeTime(log.timestamp)}
+                      </TooltipTrigger>
+                      <TooltipContent>{log.timestamp}</TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <MethodBadge method={log.method} />
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-block max-w-100 break-all font-mono text-sm">
+                      {log.uri}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={log.status} error={log.error} />
+                  </TableCell>
+                  <TableCell className="font-mono text-sm tabular-nums">
                     {log.duration_ms} ms
-                  </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  {log.error ? (
-                    <Text size="1" color="red">
-                      {log.error}
-                    </Text>
-                  ) : (
-                    <Text size="2">Success</Text>
-                  )}
-                </Table.Cell>
-              </Table.Row>
-            ))
-          )}
-        </Table.Body>
-      </Table.Root>
+                  </TableCell>
+                  <TableCell>
+                    {log.error ? (
+                      <span className="text-xs text-destructive">{log.error}</span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Success</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
 
-      <Flex justify="between" wrap="wrap" gap="2">
+      <div className="flex flex-wrap justify-between gap-2">
         {total > MAX_ROWS ? (
-          <Text size="1" color="gray">
+          <span className="text-xs text-muted-foreground">
             Showing the latest {MAX_ROWS} of {total} matching requests.
-          </Text>
+          </span>
         ) : (
           <span />
         )}
         {paused && (
-          <Text size="1" color="amber">
+          <span className="text-xs text-amber-600 dark:text-amber-400">
             Paused — table frozen at {frozen.length} requests.
-          </Text>
+          </span>
         )}
-      </Flex>
-    </Flex>
+      </div>
+    </section>
   )
 }

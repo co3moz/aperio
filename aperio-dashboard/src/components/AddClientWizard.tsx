@@ -1,16 +1,22 @@
-import { CheckIcon, CopyIcon, PlusIcon } from '@radix-ui/react-icons'
-import {
-  Button,
-  Callout,
-  Dialog,
-  Flex,
-  SegmentedControl,
-  Tabs,
-  Text,
-  TextField,
-} from '@radix-ui/themes'
+import { PlusIcon } from 'lucide-react'
 import { useState } from 'react'
-import { api, ApiError } from '../lib/api'
+import { CopyButton, PreBlock } from './shared'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { api, ApiError } from '@/lib/api'
 
 const CLIENT_IMAGE = 'ghcr.io/co3moz/aperio-client:latest'
 const TOKEN_PLACEHOLDER = '<YOUR_APERIO_TOKEN>'
@@ -78,33 +84,12 @@ function yamlConfig(serverUrl: string, token: string, s: WizardState): string {
 }
 
 function CommandBlock({ content }: { content: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard unavailable; the text below stays selectable.
-    }
-  }
-
   // The copy button floats over the top-right corner of the code block so it
   // never stacks with the dialog's own footer buttons.
   return (
-    <div style={{ position: 'relative', marginTop: 'var(--space-3)' }}>
-      <pre className="inspector-pre" style={{ maxHeight: 320, paddingRight: 96 }}>
-        {content}
-      </pre>
-      <Button
-        size="1"
-        variant="soft"
-        onClick={copy}
-        style={{ position: 'absolute', top: 8, right: 8 }}
-      >
-        {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
-      </Button>
+    <div className="relative mt-3">
+      <PreBlock className="max-h-80 pr-24">{content}</PreBlock>
+      <CopyButton value={content} className="absolute right-2 top-2" />
     </div>
   )
 }
@@ -163,112 +148,101 @@ export function AddClientWizard() {
 
   const token = tokenMode === 'mint' && mintedSecret ? mintedSecret : TOKEN_PLACEHOLDER
 
-  const field = (
-    label: string,
-    key: keyof WizardState,
-    placeholder: string,
-  ) => (
-    <label>
-      <Text as="div" size="1" weight="medium" color="gray" mb="1">
-        {label}
-      </Text>
-      <TextField.Root value={state[key]} onChange={set(key)} placeholder={placeholder} />
-    </label>
+  const field = (label: string, key: keyof WizardState, placeholder: string) => (
+    <div className="grid flex-1 gap-2">
+      <Label htmlFor={`wiz-${key}`}>{label}</Label>
+      <Input id={`wiz-${key}`} value={state[key]} onChange={set(key)} placeholder={placeholder} />
+    </div>
   )
 
   return (
-    <Dialog.Root open={open} onOpenChange={openDialog}>
-      <Dialog.Trigger>
-        <Button size="2" variant="soft">
-          <PlusIcon /> Connect a new client
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="620px">
-        <Dialog.Title>Add a tunnel client</Dialog.Title>
-        <Dialog.Description size="2" color="gray">
-          Describe the local service; copy a ready-to-run command below.
-        </Dialog.Description>
+    <Dialog open={open} onOpenChange={openDialog}>
+      <DialogTrigger render={<Button size="sm" variant="outline" />}>
+        <PlusIcon /> Connect a new client
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Add a tunnel client</DialogTitle>
+          <DialogDescription>
+            Describe the local service; copy a ready-to-run command below.
+          </DialogDescription>
+        </DialogHeader>
 
-        <Flex direction="column" gap="3" mt="4">
-          {field('LOCAL TARGET (WHERE YOUR SERVICE LISTENS)', 'target', 'http://localhost:3000')}
-          <Flex gap="3">
-            <div style={{ flex: 1 }}>{field('HOSTNAME BIND (OPTIONAL)', 'hostname', 'app.example.com')}</div>
-            <div style={{ flex: 1 }}>{field('PATH BIND (OPTIONAL)', 'path', '/api')}</div>
-          </Flex>
+        <div className="flex flex-col gap-4">
+          {field('Local target (where your service listens)', 'target', 'http://localhost:3000')}
+          <div className="flex gap-3">
+            {field('Hostname bind (optional)', 'hostname', 'app.example.com')}
+            {field('Path bind (optional)', 'path', '/api')}
+          </div>
 
-          <Flex direction="column" gap="2">
-            <Text size="1" weight="medium" color="gray">
-              TOKEN
-            </Text>
-            <SegmentedControl.Root
-              value={tokenMode}
-              onValueChange={(v) => setTokenMode(v as 'existing' | 'mint')}
+          <div className="flex flex-col gap-2">
+            <Label>Token</Label>
+            <ToggleGroup
+              variant="outline"
+              spacing={0}
+              value={[tokenMode]}
+              multiple={false}
+              onValueChange={(v: string[]) => {
+                const next = v[0]
+                if (next === 'existing' || next === 'mint') setTokenMode(next)
+              }}
             >
-              <SegmentedControl.Item value="existing">I have a token</SegmentedControl.Item>
-              <SegmentedControl.Item value="mint">Mint a scoped token now</SegmentedControl.Item>
-            </SegmentedControl.Root>
+              <ToggleGroupItem value="existing">I have a token</ToggleGroupItem>
+              <ToggleGroupItem value="mint">Mint a scoped token now</ToggleGroupItem>
+            </ToggleGroup>
             {tokenMode === 'existing' ? (
-              <Text size="1" color="gray">
+              <p className="text-xs text-muted-foreground">
                 The commands below use a <code>{TOKEN_PLACEHOLDER}</code> placeholder — replace it
                 with your master token or an existing dynamic token.
-              </Text>
+              </p>
             ) : mintedSecret ? (
-              <Callout.Root size="1" color="green">
-                <Callout.Text>
-                  Token minted and embedded below. It is scoped to{' '}
-                  {state.hostname || state.path
-                    ? `${state.hostname || 'any hostname'} / ${state.path || 'any path'}`
-                    : 'all binds'}{' '}
-                  and will not be shown again after this dialog closes.
-                </Callout.Text>
-              </Callout.Root>
+              <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                Token minted and embedded below. It is scoped to{' '}
+                {state.hostname || state.path
+                  ? `${state.hostname || 'any hostname'} / ${state.path || 'any path'}`
+                  : 'all binds'}{' '}
+                and will not be shown again after this dialog closes.
+              </p>
             ) : (
-              <Flex gap="2" align="center">
-                <div style={{ flex: 1 }}>
-                  <TextField.Root
-                    value={state.tokenName}
-                    onChange={set('tokenName')}
-                    placeholder="token name (e.g. staging-box)"
-                  />
-                </div>
-                <Button onClick={mint} loading={minting}>
-                  Mint token
+              <div className="flex items-center gap-2">
+                <Input
+                  value={state.tokenName}
+                  onChange={set('tokenName')}
+                  placeholder="token name (e.g. staging-box)"
+                  className="flex-1"
+                />
+                <Button onClick={mint} disabled={minting}>
+                  {minting && <Spinner />} Mint token
                 </Button>
-              </Flex>
+              </div>
             )}
-            {error && (
-              <Callout.Root color="red" size="1">
-                <Callout.Text>{error}</Callout.Text>
-              </Callout.Root>
-            )}
-          </Flex>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
 
-          <Tabs.Root defaultValue="docker">
-            <Tabs.List>
-              <Tabs.Trigger value="docker">Docker</Tabs.Trigger>
-              <Tabs.Trigger value="cli">CLI</Tabs.Trigger>
-              <Tabs.Trigger value="yaml">aperio.yaml</Tabs.Trigger>
-            </Tabs.List>
-            <Tabs.Content value="docker">
+          <Tabs defaultValue="docker">
+            <TabsList>
+              <TabsTrigger value="docker">Docker</TabsTrigger>
+              <TabsTrigger value="cli">CLI</TabsTrigger>
+              <TabsTrigger value="yaml">aperio.yaml</TabsTrigger>
+            </TabsList>
+            <TabsContent value="docker">
               <CommandBlock content={dockerCommand(serverUrl, token, state)} />
-            </Tabs.Content>
-            <Tabs.Content value="cli">
+            </TabsContent>
+            <TabsContent value="cli">
               <CommandBlock content={cliCommand(serverUrl, token, state)} />
-            </Tabs.Content>
-            <Tabs.Content value="yaml">
+            </TabsContent>
+            <TabsContent value="yaml">
               <CommandBlock content={yamlConfig(serverUrl, token, state)} />
-            </Tabs.Content>
-          </Tabs.Root>
-        </Flex>
+            </TabsContent>
+          </Tabs>
+        </div>
 
-        <Flex mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Close
-            </Button>
-          </Dialog.Close>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -1,62 +1,104 @@
-import { DrawingPinIcon, MagnifyingGlassIcon, MixerHorizontalIcon } from '@radix-ui/react-icons'
+import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { AddClientWizard } from './AddClientWizard'
+import { EmptyRow, SectionHeader, StatusDot } from './shared'
+import { TintBadge } from './badges'
 import {
   AlertDialog,
-  Badge,
-  Button,
-  Callout,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import {
   Dialog,
-  Flex,
-  Heading,
-  Skeleton,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import {
   Table,
-  Text,
-  TextField,
-  Tooltip,
-} from '@radix-ui/themes'
-import { useState, type ReactNode } from 'react'
-import { useToast } from '../hooks/useToast'
-import { api, ApiError, type ClientDetail } from '../lib/api'
-import { formatBandwidth, formatLastPing, formatUptime } from '../lib/format'
-import { AddClientWizard } from './AddClientWizard'
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { api, ApiError, type ClientDetail } from '@/lib/api'
+import { formatBandwidth, formatLastPing, formatUptime } from '@/lib/format'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
 // set and is shown highlighted with the client-reported values struck through.
 function BindList({ binds, override }: { binds: string[]; override: string | null }) {
   if (override) {
     return (
-      <Flex gap="1" align="center" wrap="wrap">
+      <div className="flex flex-wrap items-center gap-1">
         {binds.length > 0 && (
-          <Text size="1" color="gray" style={{ textDecoration: 'line-through' }}>
-            {binds.join(', ')}
-          </Text>
+          <span className="text-xs text-muted-foreground line-through">{binds.join(', ')}</span>
         )}
-        <Tooltip content="Temporary override (not persisted)">
-          <Badge color="amber">{override}</Badge>
+        <Tooltip>
+          <TooltipTrigger render={<span />}>
+            <TintBadge tint="amber">{override}</TintBadge>
+          </TooltipTrigger>
+          <TooltipContent>Temporary override (not persisted)</TooltipContent>
         </Tooltip>
-      </Flex>
+      </div>
     )
   }
-  if (binds.length === 0) return <Text color="gray">—</Text>
+  if (binds.length === 0) return <span className="text-muted-foreground">—</span>
   return (
-    <Flex gap="1" wrap="wrap">
+    <div className="flex flex-wrap gap-1">
       {binds.map((b) => (
-        <Badge key={b} color="indigo">
+        <TintBadge key={b} tint="lime">
           {b}
-        </Badge>
+        </TintBadge>
       ))}
-    </Flex>
+    </div>
   )
 }
 
-// Dialog replacing the old prompt()-based overrule flow: sets or clears the
-// temporary hostname/path binds of a connected client.
+/** Small info badge with an explanatory tooltip. */
+function HintBadge({
+  tint,
+  hint,
+  children,
+}: {
+  tint: Parameters<typeof TintBadge>[0]['tint']
+  hint: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span />}>
+        <TintBadge tint={tint}>{children}</TintBadge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">{hint}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+// Dialog for the overrule flow: sets or clears the temporary hostname/path
+// binds of a connected client.
 function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
   const [open, setOpen] = useState(false)
   const [hostname, setHostname] = useState('')
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
   const hasOverride = Boolean(client.override_hostname_bind || client.override_path_bind)
 
   const openDialog = (next: boolean) => {
@@ -75,9 +117,8 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
       await api.overrideClient(client.id, hostname.trim(), path.trim())
       setOpen(false)
       const cleared = !hostname.trim() && !path.trim()
-      toast(
+      toast.success(
         `${cleared ? 'Override cleared' : 'Override applied'} for ${client.id.slice(0, 8)}`,
-        'green',
       )
       onDone()
     } catch (e) {
@@ -88,57 +129,49 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={openDialog}>
-      <Dialog.Trigger>
-        <Button size="1" variant="soft">
-          <MixerHorizontalIcon /> {hasOverride ? 'Edit' : 'Overrule'}
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="440px">
-        <Dialog.Title>Overrule client {client.id.slice(0, 8)}…</Dialog.Title>
-        <Dialog.Description size="2" color="gray">
-          Temporary binds for this connection. Empty fields clear the override; nothing is
-          persisted across reconnects.
-        </Dialog.Description>
-        <Flex direction="column" gap="3" mt="4">
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              HOSTNAME BIND
-            </Text>
-            <TextField.Root
+    <Dialog open={open} onOpenChange={openDialog}>
+      <DialogTrigger render={<Button size="xs" variant="outline" />}>
+        <SlidersHorizontalIcon /> {hasOverride ? 'Edit' : 'Overrule'}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Overrule client {client.id.slice(0, 8)}…</DialogTitle>
+          <DialogDescription>
+            Temporary binds for this connection. Empty fields clear the override; nothing is
+            persisted across reconnects.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor={`ovr-host-${client.id}`}>Hostname bind</Label>
+            <Input
+              id={`ovr-host-${client.id}`}
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               placeholder="app.example.com"
             />
-          </label>
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              PATH BIND
-            </Text>
-            <TextField.Root
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor={`ovr-path-${client.id}`}>Path bind</Label>
+            <Input
+              id={`ovr-path-${client.id}`}
               value={path}
               onChange={(e) => setPath(e.target.value)}
               placeholder="/api"
             />
-          </label>
-          {error && (
-            <Callout.Root color="red" size="1">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
-        </Flex>
-        <Flex gap="3" mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </Dialog.Close>
-          <Button onClick={submit} loading={busy}>
-            Apply
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+          <Button onClick={submit} disabled={busy}>
+            {busy && <Spinner />} Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -146,19 +179,17 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
 // requests; in-flight requests complete. Disabling asks for confirmation.
 function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
 
   const setEnabled = async (enabled: boolean) => {
     setBusy(true)
     try {
       await api.setClientEnabled(client.id, enabled)
-      toast(
-        `Client ${client.id.slice(0, 8)} ${enabled ? 'enabled' : 'disabled'}`,
-        enabled ? 'green' : 'gray',
-      )
+      const label = `Client ${client.id.slice(0, 8)} ${enabled ? 'enabled' : 'disabled'}`
+      if (enabled) toast.success(label)
+      else toast.info(label)
       onDone()
     } catch {
-      toast(`Could not update client ${client.id.slice(0, 8)}`, 'red')
+      toast.error(`Could not update client ${client.id.slice(0, 8)}`)
     } finally {
       setBusy(false)
     }
@@ -166,93 +197,48 @@ function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => 
 
   if (client.draining) {
     return (
-      <Tooltip content="Client is gracefully shutting down">
-        <Button size="1" variant="soft" color="gray" disabled>
-          Draining…
-        </Button>
+      <Tooltip>
+        <TooltipTrigger render={<span />}>
+          <Button size="xs" variant="outline" disabled>
+            Draining…
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Client is gracefully shutting down</TooltipContent>
       </Tooltip>
     )
   }
 
   if (!client.enabled) {
     return (
-      <Button size="1" variant="soft" color="green" loading={busy} onClick={() => setEnabled(true)}>
-        Enable
+      <Button size="xs" variant="outline" disabled={busy} onClick={() => void setEnabled(true)}>
+        {busy && <Spinner />} Enable
       </Button>
     )
   }
 
   return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger>
-        <Button size="1" variant="soft" color="red" loading={busy}>
-          Disable
-        </Button>
-      </AlertDialog.Trigger>
-      <AlertDialog.Content maxWidth="440px">
-        <AlertDialog.Title>Disable client {client.id.slice(0, 8)}…?</AlertDialog.Title>
-        <AlertDialog.Description size="2">
-          It stays connected but receives no new requests; in-flight requests complete.
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button color="red" onClick={() => setEnabled(false)}>
-              Disable
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
-  )
-}
-
-function EmptyRow({
-  colSpan,
-  icon,
-  children,
-}: {
-  colSpan: number
-  icon?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <Table.Row>
-      <Table.Cell colSpan={colSpan}>
-        <Flex direction="column" align="center" justify="center" gap="2" p="6">
-          {icon && (
-            <Text color="gray" size="6" style={{ display: 'inline-flex', opacity: 0.6 }}>
-              {icon}
-            </Text>
-          )}
-          <Text color="gray">{children}</Text>
-        </Flex>
-      </Table.Cell>
-    </Table.Row>
-  )
-}
-
-// Placeholder shimmer rows shown while a table's first fetch is in flight, so
-// an empty grid doesn't read as "no data" before the data has arrived.
-function SkeletonRows({ rows, cols }: { rows: number; cols: number }) {
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <Table.Row key={r}>
-          {Array.from({ length: cols }).map((_, c) => (
-            <Table.Cell key={c}>
-              <Skeleton>
-                <Text size="2">placeholder</Text>
-              </Skeleton>
-            </Table.Cell>
-          ))}
-        </Table.Row>
-      ))}
-    </>
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="xs" variant="destructive" disabled={busy} />}>
+        Disable
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disable client {client.id.slice(0, 8)}…?</AlertDialogTitle>
+          <AlertDialogDescription>
+            It stays connected but receives no new requests; in-flight requests complete.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+            onClick={() => void setEnabled(false)}
+          >
+            Disable
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -265,7 +251,7 @@ function sortValue(c: ClientDetail, key: SortKey): number {
 }
 
 // A clickable column header that drives the table sort and shows the direction.
-function SortHeader({
+function SortHead({
   label,
   sortKey,
   sort,
@@ -278,55 +264,45 @@ function SortHeader({
 }) {
   const active = sort.key === sortKey
   return (
-    <Table.ColumnHeaderCell>
+    <TableHead>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        style={{
-          background: 'none',
-          border: 'none',
-          padding: 0,
-          font: 'inherit',
-          color: active ? 'var(--accent-11)' : 'inherit',
-          cursor: 'pointer',
-        }}
+        className={`inline-flex items-center gap-1 ${active ? 'text-primary' : ''}`}
       >
         {label}
-        {active ? (sort.dir < 0 ? ' ↓' : ' ↑') : ''}
+        {active && (sort.dir < 0 ? <ArrowDownIcon className="size-3" /> : <ArrowUpIcon className="size-3" />)}
       </button>
-    </Table.ColumnHeaderCell>
+    </TableHead>
   )
 }
 
 // Kill switch for every currently listed client at once, behind a confirm.
 function BulkDisableButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
   return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger>
-        <Button size="1" variant="soft" color="red">
-          Disable all
-        </Button>
-      </AlertDialog.Trigger>
-      <AlertDialog.Content maxWidth="440px">
-        <AlertDialog.Title>Disable {count} client(s)?</AlertDialog.Title>
-        <AlertDialog.Description size="2">
-          Each stays connected but receives no new requests; in-flight requests complete. Affects
-          the clients currently listed (matching your search).
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button color="red" onClick={onConfirm}>
-              Disable all
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="sm" variant="destructive" />}>
+        Disable all
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disable {count} client(s)?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Each stays connected but receives no new requests; in-flight requests complete.
+            Affects the clients currently listed (matching your search).
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+            onClick={onConfirm}
+          >
+            Disable all
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -337,7 +313,6 @@ export function ClientsSection({
   clients: ClientDetail[]
   onChanged: () => void
 }) {
-  const toast = useToast()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'connected', dir: -1 })
 
@@ -355,203 +330,189 @@ export function ClientsSection({
       (c.path_bind ?? '').toLowerCase().includes(needle) ||
       c.hostname_binds.some((h) => h.toLowerCase().includes(needle)),
   )
-  const sorted = [...filtered].sort((a, b) => (sortValue(a, sort.key) - sortValue(b, sort.key)) * sort.dir)
+  const sorted = [...filtered].sort(
+    (a, b) => (sortValue(a, sort.key) - sortValue(b, sort.key)) * sort.dir,
+  )
 
   const bulkSet = async (enabled: boolean) => {
     const targets = filtered.filter((c) => c.enabled !== enabled && !c.draining)
     if (targets.length === 0) {
-      toast(`No clients to ${enabled ? 'enable' : 'disable'}`, 'gray')
+      toast.info(`No clients to ${enabled ? 'enable' : 'disable'}`)
       return
     }
     await Promise.allSettled(targets.map((c) => api.setClientEnabled(c.id, enabled)))
-    toast(`${targets.length} client(s) ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'green' : 'gray')
+    const label = `${targets.length} client(s) ${enabled ? 'enabled' : 'disabled'}`
+    if (enabled) toast.success(label)
+    else toast.info(label)
     onChanged()
   }
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex justify="between" align="center" gap="3" wrap="wrap">
-        <Heading size="4">Active Tunnel Connections</Heading>
-        <Flex align="center" gap="2" wrap="wrap">
-          <TextField.Root
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Active Tunnel Connections">
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             placeholder="Search clients…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 220 }}
-          >
-            <TextField.Slot>
-              <MagnifyingGlassIcon />
-            </TextField.Slot>
-          </TextField.Root>
-          {clients.length > 1 && (
-            <>
-              <BulkDisableButton count={filtered.length} onConfirm={() => void bulkSet(false)} />
-              <Button size="1" variant="soft" color="green" onClick={() => void bulkSet(true)}>
-                Enable all
-              </Button>
-            </>
-          )}
-          <AddClientWizard />
-        </Flex>
-      </Flex>
-      <Table.Root variant="surface">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeaderCell>Client ID</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>IP Address</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Hostname</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Path</Table.ColumnHeaderCell>
-            <SortHeader label="Last Ping" sortKey="ping" sort={sort} onSort={onSort} />
-            <SortHeader label="Connected For" sortKey="connected" sort={sort} onSort={onSort} />
-            <SortHeader label="Requests" sortKey="requests" sort={sort} onSort={onSort} />
-            <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {clients.length === 0 ? (
-            <EmptyRow colSpan={8} icon={<DrawingPinIcon />}>
-              No active client sessions — start a tunnel client to see it here
-            </EmptyRow>
-          ) : sorted.length === 0 ? (
-            <EmptyRow colSpan={8} icon={<MagnifyingGlassIcon />}>
-              No clients match “{search}”
-            </EmptyRow>
-          ) : (
-            sorted.map((c) => (
-              <Table.Row key={c.id}>
-                <Table.Cell>
-                  <Flex direction="column">
-                    <Flex align="center" gap="1">
-                      <Tooltip
-                        content={
-                          <Flex direction="column" gap="1">
-                            {c.instance_id && <Text size="1">client id: {c.instance_id}</Text>}
-                            <Text size="1">connection: {c.id}</Text>
-                            <Text size="1">
-                              {c.token_name ? `token: ${c.token_name}` : 'master token'}
-                            </Text>
-                          </Flex>
-                        }
-                      >
-                        <Text
-                          size="2"
-                          style={{ fontFamily: 'var(--code-font-family)', cursor: 'default' }}
-                        >
-                          {(c.instance_id ?? c.id).slice(0, 8)}…
-                        </Text>
-                      </Tooltip>
-                      {c.service && (
-                        <Tooltip content="Service name announced by the client (services: list)">
-                          <Badge color="blue" size="1">
+            className="w-56 pl-8"
+          />
+        </div>
+        {clients.length > 1 && (
+          <>
+            <BulkDisableButton count={filtered.length} onConfirm={() => void bulkSet(false)} />
+            <Button size="sm" variant="outline" onClick={() => void bulkSet(true)}>
+              Enable all
+            </Button>
+          </>
+        )}
+        <AddClientWizard />
+      </SectionHeader>
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Client ID</TableHead>
+              <TableHead>IP Address</TableHead>
+              <TableHead>Hostname</TableHead>
+              <TableHead>Path</TableHead>
+              <SortHead label="Last Ping" sortKey="ping" sort={sort} onSort={onSort} />
+              <SortHead label="Connected For" sortKey="connected" sort={sort} onSort={onSort} />
+              <SortHead label="Requests" sortKey="requests" sort={sort} onSort={onSort} />
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {clients.length === 0 ? (
+              <EmptyRow colSpan={8} icon={<PinIcon />}>
+                No active client sessions — start a tunnel client to see it here
+              </EmptyRow>
+            ) : sorted.length === 0 ? (
+              <EmptyRow colSpan={8} icon={<SearchIcon />}>
+                No clients match “{search}”
+              </EmptyRow>
+            ) : (
+              sorted.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={<span className="cursor-default font-mono text-sm" />}
+                          >
+                            {(c.instance_id ?? c.id).slice(0, 8)}…
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="flex flex-col gap-0.5 font-mono text-xs">
+                              {c.instance_id && <span>client id: {c.instance_id}</span>}
+                              <span>connection: {c.id}</span>
+                              <span>{c.token_name ? `token: ${c.token_name}` : 'master token'}</span>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                        {c.service && (
+                          <HintBadge tint="blue" hint="Service name announced by the client (services: list)">
                             {c.service}
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.public && (
-                        <Tooltip content="This client serves its traffic without the visitor auth gate">
-                          <Badge color="green" size="1">
+                          </HintBadge>
+                        )}
+                        {c.public && (
+                          <HintBadge
+                            tint="green"
+                            hint="This client serves its traffic without the visitor auth gate"
+                          >
                             public
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.visitor_auth && (
-                        <Tooltip content="This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service">
-                          <Badge color="jade" size="1">
+                          </HintBadge>
+                        )}
+                        {c.visitor_auth && (
+                          <HintBadge
+                            tint="lime"
+                            hint="This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service"
+                          >
                             custom auth
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.version && (
-                        <Text size="1" color="gray">
-                          v{c.version}
-                        </Text>
-                      )}
-                      {c.bandwidth_bps !== null && (
-                        <Tooltip content="Announced link capacity; the server paces frames to this client accordingly">
-                          <Badge color="gray" size="1">
+                          </HintBadge>
+                        )}
+                        {c.version && (
+                          <span className="text-xs text-muted-foreground">v{c.version}</span>
+                        )}
+                        {c.bandwidth_bps !== null && (
+                          <HintBadge
+                            tint="gray"
+                            hint="Announced link capacity; the server paces frames to this client accordingly"
+                          >
                             {formatBandwidth(c.bandwidth_bps)}
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.priority > 0 && (
-                        <Tooltip content={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}>
-                          <Badge color="gray" size="1">
+                          </HintBadge>
+                        )}
+                        {c.priority > 0 && (
+                          <HintBadge
+                            tint="gray"
+                            hint={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}
+                          >
                             standby {c.priority}
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.protocol_mismatch && (
-                        <Tooltip
-                          content={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
-                        >
-                          <Badge color="red" size="1">
+                          </HintBadge>
+                        )}
+                        {c.protocol_mismatch && (
+                          <HintBadge
+                            tint="red"
+                            hint={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
+                          >
                             proto v{c.protocol}
-                          </Badge>
-                        </Tooltip>
-                      )}
-                      {c.instance_id_shared && (
-                        <Tooltip
-                          content={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
-                        >
-                          <Badge color="amber" size="1">
+                          </HintBadge>
+                        )}
+                        {c.instance_id_shared && (
+                          <HintBadge
+                            tint="amber"
+                            hint={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
+                          >
                             SHARED ID
-                          </Badge>
-                        </Tooltip>
+                          </HintBadge>
+                        )}
+                      </div>
+                      {c.token_name && (
+                        <span className="text-xs text-muted-foreground">🔑 {c.token_name}</span>
                       )}
-                    </Flex>
-                    {c.token_name && (
-                      <Text size="1" color="gray">
-                        🔑 {c.token_name}
-                      </Text>
-                    )}
-                  </Flex>
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="2" style={{ fontFamily: 'var(--code-font-family)' }}>
-                    {c.ip}
-                  </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <BindList binds={c.hostname_binds} override={c.override_hostname_bind} />
-                </Table.Cell>
-                <Table.Cell>
-                  <BindList binds={c.path_bind ? [c.path_bind] : []} override={c.override_path_bind} />
-                </Table.Cell>
-                <Table.Cell>
-                  <Flex align="center" gap="2">
-                    <span
-                      className={`status-dot ${c.healthy && c.backend_healthy ? 'active' : 'inactive'}`}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">{c.ip}</TableCell>
+                  <TableCell>
+                    <BindList binds={c.hostname_binds} override={c.override_hostname_bind} />
+                  </TableCell>
+                  <TableCell>
+                    <BindList
+                      binds={c.path_bind ? [c.path_bind] : []}
+                      override={c.override_path_bind}
                     />
-                    <Text size="2">{formatLastPing(c.last_ping_seconds_ago)}</Text>
-                    {!c.healthy && (
-                      <Badge color="red" size="1">
-                        DOWN
-                      </Badge>
-                    )}
-                    {c.healthy && !c.backend_healthy && (
-                      <Tooltip content="The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected">
-                        <Badge color="amber" size="1">
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <StatusDot active={c.healthy && c.backend_healthy} />
+                      <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago)}</span>
+                      {!c.healthy && <TintBadge tint="red">DOWN</TintBadge>}
+                      {c.healthy && !c.backend_healthy && (
+                        <HintBadge
+                          tint="amber"
+                          hint="The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected"
+                        >
                           BACKEND DOWN
-                        </Badge>
-                      </Tooltip>
-                    )}
-                  </Flex>
-                </Table.Cell>
-                <Table.Cell>{formatUptime(c.connected_for_seconds)}</Table.Cell>
-                <Table.Cell>{c.request_count}</Table.Cell>
-                <Table.Cell>
-                  <Flex gap="2">
-                    <OverruleDialog client={c} onDone={onChanged} />
-                    <EnableToggle client={c} onDone={onChanged} />
-                  </Flex>
-                </Table.Cell>
-              </Table.Row>
-            ))
-          )}
-        </Table.Body>
-      </Table.Root>
-    </Flex>
+                        </HintBadge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{formatUptime(c.connected_for_seconds)}</TableCell>
+                  <TableCell className="tabular-nums">{c.request_count}</TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-2">
+                      <OverruleDialog client={c} onDone={onChanged} />
+                      <EnableToggle client={c} onDone={onChanged} />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </section>
   )
 }
-
-export { EmptyRow, SkeletonRows }

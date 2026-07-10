@@ -1,18 +1,26 @@
-import { MagnifyingGlassIcon } from '@radix-ui/react-icons'
-import { Dialog, Flex, Text, TextField, VisuallyHidden } from '@radix-ui/themes'
-import { useEffect, useState } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { useEffect } from 'react'
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from '@/components/ui/command'
 
 export interface Command {
   id: string
   label: string
   hint?: string
+  icon?: LucideIcon
   run: () => void
 }
 
 /**
- * A keyboard-driven command menu. Cmd/Ctrl+K toggles it; typing filters, the
- * arrow keys move the selection and Enter runs it. Navigation and appearance
- * commands are supplied by the caller.
+ * Keyboard-driven command menu (cmdk). Cmd/Ctrl+K toggles it; typing filters,
+ * arrows move the selection, Enter runs it.
  */
 export function CommandPalette({
   open,
@@ -23,9 +31,6 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void
   commands: Command[]
 }) {
-  const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -37,89 +42,28 @@ export function CommandPalette({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onOpenChange])
 
-  const needle = query.trim().toLowerCase()
-  const filtered = needle
-    ? commands.filter((c) => c.label.toLowerCase().includes(needle))
-    : commands
-  const clamped = Math.min(active, Math.max(filtered.length - 1, 0))
-
-  const close = () => {
-    onOpenChange(false)
-    setQuery('')
-    setActive(0)
-  }
-
-  const run = (command: Command | undefined) => {
-    if (!command) return
-    command.run()
-    close()
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setActive((a) => Math.min(a + 1, filtered.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setActive((a) => Math.max(a - 1, 0))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      run(filtered[clamped])
-    }
-  }
-
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) close()
-        else onOpenChange(true)
-      }}
-    >
-      <Dialog.Content maxWidth="480px" align="start">
-        <VisuallyHidden>
-          <Dialog.Title>Command menu</Dialog.Title>
-        </VisuallyHidden>
-        <TextField.Root
-          autoFocus
-          placeholder="Type a command…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            setActive(0)
-          }}
-          onKeyDown={onKeyDown}
-        >
-          <TextField.Slot>
-            <MagnifyingGlassIcon />
-          </TextField.Slot>
-        </TextField.Root>
-        <Flex direction="column" gap="1" mt="3">
-          {filtered.length === 0 ? (
-            <Text size="2" color="gray" align="center" style={{ padding: 'var(--space-3)' }}>
-              No matching commands
-            </Text>
-          ) : (
-            filtered.map((c, i) => (
-              <button
-                key={c.id}
-                type="button"
-                className="command-item"
-                data-active={i === clamped}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => run(c)}
-              >
-                <Text size="2">{c.label}</Text>
-                {c.hint && (
-                  <Text size="1" color="gray">
-                    {c.hint}
-                  </Text>
-                )}
-              </button>
-            ))
-          )}
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+    <CommandDialog open={open} onOpenChange={onOpenChange}>
+      <CommandInput placeholder="Type a command…" />
+      <CommandList>
+        <CommandEmpty>No matching commands</CommandEmpty>
+        <CommandGroup>
+          {commands.map((c) => (
+            <CommandItem
+              key={c.id}
+              value={c.label}
+              onSelect={() => {
+                c.run()
+                onOpenChange(false)
+              }}
+            >
+              {c.icon && <c.icon />}
+              <span>{c.label}</span>
+              {c.hint && <CommandShortcut>{c.hint}</CommandShortcut>}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
   )
 }

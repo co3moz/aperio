@@ -1,23 +1,44 @@
-import { PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import { PlusIcon, Trash2Icon } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import { TintBadge } from './badges'
 import {
   AlertDialog,
-  Badge,
-  Button,
-  Callout,
-  Code,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import {
   Dialog,
-  Flex,
-  Heading,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import {
   Table,
-  Text,
-  TextField,
-} from '@radix-ui/themes'
-import { useState } from 'react'
-import { usePoll } from '../hooks/usePoll'
-import { useToast } from '../hooks/useToast'
-import { api, ApiError, type Webhook } from '../lib/api'
-import { splitList } from '../lib/format'
-import { EmptyRow, SkeletonRows } from './ClientsSection'
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { usePoll } from '@/hooks/usePoll'
+import { api, ApiError, type Webhook } from '@/lib/api'
+import { splitList } from '@/lib/format'
 
 const KNOWN_EVENTS =
   'client_connected, client_disconnected, client_draining, token_created, token_revoked, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off'
@@ -30,7 +51,6 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const toast = useToast()
 
   const openDialog = (next: boolean) => {
     if (next) {
@@ -54,7 +74,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
         ...(secret.trim() ? { secret: secret.trim() } : {}),
       })
       setOpen(false)
-      toast(`Webhook "${name.trim()}" added`, 'green')
+      toast.success(`Webhook "${name.trim()}" added`)
       onCreated()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -64,112 +84,106 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={openDialog}>
-      <Dialog.Trigger>
-        <Button size="2" variant="soft">
-          <PlusIcon /> Add Webhook
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="480px">
-        <Dialog.Title>Add webhook</Dialog.Title>
-        <Dialog.Description size="2" color="gray">
-          Known events: {KNOWN_EVENTS}. Use * to subscribe to everything.
-        </Dialog.Description>
-        <Flex direction="column" gap="3" mt="4">
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              NAME
-            </Text>
-            <TextField.Root value={name} onChange={(e) => setName(e.target.value)} placeholder="ops-alerts" />
-          </label>
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              URL
-            </Text>
-            <TextField.Root
+    <Dialog open={open} onOpenChange={openDialog}>
+      <DialogTrigger render={<Button size="sm" />}>
+        <PlusIcon /> Add Webhook
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add webhook</DialogTitle>
+          <DialogDescription>
+            Known events: {KNOWN_EVENTS}. Use * to subscribe to everything.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="wh-name">Name</Label>
+            <Input
+              id="wh-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="ops-alerts"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="wh-url">URL</Label>
+            <Input
+              id="wh-url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/hooks/aperio"
             />
-          </label>
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              EVENTS (COMMA SEPARATED, * = ALL)
-            </Text>
-            <TextField.Root value={events} onChange={(e) => setEvents(e.target.value)} placeholder="*" />
-          </label>
-          <label>
-            <Text as="div" size="1" weight="medium" color="gray" mb="1">
-              SIGNING SECRET (OPTIONAL, 16-128 CHARS)
-            </Text>
-            <TextField.Root
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="wh-events">Events (comma separated, * = all)</Label>
+            <Input
+              id="wh-events"
+              value={events}
+              onChange={(e) => setEvents(e.target.value)}
+              placeholder="*"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="wh-secret">Signing secret (optional, 16-128 chars)</Label>
+            <Input
+              id="wh-secret"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               placeholder="shared secret for X-Aperio-Signature"
             />
-            <Text as="div" size="1" color="gray" mt="1">
+            <p className="text-xs text-muted-foreground">
               Deliveries carry X-Aperio-Signature (HMAC-SHA256 over "timestamp.body") and
               X-Aperio-Timestamp so the receiver can verify origin and freshness.
-            </Text>
-          </label>
-          {error && (
-            <Callout.Root color="red" size="1">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
-        </Flex>
-        <Flex gap="3" mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </Dialog.Close>
-          <Button onClick={submit} loading={busy}>
-            Add
+            </p>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+          <Button onClick={submit} disabled={busy}>
+            {busy && <Spinner />} Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => void }) {
-  const toast = useToast()
   const remove = async () => {
     try {
       await api.deleteWebhook(hook.id)
-      toast(`Webhook "${hook.name}" deleted`, 'gray')
+      toast.info(`Webhook "${hook.name}" deleted`)
     } finally {
       onDone()
     }
   }
 
   return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger>
-        <Button size="1" variant="soft" color="red">
-          <TrashIcon /> Delete
-        </Button>
-      </AlertDialog.Trigger>
-      <AlertDialog.Content maxWidth="440px">
-        <AlertDialog.Title>Delete webhook "{hook.name}"?</AlertDialog.Title>
-        <AlertDialog.Description size="2">
-          No further events will be delivered to {hook.url}.
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button color="red" onClick={remove}>
-              Delete
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="xs" variant="destructive" />}>
+        <Trash2Icon /> Delete
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete webhook "{hook.name}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            No further events will be delivered to {hook.url}.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+            onClick={() => void remove()}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -177,60 +191,57 @@ export function WebhooksSection() {
   const { data: hooks, refresh } = usePoll(api.webhooks, 15_000)
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex justify="between" align="center">
-        <Heading size="4">Webhooks</Heading>
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Webhooks">
         <CreateWebhookDialog onCreated={refresh} />
-      </Flex>
-      <Table.Root variant="surface">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeaderCell>Name</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>URL</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Events</Table.ColumnHeaderCell>
-            <Table.ColumnHeaderCell>Actions</Table.ColumnHeaderCell>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {hooks === null ? (
-            <SkeletonRows rows={3} cols={4} />
-          ) : hooks.length === 0 ? (
-            <EmptyRow colSpan={4}>No webhooks defined</EmptyRow>
-          ) : (
-            hooks.map((h) => (
-              <Table.Row key={h.id}>
-                <Table.Cell>
-                  <Flex align="center" gap="1">
-                    {h.name}
-                    {h.signed && (
-                      <Badge color="green" size="1">
-                        signed
-                      </Badge>
-                    )}
-                  </Flex>
-                </Table.Cell>
-                <Table.Cell>
-                  <Code size="2" style={{ wordBreak: 'break-all' }}>
-                    {h.url}
-                  </Code>
-                </Table.Cell>
-                <Table.Cell>
-                  <Flex gap="1" wrap="wrap">
-                    {(h.events.length ? h.events : ['*']).map((e) => (
-                      <Badge key={e} color="indigo">
-                        {e}
-                      </Badge>
-                    ))}
-                  </Flex>
-                </Table.Cell>
-                <Table.Cell>
-                  <DeleteWebhookButton hook={h} onDone={refresh} />
-                </Table.Cell>
-              </Table.Row>
-            ))
-          )}
-        </Table.Body>
-      </Table.Root>
-    </Flex>
+      </SectionHeader>
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>URL</TableHead>
+              <TableHead>Events</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {hooks === null ? (
+              <SkeletonRows rows={3} cols={4} />
+            ) : hooks.length === 0 ? (
+              <EmptyRow colSpan={4}>No webhooks defined</EmptyRow>
+            ) : (
+              hooks.map((h) => (
+                <TableRow key={h.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 font-medium">
+                      {h.name}
+                      {h.signed && <TintBadge tint="green">signed</TintBadge>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <code className="break-all font-mono text-xs">{h.url}</code>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {(h.events.length ? h.events : ['*']).map((e) => (
+                        <TintBadge key={e} tint="lime">
+                          {e}
+                        </TintBadge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      <DeleteWebhookButton hook={h} onDone={refresh} />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </section>
   )
 }

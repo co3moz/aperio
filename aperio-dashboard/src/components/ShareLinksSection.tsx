@@ -1,17 +1,18 @@
-import { CheckIcon, CopyIcon, Link2Icon } from '@radix-ui/react-icons'
-import {
-  Button,
-  Callout,
-  Card,
-  Code,
-  Flex,
-  Heading,
-  Select,
-  Text,
-  TextField,
-} from '@radix-ui/themes'
+import { Link2Icon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { api, ApiError } from '../lib/api'
+import { CopyButton, SectionHeader } from './shared'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
+import { api, ApiError } from '@/lib/api'
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
@@ -51,7 +52,6 @@ export function ShareLinksSection() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ url: string; expires_at: number | null } | null>(null)
-  const [copied, setCopied] = useState(false)
 
   const create = async (e: FormEvent) => {
     e.preventDefault()
@@ -59,7 +59,6 @@ export function ShareLinksSection() {
     setBusy(true)
     setError(null)
     setResult(null)
-    setCopied(false)
     try {
       const created = await api.createShareLink({
         hostname: hostname.trim(),
@@ -74,85 +73,60 @@ export function ShareLinksSection() {
     }
   }
 
-  const copy = async () => {
-    if (!result) return
-    try {
-      await navigator.clipboard.writeText(result.url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard unavailable; the URL below stays selectable.
-    }
-  }
-
   return (
-    <Flex direction="column" gap="3">
-      <Heading size="4">Share Links</Heading>
-      <Card size="3">
-        <Flex direction="column" gap="3">
-          <Text size="2" color="gray">
+    <section className="flex flex-col gap-3">
+      <SectionHeader title="Share Links" />
+      <Card className="py-5">
+        <CardContent className="flex flex-col gap-4 px-5">
+          <p className="text-sm text-muted-foreground">
             Give someone temporary access to an auth-protected site: the link carries a signed,
             expiring token scoped to the hostname (and optional path). Opening it sets a cookie
             and redirects to the clean URL. Links are stateless — they cannot be listed later,
             they simply expire.
-          </Text>
-          <form onSubmit={create}>
-            <Flex gap="2" align="center" wrap="wrap">
-              <div style={{ flex: 2, minWidth: 200 }}>
-                <TextField.Root
-                  value={hostname}
-                  onChange={(e) => setHostname(e.target.value)}
-                  placeholder="app.example.com"
-                />
-              </div>
-              <div style={{ flex: 1, minWidth: 120 }}>
-                <TextField.Root
-                  value={path}
-                  onChange={(e) => setPath(e.target.value)}
-                  placeholder="/docs (optional)"
-                />
-              </div>
-              <Select.Root value={ttl} onValueChange={setTtl}>
-                <Select.Trigger />
-                <Select.Content>
-                  {TTL_OPTIONS.map((o) => (
-                    <Select.Item key={o.value} value={o.value}>
-                      {o.label}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-              <Button type="submit" loading={busy} variant="soft">
-                <Link2Icon /> Create link
-              </Button>
-            </Flex>
+          </p>
+          <form onSubmit={create} className="flex flex-wrap items-center gap-2">
+            <Input
+              value={hostname}
+              onChange={(e) => setHostname(e.target.value)}
+              placeholder="app.example.com"
+              className="min-w-52 flex-2"
+            />
+            <Input
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/docs (optional)"
+              className="min-w-32 flex-1"
+            />
+            <Select value={ttl} onValueChange={(v) => setTtl(v as string)}>
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TTL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="submit" disabled={busy}>
+              {busy ? <Spinner /> : <Link2Icon />} Create link
+            </Button>
           </form>
-          {error && (
-            <Callout.Root color="red" size="1">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           {result && (
-            <Callout.Root color="green" size="1">
-              <Callout.Text>
-                <Flex align="center" gap="2" wrap="wrap">
-                  <Code size="2" style={{ wordBreak: 'break-all' }}>
-                    {result.url}
-                  </Code>
-                  <Button size="1" variant="soft" onClick={copy}>
-                    {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy'}
-                  </Button>
-                  <Text size="1" color="gray">
-                    {result.expires_at
-                      ? `valid until ${new Date(result.expires_at * 1000).toLocaleString()}`
-                      : 'never expires'}
-                  </Text>
-                </Flex>
-              </Callout.Text>
-            </Callout.Root>
+            <div className="flex flex-wrap items-center gap-2 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+              <code className="min-w-0 break-all font-mono text-sm">{result.url}</code>
+              <CopyButton value={result.url} />
+              <span className="text-xs text-muted-foreground">
+                {result.expires_at
+                  ? `valid until ${new Date(result.expires_at * 1000).toLocaleString()}`
+                  : 'never expires'}
+              </span>
+            </div>
           )}
-        </Flex>
+        </CardContent>
       </Card>
-    </Flex>
+    </section>
   )
 }

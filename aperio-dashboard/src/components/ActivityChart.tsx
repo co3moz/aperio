@@ -1,58 +1,78 @@
-import { Card, Flex, Text } from '@radix-ui/themes'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 
-const W = 1000
-const H = 120
+const chartConfig = {
+  rps: {
+    label: 'Requests/s',
+    color: 'var(--chart-1)',
+  },
+} satisfies ChartConfig
 
-/** SVG sparkline of requests/second over the last minute. */
+/** Area chart of requests/second over the last minute (recharts). */
 export function ActivityChart({ history }: { history: number[] }) {
-  const max = Math.max(...history, 1)
-  const stepX = W / (history.length - 1)
-  const points = history
-    .map((v, i) => `${(i * stepX).toFixed(1)},${(H - (v / max) * (H - 24) - 12).toFixed(1)}`)
-    .join(' ')
-  const area = `${points} ${W},${H} 0,${H}`
+  const data = history.map((v, i) => ({
+    // Sample i is (length - i) polls ago; each poll is ~2 s apart.
+    secondsAgo: (history.length - 1 - i) * 2,
+    rps: Number(v.toFixed(2)),
+  }))
 
   return (
-    <Card size="3">
-      <Flex justify="between" align="center" mb="3">
-        <Text size="1" weight="bold" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
+    <Card className="py-5">
+      <CardHeader className="px-5">
+        <CardTitle className="font-heading text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Live Request Activity
-        </Text>
-        <Text size="1" color="gray">
-          Requests / second (last 60 seconds)
-        </Text>
-      </Flex>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        style={{ width: '100%', height: 120, display: 'block' }}
-      >
-        <defs>
-          <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--indigo-9)" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="var(--indigo-9)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0, 1, 2, 3].map((i) => (
-          <line
-            key={i}
-            x1="0"
-            x2={W}
-            y1={(H * i) / 3}
-            y2={(H * i) / 3}
-            stroke="var(--gray-a4)"
-            strokeWidth="1"
-          />
-        ))}
-        <polygon points={area} fill="url(#activity-fill)" />
-        <polyline
-          points={points}
-          fill="none"
-          stroke="var(--indigo-9)"
-          strokeWidth="2.5"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
+        </CardTitle>
+        <CardDescription>Requests / second (last 60 seconds)</CardDescription>
+      </CardHeader>
+      <CardContent className="px-5">
+        <ChartContainer config={chartConfig} className="h-36 w-full">
+          <AreaChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
+            <defs>
+              <linearGradient id="fill-rps" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-rps)" stopOpacity={0.6} />
+                <stop offset="95%" stopColor="var(--color-rps)" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="secondsAgo"
+              reversed={false}
+              tickLine={false}
+              axisLine={false}
+              tickMargin={6}
+              interval="preserveStartEnd"
+              tickFormatter={(v: number) => (v === 0 ? 'now' : `-${v}s`)}
+            />
+            <YAxis hide domain={[0, 'auto']} />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(_, payload) => {
+                    const s = payload?.[0]?.payload?.secondsAgo as number | undefined
+                    return s === 0 ? 'now' : `${s}s ago`
+                  }}
+                  indicator="line"
+                />
+              }
+            />
+            <Area
+              dataKey="rps"
+              type="monotone"
+              fill="url(#fill-rps)"
+              stroke="var(--color-rps)"
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ChartContainer>
+      </CardContent>
     </Card>
   )
 }

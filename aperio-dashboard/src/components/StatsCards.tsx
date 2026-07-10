@@ -1,15 +1,16 @@
 import {
-  BarChartIcon,
-  CalendarIcon,
+  ArrowLeftRightIcon,
+  CalendarDaysIcon,
+  GaugeIcon,
   GlobeIcon,
   LayersIcon,
-  PaperPlaneIcon,
-  TimerIcon,
-} from '@radix-ui/react-icons'
-import { Card, Flex, Grid, Skeleton, Text } from '@radix-ui/themes'
+  TrendingUpIcon,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { ServerStats } from '../lib/api'
-import { formatBytes } from '../lib/format'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { ServerStats } from '@/lib/api'
+import { formatBytes } from '@/lib/format'
 
 function StatCard({
   icon,
@@ -25,19 +26,19 @@ function StatCard({
   loading: boolean
 }) {
   return (
-    <Card size="3">
-      <Flex align="center" gap="2" mb="1">
-        <Text color="gray">{icon}</Text>
-        <Text size="1" weight="bold" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
+    <Card className="gap-2 py-5">
+      <CardHeader className="px-5">
+        <CardDescription className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider">
+          <span className="[&_svg]:size-4 text-primary">{icon}</span>
           {title}
-        </Text>
-      </Flex>
-      <Text as="div" size="8" weight="bold">
-        <Skeleton loading={loading}>{value}</Skeleton>
-      </Text>
-      <Text as="div" size="1" color="gray" mt="1">
-        <Skeleton loading={loading}>{sub}</Skeleton>
-      </Text>
+        </CardDescription>
+        <CardTitle className="font-heading text-3xl font-bold tabular-nums">
+          {loading ? <Skeleton className="h-8 w-20" /> : value}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {loading ? <Skeleton className="h-3.5 w-32" /> : sub}
+        </CardDescription>
+      </CardHeader>
     </Card>
   )
 }
@@ -47,7 +48,7 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
   const loading = s === null
   const total = s ? s.successful_requests + s.failed_requests : 0
   return (
-    <Grid columns={{ initial: '1', xs: '2', md: '3' }} gap="4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <StatCard
         loading={loading}
         icon={<GlobeIcon />}
@@ -68,21 +69,21 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
       />
       <StatCard
         loading={loading}
-        icon={<BarChartIcon />}
+        icon={<TrendingUpIcon />}
         title="Total Requests"
         value={String(s?.total_requests ?? 0)}
         sub={`${s?.successful_requests ?? 0} of ${total} successful`}
       />
       <StatCard
         loading={loading}
-        icon={<PaperPlaneIcon />}
+        icon={<ArrowLeftRightIcon />}
         title="Data Transferred"
         value={formatBytes(s?.total_bytes_transferred ?? 0)}
         sub="Payload bytes transferred"
       />
       <StatCard
         loading={loading}
-        icon={<TimerIcon />}
+        icon={<GaugeIcon />}
         title="Avg Response"
         value={s && s.persistent.total_requests > 0 ? `${s.avg_response_ms.toFixed(1)} ms` : '—'}
         sub={
@@ -93,7 +94,7 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
       />
       <StatCard
         loading={loading}
-        icon={<CalendarIcon />}
+        icon={<CalendarDaysIcon />}
         title="Today"
         value={String(s?.today.requests ?? 0)}
         sub={
@@ -102,6 +103,6 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
             : 'Requests today'
         }
       />
-    </Grid>
+    </div>
   )
 }

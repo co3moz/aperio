@@ -1,18 +1,30 @@
-import { CheckIcon, CopyIcon, PlayIcon } from '@radix-ui/react-icons'
-import { Button, Callout, Dialog, Flex, Text, Tooltip } from '@radix-ui/themes'
+import { CheckIcon, CopyIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useToast } from '../hooks/useToast'
-import { api, ApiError, type CapturedRequest } from '../lib/api'
-import { buildCurl, decodeBodyPreview, formatHeaders } from '../lib/format'
+import { toast } from 'sonner'
+import { PreBlock } from './shared'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { api, ApiError, type CapturedRequest } from '@/lib/api'
+import { buildCurl, decodeBodyPreview, formatHeaders } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 function Section({ label, content }: { label: string; content: string }) {
   return (
-    <Flex direction="column" gap="1">
-      <Text size="1" weight="bold" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
-      </Text>
-      <pre className="inspector-pre">{content}</pre>
-    </Flex>
+      </span>
+      <PreBlock>{content}</PreBlock>
+    </div>
   )
 }
 
@@ -23,7 +35,6 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
   const [replayResult, setReplayResult] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
   const [copied, setCopied] = useState(false)
-  const toast = useToast()
 
   useEffect(() => {
     setDetail(null)
@@ -55,9 +66,9 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
     try {
       await navigator.clipboard.writeText(curl)
       setCopied(true)
-      toast('Copied cURL to clipboard', 'green')
+      toast.success('Copied cURL to clipboard')
     } catch {
-      toast('Clipboard unavailable', 'red')
+      toast.error('Clipboard unavailable')
     }
   }
 
@@ -76,60 +87,68 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
   }
 
   return (
-    <Dialog.Root
+    <Dialog
       open={id !== null}
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
     >
-      <Dialog.Content maxWidth="860px">
-        <Flex justify="between" align="center" gap="3">
-          <Dialog.Title mb="0" size="4" style={{ wordBreak: 'break-all' }}>
-            {detail
-              ? `${detail.method} ${detail.uri} → ${detail.status} (${detail.duration_ms} ms)`
-              : 'Request Detail'}
-          </Dialog.Title>
-          {detail && (
-            <Flex gap="2" align="center" flexShrink="0">
-              <Tooltip content="Copy an equivalent curl command">
-                <Button size="1" variant="soft" color="gray" onClick={copyCurl}>
-                  {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy as cURL'}
-                </Button>
-              </Tooltip>
-              <Tooltip
-                content={
-                  detail.req_body_truncated
-                    ? 'Body truncated at capture; cannot replay'
-                    : 'Send this request through the tunnel again'
-                }
-              >
-                <Button
-                  size="1"
-                  variant="soft"
-                  disabled={detail.req_body_truncated}
-                  loading={replaying}
-                  onClick={replay}
-                >
-                  <PlayIcon /> Replay
-                </Button>
-              </Tooltip>
-            </Flex>
-          )}
-        </Flex>
-        <Dialog.Description size="1" color="gray" mt="1">
-          Captured transaction detail — bodies are capped at 64 KB.
-        </Dialog.Description>
-        <Flex direction="column" gap="3" mt="4">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <DialogTitle className="break-all leading-snug">
+              {detail
+                ? `${detail.method} ${detail.uri} → ${detail.status} (${detail.duration_ms} ms)`
+                : 'Request Detail'}
+            </DialogTitle>
+            {detail && (
+              <div className="flex shrink-0 items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger render={<Button size="xs" variant="outline" onClick={copyCurl} />}>
+                    {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy as cURL'}
+                  </TooltipTrigger>
+                  <TooltipContent>Copy an equivalent curl command</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={detail.req_body_truncated || replaying}
+                        onClick={replay}
+                      />
+                    }
+                  >
+                    {replaying ? <Spinner /> : <PlayIcon />} Replay
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {detail.req_body_truncated
+                      ? 'Body truncated at capture; cannot replay'
+                      : 'Send this request through the tunnel again'}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            )}
+          </div>
+          <DialogDescription>
+            Captured transaction detail — bodies are capped at 64 KB.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
           {replayResult && (
-            <Callout.Root size="1" color={replayResult.startsWith('✔') ? 'green' : 'red'}>
-              <Callout.Text>{replayResult}</Callout.Text>
-            </Callout.Root>
+            <p
+              className={cn(
+                'rounded-2xl border px-3 py-2 text-sm',
+                replayResult.startsWith('✔')
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
+              )}
+            >
+              {replayResult}
+            </p>
           )}
-          {error && (
-            <Callout.Root size="1" color="red">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           {detail && (
             <>
               <Section label="Request Headers" content={formatHeaders(detail.req_headers)} />
@@ -148,15 +167,13 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               />
             </>
           )}
-        </Flex>
-        <Flex mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Close
-            </Button>
-          </Dialog.Close>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
