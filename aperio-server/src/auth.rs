@@ -59,18 +59,11 @@ impl LockoutTracker {
     }
   }
 
-  /// From the environment: APERIO_LOGIN_LOCKOUT_THRESHOLD (default 5 failures)
-  /// and APERIO_LOGIN_LOCKOUT_SECS (default 60s base window).
-  pub(crate) fn from_env() -> Self {
-    let threshold = std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")
-      .ok()
-      .and_then(|v| v.parse::<u32>().ok())
-      .unwrap_or(5);
-    let base = std::env::var("APERIO_LOGIN_LOCKOUT_SECS")
-      .ok()
-      .and_then(|v| v.parse::<u64>().ok())
-      .unwrap_or(60);
-    Self::new(threshold, Duration::from_secs(base))
+  /// Replaces the lockout policy at runtime (dashboard settings). Existing
+  /// per-IP failure counters keep running under the new values.
+  pub(crate) fn set_policy(&mut self, threshold: u32, base: Duration) {
+    self.threshold = threshold.max(1);
+    self.base = base.max(Duration::from_secs(1));
   }
 
   /// Remaining lockout for `ip`, if it is currently locked out.

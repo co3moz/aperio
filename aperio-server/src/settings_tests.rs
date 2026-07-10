@@ -29,6 +29,11 @@ fn base_config() -> ServerConfig {
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
     cache_enabled: false,
+    max_concurrent_requests: 100,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
     cache_max_bytes: 64 * 1024 * 1024,
   }
 }

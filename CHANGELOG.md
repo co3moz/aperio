@@ -6,6 +6,11 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Seven more server settings are dashboard-editable** (live overrides like the rest): the response cache (`cache_enabled`, `cache_max_bytes` — disabling clears stored entries), the global concurrency limit (`max_concurrent_requests`, now enforced by a live-adjustable counter instead of a fixed semaphore), login brute-force lockout (`login_lockout_threshold`, `login_lockout_secs`), and audit log rotation (`audit_max_size`, `audit_max_files`). New Settings cards: *Caching* and *Security & Audit*.
+- **Read-only environment reference on the Settings page**: security- and startup-critical flags (`APERIO_TRUST_PROXY`, `APERIO_TRUSTED_PROXIES`, `APERIO_TRUST_CF_HEADER`, `APERIO_REAL_IP_HEADER`, `APERIO_SECURE_COOKIES`, `APERIO_IGNORE_CLIENT_AUTH`, `APERIO_OIDC_*`, `APERIO_METRICS` + token presence, `APERIO_ACCESS_LOG`) are listed with their current values (secrets shown only as set/not set) plus instructions for changing them — Docker or native, detected from the server's runtime.
+
 ### Changed
 
 - **The dashboard was rewritten on shadcn/ui** (Base UI primitives, `base-luma` style, neutral base color, lime theme + lime chart palette, Noto Sans for text and headings, Lucide icons, large radius, Tailwind CSS v4) replacing Radix Themes. It is now a real admin panel: a collapsible icon sidebar (Overview / Traffic / Access / System) with the session and sign-out in the footer, a sticky header with breadcrumb-style page context, ⌘K command menu (cmdk), and sonner toasts. The activity sparkline became a proper Recharts area chart with tooltips, and every table/dialog/form moved to the shadcn equivalents with the same functionality (live SSE traffic, filters in the URL, inspector + replay, token/webhook/share/maintenance/settings management, client overrule and kill switch, onboarding wizard). Noto Sans ships self-hosted as per-subset woff2 assets so the CSS bundle stays small and the CSP stays `self`-only; the theme toggle is hand-rolled (no next-themes inline script, which the dashboard CSP would block).

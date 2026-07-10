@@ -29,7 +29,50 @@ pub(crate) async fn settings_get_handler(
     "effective": settings_view(&state.config()),
     "defaults": settings_view(&state.config_env_defaults),
     "overrides": overrides,
+    "environment": environment_report(&state),
   }))
+}
+
+/// True when the server appears to run inside a container, so the dashboard
+/// can show the right way to change env-only flags.
+fn running_in_container() -> bool {
+  if std::path::Path::new("/.dockerenv").exists() {
+    return true;
+  }
+  std::fs::read_to_string("/proc/1/cgroup")
+    .map(|c| c.contains("docker") || c.contains("containerd") || c.contains("kubepods"))
+    .unwrap_or(false)
+}
+
+/// Read-only report of env-only flags for the dashboard reference table.
+/// Secrets are never included — only whether they are set.
+fn environment_report(state: &Arc<AppState>) -> serde_json::Value {
+  let c = state.config();
+  let env_or = |key: &str, fallback: &str| std::env::var(key).unwrap_or_else(|_| fallback.into());
+  let flags = serde_json::json!([
+    { "key": "APERIO_TRUST_PROXY", "value": if c.trust_proxy { "on" } else { "off" } },
+    { "key": "APERIO_TRUSTED_PROXIES",
+      "value": if c.trusted_proxies.is_empty() { "(unset — first XFF entry is trusted)".to_string() }
+               else { env_or("APERIO_TRUSTED_PROXIES", "") } },
+    { "key": "APERIO_TRUST_CF_HEADER", "value": env_or("APERIO_TRUST_CF_HEADER", "off") },
+    { "key": "APERIO_REAL_IP_HEADER",
+      "value": c.real_ip_header.clone().unwrap_or_else(|| "(unset)".into()) },
+    { "key": "APERIO_SECURE_COOKIES", "value": if c.secure_cookies { "on" } else { "off" } },
+    { "key": "APERIO_IGNORE_CLIENT_AUTH", "value": if c.ignore_client_auth { "on" } else { "off" } },
+    { "key": "APERIO_OIDC_*",
+      "value": match state.oidc {
+        Some(_) => format!("configured ({})", env_or("APERIO_OIDC_ISSUER", "?")),
+        None => "not configured".to_string(),
+      } },
+    { "key": "APERIO_METRICS", "value": env_or("APERIO_METRICS", "off") },
+    { "key": "APERIO_METRICS_TOKEN",
+      "value": if c.metrics_token.is_some() { "set (value hidden)" } else { "not set" } },
+    { "key": "APERIO_ACCESS_LOG", "value": env_or("APERIO_ACCESS_LOG", "(disabled)") },
+  ]);
+  serde_json::json!({
+    "runtime": if running_in_container() { "docker" } else { "native" },
+    "flags": flags,
+  })
 }
 
 /// Replaces the settings overrides. The body is the full overrides object:
@@ -94,6 +137,13 @@ pub(crate) async fn settings_put_handler(
       return (StatusCode::BAD_REQUEST, format!("{} exceeds 512 KB", label)).into_response();
     }
   }
+  if payload.cache_max_bytes == Some(0) {
+    return (
+      StatusCode::BAD_REQUEST,
+      "cache_max_bytes must be positive (disable the cache with cache_enabled instead)",
+    )
+      .into_response();
+  }
 
   let old_config = state.config();
   let effective = apply_settings_overrides(&state.config_env_defaults, &payload);
@@ -108,6 +158,28 @@ pub(crate) async fn settings_put_handler(
   }
   if !old_config.tunnel_compression && new_config.tunnel_compression {
     offer_compression_to_connected(&state).await;
+  }
+  // Settings backed by live structures (not just config reads) are pushed
+  // into them here.
+  if old_config.cache_enabled && !new_config.cache_enabled {
+    state.response_cache.lock().await.clear();
+  }
+  if old_config.login_lockout_threshold != new_config.login_lockout_threshold
+    || old_config.login_lockout_secs != new_config.login_lockout_secs
+  {
+    state.login_lockout.lock().await.set_policy(
+      new_config.login_lockout_threshold,
+      std::time::Duration::from_secs(new_config.login_lockout_secs),
+    );
+  }
+  if old_config.audit_max_size != new_config.audit_max_size
+    || old_config.audit_max_files != new_config.audit_max_files
+  {
+    state
+      .audit
+      .lock()
+      .await
+      .set_rotation(new_config.audit_max_size, new_config.audit_max_files);
   }
 
   match serde_json::to_string_pretty(&payload) {

@@ -77,11 +77,25 @@ pub(crate) struct ServerConfig {
   pub(crate) failover_all_methods: bool,
   /// Server-side GET response cache (APERIO_CACHE). Effective only for
   /// clients that announced `cache: true`, and only for responses whose
-  /// `Cache-Control` explicitly allows shared caching. Env-only.
+  /// `Cache-Control` explicitly allows shared caching.
   pub(crate) cache_enabled: bool,
   /// Total response-cache budget in bytes (APERIO_CACHE_MAX_BYTES,
-  /// default 64 MiB). Env-only.
+  /// default 64 MiB).
   pub(crate) cache_max_bytes: u64,
+  /// Concurrent proxied requests limit (APERIO_MAX_CONCURRENT_REQUESTS);
+  /// requests beyond it are rejected with 429.
+  pub(crate) max_concurrent_requests: usize,
+  /// Consecutive login failures per IP before a lockout starts
+  /// (APERIO_LOGIN_LOCKOUT_THRESHOLD).
+  pub(crate) login_lockout_threshold: u32,
+  /// Base lockout window in seconds, doubled per repeat offense
+  /// (APERIO_LOGIN_LOCKOUT_SECS).
+  pub(crate) login_lockout_secs: u64,
+  /// Audit log rotation threshold in bytes, 0 disables rotation
+  /// (APERIO_AUDIT_MAX_SIZE).
+  pub(crate) audit_max_size: u64,
+  /// Rotated audit log generations to keep (APERIO_AUDIT_MAX_FILES).
+  pub(crate) audit_max_files: usize,
 }
 
 /// What happens when a tunnel client is lost while a request is in flight
@@ -128,6 +142,14 @@ pub(crate) struct SettingsOverrides {
   pub(crate) custom_503_page: Option<String>,
   /// Visitor password in `user:password` form ("" = disabled).
   pub(crate) auth_credentials: Option<String>,
+  pub(crate) cache_enabled: Option<bool>,
+  pub(crate) cache_max_bytes: Option<u64>,
+  pub(crate) max_concurrent_requests: Option<usize>,
+  pub(crate) login_lockout_threshold: Option<u32>,
+  pub(crate) login_lockout_secs: Option<u64>,
+  /// 0 disables rotation.
+  pub(crate) audit_max_size: Option<u64>,
+  pub(crate) audit_max_files: Option<usize>,
 }
 
 /// Parses an `APERIO_LB_STRATEGY`-style value.
@@ -235,6 +257,29 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
       Some(creds.clone())
     };
   }
+  if let Some(v) = o.cache_enabled {
+    c.cache_enabled = v;
+  }
+  if let Some(v) = o.cache_max_bytes
+    && v > 0
+  {
+    c.cache_max_bytes = v;
+  }
+  if let Some(v) = o.max_concurrent_requests {
+    c.max_concurrent_requests = v.max(1);
+  }
+  if let Some(v) = o.login_lockout_threshold {
+    c.login_lockout_threshold = v.max(1);
+  }
+  if let Some(v) = o.login_lockout_secs {
+    c.login_lockout_secs = v.max(1);
+  }
+  if let Some(v) = o.audit_max_size {
+    c.audit_max_size = v;
+  }
+  if let Some(v) = o.audit_max_files {
+    c.audit_max_files = v;
+  }
   c
 }
 
@@ -268,6 +313,13 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "custom_504_page": c.custom_504_page,
     "custom_503_page": c.custom_503_page,
     "auth_credentials": c.auth_credentials,
+    "cache_enabled": c.cache_enabled,
+    "cache_max_bytes": c.cache_max_bytes,
+    "max_concurrent_requests": c.max_concurrent_requests,
+    "login_lockout_threshold": c.login_lockout_threshold,
+    "login_lockout_secs": c.login_lockout_secs,
+    "audit_max_size": c.audit_max_size,
+    "audit_max_files": c.audit_max_files,
   })
 }
 

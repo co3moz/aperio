@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore, watch};
+use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
 
 mod access_log;
@@ -476,6 +476,26 @@ async fn main() {
     failover_all_methods,
     cache_enabled,
     cache_max_bytes,
+    max_concurrent_requests,
+    login_lockout_threshold: std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")
+      .ok()
+      .and_then(|v| v.parse::<u32>().ok())
+      .unwrap_or(5),
+    login_lockout_secs: std::env::var("APERIO_LOGIN_LOCKOUT_SECS")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .unwrap_or(60),
+    // Audit log rotation: the active audit.jsonl is rotated once it exceeds
+    // this size in bytes (0 = never rotate), keeping the configured number
+    // of older generations (audit.jsonl.1 ..).
+    audit_max_size: std::env::var("APERIO_AUDIT_MAX_SIZE")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .unwrap_or(10 * 1024 * 1024),
+    audit_max_files: std::env::var("APERIO_AUDIT_MAX_FILES")
+      .ok()
+      .and_then(|v| v.parse::<usize>().ok())
+      .unwrap_or(3),
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and
@@ -512,20 +532,15 @@ async fn main() {
     );
   }
 
-  // Audit log rotation: the active audit.jsonl is rotated once it exceeds
-  // APERIO_AUDIT_MAX_SIZE bytes (0 = never rotate), keeping
-  // APERIO_AUDIT_MAX_FILES older generations (audit.jsonl.1 ..).
-  let audit_max_size = std::env::var("APERIO_AUDIT_MAX_SIZE")
-    .ok()
-    .and_then(|v| v.parse::<u64>().ok())
-    .unwrap_or(10 * 1024 * 1024);
-  let audit_max_files = std::env::var("APERIO_AUDIT_MAX_FILES")
-    .ok()
-    .and_then(|v| v.parse::<usize>().ok())
-    .unwrap_or(3);
-
   // OIDC SSO configuration (optional).
   let oidc_runtime = oidc::load_from_env().await;
+
+  // Copied out before config moves into the state (values needed by the
+  // live structures below).
+  let lockout_threshold = config.login_lockout_threshold;
+  let lockout_secs = config.login_lockout_secs;
+  let audit_max_size = config.audit_max_size;
+  let audit_max_files = config.audit_max_files;
 
   let (client_connected_tx, _) = watch::channel(false);
   // Live traffic fan-out to dashboard SSE subscribers. A bounded buffer means a
@@ -554,11 +569,14 @@ async fn main() {
     config_env_defaults,
     settings_overrides: Mutex::new(settings_overrides),
     settings_path,
-    concurrency_semaphore: Semaphore::new(max_concurrent_requests),
+    active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
-    login_lockout: Mutex::new(crate::auth::LockoutTracker::from_env()),
+    login_lockout: Mutex::new(crate::auth::LockoutTracker::new(
+      lockout_threshold,
+      Duration::from_secs(lockout_secs),
+    )),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),

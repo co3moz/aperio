@@ -519,7 +519,10 @@ pub(crate) struct AppState {
   pub(crate) settings_overrides: Mutex<SettingsOverrides>,
   /// Path of the persisted overrides file (`<data_dir>/settings.json`).
   pub(crate) settings_path: std::path::PathBuf,
-  pub(crate) concurrency_semaphore: Semaphore,
+  /// Currently in-flight proxied requests, checked against the (live,
+  /// dashboard-editable) max_concurrent_requests limit. A plain counter
+  /// instead of a semaphore so the limit can change at runtime.
+  pub(crate) active_proxied_requests: Arc<AtomicUsize>,
   pub(crate) path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   pub(crate) sessions: Mutex<HashMap<String, SessionInfo>>,
   pub(crate) rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
@@ -574,6 +577,16 @@ pub(crate) struct AppState {
   pub(crate) duration_histogram: DurationHistogram,
 }
 
+/// RAII slot in the global proxied-request concurrency limit; the slot is
+/// released when dropped.
+pub(crate) struct RequestSlot(Arc<AtomicUsize>);
+
+impl Drop for RequestSlot {
+  fn drop(&mut self) {
+    self.0.fetch_sub(1, Ordering::SeqCst);
+  }
+}
+
 impl AppState {
   /// Snapshot of the live configuration (cheap Arc clone).
   pub(crate) fn config(&self) -> Arc<ServerConfig> {
@@ -582,6 +595,20 @@ impl AppState {
       .read()
       .expect("config lock poisoned")
       .clone()
+  }
+
+  /// Claims a slot under `max_concurrent_requests`, or None when the server
+  /// is at capacity. The limit is read live, so dashboard edits apply to the
+  /// very next request.
+  pub(crate) fn try_acquire_request_slot(&self) -> Option<RequestSlot> {
+    let limit = self.config().max_concurrent_requests;
+    self
+      .active_proxied_requests
+      .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+        if cur < limit { Some(cur + 1) } else { None }
+      })
+      .ok()
+      .map(|_| RequestSlot(self.active_proxied_requests.clone()))
   }
 
   /// Records an audit event (file + in-memory ring).

@@ -275,9 +275,20 @@ SETTINGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/settings")"
 assert_contains "$SETTINGS" '"lb_strategy":"sticky"' "settings update applied live"
 [ -f "$BASE_DATA_DIR/settings.json" ] || fail "settings.json was not persisted"
 assert_contains "$(cat "$BASE_DATA_DIR/settings.json")" '"gateway_timeout_secs": 5' "settings.json persists overrides"
+assert_contains "$SETTINGS" '"environment"' "settings expose the env-only flag report"
+assert_contains "$SETTINGS" 'APERIO_TRUST_PROXY' "env report lists the proxy trust flag"
+assert_contains "$SETTINGS" '"cache_enabled"' "settings expose the response cache toggle"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+  --data '{"cache_enabled":true,"max_concurrent_requests":64,"login_lockout_threshold":7}' "$BASE/aperio/api/settings")"
+assert_status 200 "$CODE" "new runtime settings can be updated"
+SETTINGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/settings")"
+assert_contains "$SETTINGS" '"max_concurrent_requests":64' "concurrency limit applied live"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
   --data '{"lb_strategy":"bogus"}' "$BASE/aperio/api/settings")"
 assert_status 400 "$CODE" "invalid settings are rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
+  --data '{"cache_max_bytes":0}' "$BASE/aperio/api/settings")"
+assert_status 400 "$CODE" "zero cache budget is rejected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
   --data '{}' "$BASE/aperio/api/settings")"
 assert_status 200 "$CODE" "settings overrides can be reset"

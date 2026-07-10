@@ -39,6 +39,12 @@ pub(crate) fn cache_key(host: Option<&str>, uri: &str) -> String {
 }
 
 impl ResponseCache {
+  /// Drops every cached entry (used when the cache is disabled at runtime).
+  pub(crate) fn clear(&mut self) {
+    self.entries.clear();
+    self.total_bytes = 0;
+  }
+
   /// Returns a fresh entry for the key, dropping it if it has expired.
   pub(crate) fn get(&mut self, key: &str) -> Option<CacheHit> {
     let expired = self.entries.get(key)?.expires_at <= Instant::now();

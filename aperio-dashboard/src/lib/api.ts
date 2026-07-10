@@ -155,10 +155,23 @@ export type SettingsValues = Record<string, string | number | boolean | null>
 
 export type SettingsOverrides = Record<string, string | number | boolean | null | undefined>
 
+export interface EnvFlag {
+  key: string
+  value: string
+}
+
+export interface EnvironmentReport {
+  /** "docker" when the server runs in a container, else "native". */
+  runtime: 'docker' | 'native'
+  flags: EnvFlag[]
+}
+
 export interface SettingsPayload {
   effective: SettingsValues
   defaults: SettingsValues
   overrides: SettingsOverrides
+  /** Read-only env-only flags for the reference table. */
+  environment: EnvironmentReport
 }
 
 export class ApiError extends Error {

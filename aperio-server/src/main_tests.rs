@@ -34,7 +34,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore, mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 
 #[test]
 fn test_token_authentication() {
@@ -80,6 +80,11 @@ async fn test_rate_limiting() {
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
     cache_enabled: false,
+    max_concurrent_requests: 100,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -108,7 +113,7 @@ async fn test_rate_limiting() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
-    concurrency_semaphore: Semaphore::new(10),
+    active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
@@ -178,6 +183,11 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
     cache_enabled: false,
+    max_concurrent_requests: 100,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -207,7 +217,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
-    concurrency_semaphore: Semaphore::new(10),
+    active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
@@ -277,6 +287,11 @@ async fn test_proxy_handler_success() {
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
     cache_enabled: false,
+    max_concurrent_requests: 100,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -305,7 +320,7 @@ async fn test_proxy_handler_success() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
-    concurrency_semaphore: Semaphore::new(10),
+    active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
     rate_limiter: Mutex::new(HashMap::new()),
@@ -730,6 +745,11 @@ fn test_apply_settings_overrides() {
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
     cache_enabled: false,
+    max_concurrent_requests: 100,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
     cache_max_bytes: 64 * 1024 * 1024,
   };
 

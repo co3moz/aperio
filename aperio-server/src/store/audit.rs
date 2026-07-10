@@ -116,6 +116,13 @@ impl AuditLog {
     }
   }
 
+  /// Replaces the rotation policy at runtime (dashboard settings). Takes
+  /// effect from the next recorded event.
+  pub fn set_rotation(&mut self, max_size: u64, max_files: usize) {
+    self.max_size = max_size;
+    self.max_files = max_files;
+  }
+
   /// Records an event: appends a JSON line to the file and to the ring buffer.
   pub fn record(&mut self, event: &str, actor_ip: &str, details: &str) {
     let now = std::time::SystemTime::now()

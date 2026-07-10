@@ -23,7 +23,21 @@ import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api, ApiError, type SettingsOverrides, type SettingsPayload } from '@/lib/api'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  api,
+  ApiError,
+  type EnvironmentReport,
+  type SettingsOverrides,
+  type SettingsPayload,
+} from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type FieldKind = 'number' | 'boolean' | 'select' | 'text' | 'textarea'
@@ -55,9 +69,10 @@ const GROUPS: GroupSpec[] = [
   },
   {
     title: 'Capacity & Health',
-    description: 'How many clients may connect and when one counts as down.',
+    description: 'How many clients may connect, how much runs at once, and when a client counts as down.',
     fields: [
       { key: 'max_tunnels', label: 'Max tunnel clients', kind: 'number', hint: 'Connection attempts beyond this are refused' },
+      { key: 'max_concurrent_requests', label: 'Max concurrent requests', kind: 'number', hint: 'In-flight proxied requests; beyond it visitors get 429' },
       { key: 'client_down_threshold_secs', label: 'Client down threshold (s)', kind: 'number', hint: 'Missed-heartbeat window before a client leaves routing' },
     ],
   },
@@ -90,6 +105,24 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   {
+    title: 'Caching',
+    description: 'Server-side response cache for services that opt in with cache: true.',
+    fields: [
+      { key: 'cache_enabled', label: 'Response cache', kind: 'boolean', hint: 'Cache-Control-driven GET cache; disabling clears stored entries' },
+      { key: 'cache_max_bytes', label: 'Cache budget (bytes)', kind: 'number', hint: 'Total memory for cached responses; entries closest to expiry are evicted first' },
+    ],
+  },
+  {
+    title: 'Security & Audit',
+    description: 'Login brute-force protection and audit log rotation.',
+    fields: [
+      { key: 'login_lockout_threshold', label: 'Login lockout threshold', kind: 'number', hint: 'Consecutive failures per IP before a lockout starts' },
+      { key: 'login_lockout_secs', label: 'Login lockout base (s)', kind: 'number', hint: 'First lockout duration; doubles per repeat offense' },
+      { key: 'audit_max_size', label: 'Audit rotation size (bytes)', kind: 'number', hint: 'audit.jsonl rotates past this size; 0 = never rotate' },
+      { key: 'audit_max_files', label: 'Audit generations kept', kind: 'number', hint: 'Rotated audit.jsonl.N files to keep; oldest is dropped' },
+    ],
+  },
+  {
     title: 'Visitor Experience',
     description: 'What visitors see in front of and around the proxied services.',
     fields: [
@@ -99,6 +132,90 @@ const GROUPS: GroupSpec[] = [
     ],
   },
 ]
+
+// What each env-only flag does, shown in the read-only reference table.
+const ENV_FLAG_DESCRIPTIONS: Record<string, string> = {
+  APERIO_TRUST_PROXY: 'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy',
+  APERIO_TRUSTED_PROXIES: 'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP',
+  APERIO_TRUST_CF_HEADER: 'Cloudflare shorthand: trust the CF-Connecting-IP header',
+  APERIO_REAL_IP_HEADER: 'Header consulted first for the visitor IP (behind CDN chains)',
+  APERIO_SECURE_COOKIES: 'Session cookies carry the Secure flag (HTTPS only)',
+  APERIO_IGNORE_CLIENT_AUTH: 'Ignore client-declared visitor passwords; the server keeps the gate',
+  'APERIO_OIDC_*': 'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)',
+  APERIO_METRICS: 'Prometheus metrics endpoint at /aperio/metrics',
+  APERIO_METRICS_TOKEN: 'Token required to scrape the metrics endpoint',
+  APERIO_ACCESS_LOG: 'JSONL access log file path (empty = disabled)',
+}
+
+/**
+ * Read-only reference of env-only flags: their current values and, based on
+ * whether the server runs in Docker, how to change them.
+ */
+function EnvReferenceCard({ environment }: { environment?: EnvironmentReport }) {
+  if (!environment) return null
+  const docker = environment.runtime === 'docker'
+  return (
+    <Card className="gap-4 py-5 xl:col-span-2">
+      <CardHeader className="px-5">
+        <CardTitle className="font-heading flex items-center gap-2 text-base">
+          Environment Flags <TintBadge tint="gray">read-only</TintBadge>
+        </CardTitle>
+        <CardDescription>
+          Security- and startup-critical flags stay environment-only so a compromised dashboard
+          session cannot change them. The server is running{' '}
+          {docker ? 'inside a container' : 'natively'} — to change one:
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4 px-5">
+        <pre className="overflow-x-auto rounded-2xl border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+          {docker
+            ? `# docker run: add the flag and recreate the container
+docker run -e APERIO_TRUST_PROXY=1 ... ghcr.io/co3moz/aperio-server
+
+# docker compose: add it under environment: and run
+#   docker compose up -d
+services:
+  aperio-server:
+    environment:
+      - APERIO_TRUST_PROXY=1`
+            : `# shell: export before starting the server
+export APERIO_TRUST_PROXY=1
+aperio-server
+
+# systemd: add to the unit and restart
+[Service]
+Environment=APERIO_TRUST_PROXY=1`}
+        </pre>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Variable</TableHead>
+              <TableHead>Current value</TableHead>
+              <TableHead>Purpose</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {environment.flags.map((f) => (
+              <TableRow key={f.key}>
+                <TableCell>
+                  <code className="font-mono text-xs">{f.key}</code>
+                </TableCell>
+                <TableCell>
+                  <code className="break-all font-mono text-xs text-muted-foreground">
+                    {f.value}
+                  </code>
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {ENV_FLAG_DESCRIPTIONS[f.key] ?? ''}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
 
 /**
  * Dashboard-editable server settings. Environment variables provide the
@@ -295,6 +412,7 @@ export function SettingsSection() {
             </CardContent>
           </Card>
         ))}
+        <EnvReferenceCard environment={data.environment} />
       </div>
     </section>
   )

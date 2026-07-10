@@ -329,9 +329,9 @@ async fn proxy_http_request(
   }
 
   // 4. Limit concurrency to prevent resource starvation / DoS
-  let _permit = match state.concurrency_semaphore.try_acquire() {
-    Ok(p) => p,
-    Err(_) => {
+  let _permit = match state.try_acquire_request_slot() {
+    Some(p) => p,
+    None => {
       log_request_failure(
         &state,
         &method_str,

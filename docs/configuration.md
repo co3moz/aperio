@@ -16,7 +16,7 @@ The rule: take the CLI flag, drop the dashes, uppercase it, prefix `APERIO_` —
 
 **Legacy aliases.** The pre-rename spellings remain accepted so existing setups keep working: `APERIO_CLIENT_*` for most client variables, `APERIO_HOSTNAME_BIND` / `APERIO_PATH_BIND`, the flat yaml `server:`/`token:` form, and CLI aliases `--server`, `--token`, `--host`, `--concurrency`. New documentation and examples always use the canonical names.
 
-The server is configured through environment variables only (no yaml, no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides on top of the env defaults (`APERIO_DATA_DIR/settings.json`).
+The server is configured through environment variables only (no yaml, no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides on top of the env defaults (`APERIO_DATA_DIR/settings.json`). Security- and startup-critical flags (proxy trust, cookies, OIDC, metrics, access log) stay env-only; the dashboard settings page lists them read-only with their current values.
 
 ## Client
 
