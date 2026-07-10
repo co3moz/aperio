@@ -12,6 +12,7 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- Opening the dashboard's ⌘K command menu crashed the UI (`Cannot read properties of undefined (reading 'subscribe')`): the Base UI `CommandDialog` wrapper does not provide the `<Command>` root that the cmdk input/list need, so the palette now renders one explicitly.
 - Dashboard tooltips rendered as a full-height dark panel covering the screen (unreadable content): the page-background CSS rule targeted every `.radix-themes` wrapper, and Radix Themes portals tooltip/popover content into its own such wrapper on `<body>`. The rule is now scoped to the root app wrapper (`#root .radix-themes`), so portalled tooltips render normally again.
 - With `pass_hostname: true` the client forwarded the visitor's `Host` header **twice** to the local backend (once from the general header loop and once from the pass-hostname step). Lenient backends (e.g. Node) showed a duplicated `host`; strict servers reject multiple Host headers with 400 per RFC 7230. The header is now forwarded exactly once.
 

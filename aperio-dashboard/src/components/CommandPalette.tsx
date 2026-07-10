@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -44,26 +45,30 @@ export function CommandPalette({
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Type a command…" />
-      <CommandList>
-        <CommandEmpty>No matching commands</CommandEmpty>
-        <CommandGroup>
-          {commands.map((c) => (
-            <CommandItem
-              key={c.id}
-              value={c.label}
-              onSelect={() => {
-                c.run()
-                onOpenChange(false)
-              }}
-            >
-              {c.icon && <c.icon />}
-              <span>{c.label}</span>
-              {c.hint && <CommandShortcut>{c.hint}</CommandShortcut>}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
+      {/* The cmdk components need a <Command> root for their store; the
+          Base UI CommandDialog wrapper does not provide one itself. */}
+      <Command>
+        <CommandInput placeholder="Type a command…" />
+        <CommandList>
+          <CommandEmpty>No matching commands</CommandEmpty>
+          <CommandGroup>
+            {commands.map((c) => (
+              <CommandItem
+                key={c.id}
+                value={c.label}
+                onSelect={() => {
+                  c.run()
+                  onOpenChange(false)
+                }}
+              >
+                {c.icon && <c.icon />}
+                <span>{c.label}</span>
+                {c.hint && <CommandShortcut>{c.hint}</CommandShortcut>}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
     </CommandDialog>
   )
 }
