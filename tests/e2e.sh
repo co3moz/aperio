@@ -209,6 +209,7 @@ step "Health endpoint"
 HEALTH="$(curl -s "$BASE/aperio/health")"
 assert_contains "$HEALTH" '"status":"healthy"' "health reports healthy"
 assert_contains "$HEALTH" '"protocol":' "health reports the tunnel protocol version"
+assert_contains "$HEALTH" '"ui_language"' "health reports the default UI language"
 
 step "504 when no client is connected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")"
@@ -278,6 +279,7 @@ assert_contains "$(cat "$BASE_DATA_DIR/settings.json")" '"gateway_timeout_secs":
 assert_contains "$SETTINGS" '"environment"' "settings expose the env-only flag report"
 assert_contains "$SETTINGS" 'APERIO_TRUST_PROXY' "env report lists the proxy trust flag"
 assert_contains "$SETTINGS" '"cache_enabled"' "settings expose the response cache toggle"
+assert_contains "$SETTINGS" '"ui_language":"en"' "settings expose the default UI language"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' \
   --data '{"cache_enabled":true,"max_concurrent_requests":64,"login_lockout_threshold":7}' "$BASE/aperio/api/settings")"
 assert_status 200 "$CODE" "new runtime settings can be updated"

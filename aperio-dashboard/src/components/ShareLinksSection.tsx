@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { api, ApiError } from '@/lib/api'
+import { useI18n } from '@/i18n'
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
@@ -46,6 +47,7 @@ const TTL_OPTIONS = [
  * prefix). Stateless on the server — links simply expire.
  */
 export function ShareLinksSection() {
+  const { t } = useI18n()
   const [hostname, setHostname] = useState('')
   const [path, setPath] = useState('')
   const [ttl, setTtl] = useState(TTL_OPTIONS[2].value)
@@ -75,14 +77,11 @@ export function ShareLinksSection() {
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Share Links" />
+      <SectionHeader title={t('Share Links')} />
       <Card className="py-5">
         <CardContent className="flex flex-col gap-4 px-5">
           <p className="text-sm text-muted-foreground">
-            Give someone temporary access to an auth-protected site: the link carries a signed,
-            expiring token scoped to the hostname (and optional path). Opening it sets a cookie
-            and redirects to the clean URL. Links are stateless — they cannot be listed later,
-            they simply expire.
+            {t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.')}
           </p>
           <form onSubmit={create} className="flex flex-wrap items-center gap-2">
             <Input
@@ -94,7 +93,7 @@ export function ShareLinksSection() {
             <Input
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              placeholder="/docs (optional)"
+              placeholder={t('/docs (optional)')}
               className="min-w-32 flex-1"
             />
             <Select value={ttl} onValueChange={(v) => setTtl(v as string)}>
@@ -104,13 +103,13 @@ export function ShareLinksSection() {
               <SelectContent>
                 {TTL_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
-                    {o.label}
+                    {t(o.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Button type="submit" disabled={busy}>
-              {busy ? <Spinner /> : <Link2Icon />} Create link
+              {busy ? <Spinner /> : <Link2Icon />} {t('Create link')}
             </Button>
           </form>
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -120,8 +119,8 @@ export function ShareLinksSection() {
               <CopyButton value={result.url} />
               <span className="text-xs text-muted-foreground">
                 {result.expires_at
-                  ? `valid until ${new Date(result.expires_at * 1000).toLocaleString()}`
-                  : 'never expires'}
+                  ? t('valid until {date}', { date: new Date(result.expires_at * 1000).toLocaleString() })
+                  : t('never expires')}
               </span>
             </div>
           )}

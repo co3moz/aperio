@@ -41,6 +41,7 @@ import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError, type TokenView } from '@/lib/api'
 import { formatExpiry, splitList } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 function BadgeList({ items, fallback, tint }: { items: string[]; fallback: string; tint: Tint }) {
   const shown = items.length ? items : [fallback]
@@ -66,16 +67,16 @@ interface TokenFormState {
   allowPublic: boolean
 }
 
-function formFromToken(t: TokenView | null): TokenFormState {
+function formFromToken(tok: TokenView | null): TokenFormState {
   return {
-    name: t?.name ?? '',
-    hostnames: t ? (t.hostnames.length ? t.hostnames : ['*']).join(', ') : '*',
-    paths: t ? (t.paths.length ? t.paths : ['*']).join(', ') : '*',
-    ips: t ? (t.allowed_ips.length ? t.allowed_ips : ['0.0.0.0/0']).join(', ') : '0.0.0.0/0',
+    name: tok?.name ?? '',
+    hostnames: tok ? (tok.hostnames.length ? tok.hostnames : ['*']).join(', ') : '*',
+    paths: tok ? (tok.paths.length ? tok.paths : ['*']).join(', ') : '*',
+    ips: tok ? (tok.allowed_ips.length ? tok.allowed_ips : ['0.0.0.0/0']).join(', ') : '0.0.0.0/0',
     ttl: '',
-    maxRps: t?.max_rps != null ? String(t.max_rps) : '',
-    dailyMaxMb: t?.daily_max_bytes != null ? String(t.daily_max_bytes / (1024 * 1024)) : '',
-    allowPublic: t?.allow_public ?? false,
+    maxRps: tok?.max_rps != null ? String(tok.max_rps) : '',
+    dailyMaxMb: tok?.daily_max_bytes != null ? String(tok.daily_max_bytes / (1024 * 1024)) : '',
+    allowPublic: tok?.allow_public ?? false,
   }
 }
 
@@ -90,6 +91,7 @@ function TokenFormDialog({
   onSaved: () => void
   onCreated: (secret: string) => void
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<TokenFormState>(formFromToken(editing))
   const [error, setError] = useState<string | null>(null)
@@ -128,10 +130,10 @@ function TokenFormDialog({
           allow_public: form.allowPublic,
         })
         onSaved()
-        toast.success(`Token "${editing.name}" updated`)
+        toast.success(t('Token "{name}" updated', { name: editing.name }))
       } else {
         if (!form.name.trim()) {
-          setError('Token name is required')
+          setError(t('Token name is required'))
           return
         }
         const created = await api.createToken({
@@ -146,7 +148,7 @@ function TokenFormDialog({
         })
         onSaved()
         onCreated(created.token)
-        toast.success(`Token "${form.name.trim()}" created`)
+        toast.success(t('Token "{name}" created', { name: form.name.trim() }))
       }
       setOpen(false)
     } catch (e) {
@@ -177,46 +179,46 @@ function TokenFormDialog({
       >
         {editing ? (
           <>
-            <PencilIcon /> Edit
+            <PencilIcon /> {t('Edit')}
           </>
         ) : (
           <>
-            <PlusIcon /> Create Token
+            <PlusIcon /> {t('Create Token')}
           </>
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editing ? `Edit token "${editing.name}"` : 'Create API token'}</DialogTitle>
+          <DialogTitle>{editing ? t('Edit token "{name}"', { name: editing.name }) : t('Create API token')}</DialogTitle>
           <DialogDescription>
             {editing
-              ? 'Adjusts the token scope in place; the secret never changes.'
-              : 'Creates a dynamic tunnel token with a restricted scope.'}
+              ? t('Adjusts the token scope in place; the secret never changes.')
+              : t('Creates a dynamic tunnel token with a restricted scope.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          {!editing && field('Name', 'name', 'staging deploys')}
-          {field('Allowed hostnames (comma separated, * = all)', 'hostnames', '*')}
-          {field('Allowed path binds (comma separated, * = all)', 'paths', '*')}
-          {field('Allowed source IPs / CIDRs', 'ips', '0.0.0.0/0')}
+          {!editing && field(t('Name'), 'name', 'staging deploys')}
+          {field(t('Allowed hostnames (comma separated, * = all)'), 'hostnames', '*')}
+          {field(t('Allowed path binds (comma separated, * = all)'), 'paths', '*')}
+          {field(t('Allowed source IPs / CIDRs'), 'ips', '0.0.0.0/0')}
           {field(
             editing
-              ? 'New lifetime in seconds from now (0 = never, empty = keep)'
-              : 'Lifetime in seconds (empty = never expires)',
+              ? t('New lifetime in seconds from now (0 = never, empty = keep)')
+              : t('Lifetime in seconds (empty = never expires)'),
             'ttl',
             '',
           )}
           {field(
             editing
-              ? 'Rate limit (req/s, 0 = no limit, empty = keep)'
-              : 'Rate limit (req/s, empty = no limit)',
+              ? t('Rate limit (req/s, 0 = no limit, empty = keep)')
+              : t('Rate limit (req/s, empty = no limit)'),
             'maxRps',
             '',
           )}
           {field(
             editing
-              ? 'Daily traffic quota (MB, 0 = no quota, empty = keep)'
-              : 'Daily traffic quota (MB, empty = no quota)',
+              ? t('Daily traffic quota (MB, 0 = no quota, empty = keep)')
+              : t('Daily traffic quota (MB, empty = no quota)'),
             'dailyMaxMb',
             '',
           )}
@@ -225,16 +227,16 @@ function TokenFormDialog({
               checked={form.allowPublic}
               onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
             />
-            May publish public services (visitor auth gate skipped)
+            {t('May publish public services (visitor auth gate skipped)')}
           </label>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy && <Spinner />} {editing ? 'Save' : 'Create'}
+            {busy && <Spinner />} {editing ? t('Save') : t('Create')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -244,6 +246,7 @@ function TokenFormDialog({
 
 // Shows the freshly created secret exactly once, with a copy button.
 function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClose: () => void }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={secret !== null}
@@ -253,8 +256,8 @@ function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClos
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Token created</DialogTitle>
-          <DialogDescription>Copy it now — it will NOT be shown again.</DialogDescription>
+          <DialogTitle>{t('Token created')}</DialogTitle>
+          <DialogDescription>{t('Copy it now — it will NOT be shown again.')}</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-3">
           <code className="min-w-0 flex-1 break-all rounded-2xl bg-muted px-3 py-2 font-mono text-sm">
@@ -264,7 +267,7 @@ function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClos
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('Close')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -273,16 +276,17 @@ function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClos
 }
 
 function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void }) {
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
 
   const revoke = async () => {
     setBusy(true)
     try {
       await api.revokeToken(token.id)
-      toast.info(`Token "${token.name}" revoked`)
+      toast.info(t('Token "{name}" revoked', { name: token.name }))
       onDone()
     } catch {
-      toast.error(`Could not revoke token "${token.name}"`)
+      toast.error(t('Could not revoke token "{name}"', { name: token.name }))
     } finally {
       setBusy(false)
     }
@@ -291,24 +295,24 @@ function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void 
   return (
     <AlertDialog>
       <AlertDialogTrigger render={<Button size="xs" variant="destructive" disabled={busy} />}>
-        <Trash2Icon /> Revoke
+        <Trash2Icon /> {t('Revoke')}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Revoke token "{token.name}" ({token.token_prefix}…)?
+            {t('Revoke token "{name}" ({prefix}…)?', { name: token.name, prefix: token.token_prefix })}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            New connections with this token will be rejected.
+            {t('New connections with this token will be rejected.')}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive/10 text-destructive hover:bg-destructive/20"
             onClick={() => void revoke()}
           >
-            Revoke
+            {t('Revoke')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -317,72 +321,73 @@ function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void 
 }
 
 export function TokensSection() {
+  const { t } = useI18n()
   const { data: tokens, refresh } = usePoll(api.tokens, 10_000)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="API Tokens">
+      <SectionHeader title={t('API Tokens')}>
         <TokenFormDialog editing={null} onSaved={refresh} onCreated={setCreatedSecret} />
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Prefix</TableHead>
-              <TableHead>Hostnames</TableHead>
-              <TableHead>Paths</TableHead>
-              <TableHead>Allowed IPs</TableHead>
-              <TableHead>Limits</TableHead>
-              <TableHead>Expires</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Prefix')}</TableHead>
+              <TableHead>{t('Hostnames')}</TableHead>
+              <TableHead>{t('Paths')}</TableHead>
+              <TableHead>{t('Allowed IPs')}</TableHead>
+              <TableHead>{t('Limits')}</TableHead>
+              <TableHead>{t('Expires')}</TableHead>
+              <TableHead className="text-right">{t('Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {tokens === null ? (
               <SkeletonRows rows={4} cols={8} />
             ) : tokens.length === 0 ? (
-              <EmptyRow colSpan={8}>No dynamic tokens created</EmptyRow>
+              <EmptyRow colSpan={8}>{t('No dynamic tokens created')}</EmptyRow>
             ) : (
-              tokens.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className="font-medium">{t.name}</TableCell>
+              tokens.map((tok) => (
+                <TableRow key={tok.id}>
+                  <TableCell className="font-medium">{tok.name}</TableCell>
                   <TableCell>
-                    <code className="font-mono text-xs">{t.token_prefix}…</code>
+                    <code className="font-mono text-xs">{tok.token_prefix}…</code>
                   </TableCell>
                   <TableCell>
-                    <BadgeList items={t.hostnames} fallback="*" tint="lime" />
+                    <BadgeList items={tok.hostnames} fallback="*" tint="lime" />
                   </TableCell>
                   <TableCell>
-                    <BadgeList items={t.paths} fallback="*" tint="lime" />
+                    <BadgeList items={tok.paths} fallback="*" tint="lime" />
                   </TableCell>
                   <TableCell>
-                    <BadgeList items={t.allowed_ips} fallback="0.0.0.0/0" tint="gray" />
+                    <BadgeList items={tok.allowed_ips} fallback="0.0.0.0/0" tint="gray" />
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {t.max_rps != null && <TintBadge tint="amber">{t.max_rps} req/s</TintBadge>}
-                      {t.daily_max_bytes != null && (
+                      {tok.max_rps != null && <TintBadge tint="amber">{tok.max_rps} req/s</TintBadge>}
+                      {tok.daily_max_bytes != null && (
                         <TintBadge tint="amber">
-                          {Math.round(t.daily_max_bytes / (1024 * 1024))} MB/day
+                          {Math.round(tok.daily_max_bytes / (1024 * 1024))} MB/day
                         </TintBadge>
                       )}
-                      {t.allow_public && <TintBadge tint="green">public ok</TintBadge>}
-                      {t.max_rps == null && t.daily_max_bytes == null && !t.allow_public && (
+                      {tok.allow_public && <TintBadge tint="green">{t('public ok')}</TintBadge>}
+                      {tok.max_rps == null && tok.daily_max_bytes == null && !tok.allow_public && (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className={cn('text-sm', t.expired && 'text-destructive')}>
-                      {formatExpiry(t.expires_at, t.expired)}
+                    <span className={cn('text-sm', tok.expired && 'text-destructive')}>
+                      {formatExpiry(tok.expires_at, tok.expired)}
                     </span>
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
-                      <TokenFormDialog editing={t} onSaved={refresh} onCreated={setCreatedSecret} />
-                      <RevokeButton token={t} onDone={refresh} />
+                      <TokenFormDialog editing={tok} onSaved={refresh} onCreated={setCreatedSecret} />
+                      <RevokeButton token={tok} onDone={refresh} />
                     </div>
                   </TableCell>
                 </TableRow>

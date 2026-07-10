@@ -96,7 +96,13 @@ pub(crate) struct ServerConfig {
   pub(crate) audit_max_size: u64,
   /// Rotated audit log generations to keep (APERIO_AUDIT_MAX_FILES).
   pub(crate) audit_max_files: usize,
+  /// Default dashboard/login UI language (APERIO_UI_LANGUAGE), used when the
+  /// visitor's browser language is not among the supported ones.
+  pub(crate) ui_language: String,
 }
+
+/// UI languages shipped with the dashboard.
+pub(crate) const UI_LANGUAGES: &[&str] = &["en", "de", "es", "fr", "tr", "ru", "zh", "ja"];
 
 /// What happens when a tunnel client is lost while a request is in flight
 /// and no response bytes have reached the visitor yet.
@@ -150,6 +156,7 @@ pub(crate) struct SettingsOverrides {
   /// 0 disables rotation.
   pub(crate) audit_max_size: Option<u64>,
   pub(crate) audit_max_files: Option<usize>,
+  pub(crate) ui_language: Option<String>,
 }
 
 /// Parses an `APERIO_LB_STRATEGY`-style value.
@@ -280,6 +287,11 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   if let Some(v) = o.audit_max_files {
     c.audit_max_files = v;
   }
+  if let Some(ref v) = o.ui_language
+    && UI_LANGUAGES.contains(&v.as_str())
+  {
+    c.ui_language = v.clone();
+  }
   c
 }
 
@@ -320,6 +332,7 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "login_lockout_secs": c.login_lockout_secs,
     "audit_max_size": c.audit_max_size,
     "audit_max_files": c.audit_max_files,
+    "ui_language": c.ui_language,
   })
 }
 

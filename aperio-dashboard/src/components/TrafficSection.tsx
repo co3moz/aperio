@@ -18,6 +18,7 @@ import type { RequestLog } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { readParams, writeParams } from '@/lib/url'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 // Cap the number of rendered rows so a busy tunnel doesn't paint thousands of
 // DOM nodes each poll; the newest requests are always the ones kept.
@@ -96,6 +97,7 @@ function FilterChip({
 // Latency percentiles and a status-class breakdown over the recent request
 // window, so the operator sees tail latency and error share at a glance.
 function TrafficStats({ logs }: { logs: RequestLog[] }) {
+  const { t } = useI18n()
   const durations = logs.map((l) => l.duration_ms).sort((a, b) => a - b)
   const metrics = [
     { label: 'p50', v: percentile(durations, 50) },
@@ -111,9 +113,7 @@ function TrafficStats({ logs }: { logs: RequestLog[] }) {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <Card className="gap-3 py-5">
         <CardHeader className="px-5">
-          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Latency (recent {logs.length})
-          </CardTitle>
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('Latency (recent {count})', { count: logs.length })}</CardTitle>
         </CardHeader>
         <CardContent className="flex gap-8 px-5">
           {metrics.map((m) => (
@@ -126,9 +126,7 @@ function TrafficStats({ logs }: { logs: RequestLog[] }) {
       </Card>
       <Card className="gap-3 py-5">
         <CardHeader className="px-5">
-          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Status mix
-          </CardTitle>
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('Status mix')}</CardTitle>
         </CardHeader>
         <CardContent className="px-5">
           <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
@@ -170,6 +168,7 @@ export function TrafficSection({
   const [filter, setFilter] = useState(() => readParams().get('q') ?? '')
   const [method, setMethod] = useState<string | null>(() => readParams().get('method'))
   const [statusFilter, setStatusFilter] = useState<string | null>(() => readParams().get('status'))
+  const { t } = useI18n()
   const [paused, setPaused] = useState(false)
   const [frozen, setFrozen] = useState<RequestLog[]>([])
 
@@ -204,7 +203,7 @@ export function TrafficSection({
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Live Tunnel Traffic">
+      <SectionHeader title={t('Live Tunnel Traffic')}>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -215,16 +214,16 @@ export function TrafficSection({
               />
             }
           >
-            {paused ? <PlayIcon /> : <PauseIcon />} {paused ? 'Paused' : 'Live'}
+            {paused ? <PlayIcon /> : <PauseIcon />} {paused ? t('Paused') : t('Live')}
           </TooltipTrigger>
           <TooltipContent>
-            {paused ? 'Resume live updates' : 'Freeze the table while you inspect'}
+            {paused ? t('Resume live updates') : t('Freeze the table while you inspect')}
           </TooltipContent>
         </Tooltip>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Filter by path/method..."
+            placeholder={t('Filter by path/method...')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="w-64 pl-8"
@@ -235,7 +234,7 @@ export function TrafficSection({
       {source.length > 0 && <TrafficStats logs={source} />}
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Method</span>
+        <span className="text-xs text-muted-foreground">{t('Method')}</span>
         {METHODS.map((m) => (
           <FilterChip
             key={m}
@@ -246,7 +245,7 @@ export function TrafficSection({
             {m}
           </FilterChip>
         ))}
-        <span className="ml-2 text-xs text-muted-foreground">Status</span>
+        <span className="ml-2 text-xs text-muted-foreground">{t('Status')}</span>
         {STATUS_FILTERS.map((s) => (
           <FilterChip
             key={s.key}
@@ -267,7 +266,7 @@ export function TrafficSection({
               setFilter('')
             }}
           >
-            Clear
+            {t('Clear')}
           </Button>
         )}
       </div>
@@ -276,12 +275,12 @@ export function TrafficSection({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Timestamp</TableHead>
-              <TableHead>Method</TableHead>
-              <TableHead>Path</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Latency</TableHead>
-              <TableHead>Details</TableHead>
+              <TableHead>{t('Timestamp')}</TableHead>
+              <TableHead>{t('Method')}</TableHead>
+              <TableHead>{t('Path')}</TableHead>
+              <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Latency')}</TableHead>
+              <TableHead>{t('Details')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -289,14 +288,14 @@ export function TrafficSection({
               <SkeletonRows rows={6} cols={6} />
             ) : visible.length === 0 ? (
               <EmptyRow colSpan={6} icon={<SearchIcon />}>
-                No requests matching filter
+                {t('No requests matching filter')}
               </EmptyRow>
             ) : (
               visible.map((log) => (
                 <TableRow
                   key={log.id}
                   className="cursor-pointer"
-                  title="Click to inspect & replay"
+                  title={t('Click to inspect & replay')}
                   onClick={() => onInspect(log.id)}
                 >
                   <TableCell>
@@ -327,7 +326,7 @@ export function TrafficSection({
                     {log.error ? (
                       <span className="text-xs text-destructive">{log.error}</span>
                     ) : (
-                      <span className="text-sm text-muted-foreground">Success</span>
+                      <span className="text-sm text-muted-foreground">{t('Success')}</span>
                     )}
                   </TableCell>
                 </TableRow>
@@ -340,14 +339,14 @@ export function TrafficSection({
       <div className="flex flex-wrap justify-between gap-2">
         {total > MAX_ROWS ? (
           <span className="text-xs text-muted-foreground">
-            Showing the latest {MAX_ROWS} of {total} matching requests.
+            {t('Showing the latest {max} of {total} matching requests.', { max: MAX_ROWS, total })}
           </span>
         ) : (
           <span />
         )}
         {paused && (
           <span className="text-xs text-amber-600 dark:text-amber-400">
-            Paused — table frozen at {frozen.length} requests.
+            {t('Paused — table frozen at {count} requests.', { count: frozen.length })}
           </span>
         )}
       </div>

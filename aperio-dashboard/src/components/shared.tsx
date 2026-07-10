@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableCell, TableRow } from '@/components/ui/table'
+import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 /** Centered empty-state row for tables. */
@@ -47,7 +48,7 @@ export function SkeletonRows({ rows, cols }: { rows: number; cols: number }) {
 /** Copies `value` to the clipboard, flipping the icon briefly on success. */
 export function CopyButton({
   value,
-  label = 'Copy',
+  label,
   className,
   size = 'xs',
 }: {
@@ -56,6 +57,7 @@ export function CopyButton({
   className?: string
   size?: 'xs' | 'sm'
 }) {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -68,7 +70,7 @@ export function CopyButton({
   }
   return (
     <Button variant="outline" size={size} className={className} onClick={copy}>
-      {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : label}
+      {copied ? <CheckIcon /> : <CopyIcon />} {copied ? t('Copied') : (label ?? t('Copy'))}
     </Button>
   )
 }

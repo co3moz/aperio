@@ -39,11 +39,13 @@ import {
 import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError, type Webhook } from '@/lib/api'
 import { splitList } from '@/lib/format'
+import { useI18n } from '@/i18n'
 
 const KNOWN_EVENTS =
   'client_connected, client_disconnected, client_draining, token_created, token_revoked, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off'
 
 function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -74,7 +76,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
         ...(secret.trim() ? { secret: secret.trim() } : {}),
       })
       setOpen(false)
-      toast.success(`Webhook "${name.trim()}" added`)
+      toast.success(t('Webhook "{name}" added', { name: name.trim() }))
       onCreated()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -86,18 +88,18 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   return (
     <Dialog open={open} onOpenChange={openDialog}>
       <DialogTrigger render={<Button size="sm" />}>
-        <PlusIcon /> Add Webhook
+        <PlusIcon /> {t('Add Webhook')}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add webhook</DialogTitle>
+          <DialogTitle>{t('Add webhook')}</DialogTitle>
           <DialogDescription>
-            Known events: {KNOWN_EVENTS}. Use * to subscribe to everything.
+            {t('Known events: {events}. Use * to subscribe to everything.', { events: KNOWN_EVENTS })}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="wh-name">Name</Label>
+            <Label htmlFor="wh-name">{t('Name')}</Label>
             <Input
               id="wh-name"
               value={name}
@@ -106,7 +108,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="wh-url">URL</Label>
+            <Label htmlFor="wh-url">{t('URL')}</Label>
             <Input
               id="wh-url"
               value={url}
@@ -115,7 +117,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="wh-events">Events (comma separated, * = all)</Label>
+            <Label htmlFor="wh-events">{t('Events (comma separated, * = all)')}</Label>
             <Input
               id="wh-events"
               value={events}
@@ -124,26 +126,25 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="wh-secret">Signing secret (optional, 16-128 chars)</Label>
+            <Label htmlFor="wh-secret">{t('Signing secret (optional, 16-128 chars)')}</Label>
             <Input
               id="wh-secret"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
-              placeholder="shared secret for X-Aperio-Signature"
+              placeholder={t('shared secret for X-Aperio-Signature')}
             />
             <p className="text-xs text-muted-foreground">
-              Deliveries carry X-Aperio-Signature (HMAC-SHA256 over "timestamp.body") and
-              X-Aperio-Timestamp so the receiver can verify origin and freshness.
+              {t('Deliveries carry X-Aperio-Signature (HMAC-SHA256 over "timestamp.body") and X-Aperio-Timestamp so the receiver can verify origin and freshness.')}
             </p>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy && <Spinner />} Add
+            {busy && <Spinner />} {t('Add')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -152,10 +153,11 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
 }
 
 function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => void }) {
+  const { t } = useI18n()
   const remove = async () => {
     try {
       await api.deleteWebhook(hook.id)
-      toast.info(`Webhook "${hook.name}" deleted`)
+      toast.info(t('Webhook "{name}" deleted', { name: hook.name }))
     } finally {
       onDone()
     }
@@ -164,22 +166,22 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
   return (
     <AlertDialog>
       <AlertDialogTrigger render={<Button size="xs" variant="destructive" />}>
-        <Trash2Icon /> Delete
+        <Trash2Icon /> {t('Delete')}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete webhook "{hook.name}"?</AlertDialogTitle>
+          <AlertDialogTitle>{t('Delete webhook "{name}"?', { name: hook.name })}</AlertDialogTitle>
           <AlertDialogDescription>
-            No further events will be delivered to {hook.url}.
+            {t('No further events will be delivered to {url}.', { url: hook.url })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive/10 text-destructive hover:bg-destructive/20"
             onClick={() => void remove()}
           >
-            Delete
+            {t('Delete')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -188,35 +190,36 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
 }
 
 export function WebhooksSection() {
+  const { t } = useI18n()
   const { data: hooks, refresh } = usePoll(api.webhooks, 15_000)
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Webhooks">
+      <SectionHeader title={t('Webhooks')}>
         <CreateWebhookDialog onCreated={refresh} />
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
+              <TableHead>{t('Name')}</TableHead>
               <TableHead>URL</TableHead>
-              <TableHead>Events</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('Events')}</TableHead>
+              <TableHead className="text-right">{t('Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {hooks === null ? (
               <SkeletonRows rows={3} cols={4} />
             ) : hooks.length === 0 ? (
-              <EmptyRow colSpan={4}>No webhooks defined</EmptyRow>
+              <EmptyRow colSpan={4}>{t('No webhooks defined')}</EmptyRow>
             ) : (
               hooks.map((h) => (
                 <TableRow key={h.id}>
                   <TableCell>
                     <div className="flex items-center gap-1.5 font-medium">
                       {h.name}
-                      {h.signed && <TintBadge tint="green">signed</TintBadge>}
+                      {h.signed && <TintBadge tint="green">{t('signed')}</TintBadge>}
                     </div>
                   </TableCell>
                   <TableCell>

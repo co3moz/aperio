@@ -1,4 +1,4 @@
-import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
+import { CheckIcon, LanguagesIcon, MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, type Page } from './components/AppSidebar'
 import { ActivityChart } from './components/ActivityChart'
@@ -17,6 +17,12 @@ import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -26,6 +32,7 @@ import { api, logout } from './lib/api'
 import { formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
+import { LANGUAGES, useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 const POLL_INTERVAL_MS = 2000
@@ -78,6 +85,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
+  const { t, lang, setLang } = useI18n()
 
   // Navigate tabs through the URL so reloads/bookmarks land on the same tab and
   // the browser back button steps between them.
@@ -147,21 +155,21 @@ export default function App() {
     () => [
       ...PAGES.map((p) => ({
         id: `nav-${p.id}`,
-        label: `Go to ${p.label}`,
-        hint: 'Navigate',
+        label: t('Go to {page}', { page: t(p.label) }),
+        hint: t('Navigate'),
         icon: p.icon,
         run: () => goto(p.id),
       })),
       {
         id: 'toggle-theme',
-        label: `Switch to ${appearance === 'dark' ? 'light' : 'dark'} theme`,
-        hint: 'Appearance',
+        label: appearance === 'dark' ? t('Switch to light theme') : t('Switch to dark theme'),
+        hint: t('Appearance'),
         icon: appearance === 'dark' ? SunIcon : MoonIcon,
         run: toggle,
       },
-      { id: 'sign-out', label: 'Sign out', hint: 'Session', run: () => void signOut() },
+      { id: 'sign-out', label: t('Sign out'), hint: t('Session'), run: () => void signOut() },
     ],
-    [appearance, toggle, goto, signOut],
+    [appearance, toggle, goto, signOut, t],
   )
 
   const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
@@ -181,10 +189,10 @@ export default function App() {
           <Separator orientation="vertical" className="mr-1 !h-4" />
           <div className="flex min-w-0 flex-col">
             <span className="font-heading truncate text-sm font-semibold leading-tight">
-              {active.label}
+              {t(active.label)}
             </span>
             <span className="hidden truncate text-xs text-muted-foreground sm:block">
-              {active.hint}
+              {t(active.hint)}
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -195,11 +203,28 @@ export default function App() {
               onClick={() => setPaletteOpen(true)}
             >
               <SearchIcon />
-              <span className="hidden sm:inline">Search…</span>
+              <span className="hidden sm:inline">{t('Search…')}</span>
               <kbd className="pointer-events-none hidden rounded-md border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-block">
                 ⌘K
               </kbd>
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="ghost" size="icon-sm" aria-label={t('Change language')} />
+                }
+              >
+                <LanguagesIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {LANGUAGES.map((l) => (
+                  <DropdownMenuItem key={l.code} onClick={() => setLang(l.code)}>
+                    <span className="flex-1">{l.label}</span>
+                    {lang === l.code && <CheckIcon className="size-4" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -207,14 +232,14 @@ export default function App() {
                     variant="ghost"
                     size="icon-sm"
                     onClick={toggle}
-                    aria-label="Toggle color theme"
+                    aria-label={t('Toggle color theme')}
                   />
                 }
               >
                 {appearance === 'dark' ? <SunIcon /> : <MoonIcon />}
               </TooltipTrigger>
               <TooltipContent>
-                Switch to {appearance === 'dark' ? 'light' : 'dark'} theme
+                {appearance === 'dark' ? t('Switch to light theme') : t('Switch to dark theme')}
               </TooltipContent>
             </Tooltip>
             <Badge
@@ -226,9 +251,9 @@ export default function App() {
             >
               <StatusDot active={connected} />
               <span className="hidden md:inline">
-                {connected ? 'Connected & Active' : 'Offline (Waiting for Client)'}
+                {connected ? t('Connected & Active') : t('Offline (Waiting for Client)')}
               </span>
-              <span className="md:hidden">{connected ? 'Online' : 'Offline'}</span>
+              <span className="md:hidden">{connected ? t('Online') : t('Offline')}</span>
             </Badge>
           </div>
         </header>
@@ -245,8 +270,8 @@ export default function App() {
             >
               <TriangleAlertIcon className="size-4 shrink-0" />
               {stats
-                ? "Dashboard data isn't updating — the values shown may be stale."
-                : 'Cannot reach the server. Retrying automatically…'}
+                ? t("Dashboard data isn't updating — the values shown may be stale.")
+                : t('Cannot reach the server. Retrying automatically…')}
             </div>
           )}
           {page === 'overview' && (
@@ -269,7 +294,9 @@ export default function App() {
         </main>
 
         <footer className="border-t py-3 text-center text-xs text-muted-foreground">
-          Aperio Reverse Tunneling System • Server Uptime: {formatUptime(stats?.uptime_seconds ?? 0)}
+          {t('Aperio Reverse Tunneling System • Server Uptime: {uptime}', {
+            uptime: formatUptime(stats?.uptime_seconds ?? 0),
+          })}
         </footer>
       </SidebarInset>
 

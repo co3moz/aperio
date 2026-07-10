@@ -15,30 +15,32 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePoll } from '@/hooks/usePoll'
 import { api } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { useI18n } from '@/i18n'
 
 export function AuditSection() {
+  const { t } = useI18n()
   const { data: events, refresh } = usePoll(api.audit, 10_000)
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Audit Log">
+      <SectionHeader title={t('Audit Log')}>
         <Tooltip>
           <TooltipTrigger
-            render={<Button size="icon-sm" variant="outline" onClick={refresh} aria-label="Refresh" />}
+            render={<Button size="icon-sm" variant="outline" onClick={refresh} aria-label={t('Refresh')} />}
           >
             <RotateCwIcon />
           </TooltipTrigger>
-          <TooltipContent>Refresh</TooltipContent>
+          <TooltipContent>{t('Refresh')}</TooltipContent>
         </Tooltip>
       </SectionHeader>
       <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Event</TableHead>
-              <TableHead>Actor IP</TableHead>
-              <TableHead>Details</TableHead>
+              <TableHead>{t('Time')}</TableHead>
+              <TableHead>{t('Event')}</TableHead>
+              <TableHead>{t('Actor IP')}</TableHead>
+              <TableHead>{t('Details')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -46,7 +48,7 @@ export function AuditSection() {
               <SkeletonRows rows={5} cols={4} />
             ) : events.length === 0 ? (
               <EmptyRow colSpan={4} icon={<FileTextIcon />}>
-                No audit events
+                {t('No audit events')}
               </EmptyRow>
             ) : (
               [...events].reverse().map((ev, i) => (

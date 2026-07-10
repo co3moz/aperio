@@ -17,6 +17,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, ApiError } from '@/lib/api'
+import { useI18n } from '@/i18n'
 
 const CLIENT_IMAGE = 'ghcr.io/co3moz/aperio-client:latest'
 const TOKEN_PLACEHOLDER = '<YOUR_APERIO_TOKEN>'
@@ -99,6 +100,7 @@ function CommandBlock({ content }: { content: string }) {
  * service, and get ready-to-run docker / CLI / aperio.yaml snippets.
  */
 export function AddClientWizard() {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<WizardState>({
     target: 'http://localhost:3000',
@@ -158,25 +160,25 @@ export function AddClientWizard() {
   return (
     <Dialog open={open} onOpenChange={openDialog}>
       <DialogTrigger render={<Button size="sm" variant="outline" />}>
-        <PlusIcon /> Connect a new client
+        <PlusIcon /> {t('Connect a new client')}
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add a tunnel client</DialogTitle>
+          <DialogTitle>{t('Add a tunnel client')}</DialogTitle>
           <DialogDescription>
-            Describe the local service; copy a ready-to-run command below.
+            {t('Describe the local service; copy a ready-to-run command below.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          {field('Local target (where your service listens)', 'target', 'http://localhost:3000')}
+          {field(t('Local target (where your service listens)'), 'target', 'http://localhost:3000')}
           <div className="flex gap-3">
-            {field('Hostname bind (optional)', 'hostname', 'app.example.com')}
-            {field('Path bind (optional)', 'path', '/api')}
+            {field(t('Hostname bind (optional)'), 'hostname', 'app.example.com')}
+            {field(t('Path bind (optional)'), 'path', '/api')}
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label>Token</Label>
+            <Label>{t('Token')}</Label>
             <ToggleGroup
               variant="outline"
               spacing={0}
@@ -187,32 +189,32 @@ export function AddClientWizard() {
                 if (next === 'existing' || next === 'mint') setTokenMode(next)
               }}
             >
-              <ToggleGroupItem value="existing">I have a token</ToggleGroupItem>
-              <ToggleGroupItem value="mint">Mint a scoped token now</ToggleGroupItem>
+              <ToggleGroupItem value="existing">{t('I have a token')}</ToggleGroupItem>
+              <ToggleGroupItem value="mint">{t('Mint a scoped token now')}</ToggleGroupItem>
             </ToggleGroup>
             {tokenMode === 'existing' ? (
               <p className="text-xs text-muted-foreground">
-                The commands below use a <code>{TOKEN_PLACEHOLDER}</code> placeholder — replace it
-                with your master token or an existing dynamic token.
+                {t('The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.', { placeholder: TOKEN_PLACEHOLDER })}
               </p>
             ) : mintedSecret ? (
               <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
-                Token minted and embedded below. It is scoped to{' '}
-                {state.hostname || state.path
-                  ? `${state.hostname || 'any hostname'} / ${state.path || 'any path'}`
-                  : 'all binds'}{' '}
-                and will not be shown again after this dialog closes.
+                {t('Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.', {
+                  scope:
+                    state.hostname || state.path
+                      ? `${state.hostname || t('any hostname')} / ${state.path || t('any path')}`
+                      : t('all binds'),
+                })}
               </p>
             ) : (
               <div className="flex items-center gap-2">
                 <Input
                   value={state.tokenName}
                   onChange={set('tokenName')}
-                  placeholder="token name (e.g. staging-box)"
+                  placeholder={t('token name (e.g. staging-box)')}
                   className="flex-1"
                 />
                 <Button onClick={mint} disabled={minting}>
-                  {minting && <Spinner />} Mint token
+                  {minting && <Spinner />} {t('Mint token')}
                 </Button>
               </div>
             )}
@@ -239,7 +241,7 @@ export function AddClientWizard() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Close
+            {t('Close')}
           </Button>
         </DialogFooter>
       </DialogContent>

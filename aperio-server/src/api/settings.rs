@@ -137,6 +137,19 @@ pub(crate) async fn settings_put_handler(
       return (StatusCode::BAD_REQUEST, format!("{} exceeds 512 KB", label)).into_response();
     }
   }
+  if let Some(ref lang) = payload.ui_language
+    && !crate::settings::UI_LANGUAGES.contains(&lang.as_str())
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      format!(
+        "Unsupported ui_language: {} (supported: {})",
+        lang,
+        crate::settings::UI_LANGUAGES.join(", ")
+      ),
+    )
+      .into_response();
+  }
   if payload.cache_max_bytes == Some(0) {
     return (
       StatusCode::BAD_REQUEST,

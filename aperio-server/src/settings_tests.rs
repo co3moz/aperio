@@ -34,6 +34,7 @@ fn base_config() -> ServerConfig {
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
+    ui_language: "en".to_string(),
     cache_max_bytes: 64 * 1024 * 1024,
   }
 }

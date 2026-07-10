@@ -40,6 +40,7 @@ import {
 } from '@/lib/api'
 import { formatBytes, parseByteSize } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 type FieldKind = 'number' | 'bytes' | 'boolean' | 'select' | 'text' | 'textarea'
 
@@ -127,6 +128,7 @@ const GROUPS: GroupSpec[] = [
     title: 'Visitor Experience',
     description: 'What visitors see in front of and around the proxied services.',
     fields: [
+      { key: 'ui_language', label: 'Default UI language', kind: 'select', options: ['en', 'de', 'es', 'fr', 'tr', 'ru', 'zh', 'ja'], hint: 'Dashboard/login language for visitors whose browser language is unsupported' },
       { key: 'auth_credentials', label: 'Visitor password', kind: 'text', hint: 'user:password gate in front of all proxied traffic; empty = disabled' },
       { key: 'custom_504_page', label: 'Custom 504 page (HTML)', kind: 'textarea', hint: 'Shown when no client answers in time' },
       { key: 'custom_503_page', label: 'Custom 503 maintenance page (HTML)', kind: 'textarea', hint: 'Shown for hostnames in maintenance mode' },
@@ -152,6 +154,7 @@ function bytesToInput(bytes: number): string {
  * parsed size underneath, and only propagates valid values.
  */
 function BytesInput({ value, onChange }: { value: number; onChange: (bytes: number) => void }) {
+  const { t } = useI18n()
   const [text, setText] = useState(() => bytesToInput(value))
   const [lastValue, setLastValue] = useState(value)
   // Re-derive the text when the value changes from the outside (reset button,
@@ -166,7 +169,7 @@ function BytesInput({ value, onChange }: { value: number; onChange: (bytes: numb
     <div className="flex flex-col gap-1">
       <Input
         value={text}
-        placeholder="e.g. 10 MB, 1 GB, 65536"
+        placeholder={t('e.g. 10 MB, 1 GB, 65536')}
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           setText(e.target.value)
@@ -179,7 +182,7 @@ function BytesInput({ value, onChange }: { value: number; onChange: (bytes: numb
       />
       <span className="text-xs text-muted-foreground">
         {invalid
-          ? 'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes'
+          ? t('Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes')
           : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
       </span>
     </div>
@@ -205,18 +208,19 @@ const ENV_FLAG_DESCRIPTIONS: Record<string, string> = {
  * whether the server runs in Docker, how to change them.
  */
 function EnvReferenceCard({ environment }: { environment?: EnvironmentReport }) {
+  const { t } = useI18n()
   if (!environment) return null
   const docker = environment.runtime === 'docker'
   return (
     <Card className="gap-4 py-5 xl:col-span-2">
       <CardHeader className="px-5">
         <CardTitle className="font-heading flex items-center gap-2 text-base">
-          Environment Flags <TintBadge tint="gray">read-only</TintBadge>
+          {t('Environment Flags')} <TintBadge tint="gray">{t('read-only')}</TintBadge>
         </CardTitle>
         <CardDescription>
-          Security- and startup-critical flags stay environment-only so a compromised dashboard
-          session cannot change them. The server is running{' '}
-          {docker ? 'inside a container' : 'natively'} — to change one:
+          {docker
+            ? t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:')
+            : t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:')}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-5">
@@ -242,9 +246,9 @@ Environment=APERIO_TRUST_PROXY=1`}
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Variable</TableHead>
-              <TableHead>Current value</TableHead>
-              <TableHead>Purpose</TableHead>
+              <TableHead>{t('Variable')}</TableHead>
+              <TableHead>{t('Current value')}</TableHead>
+              <TableHead>{t('Purpose')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -259,7 +263,7 @@ Environment=APERIO_TRUST_PROXY=1`}
                   </code>
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {ENV_FLAG_DESCRIPTIONS[f.key] ?? ''}
+                  {t(ENV_FLAG_DESCRIPTIONS[f.key] ?? '')}
                 </TableCell>
               </TableRow>
             ))}
@@ -277,6 +281,7 @@ Environment=APERIO_TRUST_PROXY=1`}
  * OIDC remain env-only.
  */
 export function SettingsSection() {
+  const { t } = useI18n()
   const [data, setData] = useState<SettingsPayload | null>(null)
   const [overrides, setOverrides] = useState<SettingsOverrides>({})
   const [dirty, setDirty] = useState(false)
@@ -315,7 +320,7 @@ export function SettingsSection() {
     setMessage(null)
     try {
       await api.updateSettings(overrides)
-      setMessage({ ok: true, text: 'Settings applied and persisted.' })
+      setMessage({ ok: true, text: t('Settings applied and persisted.') })
       load()
     } catch (e) {
       setMessage({ ok: false, text: e instanceof ApiError ? e.message : String(e) })
@@ -385,7 +390,7 @@ export function SettingsSection() {
     if (!overridden) return null
     return (
       <span className="inline-flex items-center gap-1">
-        <TintBadge tint="amber">override</TintBadge>
+        <TintBadge tint="amber">{t('override')}</TintBadge>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -393,14 +398,14 @@ export function SettingsSection() {
                 size="icon-xs"
                 variant="ghost"
                 onClick={() => resetField(f.key)}
-                aria-label={`Reset ${f.label} to default`}
+                aria-label={t('Reset {label} to default', { label: t(f.label) })}
               />
             }
           >
             <RotateCcwIcon />
           </TooltipTrigger>
           <TooltipContent>
-            Reset to env default ({JSON.stringify(data.defaults[f.key])})
+            {t('Reset to env default ({value})', { value: JSON.stringify(data.defaults[f.key]) })}
           </TooltipContent>
         </Tooltip>
       </span>
@@ -414,9 +419,9 @@ export function SettingsSection() {
         <div key={f.key} className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3">
           <div className="flex flex-col gap-0.5">
             <span className="flex items-center gap-2 text-sm font-medium">
-              {f.label} {overrideControls(f)}
+              {t(f.label)} {overrideControls(f)}
             </span>
-            {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
+            {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
           </div>
           {control(f)}
         </div>
@@ -425,9 +430,9 @@ export function SettingsSection() {
     return (
       <div key={f.key} className={cn('flex flex-col gap-1.5', f.kind === 'textarea' && 'sm:col-span-2')}>
         <Label className="flex items-center gap-2">
-          {f.label} {overrideControls(f)}
+          {t(f.label)} {overrideControls(f)}
         </Label>
-        {f.hint && <span className="text-xs text-muted-foreground">{f.hint}</span>}
+        {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
         {control(f)}
       </div>
     )
@@ -436,12 +441,14 @@ export function SettingsSection() {
   return (
     <section className="flex flex-col gap-4">
       <SectionHeader
-        title="Server Settings"
-        description="Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only."
+        title={t('Server Settings')}
+        description={t('Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.')}
       >
-        {dirty && <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>}
+        {dirty && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">{t('Unsaved changes')}</span>
+        )}
         <Button onClick={save} disabled={!dirty || busy}>
-          {busy && <Spinner />} Save & apply
+          {busy && <Spinner />} {t('Save & apply')}
         </Button>
       </SectionHeader>
       {message && (
@@ -460,8 +467,8 @@ export function SettingsSection() {
         {GROUPS.map((group) => (
           <Card key={group.title} className="gap-4 py-5">
             <CardHeader className="px-5">
-              <CardTitle className="font-heading text-base">{group.title}</CardTitle>
-              <CardDescription>{group.description}</CardDescription>
+              <CardTitle className="font-heading text-base">{t(group.title)}</CardTitle>
+              <CardDescription>{t(group.description)}</CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 px-5 sm:grid-cols-2">
               {group.fields.map(field)}

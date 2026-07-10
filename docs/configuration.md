@@ -247,6 +247,7 @@ https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.j
 | `APERIO_SERVER_AUTH` | `user:password` — a visitor login form in front of all proxied traffic. | — |
 | `APERIO_IGNORE_CLIENT_AUTH` | `1` = ignore any client-declared per-service visitor password (see the client `auth` setting) and keep sole control of the visitor gate with `APERIO_SERVER_AUTH` / OIDC. | `0` |
 | `APERIO_DASHBOARD` | `0` = disable the admin dashboard entirely. | `1` |
+| `APERIO_UI_LANGUAGE` | Default dashboard/login UI language (`en`, `de`, `es`, `fr`, `tr`, `ru`, `zh`, `ja`) used when the visitor's browser language is unsupported; also dashboard-editable. | `en` |
 | `APERIO_DASHBOARD_AUTH` | Separate dashboard-only password (username `aperio`), so the master token doesn't have to be shared with dashboard users. | — |
 | `APERIO_METRICS` | `1` = enable the Prometheus endpoint at `/aperio/metrics`. | `0` |
 | `APERIO_METRICS_TOKEN` | Token required to scrape metrics (`?token=` or `Authorization: Bearer`). Unset = a random one is generated on first start and persisted in `APERIO_DATA_DIR/metrics_token`. | generated |

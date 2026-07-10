@@ -85,6 +85,7 @@ async fn test_rate_limiting() {
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
+    ui_language: "en".to_string(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -189,6 +190,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
+    ui_language: "en".to_string(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -294,6 +296,7 @@ async fn test_proxy_handler_success() {
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
+    ui_language: "en".to_string(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -753,6 +756,7 @@ fn test_apply_settings_overrides() {
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
+    ui_language: "en".to_string(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 

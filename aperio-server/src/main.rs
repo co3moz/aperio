@@ -496,6 +496,11 @@ async fn main() {
       .ok()
       .and_then(|v| v.parse::<usize>().ok())
       .unwrap_or(3),
+    ui_language: std::env::var("APERIO_UI_LANGUAGE")
+      .ok()
+      .map(|v| v.trim().to_ascii_lowercase())
+      .filter(|v| crate::settings::UI_LANGUAGES.contains(&v.as_str()))
+      .unwrap_or_else(|| "en".to_string()),
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and

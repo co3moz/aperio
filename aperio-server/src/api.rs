@@ -95,6 +95,7 @@ pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl I
   health_info.insert("status", serde_json::json!("healthy"));
   health_info.insert("version", serde_json::json!(env!("CARGO_PKG_VERSION")));
   health_info.insert("protocol", serde_json::json!(PROTOCOL_VERSION));
+  health_info.insert("ui_language", serde_json::json!(state.config().ui_language));
   health_info.insert("connected_clients", serde_json::json!(clients_count));
   health_info.insert("uptime_seconds", serde_json::json!(uptime));
   health_info.insert("total_requests", serde_json::json!(stats.total_requests));

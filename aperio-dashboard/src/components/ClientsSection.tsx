@@ -40,10 +40,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, ApiError, type ClientDetail } from '@/lib/api'
 import { formatBandwidth, formatLastPing, formatUptime } from '@/lib/format'
+import { useI18n } from '@/i18n'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
 // set and is shown highlighted with the client-reported values struck through.
 function BindList({ binds, override }: { binds: string[]; override: string | null }) {
+  const { t } = useI18n()
   if (override) {
     return (
       <div className="flex flex-wrap items-center gap-1">
@@ -54,7 +56,7 @@ function BindList({ binds, override }: { binds: string[]; override: string | nul
           <TooltipTrigger render={<span />}>
             <TintBadge tint="amber">{override}</TintBadge>
           </TooltipTrigger>
-          <TooltipContent>Temporary override (not persisted)</TooltipContent>
+          <TooltipContent>{t('Temporary override (not persisted)')}</TooltipContent>
         </Tooltip>
       </div>
     )
@@ -94,6 +96,7 @@ function HintBadge({
 // Dialog for the overrule flow: sets or clears the temporary hostname/path
 // binds of a connected client.
 function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [hostname, setHostname] = useState('')
   const [path, setPath] = useState('')
@@ -118,7 +121,9 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
       setOpen(false)
       const cleared = !hostname.trim() && !path.trim()
       toast.success(
-        `${cleared ? 'Override cleared' : 'Override applied'} for ${client.id.slice(0, 8)}`,
+        cleared
+          ? t('Override cleared for {id}', { id: client.id.slice(0, 8) })
+          : t('Override applied for {id}', { id: client.id.slice(0, 8) }),
       )
       onDone()
     } catch (e) {
@@ -131,19 +136,18 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
   return (
     <Dialog open={open} onOpenChange={openDialog}>
       <DialogTrigger render={<Button size="xs" variant="outline" />}>
-        <SlidersHorizontalIcon /> {hasOverride ? 'Edit' : 'Overrule'}
+        <SlidersHorizontalIcon /> {hasOverride ? t('Edit') : t('Overrule')}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Overrule client {client.id.slice(0, 8)}…</DialogTitle>
+          <DialogTitle>{t('Overrule client {id}…', { id: client.id.slice(0, 8) })}</DialogTitle>
           <DialogDescription>
-            Temporary binds for this connection. Empty fields clear the override; nothing is
-            persisted across reconnects.
+            {t('Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor={`ovr-host-${client.id}`}>Hostname bind</Label>
+            <Label htmlFor={`ovr-host-${client.id}`}>{t('Hostname bind')}</Label>
             <Input
               id={`ovr-host-${client.id}`}
               value={hostname}
@@ -152,7 +156,7 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor={`ovr-path-${client.id}`}>Path bind</Label>
+            <Label htmlFor={`ovr-path-${client.id}`}>{t('Path bind')}</Label>
             <Input
               id={`ovr-path-${client.id}`}
               value={path}
@@ -164,10 +168,10 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy && <Spinner />} Apply
+            {busy && <Spinner />} {t('Apply')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -178,18 +182,21 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
 // Kill switch: a disabled client stays connected but receives no new
 // requests; in-flight requests complete. Disabling asks for confirmation.
 function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
 
   const setEnabled = async (enabled: boolean) => {
     setBusy(true)
     try {
       await api.setClientEnabled(client.id, enabled)
-      const label = `Client ${client.id.slice(0, 8)} ${enabled ? 'enabled' : 'disabled'}`
+      const label = enabled
+        ? t('Client {id} enabled', { id: client.id.slice(0, 8) })
+        : t('Client {id} disabled', { id: client.id.slice(0, 8) })
       if (enabled) toast.success(label)
       else toast.info(label)
       onDone()
     } catch {
-      toast.error(`Could not update client ${client.id.slice(0, 8)}`)
+      toast.error(t('Could not update client {id}', { id: client.id.slice(0, 8) }))
     } finally {
       setBusy(false)
     }
@@ -200,10 +207,10 @@ function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => 
       <Tooltip>
         <TooltipTrigger render={<span />}>
           <Button size="xs" variant="outline" disabled>
-            Draining…
+            {t('Draining…')}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Client is gracefully shutting down</TooltipContent>
+        <TooltipContent>{t('Client is gracefully shutting down')}</TooltipContent>
       </Tooltip>
     )
   }
@@ -211,7 +218,7 @@ function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => 
   if (!client.enabled) {
     return (
       <Button size="xs" variant="outline" disabled={busy} onClick={() => void setEnabled(true)}>
-        {busy && <Spinner />} Enable
+        {busy && <Spinner />} {t('Enable')}
       </Button>
     )
   }
@@ -219,22 +226,22 @@ function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => 
   return (
     <AlertDialog>
       <AlertDialogTrigger render={<Button size="xs" variant="destructive" disabled={busy} />}>
-        Disable
+        {t('Disable')}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Disable client {client.id.slice(0, 8)}…?</AlertDialogTitle>
+          <AlertDialogTitle>{t('Disable client {id}…?', { id: client.id.slice(0, 8) })}</AlertDialogTitle>
           <AlertDialogDescription>
-            It stays connected but receives no new requests; in-flight requests complete.
+            {t('It stays connected but receives no new requests; in-flight requests complete.')}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive/10 text-destructive hover:bg-destructive/20"
             onClick={() => void setEnabled(false)}
           >
-            Disable
+            {t('Disable')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -279,26 +286,26 @@ function SortHead({
 
 // Kill switch for every currently listed client at once, behind a confirm.
 function BulkDisableButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
+  const { t } = useI18n()
   return (
     <AlertDialog>
       <AlertDialogTrigger render={<Button size="sm" variant="destructive" />}>
-        Disable all
+        {t('Disable all')}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Disable {count} client(s)?</AlertDialogTitle>
+          <AlertDialogTitle>{t('Disable {count} client(s)?', { count })}</AlertDialogTitle>
           <AlertDialogDescription>
-            Each stays connected but receives no new requests; in-flight requests complete.
-            Affects the clients currently listed (matching your search).
+            {t('Each stays connected but receives no new requests; in-flight requests complete. Affects the clients currently listed (matching your search).')}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive/10 text-destructive hover:bg-destructive/20"
             onClick={onConfirm}
           >
-            Disable all
+            {t('Disable all')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -313,6 +320,7 @@ export function ClientsSection({
   clients: ClientDetail[]
   onChanged: () => void
 }) {
+  const { t } = useI18n()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'connected', dir: -1 })
 
@@ -337,11 +345,13 @@ export function ClientsSection({
   const bulkSet = async (enabled: boolean) => {
     const targets = filtered.filter((c) => c.enabled !== enabled && !c.draining)
     if (targets.length === 0) {
-      toast.info(`No clients to ${enabled ? 'enable' : 'disable'}`)
+      toast.info(enabled ? t('No clients to enable') : t('No clients to disable'))
       return
     }
     await Promise.allSettled(targets.map((c) => api.setClientEnabled(c.id, enabled)))
-    const label = `${targets.length} client(s) ${enabled ? 'enabled' : 'disabled'}`
+    const label = enabled
+      ? t('{count} client(s) enabled', { count: targets.length })
+      : t('{count} client(s) disabled', { count: targets.length })
     if (enabled) toast.success(label)
     else toast.info(label)
     onChanged()
@@ -349,11 +359,11 @@ export function ClientsSection({
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Active Tunnel Connections">
+      <SectionHeader title={t('Active Tunnel Connections')}>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search clients…"
+            placeholder={t('Search clients…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-56 pl-8"
@@ -363,7 +373,7 @@ export function ClientsSection({
           <>
             <BulkDisableButton count={filtered.length} onConfirm={() => void bulkSet(false)} />
             <Button size="sm" variant="outline" onClick={() => void bulkSet(true)}>
-              Enable all
+              {t('Enable all')}
             </Button>
           </>
         )}
@@ -373,24 +383,24 @@ export function ClientsSection({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Client ID</TableHead>
-              <TableHead>IP Address</TableHead>
-              <TableHead>Hostname</TableHead>
-              <TableHead>Path</TableHead>
-              <SortHead label="Last Ping" sortKey="ping" sort={sort} onSort={onSort} />
-              <SortHead label="Connected For" sortKey="connected" sort={sort} onSort={onSort} />
-              <SortHead label="Requests" sortKey="requests" sort={sort} onSort={onSort} />
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('Client ID')}</TableHead>
+              <TableHead>{t('IP Address')}</TableHead>
+              <TableHead>{t('Hostname')}</TableHead>
+              <TableHead>{t('Path')}</TableHead>
+              <SortHead label={t('Last Ping')} sortKey="ping" sort={sort} onSort={onSort} />
+              <SortHead label={t('Connected For')} sortKey="connected" sort={sort} onSort={onSort} />
+              <SortHead label={t('Requests')} sortKey="requests" sort={sort} onSort={onSort} />
+              <TableHead className="text-right">{t('Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {clients.length === 0 ? (
               <EmptyRow colSpan={8} icon={<PinIcon />}>
-                No active client sessions — start a tunnel client to see it here
+                {t('No active client sessions — start a tunnel client to see it here')}
               </EmptyRow>
             ) : sorted.length === 0 ? (
               <EmptyRow colSpan={8} icon={<SearchIcon />}>
-                No clients match “{search}”
+                {t('No clients match "{search}"', { search })}
               </EmptyRow>
             ) : (
               sorted.map((c) => (
@@ -406,31 +416,31 @@ export function ClientsSection({
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="flex flex-col gap-0.5 font-mono text-xs">
-                              {c.instance_id && <span>client id: {c.instance_id}</span>}
-                              <span>connection: {c.id}</span>
-                              <span>{c.token_name ? `token: ${c.token_name}` : 'master token'}</span>
+                              {c.instance_id && <span>{t('client id')}: {c.instance_id}</span>}
+                              <span>{t('connection')}: {c.id}</span>
+                              <span>{c.token_name ? `${t('token')}: ${c.token_name}` : t('master token')}</span>
                             </div>
                           </TooltipContent>
                         </Tooltip>
                         {c.service && (
-                          <HintBadge tint="blue" hint="Service name announced by the client (services: list)">
+                          <HintBadge tint="blue" hint={t('Service name announced by the client (services: list)')}>
                             {c.service}
                           </HintBadge>
                         )}
                         {c.public && (
                           <HintBadge
                             tint="green"
-                            hint="This client serves its traffic without the visitor auth gate"
+                            hint={t('This client serves its traffic without the visitor auth gate')}
                           >
-                            public
+                            {t('public')}
                           </HintBadge>
                         )}
                         {c.visitor_auth && (
                           <HintBadge
                             tint="lime"
-                            hint="This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service"
+                            hint={t("This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service")}
                           >
-                            custom auth
+                            {t('custom auth')}
                           </HintBadge>
                         )}
                         {c.version && (
@@ -439,7 +449,7 @@ export function ClientsSection({
                         {c.bandwidth_bps !== null && (
                           <HintBadge
                             tint="gray"
-                            hint="Announced link capacity; the server paces frames to this client accordingly"
+                            hint={t('Announced link capacity; the server paces frames to this client accordingly')}
                           >
                             {formatBandwidth(c.bandwidth_bps)}
                           </HintBadge>
@@ -447,15 +457,15 @@ export function ClientsSection({
                         {c.priority > 0 && (
                           <HintBadge
                             tint="gray"
-                            hint={`Standby tier ${c.priority}: receives traffic only when no lower tier is available (primary-standby strategy)`}
+                            hint={t('Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)', { tier: c.priority })}
                           >
-                            standby {c.priority}
+                            {t('standby')} {c.priority}
                           </HintBadge>
                         )}
                         {c.protocol_mismatch && (
                           <HintBadge
                             tint="red"
-                            hint={`Client speaks tunnel protocol v${c.protocol}, server differs — update the older side`}
+                            hint={t('Client speaks tunnel protocol v{proto}, server differs — update the older side', { proto: c.protocol ?? 0 })}
                           >
                             proto v{c.protocol}
                           </HintBadge>
@@ -463,9 +473,9 @@ export function ClientsSection({
                         {c.instance_id_shared && (
                           <HintBadge
                             tint="amber"
-                            hint={`Another live connection reports the same client id (${c.instance_id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id`}
+                            hint={t('Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id', { id: c.instance_id ?? '' })}
                           >
-                            SHARED ID
+                            {t('SHARED ID')}
                           </HintBadge>
                         )}
                       </div>
@@ -488,13 +498,13 @@ export function ClientsSection({
                     <div className="flex items-center gap-2">
                       <StatusDot active={c.healthy && c.backend_healthy} />
                       <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago)}</span>
-                      {!c.healthy && <TintBadge tint="red">DOWN</TintBadge>}
+                      {!c.healthy && <TintBadge tint="red">{t('DOWN')}</TintBadge>}
                       {c.healthy && !c.backend_healthy && (
                         <HintBadge
                           tint="amber"
-                          hint="The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected"
+                          hint={t("The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected")}
                         >
-                          BACKEND DOWN
+                          {t('BACKEND DOWN')}
                         </HintBadge>
                       )}
                     </div>

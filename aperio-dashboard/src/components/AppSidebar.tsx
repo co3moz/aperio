@@ -24,6 +24,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
+import { useI18n } from '@/i18n'
 import { formatUptime } from '@/lib/format'
 
 export type Page =
@@ -93,6 +94,7 @@ export function AppSidebar({
   version: string | null
   onSignOut: () => void
 }) {
+  const { t } = useI18n()
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -115,18 +117,18 @@ export function AppSidebar({
       <SidebarContent>
         {PAGE_GROUPS.map((group) => (
           <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupLabel>{t(group.label)}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.pages.map((p) => (
                   <SidebarMenuItem key={p.id}>
                     <SidebarMenuButton
-                      tooltip={p.label}
+                      tooltip={t(p.label)}
                       isActive={page === p.id}
                       onClick={() => onNavigate(p.id)}
                     >
                       <p.icon />
-                      <span>{p.label}</span>
+                      <span>{t(p.label)}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -141,13 +143,13 @@ export function AppSidebar({
             <SidebarMenuButton
               tooltip={
                 sessionSeconds != null
-                  ? `Session expires in ${formatUptime(sessionSeconds)}`
-                  : 'Sign out'
+                  ? t('Session expires in {duration}', { duration: formatUptime(sessionSeconds) })
+                  : t('Sign out')
               }
               onClick={onSignOut}
             >
               <LogOutIcon />
-              <span className="flex-1">Sign out</span>
+              <span className="flex-1">{t('Sign out')}</span>
               {sessionSeconds != null && (
                 <span className="text-xs text-muted-foreground">
                   {formatUptime(sessionSeconds)}

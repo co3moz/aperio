@@ -6,6 +6,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import { useI18n } from '@/i18n'
 
 const chartConfig = {
   rps: {
@@ -16,6 +17,7 @@ const chartConfig = {
 
 /** Area chart of requests/second over the last minute (recharts). */
 export function ActivityChart({ history }: { history: number[] }) {
+  const { t } = useI18n()
   const data = history.map((v, i) => ({
     // Sample i is (length - i) polls ago; each poll is ~2 s apart.
     secondsAgo: (history.length - 1 - i) * 2,
@@ -25,10 +27,8 @@ export function ActivityChart({ history }: { history: number[] }) {
   return (
     <Card className="py-5">
       <CardHeader className="px-5">
-        <CardTitle className="font-heading text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Live Request Activity
-        </CardTitle>
-        <CardDescription>Requests / second (last 60 seconds)</CardDescription>
+        <CardTitle className="font-heading text-sm font-semibold uppercase tracking-wider text-muted-foreground">{t('Live Request Activity')}</CardTitle>
+        <CardDescription>{t('Requests / second (last 60 seconds)')}</CardDescription>
       </CardHeader>
       <CardContent className="px-5">
         <ChartContainer config={chartConfig} className="h-36 w-full">

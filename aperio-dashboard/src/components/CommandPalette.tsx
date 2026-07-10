@@ -10,6 +10,7 @@ import {
   CommandList,
   CommandShortcut,
 } from '@/components/ui/command'
+import { useI18n } from '@/i18n'
 
 export interface Command {
   id: string
@@ -32,6 +33,7 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void
   commands: Command[]
 }) {
+  const { t } = useI18n()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -48,9 +50,9 @@ export function CommandPalette({
       {/* The cmdk components need a <Command> root for their store; the
           Base UI CommandDialog wrapper does not provide one itself. */}
       <Command>
-        <CommandInput placeholder="Type a command…" />
+        <CommandInput placeholder={t('Type a command…')} />
         <CommandList>
-          <CommandEmpty>No matching commands</CommandEmpty>
+          <CommandEmpty>{t('No matching commands')}</CommandEmpty>
           <CommandGroup>
             {commands.map((c) => (
               <CommandItem

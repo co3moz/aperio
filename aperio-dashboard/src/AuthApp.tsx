@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
+import { useI18n } from '@/i18n'
 
 // Only allow same-origin relative redirects to prevent open redirect abuse.
 // Rejects protocol-relative URLs (//evil.com) and backslash-based bypasses.
@@ -22,6 +23,7 @@ function safeRedirect(url: string): string {
 }
 
 export function AuthApp() {
+  const { t } = useI18n()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(false)
@@ -61,12 +63,12 @@ export function AuthApp() {
             <GlobeIcon className="size-5" />
           </div>
           <CardTitle className="font-heading text-xl">Aperio</CardTitle>
-          <CardDescription>Sign in to continue</CardDescription>
+          <CardDescription>{t('Sign in to continue')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('Username')}</Label>
               <div className="relative">
                 <UserIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -81,7 +83,7 @@ export function AuthApp() {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('Password')}</Label>
               <div className="relative">
                 <LockIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -96,12 +98,12 @@ export function AuthApp() {
               </div>
             </div>
             <Button type="submit" size="lg" disabled={busy}>
-              {busy && <Spinner />} Sign In
+              {busy && <Spinner />} {t('Sign In')}
             </Button>
             {error && (
               <p className="flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
                 <TriangleAlertIcon className="size-4 shrink-0" />
-                Invalid credentials. Please try again.
+                {t('Invalid credentials. Please try again.')}
               </p>
             )}
           </form>

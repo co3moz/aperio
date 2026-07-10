@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/table'
 import type { PeriodStats, ServerStats } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
+import { useI18n } from '@/i18n'
 
 const TOP_N = 10
 
@@ -30,6 +31,7 @@ function BreakdownTable({
   map: Record<string, PeriodStats>
   empty: string
 }) {
+  const { t } = useI18n()
   const entries = topEntries(map)
   return (
     <div className="flex flex-col gap-2">
@@ -39,10 +41,10 @@ function BreakdownTable({
           <TableHeader>
             <TableRow>
               <TableHead>{keyHeader}</TableHead>
-              <TableHead>Requests</TableHead>
-              <TableHead>OK / Failed</TableHead>
-              <TableHead>Sent</TableHead>
-              <TableHead>Received</TableHead>
+              <TableHead>{t('Requests')}</TableHead>
+              <TableHead>{t('OK / Failed')}</TableHead>
+              <TableHead>{t('Sent')}</TableHead>
+              <TableHead>{t('Received')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -52,7 +54,7 @@ function BreakdownTable({
               entries.map(([label, s]) => (
                 <TableRow key={label}>
                   <TableCell className="break-all font-mono text-sm">
-                    {label === '__other' ? '(other)' : label}
+                    {label === '__other' ? t('(other)') : label}
                   </TableCell>
                   <TableCell className="tabular-nums">{s.requests}</TableCell>
                   <TableCell className="tabular-nums">
@@ -72,21 +74,22 @@ function BreakdownTable({
 
 /** Lifetime traffic attributed to tokens and hostnames (top 10 each). */
 export function TrafficBreakdownSection({ stats }: { stats: ServerStats | null }) {
+  const { t } = useI18n()
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title="Traffic Breakdown" />
+      <SectionHeader title={t('Traffic Breakdown')} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BreakdownTable
-          title="By token"
-          keyHeader="Token"
+          title={t('By token')}
+          keyHeader={t('Token')}
           map={stats?.persistent.by_token ?? {}}
-          empty="No attributed traffic yet"
+          empty={t('No attributed traffic yet')}
         />
         <BreakdownTable
-          title="By hostname"
-          keyHeader="Hostname"
+          title={t('By hostname')}
+          keyHeader={t('Hostname')}
           map={stats?.persistent.by_hostname ?? {}}
-          empty="No attributed traffic yet"
+          empty={t('No attributed traffic yet')}
         />
       </div>
     </section>

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { I18nProvider } from '@/i18n'
 
 type Appearance = 'light' | 'dark'
 
@@ -64,10 +65,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ appearance, toggle }}>
-      <TooltipProvider delay={300}>
-        {children}
-        <Toaster position="bottom-right" theme={appearance} />
-      </TooltipProvider>
+      <I18nProvider>
+        <TooltipProvider delay={300}>
+          {children}
+          <Toaster position="bottom-right" theme={appearance} />
+        </TooltipProvider>
+      </I18nProvider>
     </ThemeContext.Provider>
   )
 }

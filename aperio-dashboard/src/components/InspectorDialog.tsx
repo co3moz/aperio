@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api, ApiError, type CapturedRequest } from '@/lib/api'
 import { buildCurl, decodeBodyPreview, formatHeaders } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 function Section({ label, content }: { label: string; content: string }) {
   return (
@@ -30,6 +31,7 @@ function Section({ label, content }: { label: string; content: string }) {
 
 /** Detail view for a captured request, with one-click replay. */
 export function InspectorDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const { t } = useI18n()
   const [detail, setDetail] = useState<CapturedRequest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [replayResult, setReplayResult] = useState<string | null>(null)
@@ -48,8 +50,10 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
       .catch((e: unknown) => {
         setError(
           e instanceof ApiError && e.status === 404
-            ? 'Detail not available for this request (only recent requests are captured).'
-            : `Failed to load request detail: ${e instanceof Error ? e.message : String(e)}`,
+            ? t('Detail not available for this request (only recent requests are captured).')
+            : t('Failed to load request detail: {error}', {
+                error: e instanceof Error ? e.message : String(e),
+              }),
         )
       })
   }, [id])
@@ -66,9 +70,9 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
     try {
       await navigator.clipboard.writeText(curl)
       setCopied(true)
-      toast.success('Copied cURL to clipboard')
+      toast.success(t('Copied cURL to clipboard'))
     } catch {
-      toast.error('Clipboard unavailable')
+      toast.error(t('Clipboard unavailable'))
     }
   }
 
@@ -78,9 +82,9 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
     setReplayResult(null)
     try {
       const r = await api.replayRequest(detail.id)
-      setReplayResult(`✔ Replayed: status ${r.status} in ${r.duration_ms} ms`)
+      setReplayResult(t('✔ Replayed: status {status} in {ms} ms', { status: r.status, ms: r.duration_ms }))
     } catch (e) {
-      setReplayResult(`Replay failed: ${e instanceof Error ? e.message : String(e)}`)
+      setReplayResult(t('Replay failed: {error}', { error: e instanceof Error ? e.message : String(e) }))
     } finally {
       setReplaying(false)
     }
@@ -99,15 +103,15 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
             <DialogTitle className="break-all leading-snug">
               {detail
                 ? `${detail.method} ${detail.uri} → ${detail.status} (${detail.duration_ms} ms)`
-                : 'Request Detail'}
+                : t('Request Detail')}
             </DialogTitle>
             {detail && (
               <div className="flex shrink-0 items-center gap-2">
                 <Tooltip>
                   <TooltipTrigger render={<Button size="xs" variant="outline" onClick={copyCurl} />}>
-                    {copied ? <CheckIcon /> : <CopyIcon />} {copied ? 'Copied' : 'Copy as cURL'}
+                    {copied ? <CheckIcon /> : <CopyIcon />} {copied ? t('Copied') : t('Copy as cURL')}
                   </TooltipTrigger>
-                  <TooltipContent>Copy an equivalent curl command</TooltipContent>
+                  <TooltipContent>{t('Copy an equivalent curl command')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -120,19 +124,19 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
                       />
                     }
                   >
-                    {replaying ? <Spinner /> : <PlayIcon />} Replay
+                    {replaying ? <Spinner /> : <PlayIcon />} {t('Replay')}
                   </TooltipTrigger>
                   <TooltipContent>
                     {detail.req_body_truncated
-                      ? 'Body truncated at capture; cannot replay'
-                      : 'Send this request through the tunnel again'}
+                      ? t('Body truncated at capture; cannot replay')
+                      : t('Send this request through the tunnel again')}
                   </TooltipContent>
                 </Tooltip>
               </div>
             )}
           </div>
           <DialogDescription>
-            Captured transaction detail — bodies are capped at 64 KB.
+            {t('Captured transaction detail — bodies are capped at 64 KB.')}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -151,14 +155,14 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
           {error && <p className="text-sm text-destructive">{error}</p>}
           {detail && (
             <>
-              <Section label="Request Headers" content={formatHeaders(detail.req_headers)} />
+              <Section label={t('Request Headers')} content={formatHeaders(detail.req_headers)} />
               <Section
-                label="Request Body"
+                label={t('Request Body')}
                 content={decodeBodyPreview(detail.req_body, detail.req_body_truncated, false)}
               />
-              <Section label="Response Headers" content={formatHeaders(detail.resp_headers)} />
+              <Section label={t('Response Headers')} content={formatHeaders(detail.resp_headers)} />
               <Section
-                label="Response Body"
+                label={t('Response Body')}
                 content={decodeBodyPreview(
                   detail.resp_body,
                   detail.resp_body_truncated,
@@ -170,7 +174,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('Close')}
           </Button>
         </DialogFooter>
       </DialogContent>
