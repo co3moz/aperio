@@ -113,6 +113,7 @@ async fn test_rate_limiting() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
@@ -217,6 +218,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),
@@ -320,6 +322,7 @@ async fn test_proxy_handler_success() {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(HashMap::new()),

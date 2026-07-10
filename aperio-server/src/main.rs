@@ -543,6 +543,7 @@ async fn main() {
   let audit_max_files = config.audit_max_files;
 
   let (client_connected_tx, _) = watch::channel(false);
+  let (shutdown_tx, _) = watch::channel(false);
   // Live traffic fan-out to dashboard SSE subscribers. A bounded buffer means a
   // slow/absent subscriber can only fall behind (RecvError::Lagged, skipped on
   // the read side), never apply backpressure to request handling.
@@ -551,6 +552,7 @@ async fn main() {
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
     client_connected: client_connected_tx,
+    shutdown: shutdown_tx,
     connection_state: Mutex::new(ConnectionState {
       connected: false,
       last_disconnect: None,
@@ -850,6 +852,29 @@ async fn shutdown_signal(state: Arc<AppState>) {
       tokio::time::sleep(Duration::from_millis(200)).await;
     }
   }
+
+  // Graceful shutdown only completes once every connection has ended, and
+  // long-lived ones never end on their own. End them actively: dashboard SSE
+  // streams watch this flag, and each tunnel read loop honors its disconnect
+  // notify.
+  let _ = state.shutdown.send(true);
+  {
+    let clients = state.clients.lock().await;
+    for client in clients.values() {
+      client.disconnect.notify_waiters();
+    }
+  }
+
+  // Last resort: anything still holding a connection open (a proxied
+  // WebSocket/TCP/UDP relay, a stalled peer) must not keep the process alive
+  // forever. Flush what matters and exit.
+  let fallback = state.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    warn!("Graceful shutdown timed out after 10s; forcing exit");
+    fallback.persistent_stats.lock().await.save_if_dirty();
+    std::process::exit(0);
+  });
 }
 
 #[cfg(test)]

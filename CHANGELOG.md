@@ -20,6 +20,7 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Ctrl+C did not stop the server while a dashboard tab was open**: graceful shutdown waits for every connection to end, and the dashboard's SSE stream (like tunnel sockets) never ends on its own. On shutdown the server now actively closes SSE streams and tunnel connections, and a 10-second fallback force-exits (after flushing stats) if anything else — a proxied WebSocket/TCP/UDP relay, a stalled peer — still holds a connection open.
 - After a server restart (or session expiry) the dashboard redirected to the login page with `redirect=/aperio/api/stats` — whichever background API call hit the expired session first — so logging in landed on raw JSON. The login redirect now targets the dashboard page the user was actually on.
 - Dashboard timestamps drifted when the server and the viewer's browser were in different timezones (e.g. a UTC server viewed from UTC+3): request/audit timestamps were naive local strings the browser re-interpreted in its own zone. The server now emits RFC3339 with the UTC offset (traffic log, request capture, audit events), and the dashboard renders absolute times in the viewer's local timezone.
 - Opening the dashboard's ⌘K command menu crashed the UI (`Cannot read properties of undefined (reading 'subscribe')`): the Base UI `CommandDialog` wrapper does not provide the `<Command>` root that the cmdk input/list need, so the palette now renders one explicitly.

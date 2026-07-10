@@ -141,12 +141,13 @@ pub(crate) async fn live_stream_handler(
   use tokio::time::MissedTickBehavior;
 
   let rx = state.traffic_tx.subscribe();
+  let shutdown = state.shutdown.subscribe();
   let mut interval = tokio::time::interval(Duration::from_secs(2));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let stream = futures_util::stream::unfold(
-    (state, rx, interval),
-    |(state, mut rx, mut interval)| async move {
+    (state, rx, interval, shutdown),
+    |(state, mut rx, mut interval, mut shutdown)| async move {
       loop {
         tokio::select! {
           // The first tick fires immediately, seeding the initial snapshot.
@@ -156,7 +157,7 @@ pub(crate) async fn live_stream_handler(
               .event("stats")
               .json_data(&snapshot)
               .unwrap_or_else(|_| Event::default());
-            return Some((Ok(event), (state, rx, interval)));
+            return Some((Ok(event), (state, rx, interval, shutdown)));
           }
           recv = rx.recv() => match recv {
             Ok(log) => {
@@ -164,12 +165,19 @@ pub(crate) async fn live_stream_handler(
                 .event("traffic")
                 .json_data(&log)
                 .unwrap_or_else(|_| Event::default());
-              return Some((Ok(event), (state, rx, interval)));
+              return Some((Ok(event), (state, rx, interval, shutdown)));
             }
             // Slow subscriber: drop the missed span and keep streaming.
             Err(RecvError::Lagged(_)) => continue,
-            // Server shutting down / sender gone: end the stream.
+            // Sender gone: end the stream.
             Err(RecvError::Closed) => return None,
+          },
+          // Server shutting down: end the stream so graceful shutdown can
+          // complete (an open SSE connection would otherwise hold it forever).
+          _ = shutdown.changed() => {
+            if *shutdown.borrow() {
+              return None;
+            }
           }
         }
       }

@@ -519,6 +519,9 @@ pub(crate) struct AppState {
   pub(crate) settings_overrides: Mutex<SettingsOverrides>,
   /// Path of the persisted overrides file (`<data_dir>/settings.json`).
   pub(crate) settings_path: std::path::PathBuf,
+  /// Flipped to true once a shutdown signal arrives; long-lived streams
+  /// (dashboard SSE) watch it and end so graceful shutdown can complete.
+  pub(crate) shutdown: watch::Sender<bool>,
   /// Currently in-flight proxied requests, checked against the (live,
   /// dashboard-editable) max_concurrent_requests limit. A plain counter
   /// instead of a semaphore so the limit can change at runtime.
