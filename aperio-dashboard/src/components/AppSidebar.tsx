@@ -1,10 +1,16 @@
 import {
   ActivityIcon,
+  ChartPieIcon,
+  ConstructionIcon,
   GlobeIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
+  Link2Icon,
   LogOutIcon,
+  ScrollTextIcon,
+  ServerIcon,
   Settings2Icon,
+  WebhookIcon,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -20,14 +26,59 @@ import {
 } from '@/components/ui/sidebar'
 import { formatUptime } from '@/lib/format'
 
-export type Page = 'overview' | 'traffic' | 'access' | 'system'
+export type Page =
+  | 'overview'
+  | 'clients'
+  | 'traffic'
+  | 'breakdown'
+  | 'tokens'
+  | 'share'
+  | 'maintenance'
+  | 'settings'
+  | 'webhooks'
+  | 'audit'
 
-export const PAGES: { id: Page; label: string; icon: typeof GlobeIcon; hint: string }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & clients' },
-  { id: 'traffic', label: 'Traffic', icon: ActivityIcon, hint: 'Live requests' },
-  { id: 'access', label: 'Access', icon: KeyRoundIcon, hint: 'Tokens & sharing' },
-  { id: 'system', label: 'System', icon: Settings2Icon, hint: 'Settings & audit' },
+export interface PageSpec {
+  id: Page
+  label: string
+  icon: typeof GlobeIcon
+  hint: string
+}
+
+export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
+  {
+    label: 'Overview',
+    pages: [
+      { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity' },
+      { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections' },
+    ],
+  },
+  {
+    label: 'Traffic',
+    pages: [
+      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time' },
+      { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
+    ],
+  },
+  {
+    label: 'Access',
+    pages: [
+      { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials' },
+      { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access' },
+      { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch' },
+    ],
+  },
+  {
+    label: 'System',
+    pages: [
+      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration' },
+      { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
+      { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
+    ],
+  },
 ]
+
+export const PAGES: PageSpec[] = PAGE_GROUPS.flatMap((g) => g.pages)
 
 export function AppSidebar({
   page,
@@ -62,25 +113,27 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Panel</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {PAGES.map((p) => (
-                <SidebarMenuItem key={p.id}>
-                  <SidebarMenuButton
-                    tooltip={p.label}
-                    isActive={page === p.id}
-                    onClick={() => onNavigate(p.id)}
-                  >
-                    <p.icon />
-                    <span>{p.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {PAGE_GROUPS.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.pages.map((p) => (
+                  <SidebarMenuItem key={p.id}>
+                    <SidebarMenuButton
+                      tooltip={p.label}
+                      isActive={page === p.id}
+                      onClick={() => onNavigate(p.id)}
+                    >
+                      <p.icon />
+                      <span>{p.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

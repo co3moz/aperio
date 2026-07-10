@@ -39,9 +39,13 @@ function isPage(value: string | null): value is Page {
   return PAGES.some((p) => p.id === value)
 }
 
+// Old bookmarks used the four coarse tabs; land them on the closest new page.
+const LEGACY_TABS: Record<string, Page> = { access: 'tokens', system: 'settings' }
+
 function pageFromUrl(): Page {
   const t = readParams().get('tab')
-  return isPage(t) ? t : 'overview'
+  if (isPage(t)) return t
+  return (t && LEGACY_TABS[t]) || 'overview'
 }
 
 function loadHistory(): number[] {
@@ -249,29 +253,19 @@ export default function App() {
             <>
               <StatsCards stats={stats} />
               <ActivityChart history={history} />
-              <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
             </>
           )}
-          {page === 'traffic' && (
-            <>
-              <TrafficSection logs={logs} onInspect={setInspectId} />
-              <TrafficBreakdownSection stats={stats} />
-            </>
+          {page === 'clients' && (
+            <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
           )}
-          {page === 'access' && (
-            <>
-              <TokensSection />
-              <ShareLinksSection />
-              <MaintenanceSection />
-            </>
-          )}
-          {page === 'system' && (
-            <>
-              <SettingsSection />
-              <WebhooksSection />
-              <AuditSection />
-            </>
-          )}
+          {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
+          {page === 'breakdown' && <TrafficBreakdownSection stats={stats} />}
+          {page === 'tokens' && <TokensSection />}
+          {page === 'share' && <ShareLinksSection />}
+          {page === 'maintenance' && <MaintenanceSection />}
+          {page === 'settings' && <SettingsSection />}
+          {page === 'webhooks' && <WebhooksSection />}
+          {page === 'audit' && <AuditSection />}
         </main>
 
         <footer className="border-t py-3 text-center text-xs text-muted-foreground">
