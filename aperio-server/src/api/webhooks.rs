@@ -35,6 +35,9 @@ pub(crate) struct WebhookCreateRequest {
   /// `X-Aperio-Signature` / `X-Aperio-Timestamp` headers.
   #[serde(default)]
   pub(crate) secret: Option<String>,
+  /// Delivery payload format: `generic` (default), `slack`, `discord`, or `teams`.
+  #[serde(default)]
+  pub(crate) format: Option<String>,
 }
 
 /// Lists webhook definitions. The signing secret itself is never returned —
@@ -57,6 +60,7 @@ pub(crate) async fn webhooks_list_handler(
           "events": w.events,
           "enabled": w.enabled,
           "created_at": w.created_at,
+          "format": w.format.as_str(),
           "signed": w.secret.is_some(),
         })
       })
@@ -117,12 +121,21 @@ pub(crate) async fn webhooks_create_handler(
     )
       .into_response();
   }
+  let Some(format) =
+    crate::store::webhooks::WebhookFormat::parse(payload.format.as_deref().unwrap_or(""))
+  else {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Webhook format must be generic, slack, discord, or teams",
+    )
+      .into_response();
+  };
 
   let hook = state
     .webhook_store
     .lock()
     .await
-    .create(name, url, events, secret);
+    .create(name, url, events, secret, format);
   info!("Webhook created: {} -> {}", hook.name, hook.url);
   state
     .audit(

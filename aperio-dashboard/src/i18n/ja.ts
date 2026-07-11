@@ -325,6 +325,10 @@ export const ja: Record<string, string> = {
   'Sign in to continue': '続行するにはサインインしてください',
   'Sign out': 'サインアウト',
   'Signing secret (optional, 16-128 chars)': '署名シークレット（任意、16〜128文字）',
+  'Payload format': 'ペイロード形式',
+  'Generic JSON': '汎用JSON',
+  'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
+    '汎用はイベントの生のJSONを送信します。チャット形式は、そのサービスの受信Webhook URL向けの完成したメッセージを送信します。',
   'Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)':
     'スタンバイ層{tier}: より低い層が利用できないときだけトラフィックを受け取ります（primary-standby戦略）',
   'Stats & live activity': '統計とライブアクティビティ',

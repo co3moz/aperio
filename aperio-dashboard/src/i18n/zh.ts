@@ -314,6 +314,10 @@ export const zh: Record<string, string> = {
   'Sign in to continue': '登录以继续',
   'Sign out': '退出登录',
   'Signing secret (optional, 16-128 chars)': '签名密钥（可选，16-128 字符）',
+  'Payload format': '负载格式',
+  'Generic JSON': '通用 JSON',
+  'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
+    '通用格式发送原始事件 JSON；聊天格式向该服务的入站 Webhook URL 发送现成的消息。',
   'Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)':
     '备用层级 {tier}：仅当没有更低层级可用时才接收流量（主备策略）',
   'Stats & live activity': '统计与实时活动',

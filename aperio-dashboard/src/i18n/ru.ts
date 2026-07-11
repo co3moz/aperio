@@ -327,6 +327,10 @@ export const ru: Record<string, string> = {
   'Sign in to continue': 'Войдите, чтобы продолжить',
   'Sign out': 'Выйти',
   'Signing secret (optional, 16-128 chars)': 'Секрет подписи (необязательно, 16-128 символов)',
+  'Payload format': 'Формат полезной нагрузки',
+  'Generic JSON': 'Обычный JSON',
+  'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
+    'Обычный формат отправляет сырой JSON события; чат-форматы отправляют готовое сообщение на входящий webhook сервиса.',
   'Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)':
     'Резервный уровень {tier}: получает трафик, только когда нет более низкого уровня (стратегия primary-standby)',
   'Stats & live activity': 'Статистика и живая активность',

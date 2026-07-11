@@ -327,6 +327,10 @@ export const tr: Record<string, string> = {
   'Sign in to continue': 'Devam etmek için giriş yapın',
   'Sign out': 'Çıkış yap',
   'Signing secret (optional, 16-128 chars)': 'İmzalama anahtarı (isteğe bağlı, 16-128 karakter)',
+  'Payload format': 'Yük formatı',
+  'Generic JSON': 'Genel JSON',
+  'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
+    'Genel format ham olay JSON’unu gönderir; sohbet formatları o servisin gelen webhook adresine hazır bir mesaj gönderir.',
   'Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)':
     'Yedek katman {tier}: yalnızca daha düşük bir katman yokken trafik alır (primary-standby stratejisi)',
   'Stats & live activity': 'İstatistikler ve canlı aktivite',

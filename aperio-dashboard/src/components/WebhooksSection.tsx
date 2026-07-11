@@ -27,6 +27,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
@@ -51,6 +58,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [events, setEvents] = useState('*')
+  const [format, setFormat] = useState('generic')
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -60,6 +68,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
       setName('')
       setUrl('')
       setEvents('*')
+      setFormat('generic')
       setSecret('')
       setError(null)
     }
@@ -74,6 +83,7 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
         name: name.trim(),
         url: url.trim(),
         events: splitList(events),
+        format,
         ...(secret.trim() ? { secret: secret.trim() } : {}),
       })
       setOpen(false)
@@ -125,6 +135,23 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => setEvents(e.target.value)}
               placeholder="*"
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="wh-format">{t('Payload format')}</Label>
+            <Select value={format} onValueChange={(v) => setFormat(v as string)}>
+              <SelectTrigger id="wh-format" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="generic">{t('Generic JSON')}</SelectItem>
+                <SelectItem value="slack">Slack</SelectItem>
+                <SelectItem value="discord">Discord</SelectItem>
+                <SelectItem value="teams">Microsoft Teams</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.')}
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="wh-secret">{t('Signing secret (optional, 16-128 chars)')}</Label>
@@ -221,6 +248,7 @@ export function WebhooksSection() {
                   <TableCell>
                     <div className="flex items-center gap-1.5 font-medium">
                       {h.name}
+                      {h.format !== 'generic' && <TintBadge tint="blue">{h.format}</TintBadge>}
                       {h.signed && <TintBadge tint="green">{t('signed')}</TintBadge>}
                     </div>
                   </TableCell>

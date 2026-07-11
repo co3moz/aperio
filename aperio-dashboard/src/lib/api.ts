@@ -139,6 +139,8 @@ export interface Webhook {
   events: string[]
   enabled: boolean
   created_at: number
+  /** Delivery payload format: generic JSON or a ready-made chat message. */
+  format: 'generic' | 'slack' | 'discord' | 'teams'
   /** True when deliveries are HMAC-signed (the secret itself is never returned). */
   signed: boolean
 }
@@ -268,7 +270,13 @@ export const api = {
     mutate(`/tokens/${encodeURIComponent(id)}`, json('PUT', payload)),
   revokeToken: (id: string) => mutate(`/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   webhooks: () => request<Webhook[]>('/webhooks'),
-  createWebhook: (payload: { name: string; url: string; events: string[]; secret?: string }) =>
+  createWebhook: (payload: {
+    name: string
+    url: string
+    events: string[]
+    secret?: string
+    format?: string
+  }) =>
     mutate('/webhooks', json('POST', payload)),
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   audit: () => request<AuditEvent[]>('/audit'),

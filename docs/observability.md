@@ -57,6 +57,10 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 
 Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`.
 
+### Chat-service formats
+
+Besides the raw JSON above (`generic`, the default), a webhook can be created with a **format** of `slack`, `discord`, or `teams`: point it straight at that service's *incoming webhook* URL and Aperio delivers a ready-made message instead — a Slack mrkdwn `text`, a Discord markdown `content`, or a Teams MessageCard with the event's fields as facts. No relay or transformation service needed.
+
 ### Signed deliveries
 
 Give a webhook a **signing secret** (16–128 chars, set at creation; never shown again) and every delivery carries:

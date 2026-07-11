@@ -386,6 +386,17 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/ap
 assert_status 200 "$CODE" "webhook deletion succeeds"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${HOOK_ID}")"
 assert_status 404 "$CODE" "deleting the same webhook twice returns 404"
+SLACK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"name\":\"e2e-slack\",\"url\":\"http://127.0.0.1:${BACKEND_PORT}/hook\",\"events\":[\"*\"],\"format\":\"slack\"}" \
+  "$BASE/aperio/api/webhooks")" || fail "slack-format webhook creation failed"
+SLACK_ID="$(echo "$SLACK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
+assert_contains "$LIST" '"format":"slack"' "webhook list reports the slack format"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"bad-format","url":"http://127.0.0.1:1/x","format":"telegram"}' "$BASE/aperio/api/webhooks")"
+assert_status 400 "$CODE" "unknown webhook formats are rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${SLACK_ID}")"
+assert_status 200 "$CODE" "slack webhook deletion succeeds"
 
 step "Audit API"
 AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"

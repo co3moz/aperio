@@ -327,6 +327,10 @@ export const fr: Record<string, string> = {
   'Sign in to continue': 'Connectez-vous pour continuer',
   'Sign out': 'Se déconnecter',
   'Signing secret (optional, 16-128 chars)': 'Secret de signature (facultatif, 16-128 caractères)',
+  'Payload format': 'Format de la charge utile',
+  'Generic JSON': 'JSON générique',
+  'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
+    'Générique envoie le JSON brut de l’événement ; les formats de chat envoient un message prêt pour l’URL de webhook entrant du service.',
   'Standby tier {tier}: receives traffic only when no lower tier is available (primary-standby strategy)':
     'Niveau de secours {tier} : ne reçoit du trafic que si aucun niveau inférieur n’est disponible (stratégie primary-standby)',
   'Stats & live activity': 'Statistiques et activité en direct',
