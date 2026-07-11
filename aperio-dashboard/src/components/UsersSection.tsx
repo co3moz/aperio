@@ -277,6 +277,38 @@ function DeleteUserButton({ user, onDone }: { user: DashboardUser; onDone: () =>
   )
 }
 
+function ResetTotpButton({ user, onDone }: { user: DashboardUser; onDone: () => void }) {
+  const { t } = useI18n()
+  const reset = async () => {
+    try {
+      await api.totpAdminReset(user.id)
+      toast.info(t('Two-factor auth reset for "{name}"', { name: user.username }))
+    } finally {
+      onDone()
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="xs" variant="outline" />}>
+        {t('Reset 2FA')}
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('Reset two-factor auth for "{name}"?', { name: user.username })}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void reset()}>{t('Reset')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 export function UsersSection() {
   const { t } = useI18n()
   const { username: self } = useSession()
@@ -321,17 +353,21 @@ export function UsersSection() {
                     <RoleBadge role={u.role} />
                   </TableCell>
                   <TableCell>
-                    {u.enabled ? (
-                      <TintBadge tint="green">{t('active')}</TintBadge>
-                    ) : (
-                      <TintBadge tint="gray">{t('disabled')}</TintBadge>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {u.enabled ? (
+                        <TintBadge tint="green">{t('active')}</TintBadge>
+                      ) : (
+                        <TintBadge tint="gray">{t('disabled')}</TintBadge>
+                      )}
+                      {u.totp && <TintBadge tint="blue">2FA</TintBadge>}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatRelativeTime(u.created_at)}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
+                      {u.totp && <ResetTotpButton user={u} onDone={refresh} />}
                       <EditUserDialog user={u} onSaved={refresh} />
                       <DeleteUserButton user={u} onDone={refresh} />
                     </div>

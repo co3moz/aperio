@@ -20,6 +20,7 @@ fn user_view(u: &User) -> serde_json::Value {
     "role": u.role.as_str(),
     "created_at": u.created_at,
     "enabled": u.enabled,
+    "totp": u.totp_secret.is_some(),
   })
 }
 
@@ -196,4 +197,166 @@ pub(crate) async fn users_delete_handler(
     .audit("user_deleted", &ip, &format!("username={}", username))
     .await;
   StatusCode::OK.into_response()
+}
+
+/// Resolves the calling session to its user row. The built-in admin
+/// ("aperio", from the master token / dashboard password / OIDC) has no user
+/// row and cannot enroll TOTP.
+async fn session_user_id(state: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
+  let Some(username) = crate::auth::dashboard_username(state, headers).await else {
+    return Err(
+      (
+        StatusCode::BAD_REQUEST,
+        "Two-factor authentication applies to named dashboard users; the built-in admin signs in with the master token or dashboard password",
+      )
+        .into_response(),
+    );
+  };
+  match state.users.lock().await.find_by_username(&username) {
+    Some(user) => Ok(user.id.clone()),
+    None => Err((StatusCode::BAD_REQUEST, "Unknown user").into_response()),
+  }
+}
+
+fn now_secs() -> u64 {
+  std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_secs())
+    .unwrap_or(0)
+}
+
+/// Starts TOTP enrollment for the signed-in user.
+#[utoipa::path(post, path = "/aperio/api/me/totp/setup", tag = "users",
+  description = "Begins TOTP enrollment for the signed-in dashboard user: returns a fresh secret and otpauth:// URL. Enrollment takes effect only after /aperio/api/me/totp/enable verifies a code.",
+  responses((status = 200, description = "Pending secret and provisioning URL", body = serde_json::Value), (status = 400, description = "No user row (built-in admin)")))]
+pub(crate) async fn totp_setup_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Response {
+  let user_id = match session_user_id(&state, &headers).await {
+    Ok(id) => id,
+    Err(resp) => return resp,
+  };
+  let (secret, username) = {
+    let mut users = state.users.lock().await;
+    let secret = match users.totp_begin(&user_id) {
+      Ok(s) => s,
+      Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
+    let username = users
+      .get(&user_id)
+      .map(|u| u.username.clone())
+      .unwrap_or_default();
+    (secret, username)
+  };
+  Json(serde_json::json!({
+    "secret": secret,
+    "otpauth_url": crate::totp::otpauth_url(&username, &secret),
+  }))
+  .into_response()
+}
+
+/// Body for TOTP enable/disable: the current authenticator code.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct TotpCodeRequest {
+  pub(crate) code: String,
+}
+
+/// Completes TOTP enrollment for the signed-in user.
+#[utoipa::path(post, path = "/aperio/api/me/totp/enable", tag = "users",
+  description = "Completes TOTP enrollment by verifying a code against the pending secret. Returns the single-use recovery codes — shown exactly once.",
+  request_body = TotpCodeRequest,
+  responses((status = 200, description = "Recovery codes", body = serde_json::Value), (status = 400, description = "Invalid code or no enrollment in progress")))]
+pub(crate) async fn totp_enable_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<TotpCodeRequest>,
+) -> Response {
+  let user_id = match session_user_id(&state, &headers).await {
+    Ok(id) => id,
+    Err(resp) => return resp,
+  };
+  let result = state
+    .users
+    .lock()
+    .await
+    .totp_enable(&user_id, &payload.code, now_secs());
+  match result {
+    Ok(recovery_codes) => {
+      let ip = actor_ip(&state, &headers, addr);
+      state
+        .audit("totp_enabled", &ip, &format!("user_id={}", user_id))
+        .await;
+      Json(serde_json::json!({ "recovery_codes": recovery_codes })).into_response()
+    }
+    Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+  }
+}
+
+/// Disables TOTP for the signed-in user (requires a valid current code).
+#[utoipa::path(delete, path = "/aperio/api/me/totp", tag = "users",
+  description = "Disables TOTP for the signed-in user. Requires a currently valid authenticator code (or an unused recovery code).",
+  request_body = TotpCodeRequest,
+  responses((status = 200, description = "Disabled"), (status = 400, description = "TOTP not enabled"), (status = 401, description = "Invalid code")))]
+pub(crate) async fn totp_disable_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<TotpCodeRequest>,
+) -> Response {
+  let user_id = match session_user_id(&state, &headers).await {
+    Ok(id) => id,
+    Err(resp) => return resp,
+  };
+  let secret = {
+    let users = state.users.lock().await;
+    match users.get(&user_id).and_then(|u| u.totp_secret.clone()) {
+      Some(s) => s,
+      None => {
+        return (StatusCode::BAD_REQUEST, "TOTP is not enabled for this user").into_response();
+      }
+    }
+  };
+  let ok = crate::totp::verify(&secret, &payload.code, now_secs())
+    || state
+      .users
+      .lock()
+      .await
+      .consume_recovery(&user_id, &payload.code);
+  if !ok {
+    return (StatusCode::UNAUTHORIZED, "Invalid code").into_response();
+  }
+  if let Err(e) = state.users.lock().await.totp_disable(&user_id) {
+    return (StatusCode::BAD_REQUEST, e).into_response();
+  }
+  let ip = actor_ip(&state, &headers, addr);
+  state
+    .audit("totp_disabled", &ip, &format!("user_id={}", user_id))
+    .await;
+  Json(serde_json::json!({"status": "ok"})).into_response()
+}
+
+/// Admin reset: clears TOTP for a locked-out user.
+#[utoipa::path(delete, path = "/aperio/api/users/{id}/totp", tag = "users",
+  description = "Clears TOTP for a user (admin only) — the escape hatch when someone loses their authenticator and recovery codes.",
+  params(("id" = String, Path, description = "User id")),
+  responses((status = 200, description = "Cleared"), (status = 404, description = "Unknown user")))]
+pub(crate) async fn totp_admin_reset_handler(
+  State(state): State<Arc<AppState>>,
+  Path(id): Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  if state.users.lock().await.get(&id).is_none() {
+    return (StatusCode::NOT_FOUND, "Unknown user").into_response();
+  }
+  if let Err(e) = state.users.lock().await.totp_disable(&id) {
+    return (StatusCode::BAD_REQUEST, e).into_response();
+  }
+  let ip = actor_ip(&state, &headers, addr);
+  state
+    .audit("totp_admin_reset", &ip, &format!("user_id={}", id))
+    .await;
+  Json(serde_json::json!({"status": "ok"})).into_response()
 }

@@ -20,6 +20,8 @@ The server is configured through environment variables only (no yaml, no CLI fla
 
 **Dashboard users and roles.** Beyond the master token and the optional `APERIO_DASHBOARD_AUTH` password (both of which always sign in as a built-in admin named `aperio`), admins can create named dashboard users from the *Users* page, each with a role: **viewer** (read-only — statistics, traffic, audit), **operator** (day-to-day operations — clients, tokens, webhooks, maintenance, share links), or **admin** (everything, including server settings and user management). Passwords are stored as Argon2id hashes in `APERIO_DATA_DIR/aperio.db`. The role floor of every dashboard route is enforced server-side (a viewer gets `403` on any mutation, and on the admin-only settings/users routes); the UI additionally hides controls a role cannot use. OIDC logins act as admins.
 
+**Two-factor authentication (TOTP).** Any named dashboard user can enroll an authenticator app (Google Authenticator, Authy, 1Password, …) from the sidebar's *Two-factor auth* dialog: scan the QR code, confirm a 6-digit code, and store the eight single-use recovery codes shown once. From then on the login form asks for the code after the password (a recovery code works too, and is consumed). Wrong codes count towards the brute-force lockout. An admin can reset a locked-out user's TOTP from the *Users* page (`DELETE /aperio/api/users/:id/totp`); enrollment endpoints live under `/aperio/api/me/totp/*`. The built-in `aperio` admin (master token / dashboard password / OIDC) has no user row and cannot enroll — create named users for anyone who needs 2FA.
+
 ## Client
 
 ### Precedence

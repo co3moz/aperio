@@ -216,12 +216,62 @@ pub(crate) async fn auth_login_handler(
         scope = Some(None);
       }
       // Dashboard users (username:password) -> full session with their role.
+      // A user with TOTP enabled must additionally present a valid code (or
+      // an unused recovery code) in the X-Aperio-Totp header.
       if scope.is_none()
         && let Some((username, password)) = decoded_str.split_once(':')
-        && let Some(user) = state.users.lock().await.verify(username, password)
       {
-        scope = Some(None);
-        identity = (Some(user.username.clone()), user.role);
+        let verified = {
+          let users = state.users.lock().await;
+          users.verify(username, password).map(|u| {
+            (
+              u.id.clone(),
+              u.username.clone(),
+              u.role,
+              u.totp_secret.clone(),
+            )
+          })
+        };
+        if let Some((user_id, user_name, role, totp_secret)) = verified {
+          match totp_secret {
+            None => {
+              scope = Some(None);
+              identity = (Some(user_name), role);
+            }
+            Some(secret) => {
+              let code = headers
+                .get("x-aperio-totp")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .unwrap_or("");
+              if code.is_empty() {
+                // The password was right; the second factor is simply
+                // missing. Signal the login page to ask for it — this is
+                // not a lockout-worthy failure.
+                return Ok(
+                  (
+                    StatusCode::UNAUTHORIZED,
+                    [("x-aperio-totp", "required")],
+                    "TOTP code required",
+                  )
+                    .into_response(),
+                );
+              }
+              let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+              let ok = crate::totp::verify(&secret, code, now_secs)
+                || state.users.lock().await.consume_recovery(&user_id, code);
+              if ok {
+                scope = Some(None);
+                identity = (Some(user_name), role);
+              }
+              // A wrong code falls through to the shared failure path
+              // (audited and counted towards the brute-force lockout).
+            }
+          }
+        }
       }
       // Client-set visitor credentials for this route -> host-scoped session.
       if scope.is_none()
@@ -363,6 +413,9 @@ pub(crate) struct SessionStatus {
   pub(crate) username: String,
   /// Role the middleware enforces for this session.
   pub(crate) role: &'static str,
+  /// True when the session's user has TOTP two-factor auth enabled (always
+  /// false for the built-in admin, which has no user row).
+  pub(crate) totp: bool,
 }
 
 #[utoipa::path(get, path = "/aperio/api/session", tag = "auth",
@@ -392,10 +445,17 @@ pub(crate) async fn auth_session_handler(
     }
     None => (0, "aperio".to_string(), Role::Admin.as_str()),
   };
+  let totp = {
+    let users = state.users.lock().await;
+    users
+      .find_by_username(&username)
+      .is_some_and(|u| u.totp_secret.is_some())
+  };
   Json(SessionStatus {
     expires_in_seconds: remaining,
     username,
     role,
+    totp,
   })
   .into_response()
 }
@@ -598,6 +658,18 @@ pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Opt
     return None;
   }
   Some(info.role)
+}
+
+/// Username of the presented global dashboard session; None for a missing/
+/// host-scoped session or the built-in admin (which has no user row).
+pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  let token = session_cookie(headers)?;
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(token)?;
+  if info.expires_at <= Instant::now() || info.scope_host.is_some() {
+    return None;
+  }
+  info.username.clone()
 }
 
 /// Validates the `aperio_session` cookie for a proxied request to `host`.

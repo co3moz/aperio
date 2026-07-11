@@ -329,6 +329,52 @@ export const ru: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'Секрет подписи (необязательно, 16-128 символов)',
   'Payload format': 'Формат полезной нагрузки',
   'Traffic History': 'История трафика',
+  'Enter the code from your authenticator app':
+    'Введите код из приложения-аутентификатора',
+  'Authentication code':
+    'Код аутентификации',
+  'A recovery code also works here.':
+    'Код восстановления здесь тоже подойдёт.',
+  'Verify':
+    'Подтвердить',
+  'Back':
+    'Назад',
+  'Invalid code. Please try again.':
+    'Неверный код. Попробуйте ещё раз.',
+  'Two-factor auth':
+    'Двухфакторная аутентификация',
+  'Two-factor authentication':
+    'Двухфакторная аутентификация',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    'Защитите вход в панель одноразовыми кодами из приложения-аутентификатора (Google Authenticator, Authy, 1Password, …).',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    'Встроенный администратор «aperio» входит по мастер-токену или паролю панели и не может включить двухфакторную аутентификацию. Создайте именованного пользователя.',
+  'Two-factor authentication is currently off for your account.':
+    'Двухфакторная аутентификация для вашей учётной записи выключена.',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    'Двухфакторная аутентификация включена. Введите текущий код (или код восстановления), чтобы выключить её.',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    'Отсканируйте QR-код приложением-аутентификатором и введите показанный 6-значный код, чтобы завершить.',
+  'Verify & enable':
+    'Подтвердить и включить',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    'Двухфакторная аутентификация включена. Сохраните эти одноразовые коды восстановления в надёжном месте — они показываются только один раз и позволят войти, если вы потеряете аутентификатор.',
+  'Done':
+    'Готово',
+  'Two-factor authentication disabled':
+    'Двухфакторная аутентификация выключена',
+  'Recovery codes copied':
+    'Коды восстановления скопированы',
+  'Reset 2FA':
+    'Сбросить 2FA',
+  'Two-factor auth reset for "{name}"':
+    'Двухфакторная аутентификация сброшена для «{name}»',
+  'Reset two-factor auth for "{name}"?':
+    'Сбросить двухфакторную аутентификацию для «{name}»?',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    'Пользователь будет входить только по паролю, пока не зарегистрируется снова. Используйте, когда кто-то потерял аутентификатор и коды восстановления.',
+  'Reset':
+    'Сбросить',
   'Uptime': 'Аптайм',
   'Service': 'Сервис',
   '7 days': '7 дней',

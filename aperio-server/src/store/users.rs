@@ -47,6 +47,16 @@ pub struct User {
   pub role: Role,
   pub created_at: u64,
   pub enabled: bool,
+  /// Base32 TOTP secret; Some = two-factor auth is enabled for this user.
+  #[serde(default)]
+  pub totp_secret: Option<String>,
+  /// Setup-in-progress TOTP secret, promoted to `totp_secret` once the user
+  /// proves they enrolled it by entering a valid code.
+  #[serde(default)]
+  pub totp_pending: Option<String>,
+  /// SHA-256 hashes of the unused single-use recovery codes.
+  #[serde(default)]
+  pub recovery_hashes: Vec<String>,
 }
 
 /// Persistent store of dashboard users, backed by the `users` table of the
@@ -119,6 +129,9 @@ impl UserStore {
       role,
       created_at: crate::store::tokens::now_secs(),
       enabled: true,
+      totp_secret: None,
+      totp_pending: None,
+      recovery_hashes: Vec::new(),
     };
     self.users.push(user.clone());
     self.persist();
@@ -179,6 +192,92 @@ impl UserStore {
       .verify_password(password.as_bytes(), &parsed)
       .ok()
       .map(|_| user)
+  }
+
+  /// Looks a user up by id.
+  pub fn get(&self, id: &str) -> Option<&User> {
+    self.users.iter().find(|u| u.id == id)
+  }
+
+  /// Looks an enabled user up by (case-insensitive) username.
+  pub fn find_by_username(&self, username: &str) -> Option<&User> {
+    self
+      .users
+      .iter()
+      .find(|u| u.enabled && u.username.eq_ignore_ascii_case(username.trim()))
+  }
+
+  /// Starts TOTP enrollment: stores a fresh pending secret (replacing any
+  /// earlier unfinished one) and returns it. Enrollment only takes effect
+  /// after [`totp_enable`] verifies a code against it.
+  pub fn totp_begin(&mut self, id: &str) -> Result<String, String> {
+    let user = self
+      .users
+      .iter_mut()
+      .find(|u| u.id == id)
+      .ok_or_else(|| "unknown user id".to_string())?;
+    let secret = crate::totp::generate_secret();
+    user.totp_pending = Some(secret.clone());
+    self.persist();
+    Ok(secret)
+  }
+
+  /// Completes TOTP enrollment: the code must match the pending secret.
+  /// Returns the freshly generated single-use recovery codes (shown once).
+  pub fn totp_enable(
+    &mut self,
+    id: &str,
+    code: &str,
+    now_secs: u64,
+  ) -> Result<Vec<String>, String> {
+    let user = self
+      .users
+      .iter_mut()
+      .find(|u| u.id == id)
+      .ok_or_else(|| "unknown user id".to_string())?;
+    let pending = user
+      .totp_pending
+      .clone()
+      .ok_or_else(|| "no TOTP enrollment in progress".to_string())?;
+    if !crate::totp::verify(&pending, code, now_secs) {
+      return Err("invalid code".into());
+    }
+    let (codes, hashes) = crate::totp::generate_recovery_codes(8);
+    user.totp_secret = Some(pending);
+    user.totp_pending = None;
+    user.recovery_hashes = hashes;
+    self.persist();
+    Ok(codes)
+  }
+
+  /// Disables TOTP for a user, clearing the secret and recovery codes.
+  pub fn totp_disable(&mut self, id: &str) -> Result<(), String> {
+    let user = self
+      .users
+      .iter_mut()
+      .find(|u| u.id == id)
+      .ok_or_else(|| "unknown user id".to_string())?;
+    user.totp_secret = None;
+    user.totp_pending = None;
+    user.recovery_hashes = Vec::new();
+    self.persist();
+    Ok(())
+  }
+
+  /// Consumes a single-use recovery code: true (and the code is spent) when
+  /// it matches an unused one.
+  pub fn consume_recovery(&mut self, id: &str, code: &str) -> bool {
+    let hash = crate::totp::hash_recovery_code(code);
+    let Some(user) = self.users.iter_mut().find(|u| u.id == id) else {
+      return false;
+    };
+    let before = user.recovery_hashes.len();
+    user.recovery_hashes.retain(|h| *h != hash);
+    let consumed = user.recovery_hashes.len() != before;
+    if consumed {
+      self.persist();
+    }
+    consumed
   }
 }
 
@@ -247,6 +346,57 @@ mod tests {
     assert!(store3.verify("alice", "new password!").is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_totp_enrollment_lifecycle() {
+    let dir = temp_dir();
+    let mut store = UserStore::load(&dir);
+    let user = store
+      .create("mfa-user", "long-password", Role::Operator)
+      .unwrap();
+
+    // Setup produces a pending secret; login-relevant totp_secret stays off.
+    let secret = store.totp_begin(&user.id).unwrap();
+    assert!(store.get(&user.id).unwrap().totp_secret.is_none());
+
+    // A wrong code does not enable; a correct one does and yields recovery codes.
+    let now = 1_700_000_000u64;
+    assert!(store.totp_enable(&user.id, "000000", now).is_err());
+    let decoded = crate::totp::base32_decode(&secret).unwrap();
+    let code = format!("{:06}", {
+      use hmac::{Hmac, Mac};
+      let mut mac = Hmac::<sha1::Sha1>::new_from_slice(&decoded).unwrap();
+      mac.update(&(now / 30).to_be_bytes());
+      let d = mac.finalize().into_bytes();
+      let o = (d[19] & 0x0f) as usize;
+      ((u32::from(d[o]) & 0x7f) << 24
+        | u32::from(d[o + 1]) << 16
+        | u32::from(d[o + 2]) << 8
+        | u32::from(d[o + 3]))
+        % 1_000_000
+    });
+    let recovery = store.totp_enable(&user.id, &code, now).unwrap();
+    assert_eq!(recovery.len(), 8);
+    assert_eq!(
+      store.get(&user.id).unwrap().totp_secret.as_deref(),
+      Some(secret.as_str())
+    );
+
+    // Recovery codes are single-use.
+    assert!(store.consume_recovery(&user.id, &recovery[0]));
+    assert!(!store.consume_recovery(&user.id, &recovery[0]));
+    assert!(!store.consume_recovery(&user.id, "not-a-code"));
+
+    // Enrollment state survives a reload.
+    let reloaded = UserStore::load(&dir);
+    assert!(reloaded.get(&user.id).unwrap().totp_secret.is_some());
+    assert_eq!(reloaded.get(&user.id).unwrap().recovery_hashes.len(), 7);
+
+    // Disable clears everything.
+    store.totp_disable(&user.id).unwrap();
+    let u = store.get(&user.id).unwrap();
+    assert!(u.totp_secret.is_none() && u.recovery_hashes.is_empty());
   }
 
   #[test]

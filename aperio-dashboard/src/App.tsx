@@ -36,6 +36,7 @@ import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { LANGUAGES, useI18n } from '@/i18n'
 import { SessionProvider } from '@/lib/session'
+import { TotpDialog } from './components/TotpDialog'
 import { cn } from '@/lib/utils'
 
 const POLL_INTERVAL_MS = 2000
@@ -81,7 +82,8 @@ export default function App() {
   // Traffic and stats are pushed live over one SSE stream (with a polling
   // fallback if it drops); only the session lifetime is still polled.
   const { logs, stats, error: statsError, refreshStats } = useLiveData()
-  const { data: session } = usePoll(api.session, 60_000)
+  const { data: session, refresh: refreshSession } = usePoll(api.session, 60_000)
+  const [totpOpen, setTotpOpen] = useState(false)
   // The server version only changes on restart; a slow poll keeps it honest.
   const { data: health } = usePoll(api.health, 300_000)
   const [inspectId, setInspectId] = useState<string | null>(null)
@@ -195,7 +197,14 @@ export default function App() {
   return (
     <SessionProvider username={session?.username ?? 'aperio'} role={role}>
     <SidebarProvider>
+      <TotpDialog
+        open={totpOpen}
+        onOpenChange={setTotpOpen}
+        enabled={session?.totp ?? false}
+        onChanged={refreshSession}
+      />
       <AppSidebar
+        onOpenTotp={() => setTotpOpen(true)}
         page={page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}

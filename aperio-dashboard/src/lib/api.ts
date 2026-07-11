@@ -211,6 +211,8 @@ export interface SessionInfo {
   expires_in_seconds: number
   username: string
   role: Role
+  /** True when the session's user has TOTP two-factor auth enabled. */
+  totp: boolean
 }
 
 export interface DashboardUser {
@@ -219,6 +221,8 @@ export interface DashboardUser {
   role: Role
   created_at: number
   enabled: boolean
+  /** True when this user has TOTP two-factor auth enabled. */
+  totp: boolean
 }
 
 export class ApiError extends Error {
@@ -286,6 +290,13 @@ export const api = {
   logs: () => request<RequestLog[]>('/logs'),
   session: () => request<SessionInfo>('/session'),
   users: () => request<DashboardUser[]>('/users'),
+  totpSetup: () =>
+    request<{ secret: string; otpauth_url: string }>('/me/totp/setup', { method: 'POST' }),
+  totpEnable: (code: string) =>
+    request<{ recovery_codes: string[] }>('/me/totp/enable', json('POST', { code })),
+  totpDisable: (code: string) => request<{ status: string }>('/me/totp', json('DELETE', { code })),
+  totpAdminReset: (id: string) =>
+    mutate(`/users/${encodeURIComponent(id)}/totp`, { method: 'DELETE' }),
   createUser: (payload: { username: string; password: string; role: Role }) =>
     request<DashboardUser>('/users', json('POST', payload)),
   updateUser: (

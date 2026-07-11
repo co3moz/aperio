@@ -329,6 +329,52 @@ export const es: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'Secreto de firma (opcional, 16-128 caracteres)',
   'Payload format': 'Formato del payload',
   'Traffic History': 'Historial de tráfico',
+  'Enter the code from your authenticator app':
+    'Introduce el código de tu app de autenticación',
+  'Authentication code':
+    'Código de autenticación',
+  'A recovery code also works here.':
+    'Un código de recuperación también funciona aquí.',
+  'Verify':
+    'Verificar',
+  'Back':
+    'Atrás',
+  'Invalid code. Please try again.':
+    'Código no válido. Inténtalo de nuevo.',
+  'Two-factor auth':
+    'Autenticación 2FA',
+  'Two-factor authentication':
+    'Autenticación en dos pasos',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    'Protege tu inicio de sesión con códigos de un solo uso de una app de autenticación (Google Authenticator, Authy, 1Password, …).',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    'El administrador integrado "aperio" inicia sesión con el token maestro o la contraseña del panel y no puede activar la autenticación en dos pasos. Crea un usuario con nombre.',
+  'Two-factor authentication is currently off for your account.':
+    'La autenticación en dos pasos está desactivada en tu cuenta.',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    'La autenticación en dos pasos está activada. Introduce un código actual (o uno de recuperación) para desactivarla.',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    'Escanea el código QR con tu app de autenticación y luego introduce el código de 6 dígitos que muestra para terminar.',
+  'Verify & enable':
+    'Verificar y activar',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    'La autenticación en dos pasos ya está activada. Guarda estos códigos de recuperación de un solo uso en un lugar seguro: se muestran solo una vez y te permiten entrar si pierdes tu autenticador.',
+  'Done':
+    'Hecho',
+  'Two-factor authentication disabled':
+    'Autenticación en dos pasos desactivada',
+  'Recovery codes copied':
+    'Códigos de recuperación copiados',
+  'Reset 2FA':
+    'Restablecer 2FA',
+  'Two-factor auth reset for "{name}"':
+    'Autenticación 2FA restablecida para "{name}"',
+  'Reset two-factor auth for "{name}"?':
+    '¿Restablecer la autenticación 2FA de "{name}"?',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    'El usuario iniciará sesión solo con su contraseña hasta que vuelva a registrarse. Úsalo cuando alguien pierda su autenticador y los códigos de recuperación.',
+  'Reset':
+    'Restablecer',
   'Uptime': 'Disponibilidad',
   'Service': 'Servicio',
   '7 days': '7 días',

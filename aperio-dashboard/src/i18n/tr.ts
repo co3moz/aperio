@@ -329,6 +329,52 @@ export const tr: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'İmzalama anahtarı (isteğe bağlı, 16-128 karakter)',
   'Payload format': 'Yük formatı',
   'Traffic History': 'Trafik Geçmişi',
+  'Enter the code from your authenticator app':
+    'Kimlik doğrulayıcı uygulamanızdaki kodu girin',
+  'Authentication code':
+    'Doğrulama kodu',
+  'A recovery code also works here.':
+    'Buraya bir kurtarma kodu da girebilirsiniz.',
+  'Verify':
+    'Doğrula',
+  'Back':
+    'Geri',
+  'Invalid code. Please try again.':
+    'Geçersiz kod. Lütfen tekrar deneyin.',
+  'Two-factor auth':
+    'İki faktörlü doğrulama',
+  'Two-factor authentication':
+    'İki faktörlü kimlik doğrulama',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    'Panel girişinizi bir kimlik doğrulayıcı uygulamanın (Google Authenticator, Authy, 1Password, …) tek kullanımlık kodlarıyla koruyun.',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    'Yerleşik "aperio" yöneticisi ana token veya panel parolasıyla giriş yapar ve iki faktörlü doğrulama kaydı yapamaz. Bunun yerine adlandırılmış bir kullanıcı oluşturun.',
+  'Two-factor authentication is currently off for your account.':
+    'Hesabınızda iki faktörlü doğrulama şu anda kapalı.',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    'İki faktörlü doğrulama açık. Kapatmak için güncel bir kod (veya kurtarma kodu) girin.',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    'QR kodu kimlik doğrulayıcı uygulamanızla tarayın, ardından bitirmek için gösterdiği 6 haneli kodu girin.',
+  'Verify & enable':
+    'Doğrula ve etkinleştir',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    'İki faktörlü doğrulama artık açık. Bu tek kullanımlık kurtarma kodlarını güvenli bir yerde saklayın — yalnızca bir kez gösterilirler ve doğrulayıcınızı kaybederseniz giriş yapmanızı sağlarlar.',
+  'Done':
+    'Tamam',
+  'Two-factor authentication disabled':
+    'İki faktörlü doğrulama kapatıldı',
+  'Recovery codes copied':
+    'Kurtarma kodları kopyalandı',
+  'Reset 2FA':
+    '2FA sıfırla',
+  'Two-factor auth reset for "{name}"':
+    '"{name}" için iki faktörlü doğrulama sıfırlandı',
+  'Reset two-factor auth for "{name}"?':
+    '"{name}" için iki faktörlü doğrulama sıfırlansın mı?',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    'Kullanıcı yeniden kayıt olana kadar yalnızca parolasıyla giriş yapar. Birisi doğrulayıcısını ve kurtarma kodlarını kaybettiğinde kullanın.',
+  'Reset':
+    'Sıfırla',
   'Uptime': 'Çalışma Süresi',
   'Service': 'Servis',
   '7 days': '7 gün',

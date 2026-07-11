@@ -41,3 +41,4 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = [
 ] }
 tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"
+sha1 = "0.10"

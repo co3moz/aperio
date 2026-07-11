@@ -459,6 +459,67 @@ assert_status 200 "$CODE" "admin can delete the user"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$VCOOKIES" -X POST -u 'e2e-viewer:viewer-password' "$BASE/aperio/auth")"
 assert_status 401 "$CODE" "the deleted user can no longer sign in"
 
+step "TOTP two-factor authentication"
+MFA="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"e2e-mfa","password":"mfa-password","role":"operator"}' "$BASE/aperio/api/users")" \
+  || fail "mfa user creation failed"
+MFA_ID="$(echo "$MFA" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+MCOOKIES="$LOG_DIR/cookies-mfa.txt"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$MCOOKIES" -X POST -u 'e2e-mfa:mfa-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "the mfa user signs in with password only before enrollment"
+SETUP="$(curl -sf -b "$MCOOKIES" -X POST "$BASE/aperio/api/me/totp/setup")" || fail "totp setup failed"
+SECRET="$(echo "$SETUP" | sed -n 's/.*"secret":"\([^"]*\)".*/\1/p')"
+[ -n "$SECRET" ] || fail "could not parse the totp secret: $SETUP"
+assert_contains "$SETUP" 'otpauth://totp/Aperio:e2e-mfa' "setup returns the provisioning URL"
+totp_code() { # <base32-secret> [offset-steps]
+  python3 - "$1" "${2:-0}" <<'PYEOF'
+import base64, hashlib, hmac, struct, sys, time
+secret = sys.argv[1]
+pad = "=" * (-len(secret) % 8)
+key = base64.b32decode(secret + pad, casefold=True)
+step = int(time.time()) // 30 + int(sys.argv[2])
+digest = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
+o = digest[19] & 0x0F
+code = (struct.unpack(">I", digest[o:o+4])[0] & 0x7FFFFFFF) % 1000000
+print(f"{code:06d}")
+PYEOF
+}
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$MCOOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"code":"000000"}' "$BASE/aperio/api/me/totp/enable")"
+assert_status 400 "$CODE" "a wrong code does not complete enrollment"
+ENABLE="$(curl -sf -b "$MCOOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"code\":\"$(totp_code "$SECRET")\"}" "$BASE/aperio/api/me/totp/enable")" \
+  || fail "totp enable failed"
+assert_contains "$ENABLE" '"recovery_codes"' "enrollment returns recovery codes"
+RECOVERY="$(echo "$ENABLE" | sed -n 's/.*"recovery_codes":\["\([^"]*\)".*/\1/p')"
+[ -n "$RECOVERY" ] || fail "could not parse a recovery code: $ENABLE"
+LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/users")"
+assert_contains "$LIST" '"totp":true' "the users list reports totp as enabled"
+# Password-only login now asks for the second factor without creating a session.
+RESP_HEADERS="$(curl -s -D - -o /dev/null -X POST -u 'e2e-mfa:mfa-password' "$BASE/aperio/auth")"
+assert_contains "$RESP_HEADERS" '401' "password-only login is refused once totp is on"
+assert_contains "$RESP_HEADERS" 'x-aperio-totp: required' "the response asks for the totp code"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -u 'e2e-mfa:mfa-password' \
+  -H 'X-Aperio-Totp: 000000' "$BASE/aperio/auth")"
+assert_status 401 "$CODE" "a wrong totp code is refused"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$MCOOKIES" -X POST -u 'e2e-mfa:mfa-password' \
+  -H "X-Aperio-Totp: $(totp_code "$SECRET")" "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "password + totp code signs in"
+# A recovery code works exactly once.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -u 'e2e-mfa:mfa-password' \
+  -H "X-Aperio-Totp: $RECOVERY" "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "a recovery code signs in"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -u 'e2e-mfa:mfa-password' \
+  -H "X-Aperio-Totp: $RECOVERY" "$BASE/aperio/auth")"
+assert_status 401 "$CODE" "a spent recovery code is refused"
+# Admin reset clears totp; password-only login works again.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/users/${MFA_ID}/totp")"
+assert_status 200 "$CODE" "admin can reset a user's totp"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -u 'e2e-mfa:mfa-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "password-only login works again after the reset"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/users/${MFA_ID}")"
+assert_status 200 "$CODE" "the mfa user can be deleted"
+
 step "Structured access log"
 [ -f "$ACCESS_LOG" ] || fail "access log file was not created"
 assert_contains "$(cat "$ACCESS_LOG")" '"uri":"/hello' "access log records proxied requests"

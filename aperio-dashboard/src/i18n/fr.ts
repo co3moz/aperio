@@ -329,6 +329,52 @@ export const fr: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'Secret de signature (facultatif, 16-128 caractères)',
   'Payload format': 'Format de la charge utile',
   'Traffic History': 'Historique du trafic',
+  'Enter the code from your authenticator app':
+    'Saisissez le code de votre application d’authentification',
+  'Authentication code':
+    'Code d’authentification',
+  'A recovery code also works here.':
+    'Un code de récupération fonctionne aussi ici.',
+  'Verify':
+    'Vérifier',
+  'Back':
+    'Retour',
+  'Invalid code. Please try again.':
+    'Code invalide. Veuillez réessayer.',
+  'Two-factor auth':
+    'Auth à deux facteurs',
+  'Two-factor authentication':
+    'Authentification à deux facteurs',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    'Protégez votre connexion avec des codes à usage unique d’une application d’authentification (Google Authenticator, Authy, 1Password, …).',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    'L’admin intégré « aperio » se connecte avec le jeton maître ou le mot de passe du tableau de bord et ne peut pas activer l’authentification à deux facteurs. Créez plutôt un utilisateur nommé.',
+  'Two-factor authentication is currently off for your account.':
+    'L’authentification à deux facteurs est désactivée pour votre compte.',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    'L’authentification à deux facteurs est activée. Saisissez un code actuel (ou un code de récupération) pour la désactiver.',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    'Scannez le code QR avec votre application d’authentification, puis saisissez le code à 6 chiffres affiché pour terminer.',
+  'Verify & enable':
+    'Vérifier et activer',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    'L’authentification à deux facteurs est désormais activée. Conservez ces codes de récupération à usage unique en lieu sûr — ils ne sont affichés qu’une fois et permettent de vous connecter si vous perdez votre authentificateur.',
+  'Done':
+    'Terminé',
+  'Two-factor authentication disabled':
+    'Authentification à deux facteurs désactivée',
+  'Recovery codes copied':
+    'Codes de récupération copiés',
+  'Reset 2FA':
+    'Réinitialiser 2FA',
+  'Two-factor auth reset for "{name}"':
+    'Auth à deux facteurs réinitialisée pour « {name} »',
+  'Reset two-factor auth for "{name}"?':
+    'Réinitialiser l’auth à deux facteurs de « {name} » ?',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    'L’utilisateur se connectera avec son seul mot de passe jusqu’à une nouvelle inscription. À utiliser quand quelqu’un a perdu son authentificateur et ses codes de récupération.',
+  'Reset':
+    'Réinitialiser',
   'Uptime': 'Disponibilité',
   'Service': 'Service',
   '7 days': '7 jours',

@@ -331,6 +331,52 @@ export const de: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'Signatur-Secret (optional, 16–128 Zeichen)',
   'Payload format': 'Payload-Format',
   'Traffic History': 'Traffic-Verlauf',
+  'Enter the code from your authenticator app':
+    'Gib den Code aus deiner Authenticator-App ein',
+  'Authentication code':
+    'Authentifizierungscode',
+  'A recovery code also works here.':
+    'Ein Wiederherstellungscode funktioniert hier ebenfalls.',
+  'Verify':
+    'Bestätigen',
+  'Back':
+    'Zurück',
+  'Invalid code. Please try again.':
+    'Ungültiger Code. Bitte erneut versuchen.',
+  'Two-factor auth':
+    'Zwei-Faktor-Auth',
+  'Two-factor authentication':
+    'Zwei-Faktor-Authentifizierung',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    'Schütze deine Dashboard-Anmeldung mit Einmalcodes aus einer Authenticator-App (Google Authenticator, Authy, 1Password, …).',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    'Der eingebaute Admin „aperio“ meldet sich mit dem Master-Token oder Dashboard-Passwort an und kann keine Zwei-Faktor-Authentifizierung einrichten. Lege stattdessen einen benannten Benutzer an.',
+  'Two-factor authentication is currently off for your account.':
+    'Zwei-Faktor-Authentifizierung ist für dein Konto derzeit aus.',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    'Zwei-Faktor-Authentifizierung ist an. Gib einen aktuellen Code (oder Wiederherstellungscode) ein, um sie auszuschalten.',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    'Scanne den QR-Code mit deiner Authenticator-App und gib zum Abschluss den angezeigten 6-stelligen Code ein.',
+  'Verify & enable':
+    'Bestätigen & aktivieren',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    'Zwei-Faktor-Authentifizierung ist jetzt an. Bewahre diese einmal verwendbaren Wiederherstellungscodes sicher auf — sie werden nur einmal angezeigt und ermöglichen die Anmeldung, falls du deinen Authenticator verlierst.',
+  'Done':
+    'Fertig',
+  'Two-factor authentication disabled':
+    'Zwei-Faktor-Authentifizierung deaktiviert',
+  'Recovery codes copied':
+    'Wiederherstellungscodes kopiert',
+  'Reset 2FA':
+    '2FA zurücksetzen',
+  'Two-factor auth reset for "{name}"':
+    'Zwei-Faktor-Auth für „{name}“ zurückgesetzt',
+  'Reset two-factor auth for "{name}"?':
+    'Zwei-Faktor-Auth für „{name}“ zurücksetzen?',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    'Der Benutzer meldet sich nur mit Passwort an, bis er sich erneut registriert. Für den Fall, dass jemand Authenticator und Wiederherstellungscodes verloren hat.',
+  'Reset':
+    'Zurücksetzen',
   'Uptime': 'Verfügbarkeit',
   'Service': 'Dienst',
   '7 days': '7 Tage',

@@ -316,6 +316,52 @@ export const zh: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': '签名密钥（可选，16-128 字符）',
   'Payload format': '负载格式',
   'Traffic History': '流量历史',
+  'Enter the code from your authenticator app':
+    '输入身份验证器应用中的代码',
+  'Authentication code':
+    '验证码',
+  'A recovery code also works here.':
+    '恢复代码也可以在此使用。',
+  'Verify':
+    '验证',
+  'Back':
+    '返回',
+  'Invalid code. Please try again.':
+    '代码无效，请重试。',
+  'Two-factor auth':
+    '双因素认证',
+  'Two-factor authentication':
+    '双因素认证',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    '使用身份验证器应用（Google Authenticator、Authy、1Password 等）的一次性代码保护仪表板登录。',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    '内置的 "aperio" 管理员使用主令牌或仪表板密码登录，无法启用双因素认证。请改为创建命名用户。',
+  'Two-factor authentication is currently off for your account.':
+    '您的账户当前未开启双因素认证。',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    '双因素认证已开启。输入当前代码（或恢复代码）以关闭。',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    '用身份验证器应用扫描二维码，然后输入其显示的 6 位代码以完成。',
+  'Verify & enable':
+    '验证并启用',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    '双因素认证已开启。请将这些一次性恢复代码保存在安全的地方——它们只显示一次，在您丢失验证器时可用于登录。',
+  'Done':
+    '完成',
+  'Two-factor authentication disabled':
+    '双因素认证已禁用',
+  'Recovery codes copied':
+    '恢复代码已复制',
+  'Reset 2FA':
+    '重置 2FA',
+  'Two-factor auth reset for "{name}"':
+    '已重置 "{name}" 的双因素认证',
+  'Reset two-factor auth for "{name}"?':
+    '要重置 "{name}" 的双因素认证吗？',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    '在重新注册之前，该用户将仅使用密码登录。当有人丢失验证器和恢复代码时使用。',
+  'Reset':
+    '重置',
   'Uptime': '在线率',
   'Service': '服务',
   '7 days': '7 天',

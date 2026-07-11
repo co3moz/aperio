@@ -327,6 +327,52 @@ export const ja: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': '署名シークレット（任意、16〜128文字）',
   'Payload format': 'ペイロード形式',
   'Traffic History': 'トラフィック履歴',
+  'Enter the code from your authenticator app':
+    '認証アプリのコードを入力してください',
+  'Authentication code':
+    '認証コード',
+  'A recovery code also works here.':
+    'リカバリーコードも使用できます。',
+  'Verify':
+    '確認',
+  'Back':
+    '戻る',
+  'Invalid code. Please try again.':
+    'コードが無効です。もう一度お試しください。',
+  'Two-factor auth':
+    '二要素認証',
+  'Two-factor authentication':
+    '二要素認証',
+  'Protect your dashboard sign-in with one-time codes from an authenticator app (Google Authenticator, Authy, 1Password, …).':
+    '認証アプリ（Google Authenticator、Authy、1Password など）のワンタイムコードでダッシュボードのサインインを保護します。',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot enroll two-factor authentication. Create a named user instead.':
+    '組み込みの「aperio」管理者はマスタートークンまたはダッシュボードパスワードでサインインするため、二要素認証を登録できません。代わりに名前付きユーザーを作成してください。',
+  'Two-factor authentication is currently off for your account.':
+    'このアカウントの二要素認証は現在オフです。',
+  'Two-factor authentication is on. Enter a current code (or a recovery code) to turn it off.':
+    '二要素認証はオンです。オフにするには現在のコード（またはリカバリーコード）を入力してください。',
+  'Scan the QR code with your authenticator app, then enter the 6-digit code it shows to finish.':
+    '認証アプリでQRコードをスキャンし、表示された6桁のコードを入力して完了します。',
+  'Verify & enable':
+    '確認して有効化',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+    '二要素認証がオンになりました。この使い捨てリカバリーコードを安全な場所に保管してください。一度しか表示されず、認証アプリを失った場合のサインインに使えます。',
+  'Done':
+    '完了',
+  'Two-factor authentication disabled':
+    '二要素認証を無効にしました',
+  'Recovery codes copied':
+    'リカバリーコードをコピーしました',
+  'Reset 2FA':
+    '2FAをリセット',
+  'Two-factor auth reset for "{name}"':
+    '「{name}」の二要素認証をリセットしました',
+  'Reset two-factor auth for "{name}"?':
+    '「{name}」の二要素認証をリセットしますか？',
+  'The user will sign in with their password only until they enroll again. Use this when someone lost their authenticator and recovery codes.':
+    '再登録するまで、ユーザーはパスワードのみでサインインします。認証アプリとリカバリーコードを紛失した場合に使用してください。',
+  'Reset':
+    'リセット',
   'Uptime': '稼働率',
   'Service': 'サービス',
   '7 days': '7日間',

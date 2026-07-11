@@ -27,6 +27,7 @@ mod share;
 mod state;
 mod store;
 mod telemetry;
+mod totp;
 mod tunnel;
 
 use crate::api::clients::{
@@ -683,6 +684,22 @@ async fn main() {
         get(crate::api::users::users_list_handler).post(crate::api::users::users_create_handler),
       )
       .route(
+        "/api/users/:id/totp",
+        axum::routing::delete(crate::api::users::totp_admin_reset_handler),
+      )
+      .route(
+        "/api/me/totp/setup",
+        axum::routing::post(crate::api::users::totp_setup_handler),
+      )
+      .route(
+        "/api/me/totp/enable",
+        axum::routing::post(crate::api::users::totp_enable_handler),
+      )
+      .route(
+        "/api/me/totp",
+        axum::routing::delete(crate::api::users::totp_disable_handler),
+      )
+      .route(
         "/api/users/:id",
         axum::routing::put(crate::api::users::users_update_handler)
           .delete(crate::api::users::users_delete_handler),
@@ -869,6 +886,10 @@ async fn main() {
 /// else: reads for viewers, mutations for operators.
 fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users::Role {
   use crate::store::users::Role;
+  // Self-service routes (own TOTP enrollment): any signed-in role.
+  if path.starts_with("/api/me/") {
+    return Role::Viewer;
+  }
   if path.starts_with("/api/users") || path == "/api/settings" {
     return Role::Admin;
   }
