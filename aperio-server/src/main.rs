@@ -587,7 +587,7 @@ async fn main() {
     settings_path,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
-    sessions: Mutex::new(HashMap::new()),
+    sessions: Mutex::new(crate::store::sessions::SessionStore::load(&data_dir)),
     rate_limiter: Mutex::new(HashMap::new()),
     login_lockout: Mutex::new(crate::auth::LockoutTracker::new(
       lockout_threshold,

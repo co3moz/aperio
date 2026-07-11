@@ -118,7 +118,7 @@ async fn test_rate_limiting() {
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
-    sessions: Mutex::new(HashMap::new()),
+    sessions: Mutex::new(test_session_store()),
     rate_limiter: Mutex::new(HashMap::new()),
     login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
       5,
@@ -229,7 +229,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
-    sessions: Mutex::new(HashMap::new()),
+    sessions: Mutex::new(test_session_store()),
     rate_limiter: Mutex::new(HashMap::new()),
     login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
       5,
@@ -360,7 +360,7 @@ async fn test_proxy_handler_success() {
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
-    sessions: Mutex::new(HashMap::new()),
+    sessions: Mutex::new(test_session_store()),
     rate_limiter: Mutex::new(HashMap::new()),
     login_lockout: tokio::sync::Mutex::new(crate::auth::LockoutTracker::new(
       5,
@@ -640,6 +640,12 @@ fn test_webhook_store() -> WebhookStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
+}
+
+fn test_session_store() -> crate::store::sessions::SessionStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-sessions-{}", uuid::Uuid::new_v4()));
+  let _ = std::fs::create_dir_all(&dir);
+  crate::store::sessions::SessionStore::load(&dir.to_string_lossy())
 }
 
 fn test_uptime_store() -> crate::store::uptime::UptimeStore {

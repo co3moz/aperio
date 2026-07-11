@@ -497,9 +497,9 @@ pub(crate) async fn passkey_login_finish_handler(
 
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
-    session_token.clone(),
+    &session_token,
     SessionInfo {
-      expires_at: Instant::now() + Duration::from_secs(86400),
+      expires_at: crate::store::sessions::now_secs() + 86400,
       scope_host: None,
       username: Some(username),
       role,

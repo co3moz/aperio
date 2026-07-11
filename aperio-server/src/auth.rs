@@ -341,9 +341,9 @@ pub(crate) async fn auth_login_handler(
   // Create session
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
-    session_token.clone(),
+    &session_token,
     SessionInfo {
-      expires_at: Instant::now() + Duration::from_secs(86400),
+      expires_at: crate::store::sessions::now_secs() + 86400,
       scope_host: session_scope,
       username: identity.0,
       role: identity.1,
@@ -432,8 +432,7 @@ pub(crate) async fn auth_session_handler(
         Some(info) => (
           info
             .expires_at
-            .saturating_duration_since(Instant::now())
-            .as_secs(),
+            .saturating_sub(crate::store::sessions::now_secs()),
           info
             .username
             .clone()
@@ -618,9 +617,9 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
     let mut last_gc = state.last_session_gc.lock().await;
     if last_gc.elapsed() > Duration::from_secs(300) {
       let mut sessions = state.sessions.lock().await;
-      let now = Instant::now();
-      sessions.retain(|_, info| info.expires_at > now);
-      *last_gc = now;
+      let now = crate::store::sessions::now_secs();
+      sessions.retain(|info| info.expires_at > now);
+      *last_gc = Instant::now();
     }
   }
 
@@ -633,7 +632,7 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
   }
   let mut sessions = state.sessions.lock().await;
   if let Some(info) = sessions.get(token) {
-    if info.expires_at > Instant::now() {
+    if info.expires_at > crate::store::sessions::now_secs() {
       return Some(info.scope_host.clone());
     }
     sessions.remove(token);
@@ -654,7 +653,7 @@ pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Opt
   let token = session_cookie(headers)?;
   let sessions = state.sessions.lock().await;
   let info = sessions.get(token)?;
-  if info.expires_at <= Instant::now() || info.scope_host.is_some() {
+  if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
     return None;
   }
   Some(info.role)
@@ -666,7 +665,7 @@ pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) ->
   let token = session_cookie(headers)?;
   let sessions = state.sessions.lock().await;
   let info = sessions.get(token)?;
-  if info.expires_at <= Instant::now() || info.scope_host.is_some() {
+  if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
     return None;
   }
   info.username.clone()
@@ -904,9 +903,9 @@ pub(crate) async fn oidc_callback_handler(
   // logins are allowlisted identities and act as admins.
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
-    session_token.clone(),
+    &session_token,
     SessionInfo {
-      expires_at: Instant::now() + Duration::from_secs(86400),
+      expires_at: crate::store::sessions::now_secs() + 86400,
       scope_host: None,
       username: Some(email.clone()),
       role: Role::Admin,

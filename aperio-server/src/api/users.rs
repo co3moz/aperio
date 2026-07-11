@@ -191,7 +191,7 @@ pub(crate) async fn users_delete_handler(
     .sessions
     .lock()
     .await
-    .retain(|_, info| info.username.as_deref() != Some(username.as_str()));
+    .retain(|info| info.username.as_deref() != Some(username.as_str()));
   let ip = actor_ip(&state, &headers, addr);
   state
     .audit("user_deleted", &ip, &format!("username={}", username))

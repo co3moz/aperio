@@ -497,20 +497,7 @@ impl DurationHistogram {
   }
 }
 
-/// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
-pub(crate) struct SessionInfo {
-  pub(crate) expires_at: Instant,
-  /// When `Some(host)`, the session only authorizes proxied traffic for that
-  /// exact request host — a login against a client-set visitor password. It
-  /// never authorizes the dashboard or other hosts. `None` = a full/global
-  /// session (server password, dashboard password, master token, or OIDC).
-  pub(crate) scope_host: Option<String>,
-  /// Dashboard identity: the user this session belongs to (None = master
-  /// token / dashboard password / visitor session).
-  pub(crate) username: Option<String>,
-  /// Dashboard role checked by the authorization middleware.
-  pub(crate) role: crate::store::users::Role,
-}
+pub(crate) use crate::store::sessions::SessionInfo;
 
 /// Connection liveness state, kept under a single lock for consistent snapshots.
 pub(crate) struct ConnectionState {
@@ -553,7 +540,9 @@ pub(crate) struct AppState {
   /// instead of a semaphore so the limit can change at runtime.
   pub(crate) active_proxied_requests: Arc<AtomicUsize>,
   pub(crate) path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
-  pub(crate) sessions: Mutex<HashMap<String, SessionInfo>>,
+  /// Dashboard sessions, persisted in SQLite so restarts don't sign
+  /// everyone out.
+  pub(crate) sessions: Mutex<crate::store::sessions::SessionStore>,
   pub(crate) rate_limiter: Mutex<HashMap<IpAddr, RateLimitState>>,
   /// Escalating per-IP failed-login lockout (brute-force protection).
   pub(crate) login_lockout: Mutex<crate::auth::LockoutTracker>,

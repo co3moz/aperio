@@ -20,6 +20,7 @@
 #   H. subdomain   — same-level random subdomain pattern (*-suffix)
 #   I. h2          — h2c:// backend (HTTP/2 prior knowledge) with gRPC-style
 #                    response trailers relayed end to end
+#   J. sessions    — dashboard sessions survive a server restart
 #
 # Usage: bash tests/e2e.sh
 # Expects target/debug binaries (override with APERIO_SERVER_BIN/APERIO_CLIENT_BIN).
@@ -1209,6 +1210,46 @@ assert_contains "$H2_OUT" 'status=200' "h2c request round-trips through the tunn
 assert_contains "$H2_OUT" 'body=h2-echo:grpc-payload-123' "request body reached the HTTP/2 backend"
 assert_contains "$H2_OUT" 'trailer grpc-status=0' "grpc-status trailer is relayed to the visitor"
 assert_contains "$H2_OUT" 'trailer grpc-message=ok' "grpc-message trailer is relayed to the visitor"
+
+stop_server
+
+##############################################################################
+PHASE="sessions"
+##############################################################################
+
+step "Dashboard sessions survive a server restart"
+start_server
+SESS_JAR="$LOG_DIR/cookies-restart.txt"
+dashboard_login "$SESS_JAR"
+USR="$(curl -sf -b "$SESS_JAR" -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"e2e-restart","password":"restart-password","role":"operator"}' "$BASE/aperio/api/users")" \
+  || fail "user creation failed"
+UJAR="$LOG_DIR/cookies-restart-user.txt"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$UJAR" -X POST -u 'e2e-restart:restart-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "the user signs in before the restart"
+# Restart the server on the SAME data dir (stop_server would also kill
+# clients and we need the mktemp dir preserved).
+kill "$SERVER_PID" 2>/dev/null || true
+sleep 1
+env PORT="$SERVER_PORT" \
+  APERIO_SERVER_TOKEN="$TOKEN" \
+  APERIO_DATA_DIR="$DATA_DIR" \
+  APERIO_RANDOM_SUBDOMAIN='*.e2e.local' \
+  APERIO_SERVER_GATEWAY_TIMEOUT=3 \
+  APERIO_UPTIME_TICK_SECS=1 \
+  "$SERVER_BIN" >"$LOG_DIR/server-sessions-restarted.log" 2>&1 &
+SERVER_PID=$!
+retry 15 curl -sf "$BASE/aperio/health" || fail "server did not come back up"
+SESSION="$(curl -s -b "$UJAR" "$BASE/aperio/api/session")"
+assert_contains "$SESSION" '"username":"e2e-restart"' "the user's session survived the restart"
+assert_contains "$SESSION" '"role":"operator"' "the restored session kept its role"
+SESSION="$(curl -s -b "$SESS_JAR" "$BASE/aperio/api/session")"
+assert_contains "$SESSION" '"username":"aperio"' "the admin session survived the restart"
+# Logout still removes it durably.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" -X POST "$BASE/aperio/auth/logout")"
+assert_status 200 "$CODE" "logout succeeds"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" -o /dev/null "$BASE/aperio/api/stats")"
+assert_status 302 "$CODE" "the logged-out session no longer works"
 
 stop_server
 
