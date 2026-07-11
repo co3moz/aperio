@@ -151,6 +151,7 @@ start_server() { # [KEY=VAL ...]
     APERIO_DATA_DIR="$DATA_DIR" \
     APERIO_RANDOM_SUBDOMAIN='*.e2e.local' \
     APERIO_SERVER_GATEWAY_TIMEOUT=3 \
+    APERIO_UPTIME_TICK_SECS=1 \
     "$@" \
     "$SERVER_BIN" >"$LOG_DIR/server-$PHASE.log" 2>&1 &
   SERVER_PID=$!
@@ -258,6 +259,11 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/s
 assert_status 400 "$CODE" "unknown history units are rejected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/stats/history?from=2026-02-02&to=2026-01-01")"
 assert_status 400 "$CODE" "reversed history date ranges are rejected"
+retry 10 sh -c "curl -s -b '$COOKIES' '$BASE/aperio/api/uptime' | grep -q '\"status\":\"up\"'" \
+  || fail "uptime history did not report the connected client as up"
+UPTIME="$(curl -s -b "$COOKIES" "$BASE/aperio/api/uptime")"
+assert_contains "$UPTIME" '"pct_today":' "uptime entries carry percentages"
+assert_contains "$UPTIME" '"days":' "uptime entries carry daily buckets"
 
 LOGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
 assert_contains "$LOGS" '/submit' "request log captured the proxied POST"

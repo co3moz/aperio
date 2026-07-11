@@ -9,6 +9,7 @@ use tracing::{error, warn};
 pub(crate) mod audit;
 pub(crate) mod stats;
 pub(crate) mod tokens;
+pub(crate) mod uptime;
 pub(crate) mod users;
 pub(crate) mod webhooks;
 

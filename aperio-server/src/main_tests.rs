@@ -138,6 +138,7 @@ async fn test_rate_limiting() {
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_store: Mutex::new(test_webhook_store()),
+    uptime: Mutex::new(test_uptime_store()),
     oidc: None,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
@@ -246,6 +247,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_store: Mutex::new(test_webhook_store()),
+    uptime: Mutex::new(test_uptime_store()),
     oidc: None,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
@@ -374,6 +376,7 @@ async fn test_proxy_handler_success() {
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_store: Mutex::new(test_webhook_store()),
+    uptime: Mutex::new(test_uptime_store()),
     oidc: None,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
@@ -630,6 +633,12 @@ fn test_webhook_store() -> WebhookStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
+}
+
+fn test_uptime_store() -> crate::store::uptime::UptimeStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-uptime-{}", uuid::Uuid::new_v4()));
+  let _ = std::fs::create_dir_all(&dir);
+  crate::store::uptime::UptimeStore::load(&dir.to_string_lossy())
 }
 
 fn mock_client(

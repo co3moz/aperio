@@ -4,6 +4,7 @@ import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSide
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
+import { UptimeSection } from './components/UptimeSection'
 import { CommandPalette, type Command } from './components/CommandPalette'
 import { InspectorDialog } from './components/InspectorDialog'
 import { MaintenanceSection } from './components/MaintenanceSection'
@@ -308,7 +309,10 @@ export default function App() {
                 </>
               )}
               {page === 'clients' && (
-                <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+                <>
+                  <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+                  <UptimeSection />
+                </>
               )}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
               {page === 'breakdown' && <TrafficBreakdownSection stats={stats} />}

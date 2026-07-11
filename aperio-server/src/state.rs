@@ -575,6 +575,8 @@ pub(crate) struct AppState {
   pub(crate) persistent_stats: Mutex<StatsStore>,
   /// Persistent webhook definitions for the event system.
   pub(crate) webhook_store: Mutex<WebhookStore>,
+  /// Per-service availability history (uptime/SLA reporting).
+  pub(crate) uptime: Mutex<crate::store::uptime::UptimeStore>,
   /// OIDC SSO runtime config (None = feature disabled).
   pub(crate) oidc: Option<oidc::OidcRuntime>,
   /// Pending OIDC login flows: state token → (original redirect, expiry).

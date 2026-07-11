@@ -11,6 +11,8 @@ Connected clients, a request-rate chart, lifetime average response time, and tod
 Every connected client with its binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, announced concurrency limit, and a `BACKEND DOWN` badge when the client's own health probe is failing. Two controls act on live clients:
 
 - **Enable/Disable kill switch** — a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
+
+Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving — backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only — time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
 - **Overrule** — temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
 
 ## Live traffic table

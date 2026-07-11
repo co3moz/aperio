@@ -156,6 +156,23 @@ export interface HistoryBucket {
   avg_ms: number
 }
 
+export interface UptimeDay {
+  date: string
+  up_secs: number
+  degraded_secs: number
+  down_secs: number
+}
+
+export interface UptimeEntry {
+  name: string
+  status: 'up' | 'degraded' | 'down'
+  last_seen: number
+  pct_today: number | null
+  pct_7d: number | null
+  pct_30d: number | null
+  days: UptimeDay[]
+}
+
 export interface AuditEvent {
   ts: number
   timestamp: string
@@ -248,6 +265,7 @@ function json(method: string, body: unknown): RequestInit {
 
 export const api = {
   stats: () => request<ServerStats>('/stats'),
+  uptime: () => request<UptimeEntry[]>('/uptime'),
   statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {
     const params = new URLSearchParams()
     if (q.from) {

@@ -31,7 +31,7 @@ mod tunnel;
 
 use crate::api::clients::{
   client_enabled_handler, client_override_handler, live_stream_handler, logs_handler,
-  stats_handler, stats_history_handler,
+  stats_handler, stats_history_handler, uptime_handler,
 };
 use crate::api::inspector::{request_detail_handler, request_replay_handler};
 use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler};
@@ -605,6 +605,7 @@ async fn main() {
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
+    uptime: Mutex::new(crate::store::uptime::UptimeStore::load(&data_dir)),
     oidc: oidc_runtime,
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
@@ -630,6 +631,7 @@ async fn main() {
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
       .route("/api/stats/history", get(stats_history_handler))
+      .route("/api/uptime", get(uptime_handler))
       .route("/api/logs", get(logs_handler))
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))
@@ -801,6 +803,27 @@ async fn main() {
         .lock()
         .await
         .save_if_dirty();
+      stats_flush_state.uptime.lock().await.save_if_dirty();
+    }
+  });
+
+  // Availability ticker: observe every service entity and accrue elapsed
+  // time into the uptime history (APERIO_UPTIME_TICK_SECS, default 10).
+  let uptime_state = state.clone();
+  let uptime_tick_secs = std::env::var("APERIO_UPTIME_TICK_SECS")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .filter(|v| *v >= 1)
+    .unwrap_or(10);
+  tokio::spawn(async move {
+    loop {
+      let live = observe_service_availability(&uptime_state).await;
+      let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+      uptime_state.uptime.lock().await.tick(now, live);
+      tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
     }
   });
   let shutdown_state = state.clone();
@@ -835,6 +858,7 @@ async fn main() {
 
   // Final stats flush so nothing recorded since the last tick is lost.
   shutdown_state.persistent_stats.lock().await.save_if_dirty();
+  shutdown_state.uptime.lock().await.save_if_dirty();
 
   // Flush any buffered OTLP spans before exit.
   otel_guard.shutdown();
@@ -919,6 +943,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
     tokio::time::sleep(Duration::from_secs(10)).await;
     warn!("Graceful shutdown timed out after 10s; forcing exit");
     fallback.persistent_stats.lock().await.save_if_dirty();
+    fallback.uptime.lock().await.save_if_dirty();
     std::process::exit(0);
   });
 }
@@ -926,3 +951,42 @@ async fn shutdown_signal(state: Arc<AppState>) {
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+
+/// Snapshot of every service entity's availability, keyed by service name or
+/// stable client id: `up` when at least one connection is heartbeat-healthy,
+/// routable, and its backend probe passes; `degraded` when connected but not
+/// serving (backend unhealthy, draining, or disabled); absent entities are
+/// treated as `down` by the uptime store.
+async fn observe_service_availability(
+  state: &AppState,
+) -> std::collections::HashMap<String, crate::store::uptime::Availability> {
+  use crate::store::uptime::Availability;
+  let down_threshold = state.config().client_down_threshold;
+  let clients = state.clients.lock().await;
+  let mut out: std::collections::HashMap<String, Availability> = std::collections::HashMap::new();
+  for (conn_id, handle) in clients.iter() {
+    let key = handle
+      .service_name
+      .clone()
+      .or_else(|| handle.reported_instance_id.clone())
+      .unwrap_or_else(|| conn_id.clone());
+    let status = if !handle.is_healthy(down_threshold) {
+      Availability::Down
+    } else if handle.backend_healthy && handle.admin_enabled && !handle.draining {
+      Availability::Up
+    } else {
+      Availability::Degraded
+    };
+    // Several connections may serve one entity; the best state wins.
+    let entry = out.entry(key).or_insert(Availability::Down);
+    let rank = |s: &Availability| match s {
+      Availability::Up => 2,
+      Availability::Degraded => 1,
+      Availability::Down => 0,
+    };
+    if rank(&status) > rank(entry) {
+      *entry = status;
+    }
+  }
+  out
+}

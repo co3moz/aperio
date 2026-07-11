@@ -110,6 +110,90 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
 }
 
 /// Handler returning the live statistics + active connections detail in JSON.
+/// One day of a service entity's availability history.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct UptimeDay {
+  pub(crate) date: String,
+  pub(crate) up_secs: u64,
+  pub(crate) degraded_secs: u64,
+  pub(crate) down_secs: u64,
+}
+
+/// Availability summary of one service entity.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct UptimeEntry {
+  /// Service name (or stable client id when the client names no service).
+  pub(crate) name: String,
+  /// Current status: `up`, `degraded`, or `down`.
+  pub(crate) status: crate::store::uptime::Availability,
+  /// Unix seconds the entity was last observed connected.
+  pub(crate) last_seen: u64,
+  /// Uptime percentage over today's observed time (null = nothing observed).
+  pub(crate) pct_today: Option<f64>,
+  /// Uptime percentage over the last 7 days of observed time.
+  pub(crate) pct_7d: Option<f64>,
+  /// Uptime percentage over the last 30 days of observed time.
+  pub(crate) pct_30d: Option<f64>,
+  /// Last 30 day buckets, chronological (missing days are absent).
+  pub(crate) days: Vec<UptimeDay>,
+}
+
+/// Percentage of observed seconds spent `up` across the given day keys.
+fn uptime_pct(
+  days: &std::collections::HashMap<String, crate::store::uptime::DayAvailability>,
+  keys: &[String],
+) -> Option<f64> {
+  let (mut up, mut total) = (0u64, 0u64);
+  for key in keys {
+    if let Some(d) = days.get(key.strip_prefix("d:").unwrap_or(key)) {
+      up += d.up_secs;
+      total += d.observed_secs();
+    }
+  }
+  (total > 0).then(|| up as f64 / total as f64 * 100.0)
+}
+
+/// Returns the availability history of every tracked service entity.
+#[utoipa::path(get, path = "/aperio/api/uptime", tag = "dashboard",
+  description = "Uptime/SLA summary per service entity: current status, uptime percentages for today / 7 days / 30 days of observed time, and the last 30 daily buckets (seconds up/degraded/down). Time while the server itself was not running is not counted.",
+  responses((status = 200, description = "Availability per service entity", body = Vec<UptimeEntry>)))]
+pub(crate) async fn uptime_handler(State(state): State<Arc<AppState>>) -> Json<Vec<UptimeEntry>> {
+  let snapshot = state.uptime.lock().await.snapshot();
+  let today = stats::recent_period_keys("day", 1).unwrap_or_default();
+  let last7 = stats::recent_period_keys("day", 7).unwrap_or_default();
+  let last30 = stats::recent_period_keys("day", 30).unwrap_or_default();
+
+  let mut entries: Vec<UptimeEntry> = snapshot
+    .into_iter()
+    .map(|(name, entity)| {
+      let mut days: Vec<UptimeDay> = last30
+        .iter()
+        .filter_map(|key| {
+          let date = key.strip_prefix("d:").unwrap_or(key);
+          entity.days.get(date).map(|d| UptimeDay {
+            date: date.to_string(),
+            up_secs: d.up_secs,
+            degraded_secs: d.degraded_secs,
+            down_secs: d.down_secs,
+          })
+        })
+        .collect();
+      days.sort_by(|a, b| a.date.cmp(&b.date));
+      UptimeEntry {
+        pct_today: uptime_pct(&entity.days, &today),
+        pct_7d: uptime_pct(&entity.days, &last7),
+        pct_30d: uptime_pct(&entity.days, &last30),
+        status: entity.status,
+        last_seen: entity.last_seen,
+        days,
+        name,
+      }
+    })
+    .collect();
+  entries.sort_by(|a, b| a.name.cmp(&b.name));
+  Json(entries)
+}
+
 /// Query for the traffic-history endpoint: either a rolling window
 /// (`unit` + `count`) or a custom day range (`from` + `to`).
 #[derive(Deserialize, utoipa::IntoParams)]
