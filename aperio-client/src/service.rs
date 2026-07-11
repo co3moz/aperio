@@ -648,9 +648,9 @@ pub(crate) async fn run_service(
                                                   .tunnels
                                                   .iter()
                                                   .find(|d| d.target == target && d.protocol == "udp")
-                                                  .map(|d| d.target.clone());
+                                                  .map(|d| (d.target.clone(), crate::udp::effective_idle_timeout(d.idle_timeout)));
                                               match resolved {
-                                                  Some(target_addr) => {
+                                                  Some((target_addr, idle_timeout)) => {
                                                       // Register synchronously, like TcpOpen: datagrams
                                                       // can arrive on the very next tunnel frame.
                                                       let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(64);
@@ -662,7 +662,7 @@ pub(crate) async fn run_service(
                                                       let tx = tx_write.clone();
                                                       let streams = active_udp_streams.clone();
                                                       tokio::spawn(async move {
-                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx).await;
+                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout).await;
                                                       });
                                                   }
                                                   None => {

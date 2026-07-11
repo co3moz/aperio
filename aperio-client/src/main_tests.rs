@@ -45,6 +45,7 @@ fn test_build_specs_tunnels_only() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs.len(), 1);
@@ -61,6 +62,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "udp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].tunnels[0].protocol, "udp");
@@ -69,6 +71,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "sctp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("only tcp and udp"), "got: {err}");
@@ -80,12 +83,14 @@ fn test_build_specs_tunnels_validation() {
       protocol: "tcp".to_string(),
       encrypt: false,
       psk: None,
+      idle_timeout: None,
     },
     protocol::TunnelDecl {
       target: "127.0.0.1:53".to_string(),
       protocol: "udp".to_string(),
       encrypt: false,
       psk: None,
+      idle_timeout: None,
     },
   ];
   assert!(build_specs(&settings, "base-id", false).is_ok());
@@ -96,6 +101,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("host:port"), "got: {err}");
@@ -106,10 +112,40 @@ fn test_build_specs_tunnels_validation() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   };
   settings.tunnels = vec![decl.clone(), decl];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("more than once"), "got: {err}");
+
+  // idle_timeout is udp-only and must be at least 1 second.
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:27017".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: Some(120),
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("only supported for udp"), "got: {err}");
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:53".to_string(),
+    protocol: "udp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: Some(0),
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("at least 1 second"), "got: {err}");
+  settings.tunnels = vec![protocol::TunnelDecl {
+    target: "127.0.0.1:53".to_string(),
+    protocol: "udp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: Some(300),
+  }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].tunnels[0].idle_timeout, Some(300));
 }
 
 #[test]

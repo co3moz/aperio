@@ -19,6 +19,7 @@ tunnels:
   - target: 127.0.0.1:22
   - target: 127.0.0.1:53          # e.g. an internal DNS resolver
     protocol: udp
+    idle_timeout: 10              # udp only: relay expiry in seconds (default 60)
 ```
 
 The client announces the list to the server via its heartbeat and logs its **client id** at startup (`- Client ID: ...`). Make the id survive restarts with `--client-id <uuid>` / `APERIO_CLIENT_ID` / yaml `client_id` — otherwise a new random UUID is generated per run and your bind configuration goes stale. A config with only `tunnels:` (no `target`, no `services:`) is valid: the connection then exists purely for emergencies.
@@ -87,7 +88,7 @@ A passive server learns nothing either way. An **active** server could man-in-th
 
 ## UDP tunnels
 
-A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer — enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic for 60 seconds expires (the next datagram opens a fresh one); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput — it's a break-glass path, same as TCP.
+A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer — enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic in either direction expires after 60 seconds by default — tune it per tunnel with `idle_timeout: <seconds>` on the declaration (e.g. `300` for long-lived WireGuard sessions, `10` for DNS; the binder picks the value up automatically via tunnel discovery, and the next datagram after an expiry opens a fresh relay); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput — it's a break-glass path, same as TCP.
 
 ## Limitations
 

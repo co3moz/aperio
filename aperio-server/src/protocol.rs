@@ -65,6 +65,10 @@ pub struct TunnelDecl {
   /// only relays ciphertext. Relayed to binders via tunnel discovery.
   #[serde(default)]
   pub encrypt: bool,
+  /// UDP only: seconds a relay may sit idle before it expires (default 60).
+  /// Declared by the owning client, relayed to binders via tunnel discovery.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub idle_timeout: Option<u64>,
 }
 
 /// Message structure exchanged over the WebSocket reverse tunnel.

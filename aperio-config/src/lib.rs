@@ -37,6 +37,11 @@ pub struct TunnelDecl {
   /// the binder configures the same value in its `bind-tunnels` entry.
   #[serde(default, skip_serializing)]
   pub psk: Option<String>,
+  /// UDP only: seconds a relay may sit with no datagrams in either direction
+  /// before it expires (default 60); binders learn it via tunnel discovery.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [300]))]
+  pub idle_timeout: Option<u64>,
 }
 
 /// Header edits applied to one direction of proxied traffic (request or

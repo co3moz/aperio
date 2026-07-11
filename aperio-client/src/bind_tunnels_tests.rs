@@ -109,6 +109,7 @@ fn test_local_port_for() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    idle_timeout: None,
   };
   let spec = BindSpec {
     client_id: "c".to_string(),

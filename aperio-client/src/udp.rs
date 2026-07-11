@@ -22,8 +22,17 @@ use tracing::{debug, error, info, warn};
 
 use crate::protocol::TunnelMessage;
 
-/// A relay with no datagrams in either direction for this long is torn down.
+/// A relay with no datagrams in either direction for this long is torn down,
+/// unless the tunnel declaration overrides it (`idle_timeout`).
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Resolves a declared `idle_timeout` (seconds) to the effective duration,
+/// falling back to [`UDP_IDLE_TIMEOUT`].
+pub(crate) fn effective_idle_timeout(declared_secs: Option<u64>) -> Duration {
+  declared_secs
+    .map(Duration::from_secs)
+    .unwrap_or(UDP_IDLE_TIMEOUT)
+}
 /// Largest datagram relayed (safely above typical MTU-sized payloads).
 const UDP_MAX_DATAGRAM: usize = 64 * 1024;
 
@@ -37,7 +46,7 @@ pub(crate) struct UdpStreamHandle {
 
 /// Declaring-side relay for one UDP stream: binds an ephemeral local socket
 /// "connected" to the declared target and shuttles datagrams both ways until
-/// the stream is closed or idle for [`UDP_IDLE_TIMEOUT`].
+/// the stream is closed or idle for `idle_timeout`.
 ///
 /// Like the TCP path, the handle must already be registered in
 /// `active_streams` before this runs; `datagram_rx` buffers datagrams that
@@ -49,6 +58,7 @@ pub(crate) async fn handle_udp_open(
   active_streams: Arc<Mutex<HashMap<String, UdpStreamHandle>>>,
   mut datagram_rx: mpsc::Receiver<Vec<u8>>,
   mut abort_rx: mpsc::Receiver<()>,
+  idle_timeout: Duration,
 ) {
   info!("Opening UDP relay {} to {}", stream_id, target_addr);
   let close_stream = |reason: &'static str| {
@@ -87,7 +97,7 @@ pub(crate) async fn handle_udp_open(
   loop {
     tokio::select! {
       _ = abort_rx.recv() => break,
-      _ = tokio::time::sleep(UDP_IDLE_TIMEOUT) => {
+      _ = tokio::time::sleep(idle_timeout) => {
         debug!("UDP relay {} idle; expiring", stream_id);
         break;
       }
@@ -131,8 +141,8 @@ pub(crate) async fn handle_udp_open(
 /// distinct local peer its own relay stream to the server's `/aperio/udp`
 /// endpoint (one WebSocket per peer, one binary frame per datagram), so
 /// responses find their way back to the right peer. Sessions expire after
-/// [`UDP_IDLE_TIMEOUT`] without traffic.
-pub(crate) async fn run_udp_bind(port: u16, ws_url: String, token: String) {
+/// `idle_timeout` without traffic.
+pub(crate) async fn run_udp_bind(port: u16, ws_url: String, token: String, idle_timeout: Duration) {
   let socket = match tokio::net::UdpSocket::bind(("127.0.0.1", port)).await {
     Ok(s) => Arc::new(s),
     Err(e) => {
@@ -168,7 +178,7 @@ pub(crate) async fn run_udp_bind(port: u16, ws_url: String, token: String) {
           let (socket, sessions) = (socket.clone(), sessions.clone());
           let (ws_url, token) = (ws_url.clone(), token.clone());
           tokio::spawn(async move {
-            bridge_udp_session(&ws_url, &token, socket, peer, rx).await;
+            bridge_udp_session(&ws_url, &token, socket, peer, rx, idle_timeout).await;
             sessions.lock().await.remove(&peer);
             debug!("UDP session from {} ended", peer);
           });
@@ -192,6 +202,7 @@ async fn bridge_udp_session(
   socket: Arc<tokio::net::UdpSocket>,
   peer: SocketAddr,
   mut rx: mpsc::Receiver<Vec<u8>>,
+  idle_timeout: Duration,
 ) {
   let mut req = match ws_url.to_string().into_client_request() {
     Ok(r) => r,
@@ -217,7 +228,7 @@ async fn bridge_udp_session(
 
   loop {
     tokio::select! {
-      _ = tokio::time::sleep(UDP_IDLE_TIMEOUT) => break,
+      _ = tokio::time::sleep(idle_timeout) => break,
       out = rx.recv() => match out {
         Some(bytes) => {
           if ws_tx.send(Message::Binary(bytes)).await.is_err() {

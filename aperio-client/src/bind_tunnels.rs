@@ -108,6 +108,7 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
       }
 
       if decl.protocol == "udp" {
+        let idle_timeout = crate::udp::effective_idle_timeout(decl.idle_timeout);
         let ws_url = match tunnel_ws_url(&server, "/aperio/udp", &spec.client_id, &decl.target) {
           Ok(u) => u,
           Err(e) => {
@@ -123,7 +124,7 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
         );
         let token = spec.token.clone();
         tokio::spawn(async move {
-          crate::udp::run_udp_bind(port, ws_url, token).await;
+          crate::udp::run_udp_bind(port, ws_url, token, idle_timeout).await;
         });
         continue;
       }

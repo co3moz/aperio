@@ -525,11 +525,26 @@ fn validate_tunnels(
         target
       ));
     }
+    if let Some(secs) = decl.idle_timeout {
+      if protocol != "udp" {
+        return Err(format!(
+          "CRITICAL ERROR: tunnel '{}' sets idle_timeout, which is only supported for udp tunnels",
+          target
+        ));
+      }
+      if secs == 0 {
+        return Err(format!(
+          "CRITICAL ERROR: tunnel '{}' sets idle_timeout: 0; it must be at least 1 second",
+          target
+        ));
+      }
+    }
     out.push(crate::protocol::TunnelDecl {
       target,
       protocol,
       encrypt: decl.encrypt,
       psk: decl.psk.clone(),
+      idle_timeout: decl.idle_timeout,
     });
   }
   Ok(out)
