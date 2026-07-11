@@ -13,6 +13,7 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 - Signed share links: temporary, scoped visitor access to protected sites without accounts
 - OIDC / SSO protection for proxied traffic (Cloudflare Access style)
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
+- gRPC / HTTP/2 backends via `h2c://` and `h2://` targets, with end-to-end trailer relay (`grpc-status`)
 - Emergency tunnels: reach normally unexposed TCP services (a database, SSH) in a pinch
 - Admin dashboard: live traffic, request inspector & replay, client kill switch, maintenance mode, add-client wizard, audit log, webhooks
 - Prometheus metrics, structured JSON access log, persistent statistics, backend health probing, graceful drain

@@ -12,6 +12,8 @@ fn test_tunnel_tx() -> mpsc::Sender<Message> {
 fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
   ForwardContext {
     client: reqwest::Client::new(),
+    h2_client: None,
+    timeout_secs: 30,
     target: target.to_string(),
     pass_hostname: false,
     path_bind: None,
@@ -195,6 +197,7 @@ async fn test_make_error_response() {
     status,
     headers,
     body,
+    ..
   } = response
   {
     assert_eq!(id, "req-123");
@@ -263,6 +266,7 @@ async fn test_handle_incoming_request() {
     status,
     headers,
     body,
+    ..
   } = result
   {
     assert_eq!(id, "req-id-123");

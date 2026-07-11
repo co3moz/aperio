@@ -374,6 +374,13 @@ impl ClientHandle {
 /// Round-robin group key: (hostname group, path group) of the selected pool.
 pub(crate) type RouteGroupKey = (Option<String>, Option<String>);
 
+/// One frame of a streamed response body relayed from the tunnel: data
+/// chunks, then optionally one trailer block (e.g. gRPC's `grpc-status`).
+pub(crate) enum BodyFrame {
+  Data(Vec<u8>),
+  Trailers(Vec<(String, String)>),
+}
+
 /// Standard response payload returned by tunnel client.
 pub(crate) struct TunnelResponse {
   /// HTTP status code.
@@ -382,15 +389,17 @@ pub(crate) struct TunnelResponse {
   pub(crate) headers: Vec<(String, String)>,
   /// Base64 encoded payload body (buffered responses only).
   pub(crate) body: Option<String>,
-  /// For streamed responses: receiver of decoded body chunks. The proxy
+  /// HTTP trailers of a buffered response (e.g. `grpc-status` for gRPC).
+  pub(crate) trailers: Option<Vec<(String, String)>>,
+  /// For streamed responses: receiver of decoded body frames. The proxy
   /// handler turns this into a streaming HTTP body.
-  pub(crate) stream_rx: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
+  pub(crate) stream_rx: Option<mpsc::Receiver<Result<BodyFrame, std::io::Error>>>,
 }
 
 /// Sender half of an in-flight streamed response body, kept so the tunnel
 /// read loop can push chunks and so disconnect cleanup can drop it.
 pub(crate) struct ResponseStreamHandle {
-  pub(crate) tx: mpsc::Sender<Result<Vec<u8>, std::io::Error>>,
+  pub(crate) tx: mpsc::Sender<Result<BodyFrame, std::io::Error>>,
   pub(crate) client_id: String,
 }
 

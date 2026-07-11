@@ -130,9 +130,16 @@ pub(crate) async fn run_service(
     let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
       health_path.clone()
     } else {
+      // Health probes speak plain HTTP(S) even against h2c/h2 targets:
+      // reqwest negotiates the version; gRPC servers usually expose gRPC
+      // health checking elsewhere, so an explicit URL is recommended there.
+      let base = spec
+        .target
+        .replacen("h2c://", "http://", 1)
+        .replacen("h2://", "https://", 1);
       format!(
         "{}/{}",
-        spec.target.trim_end_matches('/'),
+        base.trim_end_matches('/'),
         health_path.trim_start_matches('/')
       )
     };
@@ -352,8 +359,16 @@ pub(crate) async fn run_service(
               .unwrap_or_default();
 
             // Per-connection forwarding constants shared by all request tasks.
+            if crate::proxy::h2::is_h2_target(&spec.target) && spec.pass_hostname {
+              warn!(
+                "pass_hostname is ignored for HTTP/2 targets ({}): the backend sees the target authority",
+                spec.target
+              );
+            }
             let forward_ctx = Arc::new(ForwardContext {
               client: reqwest_client.clone(),
+              h2_client: crate::proxy::h2::build_h2_client(&spec.target).map(Arc::new),
+              timeout_secs: spec.timeout_secs,
               target: spec.target.clone(),
               pass_hostname: spec.pass_hostname,
               path_bind: spec.path.clone(),

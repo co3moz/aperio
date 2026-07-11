@@ -198,7 +198,16 @@ pub(crate) async fn proxy_handler(
 ) -> Response {
   let method = req.method().clone();
   let uri = req.uri().clone();
-  let headers = req.headers().clone();
+  let mut headers = req.headers().clone();
+  // HTTP/2 requests carry the host in the :authority pseudo-header (surfaced
+  // as the URI authority), not a Host header. Mirror it so hostname routing,
+  // maintenance scoping, and the visitor gate see h2 traffic (gRPC) too.
+  if !headers.contains_key("host")
+    && let Some(authority) = uri.authority()
+    && let Ok(val) = axum::http::HeaderValue::from_str(authority.as_str())
+  {
+    headers.insert("host", val);
+  }
   let caller_ip = extract_client_ip(
     &headers,
     addr.ip(),
@@ -970,12 +979,25 @@ async fn proxy_http_request(
           });
         }
 
-        // Streamed response: forward chunks as they arrive without buffering.
+        // Streamed response: forward frames as they arrive without
+        // buffering; a trailer block (e.g. gRPC's grpc-status) becomes the
+        // final HTTP frame. Buffered responses with trailers get a
+        // two-frame body; plain buffered responses stay a simple body.
         let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
           let stream = futures_util::stream::unfold(chunk_rx, |mut rx| async move {
-            rx.recv().await.map(|item| (item, rx))
+            rx.recv().await.map(|item| (frame_from_body_item(item), rx))
           });
-          Body::from_stream(stream)
+          Body::new(http_body_util::StreamBody::new(stream))
+        } else if let Some(trailers) = tunnel_res.trailers.take() {
+          let frames: Vec<Result<http_body::Frame<axum::body::Bytes>, axum::BoxError>> = vec![
+            Ok(http_body::Frame::data(axum::body::Bytes::from(
+              res_bytes.clone(),
+            ))),
+            Ok(http_body::Frame::trailers(trailer_header_map(&trailers))),
+          ];
+          Body::new(http_body_util::StreamBody::new(futures_util::stream::iter(
+            frames,
+          )))
         } else {
           Body::from(res_bytes)
         };
@@ -1065,4 +1087,33 @@ async fn proxy_http_request(
       }
     }
   }
+}
+
+/// Maps a relayed body frame to an HTTP body frame (data or trailers).
+fn frame_from_body_item(
+  item: Result<crate::state::BodyFrame, std::io::Error>,
+) -> Result<http_body::Frame<axum::body::Bytes>, axum::BoxError> {
+  match item {
+    Ok(crate::state::BodyFrame::Data(bytes)) => {
+      Ok(http_body::Frame::data(axum::body::Bytes::from(bytes)))
+    }
+    Ok(crate::state::BodyFrame::Trailers(trailers)) => {
+      Ok(http_body::Frame::trailers(trailer_header_map(&trailers)))
+    }
+    Err(e) => Err(e.into()),
+  }
+}
+
+/// Builds a HeaderMap from relayed trailer pairs, skipping invalid names.
+fn trailer_header_map(trailers: &[(String, String)]) -> axum::http::HeaderMap {
+  let mut map = axum::http::HeaderMap::new();
+  for (k, v) in trailers {
+    if let (Ok(name), Ok(val)) = (
+      axum::http::HeaderName::from_bytes(k.as_bytes()),
+      axum::http::HeaderValue::from_str(v),
+    ) {
+      map.append(name, val);
+    }
+  }
+  map
 }

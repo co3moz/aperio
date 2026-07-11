@@ -170,6 +170,9 @@ pub enum TunnelMessage {
     status: u16,
     headers: Vec<(String, String)>,
     body: Option<String>, // Base64 encoded payload
+    /// HTTP trailers of the backend response (e.g. `grpc-status` for gRPC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trailers: Option<Vec<(String, String)>>,
   },
   /// Start of a streamed response: status and headers only. The body follows
   /// as `ResponseChunk` messages terminated by `ResponseEnd`. Used by clients
@@ -181,8 +184,13 @@ pub enum TunnelMessage {
   },
   /// A chunk of a streamed response body (Base64 encoded).
   ResponseChunk { id: String, data: String },
-  /// Marks the end of a streamed response body.
-  ResponseEnd { id: String },
+  /// Marks the end of a streamed response body, optionally carrying the
+  /// backend's HTTP trailers (e.g. `grpc-status` for gRPC).
+  ResponseEnd {
+    id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trailers: Option<Vec<(String, String)>>,
+  },
   /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,

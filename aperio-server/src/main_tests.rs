@@ -439,6 +439,7 @@ async fn test_proxy_handler_success() {
       if let Some(req) = pending.remove(&id) {
         let headers = vec![("content-type".to_string(), "application/json".to_string())];
         let _ = req.tx.send(TunnelResponse {
+          trailers: None,
           status: 200,
           headers,
           body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),

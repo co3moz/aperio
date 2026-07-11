@@ -95,8 +95,9 @@ pub struct ServiceEntry {
   /// Label for this service in client logs and the dashboard clients table.
   #[schemars(extend("examples" = ["web"]))]
   pub name: Option<String>,
-  /// Local backend this service exposes through the tunnel.
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000"]))]
+  /// Local backend this service exposes through the tunnel; `h2c://` /
+  /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed).
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
   pub target: Option<String>,
   /// Public hostname that should route to this service.
   #[schemars(extend("examples" = ["app.example.com"]))]
@@ -188,8 +189,9 @@ pub struct FileConfig {
   /// Tunnel token, for when it isn't nested under `server.token`.
   #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// Local backend to expose (single-service mode; use `services` for several).
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000"]))]
+  /// Local backend to expose (single-service mode; use `services` for
+  /// several). `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
   pub target: Option<String>,
   /// Public hostname to claim for this client's traffic.
   #[schemars(extend("examples" = ["app.example.com"]))]

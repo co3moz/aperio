@@ -110,11 +110,16 @@ version = "0.2.0"
 dependencies = [
  "aperio-config",
  "base64",
+ "bytes",
  "chacha20poly1305",
  "clap",
  "flate2",
  "futures-util",
  "hkdf",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
  "rand_core 0.6.4",
  "reqwest 0.12.28",
  "serde",
@@ -150,6 +155,8 @@ dependencies = [
  "flate2",
  "futures-util",
  "hmac",
+ "http-body",
+ "http-body-util",
  "mime_guess",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -339,9 +346,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cc"
@@ -669,6 +676,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -804,6 +817,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -912,6 +944,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-core",
+ "h2",
  "http",
  "http-body",
  "httparse",
@@ -1319,6 +1352,18 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mock-h2"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "tokio",
 ]
 
 [[package]]

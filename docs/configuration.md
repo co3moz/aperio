@@ -73,7 +73,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | --- | --- | --- | --- | --- |
 | `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. | — |
 | `APERIO_SERVER_URL` | `--server-url` | `server.url` | **Required.** Server URL (`http/https/ws/wss`). | — |
-| `APERIO_TARGET` (`APERIO_CLIENT_TARGET`) | positional / `--target` | `target` | **Required.** Local backend to forward to. | — |
+| `APERIO_TARGET` (`APERIO_CLIENT_TARGET`) | positional / `--target` | `target` | **Required.** Local backend to forward to. `http(s)://` (a bare port or hostname is normalized to it), or `h2c://` / `h2://` for HTTP/2 backends — gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), `te: trailers` is forwarded, and response trailers (`grpc-status`) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). | — |
 | `APERIO_HOSTNAME` (`APERIO_HOSTNAME_BIND`) | `--hostname` | `hostname` | Hostname this client serves. | — |
 | `APERIO_PATH` (`APERIO_PATH_BIND`) | `--path` | `path` | Path prefix this client serves. | — |
 | `APERIO_TRIM_BIND` (`APERIO_CLIENT_TRIM_BIND`) | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |

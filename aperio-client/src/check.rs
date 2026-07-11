@@ -238,6 +238,10 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   }
   for (label, target, health) in &probes {
+    // h2c/h2 schemes are aperio vocabulary; probe over plain HTTP(S).
+    let target = &target
+      .replacen("h2c://", "http://", 1)
+      .replacen("h2://", "https://", 1);
     match http.get(target).send().await {
       Ok(resp) => pass(label, format!("reachable (HTTP {})", resp.status())),
       Err(e) => fail(label, format!("{target} unreachable: {e}"), &mut failures),

@@ -15,6 +15,7 @@ its own server configuration:
 | F. ws | WebSocket pass-through (upgrade + frame echo + close) |
 | G. tunnels | emergency tunnels (`tunnels:` + `--bind-tunnels`) and the legacy tcp bridge |
 | H. subdomain | same-level random subdomain pattern (`*-suffix`) |
+| I. h2 | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay, driven by the [`mock-h2`](mock-h2/) helper |
 
 ## Running
 

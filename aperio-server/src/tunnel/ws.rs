@@ -52,7 +52,7 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
     // long, drop the stream instead of blocking the tunnel read loop.
     let send_res = tokio::time::timeout(
       state.config().gateway_response_timeout,
-      chunk_tx.send(Ok(bytes)),
+      chunk_tx.send(Ok(crate::state::BodyFrame::Data(bytes))),
     )
     .await;
     match send_res {
@@ -348,6 +348,7 @@ pub(crate) async fn handle_socket(
               status,
               headers,
               body,
+              trailers,
             } => {
               let mut pending = state.pending_requests.lock().await;
               // Verify that this response originates from the client that was
@@ -370,6 +371,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body,
+                    trailers,
                     stream_rx: None,
                   })
                   .is_err()
@@ -399,7 +401,8 @@ pub(crate) async fn handle_socket(
               } else if let Some(req) = pending.remove(&id) {
                 // Register the chunk channel before resolving the head so no
                 // ResponseChunk can race past an unregistered stream.
-                let (chunk_tx, chunk_rx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+                let (chunk_tx, chunk_rx) =
+                  mpsc::channel::<Result<crate::state::BodyFrame, std::io::Error>>(32);
                 state.response_streams.lock().await.insert(
                   id.clone(),
                   ResponseStreamHandle {
@@ -413,6 +416,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body: None,
+                    trailers: None,
                     stream_rx: Some(chunk_rx),
                   })
                   .is_err()
@@ -436,18 +440,24 @@ pub(crate) async fn handle_socket(
                 }
               }
             }
-            TunnelMessage::ResponseEnd { id } => {
-              // Dropping the sender ends the public body stream.
+            TunnelMessage::ResponseEnd { id, trailers } => {
+              // Dropping the sender ends the public body stream; trailers
+              // (e.g. gRPC's grpc-status) are delivered as the final frame.
               let removed = state.response_streams.lock().await.remove(&id);
-              if let Some(handle) = removed
-                && handle.client_id != client_id
-              {
-                // Ownership violation: re-insert and ignore.
-                warn!(
-                  "ResponseEnd for request ID {} rejected: not owned by client {}",
-                  id, client_id
-                );
-                state.response_streams.lock().await.insert(id, handle);
+              if let Some(handle) = removed {
+                if handle.client_id != client_id {
+                  // Ownership violation: re-insert and ignore.
+                  warn!(
+                    "ResponseEnd for request ID {} rejected: not owned by client {}",
+                    id, client_id
+                  );
+                  state.response_streams.lock().await.insert(id, handle);
+                } else if let Some(trailers) = trailers {
+                  let _ = handle
+                    .tx
+                    .send(Ok(crate::state::BodyFrame::Trailers(trailers)))
+                    .await;
+                }
               }
             }
             TunnelMessage::TcpData { stream_id, data } => {
@@ -825,6 +835,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body: None,
+                    trailers: None,
                     stream_rx: None,
                   })
                   .is_err()

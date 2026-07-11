@@ -11,13 +11,13 @@ use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, 
 
 /// Response bodies larger than this are streamed through the tunnel in
 /// chunks instead of being buffered and sent as one message.
-const STREAM_THRESHOLD: usize = 256 * 1024;
+pub(crate) const STREAM_THRESHOLD: usize = 256 * 1024;
 /// Size of individual streamed body chunks.
-const STREAM_CHUNK_SIZE: usize = 128 * 1024;
+pub(crate) const STREAM_CHUNK_SIZE: usize = 128 * 1024;
 
 /// Sends one streamed response chunk: a raw binary frame for v2 servers, or
 /// the legacy base64+JSON message otherwise.
-async fn send_response_chunk(
+pub(crate) async fn send_response_chunk(
   tunnel_tx: &mpsc::Sender<Message>,
   id: &str,
   part: &[u8],
@@ -161,6 +161,69 @@ pub(crate) struct ForwardContext {
   pub(crate) request_headers: HeaderTransform,
   /// Header edits applied to backend responses (config `headers.response`).
   pub(crate) response_headers: HeaderTransform,
+  /// HTTP/2 client for `h2c://` / `h2://` targets (None = plain HTTP target).
+  pub(crate) h2_client: Option<std::sync::Arc<crate::proxy::h2::H2Client>>,
+  /// Seconds to wait for the backend's response head on the HTTP/2 path
+  /// (the reqwest path carries its timeout inside `client`).
+  pub(crate) timeout_secs: u64,
+}
+
+/// Builds the backend URL for an incoming proxied request: maps the path
+/// (optionally stripping the path bind), copies the query, and verifies the
+/// result still points at the configured target (SSRF defence-in-depth).
+/// Errors are the HTTP status to answer with.
+pub(crate) fn build_dest_url(
+  ctx: &ForwardContext,
+  id: &str,
+  uri_str: &str,
+) -> Result<url::Url, u16> {
+  let target_parsed = match url::Url::parse(&ctx.target) {
+    Ok(url) => url,
+    Err(e) => {
+      error!("Failed to parse local target URL: {:?}", e);
+      return Err(502);
+    }
+  };
+  let incoming_parsed = match url::Url::parse(&format!("http://localhost{}", uri_str)) {
+    Ok(url) => url,
+    Err(e) => {
+      error!("Failed to parse incoming proxy URI path: {:?}", e);
+      return Err(400);
+    }
+  };
+
+  let mut dest_url = target_parsed.clone();
+  let target_path = target_parsed.path().trim_end_matches('/');
+  let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
+  if ctx.trim_bind
+    && let Some(ref bind) = ctx.path_bind
+  {
+    let bind_trimmed = bind.trim_matches('/');
+    if incoming_path.starts_with(bind_trimmed) {
+      incoming_path = incoming_path[bind_trimmed.len()..]
+        .trim_start_matches('/')
+        .to_string();
+    }
+  }
+  let combined_path = if target_path.is_empty() {
+    format!("/{}", incoming_path)
+  } else {
+    format!("{}/{}", target_path, incoming_path)
+  };
+  dest_url.set_path(&combined_path);
+  dest_url.set_query(incoming_parsed.query());
+
+  if dest_url.scheme() != target_parsed.scheme()
+    || dest_url.host_str() != target_parsed.host_str()
+    || dest_url.port_or_known_default() != target_parsed.port_or_known_default()
+  {
+    error!(
+      "SSRF protection triggered: constructed URL diverges from target for request ID {}",
+      id
+    );
+    return Err(400);
+  }
+  Ok(dest_url)
 }
 
 /// One proxied request as received from the tunnel.
@@ -186,6 +249,12 @@ pub(crate) async fn handle_incoming_request(
   streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
   binary_chunks: bool,
 ) -> Option<TunnelMessage> {
+  // HTTP/2 targets (h2c:// / h2://, e.g. gRPC backends) take the hyper-based
+  // path, which speaks HTTP/2 to the backend and relays trailers.
+  if ctx.h2_client.is_some() {
+    return crate::proxy::h2::handle_incoming_request_h2(ctx, req, streamed_body, binary_chunks)
+      .await;
+  }
   let ForwardRequest {
     id,
     method: method_str,
@@ -198,62 +267,10 @@ pub(crate) async fn handle_incoming_request(
     "Forwarding tunnel request ID {}: {} {}",
     id, method_str, uri_str
   );
-  let target_parsed = match url::Url::parse(&ctx.target) {
+  let dest_url = match build_dest_url(ctx, &id, &uri_str) {
     Ok(url) => url,
-    Err(e) => {
-      error!("Failed to parse local target URL: {:?}", e);
-      return Some(make_error_response(id, 502));
-    }
+    Err(status) => return Some(make_error_response(id, status)),
   };
-
-  // Parse the incoming URI to extract path and query params
-  let incoming_parsed = match url::Url::parse(&format!("http://localhost{}", uri_str)) {
-    Ok(url) => url,
-    Err(e) => {
-      error!("Failed to parse incoming proxy URI path: {:?}", e);
-      return Some(make_error_response(id, 400));
-    }
-  };
-
-  let mut dest_url = target_parsed.clone();
-
-  // Map URI path, optionally stripping the path_bind prefix
-  let target_path = target_parsed.path().trim_end_matches('/');
-  let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
-
-  if ctx.trim_bind
-    && let Some(ref bind) = ctx.path_bind
-  {
-    let bind_trimmed = bind.trim_matches('/');
-    if incoming_path.starts_with(bind_trimmed) {
-      incoming_path = incoming_path[bind_trimmed.len()..]
-        .trim_start_matches('/')
-        .to_string();
-    }
-  }
-
-  let combined_path = if target_path.is_empty() {
-    format!("/{}", incoming_path)
-  } else {
-    format!("{}/{}", target_path, incoming_path)
-  };
-
-  dest_url.set_path(&combined_path);
-  dest_url.set_query(incoming_parsed.query());
-
-  // SSRF defence-in-depth: verify the constructed URL still resolves to the
-  // original target host and port. This guards against subtle URL-parsing
-  // edge-cases that could redirect tunnel traffic to unintended internal services.
-  if dest_url.scheme() != target_parsed.scheme()
-    || dest_url.host_str() != target_parsed.host_str()
-    || dest_url.port_or_known_default() != target_parsed.port_or_known_default()
-  {
-    error!(
-      "SSRF protection triggered: constructed URL diverges from target for request ID {}",
-      id
-    );
-    return Some(make_error_response(id, 400));
-  }
 
   let method = match reqwest::Method::from_bytes(method_str.as_bytes()) {
     Ok(m) => m,
@@ -412,7 +429,10 @@ pub(crate) async fn handle_incoming_request(
       }
 
       if streaming {
-        let end = TunnelMessage::ResponseEnd { id: id.clone() };
+        let end = TunnelMessage::ResponseEnd {
+          id: id.clone(),
+          trailers: None,
+        };
         let _ = send_tunnel_msg(tunnel_tx, &end).await;
         info!(
           "Tunnel request SUCCESS (streamed): ID={} Status={} Bytes={}",
@@ -434,6 +454,7 @@ pub(crate) async fn handle_incoming_request(
         status,
         headers: res_headers,
         body: body_encoded,
+        trailers: None,
       })
     }
     Err(e) => {
@@ -460,6 +481,7 @@ pub(crate) fn make_error_response(id: String, status: u16) -> TunnelMessage {
     status,
     headers,
     body: Some(body),
+    trailers: None,
   }
 }
 

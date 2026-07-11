@@ -3,6 +3,7 @@ members = [
     "aperio-config",
     "aperio-server",
     "aperio-client",
+    "tests/mock-h2",
 ]
 resolver = "2"
 
