@@ -329,6 +329,32 @@ export const tr: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'İmzalama anahtarı (isteğe bağlı, 16-128 karakter)',
   'Payload format': 'Yük formatı',
   'Traffic History': 'Trafik Geçmişi',
+  'Sign in with a passkey':
+    'Passkey ile giriş yap',
+  'Passkey sign-in failed. Enter your username above and try again.':
+    'Passkey girişi başarısız. Yukarıya kullanıcı adınızı yazıp tekrar deneyin.',
+  'Passkeys':
+    'Passkey’ler',
+  'Sign in without a password using YubiKeys, Touch ID / Face ID, or your password manager.':
+    'YubiKey, Touch ID / Face ID veya parola yöneticinizle parolasız giriş yapın.',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
+    'Yerleşik "aperio" yöneticisi ana token veya panel parolasıyla giriş yapar ve passkey kaydedemez. Bunun yerine adlandırılmış bir kullanıcı oluşturun.',
+  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
+    'Bu sunucuda passkey girişi yapılandırılmamış. Etkinleştirmek için APERIO_WEBAUTHN_ORIGIN değişkenini panelin genel adresine ayarlayın.',
+  'This browser does not support WebAuthn.':
+    'Bu tarayıcı WebAuthn desteklemiyor.',
+  'No passkeys registered yet.':
+    'Henüz kayıtlı passkey yok.',
+  'Name for the new passkey (optional)':
+    'Yeni passkey için ad (isteğe bağlı)',
+  'e.g. YubiKey 5, MacBook Touch ID':
+    'örn. YubiKey 5, MacBook Touch ID',
+  'Register passkey':
+    'Passkey kaydet',
+  'Passkey registered':
+    'Passkey kaydedildi',
+  'Passkey "{name}" deleted':
+    '"{name}" passkey’i silindi',
   'Enter the code from your authenticator app':
     'Kimlik doğrulayıcı uygulamanızdaki kodu girin',
   'Authentication code':

@@ -173,6 +173,12 @@ export interface UptimeEntry {
   days: UptimeDay[]
 }
 
+export interface PasskeyInfo {
+  id: string
+  name: string
+  created_at: number
+}
+
 export interface AuditEvent {
   ts: number
   timestamp: string
@@ -297,6 +303,16 @@ export const api = {
   totpDisable: (code: string) => request<{ status: string }>('/me/totp', json('DELETE', { code })),
   totpAdminReset: (id: string) =>
     mutate(`/users/${encodeURIComponent(id)}/totp`, { method: 'DELETE' }),
+  passkeys: () => request<PasskeyInfo[]>('/me/passkeys'),
+  passkeyRegisterStart: () =>
+    request<{ ceremony_id: string; challenge: { publicKey: never } }>(
+      '/me/passkeys/register/start',
+      { method: 'POST' },
+    ),
+  passkeyRegisterFinish: (payload: { ceremony_id: string; name?: string; credential: unknown }) =>
+    mutate('/me/passkeys/register/finish', json('POST', payload)),
+  passkeyDelete: (id: string) =>
+    mutate(`/me/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   createUser: (payload: { username: string; password: string; role: Role }) =>
     request<DashboardUser>('/users', json('POST', payload)),
   updateUser: (

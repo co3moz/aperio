@@ -36,6 +36,7 @@ import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { LANGUAGES, useI18n } from '@/i18n'
 import { SessionProvider } from '@/lib/session'
+import { PasskeysDialog } from './components/PasskeysDialog'
 import { TotpDialog } from './components/TotpDialog'
 import { cn } from '@/lib/utils'
 
@@ -84,6 +85,7 @@ export default function App() {
   const { logs, stats, error: statsError, refreshStats } = useLiveData()
   const { data: session, refresh: refreshSession } = usePoll(api.session, 60_000)
   const [totpOpen, setTotpOpen] = useState(false)
+  const [passkeysOpen, setPasskeysOpen] = useState(false)
   // The server version only changes on restart; a slow poll keeps it honest.
   const { data: health } = usePoll(api.health, 300_000)
   const [inspectId, setInspectId] = useState<string | null>(null)
@@ -203,8 +205,10 @@ export default function App() {
         enabled={session?.totp ?? false}
         onChanged={refreshSession}
       />
+      <PasskeysDialog open={passkeysOpen} onOpenChange={setPasskeysOpen} />
       <AppSidebar
         onOpenTotp={() => setTotpOpen(true)}
+        onOpenPasskeys={() => setPasskeysOpen(true)}
         page={page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}

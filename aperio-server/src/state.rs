@@ -584,6 +584,11 @@ pub(crate) struct AppState {
   pub(crate) persistent_stats: Mutex<StatsStore>,
   /// Persistent webhook definitions for the event system.
   pub(crate) webhook_store: Mutex<WebhookStore>,
+  /// WebAuthn verifier for passkey sign-in (None until
+  /// APERIO_WEBAUTHN_ORIGIN is configured).
+  pub(crate) webauthn: Option<webauthn_rs::Webauthn>,
+  /// In-flight WebAuthn registration/authentication ceremonies.
+  pub(crate) webauthn_ceremonies: Mutex<crate::webauthn::WebauthnCeremonies>,
   /// Per-service availability history (uptime/SLA reporting).
   pub(crate) uptime: Mutex<crate::store::uptime::UptimeStore>,
   /// OIDC SSO runtime config (None = feature disabled).

@@ -29,6 +29,7 @@ mod store;
 mod telemetry;
 mod totp;
 mod tunnel;
+mod webauthn;
 
 use crate::api::clients::{
   client_enabled_handler, client_override_handler, live_stream_handler, logs_handler,
@@ -606,6 +607,8 @@ async fn main() {
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
+    webauthn: crate::webauthn::build_webauthn(),
+    webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
     uptime: Mutex::new(crate::store::uptime::UptimeStore::load(&data_dir)),
     oidc: oidc_runtime,
     oidc_states: Mutex::new(HashMap::new()),
@@ -700,6 +703,22 @@ async fn main() {
         axum::routing::delete(crate::api::users::totp_disable_handler),
       )
       .route(
+        "/api/me/passkeys",
+        get(crate::webauthn::passkeys_list_handler),
+      )
+      .route(
+        "/api/me/passkeys/register/start",
+        axum::routing::post(crate::webauthn::passkey_register_start_handler),
+      )
+      .route(
+        "/api/me/passkeys/register/finish",
+        axum::routing::post(crate::webauthn::passkey_register_finish_handler),
+      )
+      .route(
+        "/api/me/passkeys/:id",
+        axum::routing::delete(crate::webauthn::passkey_delete_handler),
+      )
+      .route(
         "/api/users/:id",
         axum::routing::put(crate::api::users::users_update_handler)
           .delete(crate::api::users::users_delete_handler),
@@ -774,6 +793,20 @@ async fn main() {
   app = app.route(
     "/aperio/auth/logout",
     axum::routing::post(auth_logout_handler),
+  );
+  // Passkey (WebAuthn) sign-in: challenge + finish live next to the login
+  // form, outside the session middleware (they create the session).
+  app = app.route(
+    "/aperio/auth/passkey",
+    get(crate::webauthn::passkey_available_handler),
+  );
+  app = app.route(
+    "/aperio/auth/passkey/start",
+    axum::routing::post(crate::webauthn::passkey_login_start_handler),
+  );
+  app = app.route(
+    "/aperio/auth/passkey/finish",
+    axum::routing::post(crate::webauthn::passkey_login_finish_handler),
   );
   // Programmatic tunnel provisioning. Registered outside the dashboard
   // session middleware on purpose: it authenticates with the master token in

@@ -10,6 +10,7 @@ import {
   ScrollTextIcon,
   ServerIcon,
   Settings2Icon,
+  FingerprintIcon,
   ShieldCheckIcon,
   WebhookIcon,
 } from 'lucide-react'
@@ -103,6 +104,7 @@ export function AppSidebar({
   role,
   onSignOut,
   onOpenTotp,
+  onOpenPasskeys,
 }: {
   page: Page
   onNavigate: (page: Page) => void
@@ -111,6 +113,7 @@ export function AppSidebar({
   role: Role
   onSignOut: () => void
   onOpenTotp: () => void
+  onOpenPasskeys: () => void
 }) {
   const { t } = useI18n()
   const order = ROLE_ORDER[role]
@@ -166,6 +169,12 @@ export function AppSidebar({
             <SidebarMenuButton tooltip={t('Two-factor authentication')} onClick={onOpenTotp}>
               <ShieldCheckIcon />
               <span className="flex-1">{t('Two-factor auth')}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton tooltip={t('Passkeys')} onClick={onOpenPasskeys}>
+              <FingerprintIcon />
+              <span className="flex-1">{t('Passkeys')}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

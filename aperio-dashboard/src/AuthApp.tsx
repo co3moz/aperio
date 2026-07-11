@@ -1,5 +1,5 @@
-import { GlobeIcon, LockIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { FingerprintIcon, GlobeIcon, LockIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useI18n } from '@/i18n'
+import { browserSupportsPasskeys, passkeySignIn, serverSupportsPasskeys } from '@/lib/webauthn'
 
 // Only allow same-origin relative redirects to prevent open redirect abuse.
 // Rejects protocol-relative URLs (//evil.com) and backslash-based bypasses.
@@ -30,6 +31,33 @@ export function AuthApp() {
   const [totpStep, setTotpStep] = useState(false)
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [passkeys, setPasskeys] = useState(false)
+  const [passkeyError, setPasskeyError] = useState(false)
+
+  useEffect(() => {
+    if (!browserSupportsPasskeys()) return
+    void serverSupportsPasskeys().then(setPasskeys)
+  }, [])
+
+  const signInWithPasskey = async () => {
+    setError(false)
+    setPasskeyError(false)
+    if (!username.trim()) {
+      setPasskeyError(true)
+      return
+    }
+    setBusy(true)
+    const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/'
+    const dest = safeRedirect(raw)
+    try {
+      await passkeySignIn(username.trim())
+      window.location.href = dest
+    } catch {
+      setPasskeyError(true)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -141,6 +169,23 @@ export function AuthApp() {
             <Button type="submit" size="lg" disabled={busy}>
               {busy && <Spinner />} {totpStep ? t('Verify') : t('Sign In')}
             </Button>
+            {passkeys && !totpStep && (
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                disabled={busy}
+                onClick={() => void signInWithPasskey()}
+              >
+                <FingerprintIcon /> {t('Sign in with a passkey')}
+              </Button>
+            )}
+            {passkeyError && (
+              <p className="flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <TriangleAlertIcon className="size-4 shrink-0" />
+                {t('Passkey sign-in failed. Enter your username above and try again.')}
+              </p>
+            )}
             {totpStep && (
               <Button
                 type="button"

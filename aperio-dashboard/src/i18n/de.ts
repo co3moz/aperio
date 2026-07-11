@@ -331,6 +331,32 @@ export const de: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': 'Signatur-Secret (optional, 16–128 Zeichen)',
   'Payload format': 'Payload-Format',
   'Traffic History': 'Traffic-Verlauf',
+  'Sign in with a passkey':
+    'Mit Passkey anmelden',
+  'Passkey sign-in failed. Enter your username above and try again.':
+    'Passkey-Anmeldung fehlgeschlagen. Gib oben deinen Benutzernamen ein und versuche es erneut.',
+  'Passkeys':
+    'Passkeys',
+  'Sign in without a password using YubiKeys, Touch ID / Face ID, or your password manager.':
+    'Melde dich ohne Passwort an — mit YubiKeys, Touch ID / Face ID oder deinem Passwort-Manager.',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
+    'Der eingebaute Admin „aperio“ meldet sich mit dem Master-Token oder Dashboard-Passwort an und kann keine Passkeys registrieren. Lege stattdessen einen benannten Benutzer an.',
+  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
+    'Passkey-Anmeldung ist auf diesem Server nicht konfiguriert. Setze APERIO_WEBAUTHN_ORIGIN auf die öffentliche URL des Dashboards.',
+  'This browser does not support WebAuthn.':
+    'Dieser Browser unterstützt WebAuthn nicht.',
+  'No passkeys registered yet.':
+    'Noch keine Passkeys registriert.',
+  'Name for the new passkey (optional)':
+    'Name des neuen Passkeys (optional)',
+  'e.g. YubiKey 5, MacBook Touch ID':
+    'z. B. YubiKey 5, MacBook Touch ID',
+  'Register passkey':
+    'Passkey registrieren',
+  'Passkey registered':
+    'Passkey registriert',
+  'Passkey "{name}" deleted':
+    'Passkey „{name}“ gelöscht',
   'Enter the code from your authenticator app':
     'Gib den Code aus deiner Authenticator-App ein',
   'Authentication code':

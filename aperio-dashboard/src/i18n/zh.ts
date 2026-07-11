@@ -316,6 +316,32 @@ export const zh: Record<string, string> = {
   'Signing secret (optional, 16-128 chars)': '签名密钥（可选，16-128 字符）',
   'Payload format': '负载格式',
   'Traffic History': '流量历史',
+  'Sign in with a passkey':
+    '使用通行密钥登录',
+  'Passkey sign-in failed. Enter your username above and try again.':
+    '通行密钥登录失败。请在上方输入用户名后重试。',
+  'Passkeys':
+    '通行密钥',
+  'Sign in without a password using YubiKeys, Touch ID / Face ID, or your password manager.':
+    '使用 YubiKey、Touch ID / Face ID 或密码管理器实现免密码登录。',
+  'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
+    '内置的 "aperio" 管理员使用主令牌或仪表板密码登录，无法注册通行密钥。请改为创建命名用户。',
+  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
+    '此服务器未配置通行密钥登录。将 APERIO_WEBAUTHN_ORIGIN 设置为仪表板的公开 URL 即可启用。',
+  'This browser does not support WebAuthn.':
+    '此浏览器不支持 WebAuthn。',
+  'No passkeys registered yet.':
+    '尚未注册通行密钥。',
+  'Name for the new passkey (optional)':
+    '新通行密钥的名称（可选）',
+  'e.g. YubiKey 5, MacBook Touch ID':
+    '例如 YubiKey 5、MacBook Touch ID',
+  'Register passkey':
+    '注册通行密钥',
+  'Passkey registered':
+    '通行密钥已注册',
+  'Passkey "{name}" deleted':
+    '通行密钥 "{name}" 已删除',
   'Enter the code from your authenticator app':
     '输入身份验证器应用中的代码',
   'Authentication code':

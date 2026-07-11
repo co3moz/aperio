@@ -37,6 +37,18 @@ impl Role {
   }
 }
 
+/// One registered WebAuthn passkey of a dashboard user.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StoredPasskey {
+  pub id: String,
+  /// User-chosen label ("YubiKey 5", "MacBook Touch ID", ...).
+  pub name: String,
+  pub created_at: u64,
+  /// The `webauthn_rs` Passkey, serialized as JSON (public key + counter —
+  /// no secret material; the private key never leaves the authenticator).
+  pub credential: String,
+}
+
 /// A dashboard user. The password is stored as an Argon2id PHC string.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct User {
@@ -57,6 +69,9 @@ pub struct User {
   /// SHA-256 hashes of the unused single-use recovery codes.
   #[serde(default)]
   pub recovery_hashes: Vec<String>,
+  /// Registered WebAuthn passkeys (passwordless sign-in).
+  #[serde(default)]
+  pub passkeys: Vec<StoredPasskey>,
 }
 
 /// Persistent store of dashboard users, backed by the `users` table of the
@@ -132,6 +147,7 @@ impl UserStore {
       totp_secret: None,
       totp_pending: None,
       recovery_hashes: Vec::new(),
+      passkeys: Vec::new(),
     };
     self.users.push(user.clone());
     self.persist();
@@ -262,6 +278,72 @@ impl UserStore {
     user.recovery_hashes = Vec::new();
     self.persist();
     Ok(())
+  }
+
+  /// Registers a passkey on a user (capped at 10 per user).
+  pub fn add_passkey(
+    &mut self,
+    id: &str,
+    name: &str,
+    credential_json: &str,
+  ) -> Result<StoredPasskey, String> {
+    let user = self
+      .users
+      .iter_mut()
+      .find(|u| u.id == id)
+      .ok_or_else(|| "unknown user id".to_string())?;
+    if user.passkeys.len() >= 10 {
+      return Err("at most 10 passkeys per user".into());
+    }
+    let stored = StoredPasskey {
+      id: uuid::Uuid::new_v4().to_string(),
+      name: name.to_string(),
+      created_at: crate::store::tokens::now_secs(),
+      credential: credential_json.to_string(),
+    };
+    user.passkeys.push(stored.clone());
+    self.persist();
+    Ok(stored)
+  }
+
+  /// Removes a passkey by id; true when one was removed.
+  pub fn remove_passkey(&mut self, user_id: &str, passkey_id: &str) -> bool {
+    let Some(user) = self.users.iter_mut().find(|u| u.id == user_id) else {
+      return false;
+    };
+    let before = user.passkeys.len();
+    user.passkeys.retain(|p| p.id != passkey_id);
+    let removed = user.passkeys.len() != before;
+    if removed {
+      self.persist();
+    }
+    removed
+  }
+
+  /// Applies post-authentication credential updates (signature counter) so
+  /// webauthn-rs clone detection keeps working across sign-ins.
+  pub fn update_passkey_after_auth(
+    &mut self,
+    user_id: &str,
+    result: &webauthn_rs::prelude::AuthenticationResult,
+  ) {
+    let Some(user) = self.users.iter_mut().find(|u| u.id == user_id) else {
+      return;
+    };
+    let mut changed = false;
+    for stored in user.passkeys.iter_mut() {
+      if let Ok(mut passkey) =
+        serde_json::from_str::<webauthn_rs::prelude::Passkey>(&stored.credential)
+        && passkey.update_credential(result) == Some(true)
+        && let Ok(json) = serde_json::to_string(&passkey)
+      {
+        stored.credential = json;
+        changed = true;
+      }
+    }
+    if changed {
+      self.persist();
+    }
   }
 
   /// Consumes a single-use recovery code: true (and the code is spent) when
@@ -397,6 +479,39 @@ mod tests {
     store.totp_disable(&user.id).unwrap();
     let u = store.get(&user.id).unwrap();
     assert!(u.totp_secret.is_none() && u.recovery_hashes.is_empty());
+  }
+
+  #[test]
+  fn test_passkey_storage_lifecycle() {
+    let dir = temp_dir();
+    let mut store = UserStore::load(&dir);
+    let user = store
+      .create("passkey-user", "long-password", Role::Viewer)
+      .unwrap();
+
+    let stored = store
+      .add_passkey(&user.id, "YubiKey 5", r#"{"fake":"credential"}"#)
+      .unwrap();
+    assert_eq!(stored.name, "YubiKey 5");
+    assert_eq!(store.get(&user.id).unwrap().passkeys.len(), 1);
+
+    // Survives a reload; the credential JSON is stored verbatim.
+    let reloaded = UserStore::load(&dir);
+    assert_eq!(
+      reloaded.get(&user.id).unwrap().passkeys[0].credential,
+      r#"{"fake":"credential"}"#
+    );
+
+    // Cap: at most 10 per user.
+    for i in 0..9 {
+      store.add_passkey(&user.id, &format!("k{i}"), "{}").unwrap();
+    }
+    assert!(store.add_passkey(&user.id, "overflow", "{}").is_err());
+
+    // Removal by id; unknown ids are a no-op.
+    assert!(store.remove_passkey(&user.id, &stored.id));
+    assert!(!store.remove_passkey(&user.id, &stored.id));
+    assert_eq!(store.get(&user.id).unwrap().passkeys.len(), 9);
   }
 
   #[test]

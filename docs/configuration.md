@@ -22,6 +22,8 @@ The server is configured through environment variables only (no yaml, no CLI fla
 
 **Two-factor authentication (TOTP).** Any named dashboard user can enroll an authenticator app (Google Authenticator, Authy, 1Password, …) from the sidebar's *Two-factor auth* dialog: scan the QR code, confirm a 6-digit code, and store the eight single-use recovery codes shown once. From then on the login form asks for the code after the password (a recovery code works too, and is consumed). Wrong codes count towards the brute-force lockout. An admin can reset a locked-out user's TOTP from the *Users* page (`DELETE /aperio/api/users/:id/totp`); enrollment endpoints live under `/aperio/api/me/totp/*`. The built-in `aperio` admin (master token / dashboard password / OIDC) has no user row and cannot enroll — create named users for anyone who needs 2FA.
 
+**Passkeys (WebAuthn).** Set `APERIO_WEBAUTHN_ORIGIN` to the public URL the dashboard is reached at (e.g. `https://tunnel.example.com` — the RP ID is its domain, so an IP origin won't work) and named users can register passkeys (YubiKeys, Touch ID / Face ID, password managers) from the sidebar's *Passkeys* dialog, then sign in passwordless from the login page. Passkey sign-ins skip TOTP (the authenticator already verifies the user), failed ceremonies count towards the brute-force lockout, and registrations/deletions are audit-logged. Up to 10 passkeys per user, stored in `aperio.db` (public keys only — private keys never leave the authenticator).
+
 ## Client
 
 ### Precedence
@@ -251,6 +253,7 @@ https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.j
 | Variable | Description | Default |
 | --- | --- | --- |
 | `APERIO_SERVER_AUTH` | `user:password` — a visitor login form in front of all proxied traffic. | — |
+| `APERIO_WEBAUTHN_ORIGIN` | Public dashboard URL enabling passkey (WebAuthn) sign-in for named users; its domain becomes the RP ID. | passkeys off |
 | `APERIO_IGNORE_CLIENT_AUTH` | `1` = ignore any client-declared per-service visitor password (see the client `auth` setting) and keep sole control of the visitor gate with `APERIO_SERVER_AUTH` / OIDC. | `0` |
 | `APERIO_DASHBOARD` | `0` = disable the admin dashboard entirely. | `1` |
 | `APERIO_UI_LANGUAGE` | Default dashboard/login UI language (`en`, `de`, `es`, `fr`, `tr`, `ru`, `zh`, `ja`) used when the visitor's browser language is unsupported; also dashboard-editable. | `en` |
