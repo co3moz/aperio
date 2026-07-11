@@ -37,5 +37,5 @@ Almost every runtime setting — timeouts, limits, load-balancing strategy, fail
 
 - **API Tokens / Webhooks** — create, edit, revoke (see [Tokens & Authentication](tokens-and-auth.md), [Observability](observability.md)).
 - **Share links** — generate signed visitor-access URLs (see [Share Links](share-links.md)).
-- **Traffic breakdown** — top consumers per token and per hostname.
+- **Traffic breakdown** — top consumers per token and per hostname, plus a **traffic history** chart over the persisted statistics: last 7/30/60 days, 26 weeks, 24 months, or a custom date range, with successful/failed requests, transfer volume, and average latency per bucket (`GET /aperio/api/stats/history`).
 - **Audit log** — the last 200 administrative/security events.

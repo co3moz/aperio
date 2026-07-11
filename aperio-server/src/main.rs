@@ -30,7 +30,8 @@ mod telemetry;
 mod tunnel;
 
 use crate::api::clients::{
-  client_enabled_handler, client_override_handler, live_stream_handler, logs_handler, stats_handler,
+  client_enabled_handler, client_override_handler, live_stream_handler, logs_handler,
+  stats_handler, stats_history_handler,
 };
 use crate::api::inspector::{request_detail_handler, request_replay_handler};
 use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler};
@@ -628,6 +629,7 @@ async fn main() {
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))
+      .route("/api/stats/history", get(stats_history_handler))
       .route("/api/logs", get(logs_handler))
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))

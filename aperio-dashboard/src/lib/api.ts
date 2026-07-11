@@ -145,6 +145,17 @@ export interface Webhook {
   signed: boolean
 }
 
+export interface HistoryBucket {
+  /** Period label: 2026-07-06, 2026-W27, 2026-07, or 2026. */
+  period: string
+  requests: number
+  success: number
+  failed: number
+  bytes_sent: number
+  bytes_received: number
+  avg_ms: number
+}
+
 export interface AuditEvent {
   ts: number
   timestamp: string
@@ -237,6 +248,17 @@ function json(method: string, body: unknown): RequestInit {
 
 export const api = {
   stats: () => request<ServerStats>('/stats'),
+  statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {
+    const params = new URLSearchParams()
+    if (q.from) {
+      params.set('from', q.from)
+      if (q.to) params.set('to', q.to)
+    } else {
+      if (q.unit) params.set('unit', q.unit)
+      if (q.count) params.set('count', String(q.count))
+    }
+    return request<HistoryBucket[]>(`/stats/history?${params.toString()}`)
+  },
   /** Public liveness probe (outside /api, no session needed). */
   health: async () => {
     const res = await fetch('/aperio/health')

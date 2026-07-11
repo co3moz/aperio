@@ -110,6 +110,99 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
 }
 
 /// Handler returning the live statistics + active connections detail in JSON.
+/// Query for the traffic-history endpoint: either a rolling window
+/// (`unit` + `count`) or a custom day range (`from` + `to`).
+#[derive(Deserialize, utoipa::IntoParams)]
+pub(crate) struct HistoryQuery {
+  /// Bucket unit: `day` (default), `week`, `month`, or `year`.
+  pub(crate) unit: Option<String>,
+  /// Number of buckets, newest last (clamped to the retention window).
+  pub(crate) count: Option<usize>,
+  /// Custom range start, `YYYY-MM-DD` (day buckets; overrides unit/count).
+  pub(crate) from: Option<String>,
+  /// Custom range end, `YYYY-MM-DD` (defaults to today).
+  pub(crate) to: Option<String>,
+}
+
+/// One period bucket of the traffic history (zero-filled when no traffic).
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct HistoryBucket {
+  /// Period label: `2026-07-06`, `2026-W27`, `2026-07`, or `2026`.
+  pub(crate) period: String,
+  pub(crate) requests: u64,
+  pub(crate) success: u64,
+  pub(crate) failed: u64,
+  pub(crate) bytes_sent: u64,
+  pub(crate) bytes_received: u64,
+  /// Average response time of the bucket in milliseconds.
+  pub(crate) avg_ms: f64,
+}
+
+/// Returns zero-filled traffic history buckets from the persistent stats.
+#[utoipa::path(get, path = "/aperio/api/stats/history", tag = "dashboard",
+  description = "Chronological traffic buckets (requests, success/failed, bytes, latency) for a rolling window (unit=day|week|month|year + count) or a custom day range (from/to, YYYY-MM-DD). Buckets outside the retention window (60 days / 26 weeks / 24 months / 10 years) are zero.",
+  params(HistoryQuery),
+  responses((status = 200, description = "Traffic history buckets", body = Vec<HistoryBucket>), (status = 400, description = "Invalid unit or date range")))]
+pub(crate) async fn stats_history_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
+) -> Response {
+  let keys = if let Some(from) = query.from.as_deref() {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let to = query.to.as_deref().unwrap_or(&today);
+    stats::day_keys_between(from, to)
+  } else {
+    let unit = query.unit.as_deref().unwrap_or("day");
+    let max = match unit {
+      "day" => 60,
+      "week" => 26,
+      "month" => 24,
+      "year" => 10,
+      _ => 0,
+    };
+    if max == 0 {
+      None
+    } else {
+      let count = query.count.unwrap_or(30).clamp(1, max);
+      stats::recent_period_keys(unit, count)
+    }
+  };
+  let Some(keys) = keys else {
+    return (
+      StatusCode::BAD_REQUEST,
+      "unit must be day/week/month/year; from/to must be YYYY-MM-DD with from <= to",
+    )
+      .into_response();
+  };
+
+  let snapshot = state.persistent_stats.lock().await.snapshot();
+  let buckets: Vec<HistoryBucket> = keys
+    .into_iter()
+    .map(|key| {
+      let period = key
+        .split_once(':')
+        .map(|(_, p)| p.to_string())
+        .unwrap_or_else(|| key.clone());
+      let p = snapshot.periods.get(&key).cloned().unwrap_or_default();
+      let avg_ms = if p.requests == 0 {
+        0.0
+      } else {
+        p.duration_ms as f64 / p.requests as f64
+      };
+      HistoryBucket {
+        period,
+        requests: p.requests,
+        success: p.success,
+        failed: p.failed,
+        bytes_sent: p.bytes_sent,
+        bytes_received: p.bytes_received,
+        avg_ms,
+      }
+    })
+    .collect();
+  Json(buckets).into_response()
+}
+
 #[utoipa::path(get, path = "/aperio/api/stats", tag = "dashboard",
   description = "Live statistics snapshot: counters, persistent stats, and the active client connections.",
   responses((status = 200, description = "Current statistics", body = EnhancedServerStats)))]

@@ -101,6 +101,76 @@ pub fn period_keys() -> [String; 4] {
   ]
 }
 
+/// Chronological bucket keys for the last `count` periods of `unit`
+/// (`"day"`, `"week"`, `"month"`, or `"year"`), oldest first, including the
+/// current period. Returns `None` for an unknown unit.
+pub fn recent_period_keys(unit: &str, count: usize) -> Option<Vec<String>> {
+  let now = chrono::Local::now();
+  let today = now.date_naive();
+  let mut keys = Vec::with_capacity(count);
+  match unit {
+    "day" => {
+      for i in (0..count).rev() {
+        let d = today - chrono::Duration::days(i as i64);
+        keys.push(format!("d:{}", d.format("%Y-%m-%d")));
+      }
+    }
+    "week" => {
+      for i in (0..count).rev() {
+        let d = today - chrono::Duration::weeks(i as i64);
+        keys.push(format!("w:{}", d.format("%G-W%V")));
+      }
+    }
+    "month" => {
+      let (mut year, mut month) = (
+        chrono::Datelike::year(&today),
+        chrono::Datelike::month(&today) as i32,
+      );
+      let mut rev = Vec::with_capacity(count);
+      for _ in 0..count {
+        rev.push(format!("m:{:04}-{:02}", year, month));
+        month -= 1;
+        if month == 0 {
+          month = 12;
+          year -= 1;
+        }
+      }
+      rev.reverse();
+      keys = rev;
+    }
+    "year" => {
+      let year = chrono::Datelike::year(&today);
+      for i in (0..count as i32).rev() {
+        keys.push(format!("y:{}", year - i));
+      }
+    }
+    _ => return None,
+  }
+  Some(keys)
+}
+
+/// Chronological day-bucket keys covering `from..=to` (`YYYY-MM-DD`).
+/// Returns `None` on unparsable dates or a reversed range; the span is
+/// capped to the day-bucket retention window (last buckets win).
+pub fn day_keys_between(from: &str, to: &str) -> Option<Vec<String>> {
+  let from = chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d").ok()?;
+  let to = chrono::NaiveDate::parse_from_str(to, "%Y-%m-%d").ok()?;
+  if from > to {
+    return None;
+  }
+  let mut keys: Vec<String> = from
+    .iter_days()
+    .take_while(|d| *d <= to)
+    .take(366)
+    .map(|d| format!("d:{}", d.format("%Y-%m-%d")))
+    .collect();
+  let cap = RETENTION[0].1;
+  if keys.len() > cap {
+    keys = keys.split_off(keys.len() - cap);
+  }
+  Some(keys)
+}
+
 impl StatsStore {
   pub fn load(data_dir: &str) -> Self {
     let conn = crate::store::open_db(data_dir);
@@ -249,6 +319,62 @@ impl StatsStore {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn test_recent_period_keys() {
+    let days = recent_period_keys("day", 7).unwrap();
+    assert_eq!(days.len(), 7);
+    assert!(days.iter().all(|k| k.starts_with("d:")));
+    // Chronological, current period last.
+    let [d, _, m, y] = period_keys();
+    assert_eq!(days.last().unwrap(), &d);
+    let mut sorted = days.clone();
+    sorted.sort();
+    assert_eq!(sorted, days);
+
+    let months = recent_period_keys("month", 24).unwrap();
+    assert_eq!(months.len(), 24);
+    assert_eq!(months.last().unwrap(), &m);
+    let mut sorted = months.clone();
+    sorted.sort();
+    assert_eq!(sorted, months);
+
+    let years = recent_period_keys("year", 3).unwrap();
+    assert_eq!(years.last().unwrap(), &y);
+
+    let weeks = recent_period_keys("week", 26).unwrap();
+    assert_eq!(weeks.len(), 26);
+    assert!(weeks.iter().all(|k| k.starts_with("w:")));
+
+    assert!(recent_period_keys("fortnight", 5).is_none());
+  }
+
+  #[test]
+  fn test_day_keys_between() {
+    let keys = day_keys_between("2026-07-01", "2026-07-05").unwrap();
+    assert_eq!(
+      keys,
+      vec![
+        "d:2026-07-01",
+        "d:2026-07-02",
+        "d:2026-07-03",
+        "d:2026-07-04",
+        "d:2026-07-05"
+      ]
+    );
+    // Single day.
+    assert_eq!(
+      day_keys_between("2026-07-01", "2026-07-01").unwrap().len(),
+      1
+    );
+    // Capped to the day retention window, keeping the newest buckets.
+    let long = day_keys_between("2025-01-01", "2026-01-01").unwrap();
+    assert_eq!(long.len(), RETENTION[0].1);
+    assert_eq!(long.last().unwrap(), "d:2026-01-01");
+    // Invalid input.
+    assert!(day_keys_between("2026-07-05", "2026-07-01").is_none());
+    assert!(day_keys_between("notadate", "2026-07-01").is_none());
+  }
 
   #[test]
   fn test_record_and_reload() {

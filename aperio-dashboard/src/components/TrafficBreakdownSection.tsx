@@ -1,4 +1,5 @@
 import { EmptyRow, SectionHeader } from './shared'
+import { TrafficHistoryChart } from './TrafficHistoryChart'
 import { Card } from '@/components/ui/card'
 import {
   Table,
@@ -78,6 +79,7 @@ export function TrafficBreakdownSection({ stats }: { stats: ServerStats | null }
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Traffic Breakdown')} />
+      <TrafficHistoryChart />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BreakdownTable
           title={t('By token')}
