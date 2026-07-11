@@ -108,6 +108,10 @@ pub(crate) enum TunnelMessage {
     /// APERIO_IGNORE_CLIENT_AUTH). None = no override.
     #[serde(default)]
     visitor_auth: Option<String>,
+    /// Visitor IPs/CIDRs allowed to reach this service (empty = everyone).
+    /// The server rejects other visitors with 403 before dispatching.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_ips: Vec<String>,
     /// Tunnels declared by this client (`tunnels:` list): normally
     /// unexposed local services reachable by a peer client via
     /// `--bind-tunnels` with the same token and this client's id.

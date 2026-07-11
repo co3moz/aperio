@@ -781,6 +781,19 @@ done
 assert_contains "$RL_CODES" "200" "some requests pass within the rate limit"
 assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
 
+step "Visitor IP allowlist (APERIO_ALLOWED_IPS)"
+# A client that only admits a TEST-NET address: the local visitor gets 403.
+start_client ipdeny "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipdeny.e2e.local APERIO_ALLOWED_IPS=203.0.113.7
+retry 20 sh -c "curl -s -o /dev/null -w '%{http_code}' -H 'Host: ipdeny.e2e.local' '$BASE/hello' | grep -q 403" \
+  || fail "allowlist did not start rejecting in time"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: ipdeny.e2e.local' "$BASE/hello")"
+assert_status 403 "$CODE" "visitor outside the allowlist is rejected with 403"
+# A client admitting the loopback CIDR: the local visitor passes.
+start_client ipallow "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipallow.e2e.local APERIO_ALLOWED_IPS=127.0.0.0/8
+wait_routable ipallow.e2e.local
+BODY="$(curl -s -H 'Host: ipallow.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} " "visitor inside the allowlist CIDR is served"
+
 stop_server
 
 ##############################################################################

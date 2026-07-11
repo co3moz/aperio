@@ -445,6 +445,14 @@ export function ClientsSection({
                             {t('custom auth')}
                           </HintBadge>
                         )}
+                        {c.allowed_ips.length > 0 && (
+                          <HintBadge
+                            tint="lime"
+                            hint={t('Only these visitor IPs/CIDRs may reach this service: {ips}', { ips: c.allowed_ips.join(', ') })}
+                          >
+                            {t('IP filter')}
+                          </HintBadge>
+                        )}
                         {c.version && (
                           <span className="text-xs text-muted-foreground">v{c.version}</span>
                         )}

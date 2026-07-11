@@ -38,6 +38,7 @@ export interface ClientDetail {
   service: string | null
   public: boolean
   visitor_auth: boolean
+  allowed_ips: string[]
   protocol: number | null
   protocol_mismatch: boolean
   backend_healthy: boolean

@@ -404,6 +404,9 @@ export const tr: Record<string, string> = {
   'client id': 'istemci kimliği',
   connection: 'bağlantı',
   'custom auth': 'özel kimlik',
+  'IP filter': 'IP filtresi',
+  'Only these visitor IPs/CIDRs may reach this service: {ips}':
+    'Bu servise yalnızca şu ziyaretçi IP/CIDR adresleri erişebilir: {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'örn. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
     'örn. example.com, *.example.com veya *-test.example.com — * rastgele bir etikete dönüşür; boş = kapalı',

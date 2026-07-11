@@ -62,6 +62,8 @@ pub(crate) struct ClientDetail {
   /// True when this client gates its service behind a client-set visitor
   /// login (the credentials themselves are never exposed to the dashboard).
   pub(crate) visitor_auth: bool,
+  /// Visitor IPs/CIDRs allowed to reach this client's service (empty = everyone).
+  pub(crate) allowed_ips: Vec<String>,
   /// Tunnel protocol version announced via Ping.
   pub(crate) protocol: Option<u32>,
   /// True when the announced protocol version differs from the server's.
@@ -249,9 +251,16 @@ pub(crate) struct ClientHandle {
   /// Client-declared visitor login (`user:password`) for this service, honored
   /// only when the token may control the visitor gate. `None` = no override.
   pub(crate) visitor_auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach this client's service, declared via
+  /// Ping (empty = everyone). Enforced against every proxied request routed
+  /// here; invalid entries are dropped when the heartbeat is applied.
+  pub(crate) allowed_ips: Vec<String>,
   /// Ensures the "visitor_auth requested but not permitted/invalid" warning
   /// logs once per connection.
   pub(crate) visitor_auth_denied_warned: bool,
+  /// Ensures the "allowed_ips entry invalid" warning fires once per client
+  /// connection, not on every heartbeat.
+  pub(crate) allowed_ips_invalid_warned: bool,
   /// Tunnels declared by the client via Ping (`tunnels:` list): normally
   /// unexposed local services a peer client may bind with `--bind-tunnels`
   /// (same token, explicit client id required).

@@ -316,6 +316,31 @@ fn build_specs(
 
   let tunnels = validate_tunnels(&settings.tunnels)?;
 
+  // Visitor allowlists fail at startup, not silently on the server.
+  let validate_ips = |ips: &[String], what: &str| -> Result<(), String> {
+    for entry in ips {
+      if !crate::config::valid_ip_entry(entry) {
+        return Err(format!(
+          "CRITICAL ERROR: {} has an invalid allowed_ips entry '{}'; expected an IP, a CIDR range, or '*'",
+          what, entry
+        ));
+      }
+    }
+    Ok(())
+  };
+  validate_ips(&settings.allowed_ips, "the client configuration")?;
+  for entry in &settings.services {
+    if let Some(ips) = &entry.allowed_ips {
+      validate_ips(
+        ips,
+        &format!(
+          "service '{}'",
+          entry.name.clone().unwrap_or_else(|| "?".into())
+        ),
+      )?;
+    }
+  }
+
   // Parallel connections per service: bounded so a typo cannot exhaust the
   // server's tunnel slots (it also has its own max_tunnels guard).
   let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
@@ -380,6 +405,7 @@ fn build_specs(
       health_threshold: settings.health_threshold,
       public: settings.public,
       visitor_auth: settings.visitor_auth.clone(),
+      allowed_ips: settings.allowed_ips.clone(),
       tunnels,
       headers: settings.headers.clone(),
       cache: settings.cache,
@@ -469,6 +495,10 @@ fn build_specs(
           .clone()
           .filter(|s| !s.trim().is_empty())
           .or_else(|| settings.visitor_auth.clone()),
+        allowed_ips: entry
+          .allowed_ips
+          .clone()
+          .unwrap_or_else(|| settings.allowed_ips.clone()),
         tunnels: tunnels.clone(),
         headers: entry.headers.clone().or_else(|| settings.headers.clone()),
         cache: entry.cache.unwrap_or(settings.cache),

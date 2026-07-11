@@ -151,6 +151,11 @@ pub(crate) struct CommonOpts {
   /// (yaml: auth, env: APERIO_VISITOR_AUTH)
   #[arg(long = "visitor-auth", global = true, value_name = "USER:PASSWORD")]
   pub(crate) visitor_auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach the exposed service, comma-separated
+  /// (e.g. 203.0.113.7,10.0.0.0/8); unset = everyone. Enforced by the server
+  /// (yaml: allowed_ips, env: APERIO_ALLOWED_IPS)
+  #[arg(long = "allowed-ips", global = true, value_name = "IPS")]
+  pub(crate) allowed_ips: Option<String>,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -302,6 +307,8 @@ pub(crate) struct ClientSettings {
   pub(crate) public: bool,
   /// Per-service visitor login as `user:password` (None = no override).
   pub(crate) visitor_auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach the exposed service (empty = everyone).
+  pub(crate) allowed_ips: Vec<String>,
   /// Header add/remove rules for proxied traffic (config files only;
   /// per-service `headers:` entries override this).
   pub(crate) headers: Option<HeaderRules>,
@@ -583,6 +590,13 @@ pub(crate) fn resolve_settings(
       home.auth.clone(),
     )
     .and_then(nonempty),
+    allowed_ips: layered(
+      o.allowed_ips.clone().map(|s| split_ip_list(&s)),
+      local.allowed_ips.clone(),
+      env2("APERIO_ALLOWED_IPS", "APERIO_ALLOWED_IPS").map(|s| split_ip_list(&s)),
+      home.allowed_ips.clone(),
+    )
+    .unwrap_or_default(),
     headers: local.headers.clone().or_else(|| home.headers.clone()),
     cache: layered(
       None,
@@ -601,6 +615,41 @@ pub(crate) fn resolve_settings(
     .and_then(nonempty),
     tunnels: local.tunnels.clone().unwrap_or_default(),
     bind_tunnels: local.bind_tunnels.clone().unwrap_or_default(),
+  }
+}
+
+/// Splits a comma-separated allowlist into trimmed, non-empty entries.
+pub(crate) fn split_ip_list(raw: &str) -> Vec<String> {
+  raw
+    .split(',')
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string)
+    .collect()
+}
+
+/// Validates one visitor allowlist entry: `*`, a plain IP, or a CIDR range.
+/// Mirrors the server's `valid_ip_entry` so misconfigurations fail at startup
+/// instead of silently on the server.
+pub(crate) fn valid_ip_entry(entry: &str) -> bool {
+  let entry = entry.trim();
+  if entry == "*" {
+    return true;
+  }
+  match entry.split_once('/') {
+    Some((base, prefix)) => {
+      let Ok(base_ip) = base.parse::<std::net::IpAddr>() else {
+        return false;
+      };
+      match prefix.parse::<u32>() {
+        Ok(bits) => match base_ip {
+          std::net::IpAddr::V4(_) => bits <= 32,
+          std::net::IpAddr::V6(_) => bits <= 128,
+        },
+        Err(_) => false,
+      }
+    }
+    None => entry.parse::<std::net::IpAddr>().is_ok(),
   }
 }
 

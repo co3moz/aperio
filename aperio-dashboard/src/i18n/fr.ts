@@ -404,6 +404,9 @@ export const fr: Record<string, string> = {
   'client id': 'id client',
   connection: 'connexion',
   'custom auth': 'auth personnalisée',
+  'IP filter': 'filtre IP',
+  'Only these visitor IPs/CIDRs may reach this service: {ips}':
+    'Seules ces IP/CIDR de visiteurs peuvent atteindre ce service : {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'p. ex. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
     'p. ex. example.com, *.example.com ou *-test.example.com — * devient une étiquette aléatoire ; vide = désactivé',

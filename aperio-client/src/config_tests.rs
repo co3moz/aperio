@@ -163,3 +163,27 @@ fn test_build_ws_url() {
   );
   assert!(build_ws_url("ftp://localhost").is_err());
 }
+
+#[test]
+fn test_split_ip_list() {
+  assert_eq!(
+    split_ip_list(" 203.0.113.7, 10.0.0.0/8 ,,"),
+    vec!["203.0.113.7".to_string(), "10.0.0.0/8".to_string()]
+  );
+  assert!(split_ip_list("").is_empty());
+}
+
+#[test]
+fn test_valid_ip_entry() {
+  assert!(valid_ip_entry("203.0.113.7"));
+  assert!(valid_ip_entry("10.0.0.0/8"));
+  assert!(valid_ip_entry("2001:db8::/32"));
+  assert!(valid_ip_entry("2001:db8::1"));
+  assert!(valid_ip_entry("*"));
+  assert!(valid_ip_entry(" 127.0.0.1 "));
+  assert!(!valid_ip_entry("10.0.0.0/33"));
+  assert!(!valid_ip_entry("2001:db8::/129"));
+  assert!(!valid_ip_entry("not-an-ip"));
+  assert!(!valid_ip_entry("10.0.0/8"));
+  assert!(!valid_ip_entry(""));
+}

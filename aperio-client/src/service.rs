@@ -73,6 +73,9 @@ pub(crate) struct ServiceSpec {
   /// Per-service visitor login (`user:password`) the server should gate this
   /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
   pub(crate) visitor_auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach this service (empty = everyone);
+  /// announced via Ping and enforced by the server before dispatch.
+  pub(crate) allowed_ips: Vec<String>,
   /// Tunnels declared by this client process (`tunnels:` list): normally
   /// unexposed local services a peer client may bind with `--bind-tunnels`.
   /// Announced via Ping on every connection of the process.
@@ -273,6 +276,7 @@ pub(crate) async fn run_service(
             let service_name_ping = spec.name.clone();
             let tunnels_ping = spec.tunnels.clone();
             let visitor_auth_ping = spec.visitor_auth.clone();
+            let allowed_ips_ping = spec.allowed_ips.clone();
             let (max_concurrent, priority, bandwidth_bps, public, cache) = (
               spec.max_concurrent,
               spec.priority,
@@ -325,6 +329,7 @@ pub(crate) async fn run_service(
                   service: service_name_ping.clone(),
                   public,
                   visitor_auth: visitor_auth_ping.clone(),
+                  allowed_ips: allowed_ips_ping.clone(),
                   tunnels: tunnels_ping.clone(),
                   cache,
                 };

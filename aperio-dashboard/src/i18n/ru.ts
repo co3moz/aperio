@@ -404,6 +404,9 @@ export const ru: Record<string, string> = {
   'client id': 'id клиента',
   connection: 'подключение',
   'custom auth': 'своя аутентификация',
+  'IP filter': 'IP-фильтр',
+  'Only these visitor IPs/CIDRs may reach this service: {ips}':
+    'Только эти IP/CIDR посетителей могут обращаться к этому сервису: {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'напр. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
     'напр. example.com, *.example.com или *-test.example.com — * становится случайной меткой; пусто = отключено',

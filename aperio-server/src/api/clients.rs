@@ -63,6 +63,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       service: handle.service_name.clone(),
       public: handle.public,
       visitor_auth: handle.visitor_auth.is_some(),
+      allowed_ips: handle.allowed_ips.clone(),
       protocol: handle.client_protocol,
       protocol_mismatch: handle
         .client_protocol

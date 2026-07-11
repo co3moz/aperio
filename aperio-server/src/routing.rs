@@ -427,6 +427,34 @@ pub(crate) async fn route_is_public(
       .all(|id| clients.get(id).is_some_and(|c| c.public))
 }
 
+/// True when visitor `ip` passes every IP allowlist declared by the clients
+/// serving this route. A client without a list imposes nothing; when several
+/// pool members declare lists, the visitor must pass all of them — a request
+/// can never dodge a restriction because another pool member left it open.
+/// An empty pool imposes nothing (the request fails with 504 downstream).
+pub(crate) async fn route_ip_allowed(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+  ip: std::net::IpAddr,
+) -> bool {
+  let clients = state.clients.lock().await;
+  let Some((pool, _)) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  ) else {
+    return true;
+  };
+  pool.iter().all(|id| {
+    clients
+      .get(id)
+      .is_none_or(|c| c.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.allowed_ips))
+  })
+}
+
 /// True when `creds` is a well-formed visitor login (`user:password` with both
 /// parts non-empty). The password may itself contain `:` (split on the first).
 pub(crate) fn valid_visitor_creds(creds: &str) -> bool {

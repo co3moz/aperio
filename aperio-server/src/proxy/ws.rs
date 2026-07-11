@@ -71,6 +71,34 @@ pub(crate) async fn handle_ws_proxy(
     return resp;
   }
 
+  // 2b. Client-declared visitor IP allowlist (shared with the HTTP path).
+  if !crate::routing::route_ip_allowed(
+    &state,
+    uri.path(),
+    extract_request_host(&headers).as_deref(),
+    caller_ip,
+  )
+  .await
+  {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      403,
+      start_time.elapsed(),
+      Some(&format!(
+        "Visitor IP {} not in service allowlist",
+        caller_ip
+      )),
+    )
+    .await;
+    return (
+      StatusCode::FORBIDDEN,
+      "403 Forbidden - your IP is not allowed to access this service",
+    )
+      .into_response();
+  }
+
   // 3. Wait for connection
   let (is_connected, _last_disc) = {
     let conn = state.connection_state.lock().await;

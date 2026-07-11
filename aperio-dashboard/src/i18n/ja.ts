@@ -402,6 +402,9 @@ export const ja: Record<string, string> = {
   'client id': 'クライアントID',
   connection: '接続',
   'custom auth': 'カスタム認証',
+  'IP filter': 'IPフィルター',
+  'Only these visitor IPs/CIDRs may reach this service: {ips}':
+    'このサービスにアクセスできる訪問者IP/CIDRは次のとおりです: {ips}',
   'e.g. 10 MB, 1 GB, 65536': '例: 10 MB、1 GB、65536',
   'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
     '例: example.com、*.example.com、*-test.example.com — * はランダムなラベルになります。空 = 無効',

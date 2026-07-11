@@ -273,6 +273,8 @@ pub(crate) async fn handle_socket(
         public_denied_warned: false,
         visitor_auth: None,
         visitor_auth_denied_warned: false,
+        allowed_ips: Vec::new(),
+        allowed_ips_invalid_warned: false,
         tunnels: Vec::new(),
         cache: false,
       },
@@ -576,6 +578,7 @@ pub(crate) async fn handle_socket(
               service,
               public,
               visitor_auth,
+              allowed_ips,
               tunnels,
               cache,
             } => {
@@ -746,6 +749,33 @@ pub(crate) async fn handle_socket(
                         client_id
                       );
                     }
+                  }
+                  // Client-declared visitor IP allowlist. Purely restrictive
+                  // (it can only narrow who reaches the client), so no token
+                  // permission is required; invalid entries are dropped so a
+                  // typo can never widen access.
+                  let mut effective_ips: Vec<String> = allowed_ips
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                  let before = effective_ips.len();
+                  effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
+                  if effective_ips.len() != before && !handle.allowed_ips_invalid_warned {
+                    handle.allowed_ips_invalid_warned = true;
+                    warn!(
+                      "Client {} declared allowed_ips with invalid entries; dropping them",
+                      client_id
+                    );
+                  }
+                  if handle.allowed_ips != effective_ips {
+                    if !effective_ips.is_empty() {
+                      info!(
+                        "Client {} restricts visitors to {:?}",
+                        client_id, effective_ips
+                      );
+                    }
+                    handle.allowed_ips = effective_ips;
                   }
                   // Warn once per change, not on every heartbeat.
                   if protocol.is_some() && handle.client_protocol != protocol {

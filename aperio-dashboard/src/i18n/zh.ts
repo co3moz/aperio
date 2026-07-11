@@ -385,6 +385,9 @@ export const zh: Record<string, string> = {
   'client id': '客户端 ID',
   connection: '连接',
   'custom auth': '自定义认证',
+  'IP filter': 'IP 过滤',
+  'Only these visitor IPs/CIDRs may reach this service: {ips}':
+    '只有这些访客 IP/CIDR 可以访问此服务：{ips}',
   'e.g. 10 MB, 1 GB, 65536': '例如 10 MB、1 GB、65536',
   'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
     '例如 example.com、*.example.com 或 *-test.example.com — * 会变成随机标签；留空 = 禁用',

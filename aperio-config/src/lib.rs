@@ -152,6 +152,10 @@ pub struct ServiceEntry {
   /// Gate this service behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR
+  /// ranges); empty/unset = everyone. Enforced by the server before dispatch.
+  #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
+  pub allowed_ips: Option<Vec<String>>,
   /// Request/response header add-remove rules for this service (replaces the
   /// top-level `headers` when set).
   pub headers: Option<HeaderRules>,
@@ -247,6 +251,10 @@ pub struct FileConfig {
   /// Gate this client behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
   pub auth: Option<String>,
+  /// Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR
+  /// ranges); empty/unset = everyone. Enforced by the server before dispatch.
+  #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
+  pub allowed_ips: Option<Vec<String>>,
   /// Let the server cache GET responses (per their `Cache-Control`);
   /// effective only when the server enables APERIO_CACHE.
   pub cache: Option<bool>,

@@ -60,6 +60,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `--pass-hostname` | Forward the original `Host` header to the backend |
 | `--public` | Declare the service public (skip the visitor auth gate; needs token permission) |
 | `--visitor-auth USER:PASSWORD` | Gate this service behind a client-set visitor login, overriding the server's own visitor password for it (needs the same token permission as `--public`) |
+| `--allowed-ips IPS` | Comma-separated visitor IPs/CIDRs allowed to reach this service (everyone when unset); the server rejects other visitors with 403 |
 | `--client-id UUID` | Persistent client instance id (default: a random UUID per run) |
 | `--bind-tunnels [CLIENT_ID]` | Bind a peer client's declared tunnels locally (see [Emergency Tunnels](emergency-tunnels.md)) |
 | `--config FILE` | Config file path (default: `./aperio.yaml`) |
@@ -77,6 +78,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `APERIO_PASS_HOSTNAME` (`APERIO_CLIENT_PASS_HOSTNAME`) | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
 | `APERIO_PUBLIC` (`APERIO_CLIENT_PUBLIC`) | `--public` | `public` | Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). | `0` |
 | `APERIO_VISITOR_AUTH` | `--visitor-auth` | `auth` | `user:password` — gate this service behind a client-set visitor login, superseding the server's own `APERIO_SERVER_AUTH` for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as `public`; ignored if the server sets `APERIO_IGNORE_CLIENT_AUTH`. Per `services:` entry via `auth:`. | — |
+| `APERIO_ALLOWED_IPS` | `--allowed-ips` | `allowed_ips` | Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. `203.0.113.7,10.0.0.0/8`). The server rejects every other visitor with `403` before dispatching, so blocked traffic never reaches the client. Purely restrictive — no token permission needed. When several clients serve one route, a visitor must pass **every** declared list. Per `services:` entry via `allowed_ips:`. | everyone |
 | `APERIO_PRIORITY` (`APERIO_CLIENT_PRIORITY`) | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
 | `APERIO_BANDWIDTH` (`APERIO_CLIENT_BANDWIDTH`) | — | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. | unlimited |
 | `APERIO_MAX_CONCURRENT` (`APERIO_CLIENT_MAX_CONCURRENT`) | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
