@@ -492,6 +492,7 @@ export const zh: Record<string, string> = {
   override: '已覆盖',
   public: '公开',
   'public ok': '允许公开',
+  'expiring soon': '即将过期',
   'read-only': '只读',
   'shared secret for X-Aperio-Signature': '用于 X-Aperio-Signature 的共享密钥',
   signed: '已签名',

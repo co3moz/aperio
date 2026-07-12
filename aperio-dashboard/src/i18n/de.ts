@@ -513,6 +513,7 @@ export const de: Record<string, string> = {
   override: 'Override',
   public: 'öffentlich',
   'public ok': 'öffentlich erlaubt',
+  'expiring soon': 'läuft bald ab',
   'read-only': 'schreibgeschützt',
   'shared secret for X-Aperio-Signature': 'gemeinsames Secret für X-Aperio-Signature',
   signed: 'signiert',

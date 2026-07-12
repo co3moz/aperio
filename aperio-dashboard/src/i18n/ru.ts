@@ -511,6 +511,7 @@ export const ru: Record<string, string> = {
   override: 'переопределено',
   public: 'публичный',
   'public ok': 'публичный разрешён',
+  'expiring soon': 'скоро истекает',
   'read-only': 'только чтение',
   'shared secret for X-Aperio-Signature': 'общий секрет для X-Aperio-Signature',
   signed: 'подписан',

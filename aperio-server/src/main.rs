@@ -902,6 +902,71 @@ async fn async_main() {
       tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
     }
   });
+  // Token expiry early-warning ticker: emits one `token_expiring`
+  // webhook/audit event per token (per expiry window) once its remaining
+  // lifetime drops under APERIO_TOKEN_EXPIRY_WARNING seconds (default 24 h,
+  // 0 disables). The warned set is in-memory: a restart re-arms warnings,
+  // and a refresh (new expires_at) re-arms them too.
+  let expiry_warning_secs = std::env::var("APERIO_TOKEN_EXPIRY_WARNING")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .unwrap_or(24 * 3600);
+  if expiry_warning_secs > 0 {
+    let warn_state = state.clone();
+    tokio::spawn(async move {
+      let mut warned: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
+      loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let now = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map(|d| d.as_secs())
+          .unwrap_or(0);
+        let expiring: Vec<(String, String, u64)> = {
+          let store = warn_state.token_store.lock().await;
+          store
+            .list()
+            .iter()
+            .filter_map(|t| {
+              let exp = t.expires_at?;
+              let expires_within = exp > now && exp - now <= expiry_warning_secs;
+              (expires_within && !warned.contains(&(t.id.clone(), exp)))
+                .then(|| (t.id.clone(), t.name.clone(), exp))
+            })
+            .collect()
+        };
+        for (id, name, exp) in expiring {
+          warned.insert((id.clone(), exp));
+          warn!(
+            "Token '{}' expires in {} minutes (at unix {})",
+            name,
+            (exp - now) / 60,
+            exp
+          );
+          warn_state
+            .audit(
+              "token_expiring",
+              "system",
+              &format!("name={} expires_at={}", name, exp),
+            )
+            .await;
+          warn_state
+            .emit_event(
+              "token_expiring",
+              serde_json::json!({
+                "id": id,
+                "name": name,
+                "expires_at": exp,
+                "seconds_left": exp - now,
+              }),
+            )
+            .await;
+        }
+        // Drop warned entries whose expiry has passed or moved (refresh).
+        warned.retain(|(_, exp)| *exp > now);
+      }
+    });
+  }
+
   let shutdown_state = state.clone();
 
   let app = app.with_state(state);

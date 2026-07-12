@@ -511,6 +511,7 @@ export const tr: Record<string, string> = {
   override: 'geçersiz kılındı',
   public: 'herkese açık',
   'public ok': 'herkese açık olabilir',
+  'expiring soon': 'süresi dolmak üzere',
   'read-only': 'salt okunur',
   'shared secret for X-Aperio-Signature': 'X-Aperio-Signature için ortak gizli anahtar',
   signed: 'imzalı',

@@ -509,6 +509,7 @@ export const ja: Record<string, string> = {
   override: 'オーバーライド',
   public: '公開',
   'public ok': '公開可',
+  'expiring soon': 'まもなく期限切れ',
   'read-only': '読み取り専用',
   'shared secret for X-Aperio-Signature': 'X-Aperio-Signature用の共有シークレット',
   signed: '署名付き',

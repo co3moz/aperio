@@ -13,7 +13,7 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 - **Hostnames** — which hostname binds the token may claim (`*` = any). Specific entries are **auto-bound** on connect, so the client doesn't even need `--host`.
 - **Paths** — which path binds it may claim.
 - **Allowed IPs** — source IPs/CIDRs that may connect with this token.
-- **Lifetime** — optional TTL; expired tokens are rejected at connect time.
+- **Lifetime** — optional TTL; expired tokens are rejected at connect time. As an early-warning system, a `token_expiring` webhook/audit event fires once a token's remaining lifetime drops under `APERIO_TOKEN_EXPIRY_WARNING` (default 24 h), and the dashboard tokens table shows an "expiring soon" badge — refresh or re-issue before anything breaks.
 - **Rate limit** — optional requests/second cap for the traffic served through this token; excess requests answer `429`.
 - **Daily quota** — optional bytes/day cap (request + response payload), answering `429` once exhausted until local midnight (in-memory tracking; a restart resets the day's usage).
 

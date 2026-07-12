@@ -511,6 +511,7 @@ export const fr: Record<string, string> = {
   override: 'surcharge',
   public: 'public',
   'public ok': 'public autorisé',
+  'expiring soon': 'expire bientôt',
   'read-only': 'lecture seule',
   'shared secret for X-Aperio-Signature': 'secret partagé pour X-Aperio-Signature',
   signed: 'signé',

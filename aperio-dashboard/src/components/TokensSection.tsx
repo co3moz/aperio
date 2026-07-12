@@ -382,9 +382,16 @@ export function TokensSection() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className={cn('text-sm', tok.expired && 'text-destructive')}>
-                      {formatExpiry(tok.expires_at, tok.expired)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn('text-sm', tok.expired && 'text-destructive')}>
+                        {formatExpiry(tok.expires_at, tok.expired)}
+                      </span>
+                      {!tok.expired &&
+                        tok.expires_at != null &&
+                        tok.expires_at * 1000 - Date.now() < 24 * 3600 * 1000 && (
+                          <TintBadge tint="amber">{t('expiring soon')}</TintBadge>
+                        )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">

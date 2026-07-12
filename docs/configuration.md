@@ -324,6 +324,7 @@ routes:
 | `APERIO_DASHBOARD` | `0` = disable the admin dashboard entirely. | `1` |
 | `APERIO_UI_LANGUAGE` | Default dashboard/login UI language (`en`, `de`, `es`, `fr`, `tr`, `ru`, `zh`, `ja`) used when the visitor's browser language is unsupported; also dashboard-editable. | `en` |
 | `APERIO_DASHBOARD_AUTH` | Separate dashboard-only password (username `aperio`), so the master token doesn't have to be shared with dashboard users. | — |
+| `APERIO_TOKEN_EXPIRY_WARNING` | Seconds before a dynamic token's expiry at which a `token_expiring` webhook/audit event fires (once per token per expiry window; `0` = off). The dashboard tokens table shows an "expiring soon" badge in the last 24 h regardless. | `86400` (24 h) |
 | `APERIO_METRICS` | `1` = enable the Prometheus endpoint at `/aperio/metrics`. | `0` |
 | `APERIO_METRICS_TOKEN` | Token required to scrape metrics (`?token=` or `Authorization: Bearer`). Unset = a random one is generated on first start and persisted in `APERIO_DATA_DIR/metrics_token`. | generated |
 
