@@ -594,3 +594,38 @@ fn visitor_creds_require_user_and_password() {
   assert!(!valid_visitor_creds(""));
   assert!(!valid_visitor_creds(":"));
 }
+
+#[test]
+fn test_host_matches_random_pattern() {
+  use super::host_matches_random_pattern;
+  // Plain wildcard pattern.
+  assert!(host_matches_random_pattern(
+    "a1b2c3d4e5.example.com",
+    "*.example.com"
+  ));
+  assert!(host_matches_random_pattern(
+    "A1B2C3.example.com:8080",
+    "*.example.com"
+  ));
+  // The parent domain itself is not a preview host.
+  assert!(!host_matches_random_pattern("example.com", "*.example.com"));
+  // Other domains and deeper subdomains do not match.
+  assert!(!host_matches_random_pattern("a.other.com", "*.example.com"));
+  assert!(!host_matches_random_pattern(
+    "a.b.example.com",
+    "*.example.com"
+  ));
+  // Prefix/suffix patterns: the random part must be non-empty.
+  assert!(host_matches_random_pattern(
+    "abc-test.example.com",
+    "*-test.example.com"
+  ));
+  assert!(!host_matches_random_pattern(
+    "-test.example.com",
+    "*-test.example.com"
+  ));
+  assert!(!host_matches_random_pattern(
+    "app.example.com",
+    "*-test.example.com"
+  ));
+}

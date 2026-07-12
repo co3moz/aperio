@@ -37,6 +37,7 @@ fn base_config() -> ServerConfig {
     ui_language: "en".to_string(),
     header_rules: Default::default(),
     static_routes: Default::default(),
+    preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
   }
 }

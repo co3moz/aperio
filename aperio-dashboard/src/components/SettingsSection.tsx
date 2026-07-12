@@ -104,6 +104,7 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
       { key: 'random_subdomain_suffix', label: 'Random subdomain pattern', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled' },
+      { key: 'preview_noindex', label: 'Noindex preview hosts', kind: 'boolean', hint: 'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt' },
     ],
   },
   {

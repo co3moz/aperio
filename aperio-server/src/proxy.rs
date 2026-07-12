@@ -234,6 +234,24 @@ pub(crate) async fn proxy_handler(
     return answer;
   }
 
+  // Preview noindex: on random-subdomain hosts, answer robots.txt with a
+  // disallow-all straight from the server (after static routes, so an
+  // explicit `routes:` robots.txt still wins).
+  if state.config().preview_noindex
+    && uri.path() == "/robots.txt"
+    && let Some(ref pattern) = state.config().random_subdomain_suffix
+    && extract_request_host(&headers)
+      .as_deref()
+      .is_some_and(|h| crate::routing::host_matches_random_pattern(h, pattern))
+  {
+    return Response::builder()
+      .status(StatusCode::OK)
+      .header("content-type", "text/plain")
+      .header("x-robots-tag", "noindex, nofollow")
+      .body(Body::from("User-agent: *\nDisallow: /\n"))
+      .unwrap_or_default();
+  }
+
   // First-run convenience: on a fresh install (no client has ever connected,
   // no request ever proxied) a visit to the bare root is almost certainly the
   // operator checking their new server — send them to the dashboard with a
@@ -861,6 +879,22 @@ async fn proxy_http_request(
           .header_rules
           .response
           .apply(std::mem::take(&mut tunnel_res.headers));
+        // Preview noindex: responses served via a random subdomain carry
+        // X-Robots-Tag so search engines never index preview environments
+        // (applied here so the cache and the inspector agree too).
+        if state.config().preview_noindex
+          && let Some(ref pattern) = state.config().random_subdomain_suffix
+          && request_host
+            .as_deref()
+            .is_some_and(|h| crate::routing::host_matches_random_pattern(h, pattern))
+        {
+          tunnel_res
+            .headers
+            .retain(|(k, _)| !k.eq_ignore_ascii_case("x-robots-tag"));
+          tunnel_res
+            .headers
+            .push(("x-robots-tag".to_string(), "noindex, nofollow".to_string()));
+        }
         let status_code =
           StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 

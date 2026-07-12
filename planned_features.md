@@ -10,7 +10,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 - [x] Client-less routes — bind a hostname/path to a redirect or a fixed static response without a connected client (`routes:` in `aperio-server.yaml`)
 - [x] Experimental public TCP expose — server declares `expose: [{protocol, port, key}]`, a client tunnel binds to it with `expose: <key>`; single-binder semantics (like client-id binding), no load balancing while experimental
 - [ ] Token expiry early warnings — dashboard indication + webhook event before a dynamic token's TTL runs out
-- [ ] Auto noindex for preview services — configurable `X-Robots-Tag`/`robots.txt` injection for ephemeral and random-subdomain services
+- [x] Auto noindex for preview services — configurable `X-Robots-Tag`/`robots.txt` injection for random-subdomain (preview) services (APERIO_PREVIEW_NOINDEX + dashboard toggle)
 - [ ] Alerting rules — threshold-based webhook alerts (error rate, latency, client-down duration), kept simple
 - [ ] Dump export/import — full export/import of `aperio.db` + settings overrides, as a failsafe across version upgrades
 - [ ] Static file serving mode — `aperio-client` serves a local directory directly, no backend needed

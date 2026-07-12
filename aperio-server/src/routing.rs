@@ -131,6 +131,29 @@ pub(crate) fn normalize_random_subdomain_pattern(raw: &str) -> Option<String> {
   Some(pattern)
 }
 
+/// True when `host` could have been produced by the canonical
+/// random-subdomain pattern: every label after the first matches exactly,
+/// and the leftmost label fits the pattern's prefix/suffix around the `*`
+/// (with a non-empty random part). Used to recognize preview hosts for
+/// noindex marking (APERIO_PREVIEW_NOINDEX).
+pub(crate) fn host_matches_random_pattern(host: &str, pattern: &str) -> bool {
+  let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+  let (Some((host_label, host_rest)), Some((pat_label, pat_rest))) =
+    (host.split_once('.'), pattern.split_once('.'))
+  else {
+    return false;
+  };
+  if host_rest != pat_rest {
+    return false;
+  }
+  let Some((prefix, suffix)) = pat_label.split_once('*') else {
+    return false;
+  };
+  host_label.len() > prefix.len() + suffix.len()
+    && host_label.starts_with(prefix)
+    && host_label.ends_with(suffix)
+}
+
 /// Produces a concrete random hostname from a canonical subdomain pattern
 /// (the `*` placeholder is replaced with a random label).
 pub(crate) fn random_subdomain_hostname(pattern: &str) -> String {

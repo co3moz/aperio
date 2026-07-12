@@ -105,6 +105,11 @@ pub(crate) struct ServerConfig {
   /// Compiled client-less routes (the `routes:` section of
   /// aperio-server.yaml); file-only, not a dashboard override.
   pub(crate) static_routes: crate::static_routes::StaticRoutes,
+  /// When true, services reached through their random subdomain are marked
+  /// non-indexable: an `X-Robots-Tag: noindex, nofollow` response header
+  /// plus a disallow-all `/robots.txt`, so preview environments never end
+  /// up in search engines (APERIO_PREVIEW_NOINDEX).
+  pub(crate) preview_noindex: bool,
 }
 
 /// UI languages shipped with the dashboard.
@@ -163,6 +168,7 @@ pub(crate) struct SettingsOverrides {
   pub(crate) audit_max_size: Option<u64>,
   pub(crate) audit_max_files: Option<usize>,
   pub(crate) ui_language: Option<String>,
+  pub(crate) preview_noindex: Option<bool>,
 }
 
 /// Parses an `APERIO_LB_STRATEGY`-style value.
@@ -298,6 +304,9 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   {
     c.ui_language = v.clone();
   }
+  if let Some(v) = o.preview_noindex {
+    c.preview_noindex = v;
+  }
   c
 }
 
@@ -339,6 +348,7 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "audit_max_size": c.audit_max_size,
     "audit_max_files": c.audit_max_files,
     "ui_language": c.ui_language,
+    "preview_noindex": c.preview_noindex,
   })
 }
 

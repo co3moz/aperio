@@ -41,3 +41,7 @@ Provisioning appears in the audit log and is delivered to webhooks as `tunnel_cr
 ```
 
 See the [action's README](../aperio-tunnel-action/README.md) for all inputs and outputs.
+
+## Keeping previews out of search engines
+
+Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked — protect those with the visitor password or OIDC if they should stay private.

@@ -263,6 +263,10 @@ async fn async_main() {
   let cache_enabled = std::env::var("APERIO_CACHE")
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
+  // Mark random-subdomain (preview) services as non-indexable.
+  let preview_noindex = std::env::var("APERIO_PREVIEW_NOINDEX")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
   let cache_max_bytes = std::env::var("APERIO_CACHE_MAX_BYTES")
     .ok()
     .and_then(|v| v.trim().parse::<u64>().ok())
@@ -525,6 +529,7 @@ async fn async_main() {
       .unwrap_or_else(|| "en".to_string()),
     header_rules: headers::from_config_file(),
     static_routes: static_routes::from_config_file(),
+    preview_noindex,
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and
