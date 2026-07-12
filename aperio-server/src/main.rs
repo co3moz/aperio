@@ -15,6 +15,7 @@ use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
 
 mod access_log;
+mod alerts;
 mod api;
 mod auth;
 mod cache;
@@ -907,6 +908,12 @@ async fn async_main() {
       tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
     }
   });
+  // Threshold alerting (APERIO_ALERT_*): error-rate and client-down rules
+  // evaluated by a background ticker, emitted as webhook/audit events.
+  if let Some(alert_cfg) = alerts::AlertConfig::from_env() {
+    alerts::spawn(state.clone(), alert_cfg);
+  }
+
   // Token expiry early-warning ticker: emits one `token_expiring`
   // webhook/audit event per token (per expiry window) once its remaining
   // lifetime drops under APERIO_TOKEN_EXPIRY_WARNING seconds (default 24 h,
@@ -1116,7 +1123,7 @@ mod tests;
 /// routable, and its backend probe passes; `degraded` when connected but not
 /// serving (backend unhealthy, draining, or disabled); absent entities are
 /// treated as `down` by the uptime store.
-async fn observe_service_availability(
+pub(crate) async fn observe_service_availability(
   state: &AppState,
 ) -> std::collections::HashMap<String, crate::store::uptime::Availability> {
   use crate::store::uptime::Availability;

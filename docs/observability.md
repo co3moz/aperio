@@ -39,6 +39,19 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are
 
 > **Note:** enabling the OTLP exporter compiles `aws-lc-sys`/rustls into the build, which needs a C toolchain (and CMake) at build time. Prebuilt release binaries already include it.
 
+## Alerting
+
+Two threshold rules turn the webhook pipeline into a simple pager — point a Slack/Discord/Teams webhook at the `alert_triggered` event:
+
+```bash
+APERIO_ALERT_ERROR_RATE=5        # alert when ≥5% of proxied requests fail (5xx)…
+APERIO_ALERT_WINDOW=300          # …measured over a 300 s sliding window (default)
+APERIO_ALERT_MIN_REQUESTS=20     # quiet windows below 20 requests never alert (default)
+APERIO_ALERT_CLIENT_DOWN=120     # alert when a known service stays down for 2 minutes
+```
+
+Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears — the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.
+
 ## Access log
 
 Every proxied request is emitted as a structured `aperio_access` tracing event on stdout — JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL` — ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
@@ -55,7 +68,7 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
-Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`.
+Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `alert_triggered`, `alert_resolved`.
 
 ### Chat-service formats
 

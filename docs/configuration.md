@@ -287,6 +287,10 @@ routes:
 
 | Variable | Description | Default |
 | --- | --- | --- |
+| `APERIO_ALERT_ERROR_RATE` | Failed-request percentage that fires an `alert_triggered` webhook/audit event (kind `error_rate`); resolves at 80% of the threshold. `0`/unset = off. See [Observability](observability.md#alerting). | off |
+| `APERIO_ALERT_WINDOW` | Sliding window (seconds) the error rate is measured over. | `300` |
+| `APERIO_ALERT_MIN_REQUESTS` | Minimum requests inside the window before the error-rate rule may fire. | `20` |
+| `APERIO_ALERT_CLIENT_DOWN` | Seconds a known service may stay down before an `alert_triggered` event (kind `client_down`); resolves when it comes back. `0`/unset = off. | off |
 | `APERIO_MAX_BODY_SIZE` | Max request body size in bytes. | `10485760` (10 MB) |
 | `APERIO_MAX_CONCURRENT_REQUESTS` | Max in-flight proxied requests across all tunnels. | `100` |
 | `APERIO_MAX_TUNNELS` | Max simultaneously connected tunnel clients. | `10` |
