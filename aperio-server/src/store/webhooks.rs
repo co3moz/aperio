@@ -82,6 +82,14 @@ impl WebhookStore {
     WebhookStore { conn, webhooks }
   }
 
+  /// Replaces every webhook record with the given list (dump import) and
+  /// persists. Returns how many records are now stored.
+  pub fn import(&mut self, webhooks: Vec<Webhook>) -> usize {
+    self.webhooks = webhooks;
+    self.persist();
+    self.webhooks.len()
+  }
+
   fn persist(&mut self) {
     let rows: Vec<(String, String)> = self
       .webhooks

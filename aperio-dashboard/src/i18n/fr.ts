@@ -553,4 +553,10 @@ export const fr: Record<string, string> = {
   'Viewer': 'Lecteur',
   'active': 'actif',
   'disabled': 'désactivé',
+  'Export & Import': 'Export & Import',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Un export JSON logique des tokens, webhooks, utilisateurs et réglages — une sécurité pour les mises à niveau et migrations. Les statistiques et sessions ne sont pas incluses.',
+  'Download export': "Télécharger l'export",
+  'Import dump…': 'Importer un dump…',
+  'Import applied': 'Import appliqué',
+  'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': "L'import remplace les tokens, webhooks, utilisateurs et réglages de ce serveur. Continuer ?",
 }

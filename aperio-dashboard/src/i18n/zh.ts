@@ -534,4 +534,10 @@ export const zh: Record<string, string> = {
   'Viewer': '查看者',
   'active': '启用',
   'disabled': '已禁用',
+  'Export & Import': '导出与导入',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': '令牌、Webhook、用户和设置覆盖的逻辑 JSON 转储——升级和迁移的保险。不包含统计数据和会话。',
+  'Download export': '下载导出文件',
+  'Import dump…': '导入转储…',
+  'Import applied': '导入已应用',
+  'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': '导入将替换此服务器的令牌、Webhook、用户和设置。是否继续？',
 }

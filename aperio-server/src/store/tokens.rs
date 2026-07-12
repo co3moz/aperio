@@ -76,6 +76,14 @@ impl TokenStore {
   }
 
   /// Writes the current token list back to the store (one transaction).
+  /// Replaces every token record with the given list (dump import) and
+  /// persists. Returns how many records are now stored.
+  pub fn import(&mut self, tokens: Vec<ApiToken>) -> usize {
+    self.tokens = tokens;
+    self.persist();
+    self.tokens.len()
+  }
+
   fn persist(&mut self) {
     let rows: Vec<(String, String)> = self
       .tokens

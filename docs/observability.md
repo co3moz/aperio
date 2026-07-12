@@ -55,7 +55,7 @@ Define webhooks from the dashboard (name, URL, subscribed events — `*` for all
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
-Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`.
+Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`.
 
 ### Chat-service formats
 

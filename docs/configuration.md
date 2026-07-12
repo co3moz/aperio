@@ -365,4 +365,6 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
 | `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |
+| `GET /aperio/api/export` | Logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations (no statistics/sessions). | admin session |
+| `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | admin session |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |

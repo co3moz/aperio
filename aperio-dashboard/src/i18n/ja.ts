@@ -551,4 +551,10 @@ export const ja: Record<string, string> = {
   'Viewer': '閲覧者',
   'active': '有効',
   'disabled': '無効',
+  'Export & Import': 'エクスポートとインポート',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'トークン、Webhook、ユーザー、設定オーバーライドの論理 JSON ダンプ — アップグレードや移行のための保険です。統計とセッションは含まれません。',
+  'Download export': 'エクスポートをダウンロード',
+  'Import dump…': 'ダンプをインポート…',
+  'Import applied': 'インポートを適用しました',
+  'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'インポートするとこのサーバーのトークン、Webhook、ユーザー、設定が置き換えられます。続行しますか？',
 }

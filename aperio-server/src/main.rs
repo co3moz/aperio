@@ -696,6 +696,11 @@ async fn async_main() {
         "/api/settings",
         get(settings_get_handler).put(settings_put_handler),
       )
+      .route("/api/export", get(crate::api::export::export_handler))
+      .route(
+        "/api/import",
+        axum::routing::post(crate::api::export::import_handler),
+      )
       .route(
         "/api/webhooks",
         get(webhooks_list_handler).post(webhooks_create_handler),
@@ -1017,7 +1022,13 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
   if path.starts_with("/api/me/") {
     return Role::Viewer;
   }
-  if path.starts_with("/api/users") || path == "/api/settings" {
+  if path.starts_with("/api/users")
+    || path == "/api/settings"
+    // The dump contains token/password hashes and TOTP secrets, and an
+    // import replaces them — admin only, even for the GET.
+    || path == "/api/export"
+    || path == "/api/import"
+  {
     return Role::Admin;
   }
   if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {

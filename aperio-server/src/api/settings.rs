@@ -98,34 +98,53 @@ pub(crate) async fn settings_put_handler(
   )
   .to_string();
 
+  if let Err(msg) = apply_overrides_validated(&state, payload.clone()).await {
+    return (StatusCode::BAD_REQUEST, msg).into_response();
+  }
+
+  let keys = override_keys(&payload);
+  info!(
+    "Settings updated from the dashboard (overridden: {:?})",
+    keys
+  );
+  state
+    .audit("settings_updated", &actor_ip, &keys.join(","))
+    .await;
+  state
+    .emit_event("settings_updated", serde_json::json!({"overridden": keys}))
+    .await;
+
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({"effective": settings_view(&state.config())})),
+  )
+    .into_response()
+}
+
+/// Validates and applies a full overrides object: live config swap, pushes
+/// to connected clients / live structures, and persistence to
+/// `<data_dir>/settings.json`. Shared by the settings PUT and the dump
+/// import. Returns a human-readable message on invalid values.
+pub(crate) async fn apply_overrides_validated(
+  state: &Arc<AppState>,
+  payload: SettingsOverrides,
+) -> Result<(), String> {
   // Reject values that apply_settings_overrides would silently skip.
   if let Some(ref s) = payload.lb_strategy
     && parse_lb_strategy(s).is_none()
   {
-    return (
-      StatusCode::BAD_REQUEST,
-      format!("Invalid lb_strategy: {}", s),
-    )
-      .into_response();
+    return Err(format!("Invalid lb_strategy: {}", s));
   }
   if let Some(ref s) = payload.failover_mode
     && parse_failover_mode(s).is_none()
   {
-    return (
-      StatusCode::BAD_REQUEST,
-      format!("Invalid failover_mode: {}", s),
-    )
-      .into_response();
+    return Err(format!("Invalid failover_mode: {}", s));
   }
   if let Some(ref creds) = payload.auth_credentials
     && !creds.is_empty()
     && !creds.contains(':')
   {
-    return (
-      StatusCode::BAD_REQUEST,
-      "auth_credentials must be in user:password form",
-    )
-      .into_response();
+    return Err("auth_credentials must be in user:password form".to_string());
   }
   for (label, page) in [
     ("custom_504_page", &payload.custom_504_page),
@@ -134,28 +153,22 @@ pub(crate) async fn settings_put_handler(
     if let Some(html) = page
       && html.len() > 512 * 1024
     {
-      return (StatusCode::BAD_REQUEST, format!("{} exceeds 512 KB", label)).into_response();
+      return Err(format!("{} exceeds 512 KB", label));
     }
   }
   if let Some(ref lang) = payload.ui_language
     && !crate::settings::UI_LANGUAGES.contains(&lang.as_str())
   {
-    return (
-      StatusCode::BAD_REQUEST,
-      format!(
-        "Unsupported ui_language: {} (supported: {})",
-        lang,
-        crate::settings::UI_LANGUAGES.join(", ")
-      ),
-    )
-      .into_response();
+    return Err(format!(
+      "Unsupported ui_language: {} (supported: {})",
+      lang,
+      crate::settings::UI_LANGUAGES.join(", ")
+    ));
   }
   if payload.cache_max_bytes == Some(0) {
-    return (
-      StatusCode::BAD_REQUEST,
-      "cache_max_bytes must be positive (disable the cache with cache_enabled instead)",
-    )
-      .into_response();
+    return Err(
+      "cache_max_bytes must be positive (disable the cache with cache_enabled instead)".to_string(),
+    );
   }
 
   let old_config = state.config();
@@ -167,10 +180,10 @@ pub(crate) async fn settings_put_handler(
   // Settings that involve connected clients are pushed out immediately
   // instead of waiting for reconnects.
   if old_config.random_subdomain_suffix != new_config.random_subdomain_suffix {
-    reassign_random_hostnames(&state).await;
+    reassign_random_hostnames(state).await;
   }
   if !old_config.tunnel_compression && new_config.tunnel_compression {
-    offer_compression_to_connected(&state).await;
+    offer_compression_to_connected(state).await;
   }
   // Settings backed by live structures (not just config reads) are pushed
   // into them here.
@@ -207,23 +220,7 @@ pub(crate) async fn settings_put_handler(
     Err(e) => error!("Failed to serialize settings: {}", e),
   }
 
-  let keys = override_keys(&payload);
-  info!(
-    "Settings updated from the dashboard (overridden: {:?})",
-    keys
-  );
-  state
-    .audit("settings_updated", &actor_ip, &keys.join(","))
-    .await;
-  state
-    .emit_event("settings_updated", serde_json::json!({"overridden": keys}))
-    .await;
-
-  (
-    StatusCode::OK,
-    Json(serde_json::json!({"effective": settings_view(&state.config())})),
-  )
-    .into_response()
+  Ok(())
 }
 
 /// Re-issues random hostnames after the subdomain pattern changed at

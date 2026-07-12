@@ -553,4 +553,10 @@ export const ru: Record<string, string> = {
   'Viewer': 'Наблюдатель',
   'active': 'активен',
   'disabled': 'отключён',
+  'Export & Import': 'Экспорт и импорт',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Логический JSON-дамп токенов, вебхуков, пользователей и переопределений настроек — подстраховка при обновлениях и переносах. Статистика и сессии не включены.',
+  'Download export': 'Скачать экспорт',
+  'Import dump…': 'Импортировать дамп…',
+  'Import applied': 'Импорт применён',
+  'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'Импорт заменит токены, вебхуки, пользователей и настройки этого сервера. Продолжить?',
 }

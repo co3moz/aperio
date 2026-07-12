@@ -99,6 +99,14 @@ impl UserStore {
     UserStore { conn, users }
   }
 
+  /// Replaces every user record with the given list (dump import) and
+  /// persists. Returns how many records are now stored.
+  pub fn import(&mut self, users: Vec<User>) -> usize {
+    self.users = users;
+    self.persist();
+    self.users.len()
+  }
+
   fn persist(&mut self) {
     let rows: Vec<(String, String)> = self
       .users

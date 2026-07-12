@@ -553,4 +553,10 @@ export const tr: Record<string, string> = {
   'Viewer': 'İzleyici',
   'active': 'etkin',
   'disabled': 'devre dışı',
+  'Export & Import': 'Dışa & İçe Aktarma',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Token, webhook, kullanıcı ve ayar geçersiz kılmalarının mantıksal JSON dökümü — yükseltme ve taşımalar için bir güvence. İstatistikler ve oturumlar dahil değildir.',
+  'Download export': 'Dökümü indir',
+  'Import dump…': 'Döküm içe aktar…',
+  'Import applied': 'İçe aktarma uygulandı',
+  'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'İçe aktarma bu sunucunun token, webhook, kullanıcı ve ayarlarını değiştirir. Devam edilsin mi?',
 }

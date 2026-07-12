@@ -47,6 +47,8 @@ use utoipa::OpenApi;
     crate::api::maintenance::maintenance_set_handler,
     crate::api::settings::settings_get_handler,
     crate::api::settings::settings_put_handler,
+    crate::api::export::export_handler,
+    crate::api::export::import_handler,
     crate::api::tokens::tokens_list_handler,
     crate::api::tokens::tokens_create_handler,
     crate::api::tokens::tokens_update_handler,

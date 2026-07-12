@@ -12,7 +12,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 - [x] Token expiry early warnings — dashboard "expiring soon" badge + `token_expiring` webhook/audit event before a dynamic token's TTL runs out (APERIO_TOKEN_EXPIRY_WARNING)
 - [x] Auto noindex for preview services — configurable `X-Robots-Tag`/`robots.txt` injection for random-subdomain (preview) services (APERIO_PREVIEW_NOINDEX + dashboard toggle)
 - [ ] Alerting rules — threshold-based webhook alerts (error rate, latency, client-down duration), kept simple
-- [ ] Dump export/import — full export/import of `aperio.db` + settings overrides, as a failsafe across version upgrades
+- [x] Dump export/import — GET /aperio/api/export / POST /aperio/api/import (admin only) + dashboard Export & Import card; logical JSON dump of tokens, webhooks, users and settings overrides
 - [x] Static file serving mode — `aperio-client --serve ./dist` (or yaml `serve:` / `APERIO_SERVE`) serves a local directory directly, no backend needed
 - [ ] cURL / HAR export — export actions in the dashboard request inspector menu
 
