@@ -6,17 +6,20 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 
 **Highlights**
 
-- Hostname- and path-based routing; round-robin or primary-standby (failover tier) load balancing
+- Hostname- and path-based routing; round-robin, primary-standby (failover tier), or sticky-session load balancing
 - Automatic random subdomains (`a1b2c3.example.com`) under a wildcard domain
-- Scoped, revocable API tokens with hostname/path/IP restrictions and TTLs
+- Scoped, revocable API tokens with hostname/path/IP restrictions, TTLs, per-token rate limits and daily byte quotas
 - Ephemeral tunnels via API + GitHub Action — per-PR preview environments in one step
 - Signed share links: temporary, scoped visitor access to protected sites without accounts
 - OIDC / SSO protection for proxied traffic (Cloudflare Access style)
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
 - gRPC / HTTP/2 backends via `h2c://` and `h2://` targets, with end-to-end trailer relay (`grpc-status`)
 - Emergency tunnels: reach normally unexposed TCP services (a database, SSH) in a pinch
+- Opt-in server-side response cache, strictly `Cache-Control`-driven — cached GETs answer without touching the tunnel
 - Admin dashboard: live traffic, request inspector & replay, client kill switch, maintenance mode, add-client wizard, audit log, webhooks
-- Prometheus metrics, structured JSON access log, persistent statistics, backend health probing, graceful drain
+- REST admin API described by a generated OpenAPI 3.1 spec (`/aperio/api/openapi.json`)
+- Prometheus metrics, OpenTelemetry distributed tracing, structured JSON access log, persistent statistics, backend health probing, graceful drain
+- Custom-branded 503 (maintenance) and 504 (tunnel offline) error pages
 - Single static binary per side: one-line installer, prebuilt releases, official multi-arch Docker images
 
 ## How It Works
@@ -93,9 +96,9 @@ Everything else lives in [docs/](docs/README.md) as short, focused articles:
 | [Ephemeral Tunnels](docs/ephemeral-tunnels.md) | Per-PR preview environments via the API and the GitHub Action. |
 | [Emergency Tunnels](docs/emergency-tunnels.md) | Reaching unexposed TCP services with `--bind-tunnels`. |
 | [The Dashboard](docs/dashboard.md) | Live traffic, inspector & replay, kill switch, maintenance, live settings. |
-| [Observability](docs/observability.md) | Prometheus metrics, access log, audit trail, webhooks, statistics. |
+| [Observability](docs/observability.md) | Prometheus metrics, OpenTelemetry tracing, access log, audit trail, webhooks, statistics. |
 | [Client Resilience](docs/client-resilience.md) | Backoff, health probing, hot-reload, graceful drain. |
-| [Tunnel Protocol & Advanced Features](docs/tunnel-protocol.md) | WS pass-through, chunked streaming, binary frames, compression. |
+| [Tunnel Protocol & Advanced Features](docs/tunnel-protocol.md) | WS pass-through, chunked streaming, binary frames, compression, response cache, custom error pages. |
 | [Development & Releases](docs/development.md) | Building from source, tests & coverage, release process, conventions. |
 
 ## Security Notes

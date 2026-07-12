@@ -22,6 +22,19 @@ With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compressio
 
 A raw TCP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel — bound locally by a peer client running `--bind-tunnels` with the same token and the declaring client's id. See [Emergency Tunnels](emergency-tunnels.md).
 
+## Server-side response cache
+
+With `APERIO_CACHE=1` on the server, services that opt in on the client side (`cache: true` per `services:` entry, or `APERIO_CLIENT_CACHE=1`) get a shared in-memory GET cache at the server's edge: a cache hit is answered immediately, without touching the tunnel or your backend at all.
+
+The cache is deliberately conservative and strictly `Cache-Control`-driven — your backend stays in full control via standard headers:
+
+- Only responses that explicitly allow shared caching are stored: a positive `max-age` (or `s-maxage`, which wins for shared caches), and none of `no-store`, `no-cache`, or `private`. Responses carrying `Vary` or `Set-Cookie` are never cached.
+- Only buffered `200 OK` responses to plain GETs are stored, for exactly the advertised lifetime; streamed (chunked) responses are never cached.
+- Requests with credentials attached (`Authorization` or `Cookie`) or a `Cache-Control: no-cache`/`no-store` request header always bypass the cache.
+- Cache hits carry an `x-aperio-cache: hit` response header, so they are easy to spot in the browser or the request inspector.
+
+Total memory is bounded by `APERIO_CACHE_MAX_BYTES` (default 64 MB): inserting past the budget evicts the entries closest to expiry, and a single body larger than a quarter of the budget is never cached. Both flags can also be toggled live from the dashboard's server settings.
+
 ## Custom error pages
 
 `APERIO_504_PAGE=/app/error_504.html` serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page. `APERIO_503_PAGE` does the same for the maintenance-mode response.
