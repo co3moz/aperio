@@ -18,6 +18,7 @@ mod access_log;
 mod api;
 mod auth;
 mod cache;
+mod config_file;
 mod oidc;
 mod protocol;
 mod proxy;
@@ -70,10 +71,11 @@ use crate::store::webhooks::WebhookStore;
 use crate::tunnel::tcp::{tcp_ws_handler, tunnels_list_handler, udp_ws_handler};
 use crate::tunnel::ws::ws_handler;
 
-#[tokio::main]
 /// Entry point for the Aperio server.
-/// Sets up logging, reads env config, registers paths/middleware, and binds the TCP listener.
-async fn main() {
+/// Loads `aperio-server.yaml` into the environment while still
+/// single-threaded, then hands over to the async server on a multi-thread
+/// runtime.
+fn main() {
   // `aperio-server --version` must print and exit instead of starting the
   // server (used by installers and packaging).
   if matches!(
@@ -84,6 +86,20 @@ async fn main() {
     return;
   }
 
+  // Must happen before the runtime exists: the loader writes environment
+  // variables, which is only sound while no other thread can read them.
+  config_file::load();
+
+  tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .expect("failed to build the tokio runtime")
+    .block_on(async_main());
+}
+
+/// The asynchronous server proper: sets up logging, reads env config,
+/// registers paths/middleware, and binds the TCP listener.
+async fn async_main() {
   // Initialize tracing with structured JSON output (pino.js style), plus the
   // optional OpenTelemetry OTLP export layer (APERIO_OTEL). The returned guard
   // flushes buffered spans on graceful shutdown.

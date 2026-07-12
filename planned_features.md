@@ -5,7 +5,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 
 ## Accepted
 
-- [ ] Server-side YAML config file (`aperio-server.yaml`, named differently from the client's `aperio.yaml` to avoid confusion)
+- [x] Server-side YAML config file (`aperio-server.yaml`, named differently from the client's `aperio.yaml` to avoid confusion)
 - [ ] Header rewrite rules — per-service request/response header `set`/`unset`, on both server and client side
 - [ ] Client-less routes — bind a hostname/path to a redirect or a fixed static response without a connected client
 - [ ] Experimental public TCP expose — server declares `expose: [{protocol, port, key}]`, a client tunnel binds to it with `expose: <key>`; single-binder semantics (like client-id binding), no load balancing while experimental

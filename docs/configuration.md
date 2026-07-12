@@ -16,7 +16,7 @@ The rule: take the CLI flag, drop the dashes, uppercase it, prefix `APERIO_` —
 
 **Legacy aliases.** The pre-rename spellings remain accepted so existing setups keep working: `APERIO_CLIENT_*` for most client variables, `APERIO_HOSTNAME_BIND` / `APERIO_PATH_BIND`, the flat yaml `server:`/`token:` form, and CLI aliases `--server`, `--token`, `--host`, `--concurrency`. New documentation and examples always use the canonical names.
 
-The server is configured through environment variables only (no yaml, no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides on top of the env defaults (`APERIO_DATA_DIR/settings.json`). Security- and startup-critical flags (proxy trust, cookies, OIDC, metrics, access log) stay env-only; the dashboard settings page lists them read-only with their current values.
+The server is configured through environment variables or an optional `aperio-server.yaml` file (no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides (`APERIO_DATA_DIR/settings.json`). Precedence, lowest to highest: **environment variables < `aperio-server.yaml` < dashboard overrides** — the same "local file beats environment" rule as the client's `./aperio.yaml`. Security- and startup-critical flags (proxy trust, cookies, OIDC, metrics, access log) never become dashboard overrides; the settings page lists them read-only with their current values.
 
 **Dashboard users and roles.** Beyond the master token and the optional `APERIO_DASHBOARD_AUTH` password (both of which always sign in as a built-in admin named `aperio`), admins can create named dashboard users from the *Users* page, each with a role: **viewer** (read-only — statistics, traffic, audit), **operator** (day-to-day operations — clients, tokens, webhooks, maintenance, share links), or **admin** (everything, including server settings and user management). Passwords are stored as Argon2id hashes in `APERIO_DATA_DIR/aperio.db`. The role floor of every dashboard route is enforced server-side (a viewer gets `403` on any mutation, and on the admin-only settings/users routes); the UI additionally hides controls a role cannot use. OIDC logins act as admins. Dashboard sessions last 24 hours and are persisted in `APERIO_DATA_DIR/aperio.db` (hashed cookie tokens only), so a server restart does not sign anyone out.
 
@@ -192,6 +192,24 @@ https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.j
 ```
 
 ## Server
+
+### The `aperio-server.yaml` file
+
+Every server environment variable can equally live in an `aperio-server.yaml` file next to the binary (or at the path in `APERIO_SERVER_CONFIG`; the name deliberately differs from the client's `aperio.yaml` so the two are never confused). Keys follow the naming standard — the environment variable without the `APERIO_` prefix, lowercase: `max_body_size` maps to `APERIO_MAX_BODY_SIZE`, and `host`, `port`, `log_level` map to their bare names. Booleans are written as `true`/`false`, and list-valued settings (e.g. `trusted_proxies`) may use YAML lists:
+
+```yaml
+# aperio-server.yaml
+server_token: change-me-to-a-long-random-string
+port: 8080
+trust_proxy: true
+trusted_proxies:
+  - 10.0.0.0/8
+  - 173.245.48.0/20
+lb_strategy: primary-standby
+cache: true
+```
+
+The file is read once at startup and takes precedence over environment variables (dashboard overrides still win over both). It is not hot-reloaded — use the dashboard's live settings for runtime changes.
 
 ### Core
 
