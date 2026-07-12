@@ -165,6 +165,86 @@ export function buildCurl(
   return parts.join(' \\\n  ')
 }
 
+/** Decodes a captured base64 body to text, or null when binary/undecodable. */
+function decodeBodyText(b64: string | null): string | null {
+  if (!b64) return null
+  try {
+    return new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Builds a single-entry HAR 1.2 document for a captured request, importable
+ * into browser devtools and HTTP tooling. Truncated/streamed bodies export
+ * what was captured; sizes use -1 where unknown, per the HAR spec.
+ */
+export function buildHar(detail: {
+  timestamp: string
+  method: string
+  uri: string
+  req_headers: [string, string][]
+  req_body: string | null
+  status: number
+  resp_headers: [string, string][]
+  resp_body: string | null
+  duration_ms: number
+}): string {
+  const host =
+    detail.req_headers.find(([k]) => k.toLowerCase() === 'host')?.[1] ?? window.location.host
+  const scheme = window.location.protocol.replace(':', '') || 'https'
+  const url = `${scheme}://${host}${detail.uri}`
+  const headerObjs = (hs: [string, string][]) => hs.map(([name, value]) => ({ name, value }))
+  const contentType = (hs: [string, string][]) =>
+    hs.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? ''
+  const reqText = decodeBodyText(detail.req_body)
+  const respText = decodeBodyText(detail.resp_body)
+  const har = {
+    log: {
+      version: '1.2',
+      creator: { name: 'aperio', version: '1' },
+      entries: [
+        {
+          startedDateTime: detail.timestamp,
+          time: detail.duration_ms,
+          request: {
+            method: detail.method,
+            url,
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers: headerObjs(detail.req_headers),
+            queryString: [],
+            headersSize: -1,
+            bodySize: reqText ? reqText.length : 0,
+            ...(reqText
+              ? { postData: { mimeType: contentType(detail.req_headers), text: reqText } }
+              : {}),
+          },
+          response: {
+            status: detail.status,
+            statusText: '',
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers: headerObjs(detail.resp_headers),
+            content: {
+              size: respText ? respText.length : -1,
+              mimeType: contentType(detail.resp_headers),
+              ...(respText ? { text: respText } : {}),
+            },
+            redirectURL: '',
+            headersSize: -1,
+            bodySize: respText ? respText.length : -1,
+          },
+          cache: {},
+          timings: { send: 0, wait: detail.duration_ms, receive: 0 },
+        },
+      ],
+    },
+  }
+  return JSON.stringify(har, null, 2)
+}
+
 /** Splits a comma separated input field into trimmed, non-empty items. */
 export function splitList(raw: string): string[] {
   return raw

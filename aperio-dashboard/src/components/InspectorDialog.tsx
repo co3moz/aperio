@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, PlayIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, DownloadIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { PreBlock } from './shared'
@@ -14,7 +14,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, ApiError, type CapturedRequest } from '@/lib/api'
-import { buildCurl, decodeBodyPreview, formatHeaders } from '@/lib/format'
+import { buildCurl, buildHar, decodeBodyPreview, formatHeaders } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -76,6 +76,17 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
     }
   }
 
+  const exportHar = () => {
+    if (!detail) return
+    const blob = new Blob([buildHar(detail)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `request-${detail.id}.har`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const replay = async () => {
     if (!detail) return
     setReplaying(true)
@@ -112,6 +123,12 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
                     {copied ? <CheckIcon /> : <CopyIcon />} {copied ? t('Copied') : t('Copy as cURL')}
                   </TooltipTrigger>
                   <TooltipContent>{t('Copy an equivalent curl command')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<Button size="xs" variant="outline" onClick={exportHar} />}>
+                    <DownloadIcon /> {t('HAR')}
+                  </TooltipTrigger>
+                  <TooltipContent>{t('Download as an HAR file (devtools importable)')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger

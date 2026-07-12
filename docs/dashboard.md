@@ -21,7 +21,7 @@ The traffic table is streamed live: the server pushes each proxied request over 
 
 ## Request inspector & replay
 
-Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests) — then **replay** the request through the tunnel with one click while debugging a backend.
+Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests) — then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
 
 ## Add Client wizard
 

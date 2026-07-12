@@ -557,4 +557,6 @@ export const ja: Record<string, string> = {
   'Import dump…': 'ダンプをインポート…',
   'Import applied': 'インポートを適用しました',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'インポートするとこのサーバーのトークン、Webhook、ユーザー、設定が置き換えられます。続行しますか？',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': 'HAR ファイルとしてダウンロード（devtools に取り込み可能）',
 }

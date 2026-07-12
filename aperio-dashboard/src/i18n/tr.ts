@@ -559,4 +559,6 @@ export const tr: Record<string, string> = {
   'Import dump…': 'Döküm içe aktar…',
   'Import applied': 'İçe aktarma uygulandı',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'İçe aktarma bu sunucunun token, webhook, kullanıcı ve ayarlarını değiştirir. Devam edilsin mi?',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': "HAR dosyası olarak indir (devtools'a aktarılabilir)",
 }

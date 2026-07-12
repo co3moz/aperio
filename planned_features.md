@@ -14,7 +14,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 - [ ] Alerting rules — threshold-based webhook alerts (error rate, latency, client-down duration), kept simple
 - [x] Dump export/import — GET /aperio/api/export / POST /aperio/api/import (admin only) + dashboard Export & Import card; logical JSON dump of tokens, webhooks, users and settings overrides
 - [x] Static file serving mode — `aperio-client --serve ./dist` (or yaml `serve:` / `APERIO_SERVE`) serves a local directory directly, no backend needed
-- [ ] cURL / HAR export — export actions in the dashboard request inspector menu
+- [x] cURL / HAR export — copy-as-cURL existed; added a single-entry HAR 1.2 download to the request inspector dialog
 
 ## Future ideas (not scheduled)
 

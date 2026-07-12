@@ -561,4 +561,6 @@ export const de: Record<string, string> = {
   'Import dump…': 'Dump importieren…',
   'Import applied': 'Import angewendet',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'Der Import ersetzt Tokens, Webhooks, Benutzer und Einstellungen dieses Servers. Fortfahren?',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': 'Als HAR-Datei herunterladen (in DevTools importierbar)',
 }

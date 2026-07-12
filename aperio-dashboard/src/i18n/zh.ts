@@ -540,4 +540,6 @@ export const zh: Record<string, string> = {
   'Import dump…': '导入转储…',
   'Import applied': '导入已应用',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': '导入将替换此服务器的令牌、Webhook、用户和设置。是否继续？',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': '下载为 HAR 文件（可导入开发者工具）',
 }

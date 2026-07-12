@@ -559,4 +559,6 @@ export const es: Record<string, string> = {
   'Import dump…': 'Importar volcado…',
   'Import applied': 'Importación aplicada',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'La importación reemplaza los tokens, webhooks, usuarios y ajustes de este servidor. ¿Continuar?',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': 'Descargar como archivo HAR (importable en devtools)',
 }

@@ -559,4 +559,6 @@ export const ru: Record<string, string> = {
   'Import dump…': 'Импортировать дамп…',
   'Import applied': 'Импорт применён',
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'Импорт заменит токены, вебхуки, пользователей и настройки этого сервера. Продолжить?',
+  'HAR': 'HAR',
+  'Download as an HAR file (devtools importable)': 'Скачать как HAR-файл (импортируется в devtools)',
 }
