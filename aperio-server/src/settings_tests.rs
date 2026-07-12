@@ -36,6 +36,7 @@ fn base_config() -> ServerConfig {
     audit_max_files: 3,
     ui_language: "en".to_string(),
     header_rules: Default::default(),
+    static_routes: Default::default(),
     cache_max_bytes: 64 * 1024 * 1024,
   }
 }

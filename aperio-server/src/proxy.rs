@@ -222,6 +222,18 @@ pub(crate) async fn proxy_handler(
     return maintenance_response(&state);
   }
 
+  // Client-less routes (aperio-server.yaml `routes:`): redirects and fixed
+  // responses answered straight from the server, before client routing.
+  if !state.config().static_routes.is_empty()
+    && let Some(answer) = state.config().static_routes.answer(
+      extract_request_host(&headers).as_deref(),
+      uri.path(),
+      uri.query(),
+    )
+  {
+    return answer;
+  }
+
   // First-run convenience: on a fresh install (no client has ever connected,
   // no request ever proxied) a visit to the bare root is almost certainly the
   // operator checking their new server — send them to the dashboard with a

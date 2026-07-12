@@ -87,6 +87,7 @@ async fn test_rate_limiting() {
     audit_max_files: 3,
     ui_language: "en".to_string(),
     header_rules: Default::default(),
+    static_routes: Default::default(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -198,6 +199,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     audit_max_files: 3,
     ui_language: "en".to_string(),
     header_rules: Default::default(),
+    static_routes: Default::default(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -331,6 +333,7 @@ async fn test_proxy_handler_success() {
     audit_max_files: 3,
     ui_language: "en".to_string(),
     header_rules: Default::default(),
+    static_routes: Default::default(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 
@@ -819,6 +822,7 @@ fn test_apply_settings_overrides() {
     audit_max_files: 3,
     ui_language: "en".to_string(),
     header_rules: Default::default(),
+    static_routes: Default::default(),
     cache_max_bytes: 64 * 1024 * 1024,
   };
 

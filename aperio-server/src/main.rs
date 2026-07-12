@@ -27,6 +27,7 @@ mod routing;
 mod settings;
 mod share;
 mod state;
+mod static_routes;
 mod store;
 mod telemetry;
 mod totp;
@@ -522,6 +523,7 @@ async fn async_main() {
       .filter(|v| crate::settings::UI_LANGUAGES.contains(&v.as_str()))
       .unwrap_or_else(|| "en".to_string()),
     header_rules: headers::from_config_file(),
+    static_routes: static_routes::from_config_file(),
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and

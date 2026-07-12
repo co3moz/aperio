@@ -102,6 +102,9 @@ pub(crate) struct ServerConfig {
   /// Compiled server-side header rewrite rules (the `headers:` section of
   /// aperio-server.yaml); file-only, not a dashboard override.
   pub(crate) header_rules: crate::headers::HeaderTransforms,
+  /// Compiled client-less routes (the `routes:` section of
+  /// aperio-server.yaml); file-only, not a dashboard override.
+  pub(crate) static_routes: crate::static_routes::StaticRoutes,
 }
 
 /// UI languages shipped with the dashboard.

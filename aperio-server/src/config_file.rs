@@ -101,8 +101,11 @@ pub(crate) fn load() {
       eprintln!("aperio-server: {}: ignoring non-string key", path.display());
       continue;
     };
-    // Mapping values are structured feature sections, read via `structured`.
-    if value.is_mapping() {
+    // Mapping values (and lists of mappings, e.g. `routes:`) are structured
+    // feature sections, read via `structured`.
+    if value.is_mapping()
+      || matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
+    {
       continue;
     }
     let Some(rendered) = env_value(value) else {

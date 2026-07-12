@@ -7,7 +7,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 
 - [x] Server-side YAML config file (`aperio-server.yaml`, named differently from the client's `aperio.yaml` to avoid confusion)
 - [x] Header rewrite rules — per-service request/response header `add`/`remove`, on both server and client side (client side shipped earlier; server side reuses the same syntax via `aperio-server.yaml`)
-- [ ] Client-less routes — bind a hostname/path to a redirect or a fixed static response without a connected client
+- [x] Client-less routes — bind a hostname/path to a redirect or a fixed static response without a connected client (`routes:` in `aperio-server.yaml`)
 - [ ] Experimental public TCP expose — server declares `expose: [{protocol, port, key}]`, a client tunnel binds to it with `expose: <key>`; single-binder semantics (like client-id binding), no load balancing while experimental
 - [ ] Token expiry early warnings — dashboard indication + webhook event before a dynamic token's TTL runs out
 - [ ] Auto noindex for preview services — configurable `X-Robots-Tag`/`robots.txt` injection for ephemeral and random-subdomain services
