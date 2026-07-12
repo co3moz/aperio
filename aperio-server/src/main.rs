@@ -19,6 +19,7 @@ mod api;
 mod auth;
 mod cache;
 mod config_file;
+mod expose;
 mod headers;
 mod oidc;
 mod protocol;
@@ -906,6 +907,9 @@ async fn async_main() {
     .ok()
     .and_then(|p| p.parse::<u16>().ok())
     .unwrap_or(8080);
+
+  // Experimental public TCP expose ports (aperio-server.yaml `expose:`).
+  expose::spawn_listeners(shutdown_state.clone(), &host, expose::from_config_file());
 
   let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
     .await

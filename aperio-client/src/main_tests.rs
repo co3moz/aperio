@@ -47,6 +47,7 @@ fn test_build_specs_tunnels_only() {
     encrypt: false,
     psk: None,
     idle_timeout: None,
+    expose: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs.len(), 1);
@@ -64,6 +65,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: None,
+    expose: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].tunnels[0].protocol, "udp");
@@ -73,6 +75,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: None,
+    expose: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("only tcp and udp"), "got: {err}");
@@ -85,6 +88,7 @@ fn test_build_specs_tunnels_validation() {
       encrypt: false,
       psk: None,
       idle_timeout: None,
+      expose: None,
     },
     protocol::TunnelDecl {
       target: "127.0.0.1:53".to_string(),
@@ -92,6 +96,7 @@ fn test_build_specs_tunnels_validation() {
       encrypt: false,
       psk: None,
       idle_timeout: None,
+      expose: None,
     },
   ];
   assert!(build_specs(&settings, "base-id", false).is_ok());
@@ -103,6 +108,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: None,
+    expose: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("host:port"), "got: {err}");
@@ -114,6 +120,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: None,
+    expose: None,
   };
   settings.tunnels = vec![decl.clone(), decl];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
@@ -126,6 +133,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: Some(120),
+    expose: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("only supported for udp"), "got: {err}");
@@ -135,6 +143,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: Some(0),
+    expose: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("at least 1 second"), "got: {err}");
@@ -144,6 +153,7 @@ fn test_build_specs_tunnels_validation() {
     encrypt: false,
     psk: None,
     idle_timeout: Some(300),
+    expose: None,
   }];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].tunnels[0].idle_timeout, Some(300));

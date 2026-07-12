@@ -42,6 +42,12 @@ pub struct TunnelDecl {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [300]))]
   pub idle_timeout: Option<u64>,
+  /// Expose this tunnel on a public server port (experimental, TCP only):
+  /// the value must equal the `key` of an `expose:` entry in the server's
+  /// aperio-server.yaml; the server then relays that port here directly.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
+  pub expose: Option<String>,
 }
 
 /// Header edits applied to one direction of proxied traffic (request or

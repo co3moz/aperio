@@ -569,12 +569,27 @@ fn validate_tunnels(
         ));
       }
     }
+    if decl.expose.is_some() {
+      if protocol != "tcp" {
+        return Err(format!(
+          "CRITICAL ERROR: tunnel '{}' sets expose, which is only supported for tcp tunnels",
+          target
+        ));
+      }
+      if decl.encrypt {
+        return Err(format!(
+          "CRITICAL ERROR: tunnel '{}' sets expose together with encrypt: true; a public port cannot run the client-side encryption handshake",
+          target
+        ));
+      }
+    }
     out.push(crate::protocol::TunnelDecl {
       target,
       protocol,
       encrypt: decl.encrypt,
       psk: decl.psk.clone(),
       idle_timeout: decl.idle_timeout,
+      expose: decl.expose.clone(),
     });
   }
   Ok(out)

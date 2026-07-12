@@ -69,6 +69,12 @@ pub struct TunnelDecl {
   /// Declared by the owning client, relayed to binders via tunnel discovery.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub idle_timeout: Option<u64>,
+  /// Public-expose key (experimental): matches this tunnel to an `expose:`
+  /// entry of aperio-server.yaml. A shared secret — deserialized from the
+  /// client's Ping but never re-serialized (tunnel discovery must not leak
+  /// it to same-token binders).
+  #[serde(default, skip_serializing)]
+  pub expose: Option<String>,
 }
 
 /// Message structure exchanged over the WebSocket reverse tunnel.

@@ -227,6 +227,17 @@ headers:
     remove: [Server, X-Powered-By]
 ```
 
+#### Public TCP expose (`expose:`, experimental)
+
+A structured `expose:` list opens raw public TCP ports that relay to declared client tunnels carrying the matching `expose: <key>` — see [Emergency Tunnels](emergency-tunnels.md#public-expose-experimental) for the full story and security notes.
+
+```yaml
+expose:
+  - protocol: tcp        # only tcp while experimental
+    port: 2222
+    key: a-long-random-shared-secret
+```
+
 #### Client-less routes (`routes:`)
 
 A structured `routes:` list binds a hostname and/or path prefix directly to a server-produced answer — no tunnel client involved. Each rule matches on an exact `hostname` and/or a `path` prefix (bind semantics; first match wins, in file order) and carries exactly one action: `redirect` (302, or 301 with `permanent: true`; `preserve_path: true` appends the request path and query) or `respond` (a fixed response with optional `status`, `content_type`, `body`). Typical uses: vanity redirects, a "coming soon" page for a hostname whose client is not deployed yet, or a fixed `/robots.txt`. Routes match before client routing and maintenance-mode still wins; they serve operator-authored content, so the visitor gate does not apply.
