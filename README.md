@@ -15,6 +15,7 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
 - gRPC / HTTP/2 backends via `h2c://` and `h2://` targets, with end-to-end trailer relay (`grpc-status`)
 - Emergency tunnels: reach normally unexposed TCP services (a database, SSH) in a pinch
+- Header rewrite rules on both sides: per-service on the client, server-wide via `aperio-server.yaml`
 - Opt-in server-side response cache, strictly `Cache-Control`-driven — cached GETs answer without touching the tunnel
 - Admin dashboard: live traffic, request inspector & replay, client kill switch, maintenance mode, add-client wizard, audit log, webhooks
 - REST admin API described by a generated OpenAPI 3.1 spec (`/aperio/api/openapi.json`)

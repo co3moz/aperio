@@ -99,6 +99,9 @@ pub(crate) struct ServerConfig {
   /// Default dashboard/login UI language (APERIO_UI_LANGUAGE), used when the
   /// visitor's browser language is not among the supported ones.
   pub(crate) ui_language: String,
+  /// Compiled server-side header rewrite rules (the `headers:` section of
+  /// aperio-server.yaml); file-only, not a dashboard override.
+  pub(crate) header_rules: crate::headers::HeaderTransforms,
 }
 
 /// UI languages shipped with the dashboard.

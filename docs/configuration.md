@@ -211,6 +211,22 @@ cache: true
 
 The file is read once at startup and takes precedence over environment variables (dashboard overrides still win over both). It is not hot-reloaded — use the dashboard's live settings for runtime changes.
 
+#### Server-side header rules (`headers:`)
+
+The file may also carry a structured `headers:` section — the server-wide counterpart of the client's per-service `headers:` config, applied to every proxied HTTP request across all services (WebSocket upgrades pass through untouched). `request` edits what tunnel clients (and thus backends) receive, `response` edits what visitors receive; `add` sets a header (replacing any existing value of the same name), `remove` strips names case-insensitively. Client rules run too — the server applies its rules on its side of the tunnel, the client applies its own on the backend side. Response edits happen before the response cache and the request inspector see the response, so all views agree. Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
+
+```yaml
+headers:
+  request:
+    add:
+      X-Proxied-By: aperio
+    remove: [X-Internal-Debug]
+  response:
+    add:
+      Strict-Transport-Security: max-age=63072000
+    remove: [Server, X-Powered-By]
+```
+
 ### Core
 
 | Variable | Description | Default |

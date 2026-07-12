@@ -19,6 +19,7 @@ mod api;
 mod auth;
 mod cache;
 mod config_file;
+mod headers;
 mod oidc;
 mod protocol;
 mod proxy;
@@ -520,6 +521,7 @@ async fn async_main() {
       .map(|v| v.trim().to_ascii_lowercase())
       .filter(|v| crate::settings::UI_LANGUAGES.contains(&v.as_str()))
       .unwrap_or_else(|| "en".to_string()),
+    header_rules: headers::from_config_file(),
   };
 
   // Dashboard-editable settings: env-derived values are the defaults, and

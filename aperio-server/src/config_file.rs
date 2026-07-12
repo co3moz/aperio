@@ -9,8 +9,14 @@
 //! bare names). Like the client's `./aperio.yaml`, the file takes precedence
 //! over environment variables; dashboard overrides still sit on top of both.
 //!
-//! Mapping-valued keys are *not* turned into environment variables — they are
-//! reserved for structured feature sections and skipped here.
+//! Mapping-valued keys (e.g. `headers`) are *not* turned into environment
+//! variables — they are kept as parsed YAML for feature code to read through
+//! [`structured`].
+
+use std::sync::OnceLock;
+
+/// The parsed file, retained for structured (non-scalar) sections.
+static DOCUMENT: OnceLock<serde_yaml::Mapping> = OnceLock::new();
 
 /// Keys that map to bare (un-prefixed) environment variables.
 const BARE_KEYS: &[&str] = &["host", "port", "log_level"];
@@ -112,6 +118,7 @@ pub(crate) fn load() {
     unsafe { std::env::set_var(&name, rendered) };
     applied.push(name);
   }
+  let _ = DOCUMENT.set(doc);
   if !applied.is_empty() {
     // tracing is initialized later (it reads LOG_LEVEL, possibly from this
     // very file), so announce on stderr like the other pre-init messages.
@@ -121,6 +128,15 @@ pub(crate) fn load() {
       applied.join(", ")
     );
   }
+}
+
+/// Returns a structured (mapping-valued) section of `aperio-server.yaml`,
+/// e.g. `headers`. `None` when the file is absent or has no such key.
+pub(crate) fn structured(key: &str) -> Option<serde_yaml::Value> {
+  DOCUMENT
+    .get()
+    .and_then(|doc| doc.get(serde_yaml::Value::String(key.to_string())))
+    .cloned()
 }
 
 #[cfg(test)]

@@ -631,6 +631,14 @@ async fn proxy_http_request(
   // Forward this span's trace context to the backend (empty when OTLP is off).
   serialized_headers.extend(trace_headers);
 
+  // Server-side `headers.request` rewrite rules (aperio-server.yaml), applied
+  // before the inspector capture so replay and capture match what was sent.
+  let serialized_headers = state
+    .config()
+    .header_rules
+    .request
+    .apply(serialized_headers);
+
   // Capture (truncated) request data for the dashboard inspector before the
   // originals are moved into the tunnel message. Streamed bodies are not
   // captured (marked truncated, which also disables replay).
@@ -833,6 +841,14 @@ async fn proxy_http_request(
     let duration = start_time.elapsed();
     match outcome {
       Some(mut tunnel_res) => {
+        // Server-side `headers.response` rewrite rules (aperio-server.yaml),
+        // applied before every consumer — the visitor response, the response
+        // cache and the inspector capture — so all views agree.
+        tunnel_res.headers = state
+          .config()
+          .header_rules
+          .response
+          .apply(std::mem::take(&mut tunnel_res.headers));
         let status_code =
           StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
