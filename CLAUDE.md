@@ -12,3 +12,6 @@ These rules apply to all future work in this repository.
 
 ## Language
 5. Use **English** in all changes (code, comments, commit messages, docs).
+
+## Feature Planning
+6. Future feature ideas live in `planned_features.md`, **always in English**, using `[ ]` / `[x]` checkbox syntax. Whenever a "would be nice later" idea comes up, record it there; tick items off as they ship.
