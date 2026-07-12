@@ -10,6 +10,7 @@ mod config;
 mod e2e;
 mod protocol;
 mod proxy;
+mod serve;
 mod service;
 mod tcp;
 mod udp;
@@ -73,7 +74,7 @@ async fn main() {
   // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
   let home_cfg = load_home_config();
   let file_cfg = load_file_config(cli.opts.config.as_deref());
-  let settings = resolve_settings(&cli, &home_cfg, &file_cfg);
+  let mut settings = resolve_settings(&cli, &home_cfg, &file_cfg);
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
@@ -122,6 +123,15 @@ async fn main() {
     },
     None => uuid::Uuid::new_v4().to_string(),
   };
+
+  // Static file mode: start the loopback server once and point the target
+  // at it. The listener survives config reloads (only its directory is
+  // fixed for the process lifetime).
+  let mut serve_started: Option<(String, u16)> = None;
+  if let Err(e) = apply_serve_mode(&mut settings, &mut serve_started).await {
+    error!("{}", e);
+    std::process::exit(1);
+  }
 
   let mut specs = match build_specs(&settings, &client_id, cli.target.is_some()) {
     Ok(specs) => specs,
@@ -216,7 +226,14 @@ async fn main() {
       .and_then(|raw| serde_yaml::from_str::<FileConfig>(&raw).map_err(|e| e.to_string()));
     match reloaded {
       Ok(new_file_cfg) => {
-        let s = resolve_settings(&cli, &load_home_config(), &new_file_cfg);
+        let mut s = resolve_settings(&cli, &load_home_config(), &new_file_cfg);
+        if let Err(e) = apply_serve_mode(&mut s, &mut serve_started).await {
+          warn!(
+            "Config reload from {} produced an invalid configuration ({}); keeping previous",
+            config_path, e
+          );
+          continue;
+        }
         match build_specs(&s, &client_id, cli.target.is_some()) {
           Ok(new_specs) => {
             for (cancel_tx, _) in &running {
@@ -276,6 +293,46 @@ fn spawn_services(
       })
     })
     .collect()
+}
+
+/// Static file mode: when `serve:` is set, starts the loopback static
+/// server (once per process — reloads reuse it) and rewrites the settings
+/// to target it. Errors on conflicting backend settings.
+async fn apply_serve_mode(
+  settings: &mut ClientSettings,
+  started: &mut Option<(String, u16)>,
+) -> Result<(), String> {
+  let Some(dir) = settings.serve.clone() else {
+    return Ok(());
+  };
+  if settings.target.is_some() || settings.tcp_target.is_some() {
+    return Err(
+      "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive — the serve directory IS the backend".to_string(),
+    );
+  }
+  if !settings.services.is_empty() {
+    return Err(
+      "CRITICAL ERROR: serve is a single-service setting and cannot be combined with a services: list".to_string(),
+    );
+  }
+  let port = match started {
+    Some((prev_dir, port)) => {
+      if *prev_dir != dir {
+        warn!(
+          "serve directory changed from '{}' to '{}'; a restart is required to apply it (still serving the old directory)",
+          prev_dir, dir
+        );
+      }
+      *port
+    }
+    None => {
+      let port = serve::start(&dir).await?;
+      *started = Some((dir, port));
+      port
+    }
+  };
+  settings.target = Some(format!("http://127.0.0.1:{}", port));
+  Ok(())
 }
 
 /// Validates the resolved settings and builds the runnable service specs.

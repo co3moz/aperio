@@ -13,7 +13,7 @@ Syntax: `[ ]` = planned, `[x]` = shipped. Move rejected ideas to the bottom with
 - [x] Auto noindex for preview services — configurable `X-Robots-Tag`/`robots.txt` injection for random-subdomain (preview) services (APERIO_PREVIEW_NOINDEX + dashboard toggle)
 - [ ] Alerting rules — threshold-based webhook alerts (error rate, latency, client-down duration), kept simple
 - [ ] Dump export/import — full export/import of `aperio.db` + settings overrides, as a failsafe across version upgrades
-- [ ] Static file serving mode — `aperio-client` serves a local directory directly, no backend needed
+- [x] Static file serving mode — `aperio-client --serve ./dist` (or yaml `serve:` / `APERIO_SERVE`) serves a local directory directly, no backend needed
 - [ ] cURL / HAR export — export actions in the dashboard request inspector menu
 
 ## Future ideas (not scheduled)

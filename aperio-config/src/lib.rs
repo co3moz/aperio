@@ -199,6 +199,11 @@ pub struct FileConfig {
   /// several). `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).
   #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
   pub target: Option<String>,
+  /// Serve a local directory of static files instead of forwarding to a
+  /// backend (mutually exclusive with `target`); directories serve their
+  /// `index.html`.
+  #[schemars(extend("examples" = ["./dist"]))]
+  pub serve: Option<String>,
   /// Public hostname to claim for this client's traffic.
   #[schemars(extend("examples" = ["app.example.com"]))]
   pub hostname: Option<String>,

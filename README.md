@@ -80,6 +80,9 @@ aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xx
 
 # Claim a specific hostname while doing it
 aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx --hostname app.example.com
+
+# Publish a folder of static files — no backend needed
+aperio-client --serve ./dist --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 ```
 
 ## Documentation

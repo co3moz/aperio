@@ -118,6 +118,10 @@ pub(crate) struct CommonOpts {
   /// (yaml: target, env: APERIO_TARGET)
   #[arg(long = "target", global = true, value_name = "TARGET")]
   pub(crate) target_opt: Option<String>,
+  /// Serve a local directory of static files instead of forwarding to a
+  /// backend (yaml: serve, env: APERIO_SERVE)
+  #[arg(long, global = true, value_name = "DIR")]
+  pub(crate) serve: Option<String>,
   /// Persistent client instance id, a UUID. Defaults to a random UUID per
   /// run (yaml: client_id, env: APERIO_CLIENT_ID)
   #[arg(long, global = true, value_name = "UUID")]
@@ -284,6 +288,9 @@ pub(crate) struct ClientSettings {
   pub(crate) token: Option<String>,
   pub(crate) server: Option<String>,
   pub(crate) target: Option<String>,
+  /// Static directory to serve instead of a backend (single-service mode;
+  /// mutually exclusive with `target`).
+  pub(crate) serve: Option<String>,
   pub(crate) hostname: Option<String>,
   pub(crate) path: Option<String>,
   /// Explicit trim_bind wish; `None` = default (true when a path bind is set).
@@ -451,6 +458,14 @@ pub(crate) fn resolve_settings(
       env2("APERIO_TARGET", "APERIO_CLIENT_TARGET"),
       home.target.clone(),
     ),
+    serve: layered(
+      o.serve.clone(),
+      local.serve.clone(),
+      env2("APERIO_SERVE", "APERIO_CLIENT_SERVE"),
+      home.serve.clone(),
+    )
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty()),
     hostname: layered(
       o.hostname.clone(),
       local.hostname.clone(),

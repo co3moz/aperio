@@ -57,6 +57,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `--server-url URL` (alias `--server`) | Aperio server URL |
 | `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
 | `--target TARGET` | Alternative to the positional target (usable with subcommands) |
+| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist` |
 | `--hostname HOSTNAME` (alias `--host`) | Hostname bind (e.g. `app.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
 | `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |

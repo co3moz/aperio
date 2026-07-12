@@ -6,6 +6,7 @@ fn base_settings() -> ClientSettings {
     token: Some("apr_test".to_string()),
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
+    serve: None,
     hostname: Some("app.example.com".to_string()),
     path: None,
     trim_bind: None,

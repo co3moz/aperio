@@ -9,6 +9,7 @@ fn settings_with(
     token: token.map(|t| t.to_string()),
     server: Some("https://tunnel.example.com".to_string()),
     target: None,
+    serve: None,
     hostname: None,
     path: None,
     trim_bind: None,
