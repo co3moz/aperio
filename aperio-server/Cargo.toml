@@ -1,10 +1,15 @@
 [package]
 name = "aperio-server"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]
 rust-embed = "8"
+# Only present to expose the `vendored` switch of the openssl that
+# webauthn-rs already pulls in: the release workflow compiles OpenSSL from
+# source (feature `vendored-openssl` below) so cross-compiled and
+# musl-static targets don't need a system OpenSSL for the build target.
+openssl = { version = "0.10", optional = true }
 mime_guess = "2"
 tokio = { version = "1.38", features = ["full"] }
 axum = { version = "0.7.5", features = ["ws", "http2"] }
@@ -48,3 +53,8 @@ opentelemetry-semantic-conventions = "0.32"
 sha1 = "0.10"
 http-body = "1"
 webauthn-rs = "0.5.5"
+
+[features]
+# Used by the release workflow: build OpenSSL from source for the target
+# instead of probing the host system (cross-compilation, musl static).
+vendored-openssl = ["dep:openssl", "openssl/vendored"]

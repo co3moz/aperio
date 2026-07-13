@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-14
+
 ### Added
 
 - **Dashboard sessions survive server restarts**: sessions moved from memory into the shared SQLite store (`sessions` table of `aperio.db`), keyed by the SHA-256 of the cookie token so the database never contains usable session cookies. Expired rows are pruned on load and by the periodic GC; logout and user deletion remove rows durably. A restart no longer signs everyone out of the dashboard.
@@ -32,6 +34,7 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Release binary builds were broken** on every cross-compiled target (x86_64 macOS on arm64 runners, musl static, Windows): `webauthn-rs` pulls in `openssl-sys`, which probes the host for a target-arch OpenSSL that doesn't exist there. The release workflow now builds with a new `vendored-openssl` feature of aperio-server, compiling OpenSSL from source for the target; dev and Docker builds are unaffected.
 - **`wss://` connections panicked at startup** (`Could not automatically determine the process-level CryptoProvider`): the OpenTelemetry OTLP dependency pulls reqwest 0.13, which enables rustls' `aws-lc-rs` provider next to the `ring` provider the tunnel stack uses — with both enabled, rustls refuses to auto-select and panics on the first TLS dial. Both binaries now pin the process-wide provider to ring at startup (`CryptoProvider::install_default`), so client tunnels over `wss://` and the server's outbound TLS (webhooks, OIDC, OTLP) work regardless of dependency feature unification.
 - **Docker image builds were broken** since the gRPC/h2 work: the e2e-only `tests/mock-h2` helper became a workspace member, but neither Dockerfile copied its manifest, so the dependency-warming `cargo build --locked` failed to resolve the workspace (exit 101). Both Dockerfiles now copy `tests/mock-h2/Cargo.toml` with a stub `main.rs` — the helper itself is never compiled into the images.
 - **Ctrl+C did not stop the server while a dashboard tab was open**: graceful shutdown waits for every connection to end, and the dashboard's SSE stream (like tunnel sockets) never ends on its own. On shutdown the server now actively closes SSE streams and tunnel connections, and a 10-second fallback force-exits (after flushing stats) if anything else — a proxied WebSocket/TCP/UDP relay, a stalled peer — still holds a connection open.

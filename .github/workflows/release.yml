@@ -57,8 +57,11 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # vendored-openssl: webauthn-rs pulls in openssl, and the release
+      # matrix cross-compiles (x86_64 on arm64 macs, musl static) where no
+      # system OpenSSL exists for the target — build it from source instead.
       - name: Build release binaries
-        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }}
+        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }} --features aperio-server/vendored-openssl
 
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
