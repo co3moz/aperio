@@ -123,6 +123,7 @@ dependencies = [
  "mime_guess",
  "rand_core 0.6.4",
  "reqwest 0.12.28",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -166,6 +167,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rusqlite",
  "rust-embed",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2224,6 +2226,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b92b125634d9b795e7beca796cc790df15a7fb38323bf3196fda83292d06b1f"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",

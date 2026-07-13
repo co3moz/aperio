@@ -80,6 +80,13 @@ use crate::tunnel::ws::ws_handler;
 /// single-threaded, then hands over to the async server on a multi-thread
 /// runtime.
 fn main() {
+  // Pin the process-wide rustls provider to ring. The dependency tree pulls
+  // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
+  // unification), and with two providers rustls refuses to auto-select one —
+  // the first outbound TLS call (webhooks, OIDC, OTLP) would panic without
+  // this.
+  let _ = rustls::crypto::ring::default_provider().install_default();
+
   // `aperio-server --version` must print and exit instead of starting the
   // server (used by installers and packaging).
   if matches!(

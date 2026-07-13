@@ -33,6 +33,12 @@ use tcp::run_tcp_bridge;
 /// a config-file change re-resolves everything and respawns the services,
 /// so every setting takes effect on hot-reload.
 async fn main() {
+  // Pin the process-wide rustls provider to ring. The dependency tree pulls
+  // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
+  // unification), and with two providers rustls refuses to auto-select one —
+  // every wss:// dial would panic at connect time without this.
+  let _ = rustls::crypto::ring::default_provider().install_default();
+
   // Parse CLI first so `--help` and argument errors never emit JSON logs.
   let cli = parse_cli();
 
