@@ -360,3 +360,106 @@ pub(crate) async fn totp_admin_reset_handler(
     .await;
   Json(serde_json::json!({"status": "ok"})).into_response()
 }
+
+/// Reads the caller's `aperio_session` cookie value (to mark or exempt the
+/// current session in the management endpoints).
+fn own_session_token(headers: &HeaderMap) -> Option<String> {
+  let cookie_str = headers.get("cookie")?.to_str().ok()?;
+  cookie_str.split(';').find_map(|part| {
+    let (k, v) = part.trim().split_once('=')?;
+    (k == "aperio_session").then(|| v.to_string())
+  })
+}
+
+/// Lists live sessions (admin): who is signed in from where. Ids are the
+/// SHA-256 of the session token — usable for revocation, useless for
+/// hijacking.
+#[utoipa::path(get, path = "/aperio/api/sessions", tag = "users",
+  description = "Live sessions with identity, IP, User-Agent and age; the caller's own session is marked.",
+  responses((status = 200, description = "Live sessions", body = serde_json::Value)))]
+pub(crate) async fn sessions_list_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Json<Vec<serde_json::Value>> {
+  let own = own_session_token(&headers);
+  let mut entries = state.sessions.lock().await.entries();
+  entries.sort_by_key(|(_, info)| std::cmp::Reverse(info.created_at));
+  Json(
+    entries
+      .into_iter()
+      .map(|(key, info)| {
+        let current = own.as_deref().is_some_and(|token| {
+          crate::store::sessions::SessionStore::token_matches_key(token, &key)
+        });
+        serde_json::json!({
+          "id": key,
+          "username": info.username.as_deref().unwrap_or("aperio"),
+          "role": info.role.as_str(),
+          "scope_host": info.scope_host,
+          "ip": info.ip,
+          "user_agent": info.user_agent,
+          "created_at": info.created_at,
+          "expires_at": info.expires_at,
+          "current": current,
+        })
+      })
+      .collect(),
+  )
+}
+
+/// Revokes one session by its id (admin).
+#[utoipa::path(delete, path = "/aperio/api/sessions/{id}", tag = "users",
+  description = "Ends one session immediately; its cookie stops working on the next request.",
+  responses((status = 200, description = "Session ended"), (status = 404, description = "Unknown session id")))]
+pub(crate) async fn session_revoke_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+) -> Response {
+  let removed = state.sessions.lock().await.remove_by_key(&id);
+  if !removed {
+    return (StatusCode::NOT_FOUND, "unknown session id").into_response();
+  }
+  let ip = actor_ip(&state, &headers, addr);
+  state
+    .audit(
+      "session_revoked",
+      &ip,
+      &format!("session={}", &id[..12.min(id.len())]),
+    )
+    .await;
+  StatusCode::OK.into_response()
+}
+
+/// Ends every session except the caller's ("sign out everywhere", admin).
+#[utoipa::path(delete, path = "/aperio/api/sessions", tag = "users",
+  description = "Ends every live session except the caller's own; everyone else must sign in again.",
+  responses((status = 200, description = "Sessions ended", body = serde_json::Value)))]
+pub(crate) async fn sessions_clear_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let own = own_session_token(&headers);
+  let mut sessions = state.sessions.lock().await;
+  let before = sessions.entries().len();
+  let own_keys: Vec<String> = sessions
+    .entries()
+    .into_iter()
+    .map(|(k, _)| k)
+    .filter(|k| {
+      own
+        .as_deref()
+        .is_some_and(|token| crate::store::sessions::SessionStore::token_matches_key(token, k))
+    })
+    .collect();
+  sessions.retain_keys(&own_keys);
+  let ended = before - own_keys.len();
+  drop(sessions);
+  let ip = actor_ip(&state, &headers, addr);
+  state
+    .audit("sessions_cleared", &ip, &format!("ended={ended}"))
+    .await;
+  Json(serde_json::json!({ "ended": ended })).into_response()
+}

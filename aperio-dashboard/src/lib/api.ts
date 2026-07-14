@@ -249,6 +249,21 @@ export interface DashboardUser {
   totp: boolean
 }
 
+export interface LiveSession {
+  /** Hashed-token id — usable for revocation, useless for hijacking. */
+  id: string
+  username: string
+  role: string
+  /** Set for visitor-password sessions scoped to one host. */
+  scope_host?: string | null
+  ip?: string | null
+  user_agent?: string | null
+  created_at: number
+  expires_at: number
+  /** True for the caller's own session. */
+  current: boolean
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -314,6 +329,9 @@ export const api = {
   logs: () => request<RequestLog[]>('/logs'),
   session: () => request<SessionInfo>('/session'),
   users: () => request<DashboardUser[]>('/users'),
+  sessions: () => request<LiveSession[]>('/sessions'),
+  revokeSession: (id: string) => mutate(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  clearSessions: () => request<{ ended: number }>('/sessions', { method: 'DELETE' }),
   totpSetup: () =>
     request<{ secret: string; otpauth_url: string }>('/me/totp/setup', { method: 'POST' }),
   totpEnable: (code: string) =>

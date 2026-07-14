@@ -1315,6 +1315,36 @@ assert_contains "$SESSION" '"username":"e2e-restart"' "the user's session surviv
 assert_contains "$SESSION" '"role":"operator"' "the restored session kept its role"
 SESSION="$(curl -s -b "$SESS_JAR" "$BASE/aperio/api/session")"
 assert_contains "$SESSION" '"username":"aperio"' "the admin session survived the restart"
+step "Active session management"
+# Admin lists sessions: both the admin's and the user's appear with metadata.
+SESSIONS="$(curl -s -b "$SESS_JAR" "$BASE/aperio/api/sessions")"
+assert_contains "$SESSIONS" '"username":"e2e-restart"' "sessions list shows the named user"
+assert_contains "$SESSIONS" '"username":"aperio"' "sessions list shows the admin"
+assert_contains "$SESSIONS" '"current":true' "the caller's own session is marked"
+assert_contains "$SESSIONS" '"ip":"127.0.0.1"' "sessions record the sign-in IP"
+# Non-admins may not see the list.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" "$BASE/aperio/api/sessions")"
+assert_status 403 "$CODE" "the sessions list is admin-only"
+# Revoke the user's session: their cookie stops working immediately.
+USER_SID="$(echo "$SESSIONS" | "$PYTHON" -c \
+  "import sys,json; print(next(s['id'] for s in json.load(sys.stdin) if s['username']=='e2e-restart'))")"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$SESS_JAR" -X DELETE "$BASE/aperio/api/sessions/${USER_SID}")"
+assert_status 200 "$CODE" "revoking a session succeeds"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" "$BASE/aperio/api/stats")"
+assert_status 302 "$CODE" "the revoked session stops working immediately"
+# Sign back in and clear everything else: the admin's own session survives.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$UJAR" -X POST -u 'e2e-restart:restart-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "the user signs back in"
+CLEARED="$(curl -s -b "$SESS_JAR" -X DELETE "$BASE/aperio/api/sessions")"
+assert_contains "$CLEARED" '"ended":' "sign-out-everywhere reports a count"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" "$BASE/aperio/api/session")"
+assert_status 302 "$CODE" "other sessions are gone after sign-out-everywhere"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$SESS_JAR" "$BASE/aperio/api/stats")"
+assert_status 200 "$CODE" "the caller's own session survives sign-out-everywhere"
+# Re-create the user session for the logout checks below.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$UJAR" -X POST -u 'e2e-restart:restart-password' "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "the user signs in once more"
+
 # Logout still removes it durably.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" -X POST "$BASE/aperio/auth/logout")"
 assert_status 200 "$CODE" "logout succeeds"

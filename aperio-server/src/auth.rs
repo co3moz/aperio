@@ -344,6 +344,9 @@ pub(crate) async fn auth_login_handler(
     &session_token,
     SessionInfo {
       expires_at: crate::store::sessions::now_secs() + 86400,
+      created_at: crate::store::sessions::now_secs(),
+      ip: Some(client_ip.to_string()),
+      user_agent: crate::store::sessions::session_user_agent(&headers),
       scope_host: session_scope,
       username: identity.0,
       role: identity.1,
@@ -906,6 +909,9 @@ pub(crate) async fn oidc_callback_handler(
     &session_token,
     SessionInfo {
       expires_at: crate::store::sessions::now_secs() + 86400,
+      created_at: crate::store::sessions::now_secs(),
+      ip: Some(caller_ip.to_string()),
+      user_agent: crate::store::sessions::session_user_agent(&headers),
       scope_host: None,
       username: Some(email.clone()),
       role: Role::Admin,

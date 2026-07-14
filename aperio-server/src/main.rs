@@ -739,6 +739,15 @@ async fn async_main() {
         get(crate::api::openapi::openapi_handler),
       )
       .route(
+        "/api/sessions",
+        get(crate::api::users::sessions_list_handler)
+          .delete(crate::api::users::sessions_clear_handler),
+      )
+      .route(
+        "/api/sessions/:id",
+        axum::routing::delete(crate::api::users::session_revoke_handler),
+      )
+      .route(
         "/api/users",
         get(crate::api::users::users_list_handler).post(crate::api::users::users_create_handler),
       )
@@ -1059,6 +1068,10 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
     // import replaces them — admin only, even for the GET.
     || path == "/api/export"
     || path == "/api/import"
+    // Session management exposes who is signed in from which IP/UA and can
+    // end other admins' sessions — admin only, including the list.
+    || path == "/api/sessions"
+    || path.starts_with("/api/sessions/")
   {
     return Role::Admin;
   }

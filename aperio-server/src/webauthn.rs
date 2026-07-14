@@ -500,6 +500,9 @@ pub(crate) async fn passkey_login_finish_handler(
     &session_token,
     SessionInfo {
       expires_at: crate::store::sessions::now_secs() + 86400,
+      created_at: crate::store::sessions::now_secs(),
+      ip: Some(client_ip.to_string()),
+      user_agent: crate::store::sessions::session_user_agent(&headers),
       scope_host: None,
       username: Some(username),
       role,

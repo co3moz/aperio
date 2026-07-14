@@ -1,4 +1,4 @@
-import { KeyRoundIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { KeyRoundIcon, PencilIcon, PlusIcon, Trash2Icon, LogOutIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
-import { api, ApiError, type DashboardUser, type Role } from '@/lib/api'
+import { api, ApiError, type DashboardUser, type Role, type LiveSession } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 import { useSession } from '@/lib/session'
 
@@ -309,6 +309,99 @@ function ResetTotpButton({ user, onDone }: { user: DashboardUser; onDone: () => 
   )
 }
 
+
+function SessionsCard() {
+  const { t } = useI18n()
+  const { data: sessions, refresh } = usePoll(api.sessions, 15_000)
+  const [busy, setBusy] = useState(false)
+
+  const revoke = async (s: LiveSession) => {
+    try {
+      await api.revokeSession(s.id)
+      toast.info(t('Session ended'))
+    } finally {
+      refresh()
+    }
+  }
+  const clearAll = async () => {
+    setBusy(true)
+    try {
+      const res = await api.clearSessions()
+      toast.info(t('{count} other session(s) ended', { count: String(res.ended) }))
+    } finally {
+      setBusy(false)
+      refresh()
+    }
+  }
+
+  return (
+    <>
+      <SectionHeader
+        title={t('Active sessions')}
+        description={t('Everyone currently signed in, and where from. Ending a session signs that browser out on its next request.')}
+      >
+        <Button size="sm" variant="destructive" disabled={busy} onClick={() => void clearAll()}>
+          <LogOutIcon /> {t('Sign out everywhere else')}
+        </Button>
+      </SectionHeader>
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('Username')}</TableHead>
+              <TableHead>{t('Role')}</TableHead>
+              <TableHead>IP</TableHead>
+              <TableHead>{t('Browser')}</TableHead>
+              <TableHead>{t('Signed in')}</TableHead>
+              <TableHead className="text-right">{t('Actions')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sessions === null ? (
+              <SkeletonRows rows={2} cols={6} />
+            ) : sessions.length === 0 ? (
+              <EmptyRow colSpan={6}>{t('No live sessions')}</EmptyRow>
+            ) : (
+              sessions.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 font-medium">
+                      {s.username}
+                      {s.current && <TintBadge tint="lime">{t('this session')}</TintBadge>}
+                      {s.scope_host && <TintBadge tint="blue">{s.scope_host}</TintBadge>}
+                    </div>
+                  </TableCell>
+                  <TableCell>{s.role}</TableCell>
+                  <TableCell className="font-mono text-xs">{s.ip ?? '-'}</TableCell>
+                  <TableCell>
+                    <span className="block max-w-64 truncate text-xs text-muted-foreground" title={s.user_agent ?? ''}>
+                      {s.user_agent ?? '-'}
+                    </span>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {s.created_at ? formatRelativeTime(s.created_at * 1000) : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      {s.current ? (
+                        <span className="text-muted-foreground">-</span>
+                      ) : (
+                        <Button size="xs" variant="destructive" onClick={() => void revoke(s)}>
+                          <LogOutIcon /> {t('End session')}
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </>
+  )
+}
+
 export function UsersSection() {
   const { t } = useI18n()
   const { username: self } = useSession()
@@ -378,6 +471,7 @@ export function UsersSection() {
           </TableBody>
         </Table>
       </Card>
+      <SessionsCard />
     </section>
   )
 }

@@ -16,6 +16,16 @@ use tracing::{error, info};
 pub(crate) struct SessionInfo {
   /// Unix seconds after which this session is invalid.
   pub(crate) expires_at: u64,
+  /// Unix seconds when the session was created (0 for rows predating the
+  /// session-management feature).
+  #[serde(default)]
+  pub(crate) created_at: u64,
+  /// IP the session was created from, for the sessions list.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub(crate) ip: Option<String>,
+  /// User-Agent of the signing-in browser, for the sessions list.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub(crate) user_agent: Option<String>,
   /// When `Some(host)`, the session only authorizes proxied traffic for that
   /// exact request host — a login against a client-set visitor password. It
   /// never authorizes the dashboard or other hosts. `None` = a full/global
@@ -34,6 +44,19 @@ pub(crate) fn now_secs() -> u64 {
     .duration_since(std::time::UNIX_EPOCH)
     .map(|d| d.as_secs())
     .unwrap_or(0)
+}
+
+/// Trimmed User-Agent of the signing-in browser, capped for storage.
+pub(crate) fn session_user_agent(headers: &axum::http::HeaderMap) -> Option<String> {
+  headers
+    .get("user-agent")
+    .and_then(|v| v.to_str().ok())
+    .map(|v| {
+      let mut ua = v.trim().to_string();
+      ua.truncate(256);
+      ua
+    })
+    .filter(|v| !v.is_empty())
 }
 
 /// Hex SHA-256 of a session token — the only form ever written to disk.
@@ -154,6 +177,46 @@ impl SessionStore {
     }
   }
 
+  /// All live sessions with their (hashed-token) management ids, for the
+  /// dashboard sessions list. The hash cannot be turned back into a cookie,
+  /// so exposing it as an id is safe.
+  pub(crate) fn entries(&self) -> Vec<(String, SessionInfo)> {
+    self
+      .sessions
+      .iter()
+      .map(|(k, v)| (k.clone(), v.clone()))
+      .collect()
+  }
+
+  /// True when `token` hashes to `key` — used to mark the caller's own
+  /// session in the list.
+  pub(crate) fn token_matches_key(token: &str, key: &str) -> bool {
+    token_key(token) == key
+  }
+
+  /// Removes a session by its management id (hashed token). Returns whether
+  /// anything was removed.
+  pub(crate) fn remove_by_key(&mut self, key: &str) -> bool {
+    let removed = self.sessions.remove(key).is_some();
+    if removed
+      && let Err(e) = self
+        .conn
+        .execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![key])
+    {
+      error!("Failed to delete a session from the store: {}", e);
+    }
+    removed
+  }
+
+  /// Drops every session whose key is NOT in `keep` and persists.
+  pub(crate) fn retain_keys(&mut self, keep: &[String]) {
+    let before = self.sessions.len();
+    self.sessions.retain(|k, _| keep.iter().any(|kk| kk == k));
+    if self.sessions.len() != before {
+      self.persist_all();
+    }
+  }
+
   #[cfg(test)]
   pub(crate) fn len(&self) -> usize {
     self.sessions.len()
@@ -174,6 +237,9 @@ mod tests {
   fn info(expires_at: u64, username: Option<&str>) -> SessionInfo {
     SessionInfo {
       expires_at,
+      created_at: 0,
+      ip: None,
+      user_agent: None,
       scope_host: None,
       username: username.map(str::to_string),
       role: Role::Admin,

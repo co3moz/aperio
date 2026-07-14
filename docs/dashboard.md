@@ -29,6 +29,10 @@ Click any row in the traffic table to see full request/response headers and body
 
 Pick a token strategy (placeholder, or mint a scoped token on the spot), describe the local service, and copy a ready-to-run `docker run` / CLI / `aperio.yaml` snippet.
 
+## Active sessions
+
+Admins see every live dashboard session on the Users page — who is signed in, from which IP and browser, since when; the caller's own session is marked. Any session can be ended individually (its cookie stops working on the next request), and **Sign out everywhere else** ends all sessions but your own. Both actions are audited (`session_revoked`, `sessions_cleared`). The session list and its controls are admin-only, `GET/DELETE /aperio/api/sessions[/{id}]`.
+
 ## Maintenance mode
 
 Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE`, served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
