@@ -121,6 +121,11 @@ pub(crate) enum TunnelMessage {
     /// when the server enables APERIO_CACHE).
     #[serde(default)]
     cache: bool,
+    /// The client asks the server to keep serving this service's cached
+    /// responses (marked, even expired) while no healthy client is
+    /// connected, instead of failing with 504. Needs `cache`.
+    #[serde(default)]
+    resilience: bool,
   },
   Pong {
     timestamp: u64,

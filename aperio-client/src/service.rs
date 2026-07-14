@@ -86,6 +86,9 @@ pub(crate) struct ServiceSpec {
   /// Opt this service into the server-side response cache (announced via
   /// Ping; effective only when the server enables APERIO_CACHE).
   pub(crate) cache: bool,
+  /// Ask the server to keep serving this service's cached responses while
+  /// no healthy client is connected (announced via Ping; needs `cache`).
+  pub(crate) resilience: bool,
 }
 
 impl ServiceSpec {
@@ -284,12 +287,13 @@ pub(crate) async fn run_service(
             let tunnels_ping = spec.tunnels.clone();
             let visitor_auth_ping = spec.visitor_auth.clone();
             let allowed_ips_ping = spec.allowed_ips.clone();
-            let (max_concurrent, priority, bandwidth_bps, public, cache) = (
+            let (max_concurrent, priority, bandwidth_bps, public, cache, resilience) = (
               spec.max_concurrent,
               spec.priority,
               spec.bandwidth_bps,
               spec.public,
               spec.cache,
+              spec.resilience,
             );
 
             let ping_task = tokio::spawn(async move {
@@ -339,6 +343,7 @@ pub(crate) async fn run_service(
                   allowed_ips: allowed_ips_ping.clone(),
                   tunnels: tunnels_ping.clone(),
                   cache,
+                  resilience,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

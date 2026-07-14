@@ -277,6 +277,7 @@ pub(crate) async fn handle_socket(
         allowed_ips_invalid_warned: false,
         tunnels: Vec::new(),
         cache: false,
+        resilience: false,
       },
     );
     drop(clients);
@@ -591,6 +592,7 @@ pub(crate) async fn handle_socket(
               allowed_ips,
               tunnels,
               cache,
+              resilience,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -642,6 +644,15 @@ pub(crate) async fn handle_socket(
                     if cache {
                       info!(
                         "Client {} opted into the server-side response cache",
+                        client_id
+                      );
+                    }
+                  }
+                  if handle.resilience != resilience {
+                    handle.resilience = resilience;
+                    if resilience {
+                      info!(
+                        "Client {} asked for serve-stale resilience: cached responses outlive its disconnects",
                         client_id
                       );
                     }

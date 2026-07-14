@@ -169,6 +169,10 @@ pub struct ServiceEntry {
   /// Let the server cache this service's GET responses (per their
   /// `Cache-Control`); effective only when the server enables APERIO_CACHE.
   pub cache: Option<bool>,
+  /// Keep serving this service's cached responses (marked, even past their
+  /// lifetime) while no healthy client is connected, instead of failing with
+  /// 504 (needs `cache: true` and the server-side cache enabled).
+  pub resilience: Option<bool>,
 }
 
 /// A peer client whose declared tunnels this process binds to local ports.
@@ -271,6 +275,10 @@ pub struct FileConfig {
   /// Let the server cache GET responses (per their `Cache-Control`);
   /// effective only when the server enables APERIO_CACHE.
   pub cache: Option<bool>,
+  /// Keep serving this service's cached responses (marked, even past their
+  /// lifetime) while no healthy client is connected, instead of failing with
+  /// 504 (needs `cache: true` and the server-side cache enabled).
+  pub resilience: Option<bool>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

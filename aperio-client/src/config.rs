@@ -160,6 +160,11 @@ pub(crate) struct CommonOpts {
   /// (yaml: allowed_ips, env: APERIO_ALLOWED_IPS)
   #[arg(long = "allowed-ips", global = true, value_name = "IPS")]
   pub(crate) allowed_ips: Option<String>,
+  /// Keep serving cached responses while this client is offline: the server
+  /// answers from its cache (marked, even expired) instead of a 504; needs
+  /// `cache` and the server-side cache (yaml: resilience, env: APERIO_RESILIENCE)
+  #[arg(long, global = true)]
+  pub(crate) resilience: bool,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -321,6 +326,8 @@ pub(crate) struct ClientSettings {
   pub(crate) headers: Option<HeaderRules>,
   /// Opt into the server-side response cache (server must enable APERIO_CACHE).
   pub(crate) cache: bool,
+  /// Keep serving cached responses while this client is offline (server-side).
+  pub(crate) resilience: bool,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -620,6 +627,14 @@ pub(crate) fn resolve_settings(
       home.cache,
     )
     .unwrap_or(false),
+    resilience: o.resilience
+      || layered(
+        None,
+        local.resilience,
+        env_bool("APERIO_RESILIENCE", "APERIO_CLIENT_RESILIENCE"),
+        home.resilience,
+      )
+      .unwrap_or(false),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

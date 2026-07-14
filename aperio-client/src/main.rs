@@ -469,6 +469,7 @@ fn build_specs(
       public: settings.public,
       visitor_auth: settings.visitor_auth.clone(),
       allowed_ips: settings.allowed_ips.clone(),
+      resilience: settings.resilience,
       tunnels,
       headers: settings.headers.clone(),
       cache: settings.cache,
@@ -562,6 +563,7 @@ fn build_specs(
           .allowed_ips
           .clone()
           .unwrap_or_else(|| settings.allowed_ips.clone()),
+        resilience: entry.resilience.unwrap_or(settings.resilience),
         tunnels: tunnels.clone(),
         headers: entry.headers.clone().or_else(|| settings.headers.clone()),
         cache: entry.cache.unwrap_or(settings.cache),

@@ -46,6 +46,7 @@ fn base_handle() -> ClientHandle {
     allowed_ips_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
+    resilience: false,
   }
 }
 

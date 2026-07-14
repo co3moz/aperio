@@ -82,6 +82,10 @@ pub(crate) struct ServerConfig {
   /// Total response-cache budget in bytes (APERIO_CACHE_MAX_BYTES,
   /// default 64 MiB).
   pub(crate) cache_max_bytes: u64,
+  /// Seconds an expired resilient cache entry stays servable while its
+  /// route has no healthy client (APERIO_CACHE_MAX_STALE, default 3600;
+  /// 0 disables serve-stale entirely).
+  pub(crate) cache_max_stale: u64,
   /// Concurrent proxied requests limit (APERIO_MAX_CONCURRENT_REQUESTS);
   /// requests beyond it are rejected with 429.
   pub(crate) max_concurrent_requests: usize,
@@ -161,6 +165,7 @@ pub(crate) struct SettingsOverrides {
   pub(crate) auth_credentials: Option<String>,
   pub(crate) cache_enabled: Option<bool>,
   pub(crate) cache_max_bytes: Option<u64>,
+  pub(crate) cache_max_stale: Option<u64>,
   pub(crate) max_concurrent_requests: Option<usize>,
   pub(crate) login_lockout_threshold: Option<u32>,
   pub(crate) login_lockout_secs: Option<u64>,
@@ -284,6 +289,9 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   {
     c.cache_max_bytes = v;
   }
+  if let Some(v) = o.cache_max_stale {
+    c.cache_max_stale = v;
+  }
   if let Some(v) = o.max_concurrent_requests {
     c.max_concurrent_requests = v.max(1);
   }
@@ -342,6 +350,7 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "auth_credentials": c.auth_credentials,
     "cache_enabled": c.cache_enabled,
     "cache_max_bytes": c.cache_max_bytes,
+    "cache_max_stale": c.cache_max_stale,
     "max_concurrent_requests": c.max_concurrent_requests,
     "login_lockout_threshold": c.login_lockout_threshold,
     "login_lockout_secs": c.login_lockout_secs,

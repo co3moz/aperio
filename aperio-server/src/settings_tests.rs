@@ -39,6 +39,7 @@ fn base_config() -> ServerConfig {
     static_routes: Default::default(),
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
   }
 }
 

@@ -16,7 +16,12 @@ struct CachedResponse {
   status: u16,
   headers: Vec<(String, String)>,
   body: Vec<u8>,
+  stored_at: Instant,
   expires_at: Instant,
+  /// The serving client asked for serve-stale resilience when this entry
+  /// was stored: it may be served past `expires_at` (up to the max-stale
+  /// window) while the route has no healthy client.
+  resilient: bool,
 }
 
 /// A response served from cache, cloned out of the store.
@@ -24,6 +29,10 @@ pub(crate) struct CacheHit {
   pub(crate) status: u16,
   pub(crate) headers: Vec<(String, String)>,
   pub(crate) body: Vec<u8>,
+  /// Seconds since the entry was stored (the `Age` header).
+  pub(crate) age_secs: u64,
+  /// True when the entry is past its advertised lifetime (outage serving).
+  pub(crate) stale: bool,
 }
 
 /// In-memory bounded response cache, keyed by `host|uri`.
@@ -45,11 +54,16 @@ impl ResponseCache {
     self.total_bytes = 0;
   }
 
-  /// Returns a fresh entry for the key, dropping it if it has expired.
-  pub(crate) fn get(&mut self, key: &str) -> Option<CacheHit> {
-    let expired = self.entries.get(key)?.expires_at <= Instant::now();
-    if expired {
-      if let Some(e) = self.entries.remove(key) {
+  /// Returns a fresh entry for the key. An expired entry is dropped unless
+  /// it is resilient and still inside the `max_stale` window (it stays
+  /// stored for [`Self::get_for_outage`]).
+  pub(crate) fn get(&mut self, key: &str, max_stale: Duration) -> Option<CacheHit> {
+    let now = Instant::now();
+    let e = self.entries.get(key)?;
+    if e.expires_at <= now {
+      if !(e.resilient && now < e.expires_at + max_stale)
+        && let Some(e) = self.entries.remove(key)
+      {
         self.total_bytes -= e.body.len() as u64;
       }
       return None;
@@ -58,12 +72,38 @@ impl ResponseCache {
       status: e.status,
       headers: e.headers.clone(),
       body: e.body.clone(),
+      age_secs: now.duration_since(e.stored_at).as_secs(),
+      stale: false,
+    })
+  }
+
+  /// Outage path: returns a resilient entry (fresh or expired) still inside
+  /// the `max_stale` window past its lifetime. Used only when the route has
+  /// no healthy client, so a stale answer beats a 504.
+  pub(crate) fn get_for_outage(&mut self, key: &str, max_stale: Duration) -> Option<CacheHit> {
+    let now = Instant::now();
+    let e = self.entries.get(key)?;
+    if !e.resilient || now >= e.expires_at + max_stale {
+      if now >= e.expires_at
+        && let Some(e) = self.entries.remove(key)
+      {
+        self.total_bytes -= e.body.len() as u64;
+      }
+      return None;
+    }
+    Some(CacheHit {
+      status: e.status,
+      headers: e.headers.clone(),
+      body: e.body.clone(),
+      age_secs: now.duration_since(e.stored_at).as_secs(),
+      stale: e.expires_at <= now,
     })
   }
 
   /// Stores a response for `ttl`. Entries larger than a quarter of the
   /// budget are refused outright (one huge body must not flush the whole
   /// cache); past the budget, entries closest to expiry are evicted first.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn insert(
     &mut self,
     key: String,
@@ -72,6 +112,7 @@ impl ResponseCache {
     body: Vec<u8>,
     ttl: Duration,
     max_bytes: u64,
+    resilient: bool,
   ) {
     let size = body.len() as u64;
     if size > max_bytes / 4 {
@@ -102,13 +143,16 @@ impl ResponseCache {
       return;
     }
     self.total_bytes += size;
+    let now = Instant::now();
     self.entries.insert(
       key,
       CachedResponse {
         status,
         headers,
         body,
-        expires_at: Instant::now() + ttl,
+        stored_at: now,
+        expires_at: now + ttl,
+        resilient,
       },
     );
   }
@@ -246,11 +290,12 @@ mod tests {
       b"hello".to_vec(),
       Duration::from_secs(60),
       1024,
+      false,
     );
-    let hit = cache.get("h|/a").expect("hit");
+    let hit = cache.get("h|/a", Duration::ZERO).expect("hit");
     assert_eq!(hit.status, 200);
     assert_eq!(hit.body, b"hello");
-    assert!(cache.get("h|/b").is_none());
+    assert!(cache.get("h|/b", Duration::ZERO).is_none());
 
     // Zero-TTL entries expire immediately.
     cache.insert(
@@ -260,8 +305,9 @@ mod tests {
       b"gone".to_vec(),
       Duration::from_secs(0),
       1024,
+      false,
     );
-    assert!(cache.get("h|/z").is_none());
+    assert!(cache.get("h|/z", Duration::ZERO).is_none());
 
     // An entry larger than a quarter of the budget is refused.
     cache.insert(
@@ -271,8 +317,9 @@ mod tests {
       vec![0u8; 512],
       Duration::from_secs(60),
       1024,
+      false,
     );
-    assert!(cache.get("h|/big").is_none());
+    assert!(cache.get("h|/big", Duration::ZERO).is_none());
   }
 
   #[test]
@@ -289,6 +336,7 @@ mod tests {
         vec![0u8; 200],
         Duration::from_secs(*ttl),
         1000,
+        false,
       );
     }
     cache.insert(
@@ -298,10 +346,70 @@ mod tests {
       vec![0u8; 240],
       Duration::from_secs(60),
       1000,
+      false,
     );
-    assert!(cache.get("h|/new").is_some(), "new entry must be stored");
+    assert!(
+      cache.get("h|/new", Duration::ZERO).is_some(),
+      "new entry must be stored"
+    );
     // The soonest-expiring entry (ttl 30) was evicted; the rest survive.
-    assert!(cache.get("h|/1").is_none(), "closest-to-expiry evicted");
-    assert!(cache.get("h|/3").is_some());
+    assert!(
+      cache.get("h|/1", Duration::ZERO).is_none(),
+      "closest-to-expiry evicted"
+    );
+    assert!(cache.get("h|/3", Duration::ZERO).is_some());
+  }
+
+  #[test]
+  fn test_serve_stale_outage_semantics() {
+    let mut cache = ResponseCache::default();
+    let headers: Vec<(String, String)> = Vec::new();
+    let max_stale = Duration::from_secs(3600);
+
+    // Resilient zero-TTL entry: expired immediately for the fresh path, but
+    // still servable through the outage path within the stale window.
+    cache.insert(
+      "h|/r".to_string(),
+      200,
+      headers.clone(),
+      b"stale-ok".to_vec(),
+      Duration::from_secs(0),
+      1024,
+      true,
+    );
+    assert!(cache.get("h|/r", max_stale).is_none(), "fresh path misses");
+    let hit = cache.get_for_outage("h|/r", max_stale).expect("stale hit");
+    assert!(hit.stale);
+    assert_eq!(hit.body, b"stale-ok");
+    // The fresh-path miss must not have dropped the resilient entry.
+    assert!(cache.get_for_outage("h|/r", max_stale).is_some());
+
+    // Non-resilient entries never serve through the outage path once expired.
+    cache.insert(
+      "h|/n".to_string(),
+      200,
+      headers.clone(),
+      b"plain".to_vec(),
+      Duration::from_secs(0),
+      1024,
+      false,
+    );
+    assert!(cache.get_for_outage("h|/n", max_stale).is_none());
+
+    // A zero max-stale window disables outage serving for expired entries.
+    assert!(cache.get_for_outage("h|/r", Duration::ZERO).is_none());
+
+    // A fresh resilient entry is servable on both paths, unmarked.
+    cache.insert(
+      "h|/f".to_string(),
+      200,
+      headers,
+      b"fresh".to_vec(),
+      Duration::from_secs(60),
+      1024,
+      true,
+    );
+    let hit = cache.get_for_outage("h|/f", max_stale).expect("fresh hit");
+    assert!(!hit.stale);
   }
 }

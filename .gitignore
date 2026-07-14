@@ -21,3 +21,4 @@ Thumbs.db
 # Sub-target directories
 **/target/
 .claude/
+data/

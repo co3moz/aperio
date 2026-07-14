@@ -268,6 +268,9 @@ pub(crate) struct ClientHandle {
   /// The client opted its service into the server-side response cache
   /// (`cache: true` via Ping). Effective only with APERIO_CACHE on.
   pub(crate) cache: bool,
+  /// The client asked for serve-stale resilience: cached responses for its
+  /// routes stay servable (marked) while no healthy client is connected.
+  pub(crate) resilience: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.

@@ -32,6 +32,7 @@ fn settings_with(
     allowed_ips: Vec::new(),
     headers: None,
     cache: false,
+    resilience: false,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

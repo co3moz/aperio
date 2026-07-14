@@ -90,6 +90,7 @@ async fn test_rate_limiting() {
     static_routes: Default::default(),
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -203,6 +204,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     static_routes: Default::default(),
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -338,6 +340,7 @@ async fn test_proxy_handler_success() {
     static_routes: Default::default(),
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
   };
 
   let (client_connected_tx, _) = watch::channel(true);
@@ -442,6 +445,7 @@ async fn test_proxy_handler_success() {
       allowed_ips_invalid_warned: false,
       tunnels: Vec::new(),
       cache: false,
+      resilience: false,
     },
   );
 
@@ -705,6 +709,7 @@ fn mock_client(
     allowed_ips_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
+    resilience: false,
   }
 }
 
@@ -828,6 +833,7 @@ fn test_apply_settings_overrides() {
     static_routes: Default::default(),
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
   };
 
   let overrides = SettingsOverrides {

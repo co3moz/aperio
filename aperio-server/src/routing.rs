@@ -338,6 +338,8 @@ pub(crate) struct SelectedClient {
   pub(crate) protocol: Option<u32>,
   /// The client opted into the server-side response cache (Ping `cache`).
   pub(crate) cache: bool,
+  /// The client asked for serve-stale resilience (Ping `resilience`).
+  pub(crate) resilience: bool,
 }
 
 /// Returns the pool member matching an affinity value — either a client's
@@ -415,6 +417,7 @@ pub(crate) async fn pick_proxy_client(
     instance_id: c.reported_instance_id.clone(),
     protocol: c.client_protocol,
     cache: c.cache,
+    resilience: c.resilience,
   })
 }
 

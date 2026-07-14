@@ -296,6 +296,82 @@ pub(crate) async fn proxy_handler(
   response
 }
 
+/// Serve-stale fallback: when a route has no client to dispatch to, a
+/// resilient cached response (fresh, or expired within the max-stale window)
+/// beats a 504. Entries qualify only if the client that produced them
+/// announced `resilience`, so a normal service never serves stale content;
+/// the moment a healthy client reconnects, the regular proxy path takes over.
+async fn stale_cache_response(
+  state: &Arc<AppState>,
+  method: &str,
+  uri: &str,
+  headers: &HeaderMap,
+  start_time: Instant,
+) -> Option<Response> {
+  let cfg = state.config();
+  if !cfg.cache_enabled || !crate::cache::request_cacheable(method, headers) {
+    return None;
+  }
+  let host = extract_request_host(headers);
+  let key = crate::cache::cache_key(host.as_deref(), uri);
+  let max_stale = std::time::Duration::from_secs(cfg.cache_max_stale);
+  let hit = state
+    .response_cache
+    .lock()
+    .await
+    .get_for_outage(&key, max_stale)?;
+
+  let duration = start_time.elapsed();
+  let body_len = hit.body.len() as u64;
+  {
+    let mut stats = state.stats.lock().await;
+    stats.total_requests += 1;
+    stats.successful_requests += 1;
+    stats.total_bytes_transferred += body_len;
+  }
+  state.persistent_stats.lock().await.record_request_labeled(
+    true,
+    0,
+    body_len,
+    duration.as_millis() as u64,
+    None,
+    host.as_deref(),
+  );
+  log_request_success(
+    state,
+    uuid::Uuid::new_v4().to_string(),
+    method,
+    uri,
+    hit.status,
+    duration,
+    host.as_deref(),
+    None,
+    None,
+  )
+  .await;
+  telemetry::record_status(&tracing::Span::current(), hit.status);
+  let mut builder = Response::builder()
+    .status(StatusCode::from_u16(hit.status).unwrap_or(StatusCode::OK))
+    .header("x-aperio-cache", "hit")
+    .header("age", hit.age_secs.to_string());
+  if hit.stale {
+    builder = builder.header("x-aperio-stale", "true");
+  }
+  for (k, v) in hit.headers.iter() {
+    if let (Ok(name), Ok(value)) = (
+      HeaderName::from_bytes(k.as_bytes()),
+      HeaderValue::from_str(v),
+    ) {
+      builder = builder.header(name, value);
+    }
+  }
+  builder
+    .body(Body::from(hit.body))
+    .map_err(|_| ())
+    .ok()
+    .or_else(|| Some((StatusCode::INTERNAL_SERVER_ERROR, "cache error").into_response()))
+}
+
 /// Forwards a buffered/streamed HTTP request over the tunnel and maps the
 /// response back. Split out of [`proxy_handler`] so the whole flow runs inside
 /// one instrumented request span.
@@ -401,6 +477,12 @@ async fn proxy_http_request(
     }
 
     if !reconnected {
+      // A resilient cached answer (possibly stale) beats the 504.
+      if let Some(resp) =
+        stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
+      {
+        return resp;
+      }
       log_request_failure(
         &state,
         &method_str,
@@ -457,6 +539,12 @@ async fn proxy_http_request(
   {
     Some(client) => client,
     None => {
+      // A resilient cached answer (possibly stale) beats the 504.
+      if let Some(resp) =
+        stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
+      {
+        return resp;
+      }
       log_request_failure(
         &state,
         &method_str,
@@ -505,7 +593,12 @@ async fn proxy_http_request(
     && selected.cache
     && crate::cache::request_cacheable(&method_str, &headers);
   let cache_key = crate::cache::cache_key(request_host.as_deref(), &uri_str);
-  if cache_eligible && let Some(hit) = state.response_cache.lock().await.get(&cache_key) {
+  if cache_eligible
+    && let Some(hit) = state.response_cache.lock().await.get(
+      &cache_key,
+      std::time::Duration::from_secs(state.config().cache_max_stale),
+    )
+  {
     let duration = start_time.elapsed();
     let body_len = hit.body.len() as u64;
     {
@@ -538,7 +631,8 @@ async fn proxy_http_request(
     telemetry::record_status(&tracing::Span::current(), hit.status);
     let mut builder = Response::builder()
       .status(StatusCode::from_u16(hit.status).unwrap_or(StatusCode::OK))
-      .header("x-aperio-cache", "hit");
+      .header("x-aperio-cache", "hit")
+      .header("age", hit.age_secs.to_string());
     for (k, v) in hit.headers.iter() {
       if let (Ok(name), Ok(value)) = (
         HeaderName::from_bytes(k.as_bytes()),
@@ -982,6 +1076,7 @@ async fn proxy_http_request(
             res_bytes.clone(),
             ttl,
             state.config().cache_max_bytes,
+            selected.resilience,
           );
         }
 

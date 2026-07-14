@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Serve-stale-on-origin-failure (resilience)**: a service that sets `resilience: true` (CLI `--resilience`, env `APERIO_RESILIENCE`; requires `cache: true` and the server-side cache) keeps answering visitors from the server's response cache while no healthy client is connected — instead of a 504. Entries may be served past their advertised lifetime up to `APERIO_CACHE_MAX_STALE` (default 1 hour, `0` disables); stale answers carry `x-aperio-stale: true` and every cached answer now carries an `Age` header. Only entries stored by a resilience-enabled client qualify, and the moment any healthy client reconnects the normal proxy path takes over, so a newly connected client immediately controls the content again. Covered by a new e2e phase (cache hit, fail-closed for non-resilient routes, stale marker during the outage, fresh takeover after reconnect).
+
 ## [0.2.1] - 2026-07-14
 
 ### Added

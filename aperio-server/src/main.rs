@@ -280,6 +280,12 @@ async fn async_main() {
     .and_then(|v| v.trim().parse::<u64>().ok())
     .filter(|v| *v > 0)
     .unwrap_or(64 * 1024 * 1024);
+  // Serve-stale window for resilient services (#69 semantics): how long an
+  // expired cached response may still answer visitors during an outage.
+  let cache_max_stale = std::env::var("APERIO_CACHE_MAX_STALE")
+    .ok()
+    .and_then(|v| v.trim().parse::<u64>().ok())
+    .unwrap_or(3600);
   if cache_enabled {
     info!(
       "Response cache is enabled ({} byte budget) for services that opt in with cache: true",
@@ -510,6 +516,7 @@ async fn async_main() {
     failover_all_methods,
     cache_enabled,
     cache_max_bytes,
+    cache_max_stale,
     max_concurrent_requests,
     login_lockout_threshold: std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")
       .ok()
