@@ -155,7 +155,10 @@ export default function App() {
 
   const signOut = useCallback(async () => {
     await logout()
-    window.location.assign('/aperio/auth')
+    // Carry the dashboard as the post-login destination so signing back in
+    // lands on /aperio again, not the login page's default ('/', the proxied
+    // site root).
+    window.location.assign('/aperio/auth?redirect=/aperio')
   }, [])
 
   // Until the session loads, assume the least privilege so admin-only pages
