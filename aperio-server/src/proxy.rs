@@ -296,6 +296,62 @@ pub(crate) async fn proxy_handler(
   response
 }
 
+/// Builds the visitor response for a cache hit: a full 200 with the stored
+/// body, or a bodyless 304 when the request's `If-None-Match` matches the
+/// entry's validator (synthesized at store time when the backend sent none).
+/// Returns the status actually sent, for stats and the access log.
+fn cache_hit_response(
+  hit: crate::cache::CacheHit,
+  request_headers: &HeaderMap,
+) -> (u16, u64, Response) {
+  let etag = hit
+    .headers
+    .iter()
+    .find(|(n, _)| n.eq_ignore_ascii_case("etag"))
+    .map(|(_, v)| v.clone());
+  let not_modified = request_headers
+    .get("if-none-match")
+    .and_then(|v| v.to_str().ok())
+    .zip(etag.as_deref())
+    .is_some_and(|(inm, tag)| crate::cache::if_none_match_matches(inm, tag));
+
+  let status = if not_modified { 304 } else { hit.status };
+  let mut builder = Response::builder()
+    .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK))
+    .header("x-aperio-cache", "hit")
+    .header("age", hit.age_secs.to_string());
+  if hit.stale {
+    builder = builder.header("x-aperio-stale", "true");
+  }
+  for (k, v) in hit.headers.iter() {
+    // A 304 carries only the metadata a client may need to update its own
+    // cache entry — never entity headers describing a body that isn't there.
+    if not_modified
+      && !matches!(
+        k.to_ascii_lowercase().as_str(),
+        "etag" | "cache-control" | "expires" | "last-modified" | "vary"
+      )
+    {
+      continue;
+    }
+    if let (Ok(name), Ok(value)) = (
+      HeaderName::from_bytes(k.as_bytes()),
+      HeaderValue::from_str(v),
+    ) {
+      builder = builder.header(name, value);
+    }
+  }
+  let (bytes, body) = if not_modified {
+    (0u64, Body::empty())
+  } else {
+    (hit.body.len() as u64, Body::from(hit.body))
+  };
+  let response = builder
+    .body(body)
+    .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "cache error").into_response());
+  (status, bytes, response)
+}
+
 /// Serve-stale fallback: when a route has no client to dispatch to, a
 /// resilient cached response (fresh, or expired within the max-stale window)
 /// beats a 504. Entries qualify only if the client that produced them
@@ -322,7 +378,7 @@ async fn stale_cache_response(
     .get_for_outage(&key, max_stale)?;
 
   let duration = start_time.elapsed();
-  let body_len = hit.body.len() as u64;
+  let (status, body_len, response) = cache_hit_response(hit, headers);
   {
     let mut stats = state.stats.lock().await;
     stats.total_requests += 1;
@@ -342,34 +398,15 @@ async fn stale_cache_response(
     uuid::Uuid::new_v4().to_string(),
     method,
     uri,
-    hit.status,
+    status,
     duration,
     host.as_deref(),
     None,
     None,
   )
   .await;
-  telemetry::record_status(&tracing::Span::current(), hit.status);
-  let mut builder = Response::builder()
-    .status(StatusCode::from_u16(hit.status).unwrap_or(StatusCode::OK))
-    .header("x-aperio-cache", "hit")
-    .header("age", hit.age_secs.to_string());
-  if hit.stale {
-    builder = builder.header("x-aperio-stale", "true");
-  }
-  for (k, v) in hit.headers.iter() {
-    if let (Ok(name), Ok(value)) = (
-      HeaderName::from_bytes(k.as_bytes()),
-      HeaderValue::from_str(v),
-    ) {
-      builder = builder.header(name, value);
-    }
-  }
-  builder
-    .body(Body::from(hit.body))
-    .map_err(|_| ())
-    .ok()
-    .or_else(|| Some((StatusCode::INTERNAL_SERVER_ERROR, "cache error").into_response()))
+  telemetry::record_status(&tracing::Span::current(), status);
+  Some(response)
 }
 
 /// Forwards a buffered/streamed HTTP request over the tunnel and maps the
@@ -600,7 +637,7 @@ async fn proxy_http_request(
     )
   {
     let duration = start_time.elapsed();
-    let body_len = hit.body.len() as u64;
+    let (status, body_len, response) = cache_hit_response(hit, &headers);
     {
       let mut stats = state.stats.lock().await;
       stats.total_requests += 1;
@@ -621,29 +658,15 @@ async fn proxy_http_request(
       request_id,
       &method_str,
       &uri_str,
-      hit.status,
+      status,
       duration,
       request_host.as_deref(),
       Some(&selected.id),
       selected.token_name.as_deref(),
     )
     .await;
-    telemetry::record_status(&tracing::Span::current(), hit.status);
-    let mut builder = Response::builder()
-      .status(StatusCode::from_u16(hit.status).unwrap_or(StatusCode::OK))
-      .header("x-aperio-cache", "hit")
-      .header("age", hit.age_secs.to_string());
-    for (k, v) in hit.headers.iter() {
-      if let (Ok(name), Ok(value)) = (
-        HeaderName::from_bytes(k.as_bytes()),
-        HeaderValue::from_str(v),
-      ) {
-        builder = builder.header(name, value);
-      }
-    }
-    return builder
-      .body(Body::from(hit.body))
-      .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "cache error").into_response());
+    telemetry::record_status(&tracing::Span::current(), status);
+    return response;
   }
 
   // Protocol v2 upload streaming: large (or chunked) request bodies are

@@ -21,8 +21,8 @@
 #   I. h2          — h2c:// backend (HTTP/2 prior knowledge) with gRPC-style
 #                    response trailers relayed end to end
 #   J. sessions    — dashboard sessions survive a server restart
-#   K. cache       — response cache hits and serve-stale for resilient
-#                    services while their client is offline
+#   K. cache       — response cache hits, ETag/304 conditional answers, and
+#                    serve-stale for resilient services while offline
 #
 # Usage: bash tests/e2e.sh
 # Expects target/debug binaries (override with APERIO_SERVER_BIN/APERIO_CLIENT_BIN).
@@ -1296,6 +1296,16 @@ wait_routable plain.e2e.local /data
 curl -sf -H "Host: cache.e2e.local" "$BASE/data" >/dev/null || fail "resilient warm-up failed"
 HDRS="$(curl -s -D - -o /dev/null -H "Host: cache.e2e.local" "$BASE/data")"
 assert_contains "$HDRS" "x-aperio-cache: hit" "second GET is served from the cache"
+
+# Conditional GET: the cached entry carries a validator (synthesized when the
+# backend sends none) and a matching If-None-Match is answered 304 edge-side.
+ETAG="$(printf '%s' "$HDRS" | tr -d '\r' | awk 'tolower($1)=="etag:"{print $2}')"
+[ -n "$ETAG" ] || fail "cached response carries an ETag"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: cache.e2e.local" -H "If-None-Match: $ETAG" "$BASE/data")"
+assert_status 304 "$CODE" "matching If-None-Match is answered 304 from the cache"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: cache.e2e.local" -H 'If-None-Match: "other"' "$BASE/data")"
+assert_status 200 "$CODE" "non-matching If-None-Match still gets the full body"
+
 curl -sf -H "Host: plain.e2e.local" "$BASE/data" >/dev/null || fail "plain warm-up failed"
 
 # Non-resilient route: killing its client means 504 even with a cached entry.

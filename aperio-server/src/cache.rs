@@ -11,6 +11,32 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+/// Strong ETag synthesized from a cached body (hex SHA-256, truncated).
+/// Backends that send their own validator are left untouched; this only
+/// fills the gap so conditional requests can be answered at the edge.
+pub(crate) fn synthesize_etag(body: &[u8]) -> String {
+  use sha2::{Digest, Sha256};
+  let mut hasher = Sha256::new();
+  hasher.update(body);
+  let digest = hasher.finalize();
+  let hex: String = digest[..16].iter().map(|b| format!("{:02x}", b)).collect();
+  format!("\"ap-{}\"", hex)
+}
+
+/// True when an `If-None-Match` header value matches `etag`: either `*` or
+/// any member of the comma-separated list, compared weakly (a `W/` prefix on
+/// either side is ignored, per RFC 9110 conditional-GET semantics).
+pub(crate) fn if_none_match_matches(if_none_match: &str, etag: &str) -> bool {
+  let strip = |t: &str| t.trim().trim_start_matches("W/").to_string();
+  let target = strip(etag);
+  if target.is_empty() {
+    return false;
+  }
+  if_none_match
+    .split(',')
+    .any(|candidate| candidate.trim() == "*" || strip(candidate) == target)
+}
+
 /// One cached response.
 struct CachedResponse {
   status: u16,
@@ -143,6 +169,12 @@ impl ResponseCache {
       return;
     }
     self.total_bytes += size;
+    // Fill in a validator when the backend sent none, so conditional GETs
+    // can be answered with 304 at the edge without a tunnel round-trip.
+    let mut headers = headers;
+    if !headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("etag")) {
+      headers.push(("etag".to_string(), synthesize_etag(&body)));
+    }
     let now = Instant::now();
     self.entries.insert(
       key,
@@ -358,6 +390,62 @@ mod tests {
       "closest-to-expiry evicted"
     );
     assert!(cache.get("h|/3", Duration::ZERO).is_some());
+  }
+
+  #[test]
+  fn test_etag_synthesis_and_matching() {
+    // Deterministic, quoted, distinct per body.
+    let a = synthesize_etag(b"hello");
+    let b = synthesize_etag(b"world");
+    assert!(a.starts_with("\"ap-") && a.ends_with('"'));
+    assert_ne!(a, b);
+    assert_eq!(a, synthesize_etag(b"hello"));
+
+    // If-None-Match semantics: exact, list, wildcard, weak comparison.
+    assert!(if_none_match_matches(&a, &a));
+    assert!(if_none_match_matches(&format!("{}, {}", b, a), &a));
+    assert!(if_none_match_matches("*", &a));
+    assert!(if_none_match_matches(&format!("W/{}", a), &a));
+    assert!(!if_none_match_matches(&b, &a));
+    assert!(!if_none_match_matches("", &a));
+
+    // insert() adds a validator only when the backend sent none.
+    let mut cache = ResponseCache::default();
+    cache.insert(
+      "h|/no-etag".to_string(),
+      200,
+      Vec::new(),
+      b"hello".to_vec(),
+      Duration::from_secs(60),
+      4096,
+      false,
+    );
+    let hit = cache.get("h|/no-etag", Duration::ZERO).unwrap();
+    let etag = hit
+      .headers
+      .iter()
+      .find(|(n, _)| n.eq_ignore_ascii_case("etag"))
+      .map(|(_, v)| v.clone())
+      .expect("etag synthesized");
+    assert_eq!(etag, synthesize_etag(b"hello"));
+
+    cache.insert(
+      "h|/has-etag".to_string(),
+      200,
+      vec![("ETag".to_string(), "\"origin\"".to_string())],
+      b"hello".to_vec(),
+      Duration::from_secs(60),
+      4096,
+      false,
+    );
+    let hit = cache.get("h|/has-etag", Duration::ZERO).unwrap();
+    let etags: Vec<_> = hit
+      .headers
+      .iter()
+      .filter(|(n, _)| n.eq_ignore_ascii_case("etag"))
+      .collect();
+    assert_eq!(etags.len(), 1, "origin validator must not be duplicated");
+    assert_eq!(etags[0].1, "\"origin\"");
   }
 
   #[test]
