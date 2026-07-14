@@ -579,4 +579,7 @@ export const tr: Record<string, string> = {
   'End session': 'Oturumu sonlandır',
   'Session ended': 'Oturum sonlandırıldı',
   '{count} other session(s) ended': '{count} diğer oturum sonlandırıldı',
+  'usernameless': 'kullanıcı adsız',
+  'Allow signing in without a username': 'Kullanıcı adı yazmadan girişe izin ver',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Kullanıcı adı boşken passkey düğmesine basıldığında bu passkey doğrudan önerilir. Kimlik bilgisini cihazda saklayan bir doğrulayıcı gerektirir (platform doğrulayıcıları ve modern güvenlik anahtarları saklar).',
 }

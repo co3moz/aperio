@@ -46,8 +46,13 @@ interface CreationChallenge {
   }
 }
 
-/** Runs the registration ceremony against an already-fetched challenge. */
-export async function createPasskeyCredential(start: CreationChallenge): Promise<unknown> {
+/** Runs the registration ceremony against an already-fetched challenge.
+ *  `usernameless` asks the authenticator for a discoverable (resident)
+ *  credential, required for signing in without typing a username. */
+export async function createPasskeyCredential(
+  start: CreationChallenge,
+  usernameless = false,
+): Promise<unknown> {
   const pk = start.challenge.publicKey
   const options: CredentialCreationOptions = {
     publicKey: {
@@ -61,6 +66,15 @@ export async function createPasskeyCredential(start: CreationChallenge): Promise
         type: 'public-key' as const,
         id: b64urlToBuf(c.id),
       })),
+      ...(usernameless
+        ? {
+            authenticatorSelection: {
+              ...((pk.authenticatorSelection as Record<string, unknown> | undefined) ?? {}),
+              residentKey: 'required' as const,
+              requireResidentKey: true,
+            },
+          }
+        : {}),
     },
   }
   const cred = (await navigator.credentials.create(options)) as PublicKeyCredential | null
@@ -130,6 +144,25 @@ export async function passkeySignIn(username: string): Promise<void> {
   const start = (await startRes.json()) as RequestChallenge
   const credential = await getPasskeyAssertion(start)
   const finishRes = await fetch('/aperio/auth/passkey/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ceremony_id: start.ceremony_id, credential }),
+  })
+  if (!finishRes.ok) throw new Error(await finishRes.text())
+}
+
+/** Usernameless sign-in: the authenticator's account picker chooses the
+ *  identity. Only passkeys registered with the usernameless opt-in are
+ *  accepted by the server. Throws on failure. */
+export async function passkeySignInDiscoverable(): Promise<void> {
+  const startRes = await fetch('/aperio/auth/passkey/discoverable/start', { method: 'POST' })
+  if (!startRes.ok) throw new Error(await startRes.text())
+  const start = (await startRes.json()) as RequestChallenge
+  // The server hints at conditional mediation; we run a plain modal ceremony
+  // (the user explicitly pressed the passkey button), so drop the hint.
+  delete (start.challenge as Record<string, unknown>).mediation
+  const credential = await getPasskeyAssertion(start)
+  const finishRes = await fetch('/aperio/auth/passkey/discoverable/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ceremony_id: start.ceremony_id, credential }),

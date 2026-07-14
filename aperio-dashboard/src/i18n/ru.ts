@@ -579,4 +579,7 @@ export const ru: Record<string, string> = {
   'End session': 'Завершить сессию',
   'Session ended': 'Сессия завершена',
   '{count} other session(s) ended': 'Завершено других сессий: {count}',
+  'usernameless': 'без имени пользователя',
+  'Allow signing in without a username': 'Разрешить вход без имени пользователя',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Нажатие кнопки passkey с пустым именем пользователя сразу предложит этот ключ. Требуется аутентификатор, хранящий учётные данные (платформенные аутентификаторы и современные ключи безопасности умеют это).',
 }

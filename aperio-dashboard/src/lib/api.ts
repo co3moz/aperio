@@ -195,6 +195,8 @@ export interface PasskeyInfo {
   id: string
   name: string
   created_at: number
+  /** Signs in from the login page without a username. */
+  usernameless?: boolean
 }
 
 export interface AuditEvent {
@@ -345,7 +347,8 @@ export const api = {
       '/me/passkeys/register/start',
       { method: 'POST' },
     ),
-  passkeyRegisterFinish: (payload: { ceremony_id: string; name?: string; credential: unknown }) =>
+  passkeyRegisterFinish: (payload: { ceremony_id: string; name?: string; credential: unknown
+    usernameless?: boolean }) =>
     mutate('/me/passkeys/register/finish', json('POST', payload)),
   passkeyDelete: (id: string) =>
     mutate(`/me/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),

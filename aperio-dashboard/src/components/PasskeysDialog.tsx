@@ -1,4 +1,5 @@
 import { FingerprintIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { TintBadge } from './badges'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,7 @@ export function PasskeysDialog({
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [usernameless, setUsernameless] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -61,11 +63,12 @@ export function PasskeysDialog({
     setError(null)
     try {
       const start = await api.passkeyRegisterStart()
-      const credential = await createPasskeyCredential(start)
+      const credential = await createPasskeyCredential(start, usernameless)
       await api.passkeyRegisterFinish({
         ceremony_id: start.ceremony_id,
         name: name.trim() || undefined,
         credential,
+        usernameless,
       })
       toast.success(t('Passkey registered'))
       setName('')
@@ -124,7 +127,10 @@ export function PasskeysDialog({
                     className="flex items-center justify-between rounded-lg border px-3 py-2"
                   >
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium">{p.name}</span>
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        {p.name}
+                        {p.usernameless && <TintBadge tint="lime">{t('usernameless')}</TintBadge>}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {formatRelativeTime(p.created_at)}
                       </span>
@@ -145,6 +151,21 @@ export function PasskeysDialog({
                 placeholder={t('e.g. YubiKey 5, MacBook Touch ID')}
               />
             </div>
+            <label className="flex items-start gap-2 text-sm" htmlFor="pk-usernameless">
+              <input
+                id="pk-usernameless"
+                type="checkbox"
+                className="mt-0.5 accent-primary"
+                checked={usernameless}
+                onChange={(e) => setUsernameless(e.target.checked)}
+              />
+              <span>
+                {t('Allow signing in without a username')}
+                <span className="block text-xs text-muted-foreground">
+                  {t('Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).')}
+                </span>
+              </span>
+            </label>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>

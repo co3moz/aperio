@@ -47,6 +47,11 @@ pub struct StoredPasskey {
   /// The `webauthn_rs` Passkey, serialized as JSON (public key + counter —
   /// no secret material; the private key never leaves the authenticator).
   pub credential: String,
+  /// The user opted this passkey into usernameless sign-in (discoverable
+  /// credential): pressing the passkey button with an empty username may
+  /// select it. Off = the passkey works only after typing the username.
+  #[serde(default)]
+  pub usernameless: bool,
 }
 
 /// A dashboard user. The password is stored as an Argon2id PHC string.
@@ -294,6 +299,7 @@ impl UserStore {
     id: &str,
     name: &str,
     credential_json: &str,
+    usernameless: bool,
   ) -> Result<StoredPasskey, String> {
     let user = self
       .users
@@ -308,6 +314,7 @@ impl UserStore {
       name: name.to_string(),
       created_at: crate::store::tokens::now_secs(),
       credential: credential_json.to_string(),
+      usernameless,
     };
     user.passkeys.push(stored.clone());
     self.persist();
@@ -498,7 +505,7 @@ mod tests {
       .unwrap();
 
     let stored = store
-      .add_passkey(&user.id, "YubiKey 5", r#"{"fake":"credential"}"#)
+      .add_passkey(&user.id, "YubiKey 5", r#"{"fake":"credential"}"#, false)
       .unwrap();
     assert_eq!(stored.name, "YubiKey 5");
     assert_eq!(store.get(&user.id).unwrap().passkeys.len(), 1);
@@ -512,9 +519,15 @@ mod tests {
 
     // Cap: at most 10 per user.
     for i in 0..9 {
-      store.add_passkey(&user.id, &format!("k{i}"), "{}").unwrap();
+      store
+        .add_passkey(&user.id, &format!("k{i}"), "{}", false)
+        .unwrap();
     }
-    assert!(store.add_passkey(&user.id, "overflow", "{}").is_err());
+    assert!(
+      store
+        .add_passkey(&user.id, "overflow", "{}", false)
+        .is_err()
+    );
 
     // Removal by id; unknown ids are a no-op.
     assert!(store.remove_passkey(&user.id, &stored.id));

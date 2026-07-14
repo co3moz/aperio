@@ -581,4 +581,7 @@ export const de: Record<string, string> = {
   'End session': 'Sitzung beenden',
   'Session ended': 'Sitzung beendet',
   '{count} other session(s) ended': '{count} andere Sitzung(en) beendet',
+  'usernameless': 'ohne Benutzername',
+  'Allow signing in without a username': 'Anmeldung ohne Benutzernamen erlauben',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Wird der Passkey-Button mit leerem Benutzernamen gedrückt, wird dieser Passkey direkt angeboten. Erfordert einen Authenticator, der das Credential speichert (Plattform-Authenticator und moderne Sicherheitsschlüssel tun das).',
 }

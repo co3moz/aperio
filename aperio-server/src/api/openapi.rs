@@ -34,6 +34,8 @@ use utoipa::OpenApi;
     crate::api::users::totp_disable_handler,
     crate::api::users::totp_admin_reset_handler,
     crate::webauthn::passkey_available_handler,
+    crate::webauthn::passkey_discoverable_start_handler,
+    crate::webauthn::passkey_discoverable_finish_handler,
     crate::webauthn::passkey_login_start_handler,
     crate::webauthn::passkey_login_finish_handler,
     crate::webauthn::passkeys_list_handler,

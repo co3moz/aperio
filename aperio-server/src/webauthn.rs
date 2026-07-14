@@ -76,6 +76,9 @@ const CHALLENGE_TTL: Duration = Duration::from_secs(300);
 pub(crate) struct WebauthnCeremonies {
   reg: HashMap<String, (Instant, String, PasskeyRegistration)>,
   auth: HashMap<String, (Instant, String, PasskeyAuthentication)>,
+  /// Usernameless (discoverable) sign-ins: no user is known until the
+  /// authenticator returns a credential with its user handle.
+  disc: HashMap<String, (Instant, DiscoverableAuthentication)>,
 }
 
 impl WebauthnCeremonies {
@@ -87,6 +90,9 @@ impl WebauthnCeremonies {
     self
       .auth
       .retain(|_, (t, _, _)| now.duration_since(*t) < CHALLENGE_TTL);
+    self
+      .disc
+      .retain(|_, (t, _)| now.duration_since(*t) < CHALLENGE_TTL);
   }
 }
 
@@ -187,6 +193,10 @@ pub(crate) struct PasskeyRegisterFinishRequest {
   /// Display name for the new passkey (e.g. "YubiKey 5", "MacBook Touch ID").
   #[serde(default)]
   pub(crate) name: Option<String>,
+  /// Allow signing in with this passkey without typing a username
+  /// (requires a discoverable/resident credential).
+  #[serde(default)]
+  pub(crate) usernameless: bool,
   /// The browser's `navigator.credentials.create()` result.
   #[schema(value_type = Object)]
   pub(crate) credential: RegisterPublicKeyCredential,
@@ -244,15 +254,16 @@ pub(crate) async fn passkey_register_finish_handler(
     .chars()
     .take(64)
     .collect::<String>();
-  let stored = match state
-    .users
-    .lock()
-    .await
-    .add_passkey(&user_id, &name, &serialized)
-  {
-    Ok(p) => p,
-    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
-  };
+  let stored =
+    match state
+      .users
+      .lock()
+      .await
+      .add_passkey(&user_id, &name, &serialized, payload.usernameless)
+    {
+      Ok(p) => p,
+      Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
   let ip = crate::routing::extract_client_ip(
     &headers,
     addr.ip(),
@@ -289,7 +300,7 @@ pub(crate) async fn passkeys_list_handler(
     .map(|u| {
       u.passkeys
         .iter()
-        .map(|p| serde_json::json!({"id": p.id, "name": p.name, "created_at": p.created_at}))
+        .map(|p| serde_json::json!({"id": p.id, "name": p.name, "created_at": p.created_at, "usernameless": p.usernameless}))
         .collect()
     })
     .unwrap_or_default();
@@ -489,6 +500,237 @@ pub(crate) async fn passkey_login_finish_handler(
       &client_ip.to_string(),
       &format!(
         "session created (user={}, role={}, passkey)",
+        username,
+        role.as_str()
+      ),
+    )
+    .await;
+
+  let session_token = uuid::Uuid::new_v4().to_string();
+  state.sessions.lock().await.insert(
+    &session_token,
+    SessionInfo {
+      expires_at: crate::store::sessions::now_secs() + 86400,
+      created_at: crate::store::sessions::now_secs(),
+      ip: Some(client_ip.to_string()),
+      user_agent: crate::store::sessions::session_user_agent(&headers),
+      scope_host: None,
+      username: Some(username),
+      role,
+    },
+  );
+  let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
+  let cookie = format!(
+    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+    session_token, secure_flag
+  );
+  Response::builder()
+    .status(StatusCode::OK)
+    .header("Set-Cookie", cookie)
+    .body(axum::body::Body::empty())
+    .unwrap()
+}
+
+/// Starts a usernameless (discoverable-credential) sign-in: no username is
+/// needed — the authenticator's account picker supplies the identity.
+#[utoipa::path(post, path = "/aperio/auth/passkey/discoverable/start", tag = "auth",
+  description = "Starts a usernameless passkey sign-in; the returned challenge lets the authenticator pick from its resident credentials.",
+  responses((status = 200, description = "Request challenge", body = serde_json::Value), (status = 501, description = "Passkeys not configured")))]
+pub(crate) async fn passkey_discoverable_start_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let webauthn = match webauthn_or_disabled(&state) {
+    Ok(w) => w,
+    Err(resp) => return *resp,
+  };
+  let cfg = state.config();
+  let client_ip = crate::routing::extract_client_ip(
+    &headers,
+    addr.ip(),
+    cfg.trust_proxy,
+    cfg.real_ip_header.as_deref(),
+    &cfg.trusted_proxies,
+  );
+  if !state.check_rate_limit(client_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Rate limited").into_response();
+  }
+  if state
+    .login_lockout
+    .lock()
+    .await
+    .locked(client_ip, Instant::now())
+    .is_some()
+  {
+    return (StatusCode::TOO_MANY_REQUESTS, "Locked out").into_response();
+  }
+  let (challenge, disc_state) = match webauthn.start_discoverable_authentication() {
+    Ok(x) => x,
+    Err(e) => {
+      warn!("Discoverable authentication start failed: {}", e);
+      return (StatusCode::BAD_REQUEST, "Could not start authentication").into_response();
+    }
+  };
+  let ceremony_id = uuid::Uuid::new_v4().to_string();
+  {
+    let mut ceremonies = state.webauthn_ceremonies.lock().await;
+    ceremonies.gc();
+    ceremonies
+      .disc
+      .insert(ceremony_id.clone(), (Instant::now(), disc_state));
+  }
+  Json(serde_json::json!({ "ceremony_id": ceremony_id, "challenge": challenge })).into_response()
+}
+
+/// Completes a usernameless passkey sign-in. Only passkeys registered with
+/// the usernameless opt-in may sign in this way.
+#[utoipa::path(post, path = "/aperio/auth/passkey/discoverable/finish", tag = "auth",
+  description = "Completes a usernameless passkey sign-in; the credential's user handle identifies the account. Only passkeys registered with the usernameless opt-in are accepted.",
+  request_body = PasskeyLoginFinishRequest,
+  responses((status = 200, description = "Signed in"), (status = 401, description = "Verification failed or the passkey is not enabled for usernameless sign-in")))]
+pub(crate) async fn passkey_discoverable_finish_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<PasskeyLoginFinishRequest>,
+) -> Response {
+  let webauthn = match webauthn_or_disabled(&state) {
+    Ok(w) => w,
+    Err(resp) => return *resp,
+  };
+  let cfg = state.config();
+  let client_ip = crate::routing::extract_client_ip(
+    &headers,
+    addr.ip(),
+    cfg.trust_proxy,
+    cfg.real_ip_header.as_deref(),
+    &cfg.trusted_proxies,
+  );
+  let disc_entry = {
+    let mut ceremonies = state.webauthn_ceremonies.lock().await;
+    ceremonies.gc();
+    ceremonies.disc.remove(&payload.ceremony_id)
+  };
+  let Some((_, disc_state)) = disc_entry else {
+    return (StatusCode::BAD_REQUEST, "Unknown or expired ceremony").into_response();
+  };
+
+  let fail = |reason: String| -> Response {
+    warn!("Usernameless passkey sign-in failed: {}", reason);
+    (StatusCode::UNAUTHORIZED, "Verification failed").into_response()
+  };
+
+  // The credential carries its user handle: the UUID we registered with.
+  let (user_uuid, cred_id) =
+    match webauthn.identify_discoverable_authentication(&payload.credential) {
+      Ok(x) => x,
+      Err(e) => {
+        state
+          .audit(
+            "login_failed",
+            &client_ip.to_string(),
+            "usernameless passkey: unidentifiable credential",
+          )
+          .await;
+        let locked = state
+          .login_lockout
+          .lock()
+          .await
+          .record_failure(client_ip, Instant::now());
+        if locked.is_some() {
+          state
+            .audit("login_lockout", &client_ip.to_string(), "passkey failures")
+            .await;
+        }
+        return fail(format!("unidentifiable credential: {e}"));
+      }
+    };
+  let user_id = user_uuid.to_string();
+
+  // Resolve the user and the exact passkey; the usernameless opt-in gates
+  // this path — a passkey registered without it stays username-first only.
+  let (keys, allowed) = {
+    let users = state.users.lock().await;
+    match users.get(&user_id) {
+      Some(user) if user.enabled => {
+        let parsed: Vec<(Passkey, bool)> = user
+          .passkeys
+          .iter()
+          .filter_map(|p| {
+            serde_json::from_str::<Passkey>(&p.credential)
+              .ok()
+              .map(|key| (key, p.usernameless))
+          })
+          .collect();
+        let allowed = parsed
+          .iter()
+          .any(|(key, usernameless)| *key.cred_id() == cred_id && *usernameless);
+        (
+          parsed
+            .iter()
+            .map(|(key, _)| DiscoverableKey::from(key))
+            .collect::<Vec<_>>(),
+          allowed,
+        )
+      }
+      _ => (Vec::new(), false),
+    }
+  };
+  if keys.is_empty() {
+    return fail("no passkeys for the identified user".to_string());
+  }
+  if !allowed {
+    state
+      .audit(
+        "login_failed",
+        &client_ip.to_string(),
+        "usernameless passkey: credential not opted in",
+      )
+      .await;
+    return fail("the passkey is not enabled for usernameless sign-in".to_string());
+  }
+
+  let result =
+    match webauthn.finish_discoverable_authentication(&payload.credential, disc_state, &keys) {
+      Ok(r) => r,
+      Err(e) => {
+        state
+          .audit(
+            "login_failed",
+            &client_ip.to_string(),
+            "usernameless passkey verification failed",
+          )
+          .await;
+        let locked = state
+          .login_lockout
+          .lock()
+          .await
+          .record_failure(client_ip, Instant::now());
+        if locked.is_some() {
+          state
+            .audit("login_lockout", &client_ip.to_string(), "passkey failures")
+            .await;
+        }
+        return fail(format!("verification failed: {e}"));
+      }
+    };
+
+  let (username, role) = {
+    let mut users = state.users.lock().await;
+    users.update_passkey_after_auth(&user_id, &result);
+    match users.get(&user_id) {
+      Some(u) if u.enabled => (u.username.clone(), u.role),
+      _ => return (StatusCode::UNAUTHORIZED, "User disabled").into_response(),
+    }
+  };
+  state.login_lockout.lock().await.clear(client_ip);
+  state
+    .audit(
+      "login_success",
+      &client_ip.to_string(),
+      &format!(
+        "session created (user={}, role={}, passkey, usernameless)",
         username,
         role.as_str()
       ),

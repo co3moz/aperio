@@ -577,4 +577,7 @@ export const ja: Record<string, string> = {
   'End session': 'セッションを終了',
   'Session ended': 'セッションを終了しました',
   '{count} other session(s) ended': '{count} 件の他のセッションを終了しました',
+  'usernameless': 'ユーザー名不要',
+  'Allow signing in without a username': 'ユーザー名なしのサインインを許可',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'ユーザー名を空にしてパスキーボタンを押すと、このパスキーが直接提示されます。資格情報を保存できる認証器が必要です（プラットフォーム認証器や最新のセキュリティキーは対応しています）。',
 }

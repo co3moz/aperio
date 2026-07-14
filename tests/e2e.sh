@@ -417,6 +417,10 @@ echo "  ok: body secrets never leave the server"
 REPLAY="$(curl -s -b "$COOKIES" -X POST "$BASE/aperio/api/requests/${RED_ID}/replay")"
 assert_contains "$REPLAY" '"status":200' "redacted captures still replay with their original bytes"
 
+step "Passkeys disabled by default"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/aperio/auth/passkey/discoverable/start")"
+assert_status 501 "$CODE" "usernameless start answers 501 without APERIO_WEBAUTHN_ORIGIN"
+
 step "Webhooks API"
 HOOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"name\":\"e2e-hook\",\"url\":\"http://127.0.0.1:${BACKEND_PORT}/hook\",\"events\":[\"client_connected\"]}" \
@@ -1307,6 +1311,7 @@ env PORT="$SERVER_PORT" \
   APERIO_RANDOM_SUBDOMAIN='*.e2e.local' \
   APERIO_SERVER_GATEWAY_TIMEOUT=3 \
   APERIO_UPTIME_TICK_SECS=1 \
+  APERIO_WEBAUTHN_ORIGIN=http://localhost:18100 \
   "$SERVER_BIN" >"$LOG_DIR/server-sessions-restarted.log" 2>&1 &
 SERVER_PID=$!
 retry 15 curl -sf "$BASE/aperio/health" || fail "server did not come back up"
@@ -1344,6 +1349,20 @@ assert_status 200 "$CODE" "the caller's own session survives sign-out-everywhere
 # Re-create the user session for the logout checks below.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$UJAR" -X POST -u 'e2e-restart:restart-password' "$BASE/aperio/auth")"
 assert_status 200 "$CODE" "the user signs in once more"
+
+step "Usernameless passkey endpoints"
+PK="$(curl -s "$BASE/aperio/auth/passkey")"
+assert_contains "$PK" '"available":true' "passkey support is on for this phase"
+DISC="$(curl -s -X POST "$BASE/aperio/auth/passkey/discoverable/start")"
+assert_contains "$DISC" '"ceremony_id"' "discoverable start returns a ceremony"
+assert_contains "$DISC" '"challenge"' "discoverable start returns a challenge"
+DISC_ID="$(echo "$DISC" | sed -n 's/.*"ceremony_id":"\([^"]*\)".*/\1/p')"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  --data "{\"ceremony_id\":\"${DISC_ID}\",\"credential\":{}}" "$BASE/aperio/auth/passkey/discoverable/finish")"
+case "$CODE" in 400|401|422) echo "  ok: garbage discoverable credentials are rejected ($CODE)" ;; *) fail "expected 4xx for a garbage credential, got $CODE" ;; esac
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  --data '{"ceremony_id":"nope","credential":{}}' "$BASE/aperio/auth/passkey/discoverable/finish")"
+case "$CODE" in 400|422) echo "  ok: unknown ceremonies are rejected ($CODE)" ;; *) fail "expected 400/422 for an unknown ceremony, got $CODE" ;; esac
 
 # Logout still removes it durably.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$UJAR" -X POST "$BASE/aperio/auth/logout")"

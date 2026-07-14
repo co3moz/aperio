@@ -560,4 +560,7 @@ export const zh: Record<string, string> = {
   'End session': '结束会话',
   'Session ended': '会话已结束',
   '{count} other session(s) ended': '已结束 {count} 个其他会话',
+  'usernameless': '免用户名',
+  'Allow signing in without a username': '允许不输入用户名登录',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': '用户名留空时按下通行密钥按钮会直接提供此通行密钥。需要能够存储凭据的验证器（平台验证器和新型安全密钥均支持）。',
 }

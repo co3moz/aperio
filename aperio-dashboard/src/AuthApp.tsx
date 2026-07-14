@@ -12,7 +12,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useI18n } from '@/i18n'
-import { browserSupportsPasskeys, passkeySignIn, serverSupportsPasskeys } from '@/lib/webauthn'
+import {
+  browserSupportsPasskeys,
+  passkeySignIn,
+  passkeySignInDiscoverable,
+  serverSupportsPasskeys,
+} from '@/lib/webauthn'
 
 // Only allow same-origin relative redirects to prevent open redirect abuse.
 // Rejects protocol-relative URLs (//evil.com) and backslash-based bypasses.
@@ -42,15 +47,17 @@ export function AuthApp() {
   const signInWithPasskey = async () => {
     setError(false)
     setPasskeyError(false)
-    if (!username.trim()) {
-      setPasskeyError(true)
-      return
-    }
     setBusy(true)
     const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/'
     const dest = safeRedirect(raw)
     try {
-      await passkeySignIn(username.trim())
+      // With a username the classic flow runs; without one the authenticator's
+      // account picker takes over (usernameless-enabled passkeys only).
+      if (username.trim()) {
+        await passkeySignIn(username.trim())
+      } else {
+        await passkeySignInDiscoverable()
+      }
       window.location.href = dest
     } catch {
       setPasskeyError(true)

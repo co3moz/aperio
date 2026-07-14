@@ -579,4 +579,7 @@ export const es: Record<string, string> = {
   'End session': 'Finalizar sesión',
   'Session ended': 'Sesión finalizada',
   '{count} other session(s) ended': '{count} otra(s) sesión(es) finalizada(s)',
+  'usernameless': 'sin usuario',
+  'Allow signing in without a username': 'Permitir iniciar sesión sin nombre de usuario',
+  'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Al pulsar el botón de passkey con el usuario vacío, esta passkey se ofrece directamente. Requiere un autenticador que almacene la credencial (los de plataforma y las llaves de seguridad modernas lo hacen).',
 }

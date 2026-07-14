@@ -865,10 +865,19 @@ async fn async_main() {
     "/aperio/auth/passkey",
     get(crate::webauthn::passkey_available_handler),
   );
-  app = app.route(
-    "/aperio/auth/passkey/start",
-    axum::routing::post(crate::webauthn::passkey_login_start_handler),
-  );
+  app = app
+    .route(
+      "/aperio/auth/passkey/start",
+      axum::routing::post(crate::webauthn::passkey_login_start_handler),
+    )
+    .route(
+      "/aperio/auth/passkey/discoverable/start",
+      axum::routing::post(crate::webauthn::passkey_discoverable_start_handler),
+    )
+    .route(
+      "/aperio/auth/passkey/discoverable/finish",
+      axum::routing::post(crate::webauthn::passkey_discoverable_finish_handler),
+    );
   app = app.route(
     "/aperio/auth/passkey/finish",
     axum::routing::post(crate::webauthn::passkey_login_finish_handler),
