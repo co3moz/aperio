@@ -15,3 +15,4 @@ These rules apply to all future work in this repository.
 
 ## Feature Planning
 6. Future feature ideas live in `planned_features.md`, **always in English**, using `[ ]` / `[x]` checkbox syntax. Whenever a "would be nice later" idea comes up, record it there; tick items off as they ship.
+7. **Backlog items are numbered with stable `#N` ids** (in the "Future ideas" section of `planned_features.md`). When asked to do "planned_features #5", look up that id in the file. Ids are never renumbered or reused; a shipped item keeps its id and flips to `[x]` in place (with a short "shipped: ..." note); a new idea takes the next free number at the end of its category.
