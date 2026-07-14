@@ -50,7 +50,8 @@ use crate::api::tokens::{
 };
 use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
 use crate::api::webhooks::{
-  audit_handler, webhooks_create_handler, webhooks_delete_handler, webhooks_list_handler,
+  audit_handler, webhook_deliveries_handler, webhook_redeliver_handler, webhooks_create_handler,
+  webhooks_delete_handler, webhooks_list_handler,
 };
 use crate::api::{dashboard_asset_handler, dashboard_handler, health_handler};
 use crate::auth::{
@@ -648,6 +649,9 @@ async fn async_main() {
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
+    webhook_deliveries: std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
+      &data_dir,
+    ))),
     webauthn: crate::webauthn::build_webauthn(),
     webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
     uptime: Mutex::new(crate::store::uptime::UptimeStore::load(&data_dir)),
@@ -723,6 +727,11 @@ async fn async_main() {
       .route(
         "/api/webhooks/:id",
         axum::routing::delete(webhooks_delete_handler),
+      )
+      .route("/api/webhooks/deliveries", get(webhook_deliveries_handler))
+      .route(
+        "/api/webhooks/deliveries/:id/redeliver",
+        axum::routing::post(webhook_redeliver_handler),
       )
       .route(
         "/api/openapi.json",

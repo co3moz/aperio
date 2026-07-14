@@ -559,4 +559,12 @@ export const ja: Record<string, string> = {
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'インポートするとこのサーバーのトークン、Webhook、ユーザー、設定が置き換えられます。続行しますか？',
   'HAR': 'HAR',
   'Download as an HAR file (devtools importable)': 'HAR ファイルとしてダウンロード（devtools に取り込み可能）',
+  'Recent deliveries': '最近の配信',
+  'Result': '結果',
+  'Attempts': '試行回数',
+  'When': '日時',
+  'No deliveries yet': 'まだ配信はありません',
+  'failed': '失敗',
+  'Redeliver': '再配信',
+  'Redelivery of "{event}" queued': '「{event}」の再配信をキューに追加しました',
 }

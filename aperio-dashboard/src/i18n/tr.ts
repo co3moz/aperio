@@ -561,4 +561,12 @@ export const tr: Record<string, string> = {
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'İçe aktarma bu sunucunun token, webhook, kullanıcı ve ayarlarını değiştirir. Devam edilsin mi?',
   'HAR': 'HAR',
   'Download as an HAR file (devtools importable)': "HAR dosyası olarak indir (devtools'a aktarılabilir)",
+  'Recent deliveries': 'Son teslimatlar',
+  'Result': 'Sonuç',
+  'Attempts': 'Deneme',
+  'When': 'Zaman',
+  'No deliveries yet': 'Henüz teslimat yok',
+  'failed': 'başarısız',
+  'Redeliver': 'Yeniden gönder',
+  'Redelivery of "{event}" queued': '"{event}" olayının yeniden gönderimi sıraya alındı',
 }

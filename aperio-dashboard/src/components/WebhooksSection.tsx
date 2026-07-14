@@ -1,4 +1,4 @@
-import { PlusIcon, Trash2Icon } from 'lucide-react'
+import { PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
@@ -44,8 +44,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
-import { api, ApiError, type Webhook } from '@/lib/api'
-import { splitList } from '@/lib/format'
+import { api, ApiError, type Webhook, type WebhookDelivery } from '@/lib/api'
+import { formatRelativeTime, splitList } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
@@ -217,6 +217,99 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
   )
 }
 
+function DeliveriesTable() {
+  const { t } = useI18n()
+  const canMutate = useHasRole('operator')
+  const { data: deliveries, refresh } = usePoll(api.webhookDeliveries, 10_000)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const redeliver = async (d: WebhookDelivery) => {
+    setBusyId(d.id)
+    try {
+      await api.redeliverWebhook(d.id)
+      toast.success(t('Redelivery of "{event}" queued', { event: d.event }))
+      refresh()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <>
+      <SectionHeader title={t('Recent deliveries')} />
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('Event')}</TableHead>
+              <TableHead>{t('Webhook')}</TableHead>
+              <TableHead>{t('Result')}</TableHead>
+              <TableHead>{t('Attempts')}</TableHead>
+              <TableHead>{t('When')}</TableHead>
+              <TableHead className="text-right">{t('Actions')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {deliveries === null ? (
+              <SkeletonRows rows={3} cols={6} />
+            ) : deliveries.length === 0 ? (
+              <EmptyRow colSpan={6}>{t('No deliveries yet')}</EmptyRow>
+            ) : (
+              deliveries.map((d) => (
+                <TableRow key={d.id}>
+                  <TableCell>
+                    <TintBadge tint="lime">{d.event}</TintBadge>
+                  </TableCell>
+                  <TableCell className="font-medium">{d.webhook_name}</TableCell>
+                  <TableCell>
+                    {d.success ? (
+                      <TintBadge tint="green">{d.status ?? 200}</TintBadge>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <TintBadge tint="red">{d.status ?? t('failed')}</TintBadge>
+                        {d.error && (
+                          <span
+                            className="max-w-56 truncate text-xs text-muted-foreground"
+                            title={d.error}
+                          >
+                            {d.error}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{d.attempts}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatRelativeTime(d.timestamp)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      {canMutate ? (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={busyId === d.id}
+                          onClick={() => void redeliver(d)}
+                        >
+                          {busyId === d.id ? <Spinner /> : <RotateCwIcon />} {t('Redeliver')}
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </>
+  )
+}
+
 export function WebhooksSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
@@ -279,6 +372,7 @@ export function WebhooksSection() {
           </TableBody>
         </Table>
       </Card>
+      <DeliveriesTable />
     </section>
   )
 }

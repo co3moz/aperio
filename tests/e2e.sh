@@ -158,6 +158,7 @@ start_server() { # [KEY=VAL ...]
     APERIO_RANDOM_SUBDOMAIN='*.e2e.local' \
     APERIO_SERVER_GATEWAY_TIMEOUT=3 \
     APERIO_UPTIME_TICK_SECS=1 \
+    APERIO_WEBHOOK_RETRY_SCHEDULE=0 \
     "$@" \
     "$SERVER_BIN" >"$LOG_DIR/server-$PHASE.log" 2>&1 &
   SERVER_PID=$!
@@ -418,6 +419,48 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content
 assert_status 400 "$CODE" "unknown webhook formats are rejected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${SLACK_ID}")"
 assert_status 200 "$CODE" "slack webhook deletion succeeds"
+
+step "Webhook delivery log & redelivery"
+# A webhook the backend accepts: token_created events deliver successfully.
+DLV="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"name\":\"e2e-deliveries\",\"url\":\"http://127.0.0.1:${BACKEND_PORT}/hook\",\"events\":[\"token_created\"]}" \
+  "$BASE/aperio/api/webhooks")" || fail "delivery webhook creation failed"
+DLV_ID="$(echo "$DLV" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+# And one nothing listens on: delivery must be retried, then recorded failed.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"e2e-dead","url":"http://127.0.0.1:9/hook","events":["token_created"]}' \
+  "$BASE/aperio/api/webhooks" >/dev/null || fail "dead webhook creation failed"
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"dlv-probe","hostnames":["dlv.e2e.local"]}' "$BASE/aperio/api/tokens" >/dev/null \
+  || fail "token creation (delivery trigger) failed"
+DELIVERIES=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  DELIVERIES="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks/deliveries")"
+  case "$DELIVERIES" in
+    *'"webhook_name":"e2e-deliveries"'*'"webhook_name":"e2e-dead"'*|*'"webhook_name":"e2e-dead"'*'"webhook_name":"e2e-deliveries"'*) break ;;
+  esac
+  sleep 1
+done
+assert_contains "$DELIVERIES" '"webhook_name":"e2e-deliveries"' "delivery log records the successful delivery"
+assert_contains "$DELIVERIES" '"success":true' "the reachable webhook delivered"
+assert_contains "$DELIVERIES" '"webhook_name":"e2e-dead"' "delivery log records the failed delivery"
+assert_contains "$DELIVERIES" '"success":false' "the unreachable webhook is marked failed"
+assert_contains "$DELIVERIES" '"attempts":2' "the failed delivery was retried per the schedule"
+GOOD_DLV_ID="$(echo "$DELIVERIES" | tr '}' '\n' | grep '"webhook_name":"e2e-deliveries"' | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$GOOD_DLV_ID" ] || fail "could not parse a delivery id"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST "$BASE/aperio/api/webhooks/deliveries/${GOOD_DLV_ID}/redeliver")"
+assert_status 202 "$CODE" "redelivery is accepted"
+REDELIVERED=""
+for _ in 1 2 3 4 5; do
+  REDELIVERED="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks/deliveries?webhook_id=${DLV_ID}")"
+  COUNT="$(echo "$REDELIVERED" | grep -o '"webhook_name":"e2e-deliveries"' | wc -l | tr -d ' ')"
+  [ "$COUNT" -ge 2 ] && break
+  sleep 1
+done
+[ "${COUNT:-0}" -ge 2 ] || fail "redelivery did not appear in the log (got $COUNT)"
+echo "  ok: redelivery lands in the log as a new row"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST "$BASE/aperio/api/webhooks/deliveries/no-such-id/redeliver")"
+assert_status 404 "$CODE" "redelivering an unknown id answers 404"
 
 step "Audit API"
 AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"

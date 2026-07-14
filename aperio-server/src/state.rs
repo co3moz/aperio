@@ -576,6 +576,9 @@ pub(crate) struct AppState {
   pub(crate) persistent_stats: Mutex<StatsStore>,
   /// Persistent webhook definitions for the event system.
   pub(crate) webhook_store: Mutex<WebhookStore>,
+  /// Persistent log of webhook delivery outcomes (shared with the delivery
+  /// tasks, which record after their retries finish).
+  pub(crate) webhook_deliveries: std::sync::Arc<Mutex<webhooks::DeliveryLog>>,
   /// WebAuthn verifier for passkey sign-in (None until
   /// APERIO_WEBAUTHN_ORIGIN is configured).
   pub(crate) webauthn: Option<webauthn_rs::Webauthn>,
@@ -649,7 +652,7 @@ impl AppState {
   /// Delivers an event to all subscribed webhooks (fire-and-forget).
   pub(crate) async fn emit_event(&self, event: &str, data: serde_json::Value) {
     let subs = self.webhook_store.lock().await.subscribers(event);
-    webhooks::dispatch(subs, event, data);
+    webhooks::dispatch(subs, event, data, self.webhook_deliveries.clone());
   }
 
   /// Force-disconnects every live tunnel connection authenticated with the

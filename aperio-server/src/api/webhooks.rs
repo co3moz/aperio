@@ -1,6 +1,6 @@
 use axum::{
   Json,
-  extract::{ConnectInfo, State},
+  extract::{ConnectInfo, Path, Query, State},
   http::{HeaderMap, StatusCode},
   response::{IntoResponse, Response},
 };
@@ -177,4 +177,90 @@ pub(crate) async fn webhooks_delete_handler(
   } else {
     (StatusCode::NOT_FOUND, "Webhook not found").into_response()
   }
+}
+
+/// Query of the delivery-log listing.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct DeliveriesQuery {
+  /// Only this webhook's deliveries.
+  pub(crate) webhook_id: Option<String>,
+  /// Most-recent rows to return (default 50, max 200).
+  pub(crate) limit: Option<usize>,
+}
+
+/// Lists recent webhook delivery outcomes, newest first.
+#[utoipa::path(get, path = "/aperio/api/webhooks/deliveries", tag = "webhooks",
+  description = "Recent webhook delivery outcomes (attempts, status, payload), newest first.",
+  responses((status = 200, description = "Delivery log", body = Vec<crate::store::webhooks::Delivery>)))]
+pub(crate) async fn webhook_deliveries_handler(
+  State(state): State<Arc<AppState>>,
+  Query(q): Query<DeliveriesQuery>,
+) -> Json<Vec<crate::store::webhooks::Delivery>> {
+  let limit = q.limit.unwrap_or(50).min(200);
+  Json(
+    state
+      .webhook_deliveries
+      .lock()
+      .await
+      .list(q.webhook_id.as_deref(), limit),
+  )
+}
+
+/// Re-sends a logged delivery's exact payload to its webhook.
+#[utoipa::path(post, path = "/aperio/api/webhooks/deliveries/{id}/redeliver", tag = "webhooks",
+  description = "Queues a redelivery of the logged payload to the webhook's current URL (fresh signature, normal retry policy); the outcome lands in the delivery log as a new row.",
+  responses(
+    (status = 202, description = "Redelivery queued"),
+    (status = 404, description = "Unknown delivery or deleted webhook")))]
+pub(crate) async fn webhook_redeliver_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+) -> Response {
+  let Some(delivery) = state.webhook_deliveries.lock().await.get(&id).cloned() else {
+    return (StatusCode::NOT_FOUND, "unknown delivery id").into_response();
+  };
+  let Some(hook) = state
+    .webhook_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .find(|w| w.id == delivery.webhook_id)
+    .cloned()
+  else {
+    return (
+      StatusCode::NOT_FOUND,
+      "the webhook this delivery belonged to no longer exists",
+    )
+      .into_response();
+  };
+  let ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  state
+    .audit(
+      "webhook_redelivered",
+      &ip.to_string(),
+      &format!("webhook={} event={}", hook.name, delivery.event),
+    )
+    .await;
+  info!(
+    "Redelivering event {} to webhook '{}' on operator request",
+    delivery.event, hook.name
+  );
+  let log = state.webhook_deliveries.clone();
+  tokio::spawn(async move {
+    crate::store::webhooks::deliver_with_retries(hook, delivery.event, delivery.body, log).await;
+  });
+  (
+    StatusCode::ACCEPTED,
+    Json(serde_json::json!({"queued": true})),
+  )
+    .into_response()
 }

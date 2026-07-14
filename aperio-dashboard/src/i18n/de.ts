@@ -563,4 +563,12 @@ export const de: Record<string, string> = {
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'Der Import ersetzt Tokens, Webhooks, Benutzer und Einstellungen dieses Servers. Fortfahren?',
   'HAR': 'HAR',
   'Download as an HAR file (devtools importable)': 'Als HAR-Datei herunterladen (in DevTools importierbar)',
+  'Recent deliveries': 'Letzte Zustellungen',
+  'Result': 'Ergebnis',
+  'Attempts': 'Versuche',
+  'When': 'Wann',
+  'No deliveries yet': 'Noch keine Zustellungen',
+  'failed': 'fehlgeschlagen',
+  'Redeliver': 'Erneut zustellen',
+  'Redelivery of "{event}" queued': 'Erneute Zustellung von „{event}“ eingereiht',
 }

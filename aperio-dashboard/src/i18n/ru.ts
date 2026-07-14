@@ -561,4 +561,12 @@ export const ru: Record<string, string> = {
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': 'Импорт заменит токены, вебхуки, пользователей и настройки этого сервера. Продолжить?',
   'HAR': 'HAR',
   'Download as an HAR file (devtools importable)': 'Скачать как HAR-файл (импортируется в devtools)',
+  'Recent deliveries': 'Недавние доставки',
+  'Result': 'Результат',
+  'Attempts': 'Попытки',
+  'When': 'Когда',
+  'No deliveries yet': 'Доставок пока нет',
+  'failed': 'ошибка',
+  'Redeliver': 'Отправить повторно',
+  'Redelivery of "{event}" queued': 'Повторная отправка «{event}» поставлена в очередь',
 }

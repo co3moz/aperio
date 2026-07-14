@@ -542,4 +542,12 @@ export const zh: Record<string, string> = {
   'Importing replaces the tokens, webhooks, users and settings of this server. Continue?': '导入将替换此服务器的令牌、Webhook、用户和设置。是否继续？',
   'HAR': 'HAR',
   'Download as an HAR file (devtools importable)': '下载为 HAR 文件（可导入开发者工具）',
+  'Recent deliveries': '最近投递',
+  'Result': '结果',
+  'Attempts': '尝试次数',
+  'When': '时间',
+  'No deliveries yet': '暂无投递记录',
+  'failed': '失败',
+  'Redeliver': '重新投递',
+  'Redelivery of "{event}" queued': '已将“{event}”的重新投递加入队列',
 }

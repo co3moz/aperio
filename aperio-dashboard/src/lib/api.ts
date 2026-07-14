@@ -145,6 +145,24 @@ export interface Webhook {
   signed: boolean
 }
 
+export interface WebhookDelivery {
+  id: string
+  webhook_id: string
+  webhook_name: string
+  event: string
+  /** RFC3339 time of the first attempt. */
+  timestamp: string
+  success: boolean
+  /** HTTP status of the last attempt (absent = the request never completed). */
+  status?: number
+  error?: string
+  attempts: number
+  duration_ms: number
+  /** The exact payload sent (truncated for storage). */
+  body: string
+  created_at: number
+}
+
 export interface HistoryBucket {
   /** Period label: 2026-07-06, 2026-W27, 2026-07, or 2026. */
   period: string
@@ -346,6 +364,9 @@ export const api = {
   }) =>
     mutate('/webhooks', json('POST', payload)),
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  webhookDeliveries: () => request<WebhookDelivery[]>('/webhooks/deliveries'),
+  redeliverWebhook: (id: string) =>
+    mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: () => request<AuditEvent[]>('/audit'),
   maintenance: () => request<string[]>('/maintenance'),
   settings: () => request<SettingsPayload>('/settings'),

@@ -62,13 +62,19 @@ Administrative and security events — logins (password and OIDC), token create/
 
 ## Webhooks
 
-Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). Events are delivered as fire-and-forget JSON POSTs with a 10 s timeout:
+Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). Events are delivered as JSON POSTs with a 10 s timeout:
 
 ```json
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
 Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `alert_triggered`, `alert_resolved`.
+
+### Delivery reliability & the delivery log
+
+A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff** — by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried.
+
+Every final outcome (success or failure, with the HTTP status or error, the attempt count, and the exact payload sent) lands in the **delivery log**: the *Recent deliveries* table on the dashboard's Webhooks page, or `GET /aperio/api/webhooks/deliveries` (`?webhook_id=` to filter). The last 500 outcomes are kept in `aperio.db`. Any logged delivery can be **redelivered** — the same payload is re-sent to the webhook's current URL with a fresh signature and the normal retry policy (`POST /aperio/api/webhooks/deliveries/{id}/redeliver`, or the *Redeliver* button), and the outcome is logged as a new row.
 
 ### Chat-service formats
 

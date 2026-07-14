@@ -141,6 +141,7 @@ async fn test_rate_limiting() {
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
+    webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
@@ -256,6 +257,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
+    webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
@@ -391,6 +393,7 @@ async fn test_proxy_handler_success() {
     captured_requests: Mutex::new(VecDeque::new()),
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
+    webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
@@ -653,6 +656,14 @@ fn test_webhook_store() -> WebhookStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
+}
+
+fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {
+  let dir = std::env::temp_dir().join(format!("aperio-test-deliveries-{}", uuid::Uuid::new_v4()));
+  let _ = std::fs::create_dir_all(&dir);
+  std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
+    &dir.to_string_lossy(),
+  )))
 }
 
 fn test_session_store() -> crate::store::sessions::SessionStore {
