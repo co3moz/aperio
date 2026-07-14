@@ -23,29 +23,23 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 ### Security & access control
 
 - [ ] #1 WAF-lite — per-service request filtering rules (path/method/header, body size)
-- [ ] #2 GeoIP country-based access rules on top of the CIDR allowlist
 - [x] #3 Visitor-IP rate limiting — shipped: a per-IP token bucket is enforced on every proxied request (`check_rate_limit`), alongside per-token limits
-- [ ] #4 Time-window access rules (e.g. business hours only)
 - [ ] #5 mTLS / client certificate identity for tunnel connections
-- [ ] #6 Webhook delivery reliability — retries with exponential backoff + a dead-letter queue (`emit_event` is fire-and-forget today)
+- [ ] #6 Webhook delivery reliability — retries with exponential backoff, plus a native per-webhook delivery log (each attempt with status/response code, visible in the dashboard, with redelivery) so failed deliveries are observable, not silent
 - [x] #7 Extend the login lockout to per-service visitor password logins — shipped: the escalating per-IP lockout sits at the top of the shared `/aperio/auth` handler, which serves visitor-password logins too
 - [ ] #8 Active session management — list open dashboard sessions with IP/User-Agent and offer remote "sign out everywhere"
-- [ ] #9 Audit log export to SIEM — syslog/CEF format, or stream to a file/S3
 - [ ] #10 Secret redaction in the request inspector — auto-mask Authorization/Cookie/token headers and body patterns
 - [ ] #11 API token rotation with a grace period — issue a new token while the old stays valid for N hours
 - [ ] #12 CAPTCHA challenge gate (hCaptcha/Cloudflare Turnstile) for public services under attack
-- [ ] #13 IP reputation / denylist feeds — block known-bad IPs (the inverse of the CIDR allowlist)
 - [ ] #14 Encrypted-at-rest SQLite (SQLCipher) option for the data dir
 - [ ] #15 Per-service security header presets — HSTS/X-Frame-Options/CSP injection
 - [ ] #16 Token-to-device key pinning (TOFU) — bind a token to the public key the client generates on its first dial-out, so a token replayed from another machine (e.g. leaked into CI logs) is rejected without full mTLS/PKI
-- [ ] #17 One-time client enrollment codes — short-lived single-use bootstrap codes exchanged on the first connect for a real scoped token, keeping long-lived tokens out of `aperio.yaml`, shell history, and Action logs
-- [ ] #18 Client-side egress allowlist — each token declares the exact local hosts/ports it may forward to (enforced inside the client), so a stolen token can't be repointed to pivot across the private network
 - [ ] #19 Server TLS cert pinning on dial-out — the client pins the expected server SPKI fingerprint so a rogue TLS proxy in front of the public server can't silently MITM tunnel traffic
 - [ ] #20 Canary tokens as leak tripwires — a token marked never-used fires an instant alert the moment it is presented, turning a leaked dump/`aperio.yaml` into an unambiguous breach signal
 - [ ] #21 Encrypted secrets vault with `${secret:}` refs — a SQLite-backed encrypted vault managed from the dashboard, referenced in config, keeps backend credentials and header-rewrite values out of plaintext config
 - [ ] #22 Client-side backend credential injection — attach basic/bearer credentials from the vault to backend requests while stripping visitor-supplied Authorization headers, keeping origin credentials off the public edge
 - [ ] #23 Break-glass panic lockdown — one command/control instantly revokes every token and session and freezes all new connections (distinct from the per-client kill switch and maintenance mode)
-- [ ] #24 Usernameless passkey sign-in (conditional UI) — sign in without typing a username: enable webauthn-rs's `conditional-ui` feature, add discoverable-credential start/finish endpoints (the user handle already stored in each passkey identifies the account), and offer passkeys via the username field's autofill (`autocomplete="username webauthn"`)
+- [ ] #24 Usernameless passkey sign-in — opt-in per passkey at registration ("allow signing in without a username?"): when enabled, pressing the passkey button with an empty username runs a discoverable-credential ceremony (the stored user handle identifies the account) and the authenticator's account picker takes over; without the flag the existing username-first flow is unchanged
 
 ### Observability & analytics
 
@@ -61,13 +55,13 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #34 Per-route status-code / error-rate trend sparklines
 - [ ] #35 Trace-ID correlation — show each request's trace ID in the inspector with a deep link to Jaeger/Tempo
 - [x] #36 Prometheus latency histogram buckets — shipped: `/aperio/metrics` exports a request-duration histogram (cumulative buckets + sum + count)
-- [ ] #37 Three-hop latency decomposition — split each request's latency into edge-terminate, tunnel-transit, and client-to-backend segments so operators see where slowness lives
+- [ ] #37 Request timeline (high-resolution latency decomposition) — per-request timestamps anchored at t0 = server first received the request, each later stage recorded as a high-resolution offset from t0 (e.g. +45.325ms): dispatched to the tunnel (left the queue), received by the client, backend request sent, backend first/last byte, client began sending the response, server received the response, response fully sent to the visitor / visitor connection closed; client-side stages are measured as monotonic durations on the client and anchored server-side (clock skew never mixes clocks); shown as a waterfall in the inspector
 - [ ] #38 Synthetic end-to-end canary probes — the server periodically sends a marked synthetic request down a tunnel to the backend, exercising the tunnel itself (unlike the passive backend health probing already shipped)
 - [ ] #39 Client host telemetry over the tunnel — the client samples its own CPU/memory/FDs/backend-RTT up the existing WebSocket, shown per client so a struggling remote host is diagnosable
-- [ ] #40 Tunnel backpressure & queue-depth metrics — expose per-tunnel send-buffer depth and in-flight count with a saturation alert, catching congestion before it becomes visitor timeouts
+- [ ] #40 Per-stage latency statistics & anomaly detection — build on the #37 timeline: keep mean/stddev per stage (queue wait, tunnel transit, backend time, ...) per service, surface them in the dashboard, and flag anomalies when a stage leaves its normal band (e.g. mean +/- k*sigma), so 'requests usually queue +5-10ms, now +25-30ms' is detected and attributable to a stage
 - [ ] #41 Audit-sourced chart annotations — overlay deploy/hot-reload/maintenance/kill markers from the audit log onto traffic/latency charts to correlate metric shifts with their cause
 - [ ] #42 Alertmanager-lite silences and grouping — mute windows plus grouping/dedup on top of the shipped threshold alerting, to silence noisy services and collapse alert storms
-- [ ] #43 Live service topology graph — a dashboard node-graph of hostname/path → tunnel → client → backend with live per-edge request rates
+- [ ] #43 Live service topology graph — a dashboard node-graph of hostname/path -> tunnel -> client -> backend with live per-edge request rates; an alternative visual view of the existing clients/routes list
 
 ### Proxy, routing & traffic
 
@@ -99,9 +93,9 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 
 ### Edge cache & content
 
-- [ ] #69 Serve-stale-on-origin-failure — when a client disconnects or backend health fails, answer visitors from cached responses even past TTL, turning the response cache into a resilience layer instead of a 502 source
+- [ ] #69 Serve-stale-on-origin-failure — opt-in per service (client `resilience` flag) and only when the server cache is enabled: while the route has no healthy client, cached responses are served even past TTL, marked (e.g. `X-Aperio-Stale` + `Age`), bounded by a configurable max-stale window; the moment any healthy client reconnects, normal proxying resumes and fresh responses replace the stale entries, so a newly connected client immediately takes over
 - [ ] #70 Edge image transformation proxy — resize/crop/re-encode to WebP/AVIF via `?w=&format=` params at the server, caching derived variants so the origin serves each original once
-- [ ] #71 ETag synthesis and 304 handling — for backends emitting no validators, hash bodies to generate ETags and answer conditional requests with 304 at the edge, saving scarce tunnel bandwidth
+- [ ] #71 ETag synthesis and 304 handling — when the server cache is enabled: for cached bodies lacking validators, synthesize an ETag (body hash) and answer If-None-Match with 304 at the edge, saving tunnel bandwidth
 - [ ] #72 Edge HTML link rewriting — rewrite hardcoded `http://localhost`/internal hostnames inside HTML/CSS bodies to the public tunnel hostname as they stream through
 - [ ] #73 Single-flight coalescing on cache miss — collapse many simultaneous identical cacheable misses into one upstream fetch, protecting local backends from thundering-herd load on cache expiry
 - [ ] #74 Range requests served from cache — satisfy HTTP Range requests (video scrubbing, resumable downloads) from cached full objects at the edge so partial-content requests never re-traverse the tunnel
@@ -160,4 +154,10 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 
 ## Rejected
 
+- #2 GeoIP country-based access rules — rejected: not a current need; the CIDR allowlist covers our access-scoping use cases.
+- #4 Time-window access rules — rejected: business-hours logic belongs to the application behind the tunnel, not to Aperio.
+- #9 Audit log export to SIEM — rejected: out of scope for now.
+- #13 IP reputation / denylist feeds — rejected: curating threat intelligence is not a proxy's responsibility (comparable reverse proxies don't take it on either); operators can feed external blocklists into their firewall.
+- #17 One-time client enrollment codes — rejected: dynamic bootstrap complicates the setup story; today a single static config brings everything up, and that simplicity is worth keeping.
+- #18 Client-side egress allowlist — rejected: it only defends against an attacker who already controls the client host, and such an attacker can edit the client config anyway — the enforcement point is inside the compromised trust boundary.
 - Public status page — out of scope; dedicated uptime tools (e.g. Uptime Kuma) do this better, and they can consume `GET /aperio/api/uptime`.
