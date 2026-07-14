@@ -25,6 +25,7 @@ mod headers;
 mod oidc;
 mod protocol;
 mod proxy;
+mod redact;
 mod routing;
 mod settings;
 mod share;

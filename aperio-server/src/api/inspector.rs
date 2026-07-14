@@ -26,7 +26,10 @@ pub(crate) async fn request_detail_handler(
 ) -> Response {
   let captured = state.captured_requests.lock().await;
   match captured.iter().find(|c| c.id == id) {
-    Some(entry) => Json(entry.clone()).into_response(),
+    // Serve the redacted view: credentials and secret-looking body fields
+    // are masked before anything leaves the server (the raw capture stays
+    // in memory so replay re-sends the original request).
+    Some(entry) => Json(crate::redact::redacted_view(entry)).into_response(),
     None => (
       StatusCode::NOT_FOUND,
       "Request not captured (only recent proxied requests are kept)",

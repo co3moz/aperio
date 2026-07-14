@@ -393,6 +393,30 @@ assert_contains "$REPLAY" '"replayed_id"' "replay reports the replayed id"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/requests/no-such-id")"
 assert_status 404 "$CODE" "unknown capture ids answer 404"
 
+step "Inspector secret redaction"
+curl -s -H "Host: ${HOSTNAME_BIND}" -H "Authorization: Bearer sk-live-e2e-token" \
+  -H "Cookie: sid=e2e-cookie-secret" -H 'Content-Type: application/json' \
+  --data '{"username":"doga","password":"e2e-hunter2"}' "$BASE/redact-me" >/dev/null
+RED_ID="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs" | "$PYTHON" -c \
+  "import sys,json; print(next(l['id'] for l in json.load(sys.stdin) if l['uri'].startswith('/redact-me')))")" \
+  || fail "could not find the /redact-me request in the logs"
+RED="$(curl -s -b "$COOKIES" "$BASE/aperio/api/requests/${RED_ID}")"
+assert_contains "$RED" 'Bearer [REDACTED]' "authorization header is masked in the inspector"
+case "$RED" in
+  *sk-live-e2e-token*) fail "the bearer token leaked into the inspector detail" ;;
+  *e2e-cookie-secret*) fail "the cookie value leaked into the inspector detail" ;;
+esac
+echo "  ok: header secrets never leave the server"
+RED_BODY="$(echo "$RED" | "$PYTHON" -c \
+  "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['req_body']).decode())")"
+assert_contains "$RED_BODY" '"username":"doga"' "non-secret body fields stay readable"
+assert_contains "$RED_BODY" '"password":"[REDACTED]"' "secret body fields are masked"
+case "$RED_BODY" in *e2e-hunter2*) fail "the password leaked into the captured body" ;; esac
+echo "  ok: body secrets never leave the server"
+# The raw capture is intact server-side: replaying still works.
+REPLAY="$(curl -s -b "$COOKIES" -X POST "$BASE/aperio/api/requests/${RED_ID}/replay")"
+assert_contains "$REPLAY" '"status":200' "redacted captures still replay with their original bytes"
+
 step "Webhooks API"
 HOOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"name\":\"e2e-hook\",\"url\":\"http://127.0.0.1:${BACKEND_PORT}/hook\",\"events\":[\"client_connected\"]}" \

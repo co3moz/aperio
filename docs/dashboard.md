@@ -23,6 +23,8 @@ The traffic table is streamed live: the server pushes each proxied request over 
 
 Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests) — then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
 
+**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector — and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0`.
+
 ## Add Client wizard
 
 Pick a token strategy (placeholder, or mint a scoped token on the spot), describe the local service, and copy a ready-to-run `docker run` / CLI / `aperio.yaml` snippet.
