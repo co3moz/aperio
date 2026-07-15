@@ -129,8 +129,18 @@ pub(crate) async fn run_service(
   // Latest backend health verdict, reported to the server via heartbeats. An
   // unhealthy backend never tears the tunnel down: the server just takes
   // this client out of routing until the backend recovers.
-  let backend_healthy = Arc::new(AtomicBool::new(true));
+  //
+  // Initial verdict: healthy only when no health check is configured (there
+  // is nothing to prove). With a `target_health` check the backend starts
+  // *unhealthy* and stays out of routing until the first probe succeeds, so a
+  // client never claims a backend is up before it has actually checked it.
+  let backend_healthy = Arc::new(AtomicBool::new(spec.target_health.is_none()));
+  // Fired whenever the health verdict flips, so the heartbeat loop can push an
+  // immediate Ping instead of waiting out its interval — the first successful
+  // probe makes a healthy backend routable within a probe, not a ping cycle.
+  let health_changed = Arc::new(tokio::sync::Notify::new());
   let probe_task = spec.target_health.as_ref().map(|health_path| {
+    let health_changed = health_changed.clone();
     let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
       health_path.clone()
     } else {
@@ -162,9 +172,12 @@ pub(crate) async fn run_service(
     );
     tokio::spawn(async move {
       let mut consecutive_failures: u32 = 0;
+      let mut first_result = true;
       // Probe immediately, then on the interval: a backend that is already
       // down when the client starts is reported after threshold probes
-      // instead of sitting falsely healthy for a full extra interval.
+      // instead of sitting falsely healthy for a full extra interval. The
+      // client also starts out-of-routing (unhealthy) until this first probe
+      // lands, so the very first success is what makes the backend routable.
       loop {
         let ok = matches!(
           probe_client.get(&health_url).send().await,
@@ -173,17 +186,32 @@ pub(crate) async fn run_service(
         if ok {
           consecutive_failures = 0;
           if !flag.swap(true, Ordering::SeqCst) {
-            info!("Backend health restored: {}", health_url);
+            health_changed.notify_one();
+            if first_result {
+              info!("Backend healthy: {} — now routable", health_url);
+            } else {
+              info!("Backend health restored: {}", health_url);
+            }
           }
         } else {
           consecutive_failures = consecutive_failures.saturating_add(1);
           if consecutive_failures >= threshold && flag.swap(false, Ordering::SeqCst) {
+            health_changed.notify_one();
             warn!(
               "Backend health check failed {} consecutive time(s): {} — reporting unhealthy to the server (tunnel stays connected)",
               consecutive_failures, health_url
             );
+          } else if first_result {
+            // Started unhealthy and the first probe also failed: make it clear
+            // why the backend is not yet routable (the threshold warning above
+            // only fires on a healthy→unhealthy transition).
+            info!(
+              "Backend not healthy yet: {} — staying out of routing until a probe passes",
+              health_url
+            );
           }
         }
+        first_result = false;
         tokio::time::sleep(Duration::from_secs(interval)).await;
       }
     })
@@ -290,6 +318,7 @@ pub(crate) async fn run_service(
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
             let backend_healthy_ping = backend_healthy.clone();
+            let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
             let tunnels_ping = spec.tunnels.clone();
@@ -359,7 +388,12 @@ pub(crate) async fn run_service(
                 {
                   break;
                 }
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                // Wake early when the backend health verdict flips, so a
+                // change is reported at once rather than up to 5s later.
+                tokio::select! {
+                  _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                  _ = health_changed_ping.notified() => {}
+                }
               }
             });
 

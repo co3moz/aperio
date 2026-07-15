@@ -14,7 +14,7 @@ wait_routable health.e2e.local /hello
 HJAR="$LOG_DIR/cookies-health.txt"
 dashboard_login "$HJAR"
 
-[ "$(backend_health)" = "True" ] || fail "client must start healthy with a live backend"
+[ "$(backend_health)" = "True" ] || fail "a live backend must become healthy after the first probe"
 
 # Kill the backend: the verdict flips and the route fails closed.
 kill "$HEALTH_BACKEND_PID" 2>/dev/null || true
@@ -56,5 +56,17 @@ for _ in $(seq 1 4); do
 done
 [ -n "$EARLY" ] || fail "the first probe did not run immediately (still healthy after 4s with a 5s interval)"
 echo "  ok: a dead backend is caught by the immediate first probe"
+
+step "A health-checked client starts unhealthy and becomes routable via the first probe"
+# Long interval: if the client waited a full interval (or stayed stuck
+# unhealthy), it would never become routable within wait_routable's window.
+# The immediate first probe + immediate re-ping make it routable in ~1s.
+lsof -tiTCP:"$HEALTH_BACKEND_PORT" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
+start_backend "$HEALTH_BACKEND_PORT"
+HEALTH_BACKEND_PID=$!
+start_client health-slow "$HEALTH_BACKEND_PORT" APERIO_HOSTNAME_BIND=slow.e2e.local \
+  APERIO_TARGET_HEALTH=/health APERIO_HEALTH_INTERVAL=30 APERIO_HEALTH_TIMEOUT=1 APERIO_HEALTH_THRESHOLD=1
+wait_routable slow.e2e.local /hello
+echo "  ok: routable well within one 30s probe interval"
 
 stop_server
