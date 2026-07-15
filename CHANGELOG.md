@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The end-to-end test suite was split into a sourced harness and per-phase files** (`tests/lib/harness.sh` + `tests/phases/<letter>-<name>.sh`, run by a thin `tests/e2e.sh`). `bash tests/e2e.sh` still runs everything; a single phase can now be run during development by name or letter (`bash tests/e2e.sh cache`, `bash tests/e2e.sh l`). No change to what is tested.
+
 ### Added
 
 - **JSON Schema for `aperio-server.yaml`.** The server config file now has an editor schema (`schemas/aperio-server.schema.json`, emitted on `cargo build -p aperio-client` alongside the client one, or `cargo run -p aperio-config -- --server`), giving completion, hover docs, and validation for the ~60 server settings plus the structured `headers`/`routes`/`expose` sections. Tagged releases attach it versioned and stable-named like the client schema.

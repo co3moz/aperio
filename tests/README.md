@@ -1,30 +1,42 @@
 # tests
 
-End-to-end integration suite. `e2e.sh` starts a real `aperio-server`,
-several `aperio-client` processes, and stdlib-only Python mock backends, then
+End-to-end integration suite. It starts a real `aperio-server`, several
+`aperio-client` processes, and stdlib-only Python mock backends, then
 exercises the system over HTTP with curl — phase by phase, each phase with
-its own server configuration:
+its own server configuration.
 
-| Phase | Covers |
-| --- | --- |
-| A. base | health, 504, proxying, dashboard APIs, tunnels API, maintenance mode, settings, access log, metrics, inspector & replay, webhooks, audit, token lifecycle, client control |
-| B. auth | visitor password: login redirect + share-link flow |
-| C. failover | retry-wait re-dispatch after a mid-request client kill |
-| D. lb | primary-standby tiers, sticky sessions |
-| E. features | positional-target CLI, `check`, redirect following, multi-service client, `~/.aperio.yaml` layer, per-token rate limit |
-| F. ws | WebSocket pass-through (upgrade + frame echo + close) |
-| G. tunnels | emergency tunnels (`tunnels:` + `--bind-tunnels`) and the legacy tcp bridge |
-| H. subdomain | same-level random subdomain pattern (`*-suffix`) |
-| I. h2 | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay, driven by the [`mock-h2`](mock-h2/) helper |
-| J. sessions | dashboard sessions survive a server restart |
-| K. cache | response cache hits; serve-stale for resilient services during an outage, fail-closed otherwise, fresh takeover on reconnect |
-| L. health | `target_health` probes: unhealthy reporting + routing exclusion, recovery, immediate first probe against a dead backend |
+## Layout
+
+- `e2e.sh` — the runner: sources the harness, then each phase file in order.
+- `lib/harness.sh` — shared configuration, process lifecycle (`start_server` /
+  `start_client` / `stop_server`), assertion helpers (`assert_status`,
+  `assert_contains`, `retry`, ...), and mock backends. Sourced, never run.
+- `phases/<letter>-<name>.sh` — one file per phase, sourced after the harness.
+- `mock-h2/` — the HTTP/2 (`h2c`) echo backend and client used by phase I.
+
+| Phase | File | Covers |
+| --- | --- | --- |
+| A. base | `phases/a-base.sh` | health, 504, proxying, dashboard APIs, tunnels API, maintenance mode, settings, access log, metrics, inspector & replay (with the request timeline and secret redaction), webhooks + delivery log, stage stats, audit, token lifecycle, client control |
+| B. auth | `phases/b-auth.sh` | visitor password: login redirect + share-link flow |
+| C. failover | `phases/c-failover.sh` | retry-wait re-dispatch after a mid-request client kill |
+| D. lb | `phases/d-lb.sh` | primary-standby tiers, sticky sessions |
+| E. features | `phases/e-features.sh` | positional-target CLI, `check`, redirect following, multi-service client, `~/.aperio.yaml` layer, per-token rate limit |
+| F. ws | `phases/f-ws.sh` | WebSocket pass-through (upgrade + frame echo + close) |
+| G. tunnels | `phases/g-tunnels.sh` | emergency tunnels (`tunnels:` + `--bind-tunnels`) and the legacy tcp bridge |
+| H. subdomain | `phases/h-subdomain.sh` | same-level random subdomain pattern (`*-suffix`) |
+| I. h2 | `phases/i-h2.sh` | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay, driven by the [`mock-h2`](mock-h2/) helper |
+| J. sessions | `phases/j-sessions.sh` | dashboard sessions survive a server restart; active session management; usernameless passkey endpoints |
+| K. cache | `phases/k-cache.sh` | response cache hits, ETag/304 conditional answers, serve-stale for resilient services during an outage |
+| L. health | `phases/l-health.sh` | `target_health` probes: unhealthy reporting + routing exclusion, recovery, immediate first probe against a dead backend |
+| M. multihost | `phases/m-multihost.sh` | one service claiming several hostnames |
 
 ## Running
 
 ```bash
 cargo build -p aperio-server -p aperio-client   # debug binaries
-bash tests/e2e.sh
+bash tests/e2e.sh                # every phase
+bash tests/e2e.sh cache health   # only these phases (by name)
+bash tests/e2e.sh k l            # same, by phase letter
 ```
 
 Requires bash, curl, and Python 3 on `PATH`. Binaries can be overridden with
