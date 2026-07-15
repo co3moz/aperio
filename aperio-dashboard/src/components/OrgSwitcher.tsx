@@ -5,7 +5,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -67,9 +66,9 @@ export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
             <ChevronsUpDownIcon className="ml-auto size-4 opacity-60" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-56">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <div className="px-3 py-2 text-xs text-muted-foreground">
               {t('Switch organization')}
-            </DropdownMenuLabel>
+            </div>
             <DropdownMenuSeparator />
             {(orgs ?? []).map((o) => (
               <DropdownMenuItem key={o.id} onClick={() => void switchTo(o.id)}>
