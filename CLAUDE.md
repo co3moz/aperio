@@ -9,6 +9,7 @@ These rules apply to all future work in this repository.
 
 ## Verification
 4. Do **not** run preview-style checks. Prioritize the project's existing checks instead: `build`, `clippy`, `fmt`, and the `e2e` tests.
+8. **Run the `e2e` suite only once, at the very end, after all requested work is done** — not after each individual task. The e2e run is slow; during development rely on `build`, `clippy`, `fmt`, and unit tests, then run `bash tests/e2e.sh` a single time before finishing. (New e2e phases/assertions may still be *written* per task; just don't *execute* the suite until the end.)
 
 ## Language
 5. Use **English** in all changes (code, comments, commit messages, docs).
