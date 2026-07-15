@@ -342,6 +342,13 @@ assert_contains "$TOKS" 'acme-token' "the child-org token is visible in its own 
 # The audit log is org-scoped too: the child org sees its own token_created event.
 AUD_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
 assert_contains "$AUD_CHILD" 'name=acme-token' "the child org's audit shows its own token creation"
+# Live sessions are org-scoped: the master admin's own session (which belongs
+# to master) is hidden while the super-admin is viewing a child org.
+SESS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/sessions")"
+if echo "$SESS_CHILD" | grep -q '"current":true'; then
+  fail "isolation breach: the master session appears while viewing a child org"
+fi
+echo "  ok: the master session is hidden while viewing a child org"
 # Switch back to master: the child-org token must NOT be visible there.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
@@ -357,6 +364,9 @@ if echo "$AUD_MASTER" | grep -q 'name=acme-token'; then
   fail "isolation breach: the child-org token_created event leaked into master's audit log"
 fi
 echo "  ok: the child-org audit event is hidden from master's audit log"
+# Back in master, the caller's own session is visible again.
+SESS_MASTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/sessions")"
+assert_contains "$SESS_MASTER" '"current":true' "the master session is visible in master"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"

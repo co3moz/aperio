@@ -146,6 +146,9 @@ pub(crate) async fn tunnels_create_handler(
     Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
   };
 
+  // The ephemeral token belongs to the caller's effective org (master token
+  // auth → master/None; a session → its selected/own org).
+  let org = crate::auth::effective_org(&state, &headers).await;
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
     store.create(
@@ -157,7 +160,7 @@ pub(crate) async fn tunnels_create_handler(
       None,
       None,
       false,
-      None,
+      org,
     )
   };
   info!(
@@ -240,6 +243,19 @@ pub(crate) async fn tunnels_delete_handler(
       "Bearer master token or dashboard session required",
     )
       .into_response();
+  }
+  // Isolation: only ephemeral tunnels in the caller's effective org may be torn
+  // down (master-token callers act in master; a session in its selected org).
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let in_org = state
+    .token_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .any(|t| t.id == id && t.org_id == org);
+  if !in_org {
+    return (StatusCode::NOT_FOUND, "Unknown tunnel id").into_response();
   }
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {

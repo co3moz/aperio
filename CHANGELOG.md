@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **Organizations — live sessions and a few remaining actions are now org-scoped.** The *Active sessions* list (`/aperio/api/sessions`) shows only the sessions belonging to the caller's effective organization — a named user's session takes that user's org, while the built-in admin and visitor sessions belong to master — and per-session revoke / "sign out everywhere else" only reach the caller's own org. The admin TOTP-reset endpoint gained the org guard its sibling user actions already had (it previously let an admin reset a user in another org), and ephemeral tunnels (`/aperio/api/tunnels`) now mint their token in the caller's effective org and refuse cross-org teardown.
 - **Organizations — audit log is now per-organization.** Every audit event carries the organization it belongs to: dashboard actions are filed under the caller's effective org, a connecting client's lifecycle events (connect/drain/disconnect) under its token's org, a login under the user's org, and genuinely server-global events (config reload, export/import, failed logins, health alerts) under the master org. The `/aperio/api/audit` endpoint now returns only the caller's org's events — a child-org admin no longer sees master's or another org's audit trail, and the master super-admin sees the org currently selected on their session. The durable `audit.jsonl` (and its tamper-evident hash chain) stays a single global log; scoping happens on read.
 
 ## [0.2.3] - 2026-07-15

@@ -393,7 +393,9 @@ pub(crate) async fn totp_admin_reset_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  if state.users.lock().await.get(&id).is_none() {
+  // Isolation: only users in the caller's effective org may be reset (this
+  // guard was missing, unlike users update/delete).
+  if !user_in_effective_org(&state, &headers, &id).await {
     return (StatusCode::NOT_FOUND, "Unknown user").into_response();
   }
   if let Err(e) = state.users.lock().await.totp_disable(&id) {
@@ -409,6 +411,34 @@ pub(crate) async fn totp_admin_reset_handler(
     )
     .await;
   Json(serde_json::json!({"status": "ok"})).into_response()
+}
+
+/// Maps every dashboard username to its organization (`None` = master), for
+/// resolving which org a live session belongs to.
+async fn username_org_map(
+  state: &Arc<AppState>,
+) -> std::collections::HashMap<String, Option<String>> {
+  state
+    .users
+    .lock()
+    .await
+    .list()
+    .iter()
+    .map(|u| (u.username.clone(), u.org_id.clone()))
+    .collect()
+}
+
+/// The organization a live session belongs to: a named user's session takes
+/// that user's org; the built-in admin and visitor/unknown sessions belong to
+/// master (`None`).
+fn session_org(
+  info: &crate::store::sessions::SessionInfo,
+  user_orgs: &std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+  match info.username.as_deref() {
+    Some(name) => user_orgs.get(name).cloned().flatten(),
+    None => None,
+  }
 }
 
 /// Reads the caller's `aperio_session` cookie value (to mark or exempt the
@@ -432,11 +462,15 @@ pub(crate) async fn sessions_list_handler(
   headers: HeaderMap,
 ) -> Json<Vec<serde_json::Value>> {
   let own = own_session_token(&headers);
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let user_orgs = username_org_map(&state).await;
   let mut entries = state.sessions.lock().await.entries();
   entries.sort_by_key(|(_, info)| std::cmp::Reverse(info.created_at));
   Json(
     entries
       .into_iter()
+      // Only sessions belonging to the caller's effective organization.
+      .filter(|(_, info)| session_org(info, &user_orgs) == org)
       .map(|(key, info)| {
         let current = own.as_deref().is_some_and(|token| {
           crate::store::sessions::SessionStore::token_matches_key(token, &key)
@@ -467,6 +501,19 @@ pub(crate) async fn session_revoke_handler(
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
+  // Isolation: a caller may only end sessions in their effective org.
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let user_orgs = username_org_map(&state).await;
+  let in_org = state
+    .sessions
+    .lock()
+    .await
+    .entries()
+    .iter()
+    .any(|(k, info)| k == &id && session_org(info, &user_orgs) == org);
+  if !in_org {
+    return (StatusCode::NOT_FOUND, "unknown session id").into_response();
+  }
   let removed = state.sessions.lock().await.remove_by_key(&id);
   if !removed {
     return (StatusCode::NOT_FOUND, "unknown session id").into_response();
@@ -493,20 +540,25 @@ pub(crate) async fn sessions_clear_handler(
   headers: HeaderMap,
 ) -> Response {
   let own = own_session_token(&headers);
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let user_orgs = username_org_map(&state).await;
   let mut sessions = state.sessions.lock().await;
   let before = sessions.entries().len();
-  let own_keys: Vec<String> = sessions
+  // Keep the caller's own session and every session outside the effective org;
+  // "sign out everywhere else" only reaches the caller's own organization.
+  let keep_keys: Vec<String> = sessions
     .entries()
     .into_iter()
-    .map(|(k, _)| k)
-    .filter(|k| {
-      own
+    .filter(|(k, info)| {
+      let is_own = own
         .as_deref()
-        .is_some_and(|token| crate::store::sessions::SessionStore::token_matches_key(token, k))
+        .is_some_and(|token| crate::store::sessions::SessionStore::token_matches_key(token, k));
+      is_own || session_org(info, &user_orgs) != org
     })
+    .map(|(k, _)| k)
     .collect();
-  sessions.retain_keys(&own_keys);
-  let ended = before - own_keys.len();
+  sessions.retain_keys(&keep_keys);
+  let ended = before - keep_keys.len();
   drop(sessions);
   let ip = actor_ip(&state, &headers, addr);
   state
