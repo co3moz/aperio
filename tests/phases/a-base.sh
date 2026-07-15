@@ -356,6 +356,27 @@ HOOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
 ACME_HOOK_ID="$(echo "$HOOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 HOOKS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
 assert_contains "$HOOKS_CHILD" 'acme-hook' "the child org sees its own webhook"
+# A real named admin user, created inside the child org, is fully sandboxed to
+# it — the "two separate apps" test.
+USER="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"acme-admin","password":"acmepass123","role":"admin"}' \
+  "$BASE/aperio/api/users")" || fail "child-org user creation failed"
+ACME_USER_ID="$(echo "$USER" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+ACME_JAR="$LOG_DIR/acme-cookies.txt"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -c "$ACME_JAR" -X POST -u "acme-admin:acmepass123" "$BASE/aperio/auth")"
+assert_status 200 "$CODE" "the child-org admin can sign in"
+# Server-global surfaces are master-only: the child-org admin is refused.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$ACME_JAR" "$BASE/aperio/api/settings")"
+assert_status 403 "$CODE" "the child-org admin cannot read server settings"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$ACME_JAR" "$BASE/aperio/api/orgs")"
+assert_status 403 "$CODE" "the child-org admin cannot manage organizations"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$ACME_JAR" "$BASE/aperio/api/export")"
+assert_status 403 "$CODE" "the child-org admin cannot export the server dump"
+# They see their own org's resources, pinned — no master data, no org switching.
+TOKS_ACME="$(curl -s -b "$ACME_JAR" "$BASE/aperio/api/tokens")"
+assert_contains "$TOKS_ACME" 'acme-token' "the child-org admin sees its own token"
+USERS_ACME="$(curl -s -b "$ACME_JAR" "$BASE/aperio/api/users")"
+assert_contains "$USERS_ACME" 'acme-admin' "the child-org admin sees its own org's users"
 # Switch back to master: the child-org token must NOT be visible there.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
@@ -400,6 +421,8 @@ curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${ACME_TOK_ID}" >/dev/
   || fail "revoking the child-org token failed"
 curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${ACME_HOOK_ID}" >/dev/null \
   || fail "deleting the child-org webhook failed"
+curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/users/${ACME_USER_ID}" >/dev/null \
+  || fail "deleting the child-org user failed"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
 

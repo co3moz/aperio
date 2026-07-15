@@ -23,7 +23,13 @@ use crate::state::AppState;
   responses((status = 200, description = "Current settings", body = serde_json::Value)))]
 pub(crate) async fn settings_get_handler(
   State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+  headers: HeaderMap,
+) -> Response {
+  // Server settings are global; only the master super-admin may view or edit
+  // them (a child-org admin manages their org, not the server).
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
   let overrides = state.settings_overrides.lock().await.clone();
   Json(serde_json::json!({
     "effective": settings_view(&state.config()),
@@ -31,6 +37,7 @@ pub(crate) async fn settings_get_handler(
     "overrides": overrides,
     "environment": environment_report(&state),
   }))
+  .into_response()
 }
 
 /// True when the server appears to run inside a container, so the dashboard
@@ -89,6 +96,10 @@ pub(crate) async fn settings_put_handler(
   headers: HeaderMap,
   Json(payload): Json<SettingsOverrides>,
 ) -> Response {
+  // Global server settings: master super-admin only.
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
   let actor_ip = extract_client_ip(
     &headers,
     addr.ip(),

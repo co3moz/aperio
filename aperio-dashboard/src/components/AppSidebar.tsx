@@ -87,7 +87,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'System',
     pages: [
-      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration', minRole: 'admin' },
+      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration', minRole: 'admin', masterOnly: true },
       { id: 'organizations', label: 'Organizations', icon: Building2Icon, hint: 'Isolated tenants', minRole: 'admin', masterOnly: true },
       { id: 'users', label: 'Users', icon: UsersIcon, hint: 'Dashboard access & roles', minRole: 'admin' },
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },

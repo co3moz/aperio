@@ -43,6 +43,11 @@ pub(crate) async fn export_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
+  // The dump spans every organization's tokens, users, webhooks, and orgs —
+  // a whole-server backup, restricted to the master super-admin.
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
   let actor_ip = extract_client_ip(
     &headers,
     addr.ip(),
@@ -124,6 +129,10 @@ pub(crate) async fn import_handler(
   headers: HeaderMap,
   Json(dump): Json<ImportDump>,
 ) -> Response {
+  // Import replaces every organization's stores — master super-admin only.
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
   if dump.format_version != FORMAT_VERSION {
     return (
       StatusCode::BAD_REQUEST,
