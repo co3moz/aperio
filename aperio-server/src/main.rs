@@ -575,7 +575,13 @@ async fn async_main() {
     );
   }
   let config_env_defaults = Arc::new(config);
-  let config = apply_settings_overrides(&config_env_defaults, &settings_overrides);
+  // Layer: env defaults -> aperio-server.yaml live settings -> dashboard
+  // overrides. The file's scalar values were also folded into the env
+  // defaults at startup; layering them explicitly is what lets hot-reload
+  // change them later without touching the environment.
+  let file_layer = crate::settings::file_overrides();
+  let file_based = apply_settings_overrides(&config_env_defaults, &file_layer);
+  let config = apply_settings_overrides(&file_based, &settings_overrides);
 
   if require_hostname_bind {
     info!(
@@ -955,6 +961,54 @@ async fn async_main() {
       tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
     }
   });
+  // Config hot-reload: watch aperio-server.yaml for changes and re-apply the
+  // live-editable settings and structured headers/routes without a restart
+  // (no `set_var`, so it is safe on the running server). Structural keys
+  // (host/port/data_dir, proxy trust, OIDC, `expose` ports) still need a
+  // restart. Off when no config file is in use, or when disabled explicitly.
+  let hot_reload = std::env::var("APERIO_CONFIG_HOT_RELOAD")
+    .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+    .unwrap_or(true);
+  if hot_reload && let Some(watch_path) = config_file::watched_path() {
+    let reload_state = state.clone();
+    info!(
+      "Watching {} for configuration changes",
+      watch_path.display()
+    );
+    tokio::spawn(async move {
+      let mut last_mtime = std::fs::metadata(&watch_path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+      loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let mtime = std::fs::metadata(&watch_path)
+          .ok()
+          .and_then(|m| m.modified().ok());
+        if mtime == last_mtime {
+          continue;
+        }
+        last_mtime = mtime;
+        match config_file::reload() {
+          Ok(_) => {
+            reload_state.reload_from_file().await;
+            info!(
+              "Reloaded {}: live settings and headers/routes re-applied (structural keys need a restart)",
+              watch_path.display()
+            );
+            reload_state
+              .audit(
+                "config_reloaded",
+                "system",
+                &watch_path.display().to_string(),
+              )
+              .await;
+          }
+          Err(e) => warn!("Config reload of {} failed: {}", watch_path.display(), e),
+        }
+      }
+    });
+  }
+
   // Threshold alerting (APERIO_ALERT_*): error-rate and client-down rules
   // evaluated by a background ticker, emitted as webhook/audit events.
   if let Some(alert_cfg) = alerts::AlertConfig::from_env() {

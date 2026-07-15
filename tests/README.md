@@ -29,6 +29,7 @@ its own server configuration.
 | K. cache | `phases/k-cache.sh` | response cache hits, ETag/304 conditional answers, serve-stale for resilient services during an outage |
 | L. health | `phases/l-health.sh` | `target_health` probes: unhealthy reporting + routing exclusion, recovery, immediate first probe against a dead backend |
 | M. multihost | `phases/m-multihost.sh` | one service claiming several hostnames |
+| N. config | `phases/n-config.sh` | `aperio-server.yaml` hot-reload: live settings + structured routes re-applied, structural keys ignored live |
 
 ## Running
 

@@ -13,10 +13,11 @@
 //! variables — they are kept as parsed YAML for feature code to read through
 //! [`structured`].
 
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
-/// The parsed file, retained for structured (non-scalar) sections.
-static DOCUMENT: OnceLock<serde_yaml::Mapping> = OnceLock::new();
+/// The parsed file, retained for structured (non-scalar) sections and for
+/// hot-reload. Wrapped in a lock so a reload can swap it in at runtime.
+static DOCUMENT: RwLock<Option<serde_yaml::Mapping>> = RwLock::new(None);
 
 /// Keys that map to bare (un-prefixed) environment variables.
 const BARE_KEYS: &[&str] = &["host", "port", "log_level"];
@@ -121,7 +122,7 @@ pub(crate) fn load() {
     unsafe { std::env::set_var(&name, rendered) };
     applied.push(name);
   }
-  let _ = DOCUMENT.set(doc);
+  *DOCUMENT.write().expect("config document lock poisoned") = Some(doc);
   if !applied.is_empty() {
     // tracing is initialized later (it reads LOG_LEVEL, possibly from this
     // very file), so announce on stderr like the other pre-init messages.
@@ -137,9 +138,51 @@ pub(crate) fn load() {
 /// e.g. `headers`. `None` when the file is absent or has no such key.
 pub(crate) fn structured(key: &str) -> Option<serde_yaml::Value> {
   DOCUMENT
-    .get()
+    .read()
+    .expect("config document lock poisoned")
+    .as_ref()
     .and_then(|doc| doc.get(serde_yaml::Value::String(key.to_string())))
     .cloned()
+}
+
+/// The whole parsed document, cloned (for reading live-editable scalars on
+/// hot-reload). `None` when no file was loaded.
+pub(crate) fn document() -> Option<serde_yaml::Mapping> {
+  DOCUMENT
+    .read()
+    .expect("config document lock poisoned")
+    .clone()
+}
+
+/// The watched config file path, if the file exists (or was explicitly
+/// configured). Used to set up the hot-reload watcher.
+pub(crate) fn watched_path() -> Option<std::path::PathBuf> {
+  let (path, explicit) = config_path();
+  if explicit || path.exists() {
+    Some(path)
+  } else {
+    None
+  }
+}
+
+/// Re-reads the config file and swaps the retained document (no `set_var`,
+/// so it is safe on the running multi-threaded server). Returns Ok with the
+/// number of top-level keys, or Err with a message on a read/parse failure
+/// (the previous document is kept). Structured sections and the live-editable
+/// scalar settings are re-derived by the caller from the new document.
+pub(crate) fn reload() -> Result<usize, String> {
+  let (path, _) = config_path();
+  let raw =
+    std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+  let doc: serde_yaml::Mapping = match serde_yaml::from_str(&raw) {
+    Ok(serde_yaml::Value::Mapping(map)) => map,
+    Ok(serde_yaml::Value::Null) => serde_yaml::Mapping::new(),
+    Ok(_) => return Err(format!("{} must be a mapping of settings", path.display())),
+    Err(e) => return Err(format!("invalid yaml in {}: {e}", path.display())),
+  };
+  let len = doc.len();
+  *DOCUMENT.write().expect("config document lock poisoned") = Some(doc);
+  Ok(len)
 }
 
 #[cfg(test)]

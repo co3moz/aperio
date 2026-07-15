@@ -828,6 +828,21 @@ impl Drop for RequestSlot {
 }
 
 impl AppState {
+  /// Rebuilds the live config from the layers (env defaults ->
+  /// `aperio-server.yaml` live settings -> dashboard overrides) with the
+  /// current structured `headers`/`routes`, and applies it. Called on file
+  /// hot-reload. Structural keys (host/port/data_dir, proxy trust, OIDC,
+  /// `expose` ports) are not re-applied live and need a restart.
+  pub(crate) async fn reload_from_file(self: &Arc<Self>) {
+    let file_layer = crate::settings::file_overrides();
+    let dashboard = self.settings_overrides.lock().await.clone();
+    let base = crate::settings::apply_settings_overrides(&self.config_env_defaults, &file_layer);
+    let mut effective = crate::settings::apply_settings_overrides(&base, &dashboard);
+    effective.header_rules = crate::headers::from_config_file();
+    effective.static_routes = crate::static_routes::from_config_file();
+    crate::api::settings::swap_config(self, effective).await;
+  }
+
   /// Snapshot of the live configuration (cheap Arc clone).
   pub(crate) fn config(&self) -> Arc<ServerConfig> {
     self

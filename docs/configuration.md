@@ -215,6 +215,10 @@ cache: true
 
 The file is read once at startup and takes precedence over environment variables (dashboard overrides still win over both). It is not hot-reloaded — use the dashboard's live settings for runtime changes.
 
+#### Hot-reload
+
+`aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change — cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:` and `routes:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).
+
 #### Server-side header rules (`headers:`)
 
 The file may also carry a structured `headers:` section — the server-wide counterpart of the client's per-service `headers:` config, applied to every proxied HTTP request across all services (WebSocket upgrades pass through untouched). `request` edits what tunnel clients (and thus backends) receive, `response` edits what visitors receive; `add` sets a header (replacing any existing value of the same name), `remove` strips names case-insensitively. Client rules run too — the server applies its rules on its side of the tunnel, the client applies its own on the backend side. Response edits happen before the response cache and the request inspector see the response, so all views agree. Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.

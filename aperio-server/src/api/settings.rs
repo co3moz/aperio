@@ -11,7 +11,7 @@ use tracing::{error, info};
 use crate::protocol::TunnelMessage;
 use crate::routing::{extract_client_ip, random_subdomain_hostname};
 use crate::settings::{
-  SettingsOverrides, apply_settings_overrides, override_keys, parse_failover_mode,
+  ServerConfig, SettingsOverrides, apply_settings_overrides, override_keys, parse_failover_mode,
   parse_lb_strategy, settings_view,
 };
 use crate::state::AppState;
@@ -171,22 +171,47 @@ pub(crate) async fn apply_overrides_validated(
     );
   }
 
-  let old_config = state.config();
-  let effective = apply_settings_overrides(&state.config_env_defaults, &payload);
-  *state.config_store.write().expect("config lock poisoned") = Arc::new(effective);
+  // Layer the config: env defaults -> aperio-server.yaml live settings ->
+  // dashboard overrides (dashboard wins). Then swap it in and push the
+  // side-effects into live structures.
+  let file_layer = crate::settings::file_overrides();
+  let base = apply_settings_overrides(&state.config_env_defaults, &file_layer);
+  let mut effective = apply_settings_overrides(&base, &payload);
+  // Structured sections come from the file document, not overrides.
+  effective.header_rules = crate::headers::from_config_file();
+  effective.static_routes = crate::static_routes::from_config_file();
+  swap_config(state, effective).await;
   *state.settings_overrides.lock().await = payload.clone();
+
+  match serde_json::to_string_pretty(&payload) {
+    Ok(json) => {
+      if let Err(e) = std::fs::write(&state.settings_path, json) {
+        error!(
+          "Failed to persist settings to {:?}: {}",
+          state.settings_path, e
+        );
+      }
+    }
+    Err(e) => error!("Failed to serialize settings: {}", e),
+  }
+
+  Ok(())
+}
+
+/// Swaps in a freshly built config and pushes settings that back live
+/// structures (not just config reads) into those structures. Shared by the
+/// dashboard settings PUT and the `aperio-server.yaml` hot-reload.
+pub(crate) async fn swap_config(state: &Arc<AppState>, new_config: ServerConfig) {
+  let old_config = state.config();
+  *state.config_store.write().expect("config lock poisoned") = Arc::new(new_config);
   let new_config = state.config();
 
-  // Settings that involve connected clients are pushed out immediately
-  // instead of waiting for reconnects.
   if old_config.random_subdomain_suffix != new_config.random_subdomain_suffix {
     reassign_random_hostnames(state).await;
   }
   if !old_config.tunnel_compression && new_config.tunnel_compression {
     offer_compression_to_connected(state).await;
   }
-  // Settings backed by live structures (not just config reads) are pushed
-  // into them here.
   if old_config.cache_enabled && !new_config.cache_enabled {
     state.response_cache.lock().await.clear();
   }
@@ -207,20 +232,6 @@ pub(crate) async fn apply_overrides_validated(
       .await
       .set_rotation(new_config.audit_max_size, new_config.audit_max_files);
   }
-
-  match serde_json::to_string_pretty(&payload) {
-    Ok(json) => {
-      if let Err(e) = std::fs::write(&state.settings_path, json) {
-        error!(
-          "Failed to persist settings to {:?}: {}",
-          state.settings_path, e
-        );
-      }
-    }
-    Err(e) => error!("Failed to serialize settings: {}", e),
-  }
-
-  Ok(())
 }
 
 /// Re-issues random hostnames after the subdomain pattern changed at

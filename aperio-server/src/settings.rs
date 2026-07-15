@@ -176,6 +176,82 @@ pub(crate) struct SettingsOverrides {
   pub(crate) preview_noindex: Option<bool>,
 }
 
+/// The subset of `aperio-server.yaml` keys that map to live-editable
+/// settings, parsed straight from the file for hot-reload. Field names are
+/// the yaml keys; each maps onto a [`SettingsOverrides`] field. Keys with a
+/// non-trivial transform (`random_subdomain` normalization, `504_page`/
+/// `503_page` file loading) are intentionally excluded — they need a restart.
+#[derive(serde::Deserialize, Default)]
+struct FileSettings {
+  server_gateway_timeout: Option<u64>,
+  server_gateway_response_timeout: Option<u64>,
+  max_body_size: Option<usize>,
+  max_tunnels: Option<usize>,
+  require_hostname_bind: Option<bool>,
+  lb_strategy: Option<String>,
+  failover: Option<String>,
+  failover_max_jumps: Option<u32>,
+  failover_window: Option<u64>,
+  failover_all_methods: Option<bool>,
+  client_down_threshold: Option<u64>,
+  ip_limit_max: Option<f64>,
+  ip_limit_refill: Option<f64>,
+  tunnel_compression: Option<bool>,
+  server_auth: Option<String>,
+  cache: Option<bool>,
+  cache_max_bytes: Option<u64>,
+  cache_max_stale: Option<u64>,
+  max_concurrent_requests: Option<usize>,
+  login_lockout_threshold: Option<u32>,
+  login_lockout_secs: Option<u64>,
+  audit_max_size: Option<u64>,
+  audit_max_files: Option<usize>,
+  ui_language: Option<String>,
+  preview_noindex: Option<bool>,
+}
+
+/// Reads the live-editable settings from the current `aperio-server.yaml`
+/// document as a [`SettingsOverrides`] layer. Applied on top of the
+/// environment defaults and beneath the dashboard overrides, so file edits
+/// take effect on hot-reload while dashboard edits still win.
+pub(crate) fn file_overrides() -> SettingsOverrides {
+  let Some(doc) = crate::config_file::document() else {
+    return SettingsOverrides::default();
+  };
+  let fs: FileSettings =
+    serde_yaml::from_value(serde_yaml::Value::Mapping(doc)).unwrap_or_default();
+  SettingsOverrides {
+    gateway_timeout_secs: fs.server_gateway_timeout,
+    gateway_response_timeout_secs: fs.server_gateway_response_timeout,
+    max_body_size: fs.max_body_size,
+    max_tunnels: fs.max_tunnels,
+    require_hostname_bind: fs.require_hostname_bind,
+    lb_strategy: fs.lb_strategy,
+    failover_mode: fs.failover,
+    failover_max_jumps: fs.failover_max_jumps,
+    failover_window_secs: fs.failover_window,
+    failover_all_methods: fs.failover_all_methods,
+    client_down_threshold_secs: fs.client_down_threshold,
+    ip_limit_max: fs.ip_limit_max,
+    ip_limit_refill: fs.ip_limit_refill,
+    tunnel_compression: fs.tunnel_compression,
+    random_subdomain_suffix: None,
+    custom_504_page: None,
+    custom_503_page: None,
+    auth_credentials: fs.server_auth,
+    cache_enabled: fs.cache,
+    cache_max_bytes: fs.cache_max_bytes,
+    cache_max_stale: fs.cache_max_stale,
+    max_concurrent_requests: fs.max_concurrent_requests,
+    login_lockout_threshold: fs.login_lockout_threshold,
+    login_lockout_secs: fs.login_lockout_secs,
+    audit_max_size: fs.audit_max_size,
+    audit_max_files: fs.audit_max_files,
+    ui_language: fs.ui_language,
+    preview_noindex: fs.preview_noindex,
+  }
+}
+
 /// Parses an `APERIO_LB_STRATEGY`-style value.
 pub(crate) fn parse_lb_strategy(raw: &str) -> Option<LbStrategy> {
   match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
