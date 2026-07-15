@@ -400,6 +400,18 @@ assert tl['estimated_anchor'] is True
 " || fail "captured timeline is missing or out of order"
 echo "  ok: capture carries an ordered high-resolution timeline"
 
+STAGES="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stage-stats")"
+assert_contains "$STAGES" '"stage":"backend_wait"' "stage statistics cover the backend-wait stage"
+assert_contains "$STAGES" '"host":"'"$HOSTNAME_BIND"'"' "stage statistics are grouped by route"
+echo "$STAGES" | "$PYTHON" -c "
+import sys, json
+routes = json.load(sys.stdin)
+row = next(r for r in routes if r['host'] != '*')
+counts = {s['stage']: s['count'] for s in row['stages']}
+assert counts['queue'] > 0 and counts['backend_wait'] > 0, counts
+" || fail "stage statistics carry no samples"
+echo "  ok: stage statistics accumulate samples per stage"
+
 REPLAY="$(curl -s -b "$COOKIES" -X POST "$BASE/aperio/api/requests/${REQ_ID}/replay")"
 assert_contains "$REPLAY" '"status":200' "replay reaches the backend again"
 assert_contains "$REPLAY" '"replayed_id"' "replay reports the replayed id"

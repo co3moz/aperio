@@ -173,6 +173,133 @@ pub(crate) const CAPTURE_BODY_LIMIT: usize = 64 * 1024;
 /// RequestStart/Chunk/End frames instead of being buffered in memory.
 pub(crate) const REQUEST_STREAM_THRESHOLD: u64 = 256 * 1024;
 
+/// Names of the per-request stages tracked for latency statistics, in
+/// timeline order. `queue` and `serve` come from server measurements alone;
+/// the middle stages exist only for timing-aware clients.
+pub(crate) const STAGE_KEYS: [&str; 7] = [
+  "queue",
+  "transit_out",
+  "client_processing",
+  "backend_wait",
+  "backend_body",
+  "transit_back",
+  "serve",
+];
+
+/// Rolling per-stage latency window for one route (hostname), feeding the
+/// stage-statistics API: mean and standard deviation per stage plus an
+/// anomaly verdict for the most recent sample. In-memory only.
+pub(crate) struct StageWindow {
+  /// Recent samples, one array of per-stage µs durations each (None =
+  /// stage not measured for that request).
+  samples: std::collections::VecDeque<[Option<u64>; 7]>,
+}
+
+/// Samples kept per route.
+const STAGE_WINDOW_CAP: usize = 500;
+/// Minimum samples before anomaly verdicts are emitted.
+const STAGE_MIN_SAMPLES: usize = 20;
+
+impl StageWindow {
+  fn new() -> Self {
+    StageWindow {
+      samples: std::collections::VecDeque::new(),
+    }
+  }
+
+  /// Extracts per-stage durations from a timeline and records them.
+  pub(crate) fn record(&mut self, tl: &RequestTimeline) {
+    let diff = |a: Option<u64>, b: Option<u64>| -> Option<u64> {
+      match (a, b) {
+        (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+        _ => None,
+      }
+    };
+    let sample: [Option<u64>; 7] = [
+      Some(tl.dispatched_us),
+      diff(Some(tl.dispatched_us), tl.client_received_us),
+      diff(tl.client_received_us, tl.backend_sent_us),
+      diff(tl.backend_sent_us, tl.backend_first_byte_us),
+      diff(tl.backend_first_byte_us, tl.backend_done_us),
+      diff(tl.client_responded_us, Some(tl.response_received_us)),
+      Some(tl.finished_us.saturating_sub(tl.response_received_us)),
+    ];
+    if self.samples.len() >= STAGE_WINDOW_CAP {
+      self.samples.pop_front();
+    }
+    self.samples.push_back(sample);
+  }
+
+  /// Per-stage statistics of the window. A stage's latest sample is
+  /// anomalous when it sits more than three standard deviations above the
+  /// mean of a big-enough window.
+  pub(crate) fn stats(&self) -> Vec<StageRow> {
+    (0..STAGE_KEYS.len())
+      .map(|i| {
+        let values: Vec<u64> = self.samples.iter().filter_map(|s| s[i]).collect();
+        let count = values.len();
+        if count == 0 {
+          return StageRow {
+            stage: STAGE_KEYS[i],
+            count: 0,
+            mean: 0.0,
+            stddev: 0.0,
+            last: None,
+            anomalous: false,
+          };
+        }
+        let mean = values.iter().sum::<u64>() as f64 / count as f64;
+        let var = values
+          .iter()
+          .map(|v| {
+            let d = *v as f64 - mean;
+            d * d
+          })
+          .sum::<f64>()
+          / count as f64;
+        let stddev = var.sqrt();
+        let last = self.samples.back().and_then(|s| s[i]);
+        let anomalous = count >= STAGE_MIN_SAMPLES
+          && last.is_some_and(|l| l as f64 > mean + 3.0 * stddev && l as f64 > mean * 1.5);
+        StageRow {
+          stage: STAGE_KEYS[i],
+          count,
+          mean,
+          stddev,
+          last,
+          anomalous,
+        }
+      })
+      .collect()
+  }
+}
+
+/// One stage's statistics over the rolling window.
+pub(crate) struct StageRow {
+  pub(crate) stage: &'static str,
+  pub(crate) count: usize,
+  pub(crate) mean: f64,
+  pub(crate) stddev: f64,
+  pub(crate) last: Option<u64>,
+  pub(crate) anomalous: bool,
+}
+
+/// All routes' stage windows, keyed by request hostname (or `*`).
+#[derive(Default)]
+pub(crate) struct StageStats {
+  pub(crate) routes: std::collections::HashMap<String, StageWindow>,
+}
+
+impl StageStats {
+  pub(crate) fn record(&mut self, host: Option<&str>, tl: &RequestTimeline) {
+    self
+      .routes
+      .entry(host.unwrap_or("*").to_string())
+      .or_insert_with(StageWindow::new)
+      .record(tl);
+  }
+}
+
 /// Handle tracking active WebSocket sender channel and metadata.
 pub(crate) struct ClientHandle {
   /// Sender channel to push messages to the client.
@@ -668,6 +795,8 @@ pub(crate) struct AppState {
   pub(crate) udp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
   /// Server-side GET response cache (APERIO_CACHE; see the cache module).
   pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
+  /// Rolling per-stage latency statistics per route (in-memory).
+  pub(crate) stage_stats: Mutex<StageStats>,
   /// Hostnames currently in maintenance mode (`*` = every hostname).
   /// Requests to them get a 503 page even while clients are connected.
   /// In-memory only, like bind overrides: cleared by a server restart.

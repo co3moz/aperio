@@ -106,6 +106,20 @@ export interface RequestTimeline {
   estimated_anchor: boolean
 }
 
+export interface StageStat {
+  stage: string
+  count: number
+  mean_us: number
+  stddev_us: number
+  last_us?: number | null
+  anomalous: boolean
+}
+
+export interface RouteStageStats {
+  host: string
+  stages: StageStat[]
+}
+
 export interface ReplayResult {
   status: number
   duration_ms: number
@@ -346,6 +360,7 @@ export const api = {
   logs: () => request<RequestLog[]>('/logs'),
   session: () => request<SessionInfo>('/session'),
   users: () => request<DashboardUser[]>('/users'),
+  stageStats: () => request<RouteStageStats[]>('/stage-stats'),
   sessions: () => request<LiveSession[]>('/sessions'),
   revokeSession: (id: string) => mutate(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   clearSessions: () => request<{ ended: number }>('/sessions', { method: 'DELETE' }),

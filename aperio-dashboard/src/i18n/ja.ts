@@ -602,4 +602,13 @@ export const ja: Record<string, string> = {
   'tunnel → server': 'トンネル → サーバー',
   'tunnel round-trip (client & backend)': 'トンネル往復（クライアントとバックエンド）',
   'server → visitor': 'サーバー → 訪問者',
+  'Stage latencies': 'ステージ別レイテンシ',
+  'Mean and spread of each request stage (rolling window per route, buffered requests of timing-aware clients). A stage far outside its usual band is flagged.': '各リクエスト段階の平均とばらつき（ルートごとのローリングウィンドウ。タイミング対応クライアントのバッファ済みリクエスト）。通常の帯域を大きく外れた段階はフラグが付きます。',
+  'Route': 'ルート',
+  'Stage': 'ステージ',
+  'Mean': '平均',
+  'Last': '直近',
+  'No timing data yet': 'タイミングデータはまだありません',
+  'anomaly': '異常',
+  'normal': '正常',
 }

@@ -604,4 +604,13 @@ export const es: Record<string, string> = {
   'tunnel → server': 'túnel → servidor',
   'tunnel round-trip (client & backend)': 'ida y vuelta del túnel (cliente y backend)',
   'server → visitor': 'servidor → visitante',
+  'Stage latencies': 'Latencias por etapa',
+  'Mean and spread of each request stage (rolling window per route, buffered requests of timing-aware clients). A stage far outside its usual band is flagged.': 'Media y dispersión de cada etapa de la petición (ventana móvil por ruta; peticiones almacenadas de clientes con temporización). Se marca la etapa que queda muy fuera de su banda habitual.',
+  'Route': 'Ruta',
+  'Stage': 'Etapa',
+  'Mean': 'Media',
+  'Last': 'Última',
+  'No timing data yet': 'Aún no hay datos de tiempos',
+  'anomaly': 'anomalía',
+  'normal': 'normal',
 }

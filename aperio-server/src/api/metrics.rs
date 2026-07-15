@@ -1,4 +1,5 @@
 use axum::{
+  Json,
   extract::State,
   http::{HeaderMap, StatusCode},
   response::{IntoResponse, Response},
@@ -209,4 +210,38 @@ pub(crate) async fn metrics_handler(
     out,
   )
     .into_response()
+}
+
+/// Per-stage latency statistics per route, from the timeline data of recent
+/// buffered requests (rolling window, in-memory).
+#[utoipa::path(get, path = "/aperio/api/stage-stats", tag = "dashboard",
+  description = "Rolling per-stage latency statistics (mean/stddev/last, µs) per route, with anomaly verdicts.",
+  responses((status = 200, description = "Stage statistics", body = serde_json::Value)))]
+pub(crate) async fn stage_stats_handler(
+  State(state): State<Arc<AppState>>,
+) -> Json<Vec<serde_json::Value>> {
+  let stats = state.stage_stats.lock().await;
+  let mut routes: Vec<serde_json::Value> = stats
+    .routes
+    .iter()
+    .map(|(host, window)| {
+      let stages: Vec<serde_json::Value> = window
+        .stats()
+        .into_iter()
+        .map(|row| {
+          serde_json::json!({
+            "stage": row.stage,
+            "count": row.count,
+            "mean_us": row.mean.round() as u64,
+            "stddev_us": row.stddev.round() as u64,
+            "last_us": row.last,
+            "anomalous": row.anomalous,
+          })
+        })
+        .collect();
+      serde_json::json!({ "host": host, "stages": stages })
+    })
+    .collect();
+  routes.sort_by(|a, b| a["host"].as_str().cmp(&b["host"].as_str()));
+  Json(routes)
 }

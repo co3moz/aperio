@@ -604,4 +604,13 @@ export const ru: Record<string, string> = {
   'tunnel → server': 'туннель → сервер',
   'tunnel round-trip (client & backend)': 'полный оборот туннеля (клиент и бэкенд)',
   'server → visitor': 'сервер → посетитель',
+  'Stage latencies': 'Задержки по этапам',
+  'Mean and spread of each request stage (rolling window per route, buffered requests of timing-aware clients). A stage far outside its usual band is flagged.': 'Среднее и разброс каждого этапа запроса (скользящее окно на маршрут; буферизованные запросы клиентов с поддержкой таймингов). Этап, сильно выходящий за обычный диапазон, помечается.',
+  'Route': 'Маршрут',
+  'Stage': 'Этап',
+  'Mean': 'Среднее',
+  'Last': 'Последний',
+  'No timing data yet': 'Данных о таймингах пока нет',
+  'anomaly': 'аномалия',
+  'normal': 'норма',
 }

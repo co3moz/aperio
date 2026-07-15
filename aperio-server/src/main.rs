@@ -661,6 +661,7 @@ async fn async_main() {
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
+    stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashSet::new()),
     access_log,
     duration_histogram: DurationHistogram::default(),
@@ -737,6 +738,10 @@ async fn async_main() {
       .route(
         "/api/openapi.json",
         get(crate::api::openapi::openapi_handler),
+      )
+      .route(
+        "/api/stage-stats",
+        get(crate::api::metrics::stage_stats_handler),
       )
       .route(
         "/api/sessions",

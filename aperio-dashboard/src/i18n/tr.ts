@@ -604,4 +604,13 @@ export const tr: Record<string, string> = {
   'tunnel → server': 'tünel → sunucu',
   'tunnel round-trip (client & backend)': 'tünel gidiş-dönüş (istemci ve backend)',
   'server → visitor': 'sunucu → ziyaretçi',
+  'Stage latencies': 'Aşama gecikmeleri',
+  'Mean and spread of each request stage (rolling window per route, buffered requests of timing-aware clients). A stage far outside its usual band is flagged.': 'Her istek aşamasının ortalaması ve dağılımı (rota başına kayan pencere; zamanlama bildiren istemcilerin arabelleğe alınan istekleri). Olağan bandının çok dışına çıkan aşama işaretlenir.',
+  'Route': 'Rota',
+  'Stage': 'Aşama',
+  'Mean': 'Ortalama',
+  'Last': 'Son',
+  'No timing data yet': 'Henüz zamanlama verisi yok',
+  'anomaly': 'anomali',
+  'normal': 'normal',
 }

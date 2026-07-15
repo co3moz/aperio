@@ -585,4 +585,13 @@ export const zh: Record<string, string> = {
   'tunnel → server': '隧道 → 服务器',
   'tunnel round-trip (client & backend)': '隧道往返（客户端与后端）',
   'server → visitor': '服务器 → 访客',
+  'Stage latencies': '阶段延迟',
+  'Mean and spread of each request stage (rolling window per route, buffered requests of timing-aware clients). A stage far outside its usual band is flagged.': '每个请求阶段的平均值与离散度（按路由滚动窗口；支持计时的客户端的缓冲请求）。明显超出正常区间的阶段会被标记。',
+  'Route': '路由',
+  'Stage': '阶段',
+  'Mean': '平均',
+  'Last': '最近',
+  'No timing data yet': '暂无计时数据',
+  'anomaly': '异常',
+  'normal': '正常',
 }

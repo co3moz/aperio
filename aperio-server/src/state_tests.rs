@@ -126,3 +126,49 @@ fn test_request_timeline_assembly() {
   );
   assert_eq!(t.client_received_us, Some(100));
 }
+
+#[test]
+fn test_stage_window_stats_and_anomaly() {
+  use crate::state::{RequestTimeline, StageStats};
+
+  let tl = |queue: u64, backend: u64| {
+    RequestTimeline::assemble(
+      queue,
+      queue + 2_000 + backend,
+      queue + 2_100 + backend,
+      Some(crate::protocol::ClientTimings {
+        backend_sent_us: 100,
+        backend_first_byte_us: 100 + backend,
+        backend_done_us: 150 + backend,
+        respond_us: 200 + backend,
+      }),
+    )
+  };
+
+  let mut stats = StageStats::default();
+  // A steady baseline: 30 requests with ~identical stage durations.
+  for _ in 0..30 {
+    stats.record(Some("app.local"), &tl(100, 5_000));
+  }
+  let window = stats.routes.get("app.local").expect("route window");
+  let rows = window.stats();
+  let backend_wait = rows.iter().find(|r| r.stage == "backend_wait").unwrap();
+  assert_eq!(backend_wait.count, 30);
+  assert!(
+    (backend_wait.mean - 5_000.0).abs() < 1.0,
+    "mean {}",
+    backend_wait.mean
+  );
+  assert!(
+    !backend_wait.anomalous,
+    "steady traffic must not be anomalous"
+  );
+
+  // One wild outlier in backend_wait flips only that stage's verdict.
+  stats.record(Some("app.local"), &tl(100, 80_000));
+  let rows = stats.routes.get("app.local").unwrap().stats();
+  let backend_wait = rows.iter().find(|r| r.stage == "backend_wait").unwrap();
+  assert!(backend_wait.anomalous, "outlier must be flagged");
+  let queue = rows.iter().find(|r| r.stage == "queue").unwrap();
+  assert!(!queue.anomalous, "an unrelated stage must stay quiet");
+}

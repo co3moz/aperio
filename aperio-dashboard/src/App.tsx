@@ -14,6 +14,7 @@ import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TopologySection } from './components/TopologySection'
+import { StageStatsSection } from './components/StageStatsSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
 import { WebhooksSection } from './components/WebhooksSection'
@@ -332,7 +333,12 @@ export default function App() {
                 </>
               )}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
-              {page === 'breakdown' && <TrafficBreakdownSection stats={stats} />}
+              {page === 'breakdown' && (
+                <div className="flex flex-col gap-6">
+                  <TrafficBreakdownSection stats={stats} />
+                  <StageStatsSection />
+                </div>
+              )}
               {page === 'topology' && <TopologySection stats={stats} />}
               {page === 'tokens' && <TokensSection />}
               {page === 'share' && <ShareLinksSection />}
