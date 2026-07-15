@@ -18,6 +18,7 @@ its own server configuration:
 | I. h2 | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay, driven by the [`mock-h2`](mock-h2/) helper |
 | J. sessions | dashboard sessions survive a server restart |
 | K. cache | response cache hits; serve-stale for resilient services during an outage, fail-closed otherwise, fresh takeover on reconnect |
+| L. health | `target_health` probes: unhealthy reporting + routing exclusion, recovery, immediate first probe against a dead backend |
 
 ## Running
 

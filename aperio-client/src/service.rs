@@ -147,8 +147,11 @@ pub(crate) async fn run_service(
       )
     };
     let flag = backend_healthy.clone();
+    // Health checks never follow redirects: a 3xx to some other page must
+    // not let a broken backend look healthy via the redirect target.
     let probe_client = reqwest::Client::builder()
       .timeout(Duration::from_secs(spec.health_timeout))
+      .redirect(reqwest::redirect::Policy::none())
       .build()
       .unwrap_or_default();
     let (interval, threshold) = (spec.health_interval, spec.health_threshold);
@@ -158,8 +161,10 @@ pub(crate) async fn run_service(
     );
     tokio::spawn(async move {
       let mut consecutive_failures: u32 = 0;
+      // Probe immediately, then on the interval: a backend that is already
+      // down when the client starts is reported after threshold probes
+      // instead of sitting falsely healthy for a full extra interval.
       loop {
-        tokio::time::sleep(Duration::from_secs(interval)).await;
         let ok = matches!(
           probe_client.get(&health_url).send().await,
           Ok(resp) if resp.status().is_success()
@@ -178,6 +183,7 @@ pub(crate) async fn run_service(
             );
           }
         }
+        tokio::time::sleep(Duration::from_secs(interval)).await;
       }
     })
   });
