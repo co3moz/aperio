@@ -393,6 +393,49 @@ assert_status 200 "$CODE" "an empty child org is deleted"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
 assert_status 404 "$CODE" "deleting an unknown org returns 404"
 
+step "Organization traffic isolation (per-org logs & stats)"
+# A child org with its own token, bound to a dedicated hostname, then a real
+# client that authenticates with that token and serves a request.
+TORG="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"Traffico"}' "$BASE/aperio/api/orgs")" || fail "traffic-org creation failed"
+TORG_ID="$(echo "$TORG" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${TORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
+ORG_HOST="orgtraffic.example.com"
+TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"name\":\"org-client\",\"hostnames\":[\"${ORG_HOST}\"]}" "$BASE/aperio/api/tokens")" \
+  || fail "org token creation failed"
+TOK_SECRET="$(echo "$TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$TOK_SECRET" ] || fail "could not parse the org token secret"
+# Back to master for the baseline check.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
+# A client authenticating with the child-org token, bound to ORG_HOST.
+start_client orgtraffic "$BACKEND_PORT" APERIO_SERVER_TOKEN="$TOK_SECRET" APERIO_HOSTNAME_BIND="$ORG_HOST"
+wait_routable "$ORG_HOST"
+# Drive a uniquely-identifiable request through the org's client.
+curl -s -H "Host: ${ORG_HOST}" "$BASE/orgtraffic-probe" >/dev/null
+retry 5 sh -c "curl -s -b '$COOKIES' '$BASE/aperio/api/orgs' | grep -q '\"tokens\":1'"
+# Master context: the child org's request must NOT appear in master's log.
+LOGS_MASTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
+if echo "$LOGS_MASTER" | grep -q 'orgtraffic-probe'; then
+  fail "isolation breach: the child org's traffic leaked into master's log"
+fi
+echo "  ok: the child org's request is absent from master's traffic log"
+# Child context: the org's own log shows it, and its stats count it.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${TORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
+retry 5 sh -c "curl -s -b '$COOKIES' '$BASE/aperio/api/logs' | grep -q 'orgtraffic-probe'"
+LOGS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
+assert_contains "$LOGS_CHILD" 'orgtraffic-probe' "the child org's request shows in its own traffic log"
+STATS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
+CHILD_REQS="$(echo "$STATS_CHILD" | "$PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["total_requests"])')"
+[ "$CHILD_REQS" -ge 1 ] || fail "the child org's stats should count its own request (got $CHILD_REQS)"
+echo "  ok: the child org's stats count its own traffic ($CHILD_REQS request(s))"
+# Back to master to leave the session in a known state for later steps.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
+
 step "Audit API"
 AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
 assert_contains "$AUDIT" 'client_connected' "audit log records the client connection"

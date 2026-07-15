@@ -231,8 +231,10 @@ pub(crate) struct HistoryBucket {
   responses((status = 200, description = "Traffic history buckets", body = Vec<HistoryBucket>), (status = 400, description = "Invalid unit or date range")))]
 pub(crate) async fn stats_history_handler(
   State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
   axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
 ) -> Response {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let keys = if let Some(from) = query.from.as_deref() {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let to = query.to.as_deref().unwrap_or(&today);
@@ -261,7 +263,12 @@ pub(crate) async fn stats_history_handler(
       .into_response();
   };
 
-  let snapshot = state.persistent_stats.lock().await.snapshot();
+  // History is scoped to the caller's effective organization.
+  let snapshot = state
+    .persistent_stats
+    .lock()
+    .await
+    .snapshot_for_org(org.as_deref());
   let buckets: Vec<HistoryBucket> = keys
     .into_iter()
     .map(|key| {
@@ -298,6 +305,33 @@ pub(crate) fn filter_stats_for_org(stats: &mut EnhancedServerStats, org: &Option
   stats.connected_clients_count = stats.active_clients.len();
 }
 
+/// Replaces the aggregate counters, `today`, average, and persistent
+/// breakdown of a stats snapshot with the effective organization's own slice,
+/// so each org sees only its own traffic totals (the master org's slice covers
+/// org-`None` traffic; the true server-wide grand total stays in Prometheus).
+async fn scope_stats_for_org(
+  state: &AppState,
+  stats: &mut EnhancedServerStats,
+  org: &Option<String>,
+) {
+  let persistent = state
+    .persistent_stats
+    .lock()
+    .await
+    .snapshot_for_org(org.as_deref());
+  stats.total_requests = persistent.total_requests;
+  stats.successful_requests = persistent.total_success;
+  stats.failed_requests = persistent.total_failed;
+  stats.total_bytes_transferred = persistent.total_bytes_sent + persistent.total_bytes_received;
+  stats.avg_response_ms = persistent.avg_response_ms();
+  stats.today = persistent
+    .periods
+    .get(&stats::period_keys()[0])
+    .cloned()
+    .unwrap_or_default();
+  stats.persistent = persistent;
+}
+
 #[utoipa::path(get, path = "/aperio/api/stats", tag = "dashboard",
   description = "Live statistics snapshot: counters, persistent stats, and the active client connections.",
   responses((status = 200, description = "Current statistics", body = EnhancedServerStats)))]
@@ -308,6 +342,7 @@ pub(crate) async fn stats_handler(
   let org = crate::auth::effective_org(&state, &headers).await;
   let mut snapshot = compute_stats(&state).await;
   filter_stats_for_org(&mut snapshot, &org);
+  scope_stats_for_org(&state, &mut snapshot, &org).await;
   Json(snapshot)
 }
 
@@ -357,6 +392,7 @@ pub(crate) async fn live_stream_handler(
           _ = interval.tick() => {
             let mut snapshot = compute_stats(&state).await;
             filter_stats_for_org(&mut snapshot, &org);
+            scope_stats_for_org(&state, &mut snapshot, &org).await;
             let event = Event::default()
               .event("stats")
               .json_data(&snapshot)

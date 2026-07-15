@@ -392,6 +392,7 @@ async fn stale_cache_response(
     duration.as_millis() as u64,
     None,
     host.as_deref(),
+    None,
   );
   log_request_success(
     state,
@@ -658,6 +659,7 @@ async fn proxy_http_request(
       duration.as_millis() as u64,
       Some(selected.token_name.as_deref().unwrap_or("master")),
       request_host.as_deref(),
+      selected.org_id.as_deref(),
     );
     let request_id = uuid::Uuid::new_v4().to_string();
     log_request_success(
@@ -990,7 +992,7 @@ async fn proxy_http_request(
                 selected.org_id.clone(),
               )
               .await;
-              state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
+              state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64, selected.org_id.as_deref());
               break gateway_timeout_response(&state, "504 Gateway Timeout - Gateway response timeout expired");
           }
           res_opt = rx_response => res_opt.ok(),
@@ -1098,6 +1100,7 @@ async fn proxy_http_request(
             duration.as_millis() as u64,
             Some(selected.token_name.as_deref().unwrap_or("master")),
             request_host.as_deref(),
+            selected.org_id.as_deref(),
           );
         }
         // Store cacheable buffered GET responses for the advertised
@@ -1289,6 +1292,7 @@ async fn proxy_http_request(
           body_bytes.len() as u64,
           0,
           duration.as_millis() as u64,
+          selected.org_id.as_deref(),
         );
         break (
           StatusCode::BAD_GATEWAY,

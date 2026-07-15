@@ -78,15 +78,114 @@ impl PersistentStats {
   }
 }
 
+/// Records one request into a [`PersistentStats`] (totals, period buckets, and
+/// optional token/hostname labels). Shared by the global aggregate and each
+/// organization's own slice.
+fn bump_stats(
+  stats: &mut PersistentStats,
+  success: bool,
+  bytes_in: u64,
+  bytes_out: u64,
+  duration_ms: u64,
+  token: Option<&str>,
+  hostname: Option<&str>,
+) {
+  if let Some(token) = token {
+    bump_label(
+      &mut stats.by_token,
+      token,
+      success,
+      bytes_in,
+      bytes_out,
+      duration_ms,
+    );
+  }
+  if let Some(hostname) = hostname {
+    bump_label(
+      &mut stats.by_hostname,
+      hostname,
+      success,
+      bytes_in,
+      bytes_out,
+      duration_ms,
+    );
+  }
+  stats.total_requests += 1;
+  if success {
+    stats.total_success += 1;
+  } else {
+    stats.total_failed += 1;
+  }
+  stats.total_bytes_received += bytes_in;
+  stats.total_bytes_sent += bytes_out;
+  stats.total_request_duration_ms += duration_ms;
+  for key in period_keys() {
+    let p = stats.periods.entry(key).or_default();
+    p.requests += 1;
+    if success {
+      p.success += 1;
+    } else {
+      p.failed += 1;
+    }
+    p.bytes_received += bytes_in;
+    p.bytes_sent += bytes_out;
+    p.duration_ms += duration_ms;
+  }
+}
+
+/// Adds streamed response bytes to a [`PersistentStats`]'s totals and buckets.
+fn add_bytes_sent(stats: &mut PersistentStats, bytes: u64) {
+  stats.total_bytes_sent += bytes;
+  for key in period_keys() {
+    stats.periods.entry(key).or_default().bytes_sent += bytes;
+  }
+}
+
+/// Drops the oldest period buckets beyond the retention window for each kind.
+fn prune_periods(stats: &mut PersistentStats) {
+  for (prefix, keep) in RETENTION {
+    let mut keys: Vec<String> = stats
+      .periods
+      .keys()
+      .filter(|k| k.starts_with(prefix))
+      .cloned()
+      .collect();
+    if keys.len() > keep {
+      // Period keys sort chronologically within a kind (zero-padded).
+      keys.sort();
+      for key in keys.iter().take(keys.len() - keep) {
+        stats.periods.remove(key);
+      }
+    }
+  }
+}
+
 /// Retention per period kind: (prefix, max buckets kept).
 const RETENTION: [(&str, usize); 4] = [("d:", 60), ("w:", 26), ("m:", 24), ("y:", 10)];
 
 /// Disk-backed statistics store (the `stats` table of the shared SQLite
 /// store, `<data_dir>/aperio.db`). Mutations mark the store dirty; a
 /// background task flushes periodically.
+/// On-disk shape: the global aggregate (flattened, so older files that were a
+/// bare `PersistentStats` still load) plus a per-organization breakdown.
+#[derive(Serialize, Deserialize, Default)]
+struct PersistedStats {
+  #[serde(flatten)]
+  global: PersistentStats,
+  /// Per-organization stats, keyed by org id (`master` for the implicit master
+  /// org). Each entry is a full [`PersistentStats`] scoped to that org.
+  #[serde(default)]
+  by_org: HashMap<String, PersistentStats>,
+}
+
+/// The org-id key used for the implicit master organization (org `None`).
+pub const MASTER_ORG_KEY: &str = "master";
+
 pub struct StatsStore {
   conn: rusqlite::Connection,
   stats: PersistentStats,
+  /// Per-organization aggregates, keyed by org id (`master` for org `None`).
+  by_org: HashMap<String, PersistentStats>,
   dirty: bool,
 }
 
@@ -174,33 +273,45 @@ pub fn day_keys_between(from: &str, to: &str) -> Option<Vec<String>> {
 impl StatsStore {
   pub fn load(data_dir: &str) -> Self {
     let conn = crate::store::open_db(data_dir);
-    let stats = conn
+    let persisted = conn
       .query_row("SELECT data FROM stats WHERE key = 'stats'", [], |row| {
         row.get::<_, String>(0)
       })
       .ok()
-      .and_then(|raw| serde_json::from_str::<PersistentStats>(&raw).ok())
+      .and_then(|raw| serde_json::from_str::<PersistedStats>(&raw).ok())
       .unwrap_or_default();
-    if stats.total_requests > 0 {
+    if persisted.global.total_requests > 0 {
       info!(
         "Loaded persistent stats from the store (total_requests={})",
-        stats.total_requests
+        persisted.global.total_requests
       );
     }
     StatsStore {
       conn,
-      stats,
+      stats: persisted.global,
+      by_org: persisted.by_org,
       dirty: false,
     }
   }
 
-  /// Records a completed proxied request across all-time and period buckets.
-  pub fn record_request(&mut self, success: bool, bytes_in: u64, bytes_out: u64, duration_ms: u64) {
-    self.record_request_labeled(success, bytes_in, bytes_out, duration_ms, None, None)
+  /// Records a completed proxied request across all-time and period buckets,
+  /// attributed to the serving organization (`None` = master).
+  pub fn record_request(
+    &mut self,
+    success: bool,
+    bytes_in: u64,
+    bytes_out: u64,
+    duration_ms: u64,
+    org: Option<&str>,
+  ) {
+    self.record_request_labeled(success, bytes_in, bytes_out, duration_ms, None, None, org)
   }
 
   /// Like [`record_request`], additionally attributing the traffic to a
-  /// token label and/or request hostname for per-tenant traceability.
+  /// token label and/or request hostname for per-tenant traceability. The
+  /// request is counted both in the global aggregate and in the serving
+  /// organization's own slice (`org` = the org id, `None` = master).
+  #[allow(clippy::too_many_arguments)]
   pub fn record_request_labeled(
     &mut self,
     success: bool,
@@ -209,80 +320,49 @@ impl StatsStore {
     duration_ms: u64,
     token: Option<&str>,
     hostname: Option<&str>,
+    org: Option<&str>,
   ) {
-    if let Some(token) = token {
-      bump_label(
-        &mut self.stats.by_token,
-        token,
-        success,
-        bytes_in,
-        bytes_out,
-        duration_ms,
-      );
-    }
-    if let Some(hostname) = hostname {
-      bump_label(
-        &mut self.stats.by_hostname,
-        hostname,
-        success,
-        bytes_in,
-        bytes_out,
-        duration_ms,
-      );
-    }
-    self.stats.total_requests += 1;
-    if success {
-      self.stats.total_success += 1;
-    } else {
-      self.stats.total_failed += 1;
-    }
-    self.stats.total_bytes_received += bytes_in;
-    self.stats.total_bytes_sent += bytes_out;
-    self.stats.total_request_duration_ms += duration_ms;
-
-    for key in period_keys() {
-      let p = self.stats.periods.entry(key).or_default();
-      p.requests += 1;
-      if success {
-        p.success += 1;
-      } else {
-        p.failed += 1;
-      }
-      p.bytes_received += bytes_in;
-      p.bytes_sent += bytes_out;
-      p.duration_ms += duration_ms;
-    }
-    self.prune();
-    self.dirty = true;
-  }
-
-  /// Adds streamed response bytes that were not known at request-record time.
-  pub fn record_bytes_sent(&mut self, bytes: u64) {
-    self.stats.total_bytes_sent += bytes;
-    for key in period_keys() {
-      self.stats.periods.entry(key).or_default().bytes_sent += bytes;
+    bump_stats(
+      &mut self.stats,
+      success,
+      bytes_in,
+      bytes_out,
+      duration_ms,
+      token,
+      hostname,
+    );
+    let org_stats = self
+      .by_org
+      .entry(org.unwrap_or(MASTER_ORG_KEY).to_string())
+      .or_default();
+    bump_stats(
+      org_stats,
+      success,
+      bytes_in,
+      bytes_out,
+      duration_ms,
+      token,
+      hostname,
+    );
+    prune_periods(&mut self.stats);
+    if let Some(s) = self.by_org.get_mut(org.unwrap_or(MASTER_ORG_KEY)) {
+      prune_periods(s);
     }
     self.dirty = true;
   }
 
-  /// Drops the oldest buckets beyond the retention window for each kind.
-  fn prune(&mut self) {
-    for (prefix, keep) in RETENTION {
-      let mut keys: Vec<String> = self
-        .stats
-        .periods
-        .keys()
-        .filter(|k| k.starts_with(prefix))
-        .cloned()
-        .collect();
-      if keys.len() > keep {
-        // Period keys sort chronologically within a kind (zero-padded).
-        keys.sort();
-        for key in keys.iter().take(keys.len() - keep) {
-          self.stats.periods.remove(key);
-        }
-      }
-    }
+  /// Adds streamed response bytes that were not known at request-record time,
+  /// attributed to the serving organization (`None` = master).
+  pub fn record_bytes_sent(&mut self, bytes: u64, org: Option<&str>) {
+    add_bytes_sent(&mut self.stats, bytes);
+    add_bytes_sent(
+      self
+        .by_org
+        .entry(org.unwrap_or(MASTER_ORG_KEY).to_string())
+        .or_default(),
+      bytes,
+    );
+    self.dirty = true;
   }
 
   /// Lifetime proxied-request count (cheap accessor for the first-run check).
@@ -295,7 +375,11 @@ impl StatsStore {
     if !self.dirty {
       return;
     }
-    match serde_json::to_string(&self.stats) {
+    let persisted = PersistedStats {
+      global: self.stats.clone(),
+      by_org: self.by_org.clone(),
+    };
+    match serde_json::to_string(&persisted) {
       Ok(json) => {
         let res = self.conn.execute(
           "INSERT INTO stats (key, data) VALUES ('stats', ?1)
@@ -311,8 +395,20 @@ impl StatsStore {
     }
   }
 
+  /// The global aggregate across all organizations (used by Prometheus and
+  /// server-level operators).
   pub fn snapshot(&self) -> PersistentStats {
     self.stats.clone()
+  }
+
+  /// The stats slice for one organization (`None` = master). Empty when the org
+  /// has served no traffic yet.
+  pub fn snapshot_for_org(&self, org: Option<&str>) -> PersistentStats {
+    self
+      .by_org
+      .get(org.unwrap_or(MASTER_ORG_KEY))
+      .cloned()
+      .unwrap_or_default()
   }
 }
 
@@ -383,9 +479,26 @@ mod tests {
     let dir_str = dir.to_string_lossy().to_string();
 
     let mut store = StatsStore::load(&dir_str);
-    store.record_request_labeled(true, 100, 2000, 40, Some("master"), Some("a.example.com"));
-    store.record_request_labeled(false, 50, 0, 60, Some("tenant-a"), Some("a.example.com"));
-    store.record_bytes_sent(500);
+    // First request served by the master org, second by child org "acme".
+    store.record_request_labeled(
+      true,
+      100,
+      2000,
+      40,
+      Some("master"),
+      Some("a.example.com"),
+      None,
+    );
+    store.record_request_labeled(
+      false,
+      50,
+      0,
+      60,
+      Some("tenant-a"),
+      Some("a.example.com"),
+      Some("acme"),
+    );
+    store.record_bytes_sent(500, None);
     store.save_if_dirty();
 
     let snap = store.snapshot();
@@ -396,6 +509,18 @@ mod tests {
     assert_eq!(snap.total_bytes_sent, 2500);
     assert_eq!(snap.total_request_duration_ms, 100);
     assert!((snap.avg_response_ms() - 50.0).abs() < f64::EPSILON);
+
+    // Per-org slices: the master org saw only its own request (+ the streamed
+    // bytes), the "acme" org only its own; neither sees the other's traffic.
+    let master = store.snapshot_for_org(None);
+    assert_eq!(master.total_requests, 1);
+    assert_eq!(master.total_success, 1);
+    assert_eq!(master.total_bytes_sent, 2500);
+    let acme = store.snapshot_for_org(Some("acme"));
+    assert_eq!(acme.total_requests, 1);
+    assert_eq!(acme.total_failed, 1);
+    assert_eq!(acme.total_bytes_sent, 0);
+    assert!(store.snapshot_for_org(Some("unknown")).total_requests == 0);
 
     // Period buckets exist for the current day/week/month/year.
     let [d, w, m, y] = period_keys();

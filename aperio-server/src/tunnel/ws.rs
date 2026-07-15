@@ -60,7 +60,16 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
         let mut stats = state.stats.lock().await;
         stats.total_bytes_transferred += len;
         drop(stats);
-        state.persistent_stats.lock().await.record_bytes_sent(len);
+        // Attribute streamed bytes to the sending client's organization.
+        let org = {
+          let clients = state.clients.lock().await;
+          clients.get(client_id).and_then(|c| c.perms.org_id.clone())
+        };
+        state
+          .persistent_stats
+          .lock()
+          .await
+          .record_bytes_sent(len, org.as_deref());
       }
       _ => {
         debug!(
