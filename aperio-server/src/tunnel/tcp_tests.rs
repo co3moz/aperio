@@ -8,6 +8,7 @@ fn dynamic_perms(token_id: &str) -> ClientPerms {
     token_name: Some(format!("token-{token_id}")),
     token_id: Some(token_id.to_string()),
     allow_public: false,
+    org_id: None,
   }
 }
 

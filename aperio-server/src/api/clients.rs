@@ -55,6 +55,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         set
       },
       token_name: handle.perms.token_name.clone(),
+      org_id: handle.perms.org_id.clone(),
       override_path_bind: handle.override_path_bind.clone(),
       override_hostname_bind: handle.override_hostname_bind.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
@@ -288,11 +289,26 @@ pub(crate) async fn stats_history_handler(
   Json(buckets).into_response()
 }
 
+/// Restricts a stats snapshot to the caller's effective organization: only
+/// clients whose token belongs to that org remain visible, and the connected
+/// count follows. Aggregate counters stay global. The master super-admin sees
+/// the org currently selected on their session.
+pub(crate) fn filter_stats_for_org(stats: &mut EnhancedServerStats, org: &Option<String>) {
+  stats.active_clients.retain(|c| &c.org_id == org);
+  stats.connected_clients_count = stats.active_clients.len();
+}
+
 #[utoipa::path(get, path = "/aperio/api/stats", tag = "dashboard",
   description = "Live statistics snapshot: counters, persistent stats, and the active client connections.",
   responses((status = 200, description = "Current statistics", body = EnhancedServerStats)))]
-pub(crate) async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<EnhancedServerStats> {
-  Json(compute_stats(&state).await)
+pub(crate) async fn stats_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<EnhancedServerStats> {
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let mut snapshot = compute_stats(&state).await;
+  filter_stats_for_org(&mut snapshot, &org);
+  Json(snapshot)
 }
 
 /// Handler returning the list of recent HTTP logs in JSON.
@@ -314,29 +330,33 @@ pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec
   responses((status = 200, description = "SSE stream (text/event-stream)")))]
 pub(crate) async fn live_stream_handler(
   State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
   use std::time::Duration;
   use tokio::sync::broadcast::error::RecvError;
   use tokio::time::MissedTickBehavior;
 
+  // The caller's effective org is fixed for the life of the connection.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let rx = state.traffic_tx.subscribe();
   let shutdown = state.shutdown.subscribe();
   let mut interval = tokio::time::interval(Duration::from_secs(2));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let stream = futures_util::stream::unfold(
-    (state, rx, interval, shutdown),
-    |(state, mut rx, mut interval, mut shutdown)| async move {
+    (state, rx, interval, shutdown, org),
+    |(state, mut rx, mut interval, mut shutdown, org)| async move {
       loop {
         tokio::select! {
           // The first tick fires immediately, seeding the initial snapshot.
           _ = interval.tick() => {
-            let snapshot = compute_stats(&state).await;
+            let mut snapshot = compute_stats(&state).await;
+            filter_stats_for_org(&mut snapshot, &org);
             let event = Event::default()
               .event("stats")
               .json_data(&snapshot)
               .unwrap_or_else(|_| Event::default());
-            return Some((Ok(event), (state, rx, interval, shutdown)));
+            return Some((Ok(event), (state, rx, interval, shutdown, org)));
           }
           recv = rx.recv() => match recv {
             Ok(log) => {
@@ -344,7 +364,7 @@ pub(crate) async fn live_stream_handler(
                 .event("traffic")
                 .json_data(&log)
                 .unwrap_or_else(|_| Event::default());
-              return Some((Ok(event), (state, rx, interval, shutdown)));
+              return Some((Ok(event), (state, rx, interval, shutdown, org)));
             }
             // Slow subscriber: drop the missed span and keep streaming.
             Err(RecvError::Lagged(_)) => continue,

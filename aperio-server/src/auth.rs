@@ -357,6 +357,7 @@ pub(crate) async fn auth_login_handler(
       scope_host: session_scope,
       username: identity.0,
       role: identity.1,
+      selected_org: None,
     },
   );
 
@@ -524,6 +525,7 @@ pub(crate) async fn authorize_tunnel_token(
     token_name: Some(token.name.clone()),
     token_id: Some(token.id.clone()),
     allow_public: token.allow_public,
+    org_id: token.org_id.clone(),
   })
 }
 
@@ -682,6 +684,29 @@ pub(crate) async fn is_master_admin(state: &AppState, headers: &HeaderMap) -> bo
     return false;
   }
   caller_org(state, headers).await.is_none()
+}
+
+/// The organization whose resources the caller may see and act on. For a
+/// named user this is their fixed `org_id`. For the master super-admin it is
+/// the org currently selected on their session (`None` = master), which they
+/// can switch with `POST /api/orgs/select`.
+pub(crate) async fn effective_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  if is_master_admin(state, headers).await {
+    // The super-admin views the org selected on their session.
+    if let Some(token) = session_cookie(headers)
+      && let Some(sel) = state.sessions.lock().await.selected_org(token)
+    {
+      return sel;
+    }
+    return None;
+  }
+  caller_org(state, headers).await
+}
+
+/// The raw `aperio_session` cookie value, for endpoints that mutate the
+/// session (e.g. switching organizations).
+pub(crate) fn session_token(headers: &HeaderMap) -> Option<String> {
+  session_cookie(headers).map(str::to_string)
 }
 
 /// Gate for organization-management endpoints: 401 without a session, 403 for
@@ -979,6 +1004,7 @@ pub(crate) async fn oidc_callback_handler(
       scope_host: None,
       username: Some(email.clone()),
       role: Role::Admin,
+      selected_org: None,
     },
   );
   let secure_flag = if state.config().secure_cookies {

@@ -36,6 +36,11 @@ pub(crate) struct SessionInfo {
   pub(crate) username: Option<String>,
   /// Dashboard role checked by the authorization middleware.
   pub(crate) role: crate::store::users::Role,
+  /// The organization the master super-admin is currently viewing (`None` =
+  /// master). Ignored for named users, whose organization is fixed. Persisted
+  /// so an org switch survives a restart.
+  #[serde(default)]
+  pub(crate) selected_org: Option<String>,
 }
 
 /// Current unix time in seconds.
@@ -217,6 +222,28 @@ impl SessionStore {
     }
   }
 
+  /// Sets the selected organization on a session (org switch) and persists.
+  /// Returns whether the session existed.
+  pub(crate) fn set_selected_org(&mut self, token: &str, org: Option<String>) -> bool {
+    let key = token_key(token);
+    if let Some(info) = self.sessions.get_mut(&key) {
+      info.selected_org = org;
+      let info = info.clone();
+      self.persist_one(&key, &info);
+      true
+    } else {
+      false
+    }
+  }
+
+  /// The selected organization on a session, if the session exists.
+  pub(crate) fn selected_org(&self, token: &str) -> Option<Option<String>> {
+    self
+      .sessions
+      .get(&token_key(token))
+      .map(|i| i.selected_org.clone())
+  }
+
   #[cfg(test)]
   pub(crate) fn len(&self) -> usize {
     self.sessions.len()
@@ -243,6 +270,7 @@ mod tests {
       scope_host: None,
       username: username.map(str::to_string),
       role: Role::Admin,
+      selected_org: None,
     }
   }
 

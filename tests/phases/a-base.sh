@@ -325,6 +325,49 @@ assert_status 400 "$CODE" "the reserved name master is rejected"
 # The implicit master org cannot be deleted.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/master")"
 assert_status 400 "$CODE" "the master org cannot be deleted"
+
+step "Organization isolation (effective-org scoping)"
+# Switch the super-admin into the child org: resources created now belong to it.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${ORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null \
+  || fail "selecting the child org failed"
+ACME_TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"acme-token","hostnames":["*"]}' "$BASE/aperio/api/tokens")" \
+  || fail "creating a token in the child org failed"
+ACME_TOK_ID="$(echo "$ACME_TOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$ACME_TOK_ID" ] || fail "could not parse the child-org token id"
+# While the child org is selected, its token is visible.
+TOKS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tokens")"
+assert_contains "$TOKS" 'acme-token' "the child-org token is visible in its own org"
+# Switch back to master: the child-org token must NOT be visible there.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
+  || fail "selecting master failed"
+TOKS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tokens")"
+if echo "$TOKS" | grep -q 'acme-token'; then
+  fail "isolation breach: the child-org token leaked into master's token list"
+fi
+echo "  ok: the child-org token is hidden from master's token list"
+# The org listing still counts the child org's token.
+ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
+assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"
+# A cross-org by-id revoke from master is refused (404, existence hidden).
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${ACME_TOK_ID}")"
+assert_status 404 "$CODE" "revoking a child-org token from master is refused"
+# Selecting an unknown org id is a 404.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"id":"nope"}' "$BASE/aperio/api/orgs/select")"
+assert_status 404 "$CODE" "selecting an unknown org id returns 404"
+# Deleting a non-empty child org is refused (409).
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
+assert_status 409 "$CODE" "a non-empty child org cannot be deleted"
+# Clean up: revoke the token from inside the child org, then delete the org.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${ORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
+curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${ACME_TOK_ID}" >/dev/null \
+  || fail "revoking the child-org token failed"
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
+
 # An empty child org deletes; a repeat is 404.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
 assert_status 200 "$CODE" "an empty child org is deleted"

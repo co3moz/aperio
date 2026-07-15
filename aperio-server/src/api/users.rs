@@ -21,7 +21,21 @@ fn user_view(u: &User) -> serde_json::Value {
     "created_at": u.created_at,
     "enabled": u.enabled,
     "totp": u.totp_secret.is_some(),
+    "org_id": u.org_id,
   })
+}
+
+/// Whether a user id exists and belongs to the caller's effective org, so one
+/// org cannot edit or delete another's users by id.
+async fn user_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: &str) -> bool {
+  let org = crate::auth::effective_org(state, headers).await;
+  state
+    .users
+    .lock()
+    .await
+    .list()
+    .iter()
+    .any(|u| u.id == id && u.org_id == org)
 }
 
 fn actor_ip(state: &Arc<AppState>, headers: &HeaderMap, addr: SocketAddr) -> String {
@@ -40,10 +54,17 @@ fn actor_ip(state: &Arc<AppState>, headers: &HeaderMap, addr: SocketAddr) -> Str
   responses((status = 200, description = "User records", body = serde_json::Value)))]
 pub(crate) async fn users_list_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
 ) -> Json<serde_json::Value> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let users = state.users.lock().await;
   Json(serde_json::json!(
-    users.list().iter().map(user_view).collect::<Vec<_>>()
+    users
+      .list()
+      .iter()
+      .filter(|u| u.org_id == org)
+      .map(user_view)
+      .collect::<Vec<_>>()
   ))
 }
 
@@ -73,11 +94,13 @@ pub(crate) async fn users_create_handler(
     )
       .into_response();
   };
+  // New users belong to the caller's currently effective organization.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let created = state
     .users
     .lock()
     .await
-    .create(&payload.username, &payload.password, role, None);
+    .create(&payload.username, &payload.password, role, org);
   match created {
     Ok(user) => {
       let ip = actor_ip(&state, &headers, addr);
@@ -136,6 +159,10 @@ pub(crate) async fn users_update_handler(
     },
     None => None,
   };
+  // Isolation: only users in the caller's effective org may be edited.
+  if !user_in_effective_org(&state, &headers, &id).await {
+    return (StatusCode::NOT_FOUND, "unknown user id").into_response();
+  }
   let updated =
     state
       .users
@@ -176,12 +203,13 @@ pub(crate) async fn users_delete_handler(
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let username = {
     let users = state.users.lock().await;
     users
       .list()
       .iter()
-      .find(|u| u.id == id)
+      .find(|u| u.id == id && u.org_id == org)
       .map(|u| u.username.clone())
   };
   let Some(username) = username else {

@@ -83,6 +83,62 @@ pub(crate) struct OrgCreateRequest {
   pub(crate) name: String,
 }
 
+/// Body of the select-org call: the org to view (`master` or a child id;
+/// `null`/absent = master).
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgSelectRequest {
+  #[serde(default)]
+  pub(crate) id: Option<String>,
+}
+
+/// Switches the master super-admin's active organization. Only the built-in
+/// `aperio` super-admin may switch orgs; a named user is pinned to their own
+/// org and this is a no-op error for them. The selection is stored on the
+/// session, so all subsequent list/stats calls scope to it.
+#[utoipa::path(post, path = "/aperio/api/orgs/select", tag = "orgs",
+  description = "Switches the master super-admin's active organization (stored on the session). Master super-admin only.",
+  request_body = OrgSelectRequest,
+  responses((status = 200, description = "Selected", body = serde_json::Value), (status = 404, description = "Unknown org")))]
+pub(crate) async fn orgs_select_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  Json(payload): Json<OrgSelectRequest>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  // Normalize: the synthetic `master` id and empty mean "master org" (None).
+  let target = match payload.id.as_deref() {
+    None | Some("") | Some(MASTER_ID) => None,
+    Some(id) => {
+      // A child id must actually exist.
+      if !state
+        .org_store
+        .lock()
+        .await
+        .list()
+        .iter()
+        .any(|o| o.id == id)
+      {
+        return (StatusCode::NOT_FOUND, "unknown organization id").into_response();
+      }
+      Some(id.to_string())
+    }
+  };
+  let Some(token) = crate::auth::session_token(&headers) else {
+    return (StatusCode::UNAUTHORIZED, "no session").into_response();
+  };
+  state
+    .sessions
+    .lock()
+    .await
+    .set_selected_org(&token, target.clone());
+  Json(serde_json::json!({
+    "selected": target.as_deref().unwrap_or(MASTER_ID),
+  }))
+  .into_response()
+}
+
 /// Creates a child organization.
 #[utoipa::path(post, path = "/aperio/api/orgs", tag = "orgs",
   description = "Creates a child organization (master super-admin only).",

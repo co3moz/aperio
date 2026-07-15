@@ -36,11 +36,14 @@ pub(crate) struct TokenView {
   responses((status = 200, description = "Token records", body = serde_json::Value)))]
 pub(crate) async fn tokens_list_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
 ) -> Json<Vec<TokenView>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let store = state.token_store.lock().await;
   let views = store
     .list()
     .iter()
+    .filter(|t| t.org_id == org)
     .map(|t| TokenView {
       id: t.id.clone(),
       name: t.name.clone(),
@@ -198,6 +201,8 @@ pub(crate) async fn tokens_create_handler(
     return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
   }
 
+  // New tokens belong to the caller's currently effective organization.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
     store.create(
@@ -209,7 +214,7 @@ pub(crate) async fn tokens_create_handler(
       payload.max_rps.filter(|v| *v > 0.0),
       payload.daily_max_bytes.filter(|v| *v > 0),
       payload.allow_public,
-      None,
+      org,
     )
   };
   info!(
@@ -251,6 +256,19 @@ pub(crate) async fn tokens_create_handler(
     })),
   )
     .into_response()
+}
+
+/// Whether a token id exists and belongs to the caller's effective org. Used
+/// to gate by-id mutations so one org cannot touch another's tokens.
+async fn token_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: &str) -> bool {
+  let org = crate::auth::effective_org(state, headers).await;
+  state
+    .token_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .any(|t| t.id == id && t.org_id == org)
 }
 
 /// Edits an existing token's scope (name, hostnames, paths, allowed IPs,
@@ -302,6 +320,12 @@ pub(crate) async fn tokens_update_handler(
 
   if payload.max_rps.is_some_and(|v| !v.is_finite() || v < 0.0) {
     return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
+  }
+
+  // Isolation: a caller may only edit tokens in their effective org. Unknown
+  // and cross-org ids are indistinguishable (both 404) so existence never leaks.
+  if !token_in_effective_org(&state, &headers, &id).await {
+    return (StatusCode::NOT_FOUND, "Token not found").into_response();
   }
 
   let updated = state.token_store.lock().await.update(
@@ -435,6 +459,10 @@ pub(crate) async fn tokens_revoke_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  // Isolation: only tokens in the caller's effective org may be revoked.
+  if !token_in_effective_org(&state, &headers, &id).await {
+    return (StatusCode::NOT_FOUND, "Token not found").into_response();
+  }
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);

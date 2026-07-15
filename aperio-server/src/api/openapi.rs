@@ -32,6 +32,7 @@ use utoipa::OpenApi;
     crate::api::orgs::orgs_list_handler,
     crate::api::orgs::orgs_create_handler,
     crate::api::orgs::orgs_delete_handler,
+    crate::api::orgs::orgs_select_handler,
     crate::api::users::session_revoke_handler,
     crate::api::users::sessions_clear_handler,
     crate::api::users::totp_enable_handler,

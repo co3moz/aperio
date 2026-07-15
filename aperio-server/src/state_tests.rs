@@ -8,6 +8,7 @@ fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
     token_name: Some("t".to_string()),
     token_id: Some("id".to_string()),
     allow_public: false,
+    org_id: None,
   }
 }
 

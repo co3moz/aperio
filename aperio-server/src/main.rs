@@ -759,6 +759,10 @@ async fn async_main() {
         axum::routing::delete(crate::api::orgs::orgs_delete_handler),
       )
       .route(
+        "/api/orgs/select",
+        axum::routing::post(crate::api::orgs::orgs_select_handler),
+      )
+      .route(
         "/api/sessions",
         get(crate::api::users::sessions_list_handler)
           .delete(crate::api::users::sessions_clear_handler),

@@ -45,6 +45,8 @@ pub(crate) struct ClientDetail {
   pub(crate) hostname_binds: Vec<String>,
   /// Name of the dynamic token this client authenticated with (None = master).
   pub(crate) token_name: Option<String>,
+  /// Organization this client belongs to, from its token (None = master).
+  pub(crate) org_id: Option<String>,
   /// Temporary server-side path bind override (dashboard overrule).
   pub(crate) override_path_bind: Option<String>,
   /// Temporary server-side hostname bind override (dashboard overrule).
@@ -428,6 +430,9 @@ pub(crate) struct ClientPerms {
   pub(crate) token_id: Option<String>,
   /// May this token publish services as public (visitor auth gate skipped)?
   pub(crate) allow_public: bool,
+  /// Organization this token (and therefore this client) belongs to
+  /// (None = master).
+  pub(crate) org_id: Option<String>,
 }
 
 impl ClientPerms {
@@ -439,6 +444,7 @@ impl ClientPerms {
       token_name: None,
       token_id: None,
       allow_public: true,
+      org_id: None,
     }
   }
 
