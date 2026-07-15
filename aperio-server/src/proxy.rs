@@ -50,7 +50,7 @@ async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
   if set.is_empty() {
     return false;
   }
-  set.contains("*") || request_host.is_some_and(|h| set.contains(h))
+  set.contains_key("*") || request_host.is_some_and(|h| set.contains_key(h))
 }
 
 /// Builds the 503 maintenance response (custom APERIO_503_PAGE or plain text).

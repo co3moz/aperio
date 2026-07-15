@@ -496,7 +496,7 @@ impl ClientHandle {
 
   /// Hostnames used for routing. A dashboard override replaces the whole
   /// set; otherwise the union of assigned and declared hostnames applies.
-  fn effective_hostnames(&self) -> Vec<&String> {
+  pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
     if let Some(o) = &self.override_hostname_bind {
       return vec![o];
     }
@@ -828,10 +828,11 @@ pub(crate) struct AppState {
   pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
   /// Rolling per-stage latency statistics per route (in-memory).
   pub(crate) stage_stats: Mutex<StageStats>,
-  /// Hostnames currently in maintenance mode (`*` = every hostname).
-  /// Requests to them get a 503 page even while clients are connected.
-  /// In-memory only, like bind overrides: cleared by a server restart.
-  pub(crate) maintenance: Mutex<std::collections::HashSet<String>>,
+  /// Hostnames currently in maintenance mode (`*` = every hostname), mapped to
+  /// the organization that enabled it (`None` = master). Requests to them get a
+  /// 503 page even while clients are connected. In-memory only, like bind
+  /// overrides: cleared by a server restart.
+  pub(crate) maintenance: Mutex<std::collections::HashMap<String, Option<String>>>,
   /// Structured access log file (APERIO_ACCESS_LOG): one JSON line per
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.

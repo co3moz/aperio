@@ -26,9 +26,16 @@ pub(crate) struct MaintenanceRequest {
   responses((status = 200, description = "Hostname list", body = Vec<String>)))]
 pub(crate) async fn maintenance_list_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
 ) -> Json<Vec<String>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let set = state.maintenance.lock().await;
-  let mut list: Vec<String> = set.iter().cloned().collect();
+  // Only the maintenance flags set within the caller's effective org.
+  let mut list: Vec<String> = set
+    .iter()
+    .filter(|(_, o)| **o == org)
+    .map(|(h, _)| h.clone())
+    .collect();
   list.sort();
   Json(list)
 }
@@ -69,12 +76,44 @@ pub(crate) async fn maintenance_set_handler(
     }
   };
 
+  let org = crate::auth::effective_org(&state, &headers).await;
+  // The `*` wildcard puts every hostname into maintenance — a server-wide
+  // switch reserved for the master organization.
+  if hostname == "*" && org.is_some() {
+    return (
+      StatusCode::FORBIDDEN,
+      "the * wildcard is reserved for the master organization",
+    )
+      .into_response();
+  }
+  // A specific hostname may only be toggled by the organization that serves it,
+  // so one org cannot 503 another org's site.
+  if payload.enabled && hostname != "*" {
+    let owned = {
+      let clients = state.clients.lock().await;
+      clients
+        .values()
+        .any(|c| c.perms.org_id == org && c.effective_hostnames().iter().any(|h| **h == hostname))
+    };
+    if !owned {
+      return (
+        StatusCode::FORBIDDEN,
+        "that hostname is not served by your organization",
+      )
+        .into_response();
+    }
+  }
   let changed = {
     let mut set = state.maintenance.lock().await;
     if payload.enabled {
-      set.insert(hostname.clone())
+      set.insert(hostname.clone(), org.clone()).is_none()
     } else {
-      set.remove(&hostname)
+      // Only clear a flag your own organization set.
+      if set.get(&hostname).map(|o| *o == org).unwrap_or(false) {
+        set.remove(&hostname).is_some()
+      } else {
+        false
+      }
     }
   };
   if changed {
@@ -100,9 +139,12 @@ pub(crate) async fn maintenance_set_handler(
         &format!("hostname={}", hostname),
       )
       .await;
-    let org = crate::auth::effective_org(&state, &headers).await;
     state
-      .emit_event_in(event, serde_json::json!({"hostname": hostname}), org)
+      .emit_event_in(
+        event,
+        serde_json::json!({"hostname": hostname}),
+        org.clone(),
+      )
       .await;
   }
   (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()

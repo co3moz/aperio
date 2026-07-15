@@ -669,7 +669,7 @@ async fn async_main() {
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
-    maintenance: Mutex::new(std::collections::HashSet::new()),
+    maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
     duration_histogram: DurationHistogram::default(),
   });

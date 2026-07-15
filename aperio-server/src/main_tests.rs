@@ -153,7 +153,7 @@ async fn test_rate_limiting() {
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
-    maintenance: Mutex::new(std::collections::HashSet::new()),
+    maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
   };
@@ -271,7 +271,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
-    maintenance: Mutex::new(std::collections::HashSet::new()),
+    maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
   });
@@ -409,7 +409,7 @@ async fn test_proxy_handler_success() {
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
-    maintenance: Mutex::new(std::collections::HashSet::new()),
+    maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     duration_histogram: DurationHistogram::default(),
   });

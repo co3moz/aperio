@@ -438,6 +438,10 @@ if echo "$LOGS_MASTER" | grep -q 'orgtraffic-probe'; then
   fail "isolation breach: the child org's traffic leaked into master's log"
 fi
 echo "  ok: the child org's request is absent from master's traffic log"
+# Master (viewing master) cannot put a child org's hostname into maintenance.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"hostname\":\"${ORG_HOST}\",\"enabled\":true}" "$BASE/aperio/api/maintenance")"
+assert_status 403 "$CODE" "maintenance on another org's hostname is refused"
 # Child context: the org's own log shows it, and its stats count it.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"id\":\"${TORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
