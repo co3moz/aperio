@@ -105,11 +105,13 @@ jobs:
       # versionless one so schema managers (editor yaml.schemas, SchemaStore,
       # $schema references) get a stable URL that always serves the latest:
       # releases/latest/download/aperio-client.schema.json
-      - name: Generate aperio.yaml schema (versioned + stable name)
+      - name: Generate config schemas (versioned + stable names)
         run: |
           mkdir -p dist-pkg
           cargo run --locked -p aperio-config > "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json"
           cp "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json" dist-pkg/aperio-client.schema.json
+          cargo run --locked -p aperio-config -- --server > "dist-pkg/aperio-server.${GITHUB_REF_NAME}.json"
+          cp "dist-pkg/aperio-server.${GITHUB_REF_NAME}.json" dist-pkg/aperio-server.schema.json
 
       - name: Upload schema artifact
         uses: actions/upload-artifact@v4

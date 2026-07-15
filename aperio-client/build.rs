@@ -22,16 +22,24 @@ fn main() {
     return;
   }
 
-  let out_file = out_dir.join("aperio-client.schema.json");
-  let schema = aperio_config::schema_json();
-  // Skip the write when the content is unchanged to keep file mtimes stable.
-  let changed = std::fs::read_to_string(&out_file)
-    .map(|existing| existing != schema)
-    .unwrap_or(true);
-  if changed && let Err(e) = std::fs::write(&out_file, &schema) {
-    println!(
-      "cargo:warning=aperio: could not write {}: {e}",
-      out_file.display()
-    );
+  // Two schemas: the client aperio.yaml and the server aperio-server.yaml.
+  for (name, schema) in [
+    ("aperio-client.schema.json", aperio_config::schema_json()),
+    (
+      "aperio-server.schema.json",
+      aperio_config::server_schema_json(),
+    ),
+  ] {
+    let out_file = out_dir.join(name);
+    // Skip the write when unchanged to keep file mtimes stable.
+    let changed = std::fs::read_to_string(&out_file)
+      .map(|existing| existing != schema)
+      .unwrap_or(true);
+    if changed && let Err(e) = std::fs::write(&out_file, &schema) {
+      println!(
+        "cargo:warning=aperio: could not write {}: {e}",
+        out_file.display()
+      );
+    }
   }
 }

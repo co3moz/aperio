@@ -350,3 +350,229 @@ pub fn schema_json() -> String {
   let schema = schemars::schema_for!(FileConfig);
   serde_json::to_string_pretty(&schema).unwrap_or_default()
 }
+
+/// One `expose:` entry of `aperio-server.yaml` (experimental public TCP port).
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+pub struct ExposeEntry {
+  /// Transport of the exposed port; only `tcp` is supported while experimental.
+  #[serde(default = "default_tcp")]
+  #[schemars(extend("examples" = ["tcp"]))]
+  pub protocol: String,
+  /// Public port the server listens on.
+  #[schemars(extend("examples" = [2222]))]
+  pub port: u16,
+  /// Shared secret a client's tunnel declaration must present (`expose: <key>`).
+  #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
+  pub key: String,
+}
+
+/// The fixed response of a client-less `respond` route.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+pub struct RespondRule {
+  /// HTTP status to answer with (default 200).
+  #[schemars(extend("examples" = [503]))]
+  pub status: Option<u16>,
+  /// `Content-Type` of the response body.
+  #[schemars(extend("examples" = ["text/html; charset=utf-8"]))]
+  pub content_type: Option<String>,
+  /// Response body.
+  #[schemars(extend("examples" = ["<h1>Coming soon</h1>"]))]
+  pub body: Option<String>,
+}
+
+/// One `routes:` entry of `aperio-server.yaml`: a hostname/path match paired
+/// with exactly one action (`redirect` or `respond`), served without a client.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+pub struct RouteRule {
+  /// Hostname to match exactly (unset = any hostname).
+  #[schemars(extend("examples" = ["old.example.com"]))]
+  pub hostname: Option<String>,
+  /// Path prefix to match, with bind semantics (unset = any path).
+  #[schemars(extend("examples" = ["/robots.txt"]))]
+  pub path: Option<String>,
+  /// Redirect target; answers 302 (or 301 with `permanent: true`).
+  #[schemars(extend("examples" = ["https://new.example.com"]))]
+  pub redirect: Option<String>,
+  /// Use a permanent 301 instead of the default 302.
+  #[serde(default)]
+  pub permanent: bool,
+  /// Append the request's path and query to the redirect target.
+  #[serde(default)]
+  pub preserve_path: bool,
+  /// Serve a fixed response instead of redirecting.
+  pub respond: Option<RespondRule>,
+}
+
+/// The `aperio-server.yaml` configuration file. The server is environment-
+/// driven; every scalar key here is materialized into its `APERIO_*`
+/// environment variable at startup (the file takes precedence over the
+/// environment). Structured sections (`headers`, `routes`, `expose`) are read
+/// directly. Unknown keys are allowed and passed through as env vars.
+#[derive(Deserialize, Default, JsonSchema)]
+pub struct ServerFileConfig {
+  // --- Core ---
+  /// Master token; also the fallback dashboard password (env: APERIO_SERVER_TOKEN).
+  pub server_token: Option<String>,
+  /// Address to bind (bare env: HOST).
+  #[schemars(extend("examples" = ["0.0.0.0"]))]
+  pub host: Option<String>,
+  /// Port to listen on (bare env: PORT).
+  #[schemars(extend("examples" = [8080]))]
+  pub port: Option<u16>,
+  /// Directory for the SQLite store and logs (env: APERIO_DATA_DIR).
+  #[schemars(extend("examples" = ["/app/data"]))]
+  pub data_dir: Option<String>,
+  /// Log level (bare env: LOG_LEVEL).
+  #[schemars(extend("examples" = ["info", "debug"]))]
+  pub log_level: Option<String>,
+
+  // --- Routing & load balancing ---
+  /// Require every client to carry a hostname bind (env: APERIO_REQUIRE_HOSTNAME_BIND).
+  pub require_hostname_bind: Option<bool>,
+  /// Wildcard pattern granting each client a random subdomain (env: APERIO_RANDOM_SUBDOMAIN).
+  #[schemars(extend("examples" = ["*.example.com"]))]
+  pub random_subdomain: Option<String>,
+  /// Inject noindex headers for random-subdomain preview services (env: APERIO_PREVIEW_NOINDEX).
+  pub preview_noindex: Option<bool>,
+  /// Seconds without a heartbeat before a client is considered down (env: APERIO_CLIENT_DOWN_THRESHOLD).
+  pub client_down_threshold: Option<u64>,
+  /// Load-balancing strategy (env: APERIO_LB_STRATEGY).
+  #[schemars(extend("examples" = ["round-robin", "primary-standby", "sticky"]))]
+  pub lb_strategy: Option<String>,
+
+  // --- Failover ---
+  /// In-flight failover mode (env: APERIO_FAILOVER).
+  #[schemars(extend("examples" = ["off", "retry", "retry-wait"]))]
+  pub failover: Option<String>,
+  /// Maximum failover re-dispatches per request (env: APERIO_FAILOVER_MAX_JUMPS).
+  pub failover_max_jumps: Option<u32>,
+  /// Failover window in seconds (env: APERIO_FAILOVER_WINDOW).
+  pub failover_window: Option<u64>,
+  /// Allow failover for non-idempotent methods too (env: APERIO_FAILOVER_ALL_METHODS).
+  pub failover_all_methods: Option<bool>,
+
+  // --- Alerting ---
+  /// Error-rate alert threshold, 0..1 (env: APERIO_ALERT_ERROR_RATE).
+  #[schemars(extend("examples" = [0.25]))]
+  pub alert_error_rate: Option<f64>,
+  /// Alert sliding-window seconds (env: APERIO_ALERT_WINDOW).
+  pub alert_window: Option<u64>,
+  /// Minimum requests in the window before the error-rate alert fires (env: APERIO_ALERT_MIN_REQUESTS).
+  pub alert_min_requests: Option<u64>,
+  /// Connected-client floor below which the client-down alert fires (env: APERIO_ALERT_CLIENT_DOWN).
+  pub alert_client_down: Option<u64>,
+
+  // --- Capacity & limits ---
+  /// Largest request body in bytes (env: APERIO_MAX_BODY_SIZE).
+  pub max_body_size: Option<u64>,
+  /// Concurrent proxied requests limit (env: APERIO_MAX_CONCURRENT_REQUESTS).
+  pub max_concurrent_requests: Option<u64>,
+  /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
+  pub max_tunnels: Option<u64>,
+  /// Per-IP rate-limit burst (env: APERIO_IP_LIMIT_MAX).
+  pub ip_limit_max: Option<u64>,
+  /// Per-IP rate-limit refill per second (env: APERIO_IP_LIMIT_REFILL).
+  pub ip_limit_refill: Option<f64>,
+  /// Failed logins per IP before a lockout (env: APERIO_LOGIN_LOCKOUT_THRESHOLD).
+  pub login_lockout_threshold: Option<u32>,
+  /// Base lockout seconds, doubled per repeat (env: APERIO_LOGIN_LOCKOUT_SECS).
+  pub login_lockout_secs: Option<u64>,
+  /// Seconds to wait for a client connection (env: APERIO_SERVER_GATEWAY_TIMEOUT).
+  pub server_gateway_timeout: Option<u64>,
+  /// Seconds to wait for a client response (env: APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT).
+  pub server_gateway_response_timeout: Option<u64>,
+
+  // --- Proxy trust & cookies ---
+  /// Trust `X-Forwarded-For` from proxies (env: APERIO_TRUST_PROXY).
+  pub trust_proxy: Option<bool>,
+  /// Trusted proxy IPs/CIDRs (env: APERIO_TRUSTED_PROXIES).
+  #[schemars(extend("examples" = [["10.0.0.0/8"]]))]
+  pub trusted_proxies: Option<Vec<String>>,
+  /// Header carrying the real client IP (env: APERIO_REAL_IP_HEADER).
+  #[schemars(extend("examples" = ["CF-Connecting-IP"]))]
+  pub real_ip_header: Option<String>,
+  /// Trust the Cloudflare client-IP header (env: APERIO_TRUST_CF_HEADER).
+  pub trust_cf_header: Option<bool>,
+  /// Mark session cookies `Secure` (env: APERIO_SECURE_COOKIES).
+  pub secure_cookies: Option<bool>,
+
+  // --- Tunnel & cache ---
+  /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).
+  pub tunnel_compression: Option<bool>,
+  /// Enable the server-side GET response cache (env: APERIO_CACHE).
+  pub cache: Option<bool>,
+  /// Response-cache budget in bytes (env: APERIO_CACHE_MAX_BYTES).
+  pub cache_max_bytes: Option<u64>,
+  /// Serve-stale window in seconds for resilient services (env: APERIO_CACHE_MAX_STALE).
+  pub cache_max_stale: Option<u64>,
+
+  // --- Pages ---
+  /// Custom 504 error page path (env: APERIO_504_PAGE).
+  #[serde(rename = "504_page")]
+  pub error_page_504: Option<String>,
+  /// Custom 503 maintenance page path (env: APERIO_503_PAGE).
+  #[serde(rename = "503_page")]
+  pub error_page_503: Option<String>,
+
+  // --- Logging & telemetry ---
+  /// Structured access log path (env: APERIO_ACCESS_LOG).
+  pub access_log: Option<String>,
+  /// Audit log rotation size in bytes, 0 disables (env: APERIO_AUDIT_MAX_SIZE).
+  pub audit_max_size: Option<u64>,
+  /// Rotated audit log files kept (env: APERIO_AUDIT_MAX_FILES).
+  pub audit_max_files: Option<u64>,
+  /// Enable OpenTelemetry OTLP export (env: APERIO_OTEL).
+  pub otel: Option<bool>,
+  /// OTLP endpoint (env: APERIO_OTEL_ENDPOINT).
+  #[schemars(extend("examples" = ["http://localhost:4317"]))]
+  pub otel_endpoint: Option<String>,
+  /// OTLP service name (env: APERIO_OTEL_SERVICE_NAME).
+  pub otel_service_name: Option<String>,
+  /// Prometheus metrics endpoint toggle (env: APERIO_METRICS).
+  pub metrics: Option<bool>,
+  /// Bearer token gating the metrics endpoint (env: APERIO_METRICS_TOKEN).
+  pub metrics_token: Option<String>,
+
+  // --- Auth, dashboard & SSO ---
+  /// Visitor auth `user:password` gate (env: APERIO_SERVER_AUTH).
+  #[schemars(extend("examples" = ["admin:s3cret"]))]
+  pub server_auth: Option<String>,
+  /// Public dashboard URL enabling passkeys; its domain is the RP ID (env: APERIO_WEBAUTHN_ORIGIN).
+  #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
+  pub webauthn_origin: Option<String>,
+  /// Ignore client-declared visitor passwords (env: APERIO_IGNORE_CLIENT_AUTH).
+  pub ignore_client_auth: Option<bool>,
+  /// Serve the admin dashboard (env: APERIO_DASHBOARD).
+  pub dashboard: Option<bool>,
+  /// Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).
+  #[schemars(extend("examples" = ["en", "tr"]))]
+  pub ui_language: Option<String>,
+  /// Dashboard password (env: APERIO_DASHBOARD_AUTH).
+  pub dashboard_auth: Option<String>,
+  /// Days before a token's expiry to start warning (env: APERIO_TOKEN_EXPIRY_WARNING).
+  pub token_expiry_warning: Option<u64>,
+  /// OIDC issuer URL (env: APERIO_OIDC_ISSUER).
+  pub oidc_issuer: Option<String>,
+  /// OIDC client id (env: APERIO_OIDC_CLIENT_ID).
+  pub oidc_client_id: Option<String>,
+  /// Allowed OIDC login emails (env: APERIO_OIDC_ALLOWED_EMAILS).
+  pub oidc_allowed_emails: Option<Vec<String>>,
+  /// OIDC scopes (env: APERIO_OIDC_SCOPES).
+  pub oidc_scopes: Option<Vec<String>>,
+  /// OIDC redirect URL override (env: APERIO_OIDC_REDIRECT_URL).
+  pub oidc_redirect_url: Option<String>,
+
+  // --- Structured sections (read directly, not env-mapped) ---
+  /// Server-wide request/response header rewrite rules applied to all traffic.
+  pub headers: Option<HeaderRules>,
+  /// Client-less routes: bind a hostname/path to a redirect or fixed response.
+  pub routes: Option<Vec<RouteRule>>,
+  /// Experimental public TCP expose ports.
+  pub expose: Option<Vec<ExposeEntry>>,
+}
+
+/// The `aperio-server.yaml` JSON Schema as pretty JSON.
+pub fn server_schema_json() -> String {
+  let schema = schemars::schema_for!(ServerFileConfig);
+  serde_json::to_string_pretty(&schema).unwrap_or_default()
+}

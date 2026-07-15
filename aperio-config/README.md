@@ -1,8 +1,9 @@
 # aperio-config
 
-Shared crate defining the `aperio.yaml` client configuration schema — the
-exact serde types `aperio-client` deserializes its config file into, plus a
-JSON Schema generator built on `schemars`.
+Shared crate defining the Aperio configuration schemas — the exact serde
+types `aperio-client` deserializes its `aperio.yaml` into, a documented
+schema for the server's `aperio-server.yaml`, and a JSON Schema generator
+built on `schemars`.
 
 The types live in their own crate so the client's build script can emit the
 editor-facing JSON Schema straight from them: the schema and the parser can
@@ -15,15 +16,20 @@ format.
 
 - `src/lib.rs` — the schema types: `FileConfig`, `ServiceEntry` (public
   services), `TunnelDecl` (private TCP/UDP tunnels), `BindTunnelEntry`,
-  header-rule types, and `schema_json()`.
-- `src/main.rs` — prints the JSON Schema to stdout:
+  header-rule types, `schema_json()`; and `ServerFileConfig` (the
+  `aperio-server.yaml` keys) with `server_schema_json()`.
+- `src/main.rs` — prints a JSON Schema to stdout:
 
 ```bash
-cargo run -p aperio-config > aperio-client.schema.json
+cargo run -p aperio-config            > aperio-client.schema.json
+cargo run -p aperio-config -- --server > aperio-server.schema.json
 ```
 
-The release workflow attaches the versioned schema
-(`aperio-client.<tag>.json`) to every GitHub Release.
+The release workflow attaches both versioned schemas
+(`aperio-client.<tag>.json`, `aperio-server.<tag>.json`) to every GitHub
+Release. The server is env-driven, so `ServerFileConfig` is a documented
+mirror of the `APERIO_*` settings (kept in sync by hand) rather than the
+literal parser type.
 
 ## When you change a field
 

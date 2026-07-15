@@ -1,8 +1,16 @@
-//! Prints the `aperio.yaml` JSON Schema to stdout.
+//! Prints a JSON Schema for the Aperio config files to stdout.
 //!
-//! Handy for CI (the release workflow versions the output) and for regenerating
-//! the schema by hand: `cargo run -p aperio-config > aperio-client.schema.json`.
+//! - `cargo run -p aperio-config`            → the `aperio.yaml` client schema
+//! - `cargo run -p aperio-config -- --server` → the `aperio-server.yaml` schema
+//!
+//! Handy for CI (the release workflow versions both) and for regenerating a
+//! schema by hand.
 
 fn main() {
-  println!("{}", aperio_config::schema_json());
+  let server = std::env::args().any(|a| a == "--server");
+  if server {
+    println!("{}", aperio_config::server_schema_json());
+  } else {
+    println!("{}", aperio_config::schema_json());
+  }
 }
