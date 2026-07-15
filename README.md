@@ -96,6 +96,7 @@ Everything else lives in [docs/](docs/README.md) as short, focused articles:
 | [Routing & Load Balancing](docs/routing-and-load-balancing.md) | Hostname/path binds, strategies, random subdomains, overrules. |
 | [In-Flight Failover](docs/failover.md) | Surviving a client death mid-request. |
 | [Tokens & Authentication](docs/tokens-and-auth.md) | Master/dynamic tokens, visitor password, OIDC/SSO, hardening advice. |
+| [Organizations (Multi-Tenancy)](docs/organizations.md) | Isolate one server into separate tenants, each with its own clients, tokens, users, and stats. |
 | [Share Links](docs/share-links.md) | Temporary visitor access without accounts. |
 | [Ephemeral Tunnels](docs/ephemeral-tunnels.md) | Per-PR preview environments via the API and the GitHub Action. |
 | [Emergency Tunnels](docs/emergency-tunnels.md) | Reaching unexposed TCP services with `--bind-tunnels`. |

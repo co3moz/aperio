@@ -65,6 +65,12 @@ To let specific people through a protected site *without* an account, use [Share
 
 By default the dashboard password is the master token. Set `APERIO_DASHBOARD_AUTH` to give dashboard users a separate password without handing them root, or `APERIO_DASHBOARD=0` to disable the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
 
+Named dashboard users are created on the *Users* page and carry a role (viewer / operator / admin). The built-in `aperio` admin — the master token, dashboard password, and OIDC logins — is the super-admin.
+
+## Organizations
+
+Tokens and users can be grouped into **organizations** so one server hosts several isolated tenants: a token belongs to the organization it was minted under, the client that authenticates with it is attributed there, and members of one organization never see another's clients, tokens, users, traffic, or stats. The built-in `aperio` admin is the super-admin of every organization and can switch between them; everything created without an organization belongs to the implicit **master** organization. See [Organizations (Multi-Tenancy)](organizations.md) for the full model.
+
 ## Defense in depth
 
 The client deliberately does not fully trust the server: it only connects to its configured HTTP/TCP targets (SSRF guards), caps tunnel message sizes, bounds decompression output, and enforces its own concurrency limit. All secret comparisons are constant-time; session cookies are `HttpOnly` + `SameSite=Lax`.

@@ -58,11 +58,11 @@ Every proxied request is emitted as a structured `aperio_access` tracing event o
 
 ## Audit log
 
-Administrative and security events — logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams — are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. The dashboard shows the most recent 200. The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
+Administrative and security events — logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams — are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
 
 ## Webhooks
 
-Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). Events are delivered as JSON POSTs with a 10 s timeout:
+Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
 
 ```json
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
