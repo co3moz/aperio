@@ -61,6 +61,23 @@ pub(crate) async fn share_create_handler(
         .into_response();
     }
   };
+
+  // Isolation: a share link may only be minted for a hostname the caller's own
+  // organization serves, so one org cannot hand out access to another's site.
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let owns_host = {
+    let clients = state.clients.lock().await;
+    clients
+      .values()
+      .any(|c| c.perms.org_id == org && c.effective_hostnames().iter().any(|h| **h == hostname))
+  };
+  if !owns_host {
+    return (
+      StatusCode::FORBIDDEN,
+      "that hostname is not served by your organization",
+    )
+      .into_response();
+  }
   let path = match payload
     .path
     .as_deref()
@@ -121,12 +138,11 @@ pub(crate) async fn share_create_handler(
       ),
     )
     .await;
-  let share_org = crate::auth::effective_org(&state, &headers).await;
   state
     .emit_event_in(
       "share_created",
       serde_json::json!({"id": claims.id, "hostname": hostname, "path": path, "expires_at": claims.exp}),
-      share_org,
+      org.clone(),
     )
     .await;
 
