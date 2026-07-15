@@ -219,11 +219,15 @@ pub(crate) async fn metrics_handler(
   responses((status = 200, description = "Stage statistics", body = serde_json::Value)))]
 pub(crate) async fn stage_stats_handler(
   State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
 ) -> Json<Vec<serde_json::Value>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let stats = state.stage_stats.lock().await;
   let mut routes: Vec<serde_json::Value> = stats
     .routes
     .iter()
+    // Only routes served by the caller's effective organization.
+    .filter(|(_, window)| window.org_id == org)
     .map(|(host, window)| {
       let stages: Vec<serde_json::Value> = window
         .stats()

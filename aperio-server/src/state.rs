@@ -207,6 +207,9 @@ pub(crate) struct StageWindow {
   /// Recent samples, one array of per-stage µs durations each (None =
   /// stage not measured for that request).
   samples: std::collections::VecDeque<[Option<u64>; 7]>,
+  /// Organization serving this route (`None` = master); the dashboard filters
+  /// the per-stage view to the caller's org.
+  pub(crate) org_id: Option<String>,
 }
 
 /// Samples kept per route.
@@ -215,9 +218,10 @@ const STAGE_WINDOW_CAP: usize = 500;
 const STAGE_MIN_SAMPLES: usize = 20;
 
 impl StageWindow {
-  fn new() -> Self {
+  fn new(org_id: Option<String>) -> Self {
     StageWindow {
       samples: std::collections::VecDeque::new(),
+      org_id,
     }
   }
 
@@ -305,12 +309,14 @@ pub(crate) struct StageStats {
 }
 
 impl StageStats {
-  pub(crate) fn record(&mut self, host: Option<&str>, tl: &RequestTimeline) {
-    self
+  pub(crate) fn record(&mut self, host: Option<&str>, org: Option<&str>, tl: &RequestTimeline) {
+    let window = self
       .routes
       .entry(host.unwrap_or("*").to_string())
-      .or_insert_with(StageWindow::new)
-      .record(tl);
+      .or_insert_with(|| StageWindow::new(org.map(str::to_string)));
+    // A route is served by one org; keep its label current.
+    window.org_id = org.map(str::to_string);
+    window.record(tl);
   }
 }
 

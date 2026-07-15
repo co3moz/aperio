@@ -1251,11 +1251,12 @@ mod tests;
 /// treated as `down` by the uptime store.
 pub(crate) async fn observe_service_availability(
   state: &AppState,
-) -> std::collections::HashMap<String, crate::store::uptime::Availability> {
+) -> std::collections::HashMap<String, (crate::store::uptime::Availability, Option<String>)> {
   use crate::store::uptime::Availability;
   let down_threshold = state.config().client_down_threshold;
   let clients = state.clients.lock().await;
-  let mut out: std::collections::HashMap<String, Availability> = std::collections::HashMap::new();
+  let mut out: std::collections::HashMap<String, (Availability, Option<String>)> =
+    std::collections::HashMap::new();
   for (conn_id, handle) in clients.iter() {
     let key = handle
       .service_name
@@ -1269,16 +1270,20 @@ pub(crate) async fn observe_service_availability(
     } else {
       Availability::Degraded
     };
-    // Several connections may serve one entity; the best state wins.
-    let entry = out.entry(key).or_insert(Availability::Down);
+    // Several connections may serve one entity; the best state wins. All
+    // connections of one entity share its organization.
+    let entry = out
+      .entry(key)
+      .or_insert((Availability::Down, handle.perms.org_id.clone()));
     let rank = |s: &Availability| match s {
       Availability::Up => 2,
       Availability::Degraded => 1,
       Availability::Down => 0,
     };
-    if rank(&status) > rank(entry) {
-      *entry = status;
+    if rank(&status) > rank(&entry.0) {
+      entry.0 = status;
     }
+    entry.1 = handle.perms.org_id.clone();
   }
   out
 }

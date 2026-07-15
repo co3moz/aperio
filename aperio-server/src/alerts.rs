@@ -171,7 +171,7 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
       if cfg.client_down > Duration::ZERO {
         let live = crate::observe_service_availability(&state).await;
         // Entities currently visible refresh their last-ok time unless down.
-        for (name, status) in &live {
+        for (name, (status, _org)) in &live {
           if *status != Availability::Down {
             last_ok.insert(name.clone(), now);
           } else {
@@ -179,7 +179,9 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
           }
         }
         for (name, seen_ok) in &last_ok {
-          let currently_ok = live.get(name).is_some_and(|s| *s != Availability::Down);
+          let currently_ok = live
+            .get(name)
+            .is_some_and(|(s, _)| *s != Availability::Down);
           let alerted = down_alerted.get(name).copied().unwrap_or(false);
           if currently_ok {
             if alerted {

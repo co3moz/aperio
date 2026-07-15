@@ -159,7 +159,11 @@ fn uptime_pct(
 #[utoipa::path(get, path = "/aperio/api/uptime", tag = "dashboard",
   description = "Uptime/SLA summary per service entity: current status, uptime percentages for today / 7 days / 30 days of observed time, and the last 30 daily buckets (seconds up/degraded/down). Time while the server itself was not running is not counted.",
   responses((status = 200, description = "Availability per service entity", body = Vec<UptimeEntry>)))]
-pub(crate) async fn uptime_handler(State(state): State<Arc<AppState>>) -> Json<Vec<UptimeEntry>> {
+pub(crate) async fn uptime_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<Vec<UptimeEntry>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let snapshot = state.uptime.lock().await.snapshot();
   let today = stats::recent_period_keys("day", 1).unwrap_or_default();
   let last7 = stats::recent_period_keys("day", 7).unwrap_or_default();
@@ -167,6 +171,8 @@ pub(crate) async fn uptime_handler(State(state): State<Arc<AppState>>) -> Json<V
 
   let mut entries: Vec<UptimeEntry> = snapshot
     .into_iter()
+    // Only service entities served by the caller's effective organization.
+    .filter(|(_, entity)| entity.org_id == org)
     .map(|(name, entity)| {
       let mut days: Vec<UptimeDay> = last30
         .iter()

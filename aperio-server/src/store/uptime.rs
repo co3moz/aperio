@@ -51,6 +51,10 @@ pub struct EntityUptime {
   pub status: Availability,
   /// Unix seconds when the entity was last observed connected (up/degraded).
   pub last_seen: u64,
+  /// Organization serving this entity (`None` = master), from the client's
+  /// token. The dashboard filters the uptime view to the caller's org.
+  #[serde(default)]
+  pub org_id: Option<String>,
   /// Daily accrual buckets keyed `YYYY-MM-DD`.
   pub days: HashMap<String, DayAvailability>,
 }
@@ -95,7 +99,7 @@ impl UptimeStore {
   /// Observes the current live entities. Elapsed time since the previous
   /// tick is accrued to each known entity under its *previous* status; then
   /// statuses are updated (entities absent from `live` count as down).
-  pub fn tick(&mut self, now_secs: u64, live: HashMap<String, Availability>) {
+  pub fn tick(&mut self, now_secs: u64, live: HashMap<String, (Availability, Option<String>)>) {
     if let Some(prev) = self.last_tick {
       let elapsed = now_secs.saturating_sub(prev);
       if elapsed > 0 {
@@ -106,16 +110,18 @@ impl UptimeStore {
       }
     }
     // Update statuses: live entities as reported, known-but-absent as down.
-    for (key, status) in &live {
+    for (key, (status, org_id)) in &live {
       let entity = self
         .entities
         .entry(key.clone())
         .or_insert_with(|| EntityUptime {
           status: *status,
           last_seen: now_secs,
+          org_id: org_id.clone(),
           days: HashMap::new(),
         });
       entity.status = *status;
+      entity.org_id = org_id.clone();
       if *status != Availability::Down {
         entity.last_seen = now_secs;
       }
@@ -224,8 +230,11 @@ fn accrue_days(
 mod tests {
   use super::*;
 
-  fn live(entries: &[(&str, Availability)]) -> HashMap<String, Availability> {
-    entries.iter().map(|(k, s)| (k.to_string(), *s)).collect()
+  fn live(entries: &[(&str, Availability)]) -> HashMap<String, (Availability, Option<String>)> {
+    entries
+      .iter()
+      .map(|(k, s)| (k.to_string(), (*s, None)))
+      .collect()
   }
 
   #[test]

@@ -1168,11 +1168,11 @@ async fn proxy_http_request(
             start_time.elapsed().as_micros() as u64,
             tunnel_res.timings,
           );
-          state
-            .stage_stats
-            .lock()
-            .await
-            .record(request_host.as_deref(), &timeline);
+          state.stage_stats.lock().await.record(
+            request_host.as_deref(),
+            selected.org_id.as_deref(),
+            &timeline,
+          );
           captured.push_back(CapturedRequest {
             id: request_id.clone(),
             timestamp: Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),

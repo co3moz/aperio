@@ -149,7 +149,7 @@ fn test_stage_window_stats_and_anomaly() {
   let mut stats = StageStats::default();
   // A steady baseline: 30 requests with ~identical stage durations.
   for _ in 0..30 {
-    stats.record(Some("app.local"), &tl(100, 5_000));
+    stats.record(Some("app.local"), None, &tl(100, 5_000));
   }
   let window = stats.routes.get("app.local").expect("route window");
   let rows = window.stats();
@@ -166,7 +166,7 @@ fn test_stage_window_stats_and_anomaly() {
   );
 
   // One wild outlier in backend_wait flips only that stage's verdict.
-  stats.record(Some("app.local"), &tl(100, 80_000));
+  stats.record(Some("app.local"), None, &tl(100, 80_000));
   let rows = stats.routes.get("app.local").unwrap().stats();
   let backend_wait = rows.iter().find(|r| r.stage == "backend_wait").unwrap();
   assert!(backend_wait.anomalous, "outlier must be flagged");
