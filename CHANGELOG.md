@@ -6,9 +6,13 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-15
+
 ### Added
 
-- **Organizations (multi-tenancy), part 1 — data model & management.** Users and tokens now carry an `org_id` (a new `organizations` store holds child orgs; `org_id: None` = the implicit **master** organization that the built-in `aperio` admin, master token, dashboard password, and OIDC act within). A master super-admin can create, list (with per-org user/token counts), and delete child organizations via `GET/POST /aperio/api/orgs` and `DELETE /aperio/api/orgs/{id}` (an org must be empty to delete; master cannot be deleted). Orgs are included in dump export/import. Isolation/filtering and the dashboard org switcher land in follow-up changes.
+- **Organizations (multi-tenancy), part 3 — dashboard switcher & management page.** `GET /aperio/api/session` now reports `master_admin` and `selected_org`. The built-in `aperio` super-admin gets an organization switcher in the sidebar (the choice is stored on the session; switching reloads so every section re-scopes) and an *Organizations* page to create and delete child orgs with live user/token counts. Named users, pinned to their own org, see neither.
+- **Organizations (multi-tenancy), part 2 — per-org isolation.** Each caller now has an *effective organization*: a named user is fixed to their own org, while the master super-admin views the org selected on their session (`POST /aperio/api/orgs/select`). Every listing is scoped to it — the live/SSE active-client list, tokens, and users only show that org's resources — and by-id token/user edits and deletes are gated the same way, so one org cannot touch (or probe for) another's records. Tokens and users are assigned to whatever org is effective when they are created. Aggregate traffic counters and the request log stay global for now.
+- **Organizations (multi-tenancy), part 1 — data model & management.** Users and tokens now carry an `org_id` (a new `organizations` store holds child orgs; `org_id: None` = the implicit **master** organization that the built-in `aperio` admin, master token, dashboard password, and OIDC act within). A master super-admin can create, list (with per-org user/token counts), and delete child organizations via `GET/POST /aperio/api/orgs` and `DELETE /aperio/api/orgs/{id}` (an org must be empty to delete; master cannot be deleted). Orgs are included in dump export/import.
 - **Audit events record who performed the action.** Every audit entry now carries an `actor` field alongside the actor IP: the signed-in dashboard username, `aperio` for the built-in admin (master token / dashboard password / OIDC), or `system` for server-initiated events (client connects, alerts, config reloads). The dashboard Audit Log shows a new **User** column. Failed logins and token-authorized actions record `-` (no trusted user identity).
 
 ### Changed
