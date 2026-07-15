@@ -58,7 +58,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
 | `--target TARGET` | Alternative to the positional target (usable with subcommands) |
 | `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist` |
-| `--hostname HOSTNAME` (alias `--host`) | Hostname bind (e.g. `app.example.com`) |
+| `--hostname HOSTNAME` (alias `--host`) | Hostname bind(s) (e.g. `app.example.com`, or comma-separated `a.example.com,b.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
 | `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |
 | `--priority N` | Load-balancing priority tier: 0 = primary (default), higher = standby |
@@ -77,7 +77,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. | — |
 | `APERIO_SERVER_URL` | `--server-url` | `server.url` | **Required.** Server URL (`http/https/ws/wss`). | — |
 | `APERIO_TARGET` (`APERIO_CLIENT_TARGET`) | positional / `--target` | `target` | **Required.** Local backend to forward to. `http(s)://` (a bare port or hostname is normalized to it), or `h2c://` / `h2://` for HTTP/2 backends — gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), `te: trailers` is forwarded, and response trailers (`grpc-status`) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). | — |
-| `APERIO_HOSTNAME` (`APERIO_HOSTNAME_BIND`) | `--hostname` | `hostname` | Hostname this client serves. | — |
+| `APERIO_HOSTNAME` (`APERIO_HOSTNAME_BIND`) | `--hostname` | `hostname` | Hostname(s) this client serves. yaml `hostname:` accepts a single value or a list (`[a.example.com, b.example.com]`); the CLI/env value may be comma-separated. Each must be permitted by the client's token. | — |
 | `APERIO_PATH` (`APERIO_PATH_BIND`) | `--path` | `path` | Path prefix this client serves. | — |
 | `APERIO_TRIM_BIND` (`APERIO_CLIENT_TRIM_BIND`) | — | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
 | `APERIO_PASS_HOSTNAME` (`APERIO_CLIENT_PASS_HOSTNAME`) | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |

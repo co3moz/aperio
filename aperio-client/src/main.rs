@@ -445,7 +445,7 @@ fn build_specs(
       server_addr,
       ws_url,
       target,
-      hostname: settings.hostname.clone(),
+      hostnames: settings.hostnames.clone(),
       path: settings.path.clone(),
       trim_bind: if settings.path.is_some() {
         settings.trim_bind.unwrap_or(true)
@@ -503,11 +503,18 @@ fn build_specs(
         server_addr: server_addr.clone(),
         ws_url: ws_url.clone(),
         target,
-        hostname: entry
+        hostnames: entry
           .hostname
           .clone()
-          .map(|h| h.trim().to_ascii_lowercase())
-          .filter(|h| !h.is_empty()),
+          .map(|h| {
+            h.into_vec()
+              .into_iter()
+              .map(|s| s.trim().to_ascii_lowercase())
+              .filter(|s| !s.is_empty())
+              .collect::<Vec<_>>()
+          })
+          .filter(|v| !v.is_empty())
+          .unwrap_or_default(),
         trim_bind: if path.is_some() {
           entry.trim_bind.or(settings.trim_bind).unwrap_or(true)
         } else {
@@ -677,8 +684,10 @@ fn log_spec(spec: &ServiceSpec) {
     info!("- Path Bind: {}", bind);
     info!("- Trim Bind: {}", spec.trim_bind);
   }
-  if let Some(ref host) = spec.hostname {
-    info!("- Hostname Bind: {}", host);
+  match spec.hostnames.as_slice() {
+    [] => {}
+    [one] => info!("- Hostname Bind: {}", one),
+    many => info!("- Hostname Binds: {}", many.join(", ")),
   }
   if let Some(n) = spec.max_concurrent {
     info!("- Max Concurrent Requests: {}", n);

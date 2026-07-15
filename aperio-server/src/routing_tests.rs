@@ -20,6 +20,7 @@ fn base_handle() -> ClientHandle {
     declared_path: None,
     assigned_path: None,
     declared_hostname: None,
+    declared_hostnames: Vec::new(),
     assigned_hostnames: Vec::new(),
     random_hostname: None,
     override_path_bind: None,

@@ -135,7 +135,7 @@ fn test_resolve_settings_layering() {
   assert_eq!(s.token.as_deref(), Some("apr_cli")); // CLI wins
   assert_eq!(s.server.as_deref(), Some("https://local.example.com")); // local file beats home
   assert_eq!(s.target.as_deref(), Some("http://localhost:9999")); // positional beats local
-  assert_eq!(s.hostname.as_deref(), Some("home.example.com")); // home fills the gaps
+  assert_eq!(s.hostnames, vec!["home.example.com".to_string()]); // home fills the gaps
   assert_eq!(s.priority, 3);
   // Defaults apply when no layer sets a value.
   assert_eq!(s.timeout_secs, 30);

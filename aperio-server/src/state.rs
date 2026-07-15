@@ -322,6 +322,9 @@ pub(crate) struct ClientHandle {
   /// Hostname the client declared via Ping (from APERIO_HOSTNAME_BIND),
   /// validated against the token permissions.
   pub(crate) declared_hostname: Option<String>,
+  /// Additional hostnames the client declared beyond `declared_hostname`
+  /// (multi-hostname services), each already validated against the token.
+  pub(crate) declared_hostnames: Vec<String>,
   /// Hostnames granted automatically: token-bound hostnames and/or the
   /// randomly assigned subdomain.
   pub(crate) assigned_hostnames: Vec<String>,
@@ -481,6 +484,11 @@ impl ClientHandle {
       && !set.contains(&d)
     {
       set.push(d);
+    }
+    for d in &self.declared_hostnames {
+      if !set.contains(&d) {
+        set.push(d);
+      }
     }
     set
   }

@@ -296,7 +296,9 @@ pub(crate) struct ClientSettings {
   /// Static directory to serve instead of a backend (single-service mode;
   /// mutually exclusive with `target`).
   pub(crate) serve: Option<String>,
-  pub(crate) hostname: Option<String>,
+  /// Public hostname(s) claimed for this client's traffic (one string, a
+  /// list, or a comma-separated CLI/env value).
+  pub(crate) hostnames: Vec<String>,
   pub(crate) path: Option<String>,
   /// Explicit trim_bind wish; `None` = default (true when a path bind is set).
   pub(crate) trim_bind: Option<bool>,
@@ -473,14 +475,7 @@ pub(crate) fn resolve_settings(
     )
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty()),
-    hostname: layered(
-      o.hostname.clone(),
-      local.hostname.clone(),
-      env2("APERIO_HOSTNAME", "APERIO_HOSTNAME_BIND"),
-      home.hostname.clone(),
-    )
-    .map(|h| h.trim().to_ascii_lowercase())
-    .filter(|h| !h.is_empty()),
+    hostnames: resolve_hostnames(o, local, home),
     path: layered(
       o.path.clone(),
       local.path.clone(),
@@ -681,6 +676,43 @@ pub(crate) fn valid_ip_entry(entry: &str) -> bool {
     }
     None => entry.parse::<std::net::IpAddr>().is_ok(),
   }
+}
+
+/// Resolves the service hostname(s) across the layers: CLI `--hostname`
+/// (comma-separated), the local file, the env (`APERIO_HOSTNAME`,
+/// comma-separated), then the home file. The highest layer that sets any
+/// hostname wins wholesale; values are normalized to lowercase.
+fn resolve_hostnames(o: &CommonOpts, local: &FileConfig, home: &FileConfig) -> Vec<String> {
+  let norm = |list: Vec<String>| -> Vec<String> {
+    list
+      .into_iter()
+      .map(|h| h.trim().to_ascii_lowercase())
+      .filter(|h| !h.is_empty())
+      .collect::<Vec<_>>()
+  };
+  let from_cli = o
+    .hostname
+    .as_ref()
+    .map(|s| norm(split_ip_list(s)))
+    .filter(|v| !v.is_empty());
+  let from_local = local
+    .hostname
+    .clone()
+    .map(|h| norm(h.into_vec()))
+    .filter(|v| !v.is_empty());
+  let from_env = env2("APERIO_HOSTNAME", "APERIO_HOSTNAME_BIND")
+    .map(|s| norm(split_ip_list(&s)))
+    .filter(|v| !v.is_empty());
+  let from_home = home
+    .hostname
+    .clone()
+    .map(|h| norm(h.into_vec()))
+    .filter(|v| !v.is_empty());
+  from_cli
+    .or(from_local)
+    .or(from_env)
+    .or(from_home)
+    .unwrap_or_default()
 }
 
 // --- Server URL helpers ------------------------------------------------------

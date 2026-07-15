@@ -7,7 +7,7 @@ fn base_settings() -> ClientSettings {
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
     serve: None,
-    hostname: Some("app.example.com".to_string()),
+    hostnames: vec!["app.example.com".to_string()],
     path: None,
     trim_bind: None,
     pass_hostname: false,
@@ -167,7 +167,7 @@ fn test_build_specs_single_service() {
   assert_eq!(specs.len(), 1);
   assert_eq!(specs[0].client_id, "base-id");
   assert_eq!(specs[0].target, "http://localhost:3000");
-  assert_eq!(specs[0].hostname.as_deref(), Some("app.example.com"));
+  assert_eq!(specs[0].hostnames, vec!["app.example.com".to_string()]);
   assert!(specs[0].name.is_none());
 }
 
@@ -179,7 +179,7 @@ fn test_build_specs_multi_service_fallbacks() {
     ServiceEntry {
       name: Some("web".to_string()),
       target: Some("http://localhost:3000".to_string()),
-      hostname: Some("Web.Example.COM".to_string()),
+      hostname: Some(aperio_config::Hostnames::One("Web.Example.COM".to_string())),
       ..Default::default()
     },
     ServiceEntry {
@@ -200,8 +200,8 @@ fn test_build_specs_multi_service_fallbacks() {
   assert_eq!(specs[1].client_id, "base-id-1");
 
   // Binds are strictly per entry: the top-level hostname must NOT leak in.
-  assert_eq!(specs[0].hostname.as_deref(), Some("web.example.com"));
-  assert_eq!(specs[1].hostname, None);
+  assert_eq!(specs[0].hostnames, vec!["web.example.com".to_string()]);
+  assert!(specs[1].hostnames.is_empty());
 
   // Tuning knobs fall back to the top-level resolved values.
   assert_eq!(specs[0].timeout_secs, 42);
@@ -264,4 +264,24 @@ fn test_build_specs_missing_service_target_fails() {
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("broken"), "got: {err}");
+}
+
+#[test]
+fn test_multi_hostname_list() {
+  // A service may claim several hostnames via a list; the first is the
+  // primary and all are normalized to lowercase.
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    target: Some("http://localhost:9000".to_string()),
+    hostname: Some(aperio_config::Hostnames::Many(vec![
+      "App.Example.com".to_string(),
+      "www.example.com".to_string(),
+    ])),
+    ..Default::default()
+  }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(
+    specs[0].hostnames,
+    vec!["app.example.com".to_string(), "www.example.com".to_string()]
+  );
 }

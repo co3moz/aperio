@@ -251,6 +251,7 @@ pub(crate) async fn handle_socket(
         declared_path: None,
         assigned_path: perms.granted_path(),
         declared_hostname: None,
+        declared_hostnames: Vec::new(),
         assigned_hostnames,
         random_hostname: random_hostname.clone(),
         override_path_bind: None,
@@ -582,6 +583,7 @@ pub(crate) async fn handle_socket(
               timestamp,
               path_bind,
               hostname_bind,
+              hostname_binds,
               max_concurrent,
               tcp,
               version,
@@ -627,6 +629,27 @@ pub(crate) async fn handle_socket(
                         client_id, h
                       );
                     }
+                  }
+                  // Additional multi-hostname binds: normalize and admit each
+                  // that the token permits (others are dropped with a warning).
+                  if !hostname_binds.is_empty() {
+                    let mut admitted = Vec::new();
+                    for raw in &hostname_binds {
+                      let Some(h) = normalize_hostname_bind(raw) else {
+                        continue;
+                      };
+                      if handle.perms.hostname_allowed(&h) {
+                        if !admitted.contains(&h) {
+                          admitted.push(h);
+                        }
+                      } else {
+                        warn!(
+                          "Client {} declared hostname bind {} not permitted by its token; ignored",
+                          client_id, h
+                        );
+                      }
+                    }
+                    handle.declared_hostnames = admitted;
                   }
                   // Create the concurrency limiter on the first Ping that
                   // announces a limit; the limit is fixed for the connection.

@@ -83,6 +83,11 @@ pub(crate) enum TunnelMessage {
     path_bind: Option<String>,
     #[serde(default)]
     hostname_bind: Option<String>,
+    /// Additional hostname binds beyond `hostname_bind` (multi-hostname
+    /// services). Additive; older peers omit it and send only the single
+    /// `hostname_bind`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hostname_binds: Vec<String>,
     /// Maximum concurrent requests this client is willing to process.
     /// The server queues excess requests instead of dispatching them.
     #[serde(default)]

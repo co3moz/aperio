@@ -49,7 +49,8 @@ pub(crate) struct ServiceSpec {
   pub(crate) server_addr: String,
   pub(crate) ws_url: String,
   pub(crate) target: String,
-  pub(crate) hostname: Option<String>,
+  /// Public hostname(s) claimed for this service (first is the primary).
+  pub(crate) hostnames: Vec<String>,
   pub(crate) path: Option<String>,
   pub(crate) trim_bind: bool,
   pub(crate) pass_hostname: bool,
@@ -284,7 +285,8 @@ pub(crate) async fn run_service(
             let tcp_enabled_ping = spec.tcp_target.is_some();
             let client_id_ping = spec.client_id.clone();
             let path_bind_ping = spec.path.clone();
-            let hostname_bind_ping = spec.hostname.clone();
+            let hostnames_ping = spec.hostnames.clone();
+            let hostname_bind_ping = spec.hostnames.first().cloned();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
             let backend_healthy_ping = backend_healthy.clone();
@@ -336,6 +338,7 @@ pub(crate) async fn run_service(
                     .as_secs(),
                   path_bind: path_bind_ping.clone(),
                   hostname_bind: hostname_bind_ping.clone(),
+                  hostname_binds: hostnames_ping.clone(),
                   max_concurrent,
                   tcp: tcp_enabled_ping,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),

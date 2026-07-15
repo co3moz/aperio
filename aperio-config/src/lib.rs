@@ -94,6 +94,33 @@ pub enum ServerValue {
   },
 }
 
+/// A service's public hostname(s): either a single `hostname: app.example.com`
+/// or a list `hostname: [app.example.com, www.example.com]`. Each must be
+/// permitted by the client's token.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum Hostnames {
+  /// A single hostname.
+  One(String),
+  /// Several hostnames routing to the same service.
+  Many(Vec<String>),
+}
+
+impl Hostnames {
+  /// Flattens to a list of trimmed, non-empty hostnames.
+  pub fn into_vec(self) -> Vec<String> {
+    let raw = match self {
+      Hostnames::One(h) => vec![h],
+      Hostnames::Many(hs) => hs,
+    };
+    raw
+      .into_iter()
+      .map(|h| h.trim().to_string())
+      .filter(|h| !h.is_empty())
+      .collect()
+  }
+}
+
 /// One exposed backend when a single client serves several at once; any unset
 /// field falls back to the top-level value.
 #[derive(Deserialize, Default, Clone, JsonSchema)]
@@ -105,9 +132,10 @@ pub struct ServiceEntry {
   /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed).
   #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
   pub target: Option<String>,
-  /// Public hostname that should route to this service.
-  #[schemars(extend("examples" = ["app.example.com"]))]
-  pub hostname: Option<String>,
+  /// Public hostname(s) that should route to this service: a single string
+  /// or a list. Each must be permitted by the client's token.
+  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
+  pub hostname: Option<Hostnames>,
   /// Public path prefix that should route to this service.
   #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,
@@ -208,9 +236,10 @@ pub struct FileConfig {
   /// `index.html`.
   #[schemars(extend("examples" = ["./dist"]))]
   pub serve: Option<String>,
-  /// Public hostname to claim for this client's traffic.
-  #[schemars(extend("examples" = ["app.example.com"]))]
-  pub hostname: Option<String>,
+  /// Public hostname(s) to claim for this client's traffic: a single string
+  /// or a list.
+  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
+  pub hostname: Option<Hostnames>,
   /// Public path prefix to claim for this client's traffic.
   #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,

@@ -10,7 +10,7 @@ fn settings_with(
     server: Some("https://tunnel.example.com".to_string()),
     target: None,
     serve: None,
-    hostname: None,
+    hostnames: Vec::new(),
     path: None,
     trim_bind: None,
     pass_hostname: false,
