@@ -140,6 +140,7 @@ pub(crate) async fn webhooks_create_handler(
   state
     .audit(
       "webhook_created",
+      &state.session_actor(&headers).await,
       &actor_ip,
       &format!(
         "name={} url={} events={:?}",
@@ -171,7 +172,12 @@ pub(crate) async fn webhooks_delete_handler(
   .to_string();
   if state.webhook_store.lock().await.delete(&id) {
     state
-      .audit("webhook_deleted", &actor_ip, &format!("id={}", id))
+      .audit(
+        "webhook_deleted",
+        &state.session_actor(&headers).await,
+        &actor_ip,
+        &format!("id={}", id),
+      )
       .await;
     Json(serde_json::json!({"status": "ok"})).into_response()
   } else {
@@ -246,6 +252,7 @@ pub(crate) async fn webhook_redeliver_handler(
   state
     .audit(
       "webhook_redelivered",
+      &state.session_actor(&headers).await,
       &ip.to_string(),
       &format!("webhook={} event={}", hook.name, delivery.event),
     )

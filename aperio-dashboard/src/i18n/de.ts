@@ -618,4 +618,5 @@ export const de: Record<string, string> = {
   'Save & apply (Ctrl+S)': 'Speichern & anwenden (Strg+S)',
   'CHECKING': 'PRÜFT',
   'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Ein Health-Check ist konfiguriert; warte auf die erste Prüfung. Das Backend ist bis zu einer bestandenen Prüfung aus dem Routing.',
+  'User': 'Benutzer',
 }

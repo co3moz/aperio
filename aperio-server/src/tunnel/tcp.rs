@@ -142,6 +142,7 @@ pub(crate) async fn tcp_ws_handler(
   state
     .audit(
       "tcp_stream_opened",
+      "system",
       &caller_ip.to_string(),
       &format!(
         "client={}{}",
@@ -240,6 +241,7 @@ pub(crate) async fn udp_ws_handler(
   state
     .audit(
       "udp_stream_opened",
+      "system",
       &caller_ip.to_string(),
       &format!("client={} target={}", client_id, target),
     )

@@ -200,6 +200,7 @@ pub(crate) async fn handle_socket(
   state
     .audit(
       "client_connected",
+      "system",
       &client_ip,
       &format!(
         "client={} token={}",
@@ -568,6 +569,7 @@ pub(crate) async fn handle_socket(
               state
                 .audit(
                   "client_draining",
+                  "system",
                   &client_ip,
                   &format!("client={}", client_id),
                 )
@@ -939,6 +941,7 @@ pub(crate) async fn handle_socket(
   state
     .audit(
       "client_disconnected",
+      "system",
       &client_ip,
       &format!("client={}", client_id),
     )

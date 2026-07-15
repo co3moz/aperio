@@ -614,4 +614,5 @@ export const ja: Record<string, string> = {
   'Save & apply (Ctrl+S)': '保存して適用 (Ctrl+S)',
   'CHECKING': '確認中',
   'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'ヘルスチェックが設定されています。最初のプローブを待機中です。プローブが成功するまでバックエンドはルーティング対象外です。',
+  'User': 'ユーザー',
 }

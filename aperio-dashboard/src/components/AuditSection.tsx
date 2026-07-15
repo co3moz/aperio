@@ -39,15 +39,16 @@ export function AuditSection() {
             <TableRow>
               <TableHead>{t('Time')}</TableHead>
               <TableHead>{t('Event')}</TableHead>
+              <TableHead>{t('User')}</TableHead>
               <TableHead>{t('Actor IP')}</TableHead>
               <TableHead>{t('Details')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {events === null ? (
-              <SkeletonRows rows={5} cols={4} />
+              <SkeletonRows rows={5} cols={5} />
             ) : events.length === 0 ? (
-              <EmptyRow colSpan={4} icon={<FileTextIcon />}>
+              <EmptyRow colSpan={5} icon={<FileTextIcon />}>
                 {t('No audit events')}
               </EmptyRow>
             ) : (
@@ -65,6 +66,13 @@ export function AuditSection() {
                   </TableCell>
                   <TableCell>
                     <TintBadge tint="gray">{ev.event}</TintBadge>
+                  </TableCell>
+                  <TableCell>
+                    {ev.actor && ev.actor !== '-' ? (
+                      <span className="text-sm font-medium">{ev.actor}</span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <code className="font-mono text-xs">{ev.actor_ip}</code>

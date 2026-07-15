@@ -616,4 +616,5 @@ export const ru: Record<string, string> = {
   'Save & apply (Ctrl+S)': 'Сохранить и применить (Ctrl+S)',
   'CHECKING': 'ПРОВЕРКА',
   'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Настроена проверка работоспособности; ожидание первой пробы. Бэкенд вне маршрутизации, пока проба не пройдёт.',
+  'User': 'Пользователь',
 }

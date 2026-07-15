@@ -12,8 +12,8 @@ fn test_record_and_reload() {
   let (dir, dir_str) = temp_dir();
 
   let mut log = AuditLog::load(&dir_str, 0, 0);
-  log.record("token_created", "1.2.3.4", "name=test");
-  log.record("login_success", "1.2.3.4", "user=aperio");
+  log.record("token_created", "tester", "1.2.3.4", "name=test");
+  log.record("login_success", "tester", "1.2.3.4", "user=aperio");
   assert_eq!(log.recent().len(), 2);
 
   let log2 = AuditLog::load(&dir_str, 0, 0);
@@ -32,7 +32,7 @@ fn test_rotation_by_size() {
   // Tiny threshold: every few events trigger a rotation; keep 2 generations.
   let mut log = AuditLog::load(&dir_str, 300, 2);
   for i in 0..50 {
-    log.record("event", "1.2.3.4", &format!("i={}", i));
+    log.record("event", "tester", "1.2.3.4", &format!("i={}", i));
   }
 
   let active_size = std::fs::metadata(&active).map(|m| m.len()).unwrap_or(0);
@@ -60,9 +60,9 @@ fn test_hash_chain_links_events() {
   let active = dir.join("audit.jsonl");
 
   let mut log = AuditLog::load(&dir_str, 0, 0);
-  log.record("a", "1.2.3.4", "first");
-  log.record("b", "1.2.3.4", "second");
-  log.record("c", "1.2.3.4", "third");
+  log.record("a", "tester", "1.2.3.4", "first");
+  log.record("b", "tester", "1.2.3.4", "second");
+  log.record("c", "tester", "1.2.3.4", "third");
 
   let raw = std::fs::read_to_string(&active).unwrap();
   let lines: Vec<&str> = raw.lines().collect();
@@ -74,7 +74,7 @@ fn test_hash_chain_links_events() {
 
   // Chain continues across a restart.
   let mut log2 = AuditLog::load(&dir_str, 0, 0);
-  log2.record("d", "1.2.3.4", "fourth");
+  log2.record("d", "tester", "1.2.3.4", "fourth");
   assert_eq!(verify_chain(&active).unwrap(), None);
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -87,7 +87,7 @@ fn test_hash_chain_detects_tampering() {
 
   let mut log = AuditLog::load(&dir_str, 0, 0);
   for i in 0..5 {
-    log.record("event", "1.2.3.4", &format!("i={}", i));
+    log.record("event", "tester", "1.2.3.4", &format!("i={}", i));
   }
 
   let raw = std::fs::read_to_string(&active).unwrap();
@@ -111,12 +111,12 @@ fn test_hash_chain_spans_rotation() {
 
   let mut log = AuditLog::load(&dir_str, 300, 2);
   for i in 0..20 {
-    log.record("event", "1.2.3.4", &format!("i={}", i));
+    log.record("event", "tester", "1.2.3.4", &format!("i={}", i));
   }
   // If the last record triggered a rotation the active file does not exist
   // yet; write one more so there is a line to link across the boundary.
   if !dir.join("audit.jsonl").exists() {
-    log.record("event", "1.2.3.4", "post-rotation");
+    log.record("event", "tester", "1.2.3.4", "post-rotation");
   }
   drop(log);
 
@@ -148,7 +148,7 @@ fn test_hash_chain_accepts_pre_chain_lines() {
 
   // New events chain onto the legacy line.
   let mut log = AuditLog::load(&dir_str, 0, 0);
-  log.record("new", "1.2.3.4", "chained");
+  log.record("new", "tester", "1.2.3.4", "chained");
   assert_eq!(verify_chain(&active).unwrap(), None);
   assert_eq!(log.recent().len(), 2);
 
@@ -160,7 +160,7 @@ fn test_rotation_zero_files_truncates() {
   let (dir, dir_str) = temp_dir();
   let mut log = AuditLog::load(&dir_str, 200, 0);
   for i in 0..20 {
-    log.record("event", "1.2.3.4", &format!("i={}", i));
+    log.record("event", "tester", "1.2.3.4", &format!("i={}", i));
   }
   let active_size = std::fs::metadata(dir.join("audit.jsonl"))
     .map(|m| m.len())

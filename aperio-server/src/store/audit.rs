@@ -20,6 +20,11 @@ pub struct AuditEvent {
   pub timestamp: String,
   /// Event kind, e.g. "login_success", "token_created", "client_connected".
   pub event: String,
+  /// Who performed the action: the dashboard username, "aperio" (built-in
+  /// admin), "system" (server-initiated events), or "-" when unknown. Rows
+  /// written before this field existed deserialize as empty.
+  #[serde(default)]
+  pub actor: String,
   /// IP address of the actor that triggered the event.
   pub actor_ip: String,
   /// Free-form details (token name, client id, hostname, ...).
@@ -124,7 +129,7 @@ impl AuditLog {
   }
 
   /// Records an event: appends a JSON line to the file and to the ring buffer.
-  pub fn record(&mut self, event: &str, actor_ip: &str, details: &str) {
+  pub fn record(&mut self, event: &str, actor: &str, actor_ip: &str, details: &str) {
     let now = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .unwrap_or_default()
@@ -134,6 +139,7 @@ impl AuditLog {
       // RFC3339 with offset so the display timestamp is unambiguous across zones.
       timestamp: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
       event: event.to_string(),
+      actor: actor.to_string(),
       actor_ip: actor_ip.to_string(),
       details: details.to_string(),
       prev: self.last_hash.clone(),

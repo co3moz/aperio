@@ -108,7 +108,12 @@ pub(crate) async fn settings_put_handler(
     keys
   );
   state
-    .audit("settings_updated", &actor_ip, &keys.join(","))
+    .audit(
+      "settings_updated",
+      &state.session_actor(&headers).await,
+      &actor_ip,
+      &keys.join(","),
+    )
     .await;
   state
     .emit_event("settings_updated", serde_json::json!({"overridden": keys}))

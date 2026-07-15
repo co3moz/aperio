@@ -218,6 +218,7 @@ pub(crate) async fn tokens_create_handler(
   state
     .audit(
       "token_created",
+      &state.session_actor(&headers).await,
       &actor_ip,
       &format!(
         "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
@@ -329,6 +330,7 @@ pub(crate) async fn tokens_update_handler(
       state
         .audit(
           "token_updated",
+          &state.session_actor(&headers).await,
           &actor_ip,
           &format!(
             "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
@@ -391,6 +393,7 @@ pub(crate) async fn tokens_refresh_handler(
       state
         .audit(
           "token_refreshed",
+          &state.session_actor(&headers).await,
           &actor_ip.to_string(),
           &format!("id={} expires_at={:?}", record.id, record.expires_at),
         )
@@ -444,6 +447,7 @@ pub(crate) async fn tokens_revoke_handler(
     state
       .audit(
         "token_revoked",
+        &state.session_actor(&headers).await,
         &actor_ip,
         &format!("id={} disconnected_clients={}", id, dropped),
       )

@@ -999,6 +999,7 @@ async fn async_main() {
               .audit(
                 "config_reloaded",
                 "system",
+                "system",
                 &watch_path.display().to_string(),
               )
               .await;
@@ -1058,6 +1059,7 @@ async fn async_main() {
           warn_state
             .audit(
               "token_expiring",
+              "system",
               "system",
               &format!("name={} expires_at={}", name, exp),
             )

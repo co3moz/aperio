@@ -77,6 +77,7 @@ pub(crate) async fn tunnels_create_handler(
     state
       .audit(
         "tunnel_denied",
+        "-",
         &client_ip.to_string(),
         "invalid credentials",
       )
@@ -165,6 +166,7 @@ pub(crate) async fn tunnels_create_handler(
   state
     .audit(
       "tunnel_created",
+      &state.session_actor(&headers).await,
       &client_ip.to_string(),
       &format!(
         "name={} id={} hostname={} expires_at={:?}",
@@ -227,6 +229,7 @@ pub(crate) async fn tunnels_delete_handler(
     state
       .audit(
         "tunnel_denied",
+        "-",
         &client_ip.to_string(),
         "invalid credentials",
       )
@@ -250,6 +253,7 @@ pub(crate) async fn tunnels_delete_handler(
     state
       .audit(
         "tunnel_deleted",
+        &state.session_actor(&headers).await,
         &client_ip.to_string(),
         &format!("id={} disconnected_clients={}", id, dropped),
       )

@@ -175,6 +175,7 @@ pub(crate) async fn request_replay_handler(
       state
         .audit(
           "request_replayed",
+          &state.session_actor(&headers).await,
           &actor_ip,
           &format!(
             "id={} {} {} -> {}",

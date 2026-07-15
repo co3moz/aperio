@@ -59,6 +59,7 @@ pub(crate) async fn export_handler(
   state
     .audit(
       "export_created",
+      &state.session_actor(&headers).await,
       &actor_ip,
       &format!(
         "tokens={} webhooks={} users={}",
@@ -170,7 +171,14 @@ pub(crate) async fn import_handler(
     .collect::<Vec<_>>()
     .join(" ");
   info!("Dump imported ({})", summary);
-  state.audit("import_applied", &actor_ip, &summary).await;
+  state
+    .audit(
+      "import_applied",
+      &state.session_actor(&headers).await,
+      &actor_ip,
+      &summary,
+    )
+    .await;
   state
     .emit_event("import_applied", serde_json::Value::Object(counts.clone()))
     .await;

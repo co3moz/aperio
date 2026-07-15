@@ -161,6 +161,7 @@ async fn relay_public_tcp(
   state
     .audit(
       "expose_stream_opened",
+      "system",
       &peer.ip().to_string(),
       &format!("client={} target={}", client_id, target),
     )

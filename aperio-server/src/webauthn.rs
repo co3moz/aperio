@@ -272,9 +272,11 @@ pub(crate) async fn passkey_register_finish_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  let actor = state.session_actor(&headers).await;
   state
     .audit(
       "passkey_registered",
+      &actor,
       &ip,
       &format!("user_id={} passkey={}", user_id, stored.id),
     )
@@ -336,6 +338,7 @@ pub(crate) async fn passkey_delete_handler(
   state
     .audit(
       "passkey_deleted",
+      &state.session_actor(&headers).await,
       &ip,
       &format!("user_id={} passkey={}", user_id, id),
     )
@@ -466,6 +469,7 @@ pub(crate) async fn passkey_login_finish_handler(
       state
         .audit(
           "login_failed",
+          "-",
           &client_ip.to_string(),
           "passkey verification failed",
         )
@@ -477,7 +481,12 @@ pub(crate) async fn passkey_login_finish_handler(
         .record_failure(client_ip, Instant::now());
       if locked.is_some() {
         state
-          .audit("login_lockout", &client_ip.to_string(), "passkey failures")
+          .audit(
+            "login_lockout",
+            "-",
+            &client_ip.to_string(),
+            "passkey failures",
+          )
           .await;
       }
       return (StatusCode::UNAUTHORIZED, "Verification failed").into_response();
@@ -497,6 +506,7 @@ pub(crate) async fn passkey_login_finish_handler(
   state
     .audit(
       "login_success",
+      &username,
       &client_ip.to_string(),
       &format!(
         "session created (user={}, role={}, passkey)",
@@ -629,6 +639,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
         state
           .audit(
             "login_failed",
+            "-",
             &client_ip.to_string(),
             "usernameless passkey: unidentifiable credential",
           )
@@ -640,7 +651,12 @@ pub(crate) async fn passkey_discoverable_finish_handler(
           .record_failure(client_ip, Instant::now());
         if locked.is_some() {
           state
-            .audit("login_lockout", &client_ip.to_string(), "passkey failures")
+            .audit(
+              "login_lockout",
+              "-",
+              &client_ip.to_string(),
+              "passkey failures",
+            )
             .await;
         }
         return fail(format!("unidentifiable credential: {e}"));
@@ -684,6 +700,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
     state
       .audit(
         "login_failed",
+        "-",
         &client_ip.to_string(),
         "usernameless passkey: credential not opted in",
       )
@@ -698,6 +715,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
         state
           .audit(
             "login_failed",
+            "-",
             &client_ip.to_string(),
             "usernameless passkey verification failed",
           )
@@ -709,7 +727,12 @@ pub(crate) async fn passkey_discoverable_finish_handler(
           .record_failure(client_ip, Instant::now());
         if locked.is_some() {
           state
-            .audit("login_lockout", &client_ip.to_string(), "passkey failures")
+            .audit(
+              "login_lockout",
+              "-",
+              &client_ip.to_string(),
+              "passkey failures",
+            )
             .await;
         }
         return fail(format!("verification failed: {e}"));
@@ -728,6 +751,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
   state
     .audit(
       "login_success",
+      &username,
       &client_ip.to_string(),
       &format!(
         "session created (user={}, role={}, passkey, usernameless)",

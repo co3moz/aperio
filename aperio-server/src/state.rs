@@ -873,8 +873,24 @@ impl AppState {
   }
 
   /// Records an audit event (file + in-memory ring).
-  pub(crate) async fn audit(&self, event: &str, actor_ip: &str, details: &str) {
-    self.audit.lock().await.record(event, actor_ip, details);
+  pub(crate) async fn audit(&self, event: &str, actor: &str, actor_ip: &str, details: &str) {
+    self
+      .audit
+      .lock()
+      .await
+      .record(event, actor, actor_ip, details);
+  }
+
+  /// Resolves the acting dashboard user for an audit record from the request:
+  /// the signed-in username, "aperio" for the built-in admin (master token /
+  /// dashboard password / OIDC), or "-" when there is no valid session.
+  pub(crate) async fn session_actor(&self, headers: &axum::http::HeaderMap) -> String {
+    match crate::auth::dashboard_role(self, headers).await {
+      Some(_) => crate::auth::dashboard_username(self, headers)
+        .await
+        .unwrap_or_else(|| "aperio".to_string()),
+      None => "-".to_string(),
+    }
   }
 
   /// Delivers an event to all subscribed webhooks (fire-and-forget).

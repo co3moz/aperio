@@ -234,6 +234,8 @@ export interface AuditEvent {
   ts: number
   timestamp: string
   event: string
+  /** Who performed the action: username, 'aperio', 'system', or '-'. */
+  actor: string
   actor_ip: string
   details: string
 }

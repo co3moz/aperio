@@ -298,6 +298,7 @@ pub(crate) async fn auth_login_handler(
     state
       .audit(
         "login_failed",
+        "-",
         &client_ip.to_string(),
         "invalid credentials",
       )
@@ -317,6 +318,7 @@ pub(crate) async fn auth_login_handler(
       state
         .audit(
           "login_lockout",
+          "-",
           &client_ip.to_string(),
           &format!("window_secs={}", window.as_secs()),
         )
@@ -335,7 +337,12 @@ pub(crate) async fn auth_login_handler(
     (None, None) => "session created (global)".to_string(),
   };
   state
-    .audit("login_success", &client_ip.to_string(), &scope_desc)
+    .audit(
+      "login_success",
+      identity.0.as_deref().unwrap_or("aperio"),
+      &client_ip.to_string(),
+      &scope_desc,
+    )
     .await;
 
   // Create session
@@ -882,6 +889,7 @@ pub(crate) async fn oidc_callback_handler(
     state
       .audit(
         "oidc_login_denied",
+        &email,
         &caller_ip.to_string(),
         &format!("email={}", email),
       )
@@ -897,6 +905,7 @@ pub(crate) async fn oidc_callback_handler(
   state
     .audit(
       "oidc_login_success",
+      &email,
       &caller_ip.to_string(),
       &format!("email={}", email),
     )

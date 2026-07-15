@@ -93,7 +93,12 @@ pub(crate) async fn maintenance_set_handler(
       hostname
     );
     state
-      .audit(event, &actor_ip, &format!("hostname={}", hostname))
+      .audit(
+        event,
+        &state.session_actor(&headers).await,
+        &actor_ip,
+        &format!("hostname={}", hostname),
+      )
       .await;
     state
       .emit_event(event, serde_json::json!({"hostname": hostname}))

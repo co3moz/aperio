@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Audit events record who performed the action.** Every audit entry now carries an `actor` field alongside the actor IP: the signed-in dashboard username, `aperio` for the built-in admin (master token / dashboard password / OIDC), or `system` for server-initiated events (client connects, alerts, config reloads). The dashboard Audit Log shows a new **User** column. Failed logins and token-authorized actions record `-` (no trusted user identity).
+
 ### Changed
 
 - **The end-to-end test suite was split into a sourced harness and per-phase files** (`tests/lib/harness.sh` + `tests/phases/<letter>-<name>.sh`, run by a thin `tests/e2e.sh`). `bash tests/e2e.sh` still runs everything; a single phase can now be run during development by name or letter (`bash tests/e2e.sh cache`, `bash tests/e2e.sh l`). No change to what is tested.

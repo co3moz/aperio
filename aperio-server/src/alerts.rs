@@ -228,6 +228,8 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
 
 /// Audits and emits one alert event.
 async fn emit(state: &Arc<AppState>, event: &str, data: serde_json::Value) {
-  state.audit(event, "system", &data.to_string()).await;
+  state
+    .audit(event, "system", "system", &data.to_string())
+    .await;
   state.emit_event(event, data).await;
 }

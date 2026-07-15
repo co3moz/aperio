@@ -597,4 +597,5 @@ export const zh: Record<string, string> = {
   'Save & apply (Ctrl+S)': '保存并应用 (Ctrl+S)',
   'CHECKING': '检查中',
   'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': '已配置健康检查；正在等待首次探测。探测通过前，后端不参与路由。',
+  'User': '用户',
 }

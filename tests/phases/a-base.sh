@@ -312,6 +312,10 @@ step "Audit API"
 AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
 assert_contains "$AUDIT" 'client_connected' "audit log records the client connection"
 assert_contains "$AUDIT" 'webhook_created' "audit log records the webhook creation"
+# Audit records the acting user: the dashboard admin's actions are attributed
+# to "aperio", and client_connected is a system event.
+assert_contains "$AUDIT" '"actor":"aperio"' "audit records the acting dashboard user"
+assert_contains "$AUDIT" '"actor":"system"' "system events are attributed to system"
 
 step "OpenAPI spec"
 SPEC="$(curl -s -b "$COOKIES" "$BASE/aperio/api/openapi.json")"
