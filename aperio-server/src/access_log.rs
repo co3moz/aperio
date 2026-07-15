@@ -33,6 +33,7 @@ pub(crate) async fn log_request_success(
   host: Option<&str>,
   client_id: Option<&str>,
   token: Option<&str>,
+  org: Option<String>,
 ) {
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
@@ -53,6 +54,7 @@ pub(crate) async fn log_request_success(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: None,
+      org_id: org,
     };
     // Fan out to live dashboard SSE subscribers (ignored when there are none).
     let _ = state.traffic_tx.send(entry.clone());
@@ -96,6 +98,7 @@ pub(crate) async fn log_request_failure(
   status: u16,
   duration: Duration,
   error: Option<&str>,
+  org: Option<String>,
 ) {
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
@@ -117,6 +120,7 @@ pub(crate) async fn log_request_failure(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: error.map(|s| s.to_string()),
+      org_id: org,
     };
     // Fan out to live dashboard SSE subscribers (ignored when there are none).
     let _ = state.traffic_tx.send(entry.clone());

@@ -48,6 +48,7 @@ pub(crate) async fn handle_ws_proxy(
       429,
       start_time.elapsed(),
       Some(&format!("Rate Limit Exceeded for IP {}", caller_ip)),
+      None,
     )
     .await;
     return (
@@ -90,6 +91,7 @@ pub(crate) async fn handle_ws_proxy(
         "Visitor IP {} not in service allowlist",
         caller_ip
       )),
+      None,
     )
     .await;
     return (
@@ -132,6 +134,7 @@ pub(crate) async fn handle_ws_proxy(
         504,
         start_time.elapsed(),
         Some("Gateway Timeout - Reconnect wait expired"),
+        None,
       )
       .await;
       return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
@@ -156,9 +159,9 @@ pub(crate) async fn handle_ws_proxy(
     ws_affinity.as_deref(),
   )
   .await
-  .map(|c| (c.id, c.tx, c.request_count));
+  .map(|c| (c.id, c.tx, c.request_count, c.org_id));
 
-  let (chosen_client_id, client_tx, client_req_counter) = match client_info {
+  let (chosen_client_id, client_tx, client_req_counter, ws_org) = match client_info {
     Some(info) => info,
     None => {
       log_request_failure(
@@ -168,6 +171,7 @@ pub(crate) async fn handle_ws_proxy(
         504,
         start_time.elapsed(),
         Some("No active client for WebSocket upgrade"),
+        None,
       )
       .await;
       return gateway_timeout_response(
@@ -239,6 +243,7 @@ pub(crate) async fn handle_ws_proxy(
         500,
         start_time.elapsed(),
         Some(&format!("UpgradeRequest serialization failed: {}", e)),
+        ws_org.clone(),
       )
       .await;
       return (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
@@ -254,6 +259,7 @@ pub(crate) async fn handle_ws_proxy(
       502,
       start_time.elapsed(),
       Some("Failed to send UpgradeRequest to client"),
+      ws_org.clone(),
     )
     .await;
     return (
@@ -282,6 +288,7 @@ pub(crate) async fn handle_ws_proxy(
               504,
               start_time.elapsed(),
               Some("WebSocket upgrade response timeout"),
+            ws_org.clone(),
           )
           .await;
           return (StatusCode::GATEWAY_TIMEOUT, "504 Gateway Timeout - Upgrade response timeout").into_response();
@@ -297,6 +304,7 @@ pub(crate) async fn handle_ws_proxy(
                       502,
                       start_time.elapsed(),
                       Some("Client disconnected during WebSocket upgrade"),
+                    ws_org.clone(),
                   )
                   .await;
                   return (StatusCode::BAD_GATEWAY, "502 Bad Gateway - Client lost during upgrade").into_response();
@@ -313,6 +321,7 @@ pub(crate) async fn handle_ws_proxy(
       client_response.status,
       start_time.elapsed(),
       Some("Client failed to establish backend WebSocket"),
+      ws_org.clone(),
     )
     .await;
     return (
@@ -368,6 +377,7 @@ pub(crate) async fn handle_ws_proxy(
         400,
         start_time.elapsed(),
         Some(&format!("WebSocket upgrade rejected: {:?}", rejection)),
+        ws_org.clone(),
       )
       .await;
       rejection.into_response()

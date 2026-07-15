@@ -315,9 +315,14 @@ pub(crate) async fn stats_handler(
 #[utoipa::path(get, path = "/aperio/api/logs", tag = "dashboard",
   description = "The most recent proxied requests (bounded ring buffer).",
   responses((status = 200, description = "Recent request log entries", body = Vec<RequestLog>)))]
-pub(crate) async fn logs_handler(State(state): State<Arc<AppState>>) -> Json<Vec<RequestLog>> {
+pub(crate) async fn logs_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<Vec<RequestLog>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let logs = state.recent_logs.lock().await;
-  Json(logs.iter().cloned().collect())
+  // Only requests served by a client in the caller's effective org.
+  Json(logs.iter().filter(|l| l.org_id == org).cloned().collect())
 }
 
 /// Server-Sent Events stream powering the dashboard's live view, so it doesn't
@@ -360,6 +365,10 @@ pub(crate) async fn live_stream_handler(
           }
           recv = rx.recv() => match recv {
             Ok(log) => {
+              // Only stream traffic served by a client in the subscriber's org.
+              if log.org_id != org {
+                continue;
+              }
               let event = Event::default()
                 .event("traffic")
                 .json_data(&log)

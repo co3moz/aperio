@@ -137,6 +137,11 @@ pub(crate) struct RequestLog {
   pub(crate) duration_ms: u128,
   /// Reason string if request failed.
   pub(crate) error: Option<String>,
+  /// Organization of the client that served the request (None = master, or a
+  /// server-level failure with no client). The dashboard traffic log and live
+  /// stream are filtered to the caller's effective org on this field.
+  #[serde(skip)]
+  pub(crate) org_id: Option<String>,
 }
 
 /// A fully captured HTTP transaction for the dashboard inspector. Bodies are
@@ -168,6 +173,10 @@ pub(crate) struct CapturedRequest {
   /// High-resolution stage timeline (buffered responses of v2+ clients).
   #[serde(skip_serializing_if = "Option::is_none")]
   pub(crate) timeline: Option<RequestTimeline>,
+  /// Organization of the client that served the request (None = master). The
+  /// inspector and replay are gated to the caller's effective org on this.
+  #[serde(skip)]
+  pub(crate) org_id: Option<String>,
 }
 
 /// Maximum number of captured requests kept in memory.

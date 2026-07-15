@@ -403,6 +403,7 @@ async fn stale_cache_response(
     host.as_deref(),
     None,
     None,
+    None,
   )
   .await;
   telemetry::record_status(&tracing::Span::current(), status);
@@ -435,6 +436,7 @@ async fn proxy_http_request(
       429,
       start_time.elapsed(),
       Some(&format!("Rate Limit Exceeded for IP {}", caller_ip)),
+      None,
     )
     .await;
     return (
@@ -477,6 +479,7 @@ async fn proxy_http_request(
         "Visitor IP {} not in service allowlist",
         caller_ip
       )),
+      None,
     )
     .await;
     return (
@@ -527,6 +530,7 @@ async fn proxy_http_request(
         504,
         start_time.elapsed(),
         Some("Gateway Timeout - Reconnect wait expired"),
+        None,
       )
       .await;
       return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
@@ -544,6 +548,7 @@ async fn proxy_http_request(
         429,
         start_time.elapsed(),
         Some("Concurrency limit exceeded"),
+        None,
       )
       .await;
       return (
@@ -589,6 +594,7 @@ async fn proxy_http_request(
         504,
         start_time.elapsed(),
         Some("No active client connection available"),
+        None,
       )
       .await;
       return gateway_timeout_response(
@@ -613,6 +619,7 @@ async fn proxy_http_request(
       429,
       start_time.elapsed(),
       Some(reason),
+      selected.org_id.clone(),
     )
     .await;
     return (
@@ -663,6 +670,7 @@ async fn proxy_http_request(
       request_host.as_deref(),
       Some(&selected.id),
       selected.token_name.as_deref(),
+      selected.org_id.clone(),
     )
     .await;
     telemetry::record_status(&tracing::Span::current(), status);
@@ -691,6 +699,7 @@ async fn proxy_http_request(
       413,
       start_time.elapsed(),
       Some("Declared content-length exceeds the body size limit"),
+      selected.org_id.clone(),
     )
     .await;
     return (
@@ -720,6 +729,7 @@ async fn proxy_http_request(
           413,
           start_time.elapsed(),
           Some(&format!("Payload too large or read failure: {}", e)),
+          selected.org_id.clone(),
         )
         .await;
         return (
@@ -837,6 +847,7 @@ async fn proxy_http_request(
               429,
               start_time.elapsed(),
               Some("Client concurrency limit: no slot freed within gateway timeout"),
+              selected.org_id.clone(),
             )
             .await;
             break (
@@ -899,6 +910,7 @@ async fn proxy_http_request(
           500,
           start_time.elapsed(),
           Some(&format!("Request serialization failed: {}", e)),
+          selected.org_id.clone(),
         )
         .await;
         break (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
@@ -975,6 +987,7 @@ async fn proxy_http_request(
                   504,
                   start_time.elapsed(),
                   Some("Client response timeout expired"),
+                selected.org_id.clone(),
               )
               .await;
               state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64);
@@ -1123,6 +1136,7 @@ async fn proxy_http_request(
           request_host.as_deref(),
           Some(&selected.id),
           selected.token_name.as_deref(),
+          selected.org_id.clone(),
         )
         .await;
 
@@ -1171,6 +1185,7 @@ async fn proxy_http_request(
             resp_streamed,
             duration_ms: duration.as_millis(),
             timeline: Some(timeline),
+            org_id: selected.org_id.clone(),
           });
         }
 
@@ -1266,6 +1281,7 @@ async fn proxy_http_request(
           502,
           duration,
           Some("Communication channel with client closed abruptly"),
+          selected.org_id.clone(),
         )
         .await;
         state.persistent_stats.lock().await.record_request(

@@ -332,6 +332,9 @@ pub(crate) struct SelectedClient {
   pub(crate) token_name: Option<String>,
   /// Record ID of the dynamic token (None = master); limits key on this.
   pub(crate) token_id: Option<String>,
+  /// Organization the serving client belongs to (None = master); traffic,
+  /// captures, and per-org stats are attributed to it.
+  pub(crate) org_id: Option<String>,
   /// Client-process instance ID (from Ping); used by failover `wait` mode.
   pub(crate) instance_id: Option<String>,
   /// Tunnel protocol version the client announced (None until known).
@@ -414,6 +417,7 @@ pub(crate) async fn pick_proxy_client(
     inflight_limiter: c.inflight_limiter.clone(),
     token_name: c.perms.token_name.clone(),
     token_id: c.perms.token_id.clone(),
+    org_id: c.perms.org_id.clone(),
     instance_id: c.reported_instance_id.clone(),
     protocol: c.client_protocol,
     cache: c.cache,

@@ -23,9 +23,12 @@ use crate::state::{AppState, PendingRequest, TunnelResponse};
 pub(crate) async fn request_detail_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
+  headers: HeaderMap,
 ) -> Response {
+  // Isolation: a caller may only inspect requests served in their effective org.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let captured = state.captured_requests.lock().await;
-  match captured.iter().find(|c| c.id == id) {
+  match captured.iter().find(|c| c.id == id && c.org_id == org) {
     // Serve the redacted view: credentials and secret-looking body fields
     // are masked before anything leaves the server (the raw capture stays
     // in memory so replay re-sends the original request).
@@ -57,9 +60,14 @@ pub(crate) async fn request_replay_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  // Isolation: a caller may only replay requests served in their effective org.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let captured = {
     let store = state.captured_requests.lock().await;
-    store.iter().find(|c| c.id == id).cloned()
+    store
+      .iter()
+      .find(|c| c.id == id && c.org_id == org)
+      .cloned()
   };
   let captured = match captured {
     Some(c) => c,
