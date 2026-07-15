@@ -165,9 +165,9 @@ pub(crate) async fn tunnels_create_handler(
     record.name, hostname, record.id, record.expires_at
   );
   state
-    .audit(
+    .audit_session(
       "tunnel_created",
-      &state.session_actor(&headers).await,
+      &headers,
       &client_ip.to_string(),
       &format!(
         "name={} id={} hostname={} expires_at={:?}",
@@ -252,9 +252,9 @@ pub(crate) async fn tunnels_delete_handler(
       );
     }
     state
-      .audit(
+      .audit_session(
         "tunnel_deleted",
-        &state.session_actor(&headers).await,
+        &headers,
         &client_ip.to_string(),
         &format!("id={} disconnected_clients={}", id, dropped),
       )

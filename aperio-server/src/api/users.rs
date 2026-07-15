@@ -105,9 +105,9 @@ pub(crate) async fn users_create_handler(
     Ok(user) => {
       let ip = actor_ip(&state, &headers, addr);
       state
-        .audit(
+        .audit_session(
           "user_created",
-          &state.session_actor(&headers).await,
+          &headers,
           &ip,
           &format!("username={} role={}", user.username, user.role.as_str()),
         )
@@ -173,9 +173,9 @@ pub(crate) async fn users_update_handler(
     Ok(user) => {
       let ip = actor_ip(&state, &headers, addr);
       state
-        .audit(
+        .audit_session(
           "user_updated",
-          &state.session_actor(&headers).await,
+          &headers,
           &ip,
           &format!(
             "username={} role={} enabled={} password_changed={}",
@@ -224,9 +224,9 @@ pub(crate) async fn users_delete_handler(
     .retain(|info| info.username.as_deref() != Some(username.as_str()));
   let ip = actor_ip(&state, &headers, addr);
   state
-    .audit(
+    .audit_session(
       "user_deleted",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip,
       &format!("username={}", username),
     )
@@ -321,9 +321,9 @@ pub(crate) async fn totp_enable_handler(
     Ok(recovery_codes) => {
       let ip = actor_ip(&state, &headers, addr);
       state
-        .audit(
+        .audit_session(
           "totp_enabled",
-          &state.session_actor(&headers).await,
+          &headers,
           &ip,
           &format!("user_id={}", user_id),
         )
@@ -372,9 +372,9 @@ pub(crate) async fn totp_disable_handler(
   }
   let ip = actor_ip(&state, &headers, addr);
   state
-    .audit(
+    .audit_session(
       "totp_disabled",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip,
       &format!("user_id={}", user_id),
     )
@@ -401,9 +401,9 @@ pub(crate) async fn totp_admin_reset_handler(
   }
   let ip = actor_ip(&state, &headers, addr);
   state
-    .audit(
+    .audit_session(
       "totp_admin_reset",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip,
       &format!("user_id={}", id),
     )
@@ -473,9 +473,9 @@ pub(crate) async fn session_revoke_handler(
   }
   let ip = actor_ip(&state, &headers, addr);
   state
-    .audit(
+    .audit_session(
       "session_revoked",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip,
       &format!("session={}", &id[..12.min(id.len())]),
     )
@@ -510,12 +510,7 @@ pub(crate) async fn sessions_clear_handler(
   drop(sessions);
   let ip = actor_ip(&state, &headers, addr);
   state
-    .audit(
-      "sessions_cleared",
-      &state.session_actor(&headers).await,
-      &ip,
-      &format!("ended={ended}"),
-    )
+    .audit_session("sessions_cleared", &headers, &ip, &format!("ended={ended}"))
     .await;
   Json(serde_json::json!({ "ended": ended })).into_response()
 }

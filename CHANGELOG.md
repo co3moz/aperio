@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Organizations — audit log is now per-organization.** Every audit event carries the organization it belongs to: dashboard actions are filed under the caller's effective org, a connecting client's lifecycle events (connect/drain/disconnect) under its token's org, a login under the user's org, and genuinely server-global events (config reload, export/import, failed logins, health alerts) under the master org. The `/aperio/api/audit` endpoint now returns only the caller's org's events — a child-org admin no longer sees master's or another org's audit trail, and the master super-admin sees the org currently selected on their session. The durable `audit.jsonl` (and its tamper-evident hash chain) stays a single global log; scoping happens on read.
+
 ## [0.2.3] - 2026-07-15
 
 ### Fixed

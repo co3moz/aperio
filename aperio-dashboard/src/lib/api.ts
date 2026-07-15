@@ -237,6 +237,9 @@ export interface AuditEvent {
   /** Who performed the action: username, 'aperio', 'system', or '-'. */
   actor: string
   actor_ip: string
+  /** Organization the event belongs to (null = the implicit master org). The
+   *  list is already server-filtered to the caller's effective org. */
+  org_id?: string | null
   details: string
 }
 

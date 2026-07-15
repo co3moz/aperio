@@ -93,9 +93,9 @@ pub(crate) async fn maintenance_set_handler(
       hostname
     );
     state
-      .audit(
+      .audit_session(
         event,
-        &state.session_actor(&headers).await,
+        &headers,
         &actor_ip,
         &format!("hostname={}", hostname),
       )

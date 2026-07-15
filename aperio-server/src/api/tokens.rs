@@ -222,9 +222,9 @@ pub(crate) async fn tokens_create_handler(
     record.name, record.id, record.hostnames, record.paths, record.allowed_ips, record.expires_at
   );
   state
-    .audit(
+    .audit_session(
       "token_created",
-      &state.session_actor(&headers).await,
+      &headers,
       &actor_ip,
       &format!(
         "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
@@ -353,9 +353,9 @@ pub(crate) async fn tokens_update_handler(
         record.expires_at
       );
       state
-        .audit(
+        .audit_session(
           "token_updated",
-          &state.session_actor(&headers).await,
+          &headers,
           &actor_ip,
           &format!(
             "name={} id={} hostnames={:?} paths={:?} ips={:?} expires_at={:?}",
@@ -415,11 +415,14 @@ pub(crate) async fn tokens_refresh_handler(
         "Dynamic token refreshed: {} (id={}, new expires_at={:?})",
         record.name, record.id, record.expires_at
       );
+      // Refresh authenticates with the token secret itself (no session), so the
+      // event is filed under the token's own organization.
       state
-        .audit(
+        .audit_in(
           "token_refreshed",
           &state.session_actor(&headers).await,
           &actor_ip.to_string(),
+          record.org_id.clone(),
           &format!("id={} expires_at={:?}", record.id, record.expires_at),
         )
         .await;
@@ -474,9 +477,9 @@ pub(crate) async fn tokens_revoke_handler(
       );
     }
     state
-      .audit(
+      .audit_session(
         "token_revoked",
-        &state.session_actor(&headers).await,
+        &headers,
         &actor_ip,
         &format!("id={} disconnected_clients={}", id, dropped),
       )

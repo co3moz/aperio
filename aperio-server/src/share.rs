@@ -111,9 +111,9 @@ pub(crate) async fn share_create_handler(
     claims.id, hostname, path, claims.exp
   );
   state
-    .audit(
+    .audit_session(
       "share_created",
-      &state.session_actor(&headers).await,
+      &headers,
       &actor_ip,
       &format!(
         "id={} hostname={} path={:?} expires_at={:?}",

@@ -336,11 +336,23 @@ pub(crate) async fn auth_login_handler(
     ),
     (None, None) => "session created (global)".to_string(),
   };
+  // A named user's login is filed under their own organization; the built-in
+  // admin (no username) and visitor-scoped sessions belong to master.
+  let login_org = match identity.0.as_deref() {
+    Some(user) => state
+      .users
+      .lock()
+      .await
+      .find_by_username(user)
+      .and_then(|u| u.org_id.clone()),
+    None => None,
+  };
   state
-    .audit(
+    .audit_in(
       "login_success",
       identity.0.as_deref().unwrap_or("aperio"),
       &client_ip.to_string(),
+      login_org,
       &scope_desc,
     )
     .await;

@@ -173,9 +173,9 @@ pub(crate) async fn request_replay_handler(
         start.elapsed().as_millis()
       );
       state
-        .audit(
+        .audit_session(
           "request_replayed",
-          &state.session_actor(&headers).await,
+          &headers,
           &actor_ip,
           &format!(
             "id={} {} {} -> {}",

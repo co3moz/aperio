@@ -454,9 +454,9 @@ pub(crate) async fn client_override_handler(
       client_id, new_hostname, new_path
     );
     state
-      .audit(
+      .audit_session(
         "client_overrule",
-        &state.session_actor(&headers).await,
+        &headers,
         &actor_ip,
         &format!(
           "client={} hostname={:?} path={:?}",
@@ -519,13 +519,13 @@ pub(crate) async fn client_enabled_handler(
       }
     );
     state
-      .audit(
+      .audit_session(
         if payload.enabled {
           "client_enabled"
         } else {
           "client_disabled"
         },
-        &state.session_actor(&headers).await,
+        &headers,
         &actor_ip,
         &format!("client={}", client_id),
       )

@@ -272,11 +272,10 @@ pub(crate) async fn passkey_register_finish_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
-  let actor = state.session_actor(&headers).await;
   state
-    .audit(
+    .audit_session(
       "passkey_registered",
-      &actor,
+      &headers,
       &ip,
       &format!("user_id={} passkey={}", user_id, stored.id),
     )
@@ -336,9 +335,9 @@ pub(crate) async fn passkey_delete_handler(
   )
   .to_string();
   state
-    .audit(
+    .audit_session(
       "passkey_deleted",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip,
       &format!("user_id={} passkey={}", user_id, id),
     )
@@ -494,20 +493,21 @@ pub(crate) async fn passkey_login_finish_handler(
   };
 
   // Persist authenticator counter updates (clone detection state).
-  let (username, role) = {
+  let (username, role, org) = {
     let mut users = state.users.lock().await;
     users.update_passkey_after_auth(&user_id, &result);
     match users.get(&user_id) {
-      Some(u) if u.enabled => (u.username.clone(), u.role),
+      Some(u) if u.enabled => (u.username.clone(), u.role, u.org_id.clone()),
       _ => return (StatusCode::UNAUTHORIZED, "User disabled").into_response(),
     }
   };
   state.login_lockout.lock().await.clear(client_ip);
   state
-    .audit(
+    .audit_in(
       "login_success",
       &username,
       &client_ip.to_string(),
+      org,
       &format!(
         "session created (user={}, role={}, passkey)",
         username,
@@ -740,20 +740,21 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       }
     };
 
-  let (username, role) = {
+  let (username, role, org) = {
     let mut users = state.users.lock().await;
     users.update_passkey_after_auth(&user_id, &result);
     match users.get(&user_id) {
-      Some(u) if u.enabled => (u.username.clone(), u.role),
+      Some(u) if u.enabled => (u.username.clone(), u.role, u.org_id.clone()),
       _ => return (StatusCode::UNAUTHORIZED, "User disabled").into_response(),
     }
   };
   state.login_lockout.lock().await.clear(client_ip);
   state
-    .audit(
+    .audit_in(
       "login_success",
       &username,
       &client_ip.to_string(),
+      org,
       &format!(
         "session created (user={}, role={}, passkey, usernameless)",
         username,

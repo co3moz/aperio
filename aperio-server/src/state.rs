@@ -880,13 +880,54 @@ impl AppState {
       .map(|_| RequestSlot(self.active_proxied_requests.clone()))
   }
 
-  /// Records an audit event (file + in-memory ring).
+  /// Records a server-global (master-organization) audit event: config
+  /// reloads, export/import, failed logins, and other events not tied to a
+  /// child organization. Org-scoped actions use [`audit_in`] or the
+  /// [`audit_session`] convenience instead.
   pub(crate) async fn audit(&self, event: &str, actor: &str, actor_ip: &str, details: &str) {
     self
       .audit
       .lock()
       .await
-      .record(event, actor, actor_ip, details);
+      .record(event, actor, actor_ip, None, details);
+  }
+
+  /// Records an audit event scoped to a specific organization (`None` = the
+  /// implicit master org). Use when the event belongs to a child org — e.g. a
+  /// client of that org connecting, or a token of that org being created.
+  pub(crate) async fn audit_in(
+    &self,
+    event: &str,
+    actor: &str,
+    actor_ip: &str,
+    org: Option<String>,
+    details: &str,
+  ) {
+    self
+      .audit
+      .lock()
+      .await
+      .record(event, actor, actor_ip, org, details);
+  }
+
+  /// Records an audit event for a dashboard action, resolving both the acting
+  /// user and the caller's effective organization from the request. This is the
+  /// common path for session-driven admin actions, so the event is filed under
+  /// whichever org the caller is currently acting in.
+  pub(crate) async fn audit_session(
+    &self,
+    event: &str,
+    headers: &axum::http::HeaderMap,
+    actor_ip: &str,
+    details: &str,
+  ) {
+    let actor = self.session_actor(headers).await;
+    let org = crate::auth::effective_org(self, headers).await;
+    self
+      .audit
+      .lock()
+      .await
+      .record(event, &actor, actor_ip, org, details);
   }
 
   /// Resolves the acting dashboard user for an audit record from the request:

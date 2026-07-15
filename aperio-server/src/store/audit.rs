@@ -27,6 +27,14 @@ pub struct AuditEvent {
   pub actor: String,
   /// IP address of the actor that triggered the event.
   pub actor_ip: String,
+  /// Organization the event belongs to: `None` (serialized as absent/null) for
+  /// the implicit master organization and for genuinely server-global events
+  /// (config reload, export/import, failed logins); `Some(id)` for an event
+  /// scoped to a child organization. Rows written before this field existed
+  /// deserialize as `None` (master). The dashboard filters the audit log by the
+  /// caller's effective organization on this field.
+  #[serde(default)]
+  pub org_id: Option<String>,
   /// Free-form details (token name, client id, hostname, ...).
   pub details: String,
   /// SHA-256 (hex) of the previous line exactly as written to the file,
@@ -129,7 +137,15 @@ impl AuditLog {
   }
 
   /// Records an event: appends a JSON line to the file and to the ring buffer.
-  pub fn record(&mut self, event: &str, actor: &str, actor_ip: &str, details: &str) {
+  /// `org` is the organization the event belongs to (`None` = master / global).
+  pub fn record(
+    &mut self,
+    event: &str,
+    actor: &str,
+    actor_ip: &str,
+    org: Option<String>,
+    details: &str,
+  ) {
     let now = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .unwrap_or_default()
@@ -141,6 +157,7 @@ impl AuditLog {
       event: event.to_string(),
       actor: actor.to_string(),
       actor_ip: actor_ip.to_string(),
+      org_id: org,
       details: details.to_string(),
       prev: self.last_hash.clone(),
     };

@@ -13,14 +13,27 @@ use crate::routing::extract_client_ip;
 use crate::state::AppState;
 use crate::store::audit::{self};
 
-/// Returns recent audit events (dashboard).
+/// Returns recent audit events (dashboard), scoped to the caller's effective
+/// organization: a named user sees only their org's events, and the master
+/// super-admin sees the events of whichever org is selected on their session
+/// (`None` = the implicit master org, which also owns server-global events).
 #[utoipa::path(get, path = "/aperio/api/audit", tag = "dashboard",
-  description = "The most recent audit events (bounded ring buffer; the durable log is audit.jsonl).",
+  description = "The most recent audit events for the caller's organization (bounded ring buffer; the durable log is audit.jsonl).",
   responses((status = 200, description = "Recent audit events", body = Vec<audit::AuditEvent>)))]
 pub(crate) async fn audit_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
 ) -> Json<Vec<audit::AuditEvent>> {
-  Json(state.audit.lock().await.recent())
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let events = state
+    .audit
+    .lock()
+    .await
+    .recent()
+    .into_iter()
+    .filter(|e| e.org_id == org)
+    .collect();
+  Json(events)
 }
 
 /// Payload for creating a webhook definition.
@@ -138,9 +151,9 @@ pub(crate) async fn webhooks_create_handler(
     .create(name, url, events, secret, format);
   info!("Webhook created: {} -> {}", hook.name, hook.url);
   state
-    .audit(
+    .audit_session(
       "webhook_created",
-      &state.session_actor(&headers).await,
+      &headers,
       &actor_ip,
       &format!(
         "name={} url={} events={:?}",
@@ -172,9 +185,9 @@ pub(crate) async fn webhooks_delete_handler(
   .to_string();
   if state.webhook_store.lock().await.delete(&id) {
     state
-      .audit(
+      .audit_session(
         "webhook_deleted",
-        &state.session_actor(&headers).await,
+        &headers,
         &actor_ip,
         &format!("id={}", id),
       )
@@ -250,9 +263,9 @@ pub(crate) async fn webhook_redeliver_handler(
     &state.config().trusted_proxies,
   );
   state
-    .audit(
+    .audit_session(
       "webhook_redelivered",
-      &state.session_actor(&headers).await,
+      &headers,
       &ip.to_string(),
       &format!("webhook={} event={}", hook.name, delivery.event),
     )

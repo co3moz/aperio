@@ -339,6 +339,9 @@ ACME_TOK_ID="$(echo "$ACME_TOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 # While the child org is selected, its token is visible.
 TOKS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tokens")"
 assert_contains "$TOKS" 'acme-token' "the child-org token is visible in its own org"
+# The audit log is org-scoped too: the child org sees its own token_created event.
+AUD_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
+assert_contains "$AUD_CHILD" 'name=acme-token' "the child org's audit shows its own token creation"
 # Switch back to master: the child-org token must NOT be visible there.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
@@ -348,6 +351,12 @@ if echo "$TOKS" | grep -q 'acme-token'; then
   fail "isolation breach: the child-org token leaked into master's token list"
 fi
 echo "  ok: the child-org token is hidden from master's token list"
+# And master's audit log must not surface the child org's events.
+AUD_MASTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
+if echo "$AUD_MASTER" | grep -q 'name=acme-token'; then
+  fail "isolation breach: the child-org token_created event leaked into master's audit log"
+fi
+echo "  ok: the child-org audit event is hidden from master's audit log"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"

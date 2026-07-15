@@ -198,10 +198,11 @@ pub(crate) async fn handle_socket(
 
   info!("Tunnel client connected: {} (IP: {})", client_id, client_ip);
   state
-    .audit(
+    .audit_in(
       "client_connected",
       "system",
       &client_ip,
+      perms.org_id.clone(),
       &format!(
         "client={} token={}",
         client_id,
@@ -567,10 +568,11 @@ pub(crate) async fn handle_socket(
                 }
               }
               state
-                .audit(
+                .audit_in(
                   "client_draining",
                   "system",
                   &client_ip,
+                  perms.org_id.clone(),
                   &format!("client={}", client_id),
                 )
                 .await;
@@ -939,10 +941,11 @@ pub(crate) async fn handle_socket(
   writer_task.abort();
   info!("Tunnel client disconnected: {}", client_id);
   state
-    .audit(
+    .audit_in(
       "client_disconnected",
       "system",
       &client_ip,
+      perms.org_id.clone(),
       &format!("client={}", client_id),
     )
     .await;
