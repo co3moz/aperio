@@ -45,6 +45,10 @@ pub struct ApiToken {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub allow_public: bool,
+  /// Organization this token belongs to; `None` = the master organization.
+  /// A client that connects with this token inherits its organization.
+  #[serde(default)]
+  pub org_id: Option<String>,
 }
 
 impl ApiToken {
@@ -110,6 +114,7 @@ impl TokenStore {
     max_rps: Option<f64>,
     daily_max_bytes: Option<u64>,
     allow_public: bool,
+    org_id: Option<String>,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -130,6 +135,7 @@ impl TokenStore {
       max_rps,
       daily_max_bytes,
       allow_public,
+      org_id,
     };
     self.tokens.push(record.clone());
     self.persist();
@@ -273,6 +279,7 @@ mod tests {
       None,
       None,
       false,
+      None,
     );
     assert!(secret.starts_with("apr_"));
     assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -332,6 +339,7 @@ mod tests {
       None,
       None,
       false,
+      None,
     );
     let first_expiry = record.expires_at.unwrap();
 
@@ -353,6 +361,7 @@ mod tests {
       None,
       None,
       false,
+      None,
     );
     assert!(store.refresh(&forever).is_none());
 
@@ -366,6 +375,7 @@ mod tests {
       None,
       None,
       false,
+      None,
     );
     assert!(store.refresh(&dead).is_none());
 
@@ -385,6 +395,7 @@ mod tests {
       None,
       None,
       false,
+      None,
     );
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());

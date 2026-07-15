@@ -77,7 +77,7 @@ pub(crate) async fn users_create_handler(
     .users
     .lock()
     .await
-    .create(&payload.username, &payload.password, role);
+    .create(&payload.username, &payload.password, role, None);
   match created {
     Ok(user) => {
       let ip = actor_ip(&state, &headers, addr);

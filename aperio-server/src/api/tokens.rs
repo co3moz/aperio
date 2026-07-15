@@ -209,6 +209,7 @@ pub(crate) async fn tokens_create_handler(
       payload.max_rps.filter(|v| *v > 0.0),
       payload.daily_max_bytes.filter(|v| *v > 0),
       payload.allow_public,
+      None,
     )
   };
   info!(

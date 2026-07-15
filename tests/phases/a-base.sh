@@ -308,6 +308,29 @@ echo "  ok: redelivery lands in the log as a new row"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST "$BASE/aperio/api/webhooks/deliveries/no-such-id/redeliver")"
 assert_status 404 "$CODE" "redelivering an unknown id answers 404"
 
+step "Organizations API (master super-admin)"
+ORG="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"Acme"}' "$BASE/aperio/api/orgs")" || fail "org creation failed"
+ORG_ID="$(echo "$ORG" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$ORG_ID" ] || fail "could not parse the org id: $ORG"
+ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
+assert_contains "$ORGS" '"id":"master"' "org list includes the implicit master org"
+assert_contains "$ORGS" '"name":"Acme"' "org list includes the created child org"
+assert_contains "$ORGS" '"master":true' "the master org is flagged"
+# Duplicate name (case-insensitive) and the reserved name are rejected.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"name":"acme"}' "$BASE/aperio/api/orgs")"
+assert_status 400 "$CODE" "duplicate org names are rejected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"name":"master"}' "$BASE/aperio/api/orgs")"
+assert_status 400 "$CODE" "the reserved name master is rejected"
+# The implicit master org cannot be deleted.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/master")"
+assert_status 400 "$CODE" "the master org cannot be deleted"
+# An empty child org deletes; a repeat is 404.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
+assert_status 200 "$CODE" "an empty child org is deleted"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
+assert_status 404 "$CODE" "deleting an unknown org returns 404"
+
 step "Audit API"
 AUDIT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit")"
 assert_contains "$AUDIT" 'client_connected' "audit log records the client connection"

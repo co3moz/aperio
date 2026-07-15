@@ -143,6 +143,7 @@ async fn test_rate_limiting() {
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
+    org_store: Mutex::new(test_org_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
     webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
@@ -260,6 +261,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
+    org_store: Mutex::new(test_org_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
     webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
@@ -397,6 +399,7 @@ async fn test_proxy_handler_success() {
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_deliveries: test_delivery_log(),
     webhook_store: Mutex::new(test_webhook_store()),
+    org_store: Mutex::new(test_org_store()),
     uptime: Mutex::new(test_uptime_store()),
     webauthn: None,
     webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
@@ -662,6 +665,12 @@ fn test_webhook_store() -> WebhookStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
+}
+
+fn test_org_store() -> crate::store::orgs::OrgStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-orgs-{}", uuid::Uuid::new_v4()));
+  let _ = std::fs::create_dir_all(&dir);
+  crate::store::orgs::OrgStore::load(&dir.to_string_lossy())
 }
 
 fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {

@@ -657,6 +657,61 @@ pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> b
   matches!(session_scope(state, headers).await, Some(None))
 }
 
+/// The organization the caller acts within: `None` = master (the built-in
+/// admin, master token, dashboard password, OIDC, or a named user whose
+/// `org_id` is None), `Some(id)` = the caller's child organization. Returns
+/// `None` for callers without a valid global session too (they can't act).
+pub(crate) async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  let Some(username) = dashboard_username(state, headers).await else {
+    // Built-in admin (or no session): master.
+    return None;
+  };
+  state
+    .users
+    .lock()
+    .await
+    .find_by_username(&username)
+    .and_then(|u| u.org_id.clone())
+}
+
+/// True when the caller is the master super-admin: a global Admin session
+/// whose organization is master (the built-in admin, or a named Admin user in
+/// the master org). Only they may manage organizations and switch orgs.
+pub(crate) async fn is_master_admin(state: &AppState, headers: &HeaderMap) -> bool {
+  if dashboard_role(state, headers).await != Some(Role::Admin) {
+    return false;
+  }
+  caller_org(state, headers).await.is_none()
+}
+
+/// Gate for organization-management endpoints: 401 without a session, 403 for
+/// non-master-admins.
+pub(crate) async fn require_master_admin(
+  state: &AppState,
+  headers: &HeaderMap,
+) -> Result<(), axum::response::Response> {
+  use axum::response::IntoResponse;
+  if dashboard_role(state, headers).await.is_none() {
+    return Err(
+      (
+        axum::http::StatusCode::UNAUTHORIZED,
+        "Authentication required",
+      )
+        .into_response(),
+    );
+  }
+  if !is_master_admin(state, headers).await {
+    return Err(
+      (
+        axum::http::StatusCode::FORBIDDEN,
+        "Only a master-organization admin may manage organizations",
+      )
+        .into_response(),
+    );
+  }
+  Ok(())
+}
+
 /// Role of the presented global dashboard session, or None when the session
 /// is missing/expired/host-scoped.
 pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {

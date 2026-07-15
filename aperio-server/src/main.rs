@@ -656,6 +656,7 @@ async fn async_main() {
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
+    org_store: Mutex::new(crate::store::orgs::OrgStore::load(&data_dir)),
     webhook_deliveries: std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
       &data_dir,
     ))),
@@ -748,6 +749,14 @@ async fn async_main() {
       .route(
         "/api/stage-stats",
         get(crate::api::metrics::stage_stats_handler),
+      )
+      .route(
+        "/api/orgs",
+        get(crate::api::orgs::orgs_list_handler).post(crate::api::orgs::orgs_create_handler),
+      )
+      .route(
+        "/api/orgs/:id",
+        axum::routing::delete(crate::api::orgs::orgs_delete_handler),
       )
       .route(
         "/api/sessions",
@@ -1142,6 +1151,10 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
     // end other admins' sessions — admin only, including the list.
     || path == "/api/sessions"
     || path.starts_with("/api/sessions/")
+    // Organization management is master-super-admin only (checked in the
+    // handlers); require at least Admin at the routing layer.
+    || path == "/api/orgs"
+    || path.starts_with("/api/orgs/")
   {
     return Role::Admin;
   }

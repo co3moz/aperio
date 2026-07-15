@@ -62,6 +62,9 @@ pub struct User {
   /// Argon2id PHC hash; never exposed through the API.
   pub password_hash: String,
   pub role: Role,
+  /// Organization this user belongs to; `None` = the master organization.
+  #[serde(default)]
+  pub org_id: Option<String>,
   pub created_at: u64,
   pub enabled: bool,
   /// Base32 TOTP secret; Some = two-factor auth is enabled for this user.
@@ -131,7 +134,13 @@ impl UserStore {
 
   /// Creates a user. Fails when the (case-insensitive) username is taken,
   /// reserved, or the password hash cannot be computed.
-  pub fn create(&mut self, username: &str, password: &str, role: Role) -> Result<User, String> {
+  pub fn create(
+    &mut self,
+    username: &str,
+    password: &str,
+    role: Role,
+    org_id: Option<String>,
+  ) -> Result<User, String> {
     let name = username.trim();
     if name.is_empty() {
       return Err("username is required".into());
@@ -155,6 +164,7 @@ impl UserStore {
       username: name.to_string(),
       password_hash: hash_password(password)?,
       role,
+      org_id,
       created_at: crate::store::tokens::now_secs(),
       enabled: true,
       totp_secret: None,
@@ -394,7 +404,7 @@ mod tests {
     assert!(store.list().is_empty());
 
     let user = store
-      .create("alice", "correct horse battery", Role::Operator)
+      .create("alice", "correct horse battery", Role::Operator, None)
       .unwrap();
     assert_eq!(
       store.verify("alice", "correct horse battery").unwrap().id,
@@ -407,15 +417,15 @@ mod tests {
     // Duplicates, the reserved name, and short passwords are refused.
     assert!(
       store
-        .create("Alice", "another password", Role::Viewer)
+        .create("Alice", "another password", Role::Viewer, None)
         .is_err()
     );
     assert!(
       store
-        .create("aperio", "another password", Role::Admin)
+        .create("aperio", "another password", Role::Admin, None)
         .is_err()
     );
-    assert!(store.create("bob", "short", Role::Viewer).is_err());
+    assert!(store.create("bob", "short", Role::Viewer, None).is_err());
 
     // Reload from disk → user persisted with its role.
     let store2 = UserStore::load(&dir);
@@ -450,7 +460,7 @@ mod tests {
     let dir = temp_dir();
     let mut store = UserStore::load(&dir);
     let user = store
-      .create("mfa-user", "long-password", Role::Operator)
+      .create("mfa-user", "long-password", Role::Operator, None)
       .unwrap();
 
     // Setup produces a pending secret; login-relevant totp_secret stays off.
@@ -501,7 +511,7 @@ mod tests {
     let dir = temp_dir();
     let mut store = UserStore::load(&dir);
     let user = store
-      .create("passkey-user", "long-password", Role::Viewer)
+      .create("passkey-user", "long-password", Role::Viewer, None)
       .unwrap();
 
     let stored = store

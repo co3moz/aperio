@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Organizations (multi-tenancy), part 1 — data model & management.** Users and tokens now carry an `org_id` (a new `organizations` store holds child orgs; `org_id: None` = the implicit **master** organization that the built-in `aperio` admin, master token, dashboard password, and OIDC act within). A master super-admin can create, list (with per-org user/token counts), and delete child organizations via `GET/POST /aperio/api/orgs` and `DELETE /aperio/api/orgs/{id}` (an org must be empty to delete; master cannot be deleted). Orgs are included in dump export/import. Isolation/filtering and the dashboard org switcher land in follow-up changes.
 - **Audit events record who performed the action.** Every audit entry now carries an `actor` field alongside the actor IP: the signed-in dashboard username, `aperio` for the built-in admin (master token / dashboard password / OIDC), or `system` for server-initiated events (client connects, alerts, config reloads). The dashboard Audit Log shows a new **User** column. Failed logins and token-authorized actions record `-` (no trusted user identity).
 
 ### Changed

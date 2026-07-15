@@ -26,6 +26,7 @@ use tracing::info;
 use crate::routing::extract_client_ip;
 use crate::settings::SettingsOverrides;
 use crate::state::AppState;
+use crate::store::orgs::Organization;
 use crate::store::tokens::ApiToken;
 use crate::store::users::User;
 use crate::store::webhooks::Webhook;
@@ -54,6 +55,7 @@ pub(crate) async fn export_handler(
   let tokens = state.token_store.lock().await.list().to_vec();
   let webhooks = state.webhook_store.lock().await.list().to_vec();
   let users = state.users.lock().await.list().to_vec();
+  let organizations = state.org_store.lock().await.list().to_vec();
   let settings_overrides = state.settings_overrides.lock().await.clone();
 
   state
@@ -77,6 +79,7 @@ pub(crate) async fn export_handler(
     "tokens": tokens,
     "webhooks": webhooks,
     "users": users,
+    "organizations": organizations,
     "settings_overrides": settings_overrides,
   });
   (
@@ -107,6 +110,7 @@ pub(crate) struct ImportDump {
   #[schema(value_type = Option<Vec<serde_json::Value>>)]
   users: Option<Vec<User>>,
   settings_overrides: Option<SettingsOverrides>,
+  organizations: Option<Vec<Organization>>,
 }
 
 /// Applies a dump: each present section *replaces* the corresponding store.
@@ -163,6 +167,10 @@ pub(crate) async fn import_handler(
   if let Some(users) = dump.users {
     let n = state.users.lock().await.import(users);
     counts.insert("users".into(), n.into());
+  }
+  if let Some(organizations) = dump.organizations {
+    let n = state.org_store.lock().await.import(organizations);
+    counts.insert("organizations".into(), n.into());
   }
 
   let summary = counts

@@ -787,6 +787,8 @@ pub(crate) struct AppState {
   pub(crate) persistent_stats: Mutex<StatsStore>,
   /// Persistent webhook definitions for the event system.
   pub(crate) webhook_store: Mutex<WebhookStore>,
+  /// Child organizations (multi-tenancy); master is implicit (org_id None).
+  pub(crate) org_store: Mutex<crate::store::orgs::OrgStore>,
   /// Persistent log of webhook delivery outcomes (shared with the delivery
   /// tasks, which record after their retries finish).
   pub(crate) webhook_deliveries: std::sync::Arc<Mutex<webhooks::DeliveryLog>>,

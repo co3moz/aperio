@@ -16,6 +16,7 @@ pub(crate) mod inspector;
 pub(crate) mod maintenance;
 pub(crate) mod metrics;
 pub(crate) mod openapi;
+pub(crate) mod orgs;
 pub(crate) mod settings;
 pub(crate) mod tokens;
 pub(crate) mod tunnels;
