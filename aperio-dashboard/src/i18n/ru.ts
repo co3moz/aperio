@@ -613,4 +613,5 @@ export const ru: Record<string, string> = {
   'No timing data yet': 'Данных о таймингах пока нет',
   'anomaly': 'аномалия',
   'normal': 'норма',
+  'Save & apply (Ctrl+S)': 'Сохранить и применить (Ctrl+S)',
 }

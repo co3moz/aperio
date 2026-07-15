@@ -613,4 +613,5 @@ export const fr: Record<string, string> = {
   'No timing data yet': 'Pas encore de données de timing',
   'anomaly': 'anomalie',
   'normal': 'normal',
+  'Save & apply (Ctrl+S)': 'Enregistrer et appliquer (Ctrl+S)',
 }

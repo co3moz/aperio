@@ -613,4 +613,5 @@ export const es: Record<string, string> = {
   'No timing data yet': 'Aún no hay datos de tiempos',
   'anomaly': 'anomalía',
   'normal': 'normal',
+  'Save & apply (Ctrl+S)': 'Guardar y aplicar (Ctrl+S)',
 }

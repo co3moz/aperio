@@ -120,6 +120,8 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 
 ### Developer experience & integrations
 
+
+- [x] #118 Ctrl/Cmd+S saves the Settings page — shipped: a keydown handler on the settings form persists pending overrides (matching editor muscle memory) instead of the browser's save-page dialog.
 - [ ] #90 SDKs / Terraform provider on top of the OpenAPI spec
 - [ ] #91 Embedded Swagger UI / API explorer — `openapi.json` exists but there's no visual UI
 - [ ] #92 `aperio-client open` — open the public URL in a browser and print a QR code in the terminal

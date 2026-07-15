@@ -615,4 +615,5 @@ export const de: Record<string, string> = {
   'No timing data yet': 'Noch keine Timing-Daten',
   'anomaly': 'Anomalie',
   'normal': 'normal',
+  'Save & apply (Ctrl+S)': 'Speichern & anwenden (Strg+S)',
 }

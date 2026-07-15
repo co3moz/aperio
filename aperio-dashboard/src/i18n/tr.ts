@@ -613,4 +613,5 @@ export const tr: Record<string, string> = {
   'No timing data yet': 'Henüz zamanlama verisi yok',
   'anomaly': 'anomali',
   'normal': 'normal',
+  'Save & apply (Ctrl+S)': 'Kaydet ve uygula (Ctrl+S)',
 }

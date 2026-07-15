@@ -316,6 +316,20 @@ export function SettingsSection() {
     setMessage(null)
   }
 
+  // Ctrl+S / Cmd+S saves pending changes instead of the browser's save-page
+  // dialog, matching editor muscle memory on a settings form.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (dirty && !busy) void save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, busy, overrides])
+
   const save = async () => {
     setBusy(true)
     setMessage(null)
@@ -448,7 +462,7 @@ export function SettingsSection() {
         {dirty && (
           <span className="text-xs text-amber-600 dark:text-amber-400">{t('Unsaved changes')}</span>
         )}
-        <Button onClick={save} disabled={!dirty || busy}>
+        <Button onClick={save} disabled={!dirty || busy} title={t('Save & apply (Ctrl+S)')}>
           {busy && <Spinner />} {t('Save & apply')}
         </Button>
       </SectionHeader>

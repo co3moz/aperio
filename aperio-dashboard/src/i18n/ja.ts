@@ -611,4 +611,5 @@ export const ja: Record<string, string> = {
   'No timing data yet': 'タイミングデータはまだありません',
   'anomaly': '異常',
   'normal': '正常',
+  'Save & apply (Ctrl+S)': '保存して適用 (Ctrl+S)',
 }

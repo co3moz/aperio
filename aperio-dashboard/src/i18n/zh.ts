@@ -594,4 +594,5 @@ export const zh: Record<string, string> = {
   'No timing data yet': '暂无计时数据',
   'anomaly': '异常',
   'normal': '正常',
+  'Save & apply (Ctrl+S)': '保存并应用 (Ctrl+S)',
 }
