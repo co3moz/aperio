@@ -89,6 +89,21 @@ export interface CapturedRequest {
   resp_body_truncated: boolean
   resp_streamed: boolean
   duration_ms: number
+  timeline?: RequestTimeline
+}
+
+/** Microsecond offsets from the server first receiving the request; client
+ *  stages are estimated anchors (transit split evenly) when present. */
+export interface RequestTimeline {
+  dispatched_us: number
+  client_received_us?: number
+  backend_sent_us?: number
+  backend_first_byte_us?: number
+  backend_done_us?: number
+  client_responded_us?: number
+  response_received_us: number
+  finished_us: number
+  estimated_anchor: boolean
 }
 
 export interface ReplayResult {

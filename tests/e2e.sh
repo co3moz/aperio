@@ -387,6 +387,19 @@ REQ_ID="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs" | "$PYTHON" -c \
 DETAIL="$(curl -s -b "$COOKIES" "$BASE/aperio/api/requests/${REQ_ID}")"
 assert_contains "$DETAIL" '"method":"GET"' "inspector captures the request method"
 assert_contains "$DETAIL" '/inspect-me' "inspector captures the request uri"
+# High-resolution timeline: stage offsets exist and are ordered.
+echo "$DETAIL" | "$PYTHON" -c "
+import sys, json
+tl = json.load(sys.stdin).get('timeline')
+assert tl, 'timeline missing from the capture'
+order = [0, tl['dispatched_us'], tl['client_received_us'], tl['backend_sent_us'],
+         tl['backend_first_byte_us'], tl['backend_done_us'], tl['client_responded_us'],
+         tl['response_received_us'], tl['finished_us']]
+assert all(a <= b for a, b in zip(order, order[1:])), f'stages out of order: {order}'
+assert tl['estimated_anchor'] is True
+" || fail "captured timeline is missing or out of order"
+echo "  ok: capture carries an ordered high-resolution timeline"
+
 REPLAY="$(curl -s -b "$COOKIES" -X POST "$BASE/aperio/api/requests/${REQ_ID}/replay")"
 assert_contains "$REPLAY" '"status":200' "replay reaches the backend again"
 assert_contains "$REPLAY" '"replayed_id"' "replay reports the replayed id"

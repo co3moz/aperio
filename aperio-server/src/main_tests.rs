@@ -466,6 +466,7 @@ async fn test_proxy_handler_success() {
           headers,
           body: Some(base64::prelude::BASE64_STANDARD.encode(r#"{"status":"ok"}"#)),
           stream_rx: None,
+          timings: None,
         });
       }
     }

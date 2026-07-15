@@ -350,6 +350,7 @@ pub(crate) async fn handle_socket(
               headers,
               body,
               trailers,
+              timings,
             } => {
               let mut pending = state.pending_requests.lock().await;
               // Verify that this response originates from the client that was
@@ -374,6 +375,7 @@ pub(crate) async fn handle_socket(
                     body,
                     trailers,
                     stream_rx: None,
+                    timings,
                   })
                   .is_err()
               {
@@ -419,6 +421,7 @@ pub(crate) async fn handle_socket(
                     body: None,
                     trailers: None,
                     stream_rx: Some(chunk_rx),
+                    timings: None,
                   })
                   .is_err()
                 {
@@ -848,6 +851,7 @@ pub(crate) async fn handle_socket(
                     body: None,
                     trailers: None,
                     stream_rx: None,
+                    timings: None,
                   })
                   .is_err()
               {

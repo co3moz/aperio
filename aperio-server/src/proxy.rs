@@ -907,6 +907,7 @@ async fn proxy_http_request(
 
     // A failed send means the client is already gone; it goes through the
     // same failover decision as an in-flight connection loss.
+    let dispatched_at = Instant::now();
     let dispatched = selected.tx.send(Message::Text(req_json)).await.is_ok();
     if !dispatched {
       state.pending_requests.lock().await.remove(&request_id);
@@ -988,6 +989,7 @@ async fn proxy_http_request(
     let duration = start_time.elapsed();
     match outcome {
       Some(mut tunnel_res) => {
+        let response_received_at = Instant::now();
         // Server-side `headers.response` rewrite rules (aperio-server.yaml),
         // applied before every consumer — the visitor response, the response
         // cache and the inspector capture — so all views agree.
@@ -1142,6 +1144,13 @@ async fn proxy_http_request(
           if captured.len() >= CAPTURE_MAX_ENTRIES {
             captured.pop_front();
           }
+          let us = |at: Instant| at.duration_since(start_time).as_micros() as u64;
+          let timeline = crate::state::RequestTimeline::assemble(
+            us(dispatched_at),
+            us(response_received_at),
+            start_time.elapsed().as_micros() as u64,
+            tunnel_res.timings,
+          );
           captured.push_back(CapturedRequest {
             id: request_id.clone(),
             timestamp: Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
@@ -1156,6 +1165,7 @@ async fn proxy_http_request(
             resp_body_truncated: resp_truncated,
             resp_streamed,
             duration_ms: duration.as_millis(),
+            timeline: Some(timeline),
           });
         }
 

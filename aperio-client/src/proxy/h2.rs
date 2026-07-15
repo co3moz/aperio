@@ -312,5 +312,6 @@ pub(crate) async fn handle_incoming_request_h2(
     headers: res_headers,
     body: body_encoded,
     trailers,
+    timings: None,
   })
 }

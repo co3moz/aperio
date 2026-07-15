@@ -57,6 +57,22 @@ fn default_true() -> bool {
 // same type serves both the config file and the wire (Ping) form.
 pub(crate) use aperio_config::TunnelDecl;
 
+/// Client-side stage durations of one proxied request, in microseconds from
+/// the moment the client received the tunnel request. Attached to buffered
+/// `Response` messages so the server can assemble a request timeline;
+/// additive — older peers simply omit it.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct ClientTimings {
+  /// The backend request left the client.
+  pub backend_sent_us: u64,
+  /// The backend's response headers (first byte) arrived.
+  pub backend_first_byte_us: u64,
+  /// The backend body was fully read.
+  pub backend_done_us: u64,
+  /// The response frame was handed to the tunnel.
+  pub respond_us: u64,
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -164,6 +180,9 @@ pub(crate) enum TunnelMessage {
     /// HTTP trailers of the backend response (e.g. `grpc-status` for gRPC).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trailers: Option<Vec<(String, String)>>,
+    /// Client-side stage durations for the request timeline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    timings: Option<ClientTimings>,
   },
   /// Start of a streamed response: status and headers only. The body follows
   /// as `ResponseChunk` messages terminated by `ResponseEnd`. Used for large

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api, ApiError, type CapturedRequest } from '@/lib/api'
+import { api, ApiError, type CapturedRequest, type RequestTimeline } from '@/lib/api'
 import { buildCurl, buildHar, decodeBodyPreview, formatHeaders } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
@@ -30,6 +30,83 @@ function Section({ label, content }: { label: string; content: string }) {
 }
 
 /** Detail view for a captured request, with one-click replay. */
+
+/** One waterfall row: a stage interval as offsets from t0 (µs). */
+interface Stage {
+  label: string
+  from: number
+  to: number
+  estimated?: boolean
+}
+
+function fmtUs(us: number): string {
+  if (us >= 1_000_000) return `${(us / 1_000_000).toFixed(2)} s`
+  if (us >= 1_000) return `${(us / 1_000).toFixed(2)} ms`
+  return `${us} µs`
+}
+
+function TimelineWaterfall({ timeline }: { timeline: RequestTimeline }) {
+  const { t } = useI18n()
+  const tl = timeline
+  const total = Math.max(tl.finished_us, 1)
+  const stages: Stage[] = []
+  stages.push({ label: t('queued & routed'), from: 0, to: tl.dispatched_us })
+  if (
+    tl.client_received_us !== undefined &&
+    tl.backend_sent_us !== undefined &&
+    tl.backend_first_byte_us !== undefined &&
+    tl.backend_done_us !== undefined &&
+    tl.client_responded_us !== undefined
+  ) {
+    stages.push({ label: t('tunnel → client'), from: tl.dispatched_us, to: tl.client_received_us, estimated: true })
+    stages.push({ label: t('client processing'), from: tl.client_received_us, to: tl.backend_sent_us, estimated: true })
+    stages.push({ label: t('backend wait (first byte)'), from: tl.backend_sent_us, to: tl.backend_first_byte_us, estimated: true })
+    stages.push({ label: t('backend body'), from: tl.backend_first_byte_us, to: tl.backend_done_us, estimated: true })
+    stages.push({ label: t('client → tunnel'), from: tl.backend_done_us, to: tl.client_responded_us, estimated: true })
+    stages.push({ label: t('tunnel → server'), from: tl.client_responded_us, to: tl.response_received_us, estimated: true })
+  } else {
+    stages.push({ label: t('tunnel round-trip (client & backend)'), from: tl.dispatched_us, to: tl.response_received_us })
+  }
+  stages.push({ label: t('server → visitor'), from: tl.response_received_us, to: tl.finished_us })
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {t('Timeline')}
+        <span className="ml-2 font-normal normal-case">
+          {t('offsets from arrival at the server')}
+          {tl.estimated_anchor ? ` · ${t('client stages anchored by splitting transit evenly')}` : ''}
+        </span>
+      </h4>
+      <div className="rounded-xl border p-3">
+        {stages.map((st) => {
+          const width = Math.max(((st.to - st.from) / total) * 100, 0.5)
+          const left = (st.from / total) * 100
+          return (
+            <div key={st.label} className="mb-1.5 last:mb-0">
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="text-muted-foreground">
+                  {st.label}
+                  {st.estimated ? '*' : ''}
+                </span>
+                <span className="whitespace-nowrap font-mono tabular-nums text-muted-foreground">
+                  +{fmtUs(st.from)} → +{fmtUs(st.to)} ({fmtUs(Math.max(st.to - st.from, 0))})
+                </span>
+              </div>
+              <div className="h-2 w-full rounded bg-muted">
+                <div
+                  className={st.estimated ? 'h-2 rounded bg-primary/50' : 'h-2 rounded bg-primary'}
+                  style={{ marginLeft: `${left}%`, width: `${width}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function InspectorDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { t } = useI18n()
   const [detail, setDetail] = useState<CapturedRequest | null>(null)
@@ -172,6 +249,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
           {error && <p className="text-sm text-destructive">{error}</p>}
           {detail && (
             <>
+              {detail.timeline && <TimelineWaterfall timeline={detail.timeline} />}
               <Section label={t('Request Headers')} content={formatHeaders(detail.req_headers)} />
               <Section
                 label={t('Request Body')}

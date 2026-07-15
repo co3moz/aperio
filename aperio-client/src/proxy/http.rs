@@ -255,6 +255,9 @@ pub(crate) async fn handle_incoming_request(
     return crate::proxy::h2::handle_incoming_request_h2(ctx, req, streamed_body, binary_chunks)
       .await;
   }
+  // Timeline anchor: everything below is measured from receipt of the
+  // tunnel request, in microseconds, and reported with buffered responses.
+  let received_at = std::time::Instant::now();
   let ForwardRequest {
     id,
     method: method_str,
@@ -346,8 +349,10 @@ pub(crate) async fn handle_incoming_request(
   }
 
   // Execute Request
+  let backend_sent_us = received_at.elapsed().as_micros() as u64;
   match builder.send().await {
     Ok(res) => {
+      let backend_first_byte_us = received_at.elapsed().as_micros() as u64;
       let status = res.status().as_u16();
 
       let mut res_headers: Vec<(String, String)> = Vec::new();
@@ -441,6 +446,7 @@ pub(crate) async fn handle_incoming_request(
         return None;
       }
 
+      let backend_done_us = received_at.elapsed().as_micros() as u64;
       let body_encoded = if buf.is_empty() {
         None
       } else {
@@ -455,6 +461,12 @@ pub(crate) async fn handle_incoming_request(
         headers: res_headers,
         body: body_encoded,
         trailers: None,
+        timings: Some(crate::protocol::ClientTimings {
+          backend_sent_us,
+          backend_first_byte_us,
+          backend_done_us,
+          respond_us: received_at.elapsed().as_micros() as u64,
+        }),
       })
     }
     Err(e) => {
@@ -482,6 +494,7 @@ pub(crate) fn make_error_response(id: String, status: u16) -> TunnelMessage {
     headers,
     body: Some(body),
     trailers: None,
+    timings: None,
   }
 }
 

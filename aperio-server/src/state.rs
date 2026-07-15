@@ -160,6 +160,9 @@ pub(crate) struct CapturedRequest {
   /// True when the response body was streamed (not captured).
   pub(crate) resp_streamed: bool,
   pub(crate) duration_ms: u128,
+  /// High-resolution stage timeline (buffered responses of v2+ clients).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) timeline: Option<RequestTimeline>,
 }
 
 /// Maximum number of captured requests kept in memory.
@@ -397,6 +400,73 @@ pub(crate) struct TunnelResponse {
   /// For streamed responses: receiver of decoded body frames. The proxy
   /// handler turns this into a streaming HTTP body.
   pub(crate) stream_rx: Option<mpsc::Receiver<Result<BodyFrame, std::io::Error>>>,
+  /// Client-side stage durations (buffered responses of timing-aware clients).
+  pub(crate) timings: Option<crate::protocol::ClientTimings>,
+}
+
+/// High-resolution timeline of one proxied request: microsecond offsets from
+/// t0 = the server first receiving the request. Client-side stages are
+/// measured on the client's own monotonic clock and anchored here by
+/// splitting the unaccounted tunnel transit evenly between the two
+/// directions — clocks are never mixed, and the estimate is flagged.
+#[derive(Serialize, Clone, Copy)]
+pub(crate) struct RequestTimeline {
+  /// The request left the server into the tunnel (queueing, routing, and
+  /// admission all happen before this).
+  pub(crate) dispatched_us: u64,
+  /// Estimated: the client received the request.
+  pub(crate) client_received_us: Option<u64>,
+  /// Estimated anchor + measured client offset: backend request sent.
+  pub(crate) backend_sent_us: Option<u64>,
+  /// ... backend response headers arrived at the client.
+  pub(crate) backend_first_byte_us: Option<u64>,
+  /// ... backend body fully read by the client.
+  pub(crate) backend_done_us: Option<u64>,
+  /// ... the client handed the response to the tunnel.
+  pub(crate) client_responded_us: Option<u64>,
+  /// The server received the response from the tunnel (measured).
+  pub(crate) response_received_us: u64,
+  /// The response was handed to the visitor connection (measured).
+  pub(crate) finished_us: u64,
+  /// True when the client stages above are anchored estimates.
+  pub(crate) estimated_anchor: bool,
+}
+
+impl RequestTimeline {
+  /// Assembles the timeline from the server's own measurements and the
+  /// client-reported stage durations (when present).
+  pub(crate) fn assemble(
+    dispatched_us: u64,
+    response_received_us: u64,
+    finished_us: u64,
+    client: Option<crate::protocol::ClientTimings>,
+  ) -> RequestTimeline {
+    let anchored = client.map(|c| {
+      // Whatever part of dispatch->response the client did not spend
+      // processing is tunnel transit; split it evenly per direction.
+      let round_trip = response_received_us.saturating_sub(dispatched_us);
+      let transit = round_trip.saturating_sub(c.respond_us);
+      let anchor = dispatched_us + transit / 2;
+      (
+        anchor,
+        anchor + c.backend_sent_us,
+        anchor + c.backend_first_byte_us,
+        anchor + c.backend_done_us,
+        anchor + c.respond_us,
+      )
+    });
+    RequestTimeline {
+      dispatched_us,
+      client_received_us: anchored.map(|a| a.0),
+      backend_sent_us: anchored.map(|a| a.1),
+      backend_first_byte_us: anchored.map(|a| a.2),
+      backend_done_us: anchored.map(|a| a.3),
+      client_responded_us: anchored.map(|a| a.4),
+      response_received_us,
+      finished_us,
+      estimated_anchor: anchored.is_some(),
+    }
+  }
 }
 
 /// Sender half of an in-flight streamed response body, kept so the tunnel

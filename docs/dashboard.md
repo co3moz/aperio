@@ -27,6 +27,8 @@ The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live thre
 
 Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests) — then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
 
+**Every buffered capture carries a high-resolution timeline**: microsecond stage offsets from the request's arrival at the server — queueing/routing, dispatch into the tunnel, the client's own stages (backend request sent, first byte, body complete, response handed back — measured on the client's monotonic clock and anchored by splitting the unaccounted tunnel transit evenly, marked as estimated), the response arriving back, and the hand-off to the visitor. The inspector renders it as a waterfall. Streamed responses and pre-timing clients simply omit it.
+
 **Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector — and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0`.
 
 ## Add Client wizard
