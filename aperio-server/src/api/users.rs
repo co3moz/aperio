@@ -113,9 +113,10 @@ pub(crate) async fn users_create_handler(
         )
         .await;
       state
-        .emit_event(
+        .emit_event_in(
           "user_created",
           serde_json::json!({"username": user.username, "role": user.role.as_str()}),
+          user.org_id.clone(),
         )
         .await;
       Json(user_view(&user)).into_response()

@@ -57,6 +57,11 @@ pub struct Webhook {
   /// Never exposed through the list API (only persisted here).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub secret: Option<String>,
+  /// Organization that owns this webhook (`None` = the implicit master org).
+  /// Deliveries fire only for events in the same organization, and the webhook
+  /// is visible/manageable only within it.
+  #[serde(default)]
+  pub org_id: Option<String>,
 }
 
 impl Webhook {
@@ -103,6 +108,7 @@ impl WebhookStore {
     crate::store::replace_all(&mut self.conn, "webhooks", &rows);
   }
 
+  #[allow(clippy::too_many_arguments)]
   pub fn create(
     &mut self,
     name: String,
@@ -110,6 +116,7 @@ impl WebhookStore {
     events: Vec<String>,
     secret: Option<String>,
     format: WebhookFormat,
+    org_id: Option<String>,
   ) -> Webhook {
     let hook = Webhook {
       id: uuid::Uuid::new_v4().to_string(),
@@ -120,6 +127,7 @@ impl WebhookStore {
       created_at: crate::store::tokens::now_secs(),
       format,
       secret,
+      org_id,
     };
     self.webhooks.push(hook.clone());
     self.persist();
@@ -159,6 +167,9 @@ pub struct Delivery {
   pub id: String,
   pub webhook_id: String,
   pub webhook_name: String,
+  /// Organization of the webhook this delivery was sent to (`None` = master).
+  #[serde(default)]
+  pub org_id: Option<String>,
   pub event: String,
   /// RFC3339 time of the first attempt.
   pub timestamp: String,
@@ -352,6 +363,7 @@ pub(crate) async fn deliver_with_retries(
     id: uuid::Uuid::new_v4().to_string(),
     webhook_id: hook.id.clone(),
     webhook_name: hook.name.clone(),
+    org_id: hook.org_id.clone(),
     event,
     timestamp,
     success,
@@ -509,6 +521,7 @@ mod tests {
       vec!["client_connected".to_string()],
       None,
       WebhookFormat::Generic,
+      None,
     );
     assert_eq!(store.subscribers("client_connected").len(), 1);
     assert_eq!(store.subscribers("token_created").len(), 0);
@@ -520,6 +533,7 @@ mod tests {
       vec!["*".to_string()],
       None,
       WebhookFormat::Generic,
+      None,
     );
     assert_eq!(store.subscribers("token_created").len(), 1);
 
@@ -565,6 +579,7 @@ mod tests {
       vec![],
       None,
       WebhookFormat::Discord,
+      None,
     );
     let reloaded = WebhookStore::load(&dir_str);
     assert_eq!(reloaded.list()[0].format, WebhookFormat::Discord);
@@ -643,6 +658,7 @@ mod tests {
       id: format!("d{i}"),
       webhook_id: hook.to_string(),
       webhook_name: hook.to_string(),
+      org_id: None,
       event: "client_connected".to_string(),
       timestamp: "2026-01-01T00:00:00+00:00".to_string(),
       success: ok,
@@ -701,6 +717,7 @@ mod tests {
       vec![],
       Some("super-secret-key!".to_string()),
       WebhookFormat::Slack,
+      None,
     );
     let reloaded = WebhookStore::load(&dir_str);
     assert_eq!(

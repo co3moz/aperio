@@ -1048,7 +1048,7 @@ async fn async_main() {
           .duration_since(std::time::UNIX_EPOCH)
           .map(|d| d.as_secs())
           .unwrap_or(0);
-        let expiring: Vec<(String, String, u64)> = {
+        let expiring: Vec<(String, String, u64, Option<String>)> = {
           let store = warn_state.token_store.lock().await;
           store
             .list()
@@ -1057,11 +1057,11 @@ async fn async_main() {
               let exp = t.expires_at?;
               let expires_within = exp > now && exp - now <= expiry_warning_secs;
               (expires_within && !warned.contains(&(t.id.clone(), exp)))
-                .then(|| (t.id.clone(), t.name.clone(), exp))
+                .then(|| (t.id.clone(), t.name.clone(), exp, t.org_id.clone()))
             })
             .collect()
         };
-        for (id, name, exp) in expiring {
+        for (id, name, exp, org) in expiring {
           warned.insert((id.clone(), exp));
           warn!(
             "Token '{}' expires in {} minutes (at unix {})",
@@ -1070,15 +1070,16 @@ async fn async_main() {
             exp
           );
           warn_state
-            .audit(
+            .audit_in(
               "token_expiring",
               "system",
               "system",
+              org.clone(),
               &format!("name={} expires_at={}", name, exp),
             )
             .await;
           warn_state
-            .emit_event(
+            .emit_event_in(
               "token_expiring",
               serde_json::json!({
                 "id": id,
@@ -1086,6 +1087,7 @@ async fn async_main() {
                 "expires_at": exp,
                 "seconds_left": exp - now,
               }),
+              org,
             )
             .await;
         }

@@ -951,9 +951,29 @@ impl AppState {
     }
   }
 
-  /// Delivers an event to all subscribed webhooks (fire-and-forget).
+  /// Delivers a server-global (master-organization) event to its subscribed
+  /// webhooks. Org-scoped events use [`emit_event_in`].
   pub(crate) async fn emit_event(&self, event: &str, data: serde_json::Value) {
-    let subs = self.webhook_store.lock().await.subscribers(event);
+    self.emit_event_in(event, data, None).await;
+  }
+
+  /// Delivers an event to the webhooks of one organization (`None` = master):
+  /// a webhook only ever fires for events in its own org, so a child org's
+  /// webhook never learns about master's or another org's activity.
+  pub(crate) async fn emit_event_in(
+    &self,
+    event: &str,
+    data: serde_json::Value,
+    org: Option<String>,
+  ) {
+    let subs: Vec<_> = self
+      .webhook_store
+      .lock()
+      .await
+      .subscribers(event)
+      .into_iter()
+      .filter(|w| w.org_id == org)
+      .collect();
     webhooks::dispatch(subs, event, data, self.webhook_deliveries.clone());
   }
 

@@ -179,7 +179,7 @@ pub(crate) async fn tunnels_create_handler(
     )
     .await;
   state
-    .emit_event(
+    .emit_event_in(
       "tunnel_created",
       serde_json::json!({
         "id": record.id,
@@ -187,6 +187,7 @@ pub(crate) async fn tunnels_create_handler(
         "hostname": hostname,
         "expires_at": record.expires_at,
       }),
+      record.org_id.clone(),
     )
     .await;
 
@@ -276,7 +277,7 @@ pub(crate) async fn tunnels_delete_handler(
       )
       .await;
     state
-      .emit_event("tunnel_deleted", serde_json::json!({"id": id}))
+      .emit_event_in("tunnel_deleted", serde_json::json!({"id": id}), org.clone())
       .await;
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {

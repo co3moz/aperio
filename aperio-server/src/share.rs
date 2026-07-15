@@ -121,10 +121,12 @@ pub(crate) async fn share_create_handler(
       ),
     )
     .await;
+  let share_org = crate::auth::effective_org(&state, &headers).await;
   state
-    .emit_event(
+    .emit_event_in(
       "share_created",
       serde_json::json!({"id": claims.id, "hostname": hostname, "path": path, "expires_at": claims.exp}),
+      share_org,
     )
     .await;
 

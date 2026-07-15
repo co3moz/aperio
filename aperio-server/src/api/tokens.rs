@@ -238,9 +238,10 @@ pub(crate) async fn tokens_create_handler(
     )
     .await;
   state
-    .emit_event(
+    .emit_event_in(
       "token_created",
       serde_json::json!({"id": record.id, "name": record.name}),
+      record.org_id.clone(),
     )
     .await;
   (
@@ -484,8 +485,10 @@ pub(crate) async fn tokens_revoke_handler(
         &format!("id={} disconnected_clients={}", id, dropped),
       )
       .await;
+    // The token was gated to the caller's effective org above.
+    let org = crate::auth::effective_org(&state, &headers).await;
     state
-      .emit_event("token_revoked", serde_json::json!({"id": id}))
+      .emit_event_in("token_revoked", serde_json::json!({"id": id}), org)
       .await;
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {

@@ -60,11 +60,14 @@ pub(crate) struct WebhookCreateRequest {
   responses((status = 200, description = "Webhook definitions", body = serde_json::Value)))]
 pub(crate) async fn webhooks_list_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
 ) -> Json<Vec<serde_json::Value>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let hooks = state.webhook_store.lock().await.list().to_vec();
   Json(
     hooks
       .into_iter()
+      .filter(|w| w.org_id == org)
       .map(|w| {
         serde_json::json!({
           "id": w.id,
@@ -144,11 +147,14 @@ pub(crate) async fn webhooks_create_handler(
       .into_response();
   };
 
+  // New webhooks belong to the caller's effective organization and fire only
+  // for that org's events.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let hook = state
     .webhook_store
     .lock()
     .await
-    .create(name, url, events, secret, format);
+    .create(name, url, events, secret, format, org);
   info!("Webhook created: {} -> {}", hook.name, hook.url);
   state
     .audit_session(
@@ -183,6 +189,18 @@ pub(crate) async fn webhooks_delete_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  // Isolation: only webhooks in the caller's effective org may be deleted.
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let in_org = state
+    .webhook_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .any(|w| w.id == id && w.org_id == org);
+  if !in_org {
+    return (StatusCode::NOT_FOUND, "Webhook not found").into_response();
+  }
   if state.webhook_store.lock().await.delete(&id) {
     state
       .audit_session(
@@ -213,15 +231,23 @@ pub(crate) struct DeliveriesQuery {
   responses((status = 200, description = "Delivery log", body = Vec<crate::store::webhooks::Delivery>)))]
 pub(crate) async fn webhook_deliveries_handler(
   State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
   Query(q): Query<DeliveriesQuery>,
 ) -> Json<Vec<crate::store::webhooks::Delivery>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
   let limit = q.limit.unwrap_or(50).min(200);
+  // Fetch a wider window, then keep only this org's deliveries up to the limit.
+  let rows = state
+    .webhook_deliveries
+    .lock()
+    .await
+    .list(q.webhook_id.as_deref(), 500);
   Json(
-    state
-      .webhook_deliveries
-      .lock()
-      .await
-      .list(q.webhook_id.as_deref(), limit),
+    rows
+      .into_iter()
+      .filter(|d| d.org_id == org)
+      .take(limit)
+      .collect(),
   )
 }
 
@@ -240,6 +266,11 @@ pub(crate) async fn webhook_redeliver_handler(
   let Some(delivery) = state.webhook_deliveries.lock().await.get(&id).cloned() else {
     return (StatusCode::NOT_FOUND, "unknown delivery id").into_response();
   };
+  // Isolation: only deliveries in the caller's effective org may be redelivered.
+  let org = crate::auth::effective_org(&state, &headers).await;
+  if delivery.org_id != org {
+    return (StatusCode::NOT_FOUND, "unknown delivery id").into_response();
+  }
   let Some(hook) = state
     .webhook_store
     .lock()

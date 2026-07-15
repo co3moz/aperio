@@ -100,8 +100,9 @@ pub(crate) async fn maintenance_set_handler(
         &format!("hostname={}", hostname),
       )
       .await;
+    let org = crate::auth::effective_org(&state, &headers).await;
     state
-      .emit_event(event, serde_json::json!({"hostname": hostname}))
+      .emit_event_in(event, serde_json::json!({"hostname": hostname}), org)
       .await;
   }
   (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()

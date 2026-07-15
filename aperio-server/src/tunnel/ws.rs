@@ -220,13 +220,14 @@ pub(crate) async fn handle_socket(
     )
     .await;
   state
-    .emit_event(
+    .emit_event_in(
       "client_connected",
       serde_json::json!({
         "client_id": client_id,
         "ip": client_ip,
         "token": perms.token_name.as_deref().unwrap_or("master"),
       }),
+      perms.org_id.clone(),
     )
     .await;
 
@@ -586,9 +587,10 @@ pub(crate) async fn handle_socket(
                 )
                 .await;
               state
-                .emit_event(
+                .emit_event_in(
                   "client_draining",
                   serde_json::json!({"client_id": client_id, "ip": client_ip}),
+                  perms.org_id.clone(),
                 )
                 .await;
             }
@@ -959,9 +961,10 @@ pub(crate) async fn handle_socket(
     )
     .await;
   state
-    .emit_event(
+    .emit_event_in(
       "client_disconnected",
       serde_json::json!({"client_id": client_id, "ip": client_ip}),
+      perms.org_id.clone(),
     )
     .await;
   {

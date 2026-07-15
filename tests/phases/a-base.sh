@@ -349,6 +349,13 @@ if echo "$SESS_CHILD" | grep -q '"current":true'; then
   fail "isolation breach: the master session appears while viewing a child org"
 fi
 echo "  ok: the master session is hidden while viewing a child org"
+# Webhooks are org-scoped: a webhook created in the child org lives only there.
+HOOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"acme-hook","url":"http://127.0.0.1:1/","events":["token_created"]}' \
+  "$BASE/aperio/api/webhooks")" || fail "child-org webhook creation failed"
+ACME_HOOK_ID="$(echo "$HOOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+HOOKS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
+assert_contains "$HOOKS_CHILD" 'acme-hook' "the child org sees its own webhook"
 # Switch back to master: the child-org token must NOT be visible there.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
@@ -367,6 +374,12 @@ echo "  ok: the child-org audit event is hidden from master's audit log"
 # Back in master, the caller's own session is visible again.
 SESS_MASTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/sessions")"
 assert_contains "$SESS_MASTER" '"current":true' "the master session is visible in master"
+# Master must not see the child org's webhook.
+HOOKS_MASTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
+if echo "$HOOKS_MASTER" | grep -q 'acme-hook'; then
+  fail "isolation breach: the child-org webhook leaked into master's webhook list"
+fi
+echo "  ok: the child-org webhook is hidden from master's webhook list"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"
@@ -379,11 +392,14 @@ assert_status 404 "$CODE" "selecting an unknown org id returns 404"
 # Deleting a non-empty child org is refused (409).
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/${ORG_ID}")"
 assert_status 409 "$CODE" "a non-empty child org cannot be deleted"
-# Clean up: revoke the token from inside the child org, then delete the org.
+# Clean up: from inside the child org, revoke its token and delete its webhook,
+# then return to master so the org is empty and deletable.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"id\":\"${ORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
 curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${ACME_TOK_ID}" >/dev/null \
   || fail "revoking the child-org token failed"
+curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/webhooks/${ACME_HOOK_ID}" >/dev/null \
+  || fail "deleting the child-org webhook failed"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
 
