@@ -427,6 +427,12 @@ pub(crate) struct SessionStatus {
   /// True when the session's user has TOTP two-factor auth enabled (always
   /// false for the built-in admin, which has no user row).
   pub(crate) totp: bool,
+  /// True for the built-in `aperio` super-admin, who may switch between
+  /// organizations. Named users are pinned to their own org.
+  pub(crate) master_admin: bool,
+  /// The organization the session is currently viewing: `master` for the
+  /// implicit master org, or a child org id.
+  pub(crate) selected_org: String,
 }
 
 #[utoipa::path(get, path = "/aperio/api/session", tag = "auth",
@@ -461,11 +467,17 @@ pub(crate) async fn auth_session_handler(
       .find_by_username(&username)
       .is_some_and(|u| u.totp_secret.is_some())
   };
+  let master_admin = is_master_admin(&state, &headers).await;
+  let selected_org = effective_org(&state, &headers)
+    .await
+    .unwrap_or_else(|| crate::store::orgs::MASTER_ID.to_string());
   Json(SessionStatus {
     expires_in_seconds: remaining,
     username,
     role,
     totp,
+    master_admin,
+    selected_org,
   })
   .into_response()
 }

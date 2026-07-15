@@ -272,6 +272,25 @@ export interface SessionInfo {
   role: Role
   /** True when the session's user has TOTP two-factor auth enabled. */
   totp: boolean
+  /** True for the built-in `aperio` super-admin, who may switch organizations. */
+  master_admin: boolean
+  /** The organization the session currently views (`master` or a child id). */
+  selected_org: string
+}
+
+/** An organization as listed for the master super-admin. */
+export interface Organization {
+  /** `master` for the implicit master org, otherwise a child org UUID. */
+  id: string
+  name: string
+  /** True for the implicit master organization. */
+  master: boolean
+  /** Unix seconds of creation (absent for master). */
+  created_at?: number
+  /** Number of dashboard users in this org. */
+  users: number
+  /** Number of API tokens in this org. */
+  tokens: number
 }
 
 export interface DashboardUser {
@@ -434,6 +453,10 @@ export const api = {
     ),
   setMaintenance: (hostname: string, enabled: boolean) =>
     mutate('/maintenance', json('POST', { hostname, enabled })),
+  orgs: () => request<Organization[]>('/orgs'),
+  createOrg: (name: string) => request<{ id: string; name: string }>('/orgs', json('POST', { name })),
+  deleteOrg: (id: string) => mutate(`/orgs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  selectOrg: (id: string) => request<{ selected: string }>('/orgs/select', json('POST', { id })),
 }
 
 /** Ends the dashboard session. Lives at /aperio/auth/logout (outside the /api

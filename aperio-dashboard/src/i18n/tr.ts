@@ -617,4 +617,21 @@ export const tr: Record<string, string> = {
   'CHECKING': 'KONTROL EDİLİYOR',
   'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Bir sağlık kontrolü tanımlı; ilk probe bekleniyor. Backend, bir probe geçene kadar routing dışında.',
   'User': 'Kullanıcı',
+  'Organizations': 'Organizasyonlar',
+  'Organization': 'Organizasyon',
+  'Isolated tenants': 'İzole kiracılar',
+  'New Organization': 'Yeni Organizasyon',
+  'Create organization': 'Organizasyon oluştur',
+  'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.':
+    'Bir organizasyon seçiliyken oluşturduğunuz token ve kullanıcılar yalnızca ona aittir — üyeleri asla başka bir organizasyonun clientlerini veya tokenlarını görmez.',
+  'Organization "{name}" created': '"{name}" organizasyonu oluşturuldu',
+  'Organization "{name}" deleted': '"{name}" organizasyonu silindi',
+  'Delete organization "{name}"?': '"{name}" organizasyonu silinsin mi?',
+  'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.':
+    'Bu geri alınamaz. Bir organizasyon ancak tüm kullanıcıları ve tokenları kaldırıldıktan sonra silinebilir.',
+  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.':
+    'İzole kiracılar. Kendi token, kullanıcı ve clientlerini yönetmek için kenar çubuğundan bir organizasyona geçin. Master organizasyon örtüktür — organizasyon olmadan oluşturulan her şey ona aittir.',
+  'No organizations yet': 'Henüz organizasyon yok',
+  'master': 'master',
+  'Switch organization': 'Organizasyon değiştir',
 }

@@ -17,6 +17,7 @@ import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
+import { OrganizationsSection } from './components/OrganizationsSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
@@ -166,7 +167,9 @@ export default function App() {
   // Until the session loads, assume the least privilege so admin-only pages
   // never flash; the server is the real gate regardless.
   const role = session?.role ?? 'viewer'
-  const allowedPages = useMemo(() => pagesForRole(role), [role])
+  const masterAdmin = session?.master_admin ?? false
+  const selectedOrg = session?.selected_org ?? 'master'
+  const allowedPages = useMemo(() => pagesForRole(role, masterAdmin), [role, masterAdmin])
 
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
@@ -219,6 +222,8 @@ export default function App() {
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
         role={role}
+        masterAdmin={masterAdmin}
+        selectedOrg={selectedOrg}
         onSignOut={() => void signOut()}
       />
       <SidebarInset>
@@ -345,6 +350,7 @@ export default function App() {
               {page === 'maintenance' && <MaintenanceSection />}
               {page === 'settings' && <SettingsSection />}
               {page === 'users' && <UsersSection />}
+              {page === 'organizations' && <OrganizationsSection />}
               {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}
             </>

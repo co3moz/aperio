@@ -14,8 +14,10 @@ import {
   ShieldCheckIcon,
   WebhookIcon,
   WaypointsIcon,
+  Building2Icon,
 } from 'lucide-react'
 import { UsersIcon } from 'lucide-react'
+import { OrgSwitcher } from './OrgSwitcher'
 import {
   Sidebar,
   SidebarContent,
@@ -45,6 +47,7 @@ export type Page =
   | 'webhooks'
   | 'audit'
   | 'users'
+  | 'organizations'
 
 export interface PageSpec {
   id: Page
@@ -53,6 +56,8 @@ export interface PageSpec {
   hint: string
   /** Minimum role that may see/open this page (default: viewer). */
   minRole?: Role
+  /** Only visible to the built-in `aperio` super-admin (organization mgmt). */
+  masterOnly?: boolean
 }
 
 export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
@@ -83,6 +88,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     label: 'System',
     pages: [
       { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration', minRole: 'admin' },
+      { id: 'organizations', label: 'Organizations', icon: Building2Icon, hint: 'Isolated tenants', minRole: 'admin', masterOnly: true },
       { id: 'users', label: 'Users', icon: UsersIcon, hint: 'Dashboard access & roles', minRole: 'admin' },
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
@@ -94,9 +100,12 @@ export const PAGES: PageSpec[] = PAGE_GROUPS.flatMap((g) => g.pages)
 
 const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
 
-/** Pages the given role may access. */
-export function pagesForRole(role: Role): PageSpec[] {
-  return PAGES.filter((p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'])
+/** Pages the given role may access. Master-only pages (organization
+ *  management) are visible solely to the built-in `aperio` super-admin. */
+export function pagesForRole(role: Role, masterAdmin = false): PageSpec[] {
+  return PAGES.filter(
+    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+  )
 }
 
 export function AppSidebar({
@@ -105,6 +114,8 @@ export function AppSidebar({
   sessionSeconds,
   version,
   role,
+  masterAdmin,
+  selectedOrg,
   onSignOut,
   onOpenTotp,
   onOpenPasskeys,
@@ -114,6 +125,8 @@ export function AppSidebar({
   sessionSeconds: number | null
   version: string | null
   role: Role
+  masterAdmin: boolean
+  selectedOrg: string
   onSignOut: () => void
   onOpenTotp: () => void
   onOpenPasskeys: () => void
@@ -138,10 +151,13 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {masterAdmin && <OrgSwitcher selectedOrg={selectedOrg} />}
       </SidebarHeader>
       <SidebarContent>
         {PAGE_GROUPS.map((group) => {
-          const pages = group.pages.filter((p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'])
+          const pages = group.pages.filter(
+            (p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+          )
           if (pages.length === 0) return null
           return (
             <SidebarGroup key={group.label}>
