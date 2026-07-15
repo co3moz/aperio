@@ -70,6 +70,9 @@ pub(crate) struct ClientDetail {
   pub(crate) protocol_mismatch: bool,
   /// Latest backend health verdict reported by the client's own probe.
   pub(crate) backend_healthy: bool,
+  /// False only while a configured health check has not completed its first
+  /// probe (dashboard shows "checking" instead of "backend down").
+  pub(crate) backend_probed: bool,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   pub(crate) priority: u32,
   /// Announced downstream link capacity in bytes/second (None = unlimited).
@@ -363,6 +366,9 @@ pub(crate) struct ClientHandle {
   /// (APERIO_CLIENT_TARGET_HEALTH). False = excluded from routing while the
   /// tunnel connection itself stays up.
   pub(crate) backend_healthy: bool,
+  /// False only while a configured health check has not completed its first
+  /// probe (dashboard shows "checking" instead of "backend down").
+  pub(crate) backend_probed: bool,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   pub(crate) priority: u32,
   /// Client-process instance ID self-reported via Ping. Unlike the

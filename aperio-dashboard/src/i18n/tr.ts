@@ -614,4 +614,6 @@ export const tr: Record<string, string> = {
   'anomaly': 'anomali',
   'normal': 'normal',
   'Save & apply (Ctrl+S)': 'Kaydet ve uygula (Ctrl+S)',
+  'CHECKING': 'KONTROL EDİLİYOR',
+  'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Bir sağlık kontrolü tanımlı; ilk probe bekleniyor. Backend, bir probe geçene kadar routing dışında.',
 }

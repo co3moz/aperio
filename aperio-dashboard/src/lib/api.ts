@@ -42,6 +42,8 @@ export interface ClientDetail {
   protocol: number | null
   protocol_mismatch: boolean
   backend_healthy: boolean
+  /** False only while a configured health check hasn't completed its first probe. */
+  backend_probed: boolean
   priority: number
   bandwidth_bps: number | null
   healthy: boolean

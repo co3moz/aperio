@@ -614,4 +614,6 @@ export const es: Record<string, string> = {
   'anomaly': 'anomalía',
   'normal': 'normal',
   'Save & apply (Ctrl+S)': 'Guardar y aplicar (Ctrl+S)',
+  'CHECKING': 'COMPROBANDO',
+  'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Hay una comprobación de salud configurada; esperando su primer sondeo. El backend queda fuera del enrutamiento hasta que un sondeo pase.',
 }

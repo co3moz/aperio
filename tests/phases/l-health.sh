@@ -15,6 +15,11 @@ HJAR="$LOG_DIR/cookies-health.txt"
 dashboard_login "$HJAR"
 
 [ "$(backend_health)" = "True" ] || fail "a live backend must become healthy after the first probe"
+# The probe-completed flag is exposed so the dashboard can show "checking"
+# (not "down") before the first probe lands.
+PROBED="$(curl -s -b "$HJAR" "$BASE/aperio/api/stats" | "$PYTHON" -c \
+  "import sys,json; print(json.load(sys.stdin)['active_clients'][0]['backend_probed'])")"
+[ "$PROBED" = "True" ] || fail "backend_probed should be true once a probe has completed"
 
 # Kill the backend: the verdict flips and the route fails closed.
 kill "$HEALTH_BACKEND_PID" 2>/dev/null || true

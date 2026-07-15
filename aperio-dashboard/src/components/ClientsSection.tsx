@@ -509,9 +509,17 @@ export function ClientsSection({
                       <StatusDot active={c.healthy && c.backend_healthy} />
                       <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago)}</span>
                       {!c.healthy && <TintBadge tint="red">{t('DOWN')}</TintBadge>}
-                      {c.healthy && !c.backend_healthy && (
+                      {c.healthy && !c.backend_healthy && !c.backend_probed && (
                         <HintBadge
                           tint="amber"
+                          hint={t('A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.')}
+                        >
+                          {t('CHECKING')}
+                        </HintBadge>
+                      )}
+                      {c.healthy && !c.backend_healthy && c.backend_probed && (
+                        <HintBadge
+                          tint="red"
                           hint={t("The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected")}
                         >
                           {t('BACKEND DOWN')}

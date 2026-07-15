@@ -614,4 +614,6 @@ export const fr: Record<string, string> = {
   'anomaly': 'anomalie',
   'normal': 'normal',
   'Save & apply (Ctrl+S)': 'Enregistrer et appliquer (Ctrl+S)',
+  'CHECKING': 'VÉRIFICATION',
+  'A health check is configured; waiting for its first probe. The backend is out of routing until a probe passes.': 'Une vérification de santé est configurée ; en attente de sa première sonde. Le backend reste hors routage jusqu’à ce qu’une sonde réussisse.',
 }

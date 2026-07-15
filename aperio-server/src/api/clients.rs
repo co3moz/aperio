@@ -69,6 +69,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .client_protocol
         .is_some_and(|p| p != PROTOCOL_VERSION),
       backend_healthy: handle.backend_healthy,
+      backend_probed: handle.backend_probed,
       priority: handle.priority,
       bandwidth_bps: match handle.bandwidth_bps.load(Ordering::Relaxed) {
         0 => None,

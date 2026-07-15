@@ -266,6 +266,7 @@ pub(crate) async fn handle_socket(
         client_version: None,
         client_protocol: None,
         backend_healthy: true,
+        backend_probed: true,
         priority: 0,
         reported_instance_id: None,
         bandwidth_bps: bandwidth_bps.clone(),
@@ -589,6 +590,7 @@ pub(crate) async fn handle_socket(
               version,
               protocol,
               backend_healthy,
+              backend_probed,
               priority,
               bandwidth_bps,
               service,
@@ -693,6 +695,7 @@ pub(crate) async fn handle_socket(
                   }
                   // Log backend health transitions reported by the client's
                   // own probe; the eligibility filter honours the flag.
+                  handle.backend_probed = backend_probed;
                   if handle.backend_healthy != backend_healthy {
                     handle.backend_healthy = backend_healthy;
                     if backend_healthy {

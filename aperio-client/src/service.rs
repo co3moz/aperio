@@ -135,12 +135,17 @@ pub(crate) async fn run_service(
   // *unhealthy* and stays out of routing until the first probe succeeds, so a
   // client never claims a backend is up before it has actually checked it.
   let backend_healthy = Arc::new(AtomicBool::new(spec.target_health.is_none()));
+  // False until the first probe of a configured health check completes, so
+  // the dashboard can show "checking" instead of "backend down" before the
+  // backend has actually been probed. Always true when no check is set.
+  let backend_probed = Arc::new(AtomicBool::new(spec.target_health.is_none()));
   // Fired whenever the health verdict flips, so the heartbeat loop can push an
   // immediate Ping instead of waiting out its interval — the first successful
   // probe makes a healthy backend routable within a probe, not a ping cycle.
   let health_changed = Arc::new(tokio::sync::Notify::new());
   let probe_task = spec.target_health.as_ref().map(|health_path| {
     let health_changed = health_changed.clone();
+    let probed = backend_probed.clone();
     let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
       health_path.clone()
     } else {
@@ -210,6 +215,10 @@ pub(crate) async fn run_service(
               health_url
             );
           }
+        }
+        if first_result {
+          probed.store(true, Ordering::SeqCst);
+          health_changed.notify_one();
         }
         first_result = false;
         tokio::time::sleep(Duration::from_secs(interval)).await;
@@ -318,6 +327,7 @@ pub(crate) async fn run_service(
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
             let backend_healthy_ping = backend_healthy.clone();
+            let backend_probed_ping = backend_probed.clone();
             let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
@@ -373,6 +383,7 @@ pub(crate) async fn run_service(
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
                   backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
+                  backend_probed: backend_probed_ping.load(Ordering::SeqCst),
                   priority,
                   bandwidth_bps,
                   service: service_name_ping.clone(),

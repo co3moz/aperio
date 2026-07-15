@@ -35,6 +35,7 @@ fn base_handle() -> ClientHandle {
     client_version: None,
     client_protocol: None,
     backend_healthy: true,
+    backend_probed: true,
     priority: 0,
     reported_instance_id: None,
     bandwidth_bps: Arc::new(AtomicU64::new(0)),

@@ -105,6 +105,10 @@ pub(crate) enum TunnelMessage {
     /// False takes this client out of routing without dropping the tunnel.
     #[serde(default = "default_true")]
     backend_healthy: bool,
+    /// False only while a configured health check has not completed its first
+    /// probe yet (UI shows "checking" vs "down"). Older peers omit it → true.
+    #[serde(default = "default_true")]
+    backend_probed: bool,
     /// Load-balancing priority tier: 0 = primary (default), higher numbers
     /// are standbys (used with the server's primary-standby strategy).
     #[serde(default)]
