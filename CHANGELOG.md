@@ -6,6 +6,12 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-15
+
+### Fixed
+
+- **The organization switcher crashed the dashboard when opened.** The switcher's menu heading used `DropdownMenuLabel`, which Base UI requires to live inside a `Menu.Group`; used bare it threw Base UI error #31 (`MenuGroupContext is missing`) the moment the menu opened. Replaced it with a plain styled heading.
+
 ## [0.2.2] - 2026-07-15
 
 ### Added
