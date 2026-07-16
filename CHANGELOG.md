@@ -6,6 +6,8 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-15
+
 ### Changed
 
 - **Organizations — server-global surfaces are master-only.** Server settings (`/aperio/api/settings`), the whole-server export/import dump (`/aperio/api/export`, `/aperio/api/import`) now require the built-in `aperio` master super-admin: a named child-org admin — who administers their own org — is refused (403), and the dashboard hides the *Server Settings* page for them. Together with the per-org scoping of every other surface, a named child-org admin now signs in to a fully self-contained view of their own organization and nothing else.
