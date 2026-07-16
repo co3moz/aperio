@@ -1,10 +1,12 @@
 name: Release
 
 # Tag a version (e.g. `git tag v0.2.0 && git push --tags`) and this workflow
-# builds prebuilt binaries for every supported platform and attaches them to
-# a GitHub Release. Asset names are versionless so install.sh can always use
-# the stable `releases/latest/download/...` URLs. Docker images are built by the
-# separate release-docker.yml workflow on the same tag.
+# builds prebuilt binaries for every supported platform, attaches them to a
+# GitHub Release, and publishes the multi-arch Docker images. Asset names are
+# versionless so install.sh can always use the stable
+# `releases/latest/download/...` URLs. The Docker images reuse the Linux musl
+# binaries this same run already built (see the `docker` job) instead of
+# recompiling the Rust code a second time.
 on:
   push:
     tags: ["v*"]
@@ -119,6 +121,84 @@ jobs:
           name: config-schema
           path: dist-pkg/*
           retention-days: 1
+
+  # Publish the multi-arch (amd64+arm64) images straight from the musl-static
+  # binaries the `build` matrix already produced — the Dockerfiles just copy the
+  # right binary in, so nothing is compiled twice. One buildx build per image
+  # emits the multi-arch manifest directly (the COPY-only images make the small
+  # cross-arch emulation for `apk add ca-certificates` negligible).
+  docker:
+    name: Build & Push Docker (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    needs: [build]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [aperio-server, aperio-client]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Only the two Linux musl artifacts are needed for the images; they are
+      # merged into ./pkg/ regardless of which build-matrix job produced them.
+      - name: Download prebuilt Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*-linux-musl
+          path: pkg
+          merge-multiple: true
+
+      # The Dockerfile copies dist-docker/<image>-<TARGETARCH>; TARGETARCH is
+      # Docker's arch name (amd64/arm64), so map the Rust target triples to it.
+      - name: Stage binaries by Docker arch
+        run: |
+          set -euo pipefail
+          mkdir -p dist-docker
+          tar -xzf "pkg/${{ matrix.image }}-x86_64-unknown-linux-musl.tar.gz" -C dist-docker
+          mv "dist-docker/${{ matrix.image }}" "dist-docker/${{ matrix.image }}-amd64"
+          tar -xzf "pkg/${{ matrix.image }}-aarch64-unknown-linux-musl.tar.gz" -C dist-docker
+          mv "dist-docker/${{ matrix.image }}" "dist-docker/${{ matrix.image }}-arm64"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Tags: the exact ref (v0.2.0), the semver forms (0.2.0 / 0.2 / 0), and
+      # `latest`. `latest=auto` + the semver patterns are skipped for a
+      # pre-release tag (e.g. v1.0.0-rc1), which then only gets its exact tag.
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: latest=auto
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.image }}/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   release:
     name: Publish GitHub Release
