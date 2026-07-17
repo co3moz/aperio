@@ -9,3 +9,5 @@ Here a single machine publishes three things:
 - `/docs` on any hostname → a docs server on port 5000.
 
 The `services:` list only comes from the config file — a positional CLI target overrides it entirely. Config hot-reload re-resolves the whole list, so adding or removing a service does not need a restart.
+
+Note: static file serving (`serve:`, see [static_site](../static_site/)) is single-service only and cannot appear inside a `services:` entry; run a separate client process for a static site.

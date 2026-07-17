@@ -118,6 +118,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #87 Local backend port auto-discovery — a quick-start mode that scans common dev ports (3000/5173/8080/8000) and offers to tunnel whatever is listening
 - [ ] #88 Config includes / file composition — let `aperio.yaml` pull in other files via `include: routes/*.yaml`, complementing hot-reload for large multi-service configs
 - [ ] #89 Wait-for-backend startup gate — hold the tunnel as not-ready until the local backend passes a health check, avoiding the connection-refused window during a slow dev-server boot
+- [ ] #122 Per-service static file serving — allow `serve:` inside `services:` entries, so one client can publish a static site next to proxied backends (today `serve` is single-service only and rejects a `services:` list)
 
 ### Developer experience & integrations
 
