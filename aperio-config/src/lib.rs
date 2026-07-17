@@ -132,6 +132,11 @@ pub struct ServiceEntry {
   /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed).
   #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
   pub target: Option<String>,
+  /// Serve a local directory of static files as this service instead of
+  /// forwarding to a backend (mutually exclusive with `target`/`tcp_target`);
+  /// directories serve their `index.html`.
+  #[schemars(extend("examples" = ["./dist"]))]
+  pub serve: Option<String>,
   /// Public hostname(s) that should route to this service: a single string
   /// or a list. Each must be permitted by the client's token.
   #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]

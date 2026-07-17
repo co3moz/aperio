@@ -86,6 +86,13 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
 
   match &target {
     Some(t) => pass("target", format!("{}{}", t, from(sources.target))),
+    None if settings.serve.is_some() => pass(
+      "target",
+      format!(
+        "static directory '{}' (serve mode)",
+        settings.serve.as_deref().unwrap_or_default()
+      ),
+    ),
     None if !settings.services.is_empty() => pass(
       "target",
       format!(
@@ -220,20 +227,37 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // --- 4. Local targets (and their health endpoints) ----------------------
   // Single-service mode probes the one target; multi-service mode probes
   // every entry of the services: list.
+  // A `serve:` directory is the backend itself, so its check is a directory
+  // check rather than an HTTP probe.
+  let check_serve_dir = |label: &str, dir: &str, failures: &mut u32| {
+    if std::path::Path::new(dir).is_dir() {
+      pass(label, format!("serve directory '{}' exists", dir));
+    } else {
+      fail(
+        label,
+        format!("serve directory '{}' is missing or not a directory", dir),
+        failures,
+      );
+    }
+  };
   let mut probes: Vec<(String, String, Option<String>)> = Vec::new();
   if let Some(t) = &target {
     probes.push(("target".to_string(), t.clone(), target_health.clone()));
+  } else if let Some(dir) = &settings.serve {
+    check_serve_dir("target", dir, &mut failures);
   } else {
     for (i, entry) in settings.services.iter().enumerate() {
+      let label = format!(
+        "service '{}'",
+        entry
+          .name
+          .clone()
+          .unwrap_or_else(|| format!("services[{}]", i))
+      );
       if let Some(t) = &entry.target {
-        let label = format!(
-          "service '{}'",
-          entry
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("services[{}]", i))
-        );
         probes.push((label, t.clone(), entry.target_health.clone()));
+      } else if let Some(dir) = &entry.serve {
+        check_serve_dir(&label, dir, &mut failures);
       }
     }
   }

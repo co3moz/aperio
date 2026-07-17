@@ -266,6 +266,108 @@ fn test_build_specs_missing_service_target_fails() {
   assert!(err.contains("broken"), "got: {err}");
 }
 
+#[tokio::test]
+async fn test_apply_serve_mode_per_service() {
+  let root = std::env::temp_dir().join(format!("aperio-serve-svc-{}", uuid::Uuid::new_v4()));
+  let dir_a = root.join("a");
+  let dir_b = root.join("b");
+  std::fs::create_dir_all(&dir_a).unwrap();
+  std::fs::create_dir_all(&dir_b).unwrap();
+  let (dir_a, dir_b) = (
+    dir_a.to_string_lossy().into_owned(),
+    dir_b.to_string_lossy().into_owned(),
+  );
+
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("a".to_string()),
+      serve: Some(dir_a.clone()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("b".to_string()),
+      serve: Some(dir_b),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("a2".to_string()),
+      serve: Some(dir_a),
+      ..Default::default()
+    },
+  ];
+  let mut started = std::collections::HashMap::new();
+  apply_serve_mode(&mut settings, &mut started).await.unwrap();
+
+  // Every serve entry is rewritten to a loopback target; distinct
+  // directories get distinct servers, the same directory shares one.
+  let targets: Vec<String> = settings
+    .services
+    .iter()
+    .map(|e| e.target.clone().unwrap())
+    .collect();
+  assert!(targets.iter().all(|t| t.starts_with("http://127.0.0.1:")));
+  assert_ne!(targets[0], targets[1]);
+  assert_eq!(targets[0], targets[2]);
+  assert_eq!(started.len(), 2);
+
+  // The rewritten entries build valid specs.
+  assert_eq!(build_specs(&settings, "base-id", false).unwrap().len(), 3);
+
+  // A reload with the same directories reuses the running servers.
+  let before = started.clone();
+  let mut reloaded = base_settings();
+  reloaded.target = None;
+  reloaded.services = settings.services.clone();
+  for entry in &mut reloaded.services {
+    entry.target = None; // as freshly parsed from the config file
+  }
+  apply_serve_mode(&mut reloaded, &mut started).await.unwrap();
+  assert_eq!(before, started);
+  assert_eq!(
+    reloaded.services[0].target, settings.services[0].target,
+    "the reloaded entry points at the same loopback server"
+  );
+
+  let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn test_apply_serve_mode_conflicts() {
+  // A services: entry cannot combine serve with a backend target.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.services = vec![ServiceEntry {
+    name: Some("clash".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    serve: Some(".".to_string()),
+    ..Default::default()
+  }];
+  let mut started = std::collections::HashMap::new();
+  let err = apply_serve_mode(&mut settings, &mut started)
+    .await
+    .unwrap_err();
+  assert!(
+    err.contains("clash") && err.contains("serve together with"),
+    "got: {err}"
+  );
+
+  // The top-level serve still refuses a services: list — it drives
+  // single-service mode; per-service serving lives on the entries.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.serve = Some(".".to_string());
+  settings.services = vec![ServiceEntry {
+    target: Some("http://localhost:3000".to_string()),
+    ..Default::default()
+  }];
+  let err = apply_serve_mode(&mut settings, &mut started)
+    .await
+    .unwrap_err();
+  assert!(err.contains("single-service mode"), "got: {err}");
+}
+
 #[test]
 fn test_multi_hostname_list() {
   // A service may claim several hostnames via a list; the first is the

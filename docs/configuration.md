@@ -57,7 +57,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `--server-url URL` (alias `--server`) | Aperio server URL |
 | `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
 | `--target TARGET` | Alternative to the positional target (usable with subcommands) |
-| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist` |
+| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist`. Also available per `services:` entry via `serve:`, so one client can serve several directories on different binds. |
 | `--hostname HOSTNAME` (alias `--host`) | Hostname bind(s) (e.g. `app.example.com`, or comma-separated `a.example.com,b.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
 | `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |
@@ -152,7 +152,7 @@ services:
     path: /docs
 ```
 
-Per-entry fields: `name`, `target` (required), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry.
+Per-entry fields: `name`, `target` (required — or `serve` in its place: a local directory of static files served as this service, mutually exclusive with `target`; one loopback file server runs per distinct directory), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry.
 
 `connections: N` (1–16, default 1, also valid at the top level or as `APERIO_CONNECTIONS`) opens N parallel tunnel connections for a service. The server pools them like separate clients — its load-balancing strategy spreads requests across them — so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover/`--bind-tunnels` lookups stay unambiguous; `max_concurrent` applies per connection. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
 

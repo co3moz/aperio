@@ -130,10 +130,10 @@ async fn main() {
     None => uuid::Uuid::new_v4().to_string(),
   };
 
-  // Static file mode: start the loopback server once and point the target
-  // at it. The listener survives config reloads (only its directory is
-  // fixed for the process lifetime).
-  let mut serve_started: Option<(String, u16)> = None;
+  // Static file mode: start one loopback server per served directory and
+  // point the target(s) at them. Listeners survive config reloads — a
+  // directory seen before reuses its server, a new one gets a fresh server.
+  let mut serve_started: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
   if let Err(e) = apply_serve_mode(&mut settings, &mut serve_started).await {
     error!("{}", e);
     std::process::exit(1);
@@ -301,44 +301,66 @@ fn spawn_services(
     .collect()
 }
 
-/// Static file mode: when `serve:` is set, starts the loopback static
-/// server (once per process — reloads reuse it) and rewrites the settings
-/// to target it. Errors on conflicting backend settings.
+/// Static file mode: rewrites every `serve:` directory — the top-level one
+/// (single-service mode) or per `services:` entry — into a loopback static
+/// server target. One server runs per distinct directory, shared across
+/// services and config reloads. Errors on conflicting backend settings.
 async fn apply_serve_mode(
   settings: &mut ClientSettings,
-  started: &mut Option<(String, u16)>,
+  started: &mut std::collections::HashMap<String, u16>,
 ) -> Result<(), String> {
-  let Some(dir) = settings.serve.clone() else {
-    return Ok(());
-  };
-  if settings.target.is_some() || settings.tcp_target.is_some() {
-    return Err(
-      "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive — the serve directory IS the backend".to_string(),
-    );
-  }
-  if !settings.services.is_empty() {
-    return Err(
-      "CRITICAL ERROR: serve is a single-service setting and cannot be combined with a services: list".to_string(),
-    );
-  }
-  let port = match started {
-    Some((prev_dir, port)) => {
-      if *prev_dir != dir {
-        warn!(
-          "serve directory changed from '{}' to '{}'; a restart is required to apply it (still serving the old directory)",
-          prev_dir, dir
-        );
-      }
-      *port
+  if let Some(dir) = settings.serve.clone() {
+    if settings.target.is_some() || settings.tcp_target.is_some() {
+      return Err(
+        "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive — the serve directory IS the backend".to_string(),
+      );
     }
-    None => {
-      let port = serve::start(&dir).await?;
-      *started = Some((dir, port));
-      port
+    if !settings.services.is_empty() {
+      return Err(
+        "CRITICAL ERROR: the top-level serve drives single-service mode; move it into the services: entry that should serve the directory".to_string(),
+      );
     }
-  };
-  settings.target = Some(format!("http://127.0.0.1:{}", port));
+    let port = serve_port(&dir, started).await?;
+    settings.target = Some(format!("http://127.0.0.1:{}", port));
+  }
+  for (i, entry) in settings.services.iter_mut().enumerate() {
+    let Some(dir) = entry
+      .serve
+      .clone()
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty())
+    else {
+      continue;
+    };
+    let has = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+    if has(&entry.target) || has(&entry.tcp_target) {
+      return Err(format!(
+        "CRITICAL ERROR: service '{}' sets serve together with target/tcp_target — the serve directory IS the backend",
+        entry
+          .name
+          .clone()
+          .unwrap_or_else(|| format!("services[{}]", i))
+      ));
+    }
+    let port = serve_port(&dir, started).await?;
+    entry.target = Some(format!("http://127.0.0.1:{}", port));
+  }
   Ok(())
+}
+
+/// Returns the loopback port serving `dir`, starting the static server on
+/// first use. Directories are keyed by their configured spelling; a reload
+/// with the same value reuses the running server.
+async fn serve_port(
+  dir: &str,
+  started: &mut std::collections::HashMap<String, u16>,
+) -> Result<u16, String> {
+  if let Some(port) = started.get(dir) {
+    return Ok(*port);
+  }
+  let port = serve::start(dir).await?;
+  started.insert(dir.to_string(), port);
+  Ok(port)
 }
 
 /// Validates the resolved settings and builds the runnable service specs.
@@ -494,7 +516,12 @@ fn build_specs(
         .target
         .clone()
         .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| format!("CRITICAL ERROR: service '{}' has no target!", describe()))?;
+        .ok_or_else(|| {
+          format!(
+            "CRITICAL ERROR: service '{}' has no target (set target: or serve:)!",
+            describe()
+          )
+        })?;
       let path = entry.path.clone();
       Ok(ServiceSpec {
         name: entry.name.clone(),
