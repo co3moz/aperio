@@ -119,6 +119,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #88 Config includes / file composition — let `aperio.yaml` pull in other files via `include: routes/*.yaml`, complementing hot-reload for large multi-service configs
 - [ ] #89 Wait-for-backend startup gate — hold the tunnel as not-ready until the local backend passes a health check, avoiding the connection-refused window during a slow dev-server boot
 - [x] #122 Per-service static file serving — shipped: `serve:` is accepted per `services:` entry (mutually exclusive with `target`/`tcp_target`), one loopback file server per distinct directory shared across entries and hot-reloads; `aperio-client check` validates serve directories
+- [ ] #123 Denied-request handling per service — a per-entry `denied:` redirect the server answers with when a gate (allowed_ips) rejects a visitor, declared in the tunnel handshake so blocked traffic still never enters the tunnel; without `denied:` the rejection becomes stealth (same answer as an unclaimed route, instead of today's explicit 403). Open points: stealth-as-default is a breaking change vs the documented 403; with several clients on one route, the first rejecting entry that declares `denied:` wins
 
 ### Developer experience & integrations
 
