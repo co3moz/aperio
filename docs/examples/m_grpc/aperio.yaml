@@ -1,0 +1,12 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_grpc_multi_change_me
+
+services:
+  - name: grpc
+    target: h2c://127.0.0.1:50051   # HTTP/2 cleartext — what a local gRPC server speaks
+    hostname: grpc.example.com
+
+  - name: web
+    target: http://localhost:3000   # plain HTTP/1.1 next to it
+    hostname: app.example.com

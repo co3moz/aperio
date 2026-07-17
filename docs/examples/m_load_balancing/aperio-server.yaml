@@ -1,0 +1,6 @@
+server_token: apr_load_balancing_multi_change_me
+port: 8080
+
+# Route each hostname to its lowest healthy priority tier.
+lb_strategy: primary-standby
+client_down_threshold: 15

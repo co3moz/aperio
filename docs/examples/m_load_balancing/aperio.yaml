@@ -1,0 +1,18 @@
+# Machine A: primary for web, standby for the API.
+# Machine B uses the same file with the two priority values swapped.
+server:
+  url: https://tunnel.example.com
+  token: apr_load_balancing_multi_change_me
+
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: app.example.com
+    priority: 0                 # machine B: 1
+    target_health: /health
+
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    priority: 1                 # machine B: 0
+    target_health: /api/status

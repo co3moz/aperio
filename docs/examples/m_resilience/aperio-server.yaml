@@ -1,0 +1,5 @@
+server_token: apr_resilience_multi_change_me
+port: 8080
+
+cache: true
+cache_max_stale: 3600     # how long past its lifetime a cached response may serve

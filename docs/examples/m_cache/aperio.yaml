@@ -1,0 +1,14 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_cache_multi_change_me
+
+services:
+  - name: www
+    target: http://localhost:3000
+    hostname: www.example.com
+    cache: true                  # GETs cached per the backend's Cache-Control
+
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    # no cache: → every request traverses the tunnel

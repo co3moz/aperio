@@ -1,0 +1,15 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_resilience_multi_change_me
+
+services:
+  - name: www
+    target: http://localhost:3000
+    hostname: www.example.com
+    cache: true
+    resilience: true             # keep answering from cache while offline
+
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    # no cache/resilience: stale API responses would be worse than a 504

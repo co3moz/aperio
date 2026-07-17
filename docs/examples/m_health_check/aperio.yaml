@@ -1,0 +1,24 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_health_check_multi_change_me
+
+# Shared probe tuning; entries may override any of these individually.
+health_interval: 10
+health_timeout: 5
+health_threshold: 2
+
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: app.example.com
+    target_health: /health          # probed independently of the API
+
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    target_health: /api/status      # its own endpoint and its own rotation
+    health_interval: 5              # per-entry override: probe faster
+
+  - name: docs
+    target: http://localhost:5000
+    path: /docs                     # no probe: routed as long as the tunnel is up

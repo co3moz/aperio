@@ -1,0 +1,5 @@
+server_token: apr_cache_multi_change_me
+port: 8080
+
+cache: true
+cache_max_bytes: 67108864

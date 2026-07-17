@@ -1,0 +1,28 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_headers_multi_change_me
+
+# Default rules for entries that don't define their own headers: section.
+headers:
+  response:
+    remove: [X-Powered-By]
+
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: app.example.com
+    # no headers: here → the top-level rules above apply
+
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    # An entry's headers: REPLACES the top-level section (no merge).
+    headers:
+      request:
+        add:
+          X-Service: api
+        remove: [X-Internal-Debug]
+      response:
+        add:
+          Cache-Control: no-store
+        remove: [Server, X-Powered-By]

@@ -1,0 +1,5 @@
+server_token: apr_grpc_multi_change_me
+port: 8080
+
+# Make sure the fronting proxy forwards gRPC traffic as HTTP/2 (h2c is
+# accepted here), or trailers (grpc-status) are lost on the visitor leg.

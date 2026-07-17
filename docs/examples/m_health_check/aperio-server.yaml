@@ -1,0 +1,5 @@
+server_token: apr_health_check_multi_change_me
+port: 8080
+
+# Alert when any known service stays down longer than 60 s.
+alert_client_down: 60

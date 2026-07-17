@@ -6,3 +6,5 @@ The knobs that shape how much traffic flows and how fast, on both sides:
 - **Server** — global ceilings (`max_concurrent_requests`, `max_tunnels`, `max_body_size`), per-IP rate limiting (`ip_limit_max` burst + `ip_limit_refill` per second), gateway timeouts, and optional `tunnel_compression` for text-heavy traffic on slow links.
 
 The values below are illustrative for a modest VPS fronting one busy service — measure before copying.
+
+Multi-service variant: [m_tuning](../m_tuning/).

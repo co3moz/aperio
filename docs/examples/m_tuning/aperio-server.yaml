@@ -1,0 +1,6 @@
+server_token: apr_tuning_multi_change_me
+port: 8080
+
+# Global ceilings still apply across all services and clients.
+max_concurrent_requests: 200
+max_body_size: 10485760

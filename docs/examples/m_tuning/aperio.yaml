@@ -1,0 +1,25 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_tuning_multi_change_me
+
+# Shared defaults; entries override what they need.
+timeout: 30
+max_concurrent: 8
+
+services:
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+    connections: 4               # parallel tunnel connections for hot traffic
+    max_concurrent: 32           # per-connection cap; excess queues at the server
+
+  - name: reports
+    target: http://localhost:5000
+    hostname: reports.example.com
+    timeout: 300                 # report generation is slow by nature
+    max_response_body: 209715200 # up to 200 MB exports
+
+  - name: media
+    target: http://localhost:6000
+    hostname: media.example.com
+    bandwidth: 8mbit             # server paces responses to this rate

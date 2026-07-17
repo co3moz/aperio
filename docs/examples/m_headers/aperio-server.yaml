@@ -1,0 +1,8 @@
+server_token: apr_headers_multi_change_me
+port: 8080
+
+# Server-wide rules run in addition to the client's per-service rules.
+headers:
+  response:
+    add:
+      Strict-Transport-Security: max-age=63072000
