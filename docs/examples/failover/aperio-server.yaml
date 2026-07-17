@@ -1,0 +1,17 @@
+server_token: apr_failover_change_me
+port: 8080
+
+# When a client dies mid-request: retry on another healthy client at once,
+# or wait for one to (re)connect if none is available.
+failover: retry-wait
+
+# Max re-dispatch attempts per request (default 2).
+failover_max_jumps: 2
+
+# Total seconds the wait modes may spend waiting for a candidate,
+# across all jumps (default 15).
+failover_window: 15
+
+# Keep POST/PATCH out of failover (default) — a re-dispatched request may
+# reach a backend twice. Set true only if your backends are idempotent.
+failover_all_methods: false

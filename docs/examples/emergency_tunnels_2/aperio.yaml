@@ -1,0 +1,12 @@
+# Declaring side — run next to the private database.
+server:
+  url: https://tunnel.example.com
+  token: apr_emergency_e2e_change_me
+
+client_id: 018f3c1e-1111-7c3d-8e4f-5a6b7c8d9e0f
+
+tunnels:
+  - target: 127.0.0.1:5432      # PostgreSQL
+    encrypt: true               # end-to-end encrypt between the two clients
+    psk: replace-with-a-long-random-string   # never sent anywhere; the binder
+                                             # must configure the same value

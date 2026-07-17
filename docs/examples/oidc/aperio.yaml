@@ -1,0 +1,6 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_oidc_change_me
+
+target: http://localhost:3000
+hostname: app.example.com

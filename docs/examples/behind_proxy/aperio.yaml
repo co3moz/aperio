@@ -1,0 +1,5 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_behind_proxy_change_me
+
+target: http://localhost:3000

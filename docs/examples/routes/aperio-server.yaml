@@ -1,0 +1,24 @@
+server_token: apr_routes_change_me
+port: 8080
+
+# Server-answered routes — no tunnel client involved. First match wins,
+# in file order; each rule carries exactly one action.
+routes:
+  # Vanity redirect: the old domain permanently forwards to the new one,
+  # keeping the request path and query.
+  - hostname: old.example.com
+    redirect: https://new.example.com
+    permanent: true
+    preserve_path: true
+
+  # A hostname whose client is not deployed yet.
+  - hostname: soon.example.com
+    respond:
+      status: 503
+      body: "<h1>Coming soon</h1>"
+
+  # A fixed robots.txt on every hostname.
+  - path: /robots.txt
+    respond:
+      content_type: text/plain
+      body: "User-agent: *\nDisallow: /\n"

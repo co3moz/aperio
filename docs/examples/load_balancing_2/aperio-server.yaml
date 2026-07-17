@@ -1,0 +1,6 @@
+server_token: apr_sticky_change_me
+port: 8080
+
+# Pin each visitor to the client that first served them via an
+# `aperio_affinity` cookie (HttpOnly, 24 h); WebSockets follow it too.
+lb_strategy: sticky

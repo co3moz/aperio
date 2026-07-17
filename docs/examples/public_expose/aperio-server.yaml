@@ -1,0 +1,10 @@
+server_token: apr_public_expose_change_me
+port: 8080
+
+# Raw public TCP ports relayed to declared client tunnels carrying the
+# matching `expose: <key>`. Anyone who can reach the port talks straight
+# to the backend — keep real authentication on the backend itself.
+expose:
+  - protocol: tcp        # only tcp while experimental
+    port: 2222
+    key: replace-with-a-long-random-shared-secret

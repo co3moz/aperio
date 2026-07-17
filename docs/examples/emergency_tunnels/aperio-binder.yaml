@@ -1,0 +1,11 @@
+# Binder side — run anywhere you need access, then:
+#   aperio-client --bind-tunnels --config aperio-binder.yaml
+server:
+  url: https://tunnel.example.com
+
+# Peers whose declared tunnels this process binds locally, keyed by client id.
+bind-tunnels:
+  '018f3c1e-6a2b-7c3d-8e4f-5a6b7c8d9e0f':
+    token: apr_emergency_change_me     # must be the token the peer connected with
+    override:
+      '127.0.0.1:27017': 15000         # listen on 127.0.0.1:15000 instead of 27017

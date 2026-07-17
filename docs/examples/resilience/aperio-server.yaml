@@ -1,0 +1,10 @@
+server_token: apr_resilience_change_me
+port: 8080
+
+# The response cache is a prerequisite for serve-stale.
+cache: true
+
+# How long past its advertised lifetime a cached response may still answer
+# visitors while the route has no healthy client (default 3600; 0 disables
+# serve-stale entirely).
+cache_max_stale: 3600

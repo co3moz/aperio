@@ -1,0 +1,10 @@
+server_token: apr_load_balancing_change_me
+port: 8080
+
+# Route to the lowest announced priority tier only; standbys take over
+# when every more-primary client is gone, and hand back when one returns.
+lb_strategy: primary-standby
+
+# Seconds without a heartbeat before a client leaves the routing pool
+# (default 15) — this is how fast a dead primary is detected.
+client_down_threshold: 15

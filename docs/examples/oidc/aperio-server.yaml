@@ -1,0 +1,20 @@
+server_token: apr_oidc_change_me
+port: 8080
+
+# Setting the issuer enables SSO enforcement for everything proxied.
+oidc_issuer: https://accounts.google.com
+oidc_client_id: replace-with-your-oauth-client-id
+oidc_client_secret: replace-with-your-oauth-client-secret
+
+# Who may sign in: exact addresses, *@domain, or * for anyone the issuer
+# authenticates. Required together with the issuer.
+oidc_allowed_emails:
+  - "*@example.com"
+  - contractor@partner.org
+
+# Recommended: pin the callback URL instead of deriving it per request.
+# Must match the redirect URI registered at the issuer.
+oidc_redirect_url: https://tunnel.example.com/aperio/oidc/callback
+
+# Requested scopes (default shown).
+oidc_scopes: [openid, email, profile]

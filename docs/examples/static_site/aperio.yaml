@@ -1,0 +1,10 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_static_site_change_me
+
+# Serve this directory of static files instead of forwarding to a backend.
+# Mutually exclusive with `target:`; directories serve their index.html.
+serve: ./dist
+
+# Optional: claim a hostname for the site (must be permitted by the token).
+hostname: www.example.com

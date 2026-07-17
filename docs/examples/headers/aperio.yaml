@@ -1,0 +1,17 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_headers_change_me
+
+target: http://localhost:3000
+
+# Client-side header rules: `request` edits what the local backend receives,
+# `response` edits what the visitor receives.
+headers:
+  request:
+    add:
+      X-Forwarded-Env: staging     # tell the backend which environment this is
+    remove: [X-Internal-Debug]     # never let this reach the backend
+  response:
+    add:
+      X-Served-By: aperio
+    remove: [X-Powered-By]         # hide backend implementation details

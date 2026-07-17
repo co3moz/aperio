@@ -1,0 +1,20 @@
+# Declaring side — run next to the private services.
+server:
+  url: https://tunnel.example.com
+  token: apr_emergency_change_me
+
+# Optional: a client may declare only tunnels, with no public service at all.
+target: http://localhost:3000
+
+# Keep the client id stable across restarts, so binder configs never go stale.
+client_id: 018f3c1e-6a2b-7c3d-8e4f-5a6b7c8d9e0f
+
+# Private local services a peer may reach via --bind-tunnels; never exposed
+# to the public web.
+tunnels:
+  - target: 127.0.0.1:27017     # MongoDB
+    protocol: tcp               # tcp is the default
+  - target: 127.0.0.1:22        # SSH
+  - target: 127.0.0.1:53        # internal DNS resolver
+    protocol: udp
+    idle_timeout: 10            # udp only: relay expiry in seconds (default 60)

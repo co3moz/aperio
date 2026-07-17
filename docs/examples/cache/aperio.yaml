@@ -1,0 +1,10 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_cache_change_me
+
+target: http://localhost:3000
+
+# Opt this service into the server-side GET response cache. What actually
+# gets cached (and for how long) is decided by the backend's Cache-Control
+# headers; needs `cache: true` on the server too.
+cache: true

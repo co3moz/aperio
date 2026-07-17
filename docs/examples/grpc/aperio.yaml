@@ -1,0 +1,8 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_grpc_change_me
+
+# Dial the backend over HTTP/2 cleartext (prior knowledge) — what a local
+# gRPC server speaks. Use h2:// instead for a TLS HTTP/2 backend.
+target: h2c://127.0.0.1:50051
+hostname: grpc.example.com

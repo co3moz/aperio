@@ -1,0 +1,8 @@
+# Binder side — run:  aperio-client --bind-tunnels --config aperio-binder.yaml
+server:
+  url: https://tunnel.example.com
+
+bind-tunnels:
+  '018f3c1e-1111-7c3d-8e4f-5a6b7c8d9e0f':
+    token: apr_emergency_e2e_change_me
+    psk: replace-with-a-long-random-string   # must match the declaring side

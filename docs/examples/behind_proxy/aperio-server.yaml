@@ -1,0 +1,20 @@
+server_token: apr_behind_proxy_change_me
+
+# The proxy terminates TLS and forwards to this local port.
+host: 127.0.0.1
+port: 8080
+
+# Resolve real visitor IPs by walking X-Forwarded-For backwards past these
+# trusted hops (implies trust_proxy). List your reverse proxies and your
+# CDN's egress ranges.
+trusted_proxies:
+  - 10.0.0.0/8            # internal load balancers
+  - 173.245.48.0/20       # example CDN egress range
+
+# Behind Cloudflare→proxy chains where the proxy resets XFF to the CDN edge,
+# prefer the CDN's own header instead:
+# real_ip_header: CF-Connecting-IP
+
+# Session cookies default to Secure when proxy trust is on; set explicitly
+# if your public URL is https but trust_proxy is off.
+secure_cookies: true

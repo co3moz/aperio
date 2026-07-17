@@ -1,0 +1,11 @@
+# Master token: authenticates tunnel clients and doubles as the dashboard
+# admin password (`aperio:<token>`). Must match `server.token` in aperio.yaml.
+server_token: apr_simple_change_me
+
+# Listen address and port (defaults shown).
+host: 0.0.0.0
+port: 8080
+
+# Directory for persisted state (tokens, stats, audit log). Mount a volume
+# here when running in Docker.
+data_dir: ./data

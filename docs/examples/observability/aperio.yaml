@@ -1,0 +1,9 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_observability_change_me
+
+target: http://localhost:3000
+
+# A health probe makes client-down alerting meaningful: the server learns
+# about a dead backend, not just a dead tunnel.
+target_health: /health

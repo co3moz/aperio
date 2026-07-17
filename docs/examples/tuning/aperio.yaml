@@ -1,0 +1,22 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_tuning_change_me
+
+target: http://localhost:3000
+
+# Requests handled at once per tunnel connection; the server queues the
+# excess instead of flooding the backend.
+max_concurrent: 16
+
+# Parallel tunnel connections (1–16). The server pools them like separate
+# clients, so heavy parallel traffic isn't serialized behind one WebSocket.
+connections: 4
+
+# Link capacity of this client's network: the server paces responses so the
+# uplink is never pushed faster than it can drain (`8mbit`, `500kbit`, `2MB`).
+bandwidth: 8mbit
+
+# Per-request bounds (defaults: 30 s, 50 MB, 5 redirects).
+timeout: 30
+max_response_body: 52428800
+max_redirects: 5

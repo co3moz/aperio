@@ -1,0 +1,24 @@
+server_token: apr_observability_change_me
+port: 8080
+
+# --- Prometheus ---
+metrics: true
+metrics_token: replace-with-a-long-random-string   # gates /aperio/metrics
+
+# --- Structured access log (one JSON line per proxied request) ---
+access_log: ./data/access.jsonl
+
+# --- OpenTelemetry traces (one OTLP span per proxied request) ---
+otel: true
+otel_endpoint: http://localhost:4318
+otel_service_name: aperio-server
+
+# --- Alerting (webhook/audit `alert_triggered` events) ---
+alert_error_rate: 0.25      # fire when >25% of requests fail...
+alert_window: 300           # ...measured over a 5-minute sliding window...
+alert_min_requests: 20      # ...with at least 20 requests in it
+alert_client_down: 120      # fire when a known service is down for 2 minutes
+
+# --- Audit log rotation ---
+audit_max_size: 10485760    # rotate audit.jsonl past 10 MB
+audit_max_files: 3          # keep audit.jsonl.1 … .3

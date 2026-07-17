@@ -1,0 +1,22 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_visitor_auth_change_me
+
+services:
+  # Behind the client's own visitor login (supersedes the server's gate
+  # for this hostname; needs a token permitted to set it).
+  - name: staff
+    target: http://localhost:3000
+    hostname: staff.example.com
+    auth: staff:replace-with-a-strong-password
+
+  # No visitor gate at all — a public status page.
+  - name: status
+    target: http://localhost:4000
+    hostname: status.example.com
+    public: true
+
+  # No `auth`/`public`: this one stays behind the server-wide gate.
+  - name: app
+    target: http://localhost:5000
+    hostname: app.example.com

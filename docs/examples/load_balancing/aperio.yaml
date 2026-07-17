@@ -1,0 +1,15 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_load_balancing_change_me
+
+target: http://localhost:3000
+hostname: app.example.com
+
+# Failover tier announced to the server (effective with the server's
+# `lb_strategy: primary-standby`): 0 = primary, higher = standby.
+# On the standby machine, use the same file with `priority: 1`.
+priority: 0
+
+# Recommended with priority tiers: probe the backend so a dead backend
+# (not just a dead tunnel) also promotes the standby.
+target_health: /health

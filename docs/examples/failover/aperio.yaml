@@ -1,0 +1,9 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_failover_change_me
+
+target: http://localhost:3000
+
+# A stable id lets the server's `wait` failover recognize this client when
+# it reconnects after a crash or redeploy.
+client_id: 8b1a9953-c461-4f21-a04f-2b3e5d5cbe11

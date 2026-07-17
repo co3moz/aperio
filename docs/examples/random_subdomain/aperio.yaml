@@ -1,0 +1,7 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_preview_change_me
+
+# Nothing preview-specific needed on the client: the server assigns a
+# random subdomain to every connection automatically.
+target: http://localhost:3000

@@ -1,0 +1,12 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_allowed_ips_change_me
+
+target: http://localhost:3000
+hostname: admin.example.com
+
+# Only these visitors may reach the service; everyone else gets 403 from
+# the server before the request enters the tunnel. Plain IPs or CIDRs.
+allowed_ips:
+  - 203.0.113.7        # the office's static egress IP
+  - 10.0.0.0/8         # the internal VPN range

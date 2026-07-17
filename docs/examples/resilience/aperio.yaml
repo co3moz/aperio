@@ -1,0 +1,10 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_resilience_change_me
+
+target: http://localhost:3000
+
+# Resilience needs the cache: opt into it, and let cached responses keep
+# answering visitors (even past their lifetime) while this client is away.
+cache: true
+resilience: true

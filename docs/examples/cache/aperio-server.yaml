@@ -1,0 +1,11 @@
+server_token: apr_cache_change_me
+port: 8080
+
+# Enable the server-side GET response cache for services that opt in
+# with the client-side `cache: true`.
+cache: true
+
+# Total in-memory budget (default 64 MB). Inserting past it evicts the
+# entries closest to expiry; a single body larger than a quarter of the
+# budget is never cached.
+cache_max_bytes: 67108864

@@ -1,0 +1,11 @@
+server_token: apr_preview_change_me
+port: 8080
+
+# Every connecting client gets `<random>-preview.example.com` in addition
+# to its other binds. Front the server with wildcard DNS and one wildcard
+# TLS certificate for `*.example.com`.
+random_subdomain: "*-preview.example.com"
+
+# Keep preview environments out of search engines: noindex headers and a
+# disallow-all robots.txt on the random hostnames.
+preview_noindex: true

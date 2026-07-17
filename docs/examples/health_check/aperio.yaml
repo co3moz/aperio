@@ -1,0 +1,16 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_health_check_change_me
+
+target: http://localhost:3000
+
+# Health endpoint of the local target: a path (resolved against the target)
+# or a full URL. When set, a failing backend leaves rotation without
+# dropping the tunnel.
+target_health: /health
+
+# Tuning (defaults shown): probe every 10 s, 5 s per-probe timeout,
+# 2 consecutive failures before the backend is reported unhealthy.
+health_interval: 10
+health_timeout: 5
+health_threshold: 2

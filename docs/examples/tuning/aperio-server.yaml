@@ -1,0 +1,20 @@
+server_token: apr_tuning_change_me
+port: 8080
+
+# Global ceilings.
+max_concurrent_requests: 200    # in-flight proxied requests across all tunnels
+max_tunnels: 20                 # simultaneously connected tunnel clients
+max_body_size: 10485760         # request bodies up to 10 MB
+
+# Per-IP token bucket: 100-request burst, refilled at 5 requests/second.
+ip_limit_max: 100
+ip_limit_refill: 5
+
+# How long to wait for a client to (re)connect / to answer a dispatched
+# request before failing (defaults shown).
+server_gateway_timeout: 10
+server_gateway_response_timeout: 30
+
+# zlib-compress tunnel frames — worthwhile for text-heavy traffic over slow
+# client uplinks; enabled per connection once the client acknowledges it.
+tunnel_compression: true

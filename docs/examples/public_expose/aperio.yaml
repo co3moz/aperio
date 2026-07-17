@@ -1,0 +1,10 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_public_expose_change_me
+
+# Declare the tunnel and tie it to the server's expose port via the shared
+# key. The key travels only inside the tunnel handshake and is never revealed
+# to --bind-tunnels consumers.
+tunnels:
+  - target: 127.0.0.1:22
+    expose: replace-with-a-long-random-shared-secret

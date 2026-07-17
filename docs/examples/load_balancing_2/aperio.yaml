@@ -1,0 +1,10 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_sticky_change_me
+
+target: http://localhost:3000
+hostname: app.example.com
+
+# Fixed instance id: visitor affinity keys on it, so a client restart keeps
+# its pinned visitors. Give every backend machine its own UUID.
+client_id: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
