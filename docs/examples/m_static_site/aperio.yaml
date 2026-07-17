@@ -1,0 +1,19 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_static_multi_change_me
+
+# Two static sites from one client: each entry serves its own directory
+# (serve: replaces target:; the two are mutually exclusive per entry).
+services:
+  - name: site-a
+    serve: ./sites/a
+    hostname: a.example.com
+
+  - name: site-b
+    serve: ./sites/b
+    hostname: b.example.com
+
+  # Static and proxied services mix freely in one client:
+  # - name: api
+  #   target: http://localhost:4000
+  #   hostname: api.example.com
