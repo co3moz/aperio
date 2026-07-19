@@ -369,6 +369,7 @@ error_pages:
 | `APERIO_RETENTION_ACCESS_LOG` | Days to keep `APERIO_ACCESS_LOG` lines; expired lines are pruned in place. | — |
 | `APERIO_RETENTION_AUDIT` | Days to keep audit events: rotated generations whose newest event expired are deleted whole, and the active file loses only its leading expired prefix — the tamper-evidence hash chain stays verifiable. | — |
 | `APERIO_RETENTION_STATS` | Days to keep day-granularity statistics buckets (week/month/year buckets keep their built-in caps). | — |
+| `APERIO_DB_MAX_BYTES` | Disk-usage guard: cap on `aperio.db` (plus its WAL/SHM sidecars). At 90% a `disk_usage_warning` webhook/audit event fires (once per episode, resetting below 80%); past the cap the hourly guard auto-prunes the lowest-priority data — oldest webhook inbox entries, oldest webhook deliveries, oldest day-stat buckets — then vacuums so the file actually shrinks, and emits `disk_pruned`. | — (unbounded) |
 | `APERIO_OTEL` | `1` = export one OTLP span per proxied request to an OpenTelemetry collector (adopts inbound W3C `traceparent`, propagates its own context to the backend). | `0` |
 | `APERIO_OTEL_ENDPOINT` | OTLP/HTTP collector base URL (`/v1/traces` is appended if absent). Falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`. | `http://localhost:4318` |
 | `APERIO_OTEL_SERVICE_NAME` | `service.name` reported on exported spans. Falls back to `OTEL_SERVICE_NAME`. | `aperio-server` |

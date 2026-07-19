@@ -441,6 +441,45 @@ impl StatsStore {
     removed
   }
 
+  /// Disk guard: drops the `drop_count` oldest day-granularity buckets from
+  /// the global aggregate and every org slice. Returns removed buckets.
+  pub fn drop_oldest_day_buckets(&mut self, drop_count: usize) -> usize {
+    let mut removed = 0usize;
+    let mut prune = |stats: &mut PersistentStats| {
+      let mut keys: Vec<String> = stats
+        .periods
+        .keys()
+        .filter(|k| k.starts_with("d:"))
+        .cloned()
+        .collect();
+      keys.sort(); // zero-padded day keys sort chronologically
+      for key in keys.into_iter().take(drop_count) {
+        stats.periods.remove(&key);
+        removed += 1;
+      }
+    };
+    prune(&mut self.stats);
+    for org in self.by_org.values_mut() {
+      prune(org);
+    }
+    if removed > 0 {
+      self.dirty = true;
+      self.save_if_dirty();
+    }
+    removed
+  }
+
+  /// Disk guard: checkpoints the WAL and vacuums the database so pruned rows
+  /// actually shrink the file on disk.
+  pub fn vacuum(&mut self) {
+    if let Err(e) = self
+      .conn
+      .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")
+    {
+      error!("Disk guard: vacuum failed: {}", e);
+    }
+  }
+
   pub fn save_if_dirty(&mut self) {
     if !self.dirty {
       return;

@@ -112,6 +112,8 @@ Independent TTLs — all in days, unset = keep forever — bound how long each d
 | `APERIO_RETENTION_AUDIT` | Audit events — expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
 | `APERIO_RETENTION_STATS` | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
 
+The same hourly cycle also runs the **disk-usage guard** when `APERIO_DB_MAX_BYTES` caps the SQLite store: nearing the cap (90%) emits a `disk_usage_warning` webhook/audit event once per episode, and exceeding it auto-prunes the lowest-priority persisted data (oldest webhook inbox entries, delivery-log rows, and day-stat buckets), vacuums the database so the file shrinks on disk, and records a `disk_pruned` event with before/after sizes.
+
 ## Right-to-erasure selective purge
 
 `POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store — the GDPR-style "erase what you hold about X" operation:

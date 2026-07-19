@@ -142,8 +142,113 @@ pub(crate) async fn run_cycle(state: &Arc<AppState>) -> RetentionReport {
   report
 }
 
+// --- Disk-usage guard (#115) ------------------------------------------------
+
+/// Fraction of the cap at which the early-warning event fires.
+const DISK_WARN_RATIO: f64 = 0.9;
+/// Fraction of the cap the warning episode resets below (hysteresis).
+const DISK_WARN_RESET_RATIO: f64 = 0.8;
+/// One warning per episode: set while a `disk_usage_warning` is outstanding.
+static DISK_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The configured cap on `aperio.db` (plus its WAL/SHM sidecars), in bytes.
+fn db_max_bytes() -> Option<u64> {
+  std::env::var("APERIO_DB_MAX_BYTES")
+    .ok()
+    .and_then(|v| v.trim().parse::<u64>().ok())
+    .filter(|b| *b > 0)
+}
+
+/// Current on-disk footprint of the SQLite store: the database file plus its
+/// `-wal` and `-shm` sidecars.
+fn db_size_bytes(data_dir: &std::path::Path) -> u64 {
+  ["aperio.db", "aperio.db-wal", "aperio.db-shm"]
+    .iter()
+    .filter_map(|name| std::fs::metadata(data_dir.join(name)).ok())
+    .map(|m| m.len())
+    .sum()
+}
+
+/// One disk-guard cycle: warns as the cap nears (once per episode, with
+/// hysteresis) and, past the cap, prunes the lowest-priority persisted data —
+/// oldest webhook inbox entries, oldest webhook deliveries, oldest day-stat
+/// buckets — then vacuums so the file actually shrinks.
+async fn disk_guard_cycle(state: &Arc<AppState>, cap: u64, data_dir: &std::path::Path) {
+  use std::sync::atomic::Ordering;
+  let size = db_size_bytes(data_dir);
+
+  if (size as f64) < cap as f64 * DISK_WARN_RESET_RATIO {
+    DISK_WARNED.store(false, Ordering::SeqCst);
+  } else if (size as f64) >= cap as f64 * DISK_WARN_RATIO
+    && !DISK_WARNED.swap(true, Ordering::SeqCst)
+  {
+    warn!(
+      "Disk guard: aperio.db is at {} of the {} byte cap",
+      size, cap
+    );
+    state
+      .audit(
+        "disk_usage_warning",
+        "system",
+        "-",
+        &format!("size={} cap={}", size, cap),
+      )
+      .await;
+    state
+      .emit_event(
+        "disk_usage_warning",
+        serde_json::json!({"size_bytes": size, "cap_bytes": cap}),
+      )
+      .await;
+  }
+
+  if size <= cap {
+    return;
+  }
+
+  // Over the cap: shed the lowest-priority stores, oldest first. Halving the
+  // caps each cycle converges without wiping everything in one swing.
+  let inbox_removed = state.inbox_store.lock().await.truncate_oldest(100);
+  let deliveries_removed = state.webhook_deliveries.lock().await.truncate_oldest(100);
+  let stat_buckets_removed = state
+    .persistent_stats
+    .lock()
+    .await
+    .drop_oldest_day_buckets(15);
+  state.persistent_stats.lock().await.vacuum();
+  let after = db_size_bytes(data_dir);
+  warn!(
+    "Disk guard: pruned inbox={} deliveries={} day_buckets={} and vacuumed: {} → {} bytes (cap {})",
+    inbox_removed, deliveries_removed, stat_buckets_removed, size, after, cap
+  );
+  state
+    .audit(
+      "disk_pruned",
+      "system",
+      "-",
+      &format!(
+        "inbox={} deliveries={} day_buckets={} size_before={} size_after={} cap={}",
+        inbox_removed, deliveries_removed, stat_buckets_removed, size, after, cap
+      ),
+    )
+    .await;
+  state
+    .emit_event(
+      "disk_pruned",
+      serde_json::json!({
+        "inbox_removed": inbox_removed,
+        "deliveries_removed": deliveries_removed,
+        "day_buckets_removed": stat_buckets_removed,
+        "size_before_bytes": size,
+        "size_after_bytes": after,
+        "cap_bytes": cap,
+      }),
+    )
+    .await;
+}
+
 /// Spawns the background pruner: one cycle at startup, then hourly. Inert
-/// when no retention variable is configured.
+/// when neither a retention variable nor the disk cap is configured.
 pub(crate) fn spawn(state: Arc<AppState>) {
   let configured: Vec<&str> = [
     "APERIO_RETENTION_CAPTURES",
@@ -154,17 +259,36 @@ pub(crate) fn spawn(state: Arc<AppState>) {
   .into_iter()
   .filter(|name| retention_days(name).is_some())
   .collect();
-  if configured.is_empty() {
+  let disk_cap = db_max_bytes();
+  if configured.is_empty() && disk_cap.is_none() {
     return;
   }
+  // The data dir is where the settings overrides live.
+  let data_dir = state
+    .settings_path
+    .parent()
+    .map(|p| p.to_path_buf())
+    .unwrap_or_else(|| std::path::PathBuf::from("."));
   info!(
-    "Retention pruner enabled ({}); pruning at startup and hourly",
-    configured.join(", ")
+    "Retention pruner enabled ({}{}); running at startup and hourly",
+    configured.join(", "),
+    if disk_cap.is_some() {
+      if configured.is_empty() {
+        "APERIO_DB_MAX_BYTES"
+      } else {
+        ", APERIO_DB_MAX_BYTES"
+      }
+    } else {
+      ""
+    }
   );
   tokio::spawn(async move {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(PRUNE_INTERVAL_SECS));
     loop {
       interval.tick().await;
+      if let Some(cap) = disk_cap {
+        disk_guard_cycle(&state, cap, &data_dir).await;
+      }
       let report = run_cycle(&state).await;
       if report.total() > 0 {
         info!(

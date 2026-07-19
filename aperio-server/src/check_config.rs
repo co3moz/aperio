@@ -133,6 +133,7 @@ pub(crate) fn run() -> i32 {
   check_parse::<u64>(&mut r, "APERIO_RETENTION_ACCESS_LOG", "number of days");
   check_parse::<u64>(&mut r, "APERIO_RETENTION_AUDIT", "number of days");
   check_parse::<u64>(&mut r, "APERIO_RETENTION_STATS", "number of days");
+  check_parse::<u64>(&mut r, "APERIO_DB_MAX_BYTES", "byte count");
 
   // --- Enumerated / structured scalars ---
   if let Some(raw) = env("APERIO_LB_STRATEGY") {

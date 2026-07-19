@@ -130,6 +130,20 @@ impl InboxStore {
     removed
   }
 
+  /// Disk guard: drops the oldest entries so at most `keep` remain (across
+  /// all organizations). Returns removed count.
+  pub fn truncate_oldest(&mut self, keep: usize) -> usize {
+    let mut removed = 0usize;
+    while self.entries.len() > keep {
+      self.entries.pop_front();
+      removed += 1;
+    }
+    if removed > 0 {
+      self.persist();
+    }
+    removed
+  }
+
   /// Empties the caller's organization's inbox. Returns removed count.
   pub fn clear(&mut self, org: &Option<String>) -> usize {
     let before = self.entries.len();
@@ -208,6 +222,22 @@ mod tests {
     assert!(store.get("old", &None).is_none());
     // Persisted: the prune survives a reload.
     assert_eq!(InboxStore::load(&dir_str).entries.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_truncate_oldest() {
+    let dir = std::env::temp_dir().join(format!("aperio-inbox-trunc-{}", uuid::Uuid::new_v4()));
+    let dir_str = dir.to_string_lossy().to_string();
+    let mut store = InboxStore::load(&dir_str);
+    for i in 0..5 {
+      store.insert(entry(&format!("e{i}"), None));
+    }
+    // The oldest entries go first; the newest survive.
+    assert_eq!(store.truncate_oldest(2), 3);
+    assert!(store.get("e4", &None).is_some());
+    assert!(store.get("e0", &None).is_none());
+    assert_eq!(store.truncate_oldest(2), 0);
     let _ = std::fs::remove_dir_all(&dir);
   }
 }

@@ -674,6 +674,8 @@ pub struct ServerFileConfig {
   pub retention_audit: Option<u64>,
   /// Days to keep day-granularity stats buckets; 0/unset = the built-in caps (env: APERIO_RETENTION_STATS).
   pub retention_stats: Option<u64>,
+  /// Cap on aperio.db (+WAL/SHM) in bytes; nearing it emits a warning, exceeding it auto-prunes low-priority data (env: APERIO_DB_MAX_BYTES).
+  pub db_max_bytes: Option<u64>,
   /// Audit log rotation size in bytes, 0 disables (env: APERIO_AUDIT_MAX_SIZE).
   pub audit_max_size: Option<u64>,
   /// Rotated audit log files kept (env: APERIO_AUDIT_MAX_FILES).

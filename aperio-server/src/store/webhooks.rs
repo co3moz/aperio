@@ -234,6 +234,18 @@ impl DeliveryLog {
     self.persist();
   }
 
+  /// Disk guard: drops the oldest deliveries so at most `keep` remain.
+  /// Returns removed count.
+  pub fn truncate_oldest(&mut self, keep: usize) -> usize {
+    if self.deliveries.len() <= keep {
+      return 0;
+    }
+    let excess = self.deliveries.len() - keep;
+    self.deliveries.drain(0..excess);
+    self.persist();
+    excess
+  }
+
   /// Most recent deliveries first, optionally only one webhook's.
   pub fn list(&self, webhook_id: Option<&str>, limit: usize) -> Vec<Delivery> {
     self

@@ -154,7 +154,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #112 Blue-green client deployment — the new client takes over while the old drains (on top of graceful drain)
 - [ ] #113 Hash-chained tamper-evident audit log — chain each audit row's hash into the next with a verify command, making any edit/deletion of the audit history detectable after the fact
 - [x] #114 Per-data-type retention policies — shipped: `APERIO_RETENTION_{CAPTURES,ACCESS_LOG,AUDIT,STATS}` (days) enforced by an hourly background pruner (audit prunes chain-safely: whole expired rotations + only the active file's leading prefix); each cycle audited as `retention_pruned`
-- [ ] #115 Disk-usage guard with auto-prune at cap — a configurable max `aperio.db` size that auto-prunes the oldest low-priority captures and emits a webhook alert as the cap nears
+- [x] #115 Disk-usage guard with auto-prune at cap — shipped: `APERIO_DB_MAX_BYTES` caps aperio.db(+WAL/SHM); 90% emits `disk_usage_warning` (hysteresis at 80%), past the cap the hourly guard prunes oldest inbox/delivery/day-stat rows, vacuums, and emits `disk_pruned`
 - [x] #116 Right-to-erasure selective purge — shipped: `POST /aperio/api/purge` (admin) erases the traffic log, inspector captures, per-hostname/per-token stats rows, stage windows, cache entries, and access-log lines matching a hostname/token/visitor-IP selector; audited as `data_purged`
 - [ ] #117 Client-side store-and-forward capture buffer — the client queues request metadata to a small local buffer when the WebSocket drops and replays it on reconnect, so no traffic records are lost during outages
 
