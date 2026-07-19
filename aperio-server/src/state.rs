@@ -840,6 +840,12 @@ pub(crate) struct AppState {
   pub(crate) udp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
   /// Server-side GET response cache (APERIO_CACHE; see the cache module).
   pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
+  /// Cacheable GET misses currently being fetched, keyed like the response
+  /// cache (`host|uri`). Concurrent identical misses subscribe to the
+  /// leader's watch channel and re-check the cache when it completes
+  /// (single-flight coalescing). Sync mutex: only held for map ops.
+  pub(crate) cache_inflight:
+    std::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<bool>>>,
   /// Rolling per-stage latency statistics per route (in-memory).
   pub(crate) stage_stats: Mutex<StageStats>,
   /// Hostnames currently in maintenance mode (`*` = every hostname), mapped to

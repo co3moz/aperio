@@ -72,4 +72,49 @@ if printf '%s' "$HDRS" | grep -qi "x-aperio-stale"; then
 fi
 echo "  ok: reconnected client serves fresh responses again"
 
+step "Single-flight coalescing on cache miss"
+SF_BACKEND_PORT=18110
+"$PYTHON" - "$SF_BACKEND_PORT" <<'PYEOF' >"$LOG_DIR/backend-singleflight.log" 2>&1 &
+import http.server, sys, threading, time
+
+hits = {"n": 0}
+lock = threading.Lock()
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/count':
+            data = str(hits["n"]).encode()
+            self.send_response(200)
+            self.send_header('Cache-Control', 'no-store')
+        else:
+            with lock:
+                hits["n"] += 1
+            time.sleep(1)
+            data = f'slow {self.path}'.encode()
+            self.send_response(200)
+            self.send_header('Cache-Control', 'max-age=60')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+PYEOF
+BACKEND_PIDS+=($!)
+retry 15 curl -sf "http://127.0.0.1:${SF_BACKEND_PORT}/count" || fail "single-flight backend did not come up"
+start_client singleflight "$SF_BACKEND_PORT" APERIO_HOSTNAME_BIND=sf.e2e.local APERIO_CACHE=1
+wait_routable sf.e2e.local /count
+# Five concurrent identical cacheable misses must reach the backend once.
+for _ in 1 2 3 4 5; do
+  curl -s -o /dev/null -H "Host: sf.e2e.local" "$BASE/coalesce-me" &
+done
+wait
+COUNT="$(curl -s "http://127.0.0.1:${SF_BACKEND_PORT}/count")"
+[ "$COUNT" = "1" ] || fail "expected 1 backend fetch for 5 concurrent identical misses, got $COUNT"
+echo "  ok: 5 concurrent identical misses collapsed into 1 upstream fetch"
+HDRS="$(curl -s -D - -o /dev/null -H "Host: sf.e2e.local" "$BASE/coalesce-me")"
+assert_contains "$HDRS" "x-aperio-cache: hit" "followers left a warm cache behind"
+
 stop_server

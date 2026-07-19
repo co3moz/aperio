@@ -53,6 +53,24 @@ pub(crate) fn gateway_timeout_response(
   }
 }
 
+/// Single-flight leadership over one cache key: held by the first request
+/// that misses the cache for a coalescable GET while followers wait. Drop
+/// removes the key from the in-flight table and (by dropping the watch
+/// sender) wakes every waiting follower — on all exit paths.
+struct CacheSingleFlight {
+  state: Arc<AppState>,
+  key: String,
+  _done: tokio::sync::watch::Sender<bool>,
+}
+
+impl Drop for CacheSingleFlight {
+  fn drop(&mut self) {
+    if let Ok(mut inflight) = self.state.cache_inflight.lock() {
+      inflight.remove(&self.key);
+    }
+  }
+}
+
 /// Effective request body cap for a dispatch: a service's client-declared
 /// `max_request_body` can only tighten the global APERIO_MAX_BODY_SIZE limit,
 /// never widen it.
@@ -669,45 +687,90 @@ async fn proxy_http_request(
     && selected.cache
     && crate::cache::request_cacheable(&method_str, &headers);
   let cache_key = crate::cache::cache_key(request_host.as_deref(), &uri_str);
-  if cache_eligible
-    && let Some(hit) = state.response_cache.lock().await.get(
-      &cache_key,
-      std::time::Duration::from_secs(state.config().cache_max_stale),
-    )
-  {
-    let duration = start_time.elapsed();
-    let (status, body_len, response) = cache_hit_response(hit, &headers);
-    {
-      let mut stats = state.stats.lock().await;
-      stats.total_requests += 1;
-      stats.successful_requests += 1;
-      stats.total_bytes_transferred += body_len;
+  // Single-flight coalescing: the first cacheable miss for a key becomes the
+  // leader (the guard below); concurrent identical misses wait for it and
+  // re-check the cache instead of stampeding the backend on cache expiry.
+  // The guard is held until this handler returns — by then the leader's
+  // response is cached (or proved uncacheable) — and its Drop wakes waiters
+  // on every exit path, including errors and failover.
+  let mut _cache_single_flight: Option<CacheSingleFlight> = None;
+  if cache_eligible {
+    let mut waited = false;
+    loop {
+      if let Some(hit) = state.response_cache.lock().await.get(
+        &cache_key,
+        std::time::Duration::from_secs(state.config().cache_max_stale),
+      ) {
+        let duration = start_time.elapsed();
+        let (status, body_len, response) = cache_hit_response(hit, &headers);
+        {
+          let mut stats = state.stats.lock().await;
+          stats.total_requests += 1;
+          stats.successful_requests += 1;
+          stats.total_bytes_transferred += body_len;
+        }
+        state.persistent_stats.lock().await.record_request_labeled(
+          true,
+          0,
+          body_len,
+          duration.as_millis() as u64,
+          Some(selected.token_name.as_deref().unwrap_or("master")),
+          request_host.as_deref(),
+          selected.org_id.as_deref(),
+        );
+        let request_id = uuid::Uuid::new_v4().to_string();
+        log_request_success(
+          &state,
+          request_id,
+          &method_str,
+          &uri_str,
+          status,
+          duration,
+          request_host.as_deref(),
+          Some(&selected.id),
+          selected.token_name.as_deref(),
+          selected.org_id.clone(),
+        )
+        .await;
+        telemetry::record_status(&tracing::Span::current(), status);
+        return response;
+      }
+      // Followers wait at most once: if the leader's response turned out to
+      // be uncacheable there is nothing to coalesce onto — dispatch normally.
+      if waited {
+        break;
+      }
+      let follow_rx = {
+        let mut inflight = state
+          .cache_inflight
+          .lock()
+          .expect("cache_inflight lock poisoned");
+        match inflight.get(&cache_key) {
+          Some(rx) => Some(rx.clone()),
+          None => {
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            inflight.insert(cache_key.clone(), rx);
+            _cache_single_flight = Some(CacheSingleFlight {
+              state: state.clone(),
+              key: cache_key.clone(),
+              _done: tx,
+            });
+            None
+          }
+        }
+      };
+      match follow_rx {
+        // Leader: fall through to the normal dispatch below.
+        None => break,
+        Some(mut rx) => {
+          waited = true;
+          // `changed()` returns immediately once the leader's guard drops
+          // (the sender is dropped with it); the timeout only bounds a
+          // leader that itself hangs on the gateway timeout.
+          let _ = tokio::time::timeout(state.config().gateway_response_timeout, rx.changed()).await;
+        }
+      }
     }
-    state.persistent_stats.lock().await.record_request_labeled(
-      true,
-      0,
-      body_len,
-      duration.as_millis() as u64,
-      Some(selected.token_name.as_deref().unwrap_or("master")),
-      request_host.as_deref(),
-      selected.org_id.as_deref(),
-    );
-    let request_id = uuid::Uuid::new_v4().to_string();
-    log_request_success(
-      &state,
-      request_id,
-      &method_str,
-      &uri_str,
-      status,
-      duration,
-      request_host.as_deref(),
-      Some(&selected.id),
-      selected.token_name.as_deref(),
-      selected.org_id.clone(),
-    )
-    .await;
-    telemetry::record_status(&tracing::Span::current(), status);
-    return response;
   }
 
   // Protocol v2 upload streaming: large (or chunked) request bodies are

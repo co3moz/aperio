@@ -98,7 +98,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #70 Edge image transformation proxy — resize/crop/re-encode to WebP/AVIF via `?w=&format=` params at the server, caching derived variants so the origin serves each original once
 - [x] #71 ETag synthesis and 304 handling — shipped: cached bodies without a validator get a body-hash ETag; a matching `If-None-Match` is answered 304 at the edge (fresh or serve-stale), no tunnel round-trip
 - [ ] #72 Edge HTML link rewriting — rewrite hardcoded `http://localhost`/internal hostnames inside HTML/CSS bodies to the public tunnel hostname as they stream through
-- [ ] #73 Single-flight coalescing on cache miss — collapse many simultaneous identical cacheable misses into one upstream fetch, protecting local backends from thundering-herd load on cache expiry
+- [x] #73 Single-flight coalescing on cache miss — shipped: the first cacheable miss per `host|uri` key becomes the leader; concurrent identical misses wait on its watch channel and re-answer from the freshly stored entry (uncacheable outcomes fall back to normal dispatch after one wait)
 - [ ] #74 Range requests served from cache — satisfy HTTP Range requests (video scrubbing, resumable downloads) from cached full objects at the edge so partial-content requests never re-traverse the tunnel
 
 ### Client-side

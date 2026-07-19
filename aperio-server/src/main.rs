@@ -679,6 +679,7 @@ async fn async_main() {
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
+    cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
