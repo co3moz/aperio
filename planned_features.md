@@ -150,7 +150,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #108 Scheduled automatic DB backups — periodic snapshot + retention (on top of dump export/import)
 - [ ] #109 Per-token quotas — max requests/day, max bandwidth, 429 on exceed
 - [x] #110 Multi-tenancy / organizations — group tokens and users under orgs (shipped: master + child orgs; per-org isolation of clients, tokens, and users; the aperio super-admin switches orgs from the sidebar; audit records the acting user)
-- [ ] #111 Server config lint / dry-run — `aperio-server --check-config`
+- [x] #111 Server config lint / dry-run — shipped: `aperio-server --check-config` validates the layered file+env configuration (scalar parses, enum values, CIDRs, page files, structured sections, OIDC coherence) and exits 0/1 without starting the server
 - [ ] #112 Blue-green client deployment — the new client takes over while the old drains (on top of graceful drain)
 - [ ] #113 Hash-chained tamper-evident audit log — chain each audit row's hash into the next with a verify command, making any edit/deletion of the audit history detectable after the fact
 - [ ] #114 Per-data-type retention policies — independent TTLs for request captures, access logs, audit entries, and stats rows, enforced by a background pruner

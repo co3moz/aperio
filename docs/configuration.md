@@ -232,6 +232,19 @@ cache: true
 
 The file is read once at startup and takes precedence over environment variables (dashboard overrides still win over both). It is not hot-reloaded — use the dashboard's live settings for runtime changes.
 
+#### Config lint (`--check-config`)
+
+`aperio-server --check-config` validates the layered configuration — the file (if any) plus the environment — and exits without starting the server: no port is bound and the data directory is untouched. It flags values the server would otherwise silently replace with defaults (unparsable numbers, unknown `lb_strategy`/`failover` values, a bad `random_subdomain` pattern), malformed `trusted_proxies`/`server_auth`, unreadable `504_page`/`503_page`/`error_pages:` files, invalid structured sections (`headers:`, `routes:`, `expose:`, `error_pages:`), and incomplete OIDC settings. Exit code 0 means the configuration is valid (warnings possible), 1 means at least one error — handy as a pre-deploy CI step or before a restart:
+
+```console
+$ aperio-server --check-config
+Checking configuration (aperio-server.yaml)
+  ok    APERIO_SERVER_TOKEN is set
+  FAIL  APERIO_LB_STRATEGY 'bogus' is unknown (expected round-robin, primary-standby or sticky)
+
+Configuration check FAILED: 1 error(s), 0 warning(s)
+```
+
 #### Hot-reload
 
 `aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change — cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:`, `routes:` and `error_pages:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).

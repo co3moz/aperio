@@ -19,6 +19,7 @@ mod alerts;
 mod api;
 mod auth;
 mod cache;
+mod check_config;
 mod config_file;
 mod error_pages;
 mod expose;
@@ -103,6 +104,12 @@ fn main() {
   // Must happen before the runtime exists: the loader writes environment
   // variables, which is only sound while no other thread can read them.
   config_file::load();
+
+  // `aperio-server --check-config` lints the layered configuration (file +
+  // environment) and exits without starting the server.
+  if std::env::args().nth(1).as_deref() == Some("--check-config") {
+    std::process::exit(check_config::run());
+  }
 
   tokio::runtime::Builder::new_multi_thread()
     .enable_all()

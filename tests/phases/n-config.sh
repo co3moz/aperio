@@ -77,3 +77,23 @@ BODY="$(curl -s -m 10 -H 'Host: other.e2e.local' "$BASE/nothing")"
 assert_contains "$BODY" "504 Gateway Timeout" "other hostnames keep the default 504 text"
 
 stop_server
+
+step "Server config lint (--check-config)"
+LINT_CFG="$LOG_DIR/lint.yaml"
+cat > "$LINT_CFG" <<YAML
+server_token: e2e-lint-token-long-enough
+lb_strategy: sticky
+YAML
+LINT_OUT="$(env APERIO_SERVER_CONFIG="$LINT_CFG" "$SERVER_BIN" --check-config)" \
+  || fail "--check-config exited non-zero on a valid config: $LINT_OUT"
+assert_contains "$LINT_OUT" "Configuration OK" "a valid config passes the lint"
+cat > "$LINT_CFG" <<YAML
+server_token: e2e-lint-token-long-enough
+lb_strategy: bogus
+max_body_size: not-a-number
+YAML
+if LINT_BAD="$(env APERIO_SERVER_CONFIG="$LINT_CFG" "$SERVER_BIN" --check-config 2>&1)"; then
+  fail "--check-config should exit 1 on an invalid config"
+fi
+assert_contains "$LINT_BAD" "FAIL" "invalid values are reported as failures"
+assert_contains "$LINT_BAD" "Configuration check FAILED" "the lint summarizes the errors"
