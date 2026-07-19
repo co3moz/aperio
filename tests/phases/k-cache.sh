@@ -117,4 +117,65 @@ echo "  ok: 5 concurrent identical misses collapsed into 1 upstream fetch"
 HDRS="$(curl -s -D - -o /dev/null -H "Host: sf.e2e.local" "$BASE/coalesce-me")"
 assert_contains "$HDRS" "x-aperio-cache: hit" "followers left a warm cache behind"
 
+step "stale-while-revalidate"
+SWR_BACKEND_PORT=18111
+"$PYTHON" - "$SWR_BACKEND_PORT" <<'PYEOF' >"$LOG_DIR/backend-swr.log" 2>&1 &
+import http.server, sys, threading
+
+hits = {"n": 0}
+lock = threading.Lock()
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/count':
+            data = str(hits["n"]).encode()
+            self.send_response(200)
+            self.send_header('Cache-Control', 'no-store')
+        else:
+            with lock:
+                hits["n"] += 1
+            data = f'swr v{hits["n"]}'.encode()
+            self.send_response(200)
+            self.send_header('Cache-Control', 'max-age=1, stale-while-revalidate=60')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+PYEOF
+BACKEND_PIDS+=($!)
+retry 15 curl -sf "http://127.0.0.1:${SWR_BACKEND_PORT}/count" || fail "SWR backend did not come up"
+start_client swr "$SWR_BACKEND_PORT" APERIO_HOSTNAME_BIND=swr.e2e.local APERIO_CACHE=1
+wait_routable swr.e2e.local /count
+curl -sf -H 'Host: swr.e2e.local' "$BASE/page" >/dev/null || fail "SWR warm-up failed"
+sleep 2  # past max-age=1, inside the 60s SWR window
+SWR_HDRS="$(curl -s -D - -H 'Host: swr.e2e.local' "$BASE/page")"
+assert_contains "$SWR_HDRS" "x-aperio-cache: hit" "the expired entry is still answered from cache"
+assert_contains "$SWR_HDRS" "x-aperio-stale: true" "the SWR answer is marked stale"
+assert_contains "$SWR_HDRS" "swr v1" "the stale body is the previously cached response"
+# The background revalidation refreshed the entry: a later hit is fresh v2.
+retry 10 sh -c "curl -s -H 'Host: swr.e2e.local' '$BASE/page' | grep -q 'swr v2'" \
+  || fail "the background revalidation did not refresh the entry"
+FRESH_HDRS="$(curl -s -D - -o /dev/null -H 'Host: swr.e2e.local' "$BASE/page")"
+if printf '%s' "$FRESH_HDRS" | grep -qi "x-aperio-stale"; then
+  fail "the revalidated entry must serve fresh, not stale"
+fi
+echo "  ok: the stale window served instantly while the entry refreshed in the background"
+
+step "Cache purge API"
+COOKIES_CACHE="$LOG_DIR/cookies-cache.txt"
+dashboard_login "$COOKIES_CACHE"
+PURGED="$(curl -sf -b "$COOKIES_CACHE" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"swr.e2e.local"}' "$BASE/aperio/api/cache/purge")" \
+  || fail "cache purge failed"
+assert_contains "$PURGED" '"status":"ok"' "the purge reports its removal count"
+MISS_HDRS="$(curl -s -D - -o /dev/null -H 'Host: swr.e2e.local' "$BASE/page")"
+if printf '%s' "$MISS_HDRS" | grep -qi "x-aperio-cache: hit"; then
+  fail "a purged entry must not answer from cache"
+fi
+echo "  ok: the purged entry is re-fetched from the backend"
+
 stop_server

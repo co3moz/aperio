@@ -72,6 +72,76 @@ impl Drop for CacheSingleFlight {
   }
 }
 
+/// Background stale-while-revalidate refresh: re-fetches one cacheable GET
+/// through the already-selected tunnel client and replaces the cache entry
+/// on a cacheable 200. Fire-and-forget — a failure leaves the stale entry
+/// serving until its SWR window closes (the leader election retries).
+#[allow(clippy::too_many_arguments)]
+fn spawn_swr_revalidation(
+  state: Arc<AppState>,
+  cache_key: String,
+  uri: String,
+  headers: Vec<(String, String)>,
+  client_id: String,
+  client_tx: tokio::sync::mpsc::Sender<Message>,
+  resilient: bool,
+) {
+  tokio::spawn(async move {
+    let revalidate_id = uuid::Uuid::new_v4().to_string();
+    let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
+    state.pending_requests.lock().await.insert(
+      revalidate_id.clone(),
+      PendingRequest {
+        tx: tx_response,
+        client_id,
+      },
+    );
+    let msg = TunnelMessage::Request {
+      id: revalidate_id.clone(),
+      method: "GET".to_string(),
+      uri,
+      headers,
+      body: None,
+    };
+    let Ok(json) = serde_json::to_string(&msg) else {
+      state.pending_requests.lock().await.remove(&revalidate_id);
+      return;
+    };
+    if client_tx.send(Message::Text(json)).await.is_err() {
+      state.pending_requests.lock().await.remove(&revalidate_id);
+      return;
+    }
+    let result = tokio::time::timeout(state.config().gateway_response_timeout, rx_response).await;
+    state.pending_requests.lock().await.remove(&revalidate_id);
+    if let Ok(Ok(tunnel_res)) = result {
+      // Streamed bodies never refresh the cache (dropping stream_rx makes
+      // the tunnel read loop clean the stream up).
+      if tunnel_res.stream_rx.is_none()
+        && tunnel_res.status == 200
+        && let Some(ttl) = crate::cache::response_cache_ttl(&tunnel_res.headers)
+      {
+        use base64::prelude::*;
+        let body = tunnel_res
+          .body
+          .as_deref()
+          .and_then(|b| BASE64_STANDARD.decode(b).ok())
+          .unwrap_or_default();
+        let swr = crate::cache::response_swr_window(&tunnel_res.headers);
+        state.response_cache.lock().await.insert(
+          cache_key,
+          tunnel_res.status,
+          tunnel_res.headers,
+          body,
+          ttl,
+          state.config().cache_max_bytes,
+          resilient,
+          swr,
+        );
+      }
+    }
+  });
+}
+
 /// Effective request body cap for a dispatch: a service's client-declared
 /// `max_request_body` can only tighten the global APERIO_MAX_BODY_SIZE limit,
 /// never widen it.
@@ -705,10 +775,49 @@ async fn proxy_http_request(
   if cache_eligible {
     let mut waited = false;
     loop {
-      if let Some(hit) = state.response_cache.lock().await.get(
+      let lookup = state.response_cache.lock().await.lookup(
         &cache_key,
         std::time::Duration::from_secs(state.config().cache_max_stale),
-      ) {
+      );
+      let served_hit = match lookup {
+        crate::cache::SwrLookup::Fresh(hit) => Some(hit),
+        crate::cache::SwrLookup::StaleRevalidate { hit, lead } => {
+          if lead {
+            // The revalidation request carries the visitor's headers minus
+            // the conditionals, so the backend answers with a full 200.
+            let reval_headers: Vec<(String, String)> = headers
+              .iter()
+              .filter_map(|(k, v)| {
+                let name = k.as_str().to_ascii_lowercase();
+                if matches!(
+                  name.as_str(),
+                  "if-none-match"
+                    | "if-modified-since"
+                    | "connection"
+                    | "keep-alive"
+                    | "upgrade"
+                    | "accept-encoding"
+                ) {
+                  return None;
+                }
+                v.to_str().ok().map(|val| (k.to_string(), val.to_string()))
+              })
+              .collect();
+            spawn_swr_revalidation(
+              state.clone(),
+              cache_key.clone(),
+              uri_str.clone(),
+              reval_headers,
+              selected.id.clone(),
+              selected.tx.clone(),
+              selected.resilience,
+            );
+          }
+          Some(hit)
+        }
+        crate::cache::SwrLookup::Miss => None,
+      };
+      if let Some(hit) = served_hit {
         let duration = start_time.elapsed();
         let (status, body_len, response) = cache_hit_response(hit, &headers);
         {
@@ -1223,6 +1332,7 @@ async fn proxy_http_request(
             ttl,
             state.config().cache_max_bytes,
             selected.resilience,
+            crate::cache::response_swr_window(&tunnel_res.headers),
           );
         }
 

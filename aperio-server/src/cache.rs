@@ -48,6 +48,29 @@ struct CachedResponse {
   /// was stored: it may be served past `expires_at` (up to the max-stale
   /// window) while the route has no healthy client.
   resilient: bool,
+  /// `stale-while-revalidate` window the response advertised (RFC 5861):
+  /// past `expires_at` the entry may still be served for this long while a
+  /// background revalidation refreshes it. Zero = no SWR.
+  swr: Duration,
+  /// When a background revalidation was last triggered for this entry
+  /// (None = none in flight). Prevents a revalidation stampede; retried
+  /// after [`REVALIDATE_RETRY`] in case the refresh failed silently.
+  revalidate_started: Option<Instant>,
+}
+
+/// A stale-while-revalidate leader that has not refreshed the entry within
+/// this long is presumed failed; the next stale hit triggers a new one.
+const REVALIDATE_RETRY: Duration = Duration::from_secs(15);
+
+/// Outcome of a cache lookup that honours stale-while-revalidate.
+pub(crate) enum SwrLookup {
+  /// A fresh entry: serve it, nothing else to do.
+  Fresh(CacheHit),
+  /// An expired entry inside its SWR window: serve it stale. `lead` is true
+  /// when this caller should trigger the background revalidation.
+  StaleRevalidate { hit: CacheHit, lead: bool },
+  /// Nothing servable.
+  Miss,
 }
 
 /// A response served from cache, cloned out of the store.
@@ -98,27 +121,81 @@ impl ResponseCache {
     keys.len()
   }
 
-  /// Returns a fresh entry for the key. An expired entry is dropped unless
-  /// it is resilient and still inside the `max_stale` window (it stays
-  /// stored for [`Self::get_for_outage`]).
+  /// Returns a fresh entry for the key (test convenience over [`Self::lookup`],
+  /// which the proxy uses directly for its stale-while-revalidate handling).
+  #[cfg(test)]
   pub(crate) fn get(&mut self, key: &str, max_stale: Duration) -> Option<CacheHit> {
-    let now = Instant::now();
-    let e = self.entries.get(key)?;
-    if e.expires_at <= now {
-      if !(e.resilient && now < e.expires_at + max_stale)
-        && let Some(e) = self.entries.remove(key)
-      {
-        self.total_bytes -= e.body.len() as u64;
-      }
-      return None;
+    match self.lookup(key, max_stale) {
+      SwrLookup::Fresh(hit) => Some(hit),
+      _ => None,
     }
-    self.entries.get(key).map(|e| CacheHit {
+  }
+
+  /// Stale-while-revalidate lookup: a fresh entry is served as usual; an
+  /// expired entry still inside its advertised SWR window is served stale,
+  /// with the first caller since expiry (or since a presumed-failed refresh)
+  /// elected to trigger the background revalidation.
+  pub(crate) fn lookup(&mut self, key: &str, max_stale: Duration) -> SwrLookup {
+    let now = Instant::now();
+    let Some(e) = self.entries.get_mut(key) else {
+      return SwrLookup::Miss;
+    };
+    let hit = |e: &CachedResponse, stale: bool| CacheHit {
       status: e.status,
       headers: e.headers.clone(),
       body: e.body.clone(),
       age_secs: now.duration_since(e.stored_at).as_secs(),
-      stale: false,
-    })
+      stale,
+    };
+    if e.expires_at > now {
+      let h = hit(e, false);
+      return SwrLookup::Fresh(h);
+    }
+    if now < e.expires_at + e.swr {
+      let lead = match e.revalidate_started {
+        None => true,
+        Some(started) => now.duration_since(started) >= REVALIDATE_RETRY,
+      };
+      if lead {
+        e.revalidate_started = Some(now);
+      }
+      let h = hit(e, true);
+      return SwrLookup::StaleRevalidate { hit: h, lead };
+    }
+    // Past both windows: drop unless resilient serve-stale still covers it.
+    if !(e.resilient && now < e.expires_at + max_stale)
+      && let Some(e) = self.entries.remove(key)
+    {
+      self.total_bytes -= e.body.len() as u64;
+    }
+    SwrLookup::Miss
+  }
+
+  /// Purges entries by selector: `host` matches the key's hostname part
+  /// exactly, `path_prefix` the start of its URI part; both absent = clear
+  /// everything. Returns removed entries.
+  pub(crate) fn purge_matching(&mut self, host: Option<&str>, path_prefix: Option<&str>) -> usize {
+    if host.is_none() && path_prefix.is_none() {
+      let removed = self.entries.len();
+      self.clear();
+      return removed;
+    }
+    let keys: Vec<String> = self
+      .entries
+      .keys()
+      .filter(|k| {
+        let (key_host, key_uri) = k.split_once('|').unwrap_or(("", k));
+        host.is_none_or(|h| key_host.eq_ignore_ascii_case(h))
+          && path_prefix.is_none_or(|p| key_uri.starts_with(p))
+      })
+      .cloned()
+      .collect();
+    for key in &keys {
+      if let Some(e) = self.entries.remove(key) {
+        self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
+      }
+    }
+    keys.len()
   }
 
   /// Outage path: returns a resilient entry (fresh or expired) still inside
@@ -157,6 +234,7 @@ impl ResponseCache {
     ttl: Duration,
     max_bytes: u64,
     resilient: bool,
+    swr: Duration,
   ) {
     let size = body.len() as u64;
     if size > max_bytes / 4 {
@@ -203,6 +281,8 @@ impl ResponseCache {
         stored_at: now,
         expires_at: now + ttl,
         resilient,
+        swr,
+        revalidate_started: None,
       },
     );
   }
@@ -250,6 +330,24 @@ pub(crate) fn response_cache_ttl(headers: &[(String, String)]) -> Option<Duratio
     return None;
   }
   ttl.filter(|secs| *secs > 0).map(Duration::from_secs)
+}
+
+/// Extracts the `stale-while-revalidate` window (RFC 5861) a response
+/// advertises via `Cache-Control`. Zero = none.
+pub(crate) fn response_swr_window(headers: &[(String, String)]) -> Duration {
+  for (name, value) in headers {
+    if name.eq_ignore_ascii_case("cache-control") {
+      for directive in value.split(',') {
+        let d = directive.trim().to_ascii_lowercase();
+        if let Some(v) = d.strip_prefix("stale-while-revalidate=")
+          && let Ok(secs) = v.trim().parse::<u64>()
+        {
+          return Duration::from_secs(secs);
+        }
+      }
+    }
+  }
+  Duration::ZERO
 }
 
 /// True when the request itself allows a cached answer: a plain GET with no
@@ -341,6 +439,7 @@ mod tests {
       Duration::from_secs(60),
       1024,
       false,
+      Duration::ZERO,
     );
     let hit = cache.get("h|/a", Duration::ZERO).expect("hit");
     assert_eq!(hit.status, 200);
@@ -356,6 +455,7 @@ mod tests {
       Duration::from_secs(0),
       1024,
       false,
+      Duration::ZERO,
     );
     assert!(cache.get("h|/z", Duration::ZERO).is_none());
 
@@ -368,6 +468,7 @@ mod tests {
       Duration::from_secs(60),
       1024,
       false,
+      Duration::ZERO,
     );
     assert!(cache.get("h|/big", Duration::ZERO).is_none());
   }
@@ -387,6 +488,7 @@ mod tests {
         Duration::from_secs(*ttl),
         1000,
         false,
+        Duration::ZERO,
       );
     }
     cache.insert(
@@ -397,6 +499,7 @@ mod tests {
       Duration::from_secs(60),
       1000,
       false,
+      Duration::ZERO,
     );
     assert!(
       cache.get("h|/new", Duration::ZERO).is_some(),
@@ -437,6 +540,7 @@ mod tests {
       Duration::from_secs(60),
       4096,
       false,
+      Duration::ZERO,
     );
     let hit = cache.get("h|/no-etag", Duration::ZERO).unwrap();
     let etag = hit
@@ -455,6 +559,7 @@ mod tests {
       Duration::from_secs(60),
       4096,
       false,
+      Duration::ZERO,
     );
     let hit = cache.get("h|/has-etag", Duration::ZERO).unwrap();
     let etags: Vec<_> = hit
@@ -482,6 +587,7 @@ mod tests {
       Duration::from_secs(0),
       1024,
       true,
+      Duration::ZERO,
     );
     assert!(cache.get("h|/r", max_stale).is_none(), "fresh path misses");
     let hit = cache.get_for_outage("h|/r", max_stale).expect("stale hit");
@@ -499,6 +605,7 @@ mod tests {
       Duration::from_secs(0),
       1024,
       false,
+      Duration::ZERO,
     );
     assert!(cache.get_for_outage("h|/n", max_stale).is_none());
 
@@ -514,8 +621,100 @@ mod tests {
       Duration::from_secs(60),
       1024,
       true,
+      Duration::ZERO,
     );
     let hit = cache.get_for_outage("h|/f", max_stale).expect("fresh hit");
     assert!(!hit.stale);
+  }
+
+  #[test]
+  fn test_swr_lookup_and_leader_election() {
+    let mut cache = ResponseCache::default();
+    let headers = vec![(
+      "cache-control".to_string(),
+      "max-age=1, stale-while-revalidate=60".to_string(),
+    )];
+    assert_eq!(response_swr_window(&headers), Duration::from_secs(60));
+
+    // Zero TTL + a 60s SWR window: expired immediately, but still servable.
+    cache.insert(
+      "h|/swr".to_string(),
+      200,
+      headers.clone(),
+      b"stale-ok".to_vec(),
+      Duration::ZERO,
+      1024,
+      false,
+      Duration::from_secs(60),
+    );
+    // First stale hit leads the revalidation; followers do not.
+    match cache.lookup("h|/swr", Duration::ZERO) {
+      SwrLookup::StaleRevalidate { hit, lead } => {
+        assert!(lead);
+        assert!(hit.stale);
+        assert_eq!(hit.body, b"stale-ok");
+      }
+      _ => panic!("expected a stale-while-revalidate hit"),
+    }
+    match cache.lookup("h|/swr", Duration::ZERO) {
+      SwrLookup::StaleRevalidate { lead, .. } => assert!(!lead),
+      _ => panic!("expected a follower stale hit"),
+    }
+    // A refresh replaces the entry and clears the revalidation marker.
+    cache.insert(
+      "h|/swr".to_string(),
+      200,
+      headers,
+      b"fresh".to_vec(),
+      Duration::from_secs(60),
+      1024,
+      false,
+      Duration::from_secs(60),
+    );
+    match cache.lookup("h|/swr", Duration::ZERO) {
+      SwrLookup::Fresh(hit) => assert_eq!(hit.body, b"fresh"),
+      _ => panic!("expected a fresh hit after the refresh"),
+    }
+    // Entries without an SWR window still miss once expired.
+    cache.insert(
+      "h|/plain".to_string(),
+      200,
+      vec![],
+      b"x".to_vec(),
+      Duration::ZERO,
+      1024,
+      false,
+      Duration::ZERO,
+    );
+    assert!(matches!(
+      cache.lookup("h|/plain", Duration::ZERO),
+      SwrLookup::Miss
+    ));
+  }
+
+  #[test]
+  fn test_purge_matching() {
+    let mut cache = ResponseCache::default();
+    for key in ["a.com|/x", "a.com|/assets/1", "b.com|/x"] {
+      cache.insert(
+        key.to_string(),
+        200,
+        vec![],
+        b"y".to_vec(),
+        Duration::from_secs(60),
+        1024,
+        false,
+        Duration::ZERO,
+      );
+    }
+    // Prefix within one hostname.
+    assert_eq!(cache.purge_matching(Some("a.com"), Some("/assets/")), 1);
+    assert!(cache.get("a.com|/x", Duration::ZERO).is_some());
+    // Hostname-wide.
+    assert_eq!(cache.purge_matching(Some("a.com"), None), 1);
+    assert!(cache.get("b.com|/x", Duration::ZERO).is_some());
+    // No selectors = clear everything.
+    assert_eq!(cache.purge_matching(None, None), 1);
+    assert!(cache.get("b.com|/x", Duration::ZERO).is_none());
   }
 }

@@ -106,6 +106,77 @@ fn rewrite_access_log(
   Some(removed)
 }
 
+/// Selectors for a response-cache purge; both absent = clear the whole cache.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct CachePurgeRequest {
+  /// Hostname whose cached entries should be dropped (exact match).
+  pub(crate) hostname: Option<String>,
+  /// URI prefix whose cached entries should be dropped (e.g. `/assets/`).
+  pub(crate) path_prefix: Option<String>,
+}
+
+/// Purges response-cache entries by hostname and/or URI prefix (both absent
+/// = the whole cache). The next request re-fetches from the backend — the
+/// tool for "I deployed, drop the old copies now" instead of waiting out
+/// max-age.
+#[utoipa::path(post, path = "/aperio/api/cache/purge", tag = "dashboard",
+  description = "Drops response-cache entries matching a hostname and/or URI prefix; empty body clears the whole cache (admin only).",
+  request_body = CachePurgeRequest,
+  responses((status = 200, description = "Removed entry count", body = serde_json::Value)))]
+pub(crate) async fn cache_purge_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<CachePurgeRequest>,
+) -> Response {
+  // The cache is server-global (keys are host|uri, not org-scoped), so the
+  // purge is master-admin only like the other global mutations.
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  )
+  .to_string();
+  let hostname = payload
+    .hostname
+    .as_deref()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_ascii_lowercase);
+  let path_prefix = payload
+    .path_prefix
+    .as_deref()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string);
+  let removed = state
+    .response_cache
+    .lock()
+    .await
+    .purge_matching(hostname.as_deref(), path_prefix.as_deref());
+  info!(
+    "Cache purge by {}: hostname={:?} path_prefix={:?} → {} entr(ies) dropped",
+    actor_ip, hostname, path_prefix, removed
+  );
+  state
+    .audit_session(
+      "cache_purged",
+      &headers,
+      &actor_ip,
+      &format!(
+        "hostname={:?} path_prefix={:?} removed={}",
+        hostname, path_prefix, removed
+      ),
+    )
+    .await;
+  Json(serde_json::json!({"status": "ok", "removed": removed})).into_response()
+}
+
 /// Erases persisted records matching a hostname, token label, or visitor IP.
 #[utoipa::path(post, path = "/aperio/api/purge", tag = "dashboard",
   description = "Right-to-erasure: deletes traffic records (logs, inspector captures, stats aggregates, cache, access-log lines) matching a hostname, token label, or visitor IP (admin only).",
