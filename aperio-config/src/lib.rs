@@ -308,6 +308,11 @@ pub struct ServiceEntry {
   /// Persist inbound POST requests (third-party webhooks) hitting this
   /// service into the server's webhook inbox, for browsing and re-firing.
   pub webhook_inbox: Option<bool>,
+  /// Redirect URL for visitors rejected by `allowed_ips` when no candidate
+  /// of the route admits them (unset = stealth: the same answer as an
+  /// unclaimed route).
+  #[schemars(extend("examples" = ["https://example.com/not-for-you"]))]
+  pub denied: Option<String>,
 }
 
 /// A peer client whose declared tunnels this process binds to local ports.
@@ -426,6 +431,10 @@ pub struct FileConfig {
   /// Persist inbound POST requests (third-party webhooks) into the server's
   /// webhook inbox, for browsing and re-firing (services may override).
   pub webhook_inbox: Option<bool>,
+  /// Redirect URL for visitors rejected by `allowed_ips` when no candidate
+  /// of the route admits them (unset = stealth; services may override).
+  #[schemars(extend("examples" = ["https://example.com/not-for-you"]))]
+  pub denied: Option<String>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

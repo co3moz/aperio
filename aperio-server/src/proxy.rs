@@ -17,7 +17,8 @@ use crate::access_log::{log_request_failure, log_request_success};
 use crate::auth::{safe_redirect_path, validate_session, validate_session_for_host};
 use crate::protocol::{FRAME_REQUEST_CHUNK, TunnelMessage, encode_binary_frame};
 use crate::routing::{
-  extract_client_ip, extract_request_host, method_retryable, pick_proxy_client, wait_for_candidate,
+  PickOutcome, extract_client_ip, extract_request_host, method_retryable, pick_proxy_client,
+  wait_for_candidate,
 };
 use crate::settings::{FailoverMode, LbStrategy};
 use crate::share::{check_share_access, cookie_value};
@@ -504,35 +505,11 @@ async fn proxy_http_request(
     return resp;
   }
 
-  // 2b. Client-declared visitor IP allowlist: rejected before dispatch so a
-  // disallowed visitor never reaches the tunnel or the backend.
-  if !crate::routing::route_ip_allowed(
-    &state,
-    uri.path(),
-    extract_request_host(&headers).as_deref(),
-    caller_ip,
-  )
-  .await
-  {
-    log_request_failure(
-      &state,
-      &method_str,
-      &uri_str,
-      403,
-      start_time.elapsed(),
-      Some(&format!(
-        "Visitor IP {} not in service allowlist",
-        caller_ip
-      )),
-      None,
-    )
-    .await;
-    return (
-      StatusCode::FORBIDDEN,
-      "403 Forbidden - your IP is not allowed to access this service",
-    )
-      .into_response();
-  }
+  // Client-declared visitor IP allowlists are enforced per candidate during
+  // client selection below: the request dispatches to any candidate whose
+  // own list admits the visitor, and a fully rejected visitor gets the
+  // winning `denied:` redirect — or a stealth answer identical to an
+  // unclaimed route — so blocked traffic still never enters the tunnel.
 
   // 3. Wait for connection if client is disconnected.
   // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
@@ -625,14 +602,45 @@ async fn proxy_http_request(
     request_host.as_deref(),
     None,
     affinity.as_deref(),
+    Some(caller_ip),
   )
   .await
   {
-    Some(client) => client,
-    None => {
-      // A resilient cached answer (possibly stale) beats the 504.
-      if let Some(resp) =
-        stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
+    PickOutcome::Selected(client) => *client,
+    PickOutcome::Denied(Some(redirect)) => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        302,
+        start_time.elapsed(),
+        Some(&format!(
+          "Visitor IP {} rejected by every candidate; redirected to the denied page",
+          caller_ip
+        )),
+        None,
+      )
+      .await;
+      return Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", redirect)
+        .body(Body::empty())
+        .unwrap_or_else(|_| StatusCode::FOUND.into_response());
+    }
+    outcome @ (PickOutcome::NoRoute | PickOutcome::Denied(None)) => {
+      // Stealth: a fully rejected visitor gets exactly the unclaimed-route
+      // answer, so the route's existence never leaks to blocked IPs.
+      let denied = matches!(outcome, PickOutcome::Denied(_));
+      let reason = if denied {
+        "Visitor IP rejected by every candidate (stealth answer)"
+      } else {
+        "No active client connection available"
+      };
+      // A resilient cached answer (possibly stale) beats the 504 — but never
+      // for a denied visitor: serving cache would leak the route's existence.
+      if !denied
+        && let Some(resp) =
+          stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
       {
         return resp;
       }
@@ -642,7 +650,7 @@ async fn proxy_http_request(
         &uri_str,
         504,
         start_time.elapsed(),
-        Some("No active client connection available"),
+        Some(reason),
         None,
       )
       .await;
@@ -1356,7 +1364,21 @@ async fn proxy_http_request(
             .get_or_insert_with(|| tokio::time::Instant::now() + state.config().failover_window);
           let next = match state.config().failover_mode {
             FailoverMode::Retry => {
-              pick_proxy_client(&state, &uri_path_owned, request_host.as_deref(), None, None).await
+              // The visitor's IP eligibility is re-checked per candidate on
+              // the re-dispatch too (a denied outcome maps to no candidate).
+              match pick_proxy_client(
+                &state,
+                &uri_path_owned,
+                request_host.as_deref(),
+                None,
+                None,
+                Some(caller_ip),
+              )
+              .await
+              {
+                crate::routing::PickOutcome::Selected(c) => Some(*c),
+                _ => None,
+              }
             }
             FailoverMode::Wait => {
               // Wait for the same client process to return; when it
@@ -1367,6 +1389,7 @@ async fn proxy_http_request(
                 request_host.as_deref(),
                 selected.instance_id.as_deref(),
                 deadline,
+                Some(caller_ip),
               )
               .await
             }
@@ -1377,6 +1400,7 @@ async fn proxy_http_request(
                 request_host.as_deref(),
                 None,
                 deadline,
+                Some(caller_ip),
               )
               .await
             }

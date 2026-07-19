@@ -34,6 +34,7 @@ fn base_settings() -> ClientSettings {
     cache: false,
     resilience: false,
     webhook_inbox: false,
+    denied: None,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

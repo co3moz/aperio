@@ -100,6 +100,9 @@ pub(crate) struct ServiceSpec {
   /// Ask the server to persist inbound POSTs to this service into its
   /// webhook inbox (announced via Ping).
   pub(crate) webhook_inbox: bool,
+  /// Redirect URL for visitors this service's `allowed_ips` rejects
+  /// (announced via Ping; None = stealth).
+  pub(crate) denied: Option<String>,
 }
 
 impl ServiceSpec {
@@ -399,6 +402,7 @@ pub(crate) async fn run_service(
             );
             let max_request_body_ping = spec.max_request_body;
             let webhook_inbox_ping = spec.webhook_inbox;
+            let denied_ping = spec.denied.clone();
 
             let ping_task = tokio::spawn(async move {
               // The first Ping goes out immediately: it announces the binds,
@@ -452,6 +456,7 @@ pub(crate) async fn run_service(
                   resilience,
                   max_request_body: max_request_body_ping,
                   webhook_inbox: webhook_inbox_ping,
+                  denied: denied_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

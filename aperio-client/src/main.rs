@@ -460,6 +460,32 @@ fn build_specs(
     }
   }
 
+  // Denied-visitor redirects must be absolute http(s) URLs — anything else
+  // would silently degrade to stealth on the server.
+  let validate_denied = |denied: Option<&String>, what: &str| -> Result<(), String> {
+    if let Some(url) = denied {
+      let ok =
+        (url.starts_with("http://") || url.starts_with("https://")) && url::Url::parse(url).is_ok();
+      if !ok {
+        return Err(format!(
+          "CRITICAL ERROR: {} has an invalid denied: value '{}'; expected an absolute http(s) URL",
+          what, url
+        ));
+      }
+    }
+    Ok(())
+  };
+  validate_denied(settings.denied.as_ref(), "the client configuration")?;
+  for entry in &settings.services {
+    validate_denied(
+      entry.denied.as_ref(),
+      &format!(
+        "service '{}'",
+        entry.name.clone().unwrap_or_else(|| "?".into())
+      ),
+    )?;
+  }
+
   // Parallel connections per service: bounded so a typo cannot exhaust the
   // server's tunnel slots (it also has its own max_tunnels guard).
   let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
@@ -529,6 +555,7 @@ fn build_specs(
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
       webhook_inbox: settings.webhook_inbox,
+      denied: settings.denied.clone(),
       tunnels,
       headers: crate::config::merge_security_headers(
         settings.headers.clone(),
@@ -641,6 +668,12 @@ fn build_specs(
           .unwrap_or_else(|| settings.allowed_ips.clone()),
         resilience: entry.resilience.unwrap_or(settings.resilience),
         webhook_inbox: entry.webhook_inbox.unwrap_or(settings.webhook_inbox),
+        denied: entry
+          .denied
+          .clone()
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty())
+          .or_else(|| settings.denied.clone()),
         tunnels: tunnels.clone(),
         headers: crate::config::merge_security_headers(
           entry.headers.clone().or_else(|| settings.headers.clone()),

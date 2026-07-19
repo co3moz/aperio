@@ -471,6 +471,7 @@ async fn test_proxy_handler_success() {
       resilience: false,
       max_request_body: None,
       webhook_inbox: false,
+      denied: None,
     },
   );
 
@@ -759,6 +760,7 @@ fn mock_client(
     resilience: false,
     max_request_body: None,
     webhook_inbox: false,
+    denied: None,
   }
 }
 

@@ -37,6 +37,7 @@ fn settings_with(
     cache: false,
     resilience: false,
     webhook_inbox: false,
+    denied: None,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

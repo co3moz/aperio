@@ -72,34 +72,8 @@ pub(crate) async fn handle_ws_proxy(
     return resp;
   }
 
-  // 2b. Client-declared visitor IP allowlist (shared with the HTTP path).
-  if !crate::routing::route_ip_allowed(
-    &state,
-    uri.path(),
-    extract_request_host(&headers).as_deref(),
-    caller_ip,
-  )
-  .await
-  {
-    log_request_failure(
-      &state,
-      &method_str,
-      &uri_str,
-      403,
-      start_time.elapsed(),
-      Some(&format!(
-        "Visitor IP {} not in service allowlist",
-        caller_ip
-      )),
-      None,
-    )
-    .await;
-    return (
-      StatusCode::FORBIDDEN,
-      "403 Forbidden - your IP is not allowed to access this service",
-    )
-      .into_response();
-  }
+  // Client-declared visitor IP allowlists are enforced per candidate during
+  // client selection below, exactly like the HTTP path.
 
   // 3. Wait for connection
   let (is_connected, _last_disc) = {
@@ -155,26 +129,52 @@ pub(crate) async fn handle_ws_proxy(
   } else {
     None
   };
-  let client_info = pick_proxy_client(
+  let (chosen_client_id, client_tx, client_req_counter, ws_org) = match pick_proxy_client(
     &state,
     uri_path,
     request_host.as_deref(),
     None,
     ws_affinity.as_deref(),
+    Some(caller_ip),
   )
   .await
-  .map(|c| (c.id, c.tx, c.request_count, c.org_id));
-
-  let (chosen_client_id, client_tx, client_req_counter, ws_org) = match client_info {
-    Some(info) => info,
-    None => {
+  {
+    crate::routing::PickOutcome::Selected(c) => (c.id, c.tx, c.request_count, c.org_id),
+    crate::routing::PickOutcome::Denied(Some(redirect)) => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        302,
+        start_time.elapsed(),
+        Some(&format!(
+          "Visitor IP {} rejected by every candidate; redirected to the denied page",
+          caller_ip
+        )),
+        None,
+      )
+      .await;
+      return axum::response::Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", redirect)
+        .body(axum::body::Body::empty())
+        .unwrap_or_else(|_| StatusCode::FOUND.into_response());
+    }
+    outcome
+    @ (crate::routing::PickOutcome::NoRoute | crate::routing::PickOutcome::Denied(None)) => {
+      // Stealth: identical to the unclaimed-route answer (see the HTTP path).
+      let reason = if matches!(outcome, crate::routing::PickOutcome::Denied(_)) {
+        "Visitor IP rejected by every candidate (stealth answer)"
+      } else {
+        "No active client for WebSocket upgrade"
+      };
       log_request_failure(
         &state,
         &method_str,
         &uri_str,
         504,
         start_time.elapsed(),
-        Some("No active client for WebSocket upgrade"),
+        Some(reason),
         None,
       )
       .await;

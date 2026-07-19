@@ -344,6 +344,8 @@ pub(crate) struct ClientSettings {
   pub(crate) resilience: bool,
   /// Persist inbound POSTs into the server's webhook inbox (announced via Ping).
   pub(crate) webhook_inbox: bool,
+  /// Redirect URL for visitors rejected by `allowed_ips` (None = stealth).
+  pub(crate) denied: Option<String>,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -668,6 +670,13 @@ pub(crate) fn resolve_settings(
       home.webhook_inbox,
     )
     .unwrap_or(false),
+    denied: layered(
+      None,
+      local.denied.clone(),
+      env2("APERIO_DENIED", "APERIO_DENIED"),
+      home.denied.clone(),
+    )
+    .and_then(nonempty),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

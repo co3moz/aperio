@@ -180,6 +180,10 @@ pub enum TunnelMessage {
     /// into the webhook inbox (browse & re-fire from the dashboard).
     #[serde(default)]
     webhook_inbox: bool,
+    /// Redirect URL answered to visitors rejected by `allowed_ips` when no
+    /// candidate of the route admits them (None = stealth).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    denied: Option<String>,
   },
   Pong {
     timestamp: u64,

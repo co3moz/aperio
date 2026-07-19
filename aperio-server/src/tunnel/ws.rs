@@ -294,6 +294,7 @@ pub(crate) async fn handle_socket(
         resilience: false,
         max_request_body: None,
         webhook_inbox: false,
+        denied: None,
       },
     );
     drop(clients);
@@ -619,6 +620,7 @@ pub(crate) async fn handle_socket(
               resilience,
               max_request_body,
               webhook_inbox,
+              denied,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -703,6 +705,20 @@ pub(crate) async fn handle_socket(
                         client_id, limit
                       );
                     }
+                  }
+                  // Denied-redirect declaration: only well-formed absolute
+                  // http(s) URLs are honored; anything else stays stealth.
+                  let denied = denied
+                    .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+                    .filter(|u| url::Url::parse(u).is_ok());
+                  if handle.denied != denied {
+                    if let Some(url) = &denied {
+                      info!(
+                        "Client {} declares a denied-visitor redirect: {}",
+                        client_id, url
+                      );
+                    }
+                    handle.denied = denied;
                   }
                   if handle.webhook_inbox != webhook_inbox {
                     handle.webhook_inbox = webhook_inbox;

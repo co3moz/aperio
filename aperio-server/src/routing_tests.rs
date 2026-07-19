@@ -51,6 +51,7 @@ fn base_handle() -> ClientHandle {
     resilience: false,
     max_request_body: None,
     webhook_inbox: false,
+    denied: None,
   }
 }
 
@@ -633,4 +634,77 @@ fn test_host_matches_random_pattern() {
     "app.example.com",
     "*-test.example.com"
   ));
+}
+
+// --- filter_pool_by_ip (per-candidate allowed_ips, #123) ---------------------
+
+#[test]
+fn test_filter_pool_by_ip_union_semantics() {
+  let visitor: IpAddr = "127.0.0.1".parse().unwrap();
+
+  let mut restricted = base_handle();
+  restricted.allowed_ips = vec!["203.0.113.7".to_string()];
+  let open = base_handle();
+  let clients = pool_of(vec![("restricted", restricted), ("open", open)]);
+
+  // Union semantics: the unrestricted candidate admits the visitor even
+  // though the restricted one rejects them (fail-open by design).
+  match filter_pool_by_ip(
+    vec!["restricted".to_string(), "open".to_string()],
+    &clients,
+    Some(visitor),
+  ) {
+    IpFilterOutcome::Allowed(pool) => assert_eq!(pool, vec!["open".to_string()]),
+    IpFilterOutcome::Denied(_) => panic!("open candidate must admit the visitor"),
+  }
+
+  // No visitor IP (internal callers): the pool passes through untouched.
+  match filter_pool_by_ip(vec!["restricted".to_string()], &clients, None) {
+    IpFilterOutcome::Allowed(pool) => assert_eq!(pool, vec!["restricted".to_string()]),
+    IpFilterOutcome::Denied(_) => panic!("no-ip filtering must not deny"),
+  }
+}
+
+#[test]
+fn test_filter_pool_by_ip_denied_picks_most_primary_redirect() {
+  let visitor: IpAddr = "127.0.0.1".parse().unwrap();
+
+  // Two rejecting candidates: the standby declares a redirect, the primary
+  // does too — the most-primary (lowest tier) declaring entry wins.
+  let mut primary = base_handle();
+  primary.allowed_ips = vec!["203.0.113.7".to_string()];
+  primary.priority = 0;
+  primary.denied = Some("https://primary.example.com/denied".to_string());
+  let mut standby = base_handle();
+  standby.allowed_ips = vec!["203.0.113.8".to_string()];
+  standby.priority = 5;
+  standby.denied = Some("https://standby.example.com/denied".to_string());
+  let clients = pool_of(vec![("p", primary), ("s", standby)]);
+
+  match filter_pool_by_ip(
+    vec!["p".to_string(), "s".to_string()],
+    &clients,
+    Some(visitor),
+  ) {
+    IpFilterOutcome::Denied(redirect) => {
+      assert_eq!(
+        redirect.as_deref(),
+        Some("https://primary.example.com/denied")
+      );
+    }
+    IpFilterOutcome::Allowed(_) => panic!("both candidates must reject the visitor"),
+  }
+}
+
+#[test]
+fn test_filter_pool_by_ip_denied_without_redirect_is_stealth() {
+  let visitor: IpAddr = "127.0.0.1".parse().unwrap();
+  let mut restricted = base_handle();
+  restricted.allowed_ips = vec!["203.0.113.7".to_string()];
+  let clients = pool_of(vec![("r", restricted)]);
+
+  match filter_pool_by_ip(vec!["r".to_string()], &clients, Some(visitor)) {
+    IpFilterOutcome::Denied(redirect) => assert!(redirect.is_none()),
+    IpFilterOutcome::Allowed(_) => panic!("the only candidate must reject the visitor"),
+  }
 }

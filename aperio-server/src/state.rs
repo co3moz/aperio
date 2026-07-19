@@ -438,6 +438,11 @@ pub(crate) struct ClientHandle {
   /// The client asked to persist inbound POSTs to this service into the
   /// webhook inbox (`webhook_inbox: true` via Ping).
   pub(crate) webhook_inbox: bool,
+  /// Redirect URL for visitors this candidate's `allowed_ips` rejects
+  /// (`denied:` via Ping). Used only when every candidate of a route rejects
+  /// the visitor; without one anywhere, the answer is stealth (identical to
+  /// an unclaimed route).
+  pub(crate) denied: Option<String>,
 }
 
 /// Permissions resolved at connection time from the presented token.

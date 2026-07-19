@@ -216,13 +216,29 @@ done
 assert_contains "$RL_CODES" "200" "some requests pass within the rate limit"
 assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
 
-step "Visitor IP allowlist (APERIO_ALLOWED_IPS)"
-# A client that only admits a TEST-NET address: the local visitor gets 403.
+step "Per-candidate visitor IP allowlist (APERIO_ALLOWED_IPS)"
+# A client that only admits a TEST-NET address: the local visitor is fully
+# rejected and gets the stealth answer — indistinguishable from an
+# unclaimed route (504), not a route-revealing 403.
 start_client ipdeny "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipdeny.e2e.local APERIO_ALLOWED_IPS=203.0.113.7
-retry 20 sh -c "curl -s -o /dev/null -w '%{http_code}' -H 'Host: ipdeny.e2e.local' '$BASE/hello' | grep -q 403" \
+retry 20 sh -c "curl -s -o /dev/null -m 10 -w '%{http_code}' -H 'Host: ipdeny.e2e.local' '$BASE/hello' | grep -q 504" \
   || fail "allowlist did not start rejecting in time"
-CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: ipdeny.e2e.local' "$BASE/hello")"
-assert_status 403 "$CODE" "visitor outside the allowlist is rejected with 403"
+CODE="$(curl -s -o /dev/null -m 10 -w '%{http_code}' -H 'Host: ipdeny.e2e.local' "$BASE/hello")"
+assert_status 504 "$CODE" "a fully rejected visitor gets the stealth unclaimed-route answer"
+# With a denied: redirect declared, the rejected visitor is redirected.
+start_client ipredir "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipredir.e2e.local \
+  APERIO_ALLOWED_IPS=203.0.113.7 APERIO_DENIED=https://example.com/denied
+retry 20 sh -c "curl -s -o /dev/null -w '%{http_code}' -H 'Host: ipredir.e2e.local' '$BASE/hello' | grep -q 302" \
+  || fail "the denied redirect did not take effect in time"
+LOC="$(curl -s -D - -o /dev/null -H 'Host: ipredir.e2e.local' "$BASE/hello" | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')"
+[ "$LOC" = "https://example.com/denied" ] || fail "expected the denied redirect, got Location: $LOC"
+echo "  ok: a rejected visitor is redirected to the declared denied page"
+# Per-candidate union: an unrestricted client joining the same route admits
+# the visitor (route-wide lockdown belongs to the token-level IP allowlist).
+start_client ipopen "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipdeny.e2e.local
+wait_routable ipdeny.e2e.local
+BODY="$(curl -s -H 'Host: ipdeny.e2e.local' "$BASE/hello")"
+assert_contains "$BODY" "backend ${BACKEND_PORT} " "an unrestricted candidate admits the visitor (union semantics)"
 # A client admitting the loopback CIDR: the local visitor passes.
 start_client ipallow "$BACKEND_PORT" APERIO_HOSTNAME_BIND=ipallow.e2e.local APERIO_ALLOWED_IPS=127.0.0.0/8
 wait_routable ipallow.e2e.local

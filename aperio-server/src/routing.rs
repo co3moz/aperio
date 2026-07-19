@@ -381,15 +381,24 @@ pub(crate) async fn pick_proxy_client(
   request_host: Option<&str>,
   require_instance: Option<&str>,
   affinity: Option<&str>,
-) -> Option<SelectedClient> {
+  visitor_ip: Option<IpAddr>,
+) -> PickOutcome {
   let clients = state.clients.lock().await;
-  let (pool, group_key) = select_client_pool(
+  let Some((pool, group_key)) = select_client_pool(
     &clients,
     uri_path,
     request_host,
     state.config().require_hostname_bind,
     state.config().client_down_threshold,
-  )?;
+  ) else {
+    return PickOutcome::NoRoute;
+  };
+  // Per-candidate visitor-IP eligibility runs before the LB strategy so a
+  // passing standby can serve a visitor its primary rejects.
+  let pool = match filter_pool_by_ip(pool, &clients, visitor_ip) {
+    IpFilterOutcome::Allowed(pool) => pool,
+    IpFilterOutcome::Denied(redirect) => return PickOutcome::Denied(redirect),
+  };
   let mut pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
   if let Some(instance) = require_instance {
     pool.retain(|id| {
@@ -399,7 +408,7 @@ pub(crate) async fn pick_proxy_client(
     });
   }
   if pool.is_empty() {
-    return None;
+    return PickOutcome::NoRoute;
   }
 
   // Sticky affinity: honor the visitor's cookie when that client is still in
@@ -417,22 +426,25 @@ pub(crate) async fn pick_proxy_client(
     chosen
   };
 
-  clients.get(&chosen_id).map(|c| SelectedClient {
-    id: chosen_id.clone(),
-    tx: c.tx.clone(),
-    request_count: c.request_count.clone(),
-    inflight_limiter: c.inflight_limiter.clone(),
-    token_name: c.perms.token_name.clone(),
-    token_id: c.perms.token_id.clone(),
-    org_id: c.perms.org_id.clone(),
-    instance_id: c.reported_instance_id.clone(),
-    protocol: c.client_protocol,
-    cache: c.cache,
-    resilience: c.resilience,
-    max_request_body: c.max_request_body,
-    webhook_inbox: c.webhook_inbox,
-    service_name: c.service_name.clone(),
-  })
+  match clients.get(&chosen_id) {
+    Some(c) => PickOutcome::Selected(Box::new(SelectedClient {
+      id: chosen_id.clone(),
+      tx: c.tx.clone(),
+      request_count: c.request_count.clone(),
+      inflight_limiter: c.inflight_limiter.clone(),
+      token_name: c.perms.token_name.clone(),
+      token_id: c.perms.token_id.clone(),
+      org_id: c.perms.org_id.clone(),
+      instance_id: c.reported_instance_id.clone(),
+      protocol: c.client_protocol,
+      cache: c.cache,
+      resilience: c.resilience,
+      max_request_body: c.max_request_body,
+      webhook_inbox: c.webhook_inbox,
+      service_name: c.service_name.clone(),
+    })),
+    None => PickOutcome::NoRoute,
+  }
 }
 
 /// True when the route for this host/path is served exclusively by clients
@@ -467,32 +479,59 @@ pub(crate) async fn route_is_public(
       .all(|id| clients.get(id).is_some_and(|c| c.public))
 }
 
-/// True when visitor `ip` passes every IP allowlist declared by the clients
-/// serving this route. A client without a list imposes nothing; when several
-/// pool members declare lists, the visitor must pass all of them — a request
-/// can never dodge a restriction because another pool member left it open.
-/// An empty pool imposes nothing (the request fails with 504 downstream).
-pub(crate) async fn route_ip_allowed(
-  state: &AppState,
-  uri_path: &str,
-  request_host: Option<&str>,
-  ip: std::net::IpAddr,
-) -> bool {
-  let clients = state.clients.lock().await;
-  let Some((pool, _)) = select_client_pool(
-    &clients,
-    uri_path,
-    request_host,
-    state.config().require_hostname_bind,
-    state.config().client_down_threshold,
-  ) else {
-    return true;
+/// Per-candidate visitor-IP eligibility of a routed pool: each candidate is
+/// filtered by its *own* `allowed_ips` (a candidate without a list admits
+/// everyone), and the request dispatches to any passing candidate — union
+/// semantics. Note this is fail-open by design: one unrestricted client
+/// joining a route opens it; route-wide lockdown belongs to the token-level
+/// IP allowlist.
+pub(crate) fn filter_pool_by_ip(
+  pool: Vec<String>,
+  clients: &HashMap<String, ClientHandle>,
+  ip: Option<IpAddr>,
+) -> IpFilterOutcome {
+  let Some(ip) = ip else {
+    return IpFilterOutcome::Allowed(pool);
   };
-  pool.iter().all(|id| {
+  let (passing, rejecting): (Vec<String>, Vec<String>) = pool.into_iter().partition(|id| {
     clients
       .get(id)
       .is_none_or(|c| c.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.allowed_ips))
-  })
+  });
+  if !passing.is_empty() {
+    return IpFilterOutcome::Allowed(passing);
+  }
+  // Every candidate rejected the visitor: answer with the `denied:` redirect
+  // of the most-primary (lowest priority tier) rejecting entry that declares
+  // one; with none declared anywhere, the caller answers stealth.
+  let denied = rejecting
+    .iter()
+    .filter_map(|id| clients.get(id))
+    .filter_map(|c| c.denied.clone().map(|url| (c.priority, url)))
+    .min_by_key(|(priority, _)| *priority)
+    .map(|(_, url)| url);
+  IpFilterOutcome::Denied(denied)
+}
+
+/// Outcome of the per-candidate visitor-IP filter.
+pub(crate) enum IpFilterOutcome {
+  /// Candidates admitting the visitor (their own lists pass, or impose nothing).
+  Allowed(Vec<String>),
+  /// Every candidate rejected the visitor; carries the winning `denied:`
+  /// redirect, if any candidate declared one.
+  Denied(Option<String>),
+}
+
+/// Outcome of picking a dispatch target for a visitor request.
+pub(crate) enum PickOutcome {
+  /// A client was selected; dispatch to it.
+  Selected(Box<SelectedClient>),
+  /// No client serves this route (unclaimed, or every candidate is down).
+  NoRoute,
+  /// Clients serve the route but every candidate's `allowed_ips` rejects the
+  /// visitor. Carries the winning `denied:` redirect (None = stealth: the
+  /// caller must answer exactly like [`PickOutcome::NoRoute`]).
+  Denied(Option<String>),
 }
 
 /// True when `creds` is a well-formed visitor login (`user:password` with both
@@ -577,12 +616,24 @@ pub(crate) async fn wait_for_candidate(
   request_host: Option<&str>,
   require_instance: Option<&str>,
   deadline: tokio::time::Instant,
+  visitor_ip: Option<IpAddr>,
 ) -> Option<SelectedClient> {
   loop {
-    if let Some(client) =
-      pick_proxy_client(state, uri_path, request_host, require_instance, None).await
+    match pick_proxy_client(
+      state,
+      uri_path,
+      request_host,
+      require_instance,
+      None,
+      visitor_ip,
+    )
+    .await
     {
-      return Some(client);
+      PickOutcome::Selected(client) => return Some(*client),
+      // Denied: the connected candidates reject this visitor — waiting out
+      // the failover window would not change that.
+      PickOutcome::Denied(_) => return None,
+      PickOutcome::NoRoute => {}
     }
     if tokio::time::Instant::now() >= deadline {
       return None;
