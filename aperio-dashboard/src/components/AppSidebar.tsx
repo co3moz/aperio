@@ -12,6 +12,7 @@ import {
   Settings2Icon,
   FingerprintIcon,
   ShieldCheckIcon,
+  TerminalIcon,
   WebhookIcon,
   WaypointsIcon,
   Building2Icon,
@@ -38,6 +39,7 @@ export type Page =
   | 'overview'
   | 'clients'
   | 'traffic'
+  | 'tail'
   | 'breakdown'
   | 'topology'
   | 'tokens'
@@ -72,6 +74,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     label: 'Traffic',
     pages: [
       { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time' },
+      { id: 'tail', label: 'Live Tail', icon: TerminalIcon, hint: 'tail -f of the access log' },
       { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
       { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map' },
     ],

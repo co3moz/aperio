@@ -19,6 +19,10 @@ Below the table, an **Uptime** panel tracks each service's availability history:
 
 The traffic table is streamed live: the server pushes each proxied request over Server-Sent Events (`/aperio/api/stream`) as it completes, so rows appear the moment traffic flows instead of on a polling interval. If the stream can't be established (e.g. a proxy that buffers SSE) the table transparently falls back to periodic polling, and the **Live/Paused** toggle still freezes the view while you inspect. Latency percentiles (p50/p95/p99), a status-class mix bar, and method/status filters sit on top of the same feed.
 
+## Live log tail
+
+The *Live Tail* page (Traffic group) is a `tail -f` for the access log: one monospace line per proxied request — time, status (color-coded), method, hostname, path, latency, and the error reason on failures — streamed over the same SSE feed as the traffic table. The view auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), **Live/Paused** freezes the stream, *Clear* empties the scrollback, and a free-text filter matches host, path, method, or status. Clicking a line opens the request inspector.
+
 ## Topology
 
 The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map: public routes (hostname and path binds, plus a catch-all node) → tunnel clients (health-colored: green healthy, amber draining or failing backend probes, red unhealthy/disabled) → their backends, with a per-client live request rate on the edge. An alternative visual view of the same data as the clients table, fed by the same SSE stream.

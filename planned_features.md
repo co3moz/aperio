@@ -46,7 +46,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #25 Ready-made Grafana dashboard templates for the Prometheus metrics
 - [ ] #26 SMTP email notifications alongside webhooks
 - [ ] #27 Per-service latency histograms — p50/p95/p99 time series (on the date-filter/uptime layer)
-- [ ] #28 Live log tail — a `tail -f`-style streaming view of the access log in the dashboard
+- [x] #28 Live log tail — shipped: a *Live Tail* dashboard page renders each proxied request as a terminal-style line off the existing SSE stream (auto-scroll with pin/unpin, pause, clear, free-text filter incl. the new `host` log field; a line click opens the inspector)
 - [ ] #29 Bandwidth accounting — bytes in/out per token/hostname (billing-style report)
 - [ ] #30 Top-N slowest endpoints report
 - [ ] #31 Traffic anomaly detection — alert on sudden spikes/drops (on top of error-rate/client-down alerting)

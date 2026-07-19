@@ -75,6 +75,8 @@ export interface RequestLog {
   status: number | null
   duration_ms: number
   error: string | null
+  /** Request hostname (absent for failures resolved before routing). */
+  host?: string | null
 }
 
 export interface CapturedRequest {
