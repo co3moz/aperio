@@ -462,6 +462,7 @@ async fn async_main() {
   // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
   let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
   let token_store = TokenStore::load(&data_dir);
+  let inbox_store = crate::store::inbox::InboxStore::load(&data_dir);
 
   // Resolve the effective metrics token: env var wins; otherwise generate a
   // random token once and persist it so every restart uses the same value.
@@ -661,6 +662,7 @@ async fn async_main() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(token_store),
+    inbox_store: Mutex::new(inbox_store),
     users: Mutex::new(crate::store::users::UserStore::load(&data_dir)),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
@@ -729,6 +731,19 @@ async fn async_main() {
       .route(
         "/api/purge",
         axum::routing::post(crate::api::purge::purge_handler),
+      )
+      .route(
+        "/api/inbox",
+        get(crate::api::inbox::inbox_list_handler).delete(crate::api::inbox::inbox_clear_handler),
+      )
+      .route(
+        "/api/inbox/:id",
+        get(crate::api::inbox::inbox_detail_handler)
+          .delete(crate::api::inbox::inbox_delete_handler),
+      )
+      .route(
+        "/api/inbox/:id/refire",
+        axum::routing::post(crate::api::inbox::inbox_refire_handler),
       )
       .route("/api/requests/:id", get(request_detail_handler))
       .route(

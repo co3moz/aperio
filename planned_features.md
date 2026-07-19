@@ -135,7 +135,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #97 VS Code extension / status-bar integration
 - [ ] #98 Server-side request breakpoints — pause a matching request the server already holds and let a developer edit method/headers/body (or synthesize a response) in the dashboard: Charles/Fiddler interception with zero client changes
 - [ ] #99 Per-route fault injection — chaos rules on a hostname/path/token add delay, return synthetic 5xx, or drop the relay, to test frontend/client resilience against a misbehaving backend
-- [ ] #100 Inbound webhook capture inbox — persist inbound third-party webhooks (Stripe, GitHub) hitting a tunnel, render them in a dashboard inbox, and re-fire any event to the local client
+- [x] #100 Inbound webhook capture inbox — shipped: `webhook_inbox: true` (per-service) persists every inbound POST into a restart-surviving SQLite inbox; a *Webhook Inbox* dashboard page browses (redacted) payloads, deletes, and re-fires any event to the currently routed client (`/aperio/api/inbox[...]`, audited `webhook_refired`)
 - [ ] #101 Mock/stub response library — extend client-less fixed routes into a matcher-based mock library (method/path/header/query) so a frontend can develop against canned responses before the backend exists
 - [ ] #102 Auto-inferred OpenAPI from traffic — incrementally infer path/param/schema shapes from live tunnel traffic and emit a draft OpenAPI document per hostname
 - [ ] #103 Golden-diff response drift detection — snapshot a response as a baseline and flag when future responses to the same route diverge in status/headers/body shape

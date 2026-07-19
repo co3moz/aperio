@@ -346,6 +346,10 @@ pub(crate) struct SelectedClient {
   /// Client-declared request body cap in bytes (Ping `max_request_body`);
   /// tightens, never loosens, the global body size limit.
   pub(crate) max_request_body: Option<u64>,
+  /// The client asked to persist inbound POSTs into the webhook inbox.
+  pub(crate) webhook_inbox: bool,
+  /// Service name announced via Ping (multi-service clients), for display.
+  pub(crate) service_name: Option<String>,
 }
 
 /// Returns the pool member matching an affinity value — either a client's
@@ -426,6 +430,8 @@ pub(crate) async fn pick_proxy_client(
     cache: c.cache,
     resilience: c.resilience,
     max_request_body: c.max_request_body,
+    webhook_inbox: c.webhook_inbox,
+    service_name: c.service_name.clone(),
   })
 }
 

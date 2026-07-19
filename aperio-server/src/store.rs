@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use tracing::{error, warn};
 
 pub(crate) mod audit;
+pub(crate) mod inbox;
 pub(crate) mod orgs;
 pub(crate) mod sessions;
 pub(crate) mod stats;
@@ -62,7 +63,8 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
      CREATE TABLE IF NOT EXISTS users    (id  TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS sessions (id  TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-     CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, data TEXT NOT NULL);",
+     CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, data TEXT NOT NULL);",
   )?;
   Ok(conn)
 }

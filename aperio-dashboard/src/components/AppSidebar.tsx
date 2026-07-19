@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   BracesIcon,
+  InboxIcon,
   ChartPieIcon,
   ConstructionIcon,
   GlobeIcon,
@@ -41,6 +42,7 @@ export type Page =
   | 'clients'
   | 'traffic'
   | 'tail'
+  | 'inbox'
   | 'breakdown'
   | 'topology'
   | 'tokens'
@@ -77,6 +79,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     pages: [
       { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time' },
       { id: 'tail', label: 'Live Tail', icon: TerminalIcon, hint: 'tail -f of the access log' },
+      { id: 'inbox', label: 'Webhook Inbox', icon: InboxIcon, hint: 'Captured inbound webhooks, re-firable' },
       { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
       { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map' },
     ],

@@ -63,6 +63,7 @@ services:
   - name: api
     target: http://127.0.0.1:${BACKEND2_PORT}
     hostname: api.e2e.local
+    webhook_inbox: true
   - name: upload
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: upload.e2e.local
@@ -98,6 +99,28 @@ assert_contains "$LOGS_AFTER" '"host":"api.e2e.local"' "other hostnames keep the
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
   -H 'Content-Type: application/json' --data '{}' "$BASE/aperio/api/purge")"
 assert_status 400 "$CODE" "a purge without selectors is rejected"
+
+step "Webhook inbox (webhook_inbox)"
+curl -s -o /dev/null -X POST -H 'Host: api.e2e.local' \
+  -H 'Content-Type: application/json' --data '{"event":"invoice.paid"}' \
+  "$BASE/hooks/stripe" || fail "webhook POST failed"
+INBOX="$(curl -s -b "$COOKIES" "$BASE/aperio/api/inbox")"
+assert_contains "$INBOX" '"/hooks/stripe"' "the inbound POST landed in the inbox"
+assert_contains "$INBOX" '"api.e2e.local"' "the inbox records the hostname"
+HOOK_ID="$(echo "$INBOX" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$HOOK_ID" ] || fail "could not parse an inbox entry id: $INBOX"
+DETAIL="$(curl -s -b "$COOKIES" "$BASE/aperio/api/inbox/$HOOK_ID")"
+assert_contains "$DETAIL" '"headers"' "the entry detail carries the headers"
+REFIRE="$(curl -sf -b "$COOKIES" -X POST "$BASE/aperio/api/inbox/$HOOK_ID/refire")" \
+  || fail "re-fire failed"
+assert_contains "$REFIRE" '"status":200' "the re-fire reached the backend"
+curl -sf -b "$COOKIES" -X DELETE "$BASE/aperio/api/inbox/$HOOK_ID" >/dev/null \
+  || fail "inbox delete failed"
+INBOX2="$(curl -s -b "$COOKIES" "$BASE/aperio/api/inbox")"
+case "$INBOX2" in
+  *"$HOOK_ID"*) fail "deleted inbox entry still listed" ;;
+  *) echo "  ok: the entry is gone after delete" ;;
+esac
 
 step "Per-service request body limit (max_request_body)"
 wait_routable upload.e2e.local

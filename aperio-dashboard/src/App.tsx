@@ -16,6 +16,7 @@ import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
+import { InboxSection } from './components/InboxSection'
 import { LiveTailSection } from './components/LiveTailSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
@@ -341,6 +342,7 @@ export default function App() {
               )}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
               {page === 'tail' && <LiveTailSection logs={logs} onInspect={setInspectId} />}
+              {page === 'inbox' && <InboxSection />}
               {page === 'breakdown' && (
                 <div className="flex flex-col gap-6">
                   <TrafficBreakdownSection stats={stats} />

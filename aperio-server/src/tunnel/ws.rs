@@ -293,6 +293,7 @@ pub(crate) async fn handle_socket(
         cache: false,
         resilience: false,
         max_request_body: None,
+        webhook_inbox: false,
       },
     );
     drop(clients);
@@ -617,6 +618,7 @@ pub(crate) async fn handle_socket(
               cache,
               resilience,
               max_request_body,
+              webhook_inbox,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -699,6 +701,15 @@ pub(crate) async fn handle_socket(
                       info!(
                         "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
                         client_id, limit
+                      );
+                    }
+                  }
+                  if handle.webhook_inbox != webhook_inbox {
+                    handle.webhook_inbox = webhook_inbox;
+                    if webhook_inbox {
+                      info!(
+                        "Client {} opted into the webhook inbox: inbound POSTs are persisted for re-firing",
+                        client_id
                       );
                     }
                   }

@@ -137,6 +137,7 @@ async fn test_rate_limiting() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
@@ -258,6 +259,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
@@ -399,6 +401,7 @@ async fn test_proxy_handler_success() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
     captured_requests: Mutex::new(VecDeque::new()),
@@ -467,6 +470,7 @@ async fn test_proxy_handler_success() {
       cache: false,
       resilience: false,
       max_request_body: None,
+      webhook_inbox: false,
     },
   );
 
@@ -654,6 +658,11 @@ fn test_user_store() -> crate::store::users::UserStore {
   crate::store::users::UserStore::load(&dir.to_string_lossy())
 }
 
+fn test_inbox_store() -> crate::store::inbox::InboxStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-inbox-{}", uuid::Uuid::new_v4()));
+  crate::store::inbox::InboxStore::load(&dir.to_string_lossy())
+}
+
 fn test_token_store() -> TokenStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
   TokenStore::load(&dir.to_string_lossy())
@@ -749,6 +758,7 @@ fn mock_client(
     cache: false,
     resilience: false,
     max_request_body: None,
+    webhook_inbox: false,
   }
 }
 

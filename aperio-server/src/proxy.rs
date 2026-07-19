@@ -1289,6 +1289,28 @@ async fn proxy_http_request(
           });
         }
 
+        // Webhook inbox: services that opted in (`webhook_inbox: true`) get
+        // every inbound POST persisted for browsing and re-firing.
+        if selected.webhook_inbox && method_str.eq_ignore_ascii_case("POST") {
+          state
+            .inbox_store
+            .lock()
+            .await
+            .insert(crate::store::inbox::InboxEntry {
+              id: request_id.clone(),
+              timestamp: Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+              method: method_str.clone(),
+              uri: uri_str.clone(),
+              host: request_host.clone(),
+              headers: capture_req_headers.clone(),
+              body: capture_req_body.clone(),
+              body_truncated: capture_req_truncated || stream_request,
+              status: tunnel_res.status,
+              service: selected.service_name.clone(),
+              org_id: selected.org_id.clone(),
+            });
+        }
+
         // Streamed response: forward frames as they arrive without
         // buffering; a trailer block (e.g. gRPC's grpc-status) becomes the
         // final HTTP frame. Buffered responses with trailers get a

@@ -528,6 +528,7 @@ fn build_specs(
       visitor_auth: settings.visitor_auth.clone(),
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
+      webhook_inbox: settings.webhook_inbox,
       tunnels,
       headers: crate::config::merge_security_headers(
         settings.headers.clone(),
@@ -639,6 +640,7 @@ fn build_specs(
           .clone()
           .unwrap_or_else(|| settings.allowed_ips.clone()),
         resilience: entry.resilience.unwrap_or(settings.resilience),
+        webhook_inbox: entry.webhook_inbox.unwrap_or(settings.webhook_inbox),
         tunnels: tunnels.clone(),
         headers: crate::config::merge_security_headers(
           entry.headers.clone().or_else(|| settings.headers.clone()),

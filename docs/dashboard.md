@@ -23,6 +23,10 @@ The traffic table is streamed live: the server pushes each proxied request over 
 
 The *Live Tail* page (Traffic group) is a `tail -f` for the access log: one monospace line per proxied request — time, status (color-coded), method, hostname, path, latency, and the error reason on failures — streamed over the same SSE feed as the traffic table. The view auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), **Live/Paused** freezes the stream, *Clear* empties the scrollback, and a free-text filter matches host, path, method, or status. Clicking a line opens the request inspector.
 
+## Webhook inbox
+
+The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks (Stripe, GitHub, ...) persisted for services that opted in with `webhook_inbox: true` in the client config: every POST routed to such a service is stored (headers and payload, restart-surviving, newest 500 kept) so an event that arrived while the backend was down or misbehaving is never lost. Each entry expands into its (redacted) headers and pretty-printed payload, and **Re-fire** re-dispatches the original request to whichever client currently serves the route — the cure for "Stripe fired while my laptop was closed". Entries can be deleted one by one or the whole inbox cleared; re-fires are audit-logged (`webhook_refired`).
+
 ## Topology
 
 The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map: public routes (hostname and path binds, plus a catch-all node) → tunnel clients (health-colored: green healthy, amber draining or failing backend probes, red unhealthy/disabled) → their backends, with a per-client live request rate on the edge. An alternative visual view of the same data as the clients table, fed by the same SSE stream.

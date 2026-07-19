@@ -342,6 +342,8 @@ pub(crate) struct ClientSettings {
   pub(crate) cache: bool,
   /// Keep serving cached responses while this client is offline (server-side).
   pub(crate) resilience: bool,
+  /// Persist inbound POSTs into the server's webhook inbox (announced via Ping).
+  pub(crate) webhook_inbox: bool,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -659,6 +661,13 @@ pub(crate) fn resolve_settings(
         home.resilience,
       )
       .unwrap_or(false),
+    webhook_inbox: layered(
+      None,
+      local.webhook_inbox,
+      env_bool("APERIO_WEBHOOK_INBOX", "APERIO_WEBHOOK_INBOX"),
+      home.webhook_inbox,
+    )
+    .unwrap_or(false),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

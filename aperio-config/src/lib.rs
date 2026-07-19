@@ -305,6 +305,9 @@ pub struct ServiceEntry {
   /// lifetime) while no healthy client is connected, instead of failing with
   /// 504 (needs `cache: true` and the server-side cache enabled).
   pub resilience: Option<bool>,
+  /// Persist inbound POST requests (third-party webhooks) hitting this
+  /// service into the server's webhook inbox, for browsing and re-firing.
+  pub webhook_inbox: Option<bool>,
 }
 
 /// A peer client whose declared tunnels this process binds to local ports.
@@ -420,6 +423,9 @@ pub struct FileConfig {
   /// lifetime) while no healthy client is connected, instead of failing with
   /// 504 (needs `cache: true` and the server-side cache enabled).
   pub resilience: Option<bool>,
+  /// Persist inbound POST requests (third-party webhooks) into the server's
+  /// webhook inbox, for browsing and re-firing (services may override).
+  pub webhook_inbox: Option<bool>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

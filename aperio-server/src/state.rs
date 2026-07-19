@@ -435,6 +435,9 @@ pub(crate) struct ClientHandle {
   /// Enforced before dispatch with an early 413; never loosens the global
   /// APERIO_MAX_BODY_SIZE limit.
   pub(crate) max_request_body: Option<u64>,
+  /// The client asked to persist inbound POSTs to this service into the
+  /// webhook inbox (`webhook_inbox: true` via Ping).
+  pub(crate) webhook_inbox: bool,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -804,6 +807,8 @@ pub(crate) struct AppState {
   pub(crate) pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
   /// Persistent store of dashboard-created dynamic API tokens.
   pub(crate) token_store: Mutex<TokenStore>,
+  /// Persistent inbound-webhook inbox (`webhook_inbox: true` services).
+  pub(crate) inbox_store: Mutex<crate::store::inbox::InboxStore>,
   /// Dashboard users (role-based access; separate from tunnel tokens).
   pub(crate) users: Mutex<crate::store::users::UserStore>,
   /// In-flight streamed response bodies: request_id → chunk sender.

@@ -618,19 +618,19 @@ mod tests {
 
     // Hostname purge removes the global row and the org breakdown row.
     assert!(store.purge_hostname("a.example.com") >= 1);
-    assert!(store.snapshot().by_hostname.get("a.example.com").is_none());
+    assert!(!store.snapshot().by_hostname.contains_key("a.example.com"));
     // Other hostnames and totals are untouched.
-    assert!(store.snapshot().by_hostname.get("b.example.com").is_some());
+    assert!(store.snapshot().by_hostname.contains_key("b.example.com"));
     assert_eq!(store.snapshot().total_requests, 2);
 
     // Token purge removes the label rows.
     assert!(store.purge_token("tenant-a") >= 1);
-    assert!(store.snapshot().by_token.get("tenant-a").is_none());
+    assert!(!store.snapshot().by_token.contains_key("tenant-a"));
 
     // Purges persist across a reload.
     let store2 = StatsStore::load(&dir_str);
-    assert!(store2.snapshot().by_hostname.get("a.example.com").is_none());
-    assert!(store2.snapshot().by_token.get("tenant-a").is_none());
+    assert!(!store2.snapshot().by_hostname.contains_key("a.example.com"));
+    assert!(!store2.snapshot().by_token.contains_key("tenant-a"));
 
     // Unknown selectors remove nothing.
     assert_eq!(store.purge_hostname("nope.example.com"), 0);

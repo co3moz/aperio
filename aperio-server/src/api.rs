@@ -12,6 +12,7 @@ use crate::state::AppState;
 
 pub(crate) mod clients;
 pub(crate) mod export;
+pub(crate) mod inbox;
 pub(crate) mod inspector;
 pub(crate) mod maintenance;
 pub(crate) mod metrics;
