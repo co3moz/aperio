@@ -270,6 +270,10 @@ pub struct ServiceEntry {
   /// Backend health endpoint the client probes to pull itself from rotation when down.
   #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
+  /// Hold this service out of routing until the backend first accepts a
+  /// connection, avoiding connection-refused errors while it boots
+  /// (superseded by `target_health` when that is set).
+  pub wait_for_backend: Option<bool>,
   /// Seconds between backend health probes.
   #[schemars(extend("examples" = [10]))]
   pub health_interval: Option<u64>,
@@ -373,6 +377,10 @@ pub struct FileConfig {
   /// Backend health endpoint to probe; a failing backend leaves rotation without dropping the tunnel.
   #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
+  /// Hold the service out of routing until the backend first accepts a
+  /// connection, avoiding connection-refused errors while it boots
+  /// (superseded by `target_health` when that is set).
+  pub wait_for_backend: Option<bool>,
   /// Seconds between backend health probes.
   #[schemars(extend("examples" = [10]))]
   pub health_interval: Option<u64>,

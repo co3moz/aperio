@@ -520,6 +520,7 @@ fn build_specs(
       max_redirects: settings.max_redirects,
       tcp_target: settings.tcp_target.clone(),
       target_health: settings.target_health.clone(),
+      wait_for_backend: settings.wait_for_backend,
       health_interval: settings.health_interval,
       health_timeout: settings.health_timeout,
       health_threshold: settings.health_threshold,
@@ -614,6 +615,7 @@ fn build_specs(
           .clone()
           .map(|s| s.trim().to_string())
           .filter(|s| !s.is_empty()),
+        wait_for_backend: entry.wait_for_backend.unwrap_or(settings.wait_for_backend),
         health_interval: entry
           .health_interval
           .unwrap_or(settings.health_interval)

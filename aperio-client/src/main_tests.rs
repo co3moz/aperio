@@ -22,6 +22,7 @@ fn base_settings() -> ClientSettings {
     max_redirects: 5,
     tcp_target: None,
     target_health: None,
+    wait_for_backend: false,
     health_interval: 10,
     health_timeout: 5,
     health_threshold: 2,

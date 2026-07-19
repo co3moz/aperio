@@ -320,6 +320,9 @@ pub(crate) struct ClientSettings {
   pub(crate) max_redirects: usize,
   pub(crate) tcp_target: Option<String>,
   pub(crate) target_health: Option<String>,
+  /// Hold the service out of routing until the backend first accepts a
+  /// connection (superseded by `target_health` when that is set).
+  pub(crate) wait_for_backend: bool,
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
   pub(crate) health_threshold: u32,
@@ -583,6 +586,13 @@ pub(crate) fn resolve_settings(
       home.target_health.clone(),
     )
     .and_then(nonempty),
+    wait_for_backend: layered(
+      None,
+      local.wait_for_backend,
+      env_bool("APERIO_WAIT_FOR_BACKEND", "APERIO_WAIT_FOR_BACKEND"),
+      home.wait_for_backend,
+    )
+    .unwrap_or(false),
     health_interval: layered(
       None,
       local.health_interval,

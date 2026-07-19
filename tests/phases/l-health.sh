@@ -74,4 +74,18 @@ start_client health-slow "$HEALTH_BACKEND_PORT" APERIO_HOSTNAME_BIND=slow.e2e.lo
 wait_routable slow.e2e.local /hello
 echo "  ok: routable well within one 30s probe interval"
 
+step "Wait-for-backend startup gate (wait_for_backend)"
+WAIT_BACKEND_PORT=18109
+lsof -tiTCP:"$WAIT_BACKEND_PORT" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
+start_client wait-gate "$WAIT_BACKEND_PORT" APERIO_HOSTNAME_BIND=waitgate.e2e.local \
+  APERIO_WAIT_FOR_BACKEND=1
+# The backend is not up: the gated client must stay out of routing (504
+# from the server, not connection-refused 502 noise from the client).
+sleep 2
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -m 10 -H 'Host: waitgate.e2e.local' "$BASE/hello")"
+assert_status 504 "$CODE" "a gated client stays out of routing while its backend is down"
+start_backend "$WAIT_BACKEND_PORT"
+wait_routable waitgate.e2e.local /hello
+echo "  ok: the gate opens once the backend accepts connections"
+
 stop_server

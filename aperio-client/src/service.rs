@@ -70,6 +70,9 @@ pub(crate) struct ServiceSpec {
   pub(crate) max_redirects: usize,
   pub(crate) tcp_target: Option<String>,
   pub(crate) target_health: Option<String>,
+  /// Hold the service out of routing until the backend first accepts a
+  /// connection (no-op when `target_health` is set — that gates startup too).
+  pub(crate) wait_for_backend: bool,
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
   pub(crate) health_threshold: u32,
@@ -229,6 +232,51 @@ pub(crate) async fn run_service(
       }
     })
   });
+
+  // Wait-for-backend startup gate (`wait_for_backend: true`): without a
+  // configured health check the service normally claims a healthy backend
+  // immediately, which yields connection-refused errors while a slow dev
+  // server is still booting. The gate starts the service out of routing and
+  // a lightweight connect-probe loop marks it routable the first time the
+  // backend accepts a connection; after that the gate never re-engages
+  // (`target_health` is the tool for continuous health tracking, and it
+  // supersedes this gate entirely when configured).
+  let wait_task = if spec.wait_for_backend
+    && spec.target_health.is_none()
+    && !spec.target.is_empty()
+  {
+    backend_healthy.store(false, Ordering::SeqCst);
+    backend_probed.store(false, Ordering::SeqCst);
+    let flag = backend_healthy.clone();
+    let probed = backend_probed.clone();
+    let health_changed = health_changed.clone();
+    let target = spec.target.clone();
+    let label = label.clone();
+    info!(
+      "[{}] Waiting for the backend to accept connections before joining routing ({})",
+      label, target
+    );
+    Some(tokio::spawn(async move {
+      loop {
+        if backend_accepts_connections(&target).await {
+          flag.store(true, Ordering::SeqCst);
+          probed.store(true, Ordering::SeqCst);
+          health_changed.notify_one();
+          info!("[{}] Backend is up ({}) — now routable", label, target);
+          break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+      }
+    }))
+  } else {
+    if spec.wait_for_backend && spec.target_health.is_some() {
+      info!(
+        "[{}] wait_for_backend is implied by target_health; the health check already gates startup",
+        label
+      );
+    }
+    None
+  };
 
   // Local concurrency guard, shared across reconnects of this service.
   let local_limiter: Option<Arc<Semaphore>> = spec
@@ -930,7 +978,39 @@ pub(crate) async fn run_service(
   if let Some(t) = probe_task {
     t.abort();
   }
+  if let Some(t) = wait_task {
+    t.abort();
+  }
   info!("[{}] Service stopped.", label);
+}
+
+/// One connect-probe of the wait-for-backend gate: true when the backend
+/// accepts a TCP (or unix-socket) connection. Deliberately connection-level
+/// only — the gate answers "is anything listening yet", not "is it healthy"
+/// (that is `target_health`'s job).
+async fn backend_accepts_connections(target: &str) -> bool {
+  let attempt = async {
+    #[cfg(unix)]
+    if let Some(path) = crate::proxy::unix::unix_socket_path(target) {
+      return tokio::net::UnixStream::connect(path).await.is_ok();
+    }
+    let wire = target
+      .replacen("h2c://", "http://", 1)
+      .replacen("h2://", "https://", 1);
+    let Ok(url) = url::Url::parse(&wire) else {
+      return false;
+    };
+    let Some(host) = url.host_str() else {
+      return false;
+    };
+    let Some(port) = url.port_or_known_default() else {
+      return false;
+    };
+    tokio::net::TcpStream::connect((host, port)).await.is_ok()
+  };
+  tokio::time::timeout(Duration::from_secs(3), attempt)
+    .await
+    .unwrap_or(false)
 }
 
 /// First retry delay of the reconnect backoff.
