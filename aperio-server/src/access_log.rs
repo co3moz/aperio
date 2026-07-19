@@ -45,6 +45,13 @@ pub(crate) async fn log_request_success(
     duration.as_millis() as u64,
     org.as_deref(),
   );
+  // Feed the per-route status trend (dashboard sparklines).
+  state.route_trends.lock().await.record(
+    host,
+    status,
+    org.as_deref(),
+    crate::store::tokens::now_secs(),
+  );
   {
     let mut logs = state.recent_logs.lock().await;
     if logs.len() >= 100 {

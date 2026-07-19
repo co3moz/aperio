@@ -31,6 +31,10 @@ The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks 
 
 The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map: public routes (hostname and path binds, plus a catch-all node) → tunnel clients (health-colored: green healthy, amber draining or failing backend probes, red unhealthy/disabled) → their backends, with a per-client live request rate on the edge. An alternative visual view of the same data as the clients table, fed by the same SSE stream.
 
+## Route trends
+
+The *Breakdown* page opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes — height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx) — plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
+
 ## Bandwidth accounting
 
 The *Breakdown* page carries a **Bandwidth** report: bytes through the tunnel per token and per hostname, bucketed per day (last 14) or per month (last 6) — the billing-style view. Each cell's tooltip splits the bucket into sent/received bytes and request counts; rows are ordered by total consumption. Buckets follow the standard stats retention (60 days / 24 months) and survive restarts. Raw data: `GET /aperio/api/bandwidth?unit=day|month&count=N`.

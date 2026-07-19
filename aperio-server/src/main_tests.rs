@@ -157,6 +157,7 @@ async fn test_rate_limiting() {
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
+    route_trends: Mutex::new(crate::state::RouteTrends::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     access_log_path: None,
@@ -280,6 +281,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
+    route_trends: Mutex::new(crate::state::RouteTrends::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     access_log_path: None,
@@ -423,6 +425,7 @@ async fn test_proxy_handler_success() {
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
+    route_trends: Mutex::new(crate::state::RouteTrends::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     access_log_path: None,
@@ -1311,4 +1314,29 @@ fn test_effective_body_limit() {
   assert_eq!(effective_body_limit(1024, Some(100)), 100);
   // A declared cap can never widen the global limit.
   assert_eq!(effective_body_limit(1024, Some(10_000)), 1024);
+}
+
+#[test]
+fn test_route_trends_minute_buckets() {
+  use crate::state::RouteTrends;
+  let mut trends = RouteTrends::default();
+  let t0 = 6000u64; // minute 100
+  trends.record(Some("a.example.com"), 200, None, t0);
+  trends.record(Some("a.example.com"), 404, None, t0 + 10);
+  trends.record(Some("a.example.com"), 500, None, t0 + 70); // next minute
+  trends.record(None, 200, None, t0); // host-less traffic lands on "*"
+
+  let trend = trends.routes.get("a.example.com").unwrap();
+  let series = trend.series(2, (t0 + 70) / 60);
+  assert_eq!(series.len(), 2);
+  assert_eq!(series[0].total, 2);
+  assert_eq!(series[0].s2xx, 1);
+  assert_eq!(series[0].s4xx, 1);
+  assert_eq!(series[1].total, 1);
+  assert_eq!(series[1].s5xx, 1);
+  // Gap minutes are zero-filled.
+  let padded = trend.series(5, (t0 + 70) / 60 + 2);
+  assert_eq!(padded.len(), 5);
+  assert_eq!(padded[4].total, 0);
+  assert!(trends.routes.contains_key("*"));
 }

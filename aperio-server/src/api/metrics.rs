@@ -381,3 +381,55 @@ pub(crate) async fn bandwidth_handler(
   }))
   .into_response()
 }
+
+/// Per-route status-class trends: one-minute buckets over the last window,
+/// for the dashboard sparklines.
+#[utoipa::path(get, path = "/aperio/api/route-trends", tag = "dashboard",
+  description = "Per-route status-code trend: one-minute buckets (2xx/3xx/4xx/5xx counts) over the last 30 minutes.",
+  responses((status = 200, description = "Route trends", body = serde_json::Value)))]
+pub(crate) async fn route_trends_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<Vec<serde_json::Value>> {
+  const WINDOW_MINUTES: usize = 30;
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let now_minute = crate::store::tokens::now_secs() / 60;
+  let trends = state.route_trends.lock().await;
+  let mut routes: Vec<serde_json::Value> = trends
+    .routes
+    .iter()
+    .filter(|(_, t)| t.org_id == org)
+    .map(|(host, trend)| {
+      let series = trend.series(WINDOW_MINUTES, now_minute);
+      let (mut total, mut errors) = (0u64, 0u64);
+      let buckets: Vec<serde_json::Value> = series
+        .iter()
+        .map(|b| {
+          total += b.total as u64;
+          errors += b.s5xx as u64;
+          serde_json::json!({
+            "total": b.total,
+            "s2xx": b.s2xx,
+            "s3xx": b.s3xx,
+            "s4xx": b.s4xx,
+            "s5xx": b.s5xx,
+          })
+        })
+        .collect();
+      let error_rate = if total > 0 {
+        errors as f64 / total as f64
+      } else {
+        0.0
+      };
+      serde_json::json!({
+        "host": host,
+        "total": total,
+        "error_rate": (error_rate * 1000.0).round() / 1000.0,
+        "buckets": buckets,
+      })
+    })
+    .filter(|r| r["total"].as_u64().unwrap_or(0) > 0)
+    .collect();
+  routes.sort_by(|a, b| b["total"].as_u64().cmp(&a["total"].as_u64()));
+  Json(routes)
+}

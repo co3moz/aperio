@@ -52,7 +52,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #31 Traffic anomaly detection — alert on sudden spikes/drops (on top of error-rate/client-down alerting)
 - [ ] #32 Structured log shipping to Loki/Elasticsearch
 - [ ] #33 OpenTelemetry traces for the server's own API (only proxied traffic is traced today)
-- [ ] #34 Per-route status-code / error-rate trend sparklines
+- [x] #34 Per-route status-code / error-rate trend sparklines — shipped: in-memory one-minute status-class buckets per hostname (60 min, 100 routes), `GET /aperio/api/route-trends` (last 30 min, org-scoped) + Breakdown-page sparklines colored by worst status class with the window error rate
 - [ ] #35 Trace-ID correlation — show each request's trace ID in the inspector with a deep link to Jaeger/Tempo
 - [x] #36 Prometheus latency histogram buckets — shipped: `/aperio/metrics` exports a request-duration histogram (cumulative buckets + sum + count)
 - [x] #37 Request timeline (high-resolution latency decomposition) — shipped: additive `ClientTimings` on buffered responses; server anchors client stages at t0=arrival by splitting tunnel transit evenly (clocks never mixed, estimate flagged); rendered as a waterfall in the inspector

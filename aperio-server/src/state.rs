@@ -405,6 +405,90 @@ impl EndpointStats {
   }
 }
 
+/// One one-minute status-class bucket of a route's traffic.
+#[derive(Clone, Copy, Default, Serialize)]
+pub(crate) struct RouteTrendBucket {
+  /// Minute index (unix seconds / 60) this bucket covers.
+  pub(crate) minute: u64,
+  pub(crate) total: u32,
+  pub(crate) s2xx: u32,
+  pub(crate) s3xx: u32,
+  pub(crate) s4xx: u32,
+  pub(crate) s5xx: u32,
+}
+
+/// Rolling minute-bucketed status trend for one route (hostname).
+pub(crate) struct RouteTrend {
+  buckets: VecDeque<RouteTrendBucket>,
+  /// Organization serving this route (`None` = master).
+  pub(crate) org_id: Option<String>,
+}
+
+/// Minute buckets kept per route.
+const ROUTE_TREND_MINUTES: usize = 60;
+/// Distinct routes tracked (overflow is simply not trended).
+const ROUTE_TREND_CAP: usize = 100;
+
+impl RouteTrend {
+  /// The last `minutes` buckets ending at `now_minute`, gaps zero-filled,
+  /// chronological. Feeds the dashboard sparklines directly.
+  pub(crate) fn series(&self, minutes: usize, now_minute: u64) -> Vec<RouteTrendBucket> {
+    (0..minutes)
+      .map(|i| {
+        let minute = now_minute + 1 - minutes as u64 + i as u64;
+        self
+          .buckets
+          .iter()
+          .find(|b| b.minute == minute)
+          .copied()
+          .unwrap_or(RouteTrendBucket {
+            minute,
+            ..Default::default()
+          })
+      })
+      .collect()
+  }
+}
+
+/// All routes' status trends, keyed by request hostname (or `*`).
+#[derive(Default)]
+pub(crate) struct RouteTrends {
+  pub(crate) routes: HashMap<String, RouteTrend>,
+}
+
+impl RouteTrends {
+  /// Records one served request into its route's current minute bucket.
+  pub(crate) fn record(&mut self, host: Option<&str>, status: u16, org: Option<&str>, now: u64) {
+    let key = host.unwrap_or("*").to_string();
+    if !self.routes.contains_key(&key) && self.routes.len() >= ROUTE_TREND_CAP {
+      return;
+    }
+    let trend = self.routes.entry(key).or_insert_with(|| RouteTrend {
+      buckets: VecDeque::new(),
+      org_id: org.map(str::to_string),
+    });
+    trend.org_id = org.map(str::to_string);
+    let minute = now / 60;
+    if trend.buckets.back().map(|b| b.minute) != Some(minute) {
+      if trend.buckets.len() >= ROUTE_TREND_MINUTES {
+        trend.buckets.pop_front();
+      }
+      trend.buckets.push_back(RouteTrendBucket {
+        minute,
+        ..Default::default()
+      });
+    }
+    let b = trend.buckets.back_mut().expect("bucket just ensured");
+    b.total += 1;
+    match status {
+      200..=299 => b.s2xx += 1,
+      300..=399 => b.s3xx += 1,
+      400..=499 => b.s4xx += 1,
+      _ => b.s5xx += 1,
+    }
+  }
+}
+
 /// Handle tracking active WebSocket sender channel and metadata.
 pub(crate) struct ClientHandle {
   /// Sender channel to push messages to the client.
@@ -941,6 +1025,8 @@ pub(crate) struct AppState {
   pub(crate) stage_stats: Mutex<StageStats>,
   /// Rolling per-endpoint latency windows (slowest-endpoints report).
   pub(crate) endpoint_stats: Mutex<EndpointStats>,
+  /// Rolling per-route minute-bucketed status trends (dashboard sparklines).
+  pub(crate) route_trends: Mutex<RouteTrends>,
   /// Hostnames currently in maintenance mode (`*` = every hostname), mapped to
   /// the organization that enabled it (`None` = master). Requests to them get a
   /// 503 page even while clients are connected. In-memory only, like bind

@@ -684,6 +684,7 @@ async fn async_main() {
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
+    route_trends: Mutex::new(crate::state::RouteTrends::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
@@ -741,6 +742,10 @@ async fn async_main() {
       .route(
         "/api/bandwidth",
         get(crate::api::metrics::bandwidth_handler),
+      )
+      .route(
+        "/api/route-trends",
+        get(crate::api::metrics::route_trends_handler),
       )
       .route(
         "/api/cache/purge",
