@@ -324,6 +324,87 @@ impl StageStats {
   }
 }
 
+/// Rolling latency window for one endpoint (`host|path`), feeding the
+/// slowest-endpoints report. In-memory only, like the stage windows.
+pub(crate) struct EndpointWindow {
+  /// Durations (ms) of the most recent requests, insertion order.
+  durations: std::collections::VecDeque<u64>,
+  /// Lifetime request count for this endpoint since server start.
+  pub(crate) count: u64,
+  /// Lifetime 5xx/error count since server start.
+  pub(crate) errors: u64,
+  /// Organization serving this endpoint (`None` = master).
+  pub(crate) org_id: Option<String>,
+}
+
+/// Samples kept per endpoint.
+const ENDPOINT_WINDOW_CAP: usize = 200;
+/// Distinct endpoints tracked; overflow folds into `__other`.
+const ENDPOINT_KEY_CAP: usize = 300;
+/// Endpoints with fewer recent samples than this are left out of the report.
+pub(crate) const ENDPOINT_MIN_SAMPLES: usize = 5;
+
+impl EndpointWindow {
+  /// Latency summary over the recent window: (avg, p50, p95, max) in ms.
+  pub(crate) fn summary(&self) -> (f64, u64, u64, u64) {
+    if self.durations.is_empty() {
+      return (0.0, 0, 0, 0);
+    }
+    let mut sorted: Vec<u64> = self.durations.iter().copied().collect();
+    sorted.sort_unstable();
+    let avg = sorted.iter().sum::<u64>() as f64 / sorted.len() as f64;
+    let pick =
+      |p: f64| sorted[((p * (sorted.len() - 1) as f64).round() as usize).min(sorted.len() - 1)];
+    (avg, pick(0.50), pick(0.95), *sorted.last().unwrap_or(&0))
+  }
+
+  /// Recent samples in the window.
+  pub(crate) fn samples(&self) -> usize {
+    self.durations.len()
+  }
+}
+
+/// All endpoints' latency windows, keyed `host|path` (path without query).
+#[derive(Default)]
+pub(crate) struct EndpointStats {
+  pub(crate) endpoints: std::collections::HashMap<String, EndpointWindow>,
+}
+
+impl EndpointStats {
+  /// Records one served request for the slowest-endpoints report.
+  pub(crate) fn record(
+    &mut self,
+    host: Option<&str>,
+    path: &str,
+    status: u16,
+    duration_ms: u64,
+    org: Option<&str>,
+  ) {
+    let key = format!("{}|{}", host.unwrap_or("*"), path);
+    let key = if self.endpoints.contains_key(&key) || self.endpoints.len() < ENDPOINT_KEY_CAP {
+      key
+    } else {
+      "__other|__other".to_string()
+    };
+    let w = self.endpoints.entry(key).or_insert_with(|| EndpointWindow {
+      durations: std::collections::VecDeque::new(),
+      count: 0,
+      errors: 0,
+      org_id: org.map(str::to_string),
+    });
+    // A route is served by one org; keep its label current.
+    w.org_id = org.map(str::to_string);
+    if w.durations.len() >= ENDPOINT_WINDOW_CAP {
+      w.durations.pop_front();
+    }
+    w.durations.push_back(duration_ms);
+    w.count += 1;
+    if status >= 500 {
+      w.errors += 1;
+    }
+  }
+}
+
 /// Handle tracking active WebSocket sender channel and metadata.
 pub(crate) struct ClientHandle {
   /// Sender channel to push messages to the client.
@@ -858,6 +939,8 @@ pub(crate) struct AppState {
     std::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<bool>>>,
   /// Rolling per-stage latency statistics per route (in-memory).
   pub(crate) stage_stats: Mutex<StageStats>,
+  /// Rolling per-endpoint latency windows (slowest-endpoints report).
+  pub(crate) endpoint_stats: Mutex<EndpointStats>,
   /// Hostnames currently in maintenance mode (`*` = every hostname), mapped to
   /// the organization that enabled it (`None` = master). Requests to them get a
   /// 503 page even while clients are connected. In-memory only, like bind

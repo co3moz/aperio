@@ -249,3 +249,46 @@ pub(crate) async fn stage_stats_handler(
   routes.sort_by(|a, b| a["host"].as_str().cmp(&b["host"].as_str()));
   Json(routes)
 }
+
+/// Top-N slowest endpoints over the recent latency window (in-memory).
+#[utoipa::path(get, path = "/aperio/api/slow-endpoints", tag = "dashboard",
+  description = "Slowest endpoints by recent-window p95 latency (host|path, avg/p50/p95/max, request and 5xx counts).",
+  responses((status = 200, description = "Slowest endpoints, worst first", body = serde_json::Value)))]
+pub(crate) async fn slow_endpoints_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<Vec<serde_json::Value>> {
+  const TOP_N: usize = 20;
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let stats = state.endpoint_stats.lock().await;
+  let mut rows: Vec<serde_json::Value> = stats
+    .endpoints
+    .iter()
+    // Only endpoints served by the caller's effective organization, with
+    // enough recent samples for the percentiles to mean anything.
+    .filter(|(_, w)| w.org_id == org && w.samples() >= crate::state::ENDPOINT_MIN_SAMPLES)
+    .map(|(key, w)| {
+      let (host, path) = key.split_once('|').unwrap_or(("*", key));
+      let (avg, p50, p95, max) = w.summary();
+      serde_json::json!({
+        "host": host,
+        "path": path,
+        "samples": w.samples(),
+        "count": w.count,
+        "errors": w.errors,
+        "avg_ms": avg.round() as u64,
+        "p50_ms": p50,
+        "p95_ms": p95,
+        "max_ms": max,
+      })
+    })
+    .collect();
+  rows.sort_by(|a, b| {
+    b["p95_ms"]
+      .as_u64()
+      .cmp(&a["p95_ms"].as_u64())
+      .then(b["avg_ms"].as_u64().cmp(&a["avg_ms"].as_u64()))
+  });
+  rows.truncate(TOP_N);
+  Json(rows)
+}

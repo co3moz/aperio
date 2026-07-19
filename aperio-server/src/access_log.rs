@@ -37,6 +37,14 @@ pub(crate) async fn log_request_success(
 ) {
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
+  // Feed the slowest-endpoints report (recent-window latency per host|path).
+  state.endpoint_stats.lock().await.record(
+    host,
+    safe_uri,
+    status,
+    duration.as_millis() as u64,
+    org.as_deref(),
+  );
   {
     let mut logs = state.recent_logs.lock().await;
     if logs.len() >= 100 {

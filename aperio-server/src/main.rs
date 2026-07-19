@@ -683,6 +683,7 @@ async fn async_main() {
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
+    endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
@@ -732,6 +733,10 @@ async fn async_main() {
       .route(
         "/api/purge",
         axum::routing::post(crate::api::purge::purge_handler),
+      )
+      .route(
+        "/api/slow-endpoints",
+        get(crate::api::metrics::slow_endpoints_handler),
       )
       .route(
         "/api/cache/purge",

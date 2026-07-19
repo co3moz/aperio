@@ -48,7 +48,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #27 Per-service latency histograms — p50/p95/p99 time series (on the date-filter/uptime layer)
 - [x] #28 Live log tail — shipped: a *Live Tail* dashboard page renders each proxied request as a terminal-style line off the existing SSE stream (auto-scroll with pin/unpin, pause, clear, free-text filter incl. the new `host` log field; a line click opens the inspector)
 - [ ] #29 Bandwidth accounting — bytes in/out per token/hostname (billing-style report)
-- [ ] #30 Top-N slowest endpoints report
+- [x] #30 Top-N slowest endpoints report — shipped: rolling in-memory latency window per `host|path` (200 samples, 300 keys with `__other` overflow), `GET /aperio/api/slow-endpoints` (top 20 by recent p95, org-scoped) + a Breakdown-page table
 - [ ] #31 Traffic anomaly detection — alert on sudden spikes/drops (on top of error-rate/client-down alerting)
 - [ ] #32 Structured log shipping to Loki/Elasticsearch
 - [ ] #33 OpenTelemetry traces for the server's own API (only proxied traffic is traced today)

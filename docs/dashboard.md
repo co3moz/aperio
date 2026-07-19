@@ -31,6 +31,10 @@ The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks 
 
 The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map: public routes (hostname and path binds, plus a catch-all node) → tunnel clients (health-colored: green healthy, amber draining or failing backend probes, red unhealthy/disabled) → their backends, with a per-client live request rate on the edge. An alternative visual view of the same data as the clients table, fed by the same SSE stream.
 
+## Slowest endpoints
+
+The *Breakdown* page also lists the **slowest endpoints**: a rolling in-memory latency window per `host|path` (query strings stripped), ranked by recent p95 — with p50, max, lifetime request and 5xx counts per endpoint. Endpoints need a handful of recent samples before they appear, and up to 300 distinct paths are tracked (overflow folds into an *other* bucket). Also available raw at `GET /aperio/api/slow-endpoints`.
+
 ## Stage latencies
 
 The Breakdown page carries a *Stage latencies* table: for every route, the rolling mean/σ/latest of each request stage (queue, tunnel transit per direction, client processing, backend wait/body, serve). A stage whose latest sample sits far above its usual band gets an **anomaly** badge, so a regression is attributable to a specific hop. Fed by the same timeline data as the inspector waterfall; `GET /aperio/api/stage-stats`.
