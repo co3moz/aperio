@@ -442,6 +442,101 @@ pub(crate) async fn tokens_refresh_handler(
   }
 }
 
+/// Payload for rotating a token's secret.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct TokenRotateRequest {
+  /// Seconds the old secret stays accepted after the rotation (0 or absent =
+  /// immediate cutover).
+  #[serde(default)]
+  pub(crate) grace_seconds: u64,
+}
+
+/// Rotates a token's secret: a fresh secret becomes current and is returned
+/// exactly once; the old secret keeps working for the requested grace window
+/// so running clients and CI jobs can migrate without a hard cutover.
+/// Permissions, limits and expiry are untouched.
+#[utoipa::path(post, path = "/aperio/api/tokens/{id}/rotate", tag = "tokens",
+  description = "Rotates a token's secret; the old secret stays valid for grace_seconds. The new secret is returned exactly once.",
+  params(("id" = String, Path, description = "Token record id")),
+  request_body = TokenRotateRequest,
+  responses((status = 200, description = "New secret + grace deadline", body = serde_json::Value), (status = 404, description = "Unknown token id")))]
+pub(crate) async fn tokens_rotate_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(id): axum::extract::Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Json(payload): Json<TokenRotateRequest>,
+) -> Response {
+  let actor_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  )
+  .to_string();
+  // A year is plenty for any migration window; larger values are typos.
+  if payload.grace_seconds > 365 * 24 * 3600 {
+    return (
+      StatusCode::BAD_REQUEST,
+      "grace_seconds must be at most one year",
+    )
+      .into_response();
+  }
+  // Isolation: only tokens in the caller's effective org may be rotated.
+  if !token_in_effective_org(&state, &headers, &id).await {
+    return (StatusCode::NOT_FOUND, "Token not found").into_response();
+  }
+  let rotated = state
+    .token_store
+    .lock()
+    .await
+    .rotate(&id, payload.grace_seconds);
+  match rotated {
+    Some((record, secret)) => {
+      info!(
+        "Dynamic token rotated: {} (id={}, grace_seconds={}, prev_expires_at={:?})",
+        record.name, record.id, payload.grace_seconds, record.prev_expires_at
+      );
+      state
+        .audit_session(
+          "token_rotated",
+          &headers,
+          &actor_ip,
+          &format!(
+            "name={} id={} grace_seconds={} prev_expires_at={:?}",
+            record.name, record.id, payload.grace_seconds, record.prev_expires_at
+          ),
+        )
+        .await;
+      state
+        .emit_event_in(
+          "token_rotated",
+          serde_json::json!({
+            "id": record.id,
+            "name": record.name,
+            "grace_seconds": payload.grace_seconds,
+            "prev_expires_at": record.prev_expires_at,
+          }),
+          record.org_id.clone(),
+        )
+        .await;
+      (
+        StatusCode::OK,
+        Json(serde_json::json!({
+          "id": record.id,
+          "name": record.name,
+          "token": secret,
+          "prev_expires_at": record.prev_expires_at,
+          "expires_at": record.expires_at,
+        })),
+      )
+        .into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+  }
+}
+
 /// Revokes (deletes) a dynamic token and drops any tunnel connections that are
 /// currently using it — a revoked token could otherwise keep serving traffic
 /// until the client next reconnected (when it would be rejected anyway).

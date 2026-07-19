@@ -66,4 +66,35 @@ retry 20 sh -c "grep -q 'does not permit publishing public' '$LOG_DIR/server-aut
 RESP="$(curl -s -D - -o /dev/null -H "Host: priv.e2e.local" "$BASE/hello")"
 assert_contains "$RESP" "/aperio/auth" "unpermitted public declaration keeps the gate"
 
+step "Token rotation with a grace period"
+ROT="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"rotate-me","hostnames":["rot.e2e.local"]}' "$BASE/aperio/api/tokens")" \
+  || fail "token creation failed"
+ROT_ID="$(echo "$ROT" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+ROT_OLD="$(echo "$ROT" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$ROT_ID" ] && [ -n "$ROT_OLD" ] || fail "could not parse the token response: $ROT"
+ROTATED="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"grace_seconds":3600}' "$BASE/aperio/api/tokens/$ROT_ID/rotate")" \
+  || fail "token rotation failed"
+ROT_NEW="$(echo "$ROTATED" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$ROT_NEW" ] && [ "$ROT_NEW" != "$ROT_OLD" ] || fail "rotation did not mint a new secret: $ROTATED"
+# Both secrets authenticate a tunnel while the grace window is open.
+env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$ROT_OLD" \
+  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot.e2e.local \
+  "$CLIENT_BIN" >"$LOG_DIR/client-auth-rot-old.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable rot.e2e.local
+echo "  ok: the pre-rotation secret still connects inside the grace window"
+# An immediate-cutover rotation kills the previous secrets for new connects.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"grace_seconds":0}' "$BASE/aperio/api/tokens/$ROT_ID/rotate" >/dev/null \
+  || fail "second rotation failed"
+env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$ROT_NEW" \
+  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot2.e2e.local \
+  "$CLIENT_BIN" >"$LOG_DIR/client-auth-rot-stale.log" 2>&1 &
+CLIENT_PIDS+=($!)
+retry 20 sh -c "grep -qi 'invalid token\|401\|unauthorized' '$LOG_DIR/client-auth-rot-stale.log'" \
+  || fail "a cut-off rotated secret was still accepted"
+echo "  ok: grace 0 cuts the previous secret off immediately"
+
 stop_server

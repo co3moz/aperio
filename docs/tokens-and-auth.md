@@ -32,6 +32,19 @@ curl -X POST -H "Authorization: Bearer $APERIO_TOKEN" https://tunnel.example.com
 
 The endpoint authenticates with the token secret itself (no dashboard session needed), so a CI job or a long-running client can refresh on a timer. Each refresh resets the expiry to *now + the TTL the token was created with*. Never-expiring tokens are not refreshable, an expired token cannot resurrect itself, and each refresh writes a `token_refreshed` audit event.
 
+### Rotation with a grace period
+
+Rotation replaces a token's **secret** without touching its identity — permissions, limits, expiry, and every reference to the token id stay as they are. The old secret keeps authenticating for the requested grace window, so running clients and CI jobs can migrate to the new secret without a hard cutover:
+
+```bash
+curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
+  --data '{"grace_seconds": 86400}' \
+  https://tunnel.example.com/aperio/api/tokens/<id>/rotate
+# → { "id": "…", "name": "…", "token": "apr_…new…", "prev_expires_at": 1780086400, … }
+```
+
+The new secret is returned exactly once (like creation). `grace_seconds: 0` (or omitting it) cuts the old secret off immediately — the right move when a secret has leaked; combine with the revoke endpoint's behavior in mind: rotation does **not** drop live tunnel connections, it only controls which secrets future connects may present. Only the most recent previous secret is kept: rotating twice inside one grace window invalidates the oldest secret. Each rotation writes a `token_rotated` audit event and emits a `token_rotated` webhook event.
+
 ## Protecting proxied traffic
 
 Two options put a gate in front of everything the tunnel serves:

@@ -49,7 +49,7 @@ use crate::api::metrics::metrics_handler;
 use crate::api::settings::{settings_get_handler, settings_put_handler};
 use crate::api::tokens::{
   tokens_create_handler, tokens_list_handler, tokens_refresh_handler, tokens_revoke_handler,
-  tokens_update_handler,
+  tokens_rotate_handler, tokens_update_handler,
 };
 use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
 use crate::api::webhooks::{
@@ -717,6 +717,10 @@ async fn async_main() {
       .route(
         "/api/tokens/:id",
         axum::routing::put(tokens_update_handler).delete(tokens_revoke_handler),
+      )
+      .route(
+        "/api/tokens/:id/rotate",
+        axum::routing::post(tokens_rotate_handler),
       )
       .route("/api/requests/:id", get(request_detail_handler))
       .route(

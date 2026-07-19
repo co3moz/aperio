@@ -49,12 +49,26 @@ pub struct ApiToken {
   /// A client that connects with this token inherits its organization.
   #[serde(default)]
   pub org_id: Option<String>,
+  /// SHA-256 hash of the previous secret after a rotation. Stays accepted
+  /// until `prev_expires_at` so existing clients can migrate gracefully.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prev_token_hash: Option<String>,
+  /// Unix timestamp (seconds) when the rotated-out previous secret stops
+  /// being accepted (the rotation's grace deadline).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prev_expires_at: Option<u64>,
 }
 
 impl ApiToken {
   /// Returns true when the token is past its expiry time.
   pub fn is_expired(&self) -> bool {
     self.expires_at.is_some_and(|exp| now_secs() >= exp)
+  }
+
+  /// True while the rotated-out previous secret is still inside its grace
+  /// window (false when the token was never rotated).
+  pub fn prev_secret_valid(&self) -> bool {
+    self.prev_token_hash.is_some() && self.prev_expires_at.is_some_and(|exp| now_secs() < exp)
   }
 }
 
@@ -136,6 +150,8 @@ impl TokenStore {
       daily_max_bytes,
       allow_public,
       org_id,
+      prev_token_hash: None,
+      prev_expires_at: None,
     };
     self.tokens.push(record.clone());
     self.persist();
@@ -211,10 +227,44 @@ impl TokenStore {
   /// and avoids a future timing regression.
   pub fn verify(&self, secret: &str) -> Option<&ApiToken> {
     let hash = hash_token(secret);
-    self
-      .tokens
-      .iter()
-      .find(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())
+    self.tokens.iter().find(|t| {
+      if t.is_expired() {
+        return false;
+      }
+      // The current secret always matches; after a rotation the previous
+      // secret keeps matching until its grace window closes.
+      crate::auth::constant_time_eq_str(&t.token_hash, &hash)
+        || (t.prev_secret_valid()
+          && t
+            .prev_token_hash
+            .as_deref()
+            .is_some_and(|prev| crate::auth::constant_time_eq_str(prev, &hash)))
+    })
+  }
+
+  /// Rotates a token's secret in place: a fresh secret becomes current and
+  /// the old one stays accepted for `grace_seconds` (0 = immediate cutover).
+  /// Permissions, limits and expiry are untouched. Returns the updated
+  /// record together with the new plaintext secret.
+  pub fn rotate(&mut self, id: &str, grace_seconds: u64) -> Option<(ApiToken, String)> {
+    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
+    let secret = format!(
+      "apr_{}{}",
+      uuid::Uuid::new_v4().simple(),
+      uuid::Uuid::new_v4().simple()
+    );
+    if grace_seconds > 0 {
+      token.prev_token_hash = Some(token.token_hash.clone());
+      token.prev_expires_at = Some(now_secs().saturating_add(grace_seconds));
+    } else {
+      token.prev_token_hash = None;
+      token.prev_expires_at = None;
+    }
+    token.token_hash = hash_token(&secret);
+    token.token_prefix = secret.chars().take(12).collect();
+    let rotated = token.clone();
+    self.persist();
+    Some((rotated, secret))
   }
 
   /// Slides the expiry of the (non-expired) token matching `secret` forward by
@@ -378,6 +428,47 @@ mod tests {
       None,
     );
     assert!(store.refresh(&dead).is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_rotate_with_grace_period() {
+    let dir = temp_dir();
+    let mut store = TokenStore::load(&dir);
+    let (record, old_secret) = store.create(
+      "rotate-me".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+      None,
+    );
+
+    // Rotation with a grace window: both secrets verify to the same record.
+    let (rotated, new_secret) = store.rotate(&record.id, 3600).expect("rotate");
+    assert_ne!(new_secret, old_secret);
+    assert!(rotated.prev_expires_at.is_some());
+    assert_eq!(store.verify(&new_secret).unwrap().id, record.id);
+    assert_eq!(store.verify(&old_secret).unwrap().id, record.id);
+
+    // The rotation survives a reload.
+    let store2 = TokenStore::load(&dir);
+    assert!(store2.verify(&old_secret).is_some());
+    assert!(store2.verify(&new_secret).is_some());
+
+    // A second rotation with grace 0 cuts the old secrets off immediately.
+    let mut store3 = TokenStore::load(&dir);
+    let (_, newest) = store3.rotate(&record.id, 0).expect("rotate");
+    assert!(store3.verify(&newest).is_some());
+    assert!(store3.verify(&new_secret).is_none());
+    assert!(store3.verify(&old_secret).is_none());
+
+    // Unknown ids rotate nothing.
+    assert!(store3.rotate("nope", 60).is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
   }

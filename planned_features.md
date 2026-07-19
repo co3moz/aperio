@@ -29,7 +29,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [x] #7 Extend the login lockout to per-service visitor password logins — shipped: the escalating per-IP lockout sits at the top of the shared `/aperio/auth` handler, which serves visitor-password logins too
 - [x] #8 Active session management — shipped: sessions record IP/User-Agent/time; admin `GET/DELETE /aperio/api/sessions[/{id}]` + Users-page table with per-session revoke and sign-out-everywhere
 - [x] #10 Secret redaction in the request inspector — shipped: credential headers and JSON/form secret fields masked server-side before the detail/cURL/HAR views (`APERIO_INSPECTOR_REDACT=0` opts out); raw capture kept so replay still works
-- [ ] #11 API token rotation with a grace period — issue a new token while the old stays valid for N hours
+- [x] #11 API token rotation with a grace period — shipped: `POST /aperio/api/tokens/{id}/rotate` (`grace_seconds`) mints a new secret returned once; the previous secret stays accepted until the grace deadline (0 = immediate cutover); audited + webhook `token_rotated`
 - [ ] #12 CAPTCHA challenge gate (hCaptcha/Cloudflare Turnstile) for public services under attack
 - [ ] #14 Encrypted-at-rest SQLite (SQLCipher) option for the data dir
 - [x] #15 Per-service security header presets — shipped: `security_headers:` (yaml top-level/per-service; `true` = HSTS/X-Frame-Options/nosniff/Referrer-Policy, or a granular mapping incl. `csp`) folds into the response header rules; explicit `headers:` rules win over the preset
