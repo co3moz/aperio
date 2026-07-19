@@ -15,6 +15,7 @@ import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
+import { ApiExplorerSection } from './components/ApiExplorerSection'
 import { LiveTailSection } from './components/LiveTailSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
@@ -355,6 +356,7 @@ export default function App() {
               {page === 'organizations' && <OrganizationsSection />}
               {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}
+              {page === 'api' && <ApiExplorerSection />}
             </>
           )}
         </main>

@@ -126,7 +126,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 
 - [x] #118 Ctrl/Cmd+S saves the Settings page — shipped: a keydown handler on the settings form persists pending overrides (matching editor muscle memory) instead of the browser's save-page dialog.
 - [ ] #90 SDKs / Terraform provider on top of the OpenAPI spec
-- [ ] #91 Embedded Swagger UI / API explorer — `openapi.json` exists but there's no visual UI
+- [x] #91 Embedded Swagger UI / API explorer — shipped: a self-contained *API Explorer* dashboard page renders `/aperio/api/openapi.json` grouped by tag with expandable operations and an inline try-it form (session-authenticated, no external Swagger assets)
 - [ ] #92 `aperio-client open` — open the public URL in a browser and print a QR code in the terminal
 - [ ] #93 Tunnel presets — `aperio-client --preset vite/next` ready-made framework templates
 - [ ] #94 Official Helm chart — a docker-compose example exists, no k8s chart

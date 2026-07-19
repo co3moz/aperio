@@ -1,5 +1,6 @@
 import {
   ActivityIcon,
+  BracesIcon,
   ChartPieIcon,
   ConstructionIcon,
   GlobeIcon,
@@ -50,6 +51,7 @@ export type Page =
   | 'audit'
   | 'users'
   | 'organizations'
+  | 'api'
 
 export interface PageSpec {
   id: Page
@@ -95,6 +97,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       { id: 'users', label: 'Users', icon: UsersIcon, hint: 'Dashboard access & roles', minRole: 'admin' },
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
+      { id: 'api', label: 'API Explorer', icon: BracesIcon, hint: 'Browse & try the admin API' },
     ],
   },
 ]

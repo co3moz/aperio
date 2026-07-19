@@ -66,6 +66,10 @@ Almost every runtime setting — timeouts, limits, load-balancing strategy, fail
 - **Traffic breakdown** — top consumers per token and per hostname, plus a **traffic history** chart over the persisted statistics: last 7/30/60 days, 26 weeks, 24 months, or a custom date range, with successful/failed requests, transfer volume, and average latency per bucket (`GET /aperio/api/stats/history`).
 - **Audit log** — the last 200 administrative/security events.
 
+## API explorer
+
+The *API Explorer* page (System group) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded — no external Swagger assets are loaded.
+
 ## The admin API
 
 Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json` — point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md).
