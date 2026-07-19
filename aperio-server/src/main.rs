@@ -334,15 +334,16 @@ async fn async_main() {
   // Structured access log: APERIO_ACCESS_LOG=<path> appends one JSON line
   // per proxied request to the file (in addition to the structured
   // aperio_access tracing events that always go to stdout).
-  let access_log = std::env::var("APERIO_ACCESS_LOG")
+  let access_log_configured = std::env::var("APERIO_ACCESS_LOG")
     .ok()
     .map(|p| p.trim().to_string())
-    .filter(|p| !p.is_empty())
-    .and_then(|path| {
+    .filter(|p| !p.is_empty());
+  let access_log =
+    access_log_configured.as_ref().and_then(|path| {
       match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
       {
         Ok(file) => {
           info!("Structured access log enabled: {}", path);
@@ -357,6 +358,7 @@ async fn async_main() {
         }
       }
     });
+  let access_log_path = access_log.as_ref().and(access_log_configured);
 
   // Optional custom maintenance page (APERIO_503_PAGE=/app/maintenance.html).
   let custom_503_page =
@@ -680,6 +682,7 @@ async fn async_main() {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
+    access_log_path,
     duration_histogram: DurationHistogram::default(),
   });
 
@@ -721,6 +724,10 @@ async fn async_main() {
       .route(
         "/api/tokens/:id/rotate",
         axum::routing::post(tokens_rotate_handler),
+      )
+      .route(
+        "/api/purge",
+        axum::routing::post(crate::api::purge::purge_handler),
       )
       .route("/api/requests/:id", get(request_detail_handler))
       .route(

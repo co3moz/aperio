@@ -371,6 +371,44 @@ impl StatsStore {
   }
 
   /// Writes to the store when there are unsaved changes.
+  /// Right-to-erasure: drops the per-hostname aggregate rows for one
+  /// hostname (global and every org breakdown). Returns removed row count.
+  pub fn purge_hostname(&mut self, hostname: &str) -> usize {
+    let mut removed = 0;
+    if self.stats.by_hostname.remove(hostname).is_some() {
+      removed += 1;
+    }
+    for org in self.by_org.values_mut() {
+      if org.by_hostname.remove(hostname).is_some() {
+        removed += 1;
+      }
+    }
+    if removed > 0 {
+      self.dirty = true;
+      self.save_if_dirty();
+    }
+    removed
+  }
+
+  /// Right-to-erasure: drops the per-token aggregate rows for one token
+  /// label. Returns removed row count.
+  pub fn purge_token(&mut self, token: &str) -> usize {
+    let mut removed = 0;
+    if self.stats.by_token.remove(token).is_some() {
+      removed += 1;
+    }
+    for org in self.by_org.values_mut() {
+      if org.by_token.remove(token).is_some() {
+        removed += 1;
+      }
+    }
+    if removed > 0 {
+      self.dirty = true;
+      self.save_if_dirty();
+    }
+    removed
+  }
+
   pub fn save_if_dirty(&mut self) {
     if !self.dirty {
       return;
@@ -549,6 +587,54 @@ mod tests {
         .requests,
       2
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_purge_hostname_and_token() {
+    let dir = std::env::temp_dir().join(format!("aperio-stats-purge-{}", uuid::Uuid::new_v4()));
+    let dir_str = dir.to_string_lossy().to_string();
+    let mut store = StatsStore::load(&dir_str);
+    store.record_request_labeled(
+      true,
+      100,
+      1000,
+      50,
+      Some("tenant-a"),
+      Some("a.example.com"),
+      Some("org-1"),
+    );
+    store.record_request_labeled(
+      true,
+      100,
+      1000,
+      50,
+      Some("master"),
+      Some("b.example.com"),
+      None,
+    );
+    store.save_if_dirty();
+
+    // Hostname purge removes the global row and the org breakdown row.
+    assert!(store.purge_hostname("a.example.com") >= 1);
+    assert!(store.snapshot().by_hostname.get("a.example.com").is_none());
+    // Other hostnames and totals are untouched.
+    assert!(store.snapshot().by_hostname.get("b.example.com").is_some());
+    assert_eq!(store.snapshot().total_requests, 2);
+
+    // Token purge removes the label rows.
+    assert!(store.purge_token("tenant-a") >= 1);
+    assert!(store.snapshot().by_token.get("tenant-a").is_none());
+
+    // Purges persist across a reload.
+    let store2 = StatsStore::load(&dir_str);
+    assert!(store2.snapshot().by_hostname.get("a.example.com").is_none());
+    assert!(store2.snapshot().by_token.get("tenant-a").is_none());
+
+    // Unknown selectors remove nothing.
+    assert_eq!(store.purge_hostname("nope.example.com"), 0);
+    assert_eq!(store.purge_token("nope"), 0);
 
     let _ = std::fs::remove_dir_all(&dir);
   }

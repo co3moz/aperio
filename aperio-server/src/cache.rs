@@ -80,6 +80,24 @@ impl ResponseCache {
     self.total_bytes = 0;
   }
 
+  /// Drops every cached entry stored for one request hostname (keys are
+  /// `host|uri`). Returns how many entries were removed.
+  pub(crate) fn purge_host(&mut self, host: &str) -> usize {
+    let prefix = format!("{}|", host);
+    let keys: Vec<String> = self
+      .entries
+      .keys()
+      .filter(|k| k.starts_with(&prefix))
+      .cloned()
+      .collect();
+    for key in &keys {
+      if let Some(e) = self.entries.remove(key) {
+        self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
+      }
+    }
+    keys.len()
+  }
+
   /// Returns a fresh entry for the key. An expired entry is dropped unless
   /// it is resilient and still inside the `max_stale` window (it stays
   /// stored for [`Self::get_for_outage`]).

@@ -54,6 +54,7 @@ pub(crate) async fn log_request_success(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: None,
+      host: host.map(str::to_string),
       org_id: org,
     };
     // Fan out to live dashboard SSE subscribers (ignored when there are none).
@@ -120,6 +121,7 @@ pub(crate) async fn log_request_failure(
       status: Some(status),
       duration_ms: duration.as_millis(),
       error: error.map(|s| s.to_string()),
+      host: None,
       org_id: org,
     };
     // Fan out to live dashboard SSE subscribers (ignored when there are none).

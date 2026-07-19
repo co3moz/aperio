@@ -82,6 +82,23 @@ dashboard_login "$COOKIES"
 STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
 assert_contains "$STATS" '"service":"web"' "stats show the announced service name"
 
+step "Right-to-erasure selective purge"
+LOGS_BEFORE="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
+assert_contains "$LOGS_BEFORE" '"host":"web.e2e.local"' "the traffic log records the request hostname"
+PURGE="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"web.e2e.local"}' "$BASE/aperio/api/purge")" \
+  || fail "purge request failed"
+assert_contains "$PURGE" '"status":"ok"' "the purge reports per-surface removal counts"
+LOGS_AFTER="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
+case "$LOGS_AFTER" in
+  *'"host":"web.e2e.local"'*) fail "purged hostname still present in the traffic log" ;;
+  *) echo "  ok: the purged hostname is gone from the traffic log" ;;
+esac
+assert_contains "$LOGS_AFTER" '"host":"api.e2e.local"' "other hostnames keep their log entries"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
+  -H 'Content-Type: application/json' --data '{}' "$BASE/aperio/api/purge")"
+assert_status 400 "$CODE" "a purge without selectors is rejected"
+
 step "Per-service request body limit (max_request_body)"
 wait_routable upload.e2e.local
 SMALL_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'ok' \

@@ -137,6 +137,10 @@ pub(crate) struct RequestLog {
   pub(crate) duration_ms: u128,
   /// Reason string if request failed.
   pub(crate) error: Option<String>,
+  /// Request hostname (None for failures resolved before routing). Also the
+  /// selector the right-to-erasure purge matches log entries on.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) host: Option<String>,
   /// Organization of the client that served the request (None = master, or a
   /// server-level failure with no client). The dashboard traffic log and live
   /// stream are filtered to the caller's effective org on this field.
@@ -847,6 +851,9 @@ pub(crate) struct AppState {
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.
   pub(crate) access_log: Option<std::sync::Mutex<std::fs::File>>,
+  /// Path of the structured access log file (kept alongside the handle so
+  /// the right-to-erasure purge can rewrite the file in place).
+  pub(crate) access_log_path: Option<String>,
   /// Request duration histogram exposed on `/aperio/metrics`.
   pub(crate) duration_histogram: DurationHistogram,
 }

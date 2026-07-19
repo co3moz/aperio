@@ -155,7 +155,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #113 Hash-chained tamper-evident audit log — chain each audit row's hash into the next with a verify command, making any edit/deletion of the audit history detectable after the fact
 - [ ] #114 Per-data-type retention policies — independent TTLs for request captures, access logs, audit entries, and stats rows, enforced by a background pruner
 - [ ] #115 Disk-usage guard with auto-prune at cap — a configurable max `aperio.db` size that auto-prunes the oldest low-priority captures and emits a webhook alert as the cap nears
-- [ ] #116 Right-to-erasure selective purge — delete all persisted requests/logs/stats/inspector history matching a given visitor IP, hostname, or token, without wiping the whole store
+- [x] #116 Right-to-erasure selective purge — shipped: `POST /aperio/api/purge` (admin) erases the traffic log, inspector captures, per-hostname/per-token stats rows, stage windows, cache entries, and access-log lines matching a hostname/token/visitor-IP selector; audited as `data_purged`
 - [ ] #117 Client-side store-and-forward capture buffer — the client queues request metadata to a small local buffer when the WebSocket drops and replays it on reconnect, so no traffic records are lost during outages
 
 - [x] #121 `aperio-server.yaml` hot-reload — shipped: the server watches its config file and re-applies live-editable settings + `headers:`/`routes:` without a restart (layered env -> file -> dashboard, no runtime `set_var`); structural keys still need a restart. `APERIO_CONFIG_HOT_RELOAD=0` disables it.

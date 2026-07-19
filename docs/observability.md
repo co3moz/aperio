@@ -100,3 +100,15 @@ ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.ti
 Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/aperio.db` (SQLite) — flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
 
 Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into an `(other)` bucket so unbounded hostname cardinality cannot grow the stats file.
+
+## Right-to-erasure selective purge
+
+`POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store — the GDPR-style "erase what you hold about X" operation:
+
+```bash
+curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
+  --data '{"hostname": "app.example.com"}' https://tunnel.example.com/aperio/api/purge
+# → { "status": "ok", "removed": { "traffic_log": 12, "inspector_captures": 3, "stats_rows": 2, … } }
+```
+
+Selectors (at least one required): `hostname` (a request hostname), `token` (a token label), `ip` (a visitor IP). A purge touches the in-memory traffic log, the request inspector captures, the per-hostname/per-token statistics aggregates, per-route latency stage windows, the response cache, and the structured `APERIO_ACCESS_LOG` file (rewritten in place). Lifetime totals and period buckets are aggregates without personal attribution and stay intact. Visitor IPs are deliberately never persisted in logs or stats (queries are sanitized, no IP field is written), so the `ip` selector only matches inspector captures via their forwarded-IP request headers. Every purge writes a `data_purged` audit event with the per-surface removal counts.

@@ -156,6 +156,7 @@ async fn test_rate_limiting() {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
+    access_log_path: None,
     duration_histogram: DurationHistogram::default(),
   };
 
@@ -275,6 +276,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
+    access_log_path: None,
     duration_histogram: DurationHistogram::default(),
   });
 
@@ -414,6 +416,7 @@ async fn test_proxy_handler_success() {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
+    access_log_path: None,
     duration_histogram: DurationHistogram::default(),
   });
 
