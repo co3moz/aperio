@@ -107,10 +107,14 @@ retry 15 curl -sf "http://127.0.0.1:${SF_BACKEND_PORT}/count" || fail "single-fl
 start_client singleflight "$SF_BACKEND_PORT" APERIO_HOSTNAME_BIND=sf.e2e.local APERIO_CACHE=1
 wait_routable sf.e2e.local /count
 # Five concurrent identical cacheable misses must reach the backend once.
+# Wait only on the curl PIDs — a bare `wait` would also block on the
+# long-lived backend and client background jobs of the sourcing shell.
+SF_PIDS=()
 for _ in 1 2 3 4 5; do
   curl -s -o /dev/null -H "Host: sf.e2e.local" "$BASE/coalesce-me" &
+  SF_PIDS+=($!)
 done
-wait
+for pid in "${SF_PIDS[@]}"; do wait "$pid"; done
 COUNT="$(curl -s "http://127.0.0.1:${SF_BACKEND_PORT}/count")"
 [ "$COUNT" = "1" ] || fail "expected 1 backend fetch for 5 concurrent identical misses, got $COUNT"
 echo "  ok: 5 concurrent identical misses collapsed into 1 upstream fetch"

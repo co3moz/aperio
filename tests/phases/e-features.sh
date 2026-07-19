@@ -10,7 +10,10 @@ REDIR_PORT=18103
 start_redirect_backend "$REDIR_PORT" "$BACKEND_PORT"
 
 step "Starting aperio-server (features configuration)"
-start_server
+# The features phase accumulates many concurrent clients across its steps
+# (multi-service, unix socket, per-candidate allowlist union, ...); lift the
+# default 10-tunnel cap so later clients still connect.
+start_server APERIO_MAX_TUNNELS=30
 
 step "Positional-target CLI form"
 "$CLIENT_BIN" "127.0.0.1:${BACKEND_PORT}" \
