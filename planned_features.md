@@ -76,7 +76,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #52 Per-service custom error pages — beyond the global 504/503
 - [ ] #53 stale-while-revalidate + a cache purge API (on top of the response cache)
 - [ ] #54 WebSocket message inspection/logging — the ws counterpart of the HTTP inspector
-- [ ] #55 Per-service request body size limit with an early 413
+- [x] #55 Per-service request body size limit with an early 413 — shipped: `max_request_body` (yaml top-level/per-service, `APERIO_MAX_REQUEST_BODY`) is announced via Ping; the server rejects bigger uploads with 413 before dispatch, tightening (never widening) the global `APERIO_MAX_BODY_SIZE`
 - [ ] #56 Slow-start (warmup) — ramp traffic to a newly connected client in the LB pool
 - [ ] #57 QUIC/HTTP-3 tunnel with connection migration — dialing out over HTTP/3 lets the tunnel survive wifi↔cellular IP changes and carries each request on its own stream, ending head-of-line blocking of the single TCP WebSocket
 - [ ] #58 TLS/SNI passthrough routing — route raw TLS by SNI to the right client without terminating at the edge, so backends needing end-to-end TLS or client-cert auth work unmodified

@@ -457,6 +457,7 @@ async fn test_proxy_handler_success() {
       tunnels: Vec::new(),
       cache: false,
       resilience: false,
+      max_request_body: None,
     },
   );
 
@@ -738,6 +739,7 @@ fn mock_client(
     tunnels: Vec::new(),
     cache: false,
     resilience: false,
+    max_request_body: None,
   }
 }
 
@@ -1273,4 +1275,15 @@ fn test_safe_redirect_path() {
   assert_eq!(safe_redirect_path("javascript:alert(1)"), "/");
   assert_eq!(safe_redirect_path(""), "/");
   assert_eq!(safe_redirect_path("evil.com"), "/");
+}
+
+#[test]
+fn test_effective_body_limit() {
+  use crate::proxy::effective_body_limit;
+  // No declared cap: the global limit applies.
+  assert_eq!(effective_body_limit(1024, None), 1024);
+  // A declared cap tightens the global limit.
+  assert_eq!(effective_body_limit(1024, Some(100)), 100);
+  // A declared cap can never widen the global limit.
+  assert_eq!(effective_body_limit(1024, Some(10_000)), 1024);
 }

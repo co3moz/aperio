@@ -304,6 +304,10 @@ pub(crate) struct ClientSettings {
   pub(crate) trim_bind: Option<bool>,
   pub(crate) pass_hostname: bool,
   pub(crate) max_response_body: usize,
+  /// Largest request body, in bytes, visitors may upload (None = only the
+  /// server's global limit applies). Announced via Ping; the server rejects
+  /// bigger uploads with an early 413 before they enter the tunnel.
+  pub(crate) max_request_body: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
   /// Parallel tunnel connections per service (config files only; 1 = default).
@@ -506,6 +510,12 @@ pub(crate) fn resolve_settings(
       home.max_response_body,
     )
     .unwrap_or(50 * 1024 * 1024),
+    max_request_body: layered(
+      None,
+      local.max_request_body,
+      env_parse("APERIO_MAX_REQUEST_BODY", "APERIO_MAX_REQUEST_BODY"),
+      home.max_request_body,
+    ),
     timeout_secs: layered(
       None,
       local.timeout,

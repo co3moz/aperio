@@ -15,6 +15,7 @@ fn settings_with(
     trim_bind: None,
     pass_hostname: false,
     max_response_body: 50 * 1024 * 1024,
+    max_request_body: None,
     timeout_secs: 30,
     max_concurrent: None,
     connections: None,

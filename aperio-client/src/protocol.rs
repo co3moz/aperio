@@ -151,6 +151,11 @@ pub(crate) enum TunnelMessage {
     /// connected, instead of failing with 504. Needs `cache`.
     #[serde(default)]
     resilience: bool,
+    /// Largest request body, in bytes, visitors may upload to this service;
+    /// the server answers bigger uploads with an early 413 before they enter
+    /// the tunnel (None = only the server's global limit applies).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_request_body: Option<u64>,
   },
   Pong {
     timestamp: u64,

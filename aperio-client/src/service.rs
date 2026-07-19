@@ -55,6 +55,10 @@ pub(crate) struct ServiceSpec {
   pub(crate) trim_bind: bool,
   pub(crate) pass_hostname: bool,
   pub(crate) max_response_body: usize,
+  /// Largest request body, in bytes, visitors may upload to this service
+  /// (announced via Ping; the server answers bigger uploads with an early
+  /// 413 before they enter the tunnel; None = only the server's limit).
+  pub(crate) max_request_body: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
   /// Parallel tunnel connections for this service (1–16). The supervisor
@@ -342,6 +346,7 @@ pub(crate) async fn run_service(
               spec.cache,
               spec.resilience,
             );
+            let max_request_body_ping = spec.max_request_body;
 
             let ping_task = tokio::spawn(async move {
               // The first Ping goes out immediately: it announces the binds,
@@ -393,6 +398,7 @@ pub(crate) async fn run_service(
                   tunnels: tunnels_ping.clone(),
                   cache,
                   resilience,
+                  max_request_body: max_request_body_ping,
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

@@ -49,6 +49,7 @@ fn base_handle() -> ClientHandle {
     tunnels: Vec::new(),
     cache: false,
     resilience: false,
+    max_request_body: None,
   }
 }
 

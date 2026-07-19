@@ -476,6 +476,7 @@ fn build_specs(
       },
       pass_hostname: settings.pass_hostname,
       max_response_body: settings.max_response_body,
+      max_request_body: settings.max_request_body,
       timeout_secs: settings.timeout_secs,
       max_concurrent: settings.max_concurrent,
       connections: clamp_connections(settings.connections, "the service"),
@@ -552,6 +553,7 @@ fn build_specs(
         max_response_body: entry
           .max_response_body
           .unwrap_or(settings.max_response_body),
+        max_request_body: entry.max_request_body.or(settings.max_request_body),
         timeout_secs: entry.timeout.unwrap_or(settings.timeout_secs),
         max_concurrent: entry
           .max_concurrent

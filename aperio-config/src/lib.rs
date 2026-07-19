@@ -169,6 +169,10 @@ pub struct ServiceEntry {
   /// Largest response body, in bytes, this service will relay to a visitor.
   #[schemars(extend("examples" = [10485760]))]
   pub max_response_body: Option<usize>,
+  /// Largest request body, in bytes, visitors may upload to this service;
+  /// the server rejects bigger uploads with 413 before they enter the tunnel.
+  #[schemars(extend("examples" = [1048576]))]
+  pub max_request_body: Option<u64>,
   /// How many backend redirects to follow transparently before passing one through.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
@@ -262,6 +266,10 @@ pub struct FileConfig {
   /// Largest response body, in bytes, the client will relay to a visitor.
   #[schemars(extend("examples" = [10485760]))]
   pub max_response_body: Option<usize>,
+  /// Largest request body, in bytes, visitors may upload to this service;
+  /// the server rejects bigger uploads with 413 before they enter the tunnel.
+  #[schemars(extend("examples" = [1048576]))]
+  pub max_request_body: Option<u64>,
   /// Seconds to wait for the backend to respond before failing a request.
   #[schemars(extend("examples" = [30]))]
   pub timeout: Option<u64>,

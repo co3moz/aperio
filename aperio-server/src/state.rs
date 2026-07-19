@@ -427,6 +427,10 @@ pub(crate) struct ClientHandle {
   /// The client asked for serve-stale resilience: cached responses for its
   /// routes stay servable (marked) while no healthy client is connected.
   pub(crate) resilience: bool,
+  /// Client-declared request body cap for this service, in bytes (via Ping).
+  /// Enforced before dispatch with an early 413; never loosens the global
+  /// APERIO_MAX_BODY_SIZE limit.
+  pub(crate) max_request_body: Option<u64>,
 }
 
 /// Permissions resolved at connection time from the presented token.

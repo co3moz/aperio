@@ -343,6 +343,9 @@ pub(crate) struct SelectedClient {
   pub(crate) cache: bool,
   /// The client asked for serve-stale resilience (Ping `resilience`).
   pub(crate) resilience: bool,
+  /// Client-declared request body cap in bytes (Ping `max_request_body`);
+  /// tightens, never loosens, the global body size limit.
+  pub(crate) max_request_body: Option<u64>,
 }
 
 /// Returns the pool member matching an affinity value — either a client's
@@ -422,6 +425,7 @@ pub(crate) async fn pick_proxy_client(
     protocol: c.client_protocol,
     cache: c.cache,
     resilience: c.resilience,
+    max_request_body: c.max_request_body,
   })
 }
 

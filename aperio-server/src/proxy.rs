@@ -43,6 +43,16 @@ pub(crate) fn gateway_timeout_response(state: &AppState, fallback: &str) -> Resp
   }
 }
 
+/// Effective request body cap for a dispatch: a service's client-declared
+/// `max_request_body` can only tighten the global APERIO_MAX_BODY_SIZE limit,
+/// never widen it.
+pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usize {
+  match declared {
+    Some(limit) => (limit as usize).min(global),
+    None => global,
+  }
+}
+
 /// True when the request's hostname is currently in maintenance mode
 /// (either listed explicitly or covered by the `*` wildcard entry).
 async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
@@ -691,9 +701,12 @@ async fn proxy_http_request(
     .get("transfer-encoding")
     .and_then(|v| v.to_str().ok())
     .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+  // Effective request body cap: the service's own declared limit (Ping
+  // `max_request_body`) can only tighten the global APERIO_MAX_BODY_SIZE.
+  let body_limit = effective_body_limit(state.config().max_body_size, selected.max_request_body);
   // Declared over-limit bodies keep failing fast with 413 even when they
   // would otherwise be streamed.
-  if content_length.is_some_and(|l| l as usize > state.config().max_body_size) {
+  if content_length.is_some_and(|l| l as usize > body_limit) {
     log_request_failure(
       &state,
       &method_str,
@@ -721,7 +734,7 @@ async fn proxy_http_request(
     streamed_body = Some(body);
     axum::body::Bytes::new()
   } else {
-    match axum::body::to_bytes(body, state.config().max_body_size).await {
+    match axum::body::to_bytes(body, body_limit).await {
       Ok(bytes) => bytes,
       Err(e) => {
         log_request_failure(
@@ -931,7 +944,7 @@ async fn proxy_http_request(
       let pump_id = request_id.clone();
       let pump_state = state.clone();
       let counter = streamed_bytes.clone();
-      let max_body = state.config().max_body_size;
+      let max_body = body_limit;
       tokio::spawn(async move {
         let mut stream = raw_body.into_data_stream();
         let mut total: usize = 0;

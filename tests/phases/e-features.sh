@@ -63,6 +63,10 @@ services:
   - name: api
     target: http://127.0.0.1:${BACKEND2_PORT}
     hostname: api.e2e.local
+  - name: upload
+    target: http://127.0.0.1:${BACKEND_PORT}
+    hostname: upload.e2e.local
+    max_request_body: 64
 YAML
 "$CLIENT_BIN" --config "$MS_CFG" >"$LOG_DIR/client-features-multi.log" 2>&1 &
 CLIENT_PIDS+=($!)
@@ -76,6 +80,19 @@ COOKIES="$LOG_DIR/cookies-features.txt"
 dashboard_login "$COOKIES"
 STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
 assert_contains "$STATS" '"service":"web"' "stats show the announced service name"
+
+step "Per-service request body limit (max_request_body)"
+wait_routable upload.e2e.local
+SMALL_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'ok' \
+  -H 'Host: upload.e2e.local' "$BASE/hello")"
+assert_status 200 "$SMALL_CODE" "a body under the per-service cap passes"
+BIG_BODY="$(head -c 200 /dev/zero | tr '\0' 'x')"
+BIG_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$BIG_BODY" \
+  -H 'Host: upload.e2e.local' "$BASE/hello")"
+assert_status 413 "$BIG_CODE" "a body over the per-service cap is rejected with an early 413"
+OTHER_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$BIG_BODY" \
+  -H 'Host: web.e2e.local' "$BASE/hello")"
+assert_status 200 "$OTHER_CODE" "services without a declared cap keep the global limit"
 
 step "~/.aperio.yaml user-level layer"
 HOME_DIR="$(mktemp -d)"

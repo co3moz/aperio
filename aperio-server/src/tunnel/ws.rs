@@ -292,6 +292,7 @@ pub(crate) async fn handle_socket(
         tunnels: Vec::new(),
         cache: false,
         resilience: false,
+        max_request_body: None,
       },
     );
     drop(clients);
@@ -615,6 +616,7 @@ pub(crate) async fn handle_socket(
               tunnels,
               cache,
               resilience,
+              max_request_body,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -688,6 +690,15 @@ pub(crate) async fn handle_socket(
                       info!(
                         "Client {} opted into the server-side response cache",
                         client_id
+                      );
+                    }
+                  }
+                  if handle.max_request_body != max_request_body {
+                    handle.max_request_body = max_request_body;
+                    if let Some(limit) = max_request_body {
+                      info!(
+                        "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
+                        client_id, limit
                       );
                     }
                   }
