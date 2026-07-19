@@ -106,7 +106,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #75 Client terminal UI — ngrok-style live request table in the terminal (`aperio-client --ui`)
 - [ ] #76 Service install command (`aperio-client service install` for systemd/launchd/Windows)
 - [ ] #77 Multiple local backends per service with client-side failover — the client picks a healthy one
-- [ ] #78 Unix socket target — `target: unix:///var/run/app.sock`
+- [x] #78 Unix socket target — shipped: `target: unix:///var/run/app.sock` dials the backend over a Unix domain socket (hyper HTTP/1.1 per request; Unix-only, validated at startup; WebSocket upgrades answer 502)
 - [ ] #79 Outbound HTTP/SOCKS proxy support — dial the server through a corporate proxy
 - [ ] #80 Client self-update command — `aperio-client update`
 - [ ] #81 Client-side Prometheus metrics endpoint

@@ -426,6 +426,40 @@ fn build_specs(
     }
   }
 
+  // Unix socket targets: must carry a path, and only exist on Unix platforms.
+  let validate_unix_target = |target: &str, what: &str| -> Result<(), String> {
+    if !crate::proxy::unix::is_unix_target(target) {
+      return Ok(());
+    }
+    if cfg!(not(unix)) {
+      return Err(format!(
+        "CRITICAL ERROR: {} uses a unix:// target, which is not supported on this platform",
+        what
+      ));
+    }
+    if crate::proxy::unix::unix_socket_path(target).is_none() {
+      return Err(format!(
+        "CRITICAL ERROR: {} has a unix:// target without a socket path (expected e.g. unix:///var/run/app.sock)",
+        what
+      ));
+    }
+    Ok(())
+  };
+  if let Some(t) = &settings.target {
+    validate_unix_target(t, "the client configuration")?;
+  }
+  for entry in &settings.services {
+    if let Some(t) = &entry.target {
+      validate_unix_target(
+        t,
+        &format!(
+          "service '{}'",
+          entry.name.clone().unwrap_or_else(|| "?".into())
+        ),
+      )?;
+    }
+  }
+
   // Parallel connections per service: bounded so a typo cannot exhaust the
   // server's tunnel slots (it also has its own max_tunnels guard).
   let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {

@@ -3,4 +3,5 @@
 
 pub(crate) mod h2;
 pub(crate) mod http;
+pub(crate) mod unix;
 pub(crate) mod ws;

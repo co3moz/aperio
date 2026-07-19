@@ -45,6 +45,15 @@ pub(crate) async fn handle_upgrade_request(
 ) {
   info!("Handling WebSocket upgrade for stream {}", stream_id);
 
+  // Unix socket targets are HTTP-only: tokio-tungstenite cannot dial a
+  // filesystem socket, so the upgrade is refused cleanly instead of failing
+  // with a confusing parse error.
+  if crate::proxy::unix::is_unix_target(target) {
+    error!("WebSocket upgrades are not supported for unix socket targets");
+    send_upgrade_error(&stream_id, &tunnel_tx, 502).await;
+    return;
+  }
+
   let target_parsed = match url::Url::parse(target) {
     Ok(url) => url,
     Err(e) => {

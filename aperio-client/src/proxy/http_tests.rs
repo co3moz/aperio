@@ -13,6 +13,7 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
   ForwardContext {
     client: reqwest::Client::new(),
     h2_client: None,
+    unix_socket: None,
     timeout_secs: 30,
     target: target.to_string(),
     pass_hostname: false,

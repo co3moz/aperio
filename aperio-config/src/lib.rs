@@ -216,8 +216,9 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = ["web"]))]
   pub name: Option<String>,
   /// Local backend this service exposes through the tunnel; `h2c://` /
-  /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed).
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
+  /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed);
+  /// `unix://` targets forward over a Unix domain socket.
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051", "unix:///var/run/app.sock"]))]
   pub target: Option<String>,
   /// Serve a local directory of static files as this service instead of
   /// forwarding to a backend (mutually exclusive with `target`/`tcp_target`);

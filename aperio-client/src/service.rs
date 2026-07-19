@@ -433,6 +433,7 @@ pub(crate) async fn run_service(
             let forward_ctx = Arc::new(ForwardContext {
               client: reqwest_client.clone(),
               h2_client: crate::proxy::h2::build_h2_client(&spec.target).map(Arc::new),
+              unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
               timeout_secs: spec.timeout_secs,
               target: spec.target.clone(),
               pass_hostname: spec.pass_hostname,

@@ -163,6 +163,8 @@ pub(crate) struct ForwardContext {
   pub(crate) response_headers: HeaderTransform,
   /// HTTP/2 client for `h2c://` / `h2://` targets (None = plain HTTP target).
   pub(crate) h2_client: Option<std::sync::Arc<crate::proxy::h2::H2Client>>,
+  /// Filesystem path of a `unix://` target's socket (None = TCP target).
+  pub(crate) unix_socket: Option<String>,
   /// Seconds to wait for the backend's response head on the HTTP/2 path
   /// (the reqwest path carries its timeout inside `client`).
   pub(crate) timeout_secs: u64,
@@ -254,6 +256,17 @@ pub(crate) async fn handle_incoming_request(
   if ctx.h2_client.is_some() {
     return crate::proxy::h2::handle_incoming_request_h2(ctx, req, streamed_body, binary_chunks)
       .await;
+  }
+  // Unix socket targets (unix:///path.sock) take the hyper-based path that
+  // dials the socket directly; reqwest cannot.
+  if ctx.unix_socket.is_some() {
+    return crate::proxy::unix::handle_incoming_request_unix(
+      ctx,
+      req,
+      streamed_body,
+      binary_chunks,
+    )
+    .await;
   }
   // Timeline anchor: everything below is measured from receipt of the
   // tunnel request, in microseconds, and reported with buffered responses.

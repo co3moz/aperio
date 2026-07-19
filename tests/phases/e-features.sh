@@ -105,6 +105,41 @@ if echo "$PLAIN_HDRS" | grep -qi "x-frame-options"; then
   fail "services without the preset must not gain security headers"
 fi
 
+step "Unix socket target (unix://)"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    echo "  ok: skipped on Windows (unix sockets unsupported)"
+    ;;
+  *)
+    UDS_SOCK="$LOG_DIR/uds-backend.sock"
+    "$PYTHON" - "$UDS_SOCK" <<'PY' >"$LOG_DIR/uds-backend.log" 2>&1 &
+import http.server, os, socketserver, sys
+sock = sys.argv[1]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = ("uds backend GET %s" % self.path).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+    def address_string(self): return "uds"
+if os.path.exists(sock):
+    os.unlink(sock)
+socketserver.UnixStreamServer(sock, H).serve_forever()
+PY
+    BACKEND_PIDS+=($!)
+    retry 15 test -S "$UDS_SOCK" || fail "the unix socket backend did not come up"
+    env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$TOKEN" \
+      APERIO_TARGET="unix://$UDS_SOCK" APERIO_HOSTNAME=uds.e2e.local \
+      "$CLIENT_BIN" >"$LOG_DIR/client-features-uds.log" 2>&1 &
+    CLIENT_PIDS+=($!)
+    wait_routable uds.e2e.local
+    BODY="$(curl -s -H 'Host: uds.e2e.local' "$BASE/uds-hello")"
+    assert_contains "$BODY" "uds backend GET /uds-hello" "requests are proxied over the unix socket"
+    ;;
+esac
+
 step "~/.aperio.yaml user-level layer"
 HOME_DIR="$(mktemp -d)"
 cat >"$HOME_DIR/.aperio.yaml" <<YAML
