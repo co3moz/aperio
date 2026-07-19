@@ -165,6 +165,16 @@ if printf '%s' "$FRESH_HDRS" | grep -qi "x-aperio-stale"; then
 fi
 echo "  ok: the stale window served instantly while the entry refreshed in the background"
 
+step "Range requests served from cache"
+# Fresh entry for the range test (SWR backend serves v3 now — re-warm).
+curl -sf -H 'Host: swr.e2e.local' "$BASE/rangefile" >/dev/null || fail "range warm-up failed"
+RANGE_RESP="$(curl -s -D - -r 0-3 -H 'Host: swr.e2e.local' "$BASE/rangefile")"
+assert_contains "$RANGE_RESP" "206" "a ranged GET on a cached entry answers 206"
+assert_contains "$RANGE_RESP" "x-aperio-cache: hit" "the partial answer comes from the cache"
+assert_contains "$RANGE_RESP" "content-range: bytes 0-3/" "the 206 carries Content-Range"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -r 9999- -H 'Host: swr.e2e.local' "$BASE/rangefile")"
+assert_status 416 "$CODE" "an out-of-range request answers 416"
+
 step "Cache purge API"
 COOKIES_CACHE="$LOG_DIR/cookies-cache.txt"
 dashboard_login "$COOKIES_CACHE"

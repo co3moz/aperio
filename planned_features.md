@@ -99,7 +99,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [x] #71 ETag synthesis and 304 handling — shipped: cached bodies without a validator get a body-hash ETag; a matching `If-None-Match` is answered 304 at the edge (fresh or serve-stale), no tunnel round-trip
 - [ ] #72 Edge HTML link rewriting — rewrite hardcoded `http://localhost`/internal hostnames inside HTML/CSS bodies to the public tunnel hostname as they stream through
 - [x] #73 Single-flight coalescing on cache miss — shipped: the first cacheable miss per `host|uri` key becomes the leader; concurrent identical misses wait on its watch channel and re-answer from the freshly stored entry (uncacheable outcomes fall back to normal dispatch after one wait)
-- [ ] #74 Range requests served from cache — satisfy HTTP Range requests (video scrubbing, resumable downloads) from cached full objects at the edge so partial-content requests never re-traverse the tunnel
+- [x] #74 Range requests served from cache — shipped: cache hits answer single `bytes=` ranges as 206 sliced from the stored full body (`Accept-Ranges`/`Content-Range`, 416 when unsatisfiable, `If-Range` honored; multi-range degrades to the full 200 per RFC 9110); backend 206s are never cached
 
 ### Client-side
 

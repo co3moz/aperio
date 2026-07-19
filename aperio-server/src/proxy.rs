@@ -430,13 +430,54 @@ fn cache_hit_response(
     .zip(etag.as_deref())
     .is_some_and(|(inm, tag)| crate::cache::if_none_match_matches(inm, tag));
 
-  let status = if not_modified { 304 } else { hit.status };
+  // Range requests (video scrubbing, resumable downloads) are satisfied
+  // straight from the cached full body — a 304 still wins, and an `If-Range`
+  // validator that no longer matches degrades to the full 200 per RFC 9110.
+  let total_len = hit.body.len();
+  let range_outcome = if not_modified || hit.status != 200 {
+    crate::cache::RangeOutcome::Full
+  } else {
+    let if_range_ok = match request_headers
+      .get("if-range")
+      .and_then(|v| v.to_str().ok())
+    {
+      // An If-Range with a date (or a stale validator) means "full body".
+      Some(validator) => etag.as_deref() == Some(validator.trim()),
+      None => true,
+    };
+    match request_headers.get("range").and_then(|v| v.to_str().ok()) {
+      Some(range) if if_range_ok => crate::cache::evaluate_range(range, total_len),
+      _ => crate::cache::RangeOutcome::Full,
+    }
+  };
+
+  let status = match range_outcome {
+    _ if not_modified => 304,
+    crate::cache::RangeOutcome::Partial(_, _) => 206,
+    crate::cache::RangeOutcome::Unsatisfiable => 416,
+    crate::cache::RangeOutcome::Full => hit.status,
+  };
   let mut builder = Response::builder()
     .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK))
     .header("x-aperio-cache", "hit")
     .header("age", hit.age_secs.to_string());
   if hit.stale {
     builder = builder.header("x-aperio-stale", "true");
+  }
+  if hit.status == 200 && !not_modified {
+    builder = builder.header("accept-ranges", "bytes");
+  }
+  match range_outcome {
+    crate::cache::RangeOutcome::Partial(start, end) => {
+      builder = builder.header(
+        "content-range",
+        format!("bytes {}-{}/{}", start, end, total_len),
+      );
+    }
+    crate::cache::RangeOutcome::Unsatisfiable => {
+      builder = builder.header("content-range", format!("bytes */{}", total_len));
+    }
+    crate::cache::RangeOutcome::Full => {}
   }
   for (k, v) in hit.headers.iter() {
     // A 304 carries only the metadata a client may need to update its own
@@ -459,7 +500,14 @@ fn cache_hit_response(
   let (bytes, body) = if not_modified {
     (0u64, Body::empty())
   } else {
-    (hit.body.len() as u64, Body::from(hit.body))
+    match range_outcome {
+      crate::cache::RangeOutcome::Partial(start, end) => {
+        let slice = hit.body[start..=end].to_vec();
+        (slice.len() as u64, Body::from(slice))
+      }
+      crate::cache::RangeOutcome::Unsatisfiable => (0u64, Body::empty()),
+      crate::cache::RangeOutcome::Full => (hit.body.len() as u64, Body::from(hit.body)),
+    }
   };
   let response = builder
     .body(body)

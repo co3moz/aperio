@@ -332,6 +332,61 @@ pub(crate) fn response_cache_ttl(headers: &[(String, String)]) -> Option<Duratio
   ttl.filter(|secs| *secs > 0).map(Duration::from_secs)
 }
 
+/// Outcome of evaluating a request's `Range` header against a cached body.
+pub(crate) enum RangeOutcome {
+  /// Serve the full body (no/unsupported/multi range).
+  Full,
+  /// Serve `body[start..=end]` as a 206 Partial Content.
+  Partial(usize, usize),
+  /// The range lies entirely outside the body: 416 with `bytes */len`.
+  Unsatisfiable,
+}
+
+/// Evaluates a `Range` header value against a body of `len` bytes. Only
+/// single `bytes=` ranges are honored — multipart ranges and other units are
+/// answered with the full body, which RFC 9110 explicitly permits.
+pub(crate) fn evaluate_range(range: &str, len: usize) -> RangeOutcome {
+  let Some(spec) = range.trim().strip_prefix("bytes=") else {
+    return RangeOutcome::Full;
+  };
+  if spec.contains(',') || len == 0 {
+    return RangeOutcome::Full;
+  }
+  let Some((start_raw, end_raw)) = spec.split_once('-') else {
+    return RangeOutcome::Full;
+  };
+  let (start_raw, end_raw) = (start_raw.trim(), end_raw.trim());
+  if start_raw.is_empty() {
+    // Suffix form: the last N bytes.
+    let Ok(suffix) = end_raw.parse::<usize>() else {
+      return RangeOutcome::Full;
+    };
+    if suffix == 0 {
+      return RangeOutcome::Unsatisfiable;
+    }
+    let start = len.saturating_sub(suffix);
+    return RangeOutcome::Partial(start, len - 1);
+  }
+  let Ok(start) = start_raw.parse::<usize>() else {
+    return RangeOutcome::Full;
+  };
+  if start >= len {
+    return RangeOutcome::Unsatisfiable;
+  }
+  let end = if end_raw.is_empty() {
+    len - 1
+  } else {
+    match end_raw.parse::<usize>() {
+      Ok(e) => e.min(len - 1),
+      Err(_) => return RangeOutcome::Full,
+    }
+  };
+  if end < start {
+    return RangeOutcome::Full;
+  }
+  RangeOutcome::Partial(start, end)
+}
+
 /// Extracts the `stale-while-revalidate` window (RFC 5861) a response
 /// advertises via `Cache-Control`. Zero = none.
 pub(crate) fn response_swr_window(headers: &[(String, String)]) -> Duration {
@@ -716,5 +771,27 @@ mod tests {
     // No selectors = clear everything.
     assert_eq!(cache.purge_matching(None, None), 1);
     assert!(cache.get("b.com|/x", Duration::ZERO).is_none());
+  }
+
+  #[test]
+  fn test_evaluate_range() {
+    use RangeOutcome::*;
+    let len = 10;
+    // Plain ranges.
+    assert!(matches!(evaluate_range("bytes=0-3", len), Partial(0, 3)));
+    assert!(matches!(evaluate_range("bytes=4-", len), Partial(4, 9)));
+    assert!(matches!(evaluate_range("bytes=-3", len), Partial(7, 9)));
+    // An end past the body is clamped.
+    assert!(matches!(evaluate_range("bytes=8-99", len), Partial(8, 9)));
+    // Out-of-range start is unsatisfiable; so is a zero-length suffix.
+    assert!(matches!(evaluate_range("bytes=10-", len), Unsatisfiable));
+    assert!(matches!(evaluate_range("bytes=-0", len), Unsatisfiable));
+    // Multi-range, other units, and garbage degrade to the full body.
+    assert!(matches!(evaluate_range("bytes=0-1,4-5", len), Full));
+    assert!(matches!(evaluate_range("items=0-1", len), Full));
+    assert!(matches!(evaluate_range("bytes=5-2", len), Full));
+    assert!(matches!(evaluate_range("bytes=x-y", len), Full));
+    // An empty body cannot satisfy any range.
+    assert!(matches!(evaluate_range("bytes=0-1", 0), Full));
   }
 }
