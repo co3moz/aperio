@@ -47,7 +47,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #26 SMTP email notifications alongside webhooks
 - [ ] #27 Per-service latency histograms — p50/p95/p99 time series (on the date-filter/uptime layer)
 - [x] #28 Live log tail — shipped: a *Live Tail* dashboard page renders each proxied request as a terminal-style line off the existing SSE stream (auto-scroll with pin/unpin, pause, clear, free-text filter incl. the new `host` log field; a line click opens the inspector)
-- [ ] #29 Bandwidth accounting — bytes in/out per token/hostname (billing-style report)
+- [x] #29 Bandwidth accounting — shipped: persistent per-day/per-month byte buckets per token and hostname (standard retention), `GET /aperio/api/bandwidth?unit=day|month` + a Breakdown-page report with sent/received tooltips, biggest consumers first
 - [x] #30 Top-N slowest endpoints report — shipped: rolling in-memory latency window per `host|path` (200 samples, 300 keys with `__other` overflow), `GET /aperio/api/slow-endpoints` (top 20 by recent p95, org-scoped) + a Breakdown-page table
 - [ ] #31 Traffic anomaly detection — alert on sudden spikes/drops (on top of error-rate/client-down alerting)
 - [ ] #32 Structured log shipping to Loki/Elasticsearch

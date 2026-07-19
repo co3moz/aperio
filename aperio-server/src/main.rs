@@ -739,6 +739,10 @@ async fn async_main() {
         get(crate::api::metrics::slow_endpoints_handler),
       )
       .route(
+        "/api/bandwidth",
+        get(crate::api::metrics::bandwidth_handler),
+      )
+      .route(
         "/api/cache/purge",
         axum::routing::post(crate::api::purge::cache_purge_handler),
       )

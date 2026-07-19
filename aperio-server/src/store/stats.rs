@@ -34,6 +34,13 @@ pub struct PersistentStats {
   /// Lifetime traffic per request hostname.
   #[serde(default)]
   pub by_hostname: HashMap<String, PeriodStats>,
+  /// Per-period traffic per token label (day and month keys only), for the
+  /// bandwidth accounting report: period key → label → counters.
+  #[serde(default)]
+  pub by_token_periods: HashMap<String, HashMap<String, PeriodStats>>,
+  /// Per-period traffic per request hostname (day and month keys only).
+  #[serde(default)]
+  pub by_hostname_periods: HashMap<String, HashMap<String, PeriodStats>>,
 }
 
 /// Maximum number of distinct token/hostname labels tracked; extra labels
@@ -110,6 +117,33 @@ fn bump_stats(
       duration_ms,
     );
   }
+  // Bandwidth accounting: the same labels bucketed per day and per month
+  // (the two billing-relevant granularities; weeks/years stay lifetime-only).
+  for key in period_keys() {
+    if !(key.starts_with("d:") || key.starts_with("m:")) {
+      continue;
+    }
+    if let Some(token) = token {
+      bump_label(
+        stats.by_token_periods.entry(key.clone()).or_default(),
+        token,
+        success,
+        bytes_in,
+        bytes_out,
+        duration_ms,
+      );
+    }
+    if let Some(hostname) = hostname {
+      bump_label(
+        stats.by_hostname_periods.entry(key.clone()).or_default(),
+        hostname,
+        success,
+        bytes_in,
+        bytes_out,
+        duration_ms,
+      );
+    }
+  }
   stats.total_requests += 1;
   if success {
     stats.total_success += 1;
@@ -155,6 +189,20 @@ fn prune_periods(stats: &mut PersistentStats) {
       keys.sort();
       for key in keys.iter().take(keys.len() - keep) {
         stats.periods.remove(key);
+      }
+    }
+    // The per-label period maps follow the same retention windows.
+    for map in [&mut stats.by_token_periods, &mut stats.by_hostname_periods] {
+      let mut keys: Vec<String> = map
+        .keys()
+        .filter(|k| k.starts_with(prefix))
+        .cloned()
+        .collect();
+      if keys.len() > keep {
+        keys.sort();
+        for key in keys.iter().take(keys.len() - keep) {
+          map.remove(key);
+        }
       }
     }
   }
@@ -706,6 +754,64 @@ mod tests {
     // Unknown selectors remove nothing.
     assert_eq!(store.purge_hostname("nope.example.com"), 0);
     assert_eq!(store.purge_token("nope"), 0);
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_bandwidth_period_labels() {
+    let dir = std::env::temp_dir().join(format!("aperio-stats-bw-{}", uuid::Uuid::new_v4()));
+    let dir_str = dir.to_string_lossy().to_string();
+    let mut store = StatsStore::load(&dir_str);
+    store.record_request_labeled(
+      true,
+      100,
+      900,
+      5,
+      Some("master"),
+      Some("a.example.com"),
+      None,
+    );
+    store.record_request_labeled(
+      true,
+      50,
+      450,
+      5,
+      Some("master"),
+      Some("a.example.com"),
+      None,
+    );
+    store.save_if_dirty();
+
+    let [day_key, _, month_key, _] = period_keys();
+    let snap = store.snapshot();
+    // Day and month buckets carry the label's bytes; weeks/years stay lifetime-only.
+    let day = snap
+      .by_token_periods
+      .get(&day_key)
+      .unwrap()
+      .get("master")
+      .unwrap();
+    assert_eq!(day.requests, 2);
+    assert_eq!(day.bytes_sent, 1350);
+    assert_eq!(day.bytes_received, 150);
+    let month = snap
+      .by_hostname_periods
+      .get(&month_key)
+      .unwrap()
+      .get("a.example.com")
+      .unwrap();
+    assert_eq!(month.requests, 2);
+    assert!(
+      snap
+        .by_token_periods
+        .keys()
+        .all(|k| k.starts_with("d:") || k.starts_with("m:"))
+    );
+
+    // Survives a reload.
+    let snap2 = StatsStore::load(&dir_str).snapshot();
+    assert!(snap2.by_token_periods.contains_key(&day_key));
 
     let _ = std::fs::remove_dir_all(&dir);
   }

@@ -17,6 +17,7 @@ import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
 import { InboxSection } from './components/InboxSection'
+import { BandwidthSection } from './components/BandwidthSection'
 import { SlowEndpointsSection } from './components/SlowEndpointsSection'
 import { LiveTailSection } from './components/LiveTailSection'
 import { TrafficSection } from './components/TrafficSection'
@@ -347,6 +348,7 @@ export default function App() {
               {page === 'breakdown' && (
                 <div className="flex flex-col gap-6">
                   <TrafficBreakdownSection stats={stats} />
+                  <BandwidthSection />
                   <SlowEndpointsSection />
                   <StageStatsSection />
                 </div>

@@ -292,3 +292,92 @@ pub(crate) async fn slow_endpoints_handler(
   rows.truncate(TOP_N);
   Json(rows)
 }
+
+/// Bandwidth accounting: per-token and per-hostname bytes bucketed per day
+/// or per month (billing-style report).
+#[utoipa::path(get, path = "/aperio/api/bandwidth", tag = "dashboard",
+  description = "Bytes in/out per token and hostname, bucketed per day or month (unit=day|month, count).",
+  params(
+    ("unit" = Option<String>, Query, description = "Bucket granularity: day (default) or month"),
+    ("count" = Option<usize>, Query, description = "Buckets to return (default 14 days / 6 months, max 62)")
+  ),
+  responses((status = 200, description = "Bandwidth rows per label", body = serde_json::Value)))]
+pub(crate) async fn bandwidth_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+  axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+  let unit = params.get("unit").map(String::as_str).unwrap_or("day");
+  if !matches!(unit, "day" | "month") {
+    return (
+      axum::http::StatusCode::BAD_REQUEST,
+      "unit must be day or month",
+    )
+      .into_response();
+  }
+  let count = params
+    .get("count")
+    .and_then(|c| c.parse::<usize>().ok())
+    .unwrap_or(if unit == "day" { 14 } else { 6 })
+    .clamp(1, 62);
+  let Some(keys) = crate::store::stats::recent_period_keys(unit, count) else {
+    return (axum::http::StatusCode::BAD_REQUEST, "invalid unit").into_response();
+  };
+
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let snapshot = state
+    .persistent_stats
+    .lock()
+    .await
+    .snapshot_for_org(org.as_deref());
+
+  // One row per label: the label's counters for each requested bucket, in
+  // chronological order (missing buckets are zeroed).
+  let rows = |periods: &std::collections::HashMap<
+    String,
+    std::collections::HashMap<String, crate::store::stats::PeriodStats>,
+  >| {
+    let mut labels: Vec<String> = periods
+      .iter()
+      .filter(|(k, _)| keys.contains(k))
+      .flat_map(|(_, m)| m.keys().cloned())
+      .collect();
+    labels.sort();
+    labels.dedup();
+    let mut out: Vec<serde_json::Value> = labels
+      .into_iter()
+      .map(|label| {
+        let buckets: Vec<serde_json::Value> = keys
+          .iter()
+          .map(|key| {
+            let p = periods.get(key).and_then(|m| m.get(&label));
+            serde_json::json!({
+              "period": key,
+              "bytes_sent": p.map(|p| p.bytes_sent).unwrap_or(0),
+              "bytes_received": p.map(|p| p.bytes_received).unwrap_or(0),
+              "requests": p.map(|p| p.requests).unwrap_or(0),
+            })
+          })
+          .collect();
+        let total: u64 = buckets
+          .iter()
+          .map(|b| {
+            b["bytes_sent"].as_u64().unwrap_or(0) + b["bytes_received"].as_u64().unwrap_or(0)
+          })
+          .sum();
+        serde_json::json!({ "label": label, "total_bytes": total, "buckets": buckets })
+      })
+      .collect();
+    // Biggest consumers first — the billing view's natural order.
+    out.sort_by(|a, b| b["total_bytes"].as_u64().cmp(&a["total_bytes"].as_u64()));
+    out
+  };
+
+  Json(serde_json::json!({
+    "unit": unit,
+    "periods": keys,
+    "by_token": rows(&snapshot.by_token_periods),
+    "by_hostname": rows(&snapshot.by_hostname_periods),
+  }))
+  .into_response()
+}
