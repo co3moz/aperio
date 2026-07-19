@@ -67,6 +67,7 @@ services:
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: upload.e2e.local
     max_request_body: 64
+    security_headers: true
 YAML
 "$CLIENT_BIN" --config "$MS_CFG" >"$LOG_DIR/client-features-multi.log" 2>&1 &
 CLIENT_PIDS+=($!)
@@ -93,6 +94,16 @@ assert_status 413 "$BIG_CODE" "a body over the per-service cap is rejected with 
 OTHER_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$BIG_BODY" \
   -H 'Host: web.e2e.local' "$BASE/hello")"
 assert_status 200 "$OTHER_CODE" "services without a declared cap keep the global limit"
+
+step "Per-service security header preset (security_headers)"
+SEC_HDRS="$(curl -s -D - -o /dev/null -H 'Host: upload.e2e.local' "$BASE/hello")"
+assert_contains "$SEC_HDRS" "x-frame-options: DENY" "the preset injects X-Frame-Options"
+assert_contains "$SEC_HDRS" "x-content-type-options: nosniff" "the preset injects nosniff"
+assert_contains "$SEC_HDRS" "strict-transport-security: max-age=" "the preset injects HSTS"
+PLAIN_HDRS="$(curl -s -D - -o /dev/null -H 'Host: web.e2e.local' "$BASE/hello")"
+if echo "$PLAIN_HDRS" | grep -qi "x-frame-options"; then
+  fail "services without the preset must not gain security headers"
+fi
 
 step "~/.aperio.yaml user-level layer"
 HOME_DIR="$(mktemp -d)"

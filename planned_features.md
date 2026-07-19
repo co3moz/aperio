@@ -32,7 +32,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #11 API token rotation with a grace period — issue a new token while the old stays valid for N hours
 - [ ] #12 CAPTCHA challenge gate (hCaptcha/Cloudflare Turnstile) for public services under attack
 - [ ] #14 Encrypted-at-rest SQLite (SQLCipher) option for the data dir
-- [ ] #15 Per-service security header presets — HSTS/X-Frame-Options/CSP injection
+- [x] #15 Per-service security header presets — shipped: `security_headers:` (yaml top-level/per-service; `true` = HSTS/X-Frame-Options/nosniff/Referrer-Policy, or a granular mapping incl. `csp`) folds into the response header rules; explicit `headers:` rules win over the preset
 - [ ] #16 Token-to-device key pinning (TOFU) — bind a token to the public key the client generates on its first dial-out, so a token replayed from another machine (e.g. leaked into CI logs) is rejected without full mTLS/PKI
 - [ ] #19 Server TLS cert pinning on dial-out — the client pins the expected server SPKI fingerprint so a rogue TLS proxy in front of the public server can't silently MITM tunnel traffic
 - [ ] #20 Canary tokens as leak tripwires — a token marked never-used fires an instant alert the moment it is presented, turning a leaked dump/`aperio.yaml` into an unambiguous breach signal

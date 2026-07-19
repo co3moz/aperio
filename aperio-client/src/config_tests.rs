@@ -187,3 +187,69 @@ fn test_valid_ip_entry() {
   assert!(!valid_ip_entry("10.0.0/8"));
   assert!(!valid_ip_entry(""));
 }
+
+#[test]
+fn test_merge_security_headers() {
+  use aperio_config::{SecurityHeaderOptions, SecurityHeaders};
+
+  // No preset: rules pass through untouched.
+  assert!(merge_security_headers(None, None).is_none());
+
+  // Flag preset injects the standard set.
+  let rules = merge_security_headers(None, Some(&SecurityHeaders::Flag(true))).unwrap();
+  let add = rules.response.unwrap().add;
+  assert_eq!(
+    add.get("Strict-Transport-Security").map(String::as_str),
+    Some("max-age=63072000")
+  );
+  assert_eq!(add.get("X-Frame-Options").map(String::as_str), Some("DENY"));
+  assert_eq!(
+    add.get("X-Content-Type-Options").map(String::as_str),
+    Some("nosniff")
+  );
+  assert_eq!(
+    add.get("Referrer-Policy").map(String::as_str),
+    Some("strict-origin-when-cross-origin")
+  );
+  assert!(!add.contains_key("Content-Security-Policy"));
+
+  // `false` injects nothing (a service can opt out of a top-level preset).
+  assert!(merge_security_headers(None, Some(&SecurityHeaders::Flag(false))).is_none());
+
+  // Detailed selection injects only what is set.
+  let detailed = SecurityHeaders::Detailed(SecurityHeaderOptions {
+    hsts: Some(true),
+    hsts_max_age: Some(60),
+    csp: Some("default-src 'self'".to_string()),
+    ..Default::default()
+  });
+  let rules = merge_security_headers(None, Some(&detailed)).unwrap();
+  let add = rules.response.unwrap().add;
+  assert_eq!(
+    add.get("Strict-Transport-Security").map(String::as_str),
+    Some("max-age=60")
+  );
+  assert_eq!(
+    add.get("Content-Security-Policy").map(String::as_str),
+    Some("default-src 'self'")
+  );
+  assert!(!add.contains_key("X-Frame-Options"));
+
+  // Explicit headers: rules win over the preset (case-insensitively).
+  let mut user = aperio_config::HeaderRules::default();
+  let mut dir = aperio_config::HeaderDirectives::default();
+  dir
+    .add
+    .insert("x-frame-options".to_string(), "SAMEORIGIN".to_string());
+  dir.remove.push("Referrer-Policy".to_string());
+  user.response = Some(dir);
+  let rules = merge_security_headers(Some(user), Some(&SecurityHeaders::Flag(true))).unwrap();
+  let resp = rules.response.unwrap();
+  assert_eq!(
+    resp.add.get("x-frame-options").map(String::as_str),
+    Some("SAMEORIGIN")
+  );
+  assert!(!resp.add.contains_key("X-Frame-Options"));
+  assert!(!resp.add.contains_key("Referrer-Policy"));
+  assert!(resp.add.contains_key("Strict-Transport-Security"));
+}

@@ -494,7 +494,10 @@ fn build_specs(
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
       tunnels,
-      headers: settings.headers.clone(),
+      headers: crate::config::merge_security_headers(
+        settings.headers.clone(),
+        settings.security_headers.as_ref(),
+      ),
       cache: settings.cache,
     }]);
   }
@@ -601,7 +604,13 @@ fn build_specs(
           .unwrap_or_else(|| settings.allowed_ips.clone()),
         resilience: entry.resilience.unwrap_or(settings.resilience),
         tunnels: tunnels.clone(),
-        headers: entry.headers.clone().or_else(|| settings.headers.clone()),
+        headers: crate::config::merge_security_headers(
+          entry.headers.clone().or_else(|| settings.headers.clone()),
+          entry
+            .security_headers
+            .as_ref()
+            .or(settings.security_headers.as_ref()),
+        ),
         cache: entry.cache.unwrap_or(settings.cache),
       })
     })

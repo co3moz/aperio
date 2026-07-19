@@ -76,6 +76,93 @@ pub struct HeaderRules {
   pub response: Option<HeaderDirectives>,
 }
 
+/// Security response-header preset: `security_headers: true` enables the
+/// standard set (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options:
+/// nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`), a mapping
+/// picks headers individually. Explicit `headers:` rules always win over the
+/// preset.
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum SecurityHeaders {
+  /// `true` enables the standard preset, `false` disables it (e.g. for one
+  /// service when the top level enables it).
+  Flag(bool),
+  /// Granular per-header selection.
+  Detailed(SecurityHeaderOptions),
+}
+
+/// Individually selected security response headers; only the set fields are
+/// injected.
+#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+pub struct SecurityHeaderOptions {
+  /// Inject `Strict-Transport-Security` (only meaningful behind HTTPS).
+  pub hsts: Option<bool>,
+  /// HSTS `max-age` in seconds (default 63072000 = 2 years).
+  #[schemars(extend("examples" = [31536000]))]
+  pub hsts_max_age: Option<u64>,
+  /// `X-Frame-Options` value to inject.
+  #[schemars(extend("examples" = ["DENY", "SAMEORIGIN"]))]
+  pub frame_options: Option<String>,
+  /// Inject `X-Content-Type-Options: nosniff`.
+  pub nosniff: Option<bool>,
+  /// `Referrer-Policy` value to inject.
+  #[schemars(extend("examples" = ["strict-origin-when-cross-origin"]))]
+  pub referrer_policy: Option<String>,
+  /// `Content-Security-Policy` value to inject (no default — CSP is
+  /// application-specific).
+  #[schemars(extend("examples" = ["default-src 'self'"]))]
+  pub csp: Option<String>,
+}
+
+impl SecurityHeaders {
+  /// Expands the preset into concrete response headers to inject.
+  pub fn headers(&self) -> Vec<(String, String)> {
+    const DEFAULT_HSTS_MAX_AGE: u64 = 63_072_000; // 2 years
+    let mut out = Vec::new();
+    match self {
+      SecurityHeaders::Flag(false) => {}
+      SecurityHeaders::Flag(true) => {
+        out.push((
+          "Strict-Transport-Security".to_string(),
+          format!("max-age={DEFAULT_HSTS_MAX_AGE}"),
+        ));
+        out.push(("X-Frame-Options".to_string(), "DENY".to_string()));
+        out.push(("X-Content-Type-Options".to_string(), "nosniff".to_string()));
+        out.push((
+          "Referrer-Policy".to_string(),
+          "strict-origin-when-cross-origin".to_string(),
+        ));
+      }
+      SecurityHeaders::Detailed(opts) => {
+        if opts.hsts.unwrap_or(false) || opts.hsts_max_age.is_some() {
+          let max_age = opts.hsts_max_age.unwrap_or(DEFAULT_HSTS_MAX_AGE);
+          out.push((
+            "Strict-Transport-Security".to_string(),
+            format!("max-age={max_age}"),
+          ));
+        }
+        if let Some(v) = opts.frame_options.as_ref().filter(|v| !v.trim().is_empty()) {
+          out.push(("X-Frame-Options".to_string(), v.trim().to_string()));
+        }
+        if opts.nosniff.unwrap_or(false) {
+          out.push(("X-Content-Type-Options".to_string(), "nosniff".to_string()));
+        }
+        if let Some(v) = opts
+          .referrer_policy
+          .as_ref()
+          .filter(|v| !v.trim().is_empty())
+        {
+          out.push(("Referrer-Policy".to_string(), v.trim().to_string()));
+        }
+        if let Some(v) = opts.csp.as_ref().filter(|v| !v.trim().is_empty()) {
+          out.push(("Content-Security-Policy".to_string(), v.trim().to_string()));
+        }
+      }
+    }
+    out
+  }
+}
+
 /// The Aperio server this client connects to: either a bare URL string, or a
 /// `{ url, token }` section that also carries the tunnel token.
 #[derive(Deserialize, JsonSchema)]
@@ -203,6 +290,9 @@ pub struct ServiceEntry {
   /// Request/response header add-remove rules for this service (replaces the
   /// top-level `headers` when set).
   pub headers: Option<HeaderRules>,
+  /// Security response-header preset for this service (`true` or a granular
+  /// mapping; replaces the top-level `security_headers` when set).
+  pub security_headers: Option<SecurityHeaders>,
   /// Let the server cache this service's GET responses (per their
   /// `Cache-Control`); effective only when the server enables APERIO_CACHE.
   pub cache: Option<bool>,
@@ -328,6 +418,11 @@ pub struct FileConfig {
   /// Request/response header add-remove rules applied by this client to
   /// proxied HTTP traffic (services may override with their own `headers`).
   pub headers: Option<HeaderRules>,
+  /// Security response-header preset: `true` injects HSTS,
+  /// `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  /// `Referrer-Policy`; a mapping picks headers individually (services may
+  /// override with their own `security_headers`).
+  pub security_headers: Option<SecurityHeaders>,
   /// Private local services a peer client may reach via `--bind-tunnels`; never
   /// exposed to the public web.
   pub tunnels: Option<Vec<TunnelDecl>>,

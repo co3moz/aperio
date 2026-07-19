@@ -153,7 +153,7 @@ services:
     path: /docs
 ```
 
-Per-entry fields: `name`, `target` (required — or `serve` in its place: a local directory of static files served as this service, mutually exclusive with `target`; one loopback file server runs per distinct directory), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_request_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry.
+Per-entry fields: `name`, `target` (required — or `serve` in its place: a local directory of static files served as this service, mutually exclusive with `target`; one loopback file server runs per distinct directory), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_request_body`, `max_redirects`, `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `headers`, `security_headers`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry.
 
 `connections: N` (1–16, default 1, also valid at the top level or as `APERIO_CONNECTIONS`) opens N parallel tunnel connections for a service. The server pools them like separate clients — its load-balancing strategy spreads requests across them — so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover/`--bind-tunnels` lookups stay unambiguous; `max_concurrent` applies per connection. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
 
@@ -174,6 +174,22 @@ headers:
 ```
 
 Hop-by-hop and tunnel-critical headers (`Connection`, `Upgrade`, `Sec-WebSocket-*`, …) stay managed by Aperio regardless of these rules, and WebSocket upgrade traffic is not affected. Config file only (no CLI/env form); hot-reload applies edits within ~5 s.
+
+### Security header preset (`security_headers:`)
+
+A `security_headers:` key (top-level, or per `services:` entry — the entry replaces the top-level value when set) injects standard security response headers without hand-writing `headers:` rules. `security_headers: true` enables the standard set — `Strict-Transport-Security: max-age=63072000`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` — and `false` opts a single service out of a top-level preset. A mapping picks headers individually:
+
+```yaml
+security_headers:
+  hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
+  hsts_max_age: 31536000      # optional, default 63072000 (2 years)
+  frame_options: SAMEORIGIN   # X-Frame-Options
+  nosniff: true               # X-Content-Type-Options: nosniff
+  referrer_policy: strict-origin-when-cross-origin
+  csp: "default-src 'self'"   # Content-Security-Policy (no default — app-specific)
+```
+
+Preset headers replace whatever the backend sent for the same name, but explicit `headers:` rules always win: a name you `add` or `remove` yourself is left to your rules. Config file only; hot-reload applies changes within ~5 s.
 
 ### Editor autocompletion (JSON Schema)
 

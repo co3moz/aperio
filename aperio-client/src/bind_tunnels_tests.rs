@@ -32,6 +32,7 @@ fn settings_with(
     visitor_auth: None,
     allowed_ips: Vec::new(),
     headers: None,
+    security_headers: None,
     cache: false,
     resilience: false,
     services: Vec::new(),

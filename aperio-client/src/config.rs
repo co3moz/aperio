@@ -21,7 +21,9 @@ use tracing::{error, info, warn};
 use crate::protocol::TunnelDecl;
 // The `aperio.yaml` structs live in the shared `aperio-config` crate so the
 // build script can derive a JSON Schema from the exact types parsed here.
-pub(crate) use aperio_config::{BindTunnelEntry, FileConfig, HeaderRules, ServiceEntry};
+pub(crate) use aperio_config::{
+  BindTunnelEntry, FileConfig, HeaderRules, SecurityHeaders, ServiceEntry,
+};
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -330,6 +332,9 @@ pub(crate) struct ClientSettings {
   /// Header add/remove rules for proxied traffic (config files only;
   /// per-service `headers:` entries override this).
   pub(crate) headers: Option<HeaderRules>,
+  /// Security response-header preset (config files only; per-service
+  /// `security_headers:` entries override this).
+  pub(crate) security_headers: Option<SecurityHeaders>,
   /// Opt into the server-side response cache (server must enable APERIO_CACHE).
   pub(crate) cache: bool,
   /// Keep serving cached responses while this client is offline (server-side).
@@ -625,6 +630,10 @@ pub(crate) fn resolve_settings(
     )
     .unwrap_or_default(),
     headers: local.headers.clone().or_else(|| home.headers.clone()),
+    security_headers: local
+      .security_headers
+      .clone()
+      .or_else(|| home.security_headers.clone()),
     cache: layered(
       None,
       local.cache,
@@ -651,6 +660,32 @@ pub(crate) fn resolve_settings(
     tunnels: local.tunnels.clone().unwrap_or_default(),
     bind_tunnels: local.bind_tunnels.clone().unwrap_or_default(),
   }
+}
+
+/// Folds a `security_headers:` preset into a service's response header rules.
+/// Preset headers are injected as `add` rules, but explicit `headers:` rules
+/// win: a name the user already adds or removes is left untouched.
+pub(crate) fn merge_security_headers(
+  headers: Option<HeaderRules>,
+  preset: Option<&SecurityHeaders>,
+) -> Option<HeaderRules> {
+  let inject = preset.map(|p| p.headers()).unwrap_or_default();
+  if inject.is_empty() {
+    return headers;
+  }
+  let mut rules = headers.unwrap_or_default();
+  let response = rules.response.get_or_insert_with(Default::default);
+  for (name, value) in inject {
+    let user_set = response.add.keys().any(|k| k.eq_ignore_ascii_case(&name))
+      || response
+        .remove
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(&name));
+    if !user_set {
+      response.add.insert(name, value);
+    }
+  }
+  Some(rules)
 }
 
 /// Splits a comma-separated allowlist into trimmed, non-empty entries.
