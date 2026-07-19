@@ -480,14 +480,22 @@ fn cache_hit_response(
     crate::cache::RangeOutcome::Full => {}
   }
   for (k, v) in hit.headers.iter() {
+    let k_lower = k.to_ascii_lowercase();
     // A 304 carries only the metadata a client may need to update its own
     // cache entry — never entity headers describing a body that isn't there.
     if not_modified
       && !matches!(
-        k.to_ascii_lowercase().as_str(),
+        k_lower.as_str(),
         "etag" | "cache-control" | "expires" | "last-modified" | "vary"
       )
     {
+      continue;
+    }
+    // Never copy the cached body's Content-Length: a range/304 response sends
+    // a different number of bytes than the full entity, so a stale value would
+    // desync the framing (curl sees a truncated reply). Hyper derives the
+    // correct Content-Length from the actual body below.
+    if k_lower == "content-length" {
       continue;
     }
     if let (Ok(name), Ok(value)) = (
