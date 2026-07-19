@@ -109,6 +109,9 @@ pub(crate) struct ServerConfig {
   /// Compiled client-less routes (the `routes:` section of
   /// aperio-server.yaml); file-only, not a dashboard override.
   pub(crate) static_routes: crate::static_routes::StaticRoutes,
+  /// Per-hostname custom 504/503 pages (the `error_pages:` section of
+  /// aperio-server.yaml); file-only, overrides the global pages per host.
+  pub(crate) error_pages: crate::error_pages::ErrorPages,
   /// When true, services reached through their random subdomain are marked
   /// non-indexable: an `X-Robots-Tag: noindex, nofollow` response header
   /// plus a disallow-all `/robots.txt`, so preview environments never end

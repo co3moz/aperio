@@ -54,4 +54,26 @@ assert_contains "$BODY" "v2-reloaded" "the structured route reloaded to its new 
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
 assert_status 200 "$CODE" "a structural port change is ignored live (no restart)"
 
+step "Per-hostname custom error pages (error_pages:)"
+ERR_PAGE="$LOG_DIR/custom-504.html"
+echo "<h1>custom err.e2e.local 504</h1>" > "$ERR_PAGE"
+cat > "$CFG" <<YAML
+cache: true
+error_pages:
+  - hostname: err.e2e.local
+    504_page: ${ERR_PAGE}
+YAML
+EP_APPLIED=""
+for _ in $(seq 1 10); do
+  BODY="$(curl -s -m 10 -H 'Host: err.e2e.local' "$BASE/nothing")"
+  case "$BODY" in
+    *"custom err.e2e.local 504"*) EP_APPLIED=1; break ;;
+  esac
+  sleep 1
+done
+[ -n "$EP_APPLIED" ] || fail "the per-hostname 504 page was not served after reload"
+echo "  ok: the hostname's own 504 page is served"
+BODY="$(curl -s -m 10 -H 'Host: other.e2e.local' "$BASE/nothing")"
+assert_contains "$BODY" "504 Gateway Timeout" "other hostnames keep the default 504 text"
+
 stop_server

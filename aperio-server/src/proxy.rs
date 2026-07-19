@@ -29,14 +29,24 @@ use crate::telemetry;
 
 pub(crate) mod ws;
 
-/// Builds a 504 response: the custom APERIO_504_PAGE HTML when configured,
-/// otherwise the given plain-text message.
-pub(crate) fn gateway_timeout_response(state: &AppState, fallback: &str) -> Response {
-  match state.config().custom_504_page {
-    Some(ref html) => (
+/// Builds a 504 response: the hostname's own `error_pages:` page when one is
+/// configured, then the global APERIO_504_PAGE HTML, then the given
+/// plain-text message.
+pub(crate) fn gateway_timeout_response(
+  state: &AppState,
+  request_host: Option<&str>,
+  fallback: &str,
+) -> Response {
+  let config = state.config();
+  let html = config
+    .error_pages
+    .page_504(request_host)
+    .or(config.custom_504_page.as_deref());
+  match html {
+    Some(html) => (
       StatusCode::GATEWAY_TIMEOUT,
       [("content-type", "text/html; charset=utf-8")],
-      html.clone(),
+      html.to_string(),
     )
       .into_response(),
     None => (StatusCode::GATEWAY_TIMEOUT, fallback.to_string()).into_response(),
@@ -63,13 +73,19 @@ async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
   set.contains_key("*") || request_host.is_some_and(|h| set.contains_key(h))
 }
 
-/// Builds the 503 maintenance response (custom APERIO_503_PAGE or plain text).
-fn maintenance_response(state: &AppState) -> Response {
-  let mut resp = match state.config().custom_503_page {
-    Some(ref html) => (
+/// Builds the 503 maintenance response: the hostname's own `error_pages:`
+/// page, then the global APERIO_503_PAGE, then plain text.
+fn maintenance_response(state: &AppState, request_host: Option<&str>) -> Response {
+  let config = state.config();
+  let html = config
+    .error_pages
+    .page_503(request_host)
+    .or(config.custom_503_page.as_deref());
+  let mut resp = match html {
+    Some(html) => (
       StatusCode::SERVICE_UNAVAILABLE,
       [("content-type", "text/html; charset=utf-8")],
-      html.clone(),
+      html.to_string(),
     )
       .into_response(),
     None => (
@@ -229,7 +245,7 @@ pub(crate) async fn proxy_handler(
   // Maintenance mode wins over everything else (including WS upgrades):
   // visitors get the 503 page even while tunnel clients stay connected.
   if in_maintenance(&state, extract_request_host(&headers).as_deref()).await {
-    return maintenance_response(&state);
+    return maintenance_response(&state, extract_request_host(&headers).as_deref());
   }
 
   // Client-less routes (aperio-server.yaml `routes:`): redirects and fixed
@@ -544,7 +560,11 @@ async fn proxy_http_request(
         None,
       )
       .await;
-      return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
+      return gateway_timeout_response(
+        &state,
+        extract_request_host(&headers).as_deref(),
+        "504 Gateway Timeout - No client connected in time",
+      );
     }
   }
 
@@ -610,6 +630,7 @@ async fn proxy_http_request(
       .await;
       return gateway_timeout_response(
         &state,
+        request_host.as_deref(),
         "504 Gateway Timeout - Client disconnected before request dispatch",
       );
     }
@@ -1006,7 +1027,7 @@ async fn proxy_http_request(
               )
               .await;
               state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64, selected.org_id.as_deref());
-              break gateway_timeout_response(&state, "504 Gateway Timeout - Gateway response timeout expired");
+              break gateway_timeout_response(&state, request_host.as_deref(), "504 Gateway Timeout - Gateway response timeout expired");
           }
           res_opt = rx_response => res_opt.ok(),
       }

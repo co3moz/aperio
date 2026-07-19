@@ -511,6 +511,23 @@ pub struct RouteRule {
   pub respond: Option<RespondRule>,
 }
 
+/// One `error_pages:` entry of `aperio-server.yaml`: per-hostname custom
+/// 504/503 pages overriding the global `504_page`/`503_page` for that host.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+pub struct ErrorPageRule {
+  /// Hostname the pages apply to (matched exactly, case-insensitive).
+  #[schemars(extend("examples" = ["app.example.com"]))]
+  pub hostname: String,
+  /// Path of the HTML file served on 504 gateway-timeout responses.
+  #[serde(rename = "504_page")]
+  #[schemars(extend("examples" = ["./pages/app-504.html"]))]
+  pub page_504: Option<String>,
+  /// Path of the HTML file served on 503 maintenance responses.
+  #[serde(rename = "503_page")]
+  #[schemars(extend("examples" = ["./pages/app-503.html"]))]
+  pub page_503: Option<String>,
+}
+
 /// The `aperio-server.yaml` configuration file. The server is environment-
 /// driven; every scalar key here is materialized into its `APERIO_*`
 /// environment variable at startup (the file takes precedence over the
@@ -675,6 +692,9 @@ pub struct ServerFileConfig {
   pub headers: Option<HeaderRules>,
   /// Client-less routes: bind a hostname/path to a redirect or fixed response.
   pub routes: Option<Vec<RouteRule>>,
+  /// Per-hostname custom 504/503 error pages (override the global
+  /// `504_page`/`503_page` for that hostname).
+  pub error_pages: Option<Vec<ErrorPageRule>>,
   /// Experimental public TCP expose ports.
   pub expose: Option<Vec<ExposeEntry>>,
 }

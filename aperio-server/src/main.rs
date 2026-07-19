@@ -20,6 +20,7 @@ mod api;
 mod auth;
 mod cache;
 mod config_file;
+mod error_pages;
 mod expose;
 mod headers;
 mod oidc;
@@ -546,6 +547,7 @@ async fn async_main() {
       .unwrap_or_else(|| "en".to_string()),
     header_rules: headers::from_config_file(),
     static_routes: static_routes::from_config_file(),
+    error_pages: error_pages::from_config_file(),
     preview_noindex,
   };
 

@@ -234,7 +234,7 @@ The file is read once at startup and takes precedence over environment variables
 
 #### Hot-reload
 
-`aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change — cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:` and `routes:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).
+`aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change — cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:`, `routes:` and `error_pages:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).
 
 #### Server-side header rules (`headers:`)
 
@@ -281,6 +281,17 @@ routes:
     respond:
       content_type: text/plain
       body: "User-agent: *\nDisallow: /\n"
+```
+
+#### Per-hostname error pages (`error_pages:`)
+
+A structured `error_pages:` list overrides the global `APERIO_504_PAGE` / `APERIO_503_PAGE` per hostname, so each exposed site can carry its own branding on gateway-timeout and maintenance responses. Each entry matches an exact `hostname` (case-insensitive) and points at HTML files via `504_page` and/or `503_page`; hostnames without an entry (and requests without a Host header) keep the global pages. Files are read when the section is loaded — at startup and on config hot-reload; an unreadable file logs an error and falls back to the global page:
+
+```yaml
+error_pages:
+  - hostname: app.example.com
+    504_page: ./pages/app-504.html
+    503_page: ./pages/app-503.html
 ```
 
 ### Core

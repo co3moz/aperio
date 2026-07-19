@@ -137,7 +137,11 @@ pub(crate) async fn handle_ws_proxy(
         None,
       )
       .await;
-      return gateway_timeout_response(&state, "504 Gateway Timeout - No client connected in time");
+      return gateway_timeout_response(
+        &state,
+        extract_request_host(&headers).as_deref(),
+        "504 Gateway Timeout - No client connected in time",
+      );
     }
   }
 
@@ -176,6 +180,7 @@ pub(crate) async fn handle_ws_proxy(
       .await;
       return gateway_timeout_response(
         &state,
+        request_host.as_deref(),
         "504 Gateway Timeout - No client available for WebSocket upgrade",
       );
     }

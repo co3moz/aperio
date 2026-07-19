@@ -73,7 +73,7 @@ Organized by theme. Every item carries a stable `#N` id — reference them as "p
 - [ ] #49 Retry policy — retry idempotent requests on 5xx to another client in the pool
 - [ ] #50 Sticky sessions keyed on an app-chosen cookie/header (the built-in sticky strategy pins via Aperio's own affinity cookie)
 - [ ] #51 Regex URL rewrite rules — beyond `trim_bind` path rewriting
-- [ ] #52 Per-service custom error pages — beyond the global 504/503
+- [x] #52 Per-service custom error pages — shipped: a structured `error_pages:` section in `aperio-server.yaml` (hostname → `504_page`/`503_page` HTML files) overrides the global pages per hostname; hot-reloaded with the other structured sections
 - [ ] #53 stale-while-revalidate + a cache purge API (on top of the response cache)
 - [ ] #54 WebSocket message inspection/logging — the ws counterpart of the HTTP inspector
 - [x] #55 Per-service request body size limit with an early 413 — shipped: `max_request_body` (yaml top-level/per-service, `APERIO_MAX_REQUEST_BODY`) is announced via Ping; the server rejects bigger uploads with 413 before dispatch, tightening (never widening) the global `APERIO_MAX_BODY_SIZE`

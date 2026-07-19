@@ -874,6 +874,7 @@ impl AppState {
     let mut effective = crate::settings::apply_settings_overrides(&base, &dashboard);
     effective.header_rules = crate::headers::from_config_file();
     effective.static_routes = crate::static_routes::from_config_file();
+    effective.error_pages = crate::error_pages::from_config_file();
     crate::api::settings::swap_config(self, effective).await;
   }
 
