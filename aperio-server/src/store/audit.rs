@@ -217,6 +217,69 @@ impl AuditLog {
   pub fn recent(&self) -> Vec<AuditEvent> {
     self.recent.iter().cloned().collect()
   }
+
+  /// Retention: drops events older than `cutoff_ts` (unix seconds). Rotated
+  /// generations whose newest event is older than the cutoff are deleted
+  /// whole; in the active file only the leading *prefix* of old lines is
+  /// removed — the hash chain stays verifiable because a file's first line
+  /// is never checkable against a predecessor anyway. Returns removed lines
+  /// (rotated files count their line totals).
+  pub fn prune_older_than(&mut self, cutoff_ts: u64) -> usize {
+    let mut removed = 0usize;
+
+    // Rotated generations: timestamps are monotonic across generations, so
+    // each file can be tested independently by its newest line.
+    let mut n = 1usize;
+    while n <= self.max_files.max(1) {
+      let gen_path = PathBuf::from(format!("{}.{}", self.path.display(), n));
+      let Ok(raw) = std::fs::read_to_string(&gen_path) else {
+        break;
+      };
+      let newest_ts = raw
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<AuditEvent>(l).ok())
+        .map(|ev| ev.ts)
+        .next();
+      if newest_ts.is_some_and(|ts| ts < cutoff_ts) {
+        let lines = raw.lines().filter(|l| !l.trim().is_empty()).count();
+        if std::fs::remove_file(&gen_path).is_ok() {
+          removed += lines;
+          info!(
+            "Retention: dropped rotated audit generation {:?} ({} events)",
+            gen_path, lines
+          );
+        }
+      }
+      n += 1;
+    }
+
+    // Active file: strip only the leading run of expired lines so every
+    // remaining line's `prev` still points at its in-file predecessor.
+    if let Ok(raw) = std::fs::read_to_string(&self.path) {
+      let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+      let keep_from = lines
+        .iter()
+        .position(|l| serde_json::from_str::<AuditEvent>(l).is_ok_and(|ev| ev.ts >= cutoff_ts))
+        .unwrap_or(lines.len());
+      if keep_from > 0 {
+        let mut kept = lines[keep_from..].join("\n");
+        if !kept.is_empty() {
+          kept.push('\n');
+        }
+        match std::fs::write(&self.path, &kept) {
+          Ok(()) => {
+            removed += keep_from;
+            self.current_size = kept.len() as u64;
+            // `last_hash` is derived from the newest line, which survives.
+            self.recent.retain(|ev| ev.ts >= cutoff_ts);
+          }
+          Err(e) => warn!("Retention: failed to rewrite {:?}: {}", self.path, e),
+        }
+      }
+    }
+    removed
+  }
 }
 
 /// Verifies the hash chain of one audit file: every line's `prev` must equal

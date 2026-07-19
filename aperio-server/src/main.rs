@@ -28,6 +28,7 @@ mod oidc;
 mod protocol;
 mod proxy;
 mod redact;
+mod retention;
 mod routing;
 mod settings;
 mod share;
@@ -1146,6 +1147,10 @@ async fn async_main() {
 
   // Experimental public TCP expose ports (aperio-server.yaml `expose:`).
   expose::spawn_listeners(shutdown_state.clone(), &host, expose::from_config_file());
+
+  // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
+  // is configured.
+  retention::spawn(shutdown_state.clone());
 
   let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
     .await

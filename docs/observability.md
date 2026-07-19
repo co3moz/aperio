@@ -101,6 +101,17 @@ Lifetime counters (total requests, success/failure, bytes in each direction, sum
 
 Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into an `(other)` bucket so unbounded hostname cardinality cannot grow the stats file.
 
+## Retention policies
+
+Independent TTLs — all in days, unset = keep forever — bound how long each data type is held, enforced by a background pruner (at startup, then hourly; each pruning cycle writes a `retention_pruned` audit event with per-surface counts):
+
+| Variable | Prunes |
+| --- | --- |
+| `APERIO_RETENTION_CAPTURES` | Inspector captures and webhook inbox entries |
+| `APERIO_RETENTION_ACCESS_LOG` | Structured access-log file lines (rewritten in place) |
+| `APERIO_RETENTION_AUDIT` | Audit events — expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
+| `APERIO_RETENTION_STATS` | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
+
 ## Right-to-erasure selective purge
 
 `POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store — the GDPR-style "erase what you hold about X" operation:

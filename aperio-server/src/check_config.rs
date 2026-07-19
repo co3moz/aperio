@@ -129,6 +129,10 @@ pub(crate) fn run() -> i32 {
   check_parse::<u64>(&mut r, "APERIO_ALERT_WINDOW", "number of seconds");
   check_parse::<u64>(&mut r, "APERIO_ALERT_MIN_REQUESTS", "count");
   check_parse::<u64>(&mut r, "APERIO_ALERT_CLIENT_DOWN", "count");
+  check_parse::<u64>(&mut r, "APERIO_RETENTION_CAPTURES", "number of days");
+  check_parse::<u64>(&mut r, "APERIO_RETENTION_ACCESS_LOG", "number of days");
+  check_parse::<u64>(&mut r, "APERIO_RETENTION_AUDIT", "number of days");
+  check_parse::<u64>(&mut r, "APERIO_RETENTION_STATS", "number of days");
 
   // --- Enumerated / structured scalars ---
   if let Some(raw) = env("APERIO_LB_STRATEGY") {

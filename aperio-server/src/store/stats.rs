@@ -409,6 +409,38 @@ impl StatsStore {
     removed
   }
 
+  /// Retention: drops day-granularity period buckets older than `days` days
+  /// (global and per-org). Week/month/year buckets keep their built-in caps —
+  /// they are coarse aggregates, not per-day records. Returns removed buckets.
+  pub fn prune_day_buckets_older_than(&mut self, days: u64) -> usize {
+    let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(days as i64);
+    // Day keys are zero-padded (`d:YYYY-MM-DD`), so lexicographic compare
+    // against the cutoff key is chronological compare.
+    let cutoff_key = format!("d:{}", cutoff.format("%Y-%m-%d"));
+    let mut removed = 0usize;
+    let mut prune = |stats: &mut PersistentStats| {
+      let old: Vec<String> = stats
+        .periods
+        .keys()
+        .filter(|k| k.starts_with("d:") && k.as_str() < cutoff_key.as_str())
+        .cloned()
+        .collect();
+      for key in old {
+        stats.periods.remove(&key);
+        removed += 1;
+      }
+    };
+    prune(&mut self.stats);
+    for org in self.by_org.values_mut() {
+      prune(org);
+    }
+    if removed > 0 {
+      self.dirty = true;
+      self.save_if_dirty();
+    }
+    removed
+  }
+
   pub fn save_if_dirty(&mut self) {
     if !self.dirty {
       return;

@@ -112,6 +112,24 @@ impl InboxStore {
     removed
   }
 
+  /// Retention: drops entries older than `cutoff_ts` (unix seconds), across
+  /// all organizations. Returns removed count.
+  pub fn prune_older_than(&mut self, cutoff_ts: u64) -> usize {
+    let before = self.entries.len();
+    self.entries.retain(|e| {
+      chrono::DateTime::parse_from_rfc3339(&e.timestamp)
+        .map(|dt| dt.timestamp() as u64 >= cutoff_ts)
+        // Unparseable timestamps are kept — never silently drop data on a
+        // parse quirk.
+        .unwrap_or(true)
+    });
+    let removed = before - self.entries.len();
+    if removed > 0 {
+      self.persist();
+    }
+    removed
+  }
+
   /// Empties the caller's organization's inbox. Returns removed count.
   pub fn clear(&mut self, org: &Option<String>) -> usize {
     let before = self.entries.len();
@@ -169,6 +187,27 @@ mod tests {
     assert_eq!(store3.clear(&Some("org-1".to_string())), 1);
     assert!(InboxStore::load(&dir_str).entries.is_empty());
 
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_prune_older_than() {
+    let dir = std::env::temp_dir().join(format!("aperio-inbox-prune-{}", uuid::Uuid::new_v4()));
+    let dir_str = dir.to_string_lossy().to_string();
+    let mut store = InboxStore::load(&dir_str);
+    let mut old_entry = entry("old", None);
+    old_entry.timestamp = "2020-01-01T00:00:00+00:00".to_string();
+    let mut fresh = entry("fresh", None);
+    fresh.timestamp = chrono::Local::now().to_rfc3339();
+    store.insert(old_entry);
+    store.insert(fresh);
+
+    let cutoff = crate::store::tokens::now_secs() - 24 * 3600;
+    assert_eq!(store.prune_older_than(cutoff), 1);
+    assert!(store.get("fresh", &None).is_some());
+    assert!(store.get("old", &None).is_none());
+    // Persisted: the prune survives a reload.
+    assert_eq!(InboxStore::load(&dir_str).entries.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
   }
 }

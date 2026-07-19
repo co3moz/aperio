@@ -169,3 +169,49 @@ fn test_rotation_zero_files_truncates() {
   assert!(!dir.join("audit.jsonl.1").exists());
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_prune_older_than_keeps_chain_verifiable() {
+  let dir = std::env::temp_dir().join(format!("aperio-audit-prune-{}", uuid::Uuid::new_v4()));
+  let _ = std::fs::create_dir_all(&dir);
+  let dir_str = dir.to_string_lossy().to_string();
+
+  let mut log = AuditLog::load(&dir_str, 0, 3);
+  for i in 0..6 {
+    log.record(&format!("event_{i}"), "system", "-", None, "d");
+  }
+  // Age the first 3 lines in place so a cutoff can bite (events were just
+  // written with the current timestamp).
+  let path = dir.join("audit.jsonl");
+  let raw = std::fs::read_to_string(&path).unwrap();
+  let now = crate::store::tokens::now_secs();
+  // Only the doomed lines are rewritten; the surviving suffix keeps its
+  // exact byte form so its hash chain stays intact after the prune.
+  let aged: Vec<String> = raw
+    .lines()
+    .enumerate()
+    .map(|(i, l)| {
+      if i < 3 {
+        let mut ev: serde_json::Value = serde_json::from_str(l).unwrap();
+        ev["ts"] = serde_json::json!(now - 10 * 24 * 3600);
+        serde_json::to_string(&ev).unwrap()
+      } else {
+        l.to_string()
+      }
+    })
+    .collect();
+  std::fs::write(&path, format!("{}\n", aged.join("\n"))).unwrap();
+
+  let mut log = AuditLog::load(&dir_str, 0, 3);
+  let removed = log.prune_older_than(now - 24 * 3600);
+  assert_eq!(removed, 3);
+
+  let raw = std::fs::read_to_string(&path).unwrap();
+  assert_eq!(raw.lines().count(), 3);
+  // The surviving suffix still verifies (first line exempt by design).
+  assert_eq!(verify_chain(&path).unwrap(), None);
+
+  // Idempotent: nothing left to prune.
+  assert_eq!(log.prune_older_than(now - 24 * 3600), 0);
+  let _ = std::fs::remove_dir_all(&dir);
+}

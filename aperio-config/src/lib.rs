@@ -666,6 +666,14 @@ pub struct ServerFileConfig {
   // --- Logging & telemetry ---
   /// Structured access log path (env: APERIO_ACCESS_LOG).
   pub access_log: Option<String>,
+  /// Days to keep inspector captures and webhook inbox entries; 0/unset = forever (env: APERIO_RETENTION_CAPTURES).
+  pub retention_captures: Option<u64>,
+  /// Days to keep access-log file lines; 0/unset = forever (env: APERIO_RETENTION_ACCESS_LOG).
+  pub retention_access_log: Option<u64>,
+  /// Days to keep audit events; 0/unset = forever (env: APERIO_RETENTION_AUDIT).
+  pub retention_audit: Option<u64>,
+  /// Days to keep day-granularity stats buckets; 0/unset = the built-in caps (env: APERIO_RETENTION_STATS).
+  pub retention_stats: Option<u64>,
   /// Audit log rotation size in bytes, 0 disables (env: APERIO_AUDIT_MAX_SIZE).
   pub audit_max_size: Option<u64>,
   /// Rotated audit log files kept (env: APERIO_AUDIT_MAX_FILES).
