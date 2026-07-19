@@ -173,3 +173,36 @@ fn test_stage_window_stats_and_anomaly() {
   let queue = rows.iter().find(|r| r.stage == "queue").unwrap();
   assert!(!queue.anomalous, "an unrelated stage must stay quiet");
 }
+
+#[test]
+fn test_stage_stats_route_cap_evicts_lru() {
+  use crate::state::{RequestTimeline, STAGE_ROUTE_CAP, StageStats};
+
+  let tl = RequestTimeline::assemble(100, 10_000, 10_200, None);
+  let cap = STAGE_ROUTE_CAP;
+  let mut stats = StageStats::default();
+
+  // Fill exactly to the cap with distinct hostnames, oldest first.
+  for i in 0..cap {
+    stats.record(Some(&format!("h{i}.local")), None, &tl);
+  }
+  assert_eq!(stats.routes.len(), cap);
+  assert!(stats.routes.contains_key("h0.local"));
+
+  // Touch h0 so it is no longer the least-recently-used route.
+  stats.record(Some("h0.local"), None, &tl);
+
+  // A brand-new route past the cap evicts the LRU route (h1, the oldest
+  // untouched one), never growing beyond the cap.
+  stats.record(Some("new.local"), None, &tl);
+  assert_eq!(stats.routes.len(), cap);
+  assert!(stats.routes.contains_key("new.local"));
+  assert!(
+    stats.routes.contains_key("h0.local"),
+    "recently-touched route survives"
+  );
+  assert!(
+    !stats.routes.contains_key("h1.local"),
+    "the LRU route was evicted"
+  );
+}

@@ -214,18 +214,26 @@ pub(crate) struct StageWindow {
   /// Organization serving this route (`None` = master); the dashboard filters
   /// the per-stage view to the caller's org.
   pub(crate) org_id: Option<String>,
+  /// When a sample was last recorded for this route, used to evict the
+  /// least-recently-used route when the route cap is hit (bounds memory
+  /// under hostname churn, e.g. random preview subdomains).
+  last_recorded: Instant,
 }
 
 /// Samples kept per route.
 const STAGE_WINDOW_CAP: usize = 500;
 /// Minimum samples before anomaly verdicts are emitted.
 const STAGE_MIN_SAMPLES: usize = 20;
+/// Distinct routes tracked; the least-recently-used route is evicted past
+/// this so a churn of hostnames cannot grow the map without bound.
+pub(crate) const STAGE_ROUTE_CAP: usize = 256;
 
 impl StageWindow {
   fn new(org_id: Option<String>) -> Self {
     StageWindow {
       samples: std::collections::VecDeque::new(),
       org_id,
+      last_recorded: Instant::now(),
     }
   }
 
@@ -250,6 +258,7 @@ impl StageWindow {
       self.samples.pop_front();
     }
     self.samples.push_back(sample);
+    self.last_recorded = Instant::now();
   }
 
   /// Per-stage statistics of the window. A stage's latest sample is
@@ -314,9 +323,24 @@ pub(crate) struct StageStats {
 
 impl StageStats {
   pub(crate) fn record(&mut self, host: Option<&str>, org: Option<&str>, tl: &RequestTimeline) {
+    let key = host.unwrap_or("*").to_string();
+    // Bound the number of tracked routes: evict the least-recently-used one
+    // before admitting a new route past the cap, so a churn of distinct
+    // hostnames (wildcard/preview subdomains) cannot grow the map without
+    // bound. Only runs when at capacity and a genuinely new route arrives.
+    if !self.routes.contains_key(&key)
+      && self.routes.len() >= STAGE_ROUTE_CAP
+      && let Some(lru) = self
+        .routes
+        .iter()
+        .min_by_key(|(_, w)| w.last_recorded)
+        .map(|(k, _)| k.clone())
+    {
+      self.routes.remove(&lru);
+    }
     let window = self
       .routes
-      .entry(host.unwrap_or("*").to_string())
+      .entry(key)
       .or_insert_with(|| StageWindow::new(org.map(str::to_string)));
     // A route is served by one org; keep its label current.
     window.org_id = org.map(str::to_string);
