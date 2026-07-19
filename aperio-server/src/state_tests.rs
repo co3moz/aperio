@@ -175,6 +175,61 @@ fn test_stage_window_stats_and_anomaly() {
 }
 
 #[test]
+fn test_token_map_gc() {
+  use crate::state::{RateLimitState, gc_token_daily_bytes, gc_token_rate};
+  use std::collections::HashMap;
+  use std::time::{Duration, Instant};
+
+  let now = Instant::now();
+
+  // token_rate: below the threshold nothing is dropped, even stale buckets.
+  let mut rate: HashMap<String, RateLimitState> = HashMap::new();
+  rate.insert(
+    "stale".to_string(),
+    RateLimitState {
+      tokens: 1.0,
+      last_updated: now - Duration::from_secs(3600),
+    },
+  );
+  gc_token_rate(&mut rate, now);
+  assert_eq!(rate.len(), 1, "small maps are left alone");
+
+  // Past the threshold, idle buckets are evicted and fresh ones kept.
+  for i in 0..1200 {
+    let age = if i % 2 == 0 { 3600 } else { 0 };
+    rate.insert(
+      format!("t{i}"),
+      RateLimitState {
+        tokens: 1.0,
+        last_updated: now - Duration::from_secs(age),
+      },
+    );
+  }
+  gc_token_rate(&mut rate, now);
+  assert!(rate.contains_key("t1"), "fresh bucket survives");
+  assert!(!rate.contains_key("t0"), "idle bucket evicted");
+  assert!(
+    !rate.contains_key("stale"),
+    "the old stale bucket evicted too"
+  );
+
+  // token_daily_bytes: past the threshold, non-today entries are dropped.
+  let mut daily: HashMap<String, (String, u64)> = HashMap::new();
+  for i in 0..1200 {
+    let day = if i % 2 == 0 {
+      "2020-01-01"
+    } else {
+      "2026-07-19"
+    };
+    daily.insert(format!("t{i}"), (day.to_string(), 100));
+  }
+  gc_token_daily_bytes(&mut daily, "2026-07-19");
+  assert!(daily.contains_key("t1"), "today's entry survives");
+  assert!(!daily.contains_key("t0"), "yesterday's entry dropped");
+  assert!(daily.values().all(|(d, _)| d == "2026-07-19"));
+}
+
+#[test]
 fn test_stage_stats_route_cap_evicts_lru() {
   use crate::state::{RequestTimeline, STAGE_ROUTE_CAP, StageStats};
 

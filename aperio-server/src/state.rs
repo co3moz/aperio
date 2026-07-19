@@ -879,6 +879,30 @@ pub(crate) struct RateLimitState {
   pub(crate) last_updated: Instant,
 }
 
+/// Size past which the per-token rate/quota maps are garbage-collected of
+/// stale entries (idle or revoked tokens), so a churn of dynamic tokens
+/// cannot grow them without bound. Mirrors the per-IP rate limiter's
+/// failsafe threshold.
+const TOKEN_MAP_GC_THRESHOLD: usize = 1000;
+
+/// Token-rate map GC: once the map is large, drop buckets for tokens idle
+/// past the refill window (revoked or unused) so churned dynamic tokens do
+/// not accumulate forever. A fully-refilled idle bucket carries no state
+/// worth keeping.
+pub(crate) fn gc_token_rate(map: &mut HashMap<String, RateLimitState>, now: Instant) {
+  if map.len() > TOKEN_MAP_GC_THRESHOLD {
+    map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+  }
+}
+
+/// Token daily-byte map GC: once the map is large, drop entries from a past
+/// day (only the current day's usage feeds any quota).
+pub(crate) fn gc_token_daily_bytes(map: &mut HashMap<String, (String, u64)>, today: &str) {
+  if map.len() > TOKEN_MAP_GC_THRESHOLD {
+    map.retain(|_, (day, _)| day == today);
+  }
+}
+
 /// Upper bounds (seconds) of the request duration histogram buckets exposed
 /// on `/aperio/metrics`; a `+Inf` bucket is added implicitly.
 const DURATION_BUCKETS: [f64; 12] = [
@@ -1249,6 +1273,7 @@ impl AppState {
     if let Some(rps) = max_rps.filter(|v| *v > 0.0) {
       let mut buckets = self.token_rate.lock().await;
       let now = Instant::now();
+      gc_token_rate(&mut buckets, now);
       let burst = rps.max(1.0);
       let bucket = buckets.entry(id.to_string()).or_insert(RateLimitState {
         tokens: burst,
@@ -1287,6 +1312,7 @@ impl AppState {
     }
     let today = crate::store::stats::period_keys()[0].clone();
     let mut usage = self.token_daily_bytes.lock().await;
+    gc_token_daily_bytes(&mut usage, &today);
     let entry = usage
       .entry(id.to_string())
       .or_insert_with(|| (today.clone(), 0));
