@@ -362,49 +362,5 @@ pub(crate) fn run() -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-  use crate::static_routes::RouteRule;
-
-  fn rule(host: Option<&str>, path: Option<&str>) -> RouteRule {
-    RouteRule {
-      hostname: host.map(|s| s.to_string()),
-      path: path.map(|s| s.to_string()),
-      redirect: Some("https://example.com".to_string()),
-      permanent: false,
-      preserve_path: false,
-      respond: None,
-    }
-  }
-
-  #[test]
-  fn test_shadowing_flags_broad_rule_hiding_narrow_one() {
-    let mut r = Report::default();
-    // A catch-all path on a host precedes a specific path on the same host.
-    let routes = vec![rule(Some("a.com"), None), rule(Some("a.com"), Some("/api"))];
-    lint_route_shadowing(&mut r, &routes);
-    assert_eq!(r.warnings, 1);
-  }
-
-  #[test]
-  fn test_shadowing_flags_exact_duplicate_bind() {
-    let mut r = Report::default();
-    let routes = vec![rule(None, Some("/api")), rule(None, Some("/api"))];
-    lint_route_shadowing(&mut r, &routes);
-    assert_eq!(r.warnings, 1);
-  }
-
-  #[test]
-  fn test_no_shadowing_for_distinct_routes() {
-    let mut r = Report::default();
-    let routes = vec![
-      rule(Some("a.com"), Some("/api")),
-      rule(Some("b.com"), Some("/api")),
-      rule(Some("a.com"), Some("/web")),
-      rule(Some("a.com"), Some("/api/v1")), // narrower than /api, but /api is earlier → shadowed
-    ];
-    lint_route_shadowing(&mut r, &routes);
-    // Only /api/v1 (index 3) is shadowed by /api (index 0).
-    assert_eq!(r.warnings, 1);
-  }
-}
+#[path = "check_config_tests.rs"]
+mod tests;

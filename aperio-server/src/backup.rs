@@ -172,53 +172,5 @@ pub(crate) fn spawn(state: Arc<AppState>) {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn temp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("aperio-backup-test-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-  }
-
-  #[test]
-  fn test_write_snapshot_produces_self_contained_db() {
-    let data_dir = temp_dir();
-    // Materialize a real store so aperio.db exists with the schema.
-    let _conn = crate::store::open_db(data_dir.to_str().unwrap());
-    let db_path = data_dir.join("aperio.db");
-
-    let backup_dir = temp_dir();
-    let (snap, size) = write_snapshot(&db_path, &backup_dir).expect("snapshot");
-    assert!(snap.exists());
-    assert!(size > 0);
-    // A VACUUM INTO snapshot has no WAL/SHM sidecars.
-    assert!(!backup_dir.join(format!("{}-wal", snap.display())).exists());
-
-    let _ = std::fs::remove_dir_all(&data_dir);
-    let _ = std::fs::remove_dir_all(&backup_dir);
-  }
-
-  #[test]
-  fn test_prune_keeps_newest() {
-    let dir = temp_dir();
-    for ts in [100u64, 200, 300, 400] {
-      std::fs::write(dir.join(format!("aperio-{ts}.db")), b"x").unwrap();
-    }
-    // An unrelated file must be left untouched.
-    std::fs::write(dir.join("readme.txt"), b"x").unwrap();
-
-    let removed = prune_snapshots(&dir, 2);
-    assert_eq!(removed, 2);
-    assert!(dir.join("aperio-400.db").exists());
-    assert!(dir.join("aperio-300.db").exists());
-    assert!(!dir.join("aperio-200.db").exists());
-    assert!(!dir.join("aperio-100.db").exists());
-    assert!(dir.join("readme.txt").exists());
-
-    // keep = 0 means keep everything.
-    assert_eq!(prune_snapshots(&dir, 0), 0);
-
-    let _ = std::fs::remove_dir_all(&dir);
-  }
-}
+#[path = "backup_tests.rs"]
+mod tests;

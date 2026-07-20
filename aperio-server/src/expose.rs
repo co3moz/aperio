@@ -246,3 +246,7 @@ async fn relay_public_tcp(
   state.tcp_streams.lock().await.remove(&stream_id);
   debug!("public expose stream {} closed", stream_id);
 }
+
+#[cfg(test)]
+#[path = "expose_tests.rs"]
+mod tests;
