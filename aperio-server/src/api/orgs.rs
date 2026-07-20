@@ -208,6 +208,9 @@ pub(crate) async fn orgs_delete_handler(
   if !state.org_store.lock().await.delete(&id) {
     return (StatusCode::NOT_FOUND, "unknown organization id").into_response();
   }
+  // Drop any cached per-org OIDC runtime so a `?org=<deleted-id>` login can no
+  // longer complete against the phantom org after it is gone.
+  state.org_oidc.lock().await.remove(&id);
   let ip = actor_ip(&state, &headers, addr);
   state
     .audit(

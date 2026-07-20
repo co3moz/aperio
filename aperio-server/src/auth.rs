@@ -591,11 +591,18 @@ pub(crate) async fn authorize_tunnel_token(
 
   // Alert when a token connects from a source IP not seen before this run. The
   // very first address a token is seen from establishes the baseline silently.
+  // Cap the tracked source-IP set per token: once a token has connected from
+  // this many distinct addresses the new-IP signal is meaningless, and the set
+  // must not grow without bound (spoofed XFF, NAT/mobile churn).
+  const TOKEN_SEEN_IPS_CAP: usize = 256;
   let is_new_ip = {
     let mut seen = state.token_seen_ips.lock().await;
     let ips = seen.entry(token_id.clone()).or_default();
     if ips.is_empty() {
       ips.insert(client_ip);
+      false
+    } else if ips.len() >= TOKEN_SEEN_IPS_CAP {
+      // At the cap: stop tracking and stop alerting.
       false
     } else {
       ips.insert(client_ip)

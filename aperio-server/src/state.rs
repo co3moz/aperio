@@ -1310,14 +1310,20 @@ impl AppState {
   /// immediately, instead of serving until they next reconnect (when the
   /// revoked token would be rejected anyway). Returns how many were dropped.
   pub(crate) async fn disconnect_token_clients(&self, token_id: &str) -> usize {
-    let clients = self.clients.lock().await;
     let mut dropped = 0usize;
-    for handle in clients.values() {
-      if handle.perms.token_id.as_deref() == Some(token_id) {
-        handle.disconnect.notify_one();
-        dropped += 1;
+    {
+      let clients = self.clients.lock().await;
+      for handle in clients.values() {
+        if handle.perms.token_id.as_deref() == Some(token_id) {
+          handle.disconnect.notify_one();
+          dropped += 1;
+        }
       }
     }
+    // The token is being revoked/deleted; drop its source-IP tracking so the
+    // in-memory `token_seen_ips` map does not accumulate entries for tokens
+    // that no longer exist.
+    self.token_seen_ips.lock().await.remove(token_id);
     dropped
   }
 }
