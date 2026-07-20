@@ -277,6 +277,15 @@ pub(crate) fn run() -> i32 {
       }
     }
   }
+  if let Some(rules) =
+    check_section::<Vec<crate::route_limits::RateLimitRuleRaw>>(&mut r, "rate_limits")
+  {
+    let compiled = crate::route_limits::compile(rules);
+    r.ok(&format!(
+      "`rate_limits:` section compiles ({} rule(s))",
+      compiled.len()
+    ));
+  }
   if let Some(pages) = check_section::<Vec<ErrorPageRuleLint>>(&mut r, "error_pages") {
     for rule in &pages {
       for (which, path) in [("504_page", &rule.page_504), ("503_page", &rule.page_503)] {

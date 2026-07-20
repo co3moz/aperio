@@ -757,6 +757,30 @@ async fn proxy_http_request(
   // with per-group round-robin.
   let request_host = extract_request_host(&headers);
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
+
+  // Per-route rate limit (`rate_limits:` section): a shared token bucket caps
+  // aggregate rps to a matched host+path, protecting expensive endpoints.
+  if !state
+    .check_route_rate_limit(request_host.as_deref(), &uri_path_owned)
+    .await
+  {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      429,
+      start_time.elapsed(),
+      Some(&format!("Route rate limit exceeded for {}", uri_path_owned)),
+      None,
+    )
+    .await;
+    return (
+      StatusCode::TOO_MANY_REQUESTS,
+      "429 Too Many Requests - Route rate limit exceeded",
+    )
+      .into_response();
+  }
+
   // Sticky strategy: a returning visitor carries an affinity cookie naming
   // the client that served them before.
   let affinity = if state.config().lb_strategy == LbStrategy::Sticky {

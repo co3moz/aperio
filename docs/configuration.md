@@ -235,6 +235,23 @@ cache: true
 
 The file is read once at startup and takes precedence over environment variables (dashboard overrides still win over both). It is not hot-reloaded — use the dashboard's live settings for runtime changes.
 
+#### Per-route rate limits (`rate_limits:`)
+
+The `rate_limits:` section caps the aggregate request rate to a specific hostname + path prefix, protecting an expensive endpoint (login, export, search) even from many distinct visitors or tokens — a complement to the per-IP (`ip_limit_*`) and per-token limits. Each rule owns one shared token bucket; rules match first-match in file order (`hostname` unset = any host, `path` unset = any path, matched on a path-segment boundary). A request that would drain an empty bucket gets `429 Too Many Requests`.
+
+```yaml
+# aperio-server.yaml
+rate_limits:
+  - hostname: app.example.com
+    path: /login
+    rps: 5          # sustained requests/second to this route
+    burst: 10       # token-bucket burst (defaults to rps)
+  - path: /export   # any hostname
+    rps: 1
+```
+
+Like the other structured sections it is re-applied on config hot-reload, and `--check-config` validates it.
+
 #### Config lint (`--check-config`)
 
 `aperio-server --check-config` validates the layered configuration — the file (if any) plus the environment — and exits without starting the server: no port is bound and the data directory is untouched. It flags values the server would otherwise silently replace with defaults (unparsable numbers, unknown `lb_strategy`/`failover` values, a bad `random_subdomain` pattern), malformed `trusted_proxies`/`server_auth`, unreadable `504_page`/`503_page`/`error_pages:` files, invalid structured sections (`headers:`, `routes:`, `expose:`, `error_pages:`), and incomplete OIDC settings. Exit code 0 means the configuration is valid (warnings possible), 1 means at least one error — handy as a pre-deploy CI step or before a restart:

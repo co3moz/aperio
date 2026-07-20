@@ -30,6 +30,7 @@ mod protocol;
 mod proxy;
 mod redact;
 mod retention;
+mod route_limits;
 mod routing;
 mod settings;
 mod share;
@@ -685,6 +686,7 @@ async fn async_main() {
     header_rules: headers::from_config_file(),
     static_routes: static_routes::from_config_file(),
     error_pages: error_pages::from_config_file(),
+    route_limits: route_limits::from_config_file(),
     preview_noindex,
   };
 
@@ -784,6 +786,7 @@ async fn async_main() {
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
     token_seen_ips: Mutex::new(HashMap::new()),
+    route_rate: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
     last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),

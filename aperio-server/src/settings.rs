@@ -146,6 +146,9 @@ pub(crate) struct ServerConfig {
   /// Per-hostname custom 504/503 pages (the `error_pages:` section of
   /// aperio-server.yaml); file-only, overrides the global pages per host.
   pub(crate) error_pages: crate::error_pages::ErrorPages,
+  /// Per-route request rate limits (the `rate_limits:` section of
+  /// aperio-server.yaml); file-only, caps aggregate rps to a host+path.
+  pub(crate) route_limits: crate::route_limits::RouteLimits,
   /// When true, services reached through their random subdomain are marked
   /// non-indexable: an `X-Robots-Tag: noindex, nofollow` response header
   /// plus a disallow-all `/robots.txt`, so preview environments never end

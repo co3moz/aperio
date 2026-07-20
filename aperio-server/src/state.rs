@@ -1063,6 +1063,9 @@ pub(crate) struct AppState {
   /// In-memory only; drives the `token_new_ip` alert when a token connects
   /// from an address it has not been seen from before this run.
   pub(crate) token_seen_ips: Mutex<HashMap<String, HashSet<IpAddr>>>,
+  /// Per-route request-rate buckets (key = matched `rate_limits:` rule),
+  /// enforcing the section's aggregate rps/burst per host+path. GC'd on size.
+  pub(crate) route_rate: Mutex<HashMap<String, RateLimitState>>,
   pub(crate) last_session_gc: Mutex<Instant>,
   pub(crate) last_rate_gc: Mutex<Instant>,
   pub(crate) active_tunnel_count: AtomicUsize,
@@ -1165,6 +1168,7 @@ impl AppState {
     effective.header_rules = crate::headers::from_config_file();
     effective.static_routes = crate::static_routes::from_config_file();
     effective.error_pages = crate::error_pages::from_config_file();
+    effective.route_limits = crate::route_limits::from_config_file();
     let old = self.config();
     let diff = crate::settings::config_reload_diff(&old, &effective);
     crate::api::settings::swap_config(self, effective).await;
@@ -1374,6 +1378,37 @@ impl AppState {
     } else {
       entry.1 = entry.1.saturating_add(bytes);
     }
+  }
+
+  /// Enforces the per-route rate limit (`rate_limits:` section) for a request.
+  /// Returns true when the request may proceed, false when the matched route's
+  /// shared token bucket is empty (the caller answers 429). No configured rule
+  /// for the host+path = always allowed.
+  pub(crate) async fn check_route_rate_limit(&self, host: Option<&str>, path: &str) -> bool {
+    let cfg = self.config();
+    if cfg.route_limits.is_empty() {
+      return true;
+    }
+    let Some(rule) = cfg.route_limits.matched(host, path) else {
+      return true;
+    };
+    let mut buckets = self.route_rate.lock().await;
+    let now = Instant::now();
+    if buckets.len() > TOKEN_MAP_GC_THRESHOLD {
+      buckets.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+    }
+    let bucket = buckets.entry(rule.key.clone()).or_insert(RateLimitState {
+      tokens: rule.burst,
+      last_updated: now,
+    });
+    let elapsed = now.duration_since(bucket.last_updated).as_secs_f64();
+    bucket.tokens = (bucket.tokens + elapsed * rule.rps).min(rule.burst);
+    bucket.last_updated = now;
+    if bucket.tokens < 1.0 {
+      return false;
+    }
+    bucket.tokens -= 1.0;
+    true
   }
 
   pub(crate) async fn check_rate_limit(&self, ip: IpAddr) -> bool {
