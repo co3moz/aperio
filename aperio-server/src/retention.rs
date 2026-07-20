@@ -319,3 +319,7 @@ pub(crate) fn spawn(state: Arc<AppState>) {
     }
   });
 }
+
+#[cfg(test)]
+#[path = "retention_tests.rs"]
+mod tests;

@@ -235,3 +235,7 @@ async fn emit(state: &Arc<AppState>, event: &str, data: serde_json::Value) {
     .await;
   state.emit_event(event, data).await;
 }
+
+#[cfg(test)]
+#[path = "alerts_tests.rs"]
+mod tests;

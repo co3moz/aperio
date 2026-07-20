@@ -203,3 +203,7 @@ pub(crate) fn record_status(span: &tracing::Span, status: u16) {
     if status >= 500 { "ERROR" } else { "OK" },
   );
 }
+
+#[cfg(test)]
+#[path = "telemetry_tests.rs"]
+mod tests;
