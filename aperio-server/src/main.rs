@@ -556,6 +556,7 @@ async fn async_main() {
   // mount a volume here (e.g. ./data:/app/data) so tokens survive restarts.
   let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
   let token_store = TokenStore::load(&data_dir);
+  let admin_key_store = crate::store::admin_keys::AdminKeyStore::load(&data_dir);
   let inbox_store = crate::store::inbox::InboxStore::load(&data_dir);
 
   // Resolve the effective metrics token: env var wins; otherwise generate a
@@ -798,6 +799,7 @@ async fn async_main() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(token_store),
+    admin_key_store: Mutex::new(admin_key_store),
     inbox_store: Mutex::new(inbox_store),
     users: Mutex::new(crate::store::users::UserStore::load(&data_dir)),
     response_streams: Mutex::new(HashMap::new()),
@@ -906,6 +908,15 @@ async fn async_main() {
       )
       .route("/api/audit", get(audit_handler))
       .route("/api/audit/verify", get(audit_verify_handler))
+      .route(
+        "/api/admin-keys",
+        get(crate::api::admin_keys::admin_keys_list_handler)
+          .post(crate::api::admin_keys::admin_keys_create_handler),
+      )
+      .route(
+        "/api/admin-keys/:id",
+        axum::routing::delete(crate::api::admin_keys::admin_keys_revoke_handler),
+      )
       .route(
         "/api/maintenance",
         get(maintenance_list_handler).post(maintenance_set_handler),
@@ -1402,6 +1413,10 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
     // handlers); require at least Admin at the routing layer.
     || path == "/api/orgs"
     || path.starts_with("/api/orgs/")
+    // Programmatic admin keys are powerful cross-org credentials — master
+    // super-admin only (also checked in the handlers).
+    || path == "/api/admin-keys"
+    || path.starts_with("/api/admin-keys/")
   {
     return Role::Admin;
   }

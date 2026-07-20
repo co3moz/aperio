@@ -761,16 +761,19 @@ pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> b
 /// `org_id` is None), `Some(id)` = the caller's child organization. Returns
 /// `None` for callers without a valid global session too (they can't act).
 pub(crate) async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
-  let Some(username) = dashboard_username(state, headers).await else {
-    // Built-in admin (or no session): master.
-    return None;
-  };
-  state
-    .users
-    .lock()
+  if let Some(username) = dashboard_username(state, headers).await {
+    return state
+      .users
+      .lock()
+      .await
+      .find_by_username(&username)
+      .and_then(|u| u.org_id.clone());
+  }
+  // No named-user session: a programmatic admin key acts within its fixed org;
+  // the built-in admin / master-token session is master (None).
+  admin_key_identity(state, headers)
     .await
-    .find_by_username(&username)
-    .and_then(|u| u.org_id.clone())
+    .and_then(|(_, org, _)| org)
 }
 
 /// True when the caller is the master super-admin: a global Admin session
@@ -834,16 +837,35 @@ pub(crate) async fn require_master_admin(
   Ok(())
 }
 
-/// Role of the presented global dashboard session, or None when the session
-/// is missing/expired/host-scoped.
+/// Resolves a programmatic admin API key presented as `Authorization: Bearer`
+/// (or `x-auth-token`), if a non-expired one matches: its role, organization,
+/// and name. This is the non-cookie authentication path for the dashboard API.
+pub(crate) async fn admin_key_identity(
+  state: &AppState,
+  headers: &HeaderMap,
+) -> Option<(Role, Option<String>, String)> {
+  let presented = extract_token(headers)?;
+  let store = state.admin_key_store.lock().await;
+  let key = store.verify(&presented)?;
+  Some((key.role, key.org_id.clone(), key.name.clone()))
+}
+
+/// Role of the presented caller: a global dashboard session cookie, or a
+/// programmatic admin API key (Bearer). None when neither is valid.
 pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {
-  let token = session_cookie(headers)?;
-  let sessions = state.sessions.lock().await;
-  let info = sessions.get(token)?;
-  if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
-    return None;
+  if let Some(token) = session_cookie(headers) {
+    let sessions = state.sessions.lock().await;
+    if let Some(info) = sessions.get(token)
+      && info.expires_at > crate::store::sessions::now_secs()
+      && info.scope_host.is_none()
+    {
+      return Some(info.role);
+    }
   }
-  Some(info.role)
+  // Fall back to a programmatic admin key.
+  admin_key_identity(state, headers)
+    .await
+    .map(|(role, _, _)| role)
 }
 
 /// Username of the presented global dashboard session; None for a missing/

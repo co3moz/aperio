@@ -23,6 +23,7 @@ import { SlowEndpointsSection } from './components/SlowEndpointsSection'
 import { LiveTailSection } from './components/LiveTailSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
+import { AdminKeysSection } from './components/AdminKeysSection'
 import { OrganizationsSection } from './components/OrganizationsSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
@@ -360,7 +361,12 @@ export default function App() {
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
               {page === 'settings' && <SettingsSection />}
-              {page === 'users' && <UsersSection />}
+              {page === 'users' && (
+                <div className="space-y-6">
+                  <UsersSection />
+                  <AdminKeysSection />
+                </div>
+              )}
               {page === 'organizations' && <OrganizationsSection />}
               {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}

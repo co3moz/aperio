@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::state::AppState;
 
+pub(crate) mod admin_keys;
 pub(crate) mod clients;
 pub(crate) mod export;
 pub(crate) mod inbox;

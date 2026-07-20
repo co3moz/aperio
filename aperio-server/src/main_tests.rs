@@ -149,6 +149,7 @@ async fn test_rate_limiting() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    admin_key_store: Mutex::new(test_admin_key_store()),
     inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
@@ -285,6 +286,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    admin_key_store: Mutex::new(test_admin_key_store()),
     inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
@@ -441,6 +443,7 @@ async fn test_proxy_handler_success() {
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
+    admin_key_store: Mutex::new(test_admin_key_store()),
     inbox_store: Mutex::new(test_inbox_store()),
     users: Mutex::new(test_user_store()),
     response_streams: Mutex::new(HashMap::new()),
@@ -712,6 +715,11 @@ fn test_inbox_store() -> crate::store::inbox::InboxStore {
 fn test_token_store() -> TokenStore {
   let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
   TokenStore::load(&dir.to_string_lossy())
+}
+
+fn test_admin_key_store() -> crate::store::admin_keys::AdminKeyStore {
+  let dir = std::env::temp_dir().join(format!("aperio-test-adminkeys-{}", uuid::Uuid::new_v4()));
+  crate::store::admin_keys::AdminKeyStore::load(&dir.to_string_lossy())
 }
 
 fn test_audit_log() -> AuditLog {

@@ -1075,6 +1075,9 @@ pub(crate) struct AppState {
   pub(crate) pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
   /// Persistent store of dashboard-created dynamic API tokens.
   pub(crate) token_store: Mutex<TokenStore>,
+  /// Persistent store of programmatic admin API keys (Bearer auth for the
+  /// dashboard API; scoped by role + organization).
+  pub(crate) admin_key_store: Mutex<crate::store::admin_keys::AdminKeyStore>,
   /// Persistent inbound-webhook inbox (`webhook_inbox: true` services).
   pub(crate) inbox_store: Mutex<crate::store::inbox::InboxStore>,
   /// Dashboard users (role-based access; separate from tunnel tokens).
@@ -1254,9 +1257,16 @@ impl AppState {
   /// dashboard password / OIDC), or "-" when there is no valid session.
   pub(crate) async fn session_actor(&self, headers: &axum::http::HeaderMap) -> String {
     match crate::auth::dashboard_role(self, headers).await {
-      Some(_) => crate::auth::dashboard_username(self, headers)
-        .await
-        .unwrap_or_else(|| "aperio".to_string()),
+      Some(_) => {
+        if let Some(user) = crate::auth::dashboard_username(self, headers).await {
+          user
+        } else if let Some((_, _, name)) = crate::auth::admin_key_identity(self, headers).await {
+          // Programmatic admin key: attribute the action to the key by name.
+          format!("key:{name}")
+        } else {
+          "aperio".to_string()
+        }
+      }
       None => "-".to_string(),
     }
   }

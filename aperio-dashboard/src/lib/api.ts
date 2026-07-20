@@ -145,6 +145,24 @@ export interface TokenView {
   canary: boolean
 }
 
+export interface AdminKeyView {
+  id: string
+  name: string
+  key_prefix: string
+  role: 'viewer' | 'operator' | 'admin'
+  org_id: string | null
+  created_at: number
+  expires_at: number | null
+  expired: boolean
+}
+
+export interface AdminKeyCreatePayload {
+  name: string
+  role: string
+  org_id?: string
+  ttl_seconds?: number
+}
+
 export interface TokenCreatePayload {
   name: string
   hostnames: string[]
@@ -436,6 +454,11 @@ export const api = {
   updateToken: (id: string, payload: TokenUpdatePayload) =>
     mutate(`/tokens/${encodeURIComponent(id)}`, json('PUT', payload)),
   revokeToken: (id: string) => mutate(`/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  adminKeys: () => request<AdminKeyView[]>('/admin-keys'),
+  createAdminKey: (payload: AdminKeyCreatePayload) =>
+    request<{ key: string }>('/admin-keys', json('POST', payload)),
+  revokeAdminKey: (id: string) =>
+    mutate(`/admin-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   webhooks: () => request<Webhook[]>('/webhooks'),
   createWebhook: (payload: {
     name: string
