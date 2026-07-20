@@ -19,6 +19,17 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 `cargo test --all` runs the unit tests. `bash tests/e2e.sh` runs the end-to-end suite — a real `aperio-server`, several `aperio-client` processes, and stdlib-only Python mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
 
+### Protocol fuzzing
+
+The tunnel wire protocol — the main corruption/attack surface — has [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) targets under [`fuzz/`](../fuzz): `binary_frame` (the v2 binary frame parser, asserting the `id.len() <= 255` prefix invariant) and `tunnel_message` (zlib inflate + `TunnelMessage` JSON decode). Run them on a nightly toolchain:
+
+```console
+cargo +nightly fuzz run binary_frame
+cargo +nightly fuzz run tunnel_message
+```
+
+CI runs a short smoke pass of each. The `fuzz/` crate is a standalone workspace, so it never affects the main `cargo build`/`test`.
+
 ## Test coverage
 
 Coverage is measured with [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) (`cargo install cargo-llvm-cov` + `rustup component add llvm-tools-preview`):

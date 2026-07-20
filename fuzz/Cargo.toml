@@ -1,0 +1,44 @@
+# cargo-fuzz targets for the tunnel wire protocol.
+#
+# Standalone workspace (the `[workspace]` table at the bottom) so the parent
+# workspace's `cargo build` / clippy / test never try to build it — fuzzing
+# needs a nightly toolchain and the libFuzzer runtime. Run with:
+#
+#   cargo +nightly fuzz run binary_frame
+#   cargo +nightly fuzz run tunnel_message
+#
+# The targets include the server's `protocol.rs` directly (it depends only on
+# serde, tracing and flate2), so there is no coupling to the server binary.
+
+[package]
+name = "aperio-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
+tracing = "0.1"
+
+[[bin]]
+name = "binary_frame"
+path = "fuzz_targets/binary_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tunnel_message"
+path = "fuzz_targets/tunnel_message.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone: keep this crate out of the parent workspace.
+[workspace]

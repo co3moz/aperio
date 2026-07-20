@@ -36,6 +36,37 @@ fn test_compress_roundtrip() {
 }
 
 #[test]
+fn test_decode_never_panics_and_holds_invariants() {
+  // A deterministic sweep of adversarial byte patterns (the fuzz targets in
+  // `fuzz/` explore this far more deeply on nightly): decoding must never
+  // panic, and any decoded frame id must satisfy the `id.len() <= 255`
+  // prefix invariant.
+  let mut seed = 0x1234_5678u32;
+  let mut next = || {
+    // Tiny xorshift so the corpus is varied but reproducible (no rng dep).
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    seed
+  };
+  for _ in 0..2000 {
+    let len = (next() % 300) as usize;
+    let buf: Vec<u8> = (0..len).map(|_| (next() & 0xff) as u8).collect();
+    if let Some((_tag, id, _payload)) = decode_binary_frame(&buf) {
+      assert!(
+        id.len() <= 255,
+        "id length invariant violated: {}",
+        id.len()
+      );
+    }
+    // The zlib path must also never panic and must respect the output cap.
+    if let Some(out) = decompress_frame(&buf, 4096) {
+      assert!(out.len() <= 4096);
+    }
+  }
+}
+
+#[test]
 fn test_ping_backward_compat() {
   // Ping messages without the newer optional fields (older clients) parse,
   // and the serde defaults hold: backend_healthy=true, tunnels empty.

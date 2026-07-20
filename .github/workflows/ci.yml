@@ -136,6 +136,32 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+  fuzz:
+    name: Protocol Fuzzing (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@cargo-fuzz
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+
+      # Short smoke run of each tunnel-protocol fuzz target: enough to catch a
+      # parser panic introduced by a change without holding up the pipeline.
+      - name: Fuzz decode_binary_frame
+        run: cargo fuzz run binary_frame -- -max_total_time=30
+
+      - name: Fuzz tunnel-message JSON/zlib decode
+        run: cargo fuzz run tunnel_message -- -max_total_time=30
+
   e2e:
     name: End-to-End Tunnel Test
     runs-on: ubuntu-latest
