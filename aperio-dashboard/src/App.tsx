@@ -15,6 +15,7 @@ import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
+import { CacheStatsSection } from './components/CacheStatsSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
 import { InboxSection } from './components/InboxSection'
 import { BandwidthSection } from './components/BandwidthSection'
@@ -354,6 +355,7 @@ export default function App() {
                   <BandwidthSection />
                   <SlowEndpointsSection />
                   <StageStatsSection />
+                  <CacheStatsSection />
                 </div>
               )}
               {page === 'topology' && <TopologySection stats={stats} />}

@@ -169,6 +169,7 @@ fn spawn_swr_revalidation(
           .and_then(|b| BASE64_STANDARD.decode(b).ok())
           .unwrap_or_default();
         let swr = crate::cache::response_swr_window(&tunnel_res.headers);
+        let surrogate = crate::cache::response_surrogate_keys(&tunnel_res.headers);
         state.response_cache.lock().await.insert(
           cache_key,
           tunnel_res.status,
@@ -178,6 +179,7 @@ fn spawn_swr_revalidation(
           state.config().cache_max_bytes,
           resilient,
           swr,
+          surrogate,
         );
       }
     }
@@ -1567,23 +1569,33 @@ async fn proxy_http_request(
             selected.org_id.as_deref(),
           );
         }
-        // Store cacheable buffered GET responses for the advertised
-        // Cache-Control lifetime (streamed responses are never cached).
-        if cache_eligible
-          && tunnel_res.stream_rx.is_none()
-          && status_code == StatusCode::OK
-          && let Some(ttl) = crate::cache::response_cache_ttl(&tunnel_res.headers)
-        {
-          state.response_cache.lock().await.insert(
-            cache_key.clone(),
-            tunnel_res.status,
-            tunnel_res.headers.clone(),
-            res_bytes.clone(),
-            ttl,
-            state.config().cache_max_bytes,
-            selected.resilience,
-            crate::cache::response_swr_window(&tunnel_res.headers),
-          );
+        // Store cacheable buffered GET responses (streamed responses are never
+        // cached). A 200 honors the advertised Cache-Control lifetime; a
+        // 404/410 may be negatively cached for a short TTL
+        // (APERIO_CACHE_NEGATIVE_TTL) to shield a backend from repeated misses.
+        if cache_eligible && tunnel_res.stream_rx.is_none() {
+          let ttl = if status_code == StatusCode::OK {
+            crate::cache::response_cache_ttl(&tunnel_res.headers)
+          } else if matches!(tunnel_res.status, 404 | 410) {
+            let neg = crate::cache::negative_cache_ttl();
+            (!neg.is_zero()).then_some(neg)
+          } else {
+            None
+          };
+          if let Some(ttl) = ttl {
+            let surrogate = crate::cache::response_surrogate_keys(&tunnel_res.headers);
+            state.response_cache.lock().await.insert(
+              cache_key.clone(),
+              tunnel_res.status,
+              tunnel_res.headers.clone(),
+              res_bytes.clone(),
+              ttl,
+              state.config().cache_max_bytes,
+              selected.resilience,
+              crate::cache::response_swr_window(&tunnel_res.headers),
+              surrogate,
+            );
+          }
         }
 
         // Feed the serving token's daily byte quota (request + response).

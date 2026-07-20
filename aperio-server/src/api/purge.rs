@@ -113,6 +113,24 @@ pub(crate) struct CachePurgeRequest {
   pub(crate) hostname: Option<String>,
   /// URI prefix whose cached entries should be dropped (e.g. `/assets/`).
   pub(crate) path_prefix: Option<String>,
+  /// Surrogate tag (from a backend `Surrogate-Key` header) whose entries
+  /// should be dropped — CDN-style tag-based invalidation.
+  pub(crate) surrogate_key: Option<String>,
+}
+
+/// Returns cache occupancy and hit-rate statistics (admin only).
+#[utoipa::path(get, path = "/aperio/api/cache/stats", tag = "dashboard",
+  description = "Response-cache entry count, byte size, and hit/miss rate.",
+  responses((status = 200, description = "Cache statistics", body = serde_json::Value)))]
+pub(crate) async fn cache_stats_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  let stats = state.response_cache.lock().await.stats();
+  Json(stats).into_response()
 }
 
 /// Purges response-cache entries by hostname and/or URI prefix (both absent
@@ -154,14 +172,25 @@ pub(crate) async fn cache_purge_handler(
     .map(str::trim)
     .filter(|s| !s.is_empty())
     .map(str::to_string);
-  let removed = state
-    .response_cache
-    .lock()
-    .await
-    .purge_matching(hostname.as_deref(), path_prefix.as_deref());
+  let surrogate = payload
+    .surrogate_key
+    .as_deref()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string);
+  // A surrogate-key purge is tag-based and independent of host/path.
+  let removed = if let Some(tag) = &surrogate {
+    state.response_cache.lock().await.purge_by_surrogate(tag)
+  } else {
+    state
+      .response_cache
+      .lock()
+      .await
+      .purge_matching(hostname.as_deref(), path_prefix.as_deref())
+  };
   info!(
-    "Cache purge by {}: hostname={:?} path_prefix={:?} → {} entr(ies) dropped",
-    actor_ip, hostname, path_prefix, removed
+    "Cache purge by {}: hostname={:?} path_prefix={:?} surrogate={:?} → {} entr(ies) dropped",
+    actor_ip, hostname, path_prefix, surrogate, removed
   );
   state
     .audit_session(
@@ -169,8 +198,8 @@ pub(crate) async fn cache_purge_handler(
       &headers,
       &actor_ip,
       &format!(
-        "hostname={:?} path_prefix={:?} removed={}",
-        hostname, path_prefix, removed
+        "hostname={:?} path_prefix={:?} surrogate={:?} removed={}",
+        hostname, path_prefix, surrogate, removed
       ),
     )
     .await;

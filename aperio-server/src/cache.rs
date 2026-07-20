@@ -44,6 +44,9 @@ struct CachedResponse {
   body: Vec<u8>,
   stored_at: Instant,
   expires_at: Instant,
+  /// Surrogate cache tags (CDN-style `Surrogate-Key` header) for tag-based
+  /// purge: a deploy can invalidate every entry carrying a tag at once.
+  surrogate_keys: Vec<String>,
   /// The serving client asked for serve-stale resilience when this entry
   /// was stored: it may be served past `expires_at` (up to the max-stale
   /// window) while the route has no healthy client.
@@ -89,11 +92,56 @@ pub(crate) struct CacheHit {
 pub(crate) struct ResponseCache {
   entries: HashMap<String, CachedResponse>,
   total_bytes: u64,
+  /// Lifetime hit/miss counters for the cache-stats report.
+  hits: u64,
+  misses: u64,
 }
 
-/// Cache key for one request.
+/// A snapshot of cache occupancy and hit rate for the stats endpoint.
+#[derive(serde::Serialize)]
+pub(crate) struct CacheStats {
+  pub(crate) entries: usize,
+  pub(crate) bytes: u64,
+  pub(crate) hits: u64,
+  pub(crate) misses: u64,
+  /// Fraction of lookups served from cache (0.0 when there were none).
+  pub(crate) hit_ratio: f64,
+}
+
+/// Cache key for one request. Tracking query parameters (`utm_*`, `gclid`,
+/// `fbclid`, …) are stripped so a URL and its ad-tagged variants share one
+/// entry — they never change the response body.
 pub(crate) fn cache_key(host: Option<&str>, uri: &str) -> String {
-  format!("{}|{}", host.unwrap_or(""), uri)
+  format!("{}|{}", host.unwrap_or(""), normalize_cache_uri(uri))
+}
+
+/// True for query-parameter names that only carry click/analytics tracking and
+/// never affect the response, so they can be dropped from the cache key.
+fn is_tracking_param(name: &str) -> bool {
+  let n = name.to_ascii_lowercase();
+  n.starts_with("utm_")
+    || matches!(
+      n.as_str(),
+      "gclid" | "fbclid" | "gbraid" | "wbraid" | "mc_cid" | "mc_eid" | "_ga" | "igshid"
+    )
+}
+
+/// Drops tracking parameters from a request URI for cache-key purposes,
+/// preserving the order of the remaining parameters. The URI sent to the
+/// backend is unaffected — only the cache key is normalized.
+fn normalize_cache_uri(uri: &str) -> String {
+  let Some((path, query)) = uri.split_once('?') else {
+    return uri.to_string();
+  };
+  let kept: Vec<&str> = query
+    .split('&')
+    .filter(|p| !p.is_empty() && !is_tracking_param(p.split('=').next().unwrap_or("")))
+    .collect();
+  if kept.is_empty() {
+    path.to_string()
+  } else {
+    format!("{}?{}", path, kept.join("&"))
+  }
 }
 
 impl ResponseCache {
@@ -138,6 +186,7 @@ impl ResponseCache {
   pub(crate) fn lookup(&mut self, key: &str, max_stale: Duration) -> SwrLookup {
     let now = Instant::now();
     let Some(e) = self.entries.get_mut(key) else {
+      self.misses += 1;
       return SwrLookup::Miss;
     };
     let hit = |e: &CachedResponse, stale: bool| CacheHit {
@@ -149,6 +198,7 @@ impl ResponseCache {
     };
     if e.expires_at > now {
       let h = hit(e, false);
+      self.hits += 1;
       return SwrLookup::Fresh(h);
     }
     if now < e.expires_at + e.swr {
@@ -160,6 +210,7 @@ impl ResponseCache {
         e.revalidate_started = Some(now);
       }
       let h = hit(e, true);
+      self.hits += 1;
       return SwrLookup::StaleRevalidate { hit: h, lead };
     }
     // Past both windows: drop unless resilient serve-stale still covers it.
@@ -168,7 +219,41 @@ impl ResponseCache {
     {
       self.total_bytes -= e.body.len() as u64;
     }
+    self.misses += 1;
     SwrLookup::Miss
+  }
+
+  /// A snapshot of cache occupancy and hit rate for the stats endpoint.
+  pub(crate) fn stats(&self) -> CacheStats {
+    let total = self.hits + self.misses;
+    CacheStats {
+      entries: self.entries.len(),
+      bytes: self.total_bytes,
+      hits: self.hits,
+      misses: self.misses,
+      hit_ratio: if total == 0 {
+        0.0
+      } else {
+        self.hits as f64 / total as f64
+      },
+    }
+  }
+
+  /// Purges every entry tagged with the given surrogate key (CDN-style
+  /// tag-based invalidation). Returns how many entries were removed.
+  pub(crate) fn purge_by_surrogate(&mut self, tag: &str) -> usize {
+    let keys: Vec<String> = self
+      .entries
+      .iter()
+      .filter(|(_, e)| e.surrogate_keys.iter().any(|t| t == tag))
+      .map(|(k, _)| k.clone())
+      .collect();
+    for key in &keys {
+      if let Some(e) = self.entries.remove(key) {
+        self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
+      }
+    }
+    keys.len()
   }
 
   /// Purges entries by selector: `host` matches the key's hostname part
@@ -225,6 +310,7 @@ impl ResponseCache {
   /// budget are refused outright (one huge body must not flush the whole
   /// cache); past the budget, entries closest to expiry are evicted first.
   #[allow(clippy::too_many_arguments)]
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn insert(
     &mut self,
     key: String,
@@ -235,6 +321,7 @@ impl ResponseCache {
     max_bytes: u64,
     resilient: bool,
     swr: Duration,
+    surrogate_keys: Vec<String>,
   ) {
     let size = body.len() as u64;
     if size > max_bytes / 4 {
@@ -280,12 +367,38 @@ impl ResponseCache {
         body,
         stored_at: now,
         expires_at: now + ttl,
+        surrogate_keys,
         resilient,
         swr,
         revalidate_started: None,
       },
     );
   }
+}
+
+/// Extracts the surrogate cache tags a response advertises via `Surrogate-Key`
+/// (space-separated, the CDN convention) for tag-based purge.
+pub(crate) fn response_surrogate_keys(headers: &[(String, String)]) -> Vec<String> {
+  headers
+    .iter()
+    .filter(|(n, _)| n.eq_ignore_ascii_case("surrogate-key"))
+    .flat_map(|(_, v)| v.split_whitespace().map(|s| s.to_string()))
+    .collect()
+}
+
+/// Short negative-cache TTL for 404/410 responses
+/// (`APERIO_CACHE_NEGATIVE_TTL`, seconds; 0/unset = negative caching off).
+pub(crate) fn negative_cache_ttl() -> Duration {
+  use std::sync::OnceLock;
+  static TTL: OnceLock<Duration> = OnceLock::new();
+  *TTL.get_or_init(|| {
+    Duration::from_secs(
+      std::env::var("APERIO_CACHE_NEGATIVE_TTL")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(0),
+    )
+  })
 }
 
 /// Extracts the shared-cache lifetime a response advertises via
@@ -495,6 +608,7 @@ mod tests {
       1024,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     let hit = cache.get("h|/a", Duration::ZERO).expect("hit");
     assert_eq!(hit.status, 200);
@@ -511,6 +625,7 @@ mod tests {
       1024,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(cache.get("h|/z", Duration::ZERO).is_none());
 
@@ -524,6 +639,7 @@ mod tests {
       1024,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(cache.get("h|/big", Duration::ZERO).is_none());
   }
@@ -544,6 +660,7 @@ mod tests {
         1000,
         false,
         Duration::ZERO,
+        Vec::new(),
       );
     }
     cache.insert(
@@ -555,6 +672,7 @@ mod tests {
       1000,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(
       cache.get("h|/new", Duration::ZERO).is_some(),
@@ -596,6 +714,7 @@ mod tests {
       4096,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     let hit = cache.get("h|/no-etag", Duration::ZERO).unwrap();
     let etag = hit
@@ -615,6 +734,7 @@ mod tests {
       4096,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     let hit = cache.get("h|/has-etag", Duration::ZERO).unwrap();
     let etags: Vec<_> = hit
@@ -643,6 +763,7 @@ mod tests {
       1024,
       true,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(cache.get("h|/r", max_stale).is_none(), "fresh path misses");
     let hit = cache.get_for_outage("h|/r", max_stale).expect("stale hit");
@@ -661,6 +782,7 @@ mod tests {
       1024,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(cache.get_for_outage("h|/n", max_stale).is_none());
 
@@ -677,6 +799,7 @@ mod tests {
       1024,
       true,
       Duration::ZERO,
+      Vec::new(),
     );
     let hit = cache.get_for_outage("h|/f", max_stale).expect("fresh hit");
     assert!(!hit.stale);
@@ -701,6 +824,7 @@ mod tests {
       1024,
       false,
       Duration::from_secs(60),
+      Vec::new(),
     );
     // First stale hit leads the revalidation; followers do not.
     match cache.lookup("h|/swr", Duration::ZERO) {
@@ -725,6 +849,7 @@ mod tests {
       1024,
       false,
       Duration::from_secs(60),
+      Vec::new(),
     );
     match cache.lookup("h|/swr", Duration::ZERO) {
       SwrLookup::Fresh(hit) => assert_eq!(hit.body, b"fresh"),
@@ -740,6 +865,7 @@ mod tests {
       1024,
       false,
       Duration::ZERO,
+      Vec::new(),
     );
     assert!(matches!(
       cache.lookup("h|/plain", Duration::ZERO),
@@ -760,6 +886,7 @@ mod tests {
         1024,
         false,
         Duration::ZERO,
+        Vec::new(),
       );
     }
     // Prefix within one hostname.
@@ -793,5 +920,73 @@ mod tests {
     assert!(matches!(evaluate_range("bytes=x-y", len), Full));
     // An empty body cannot satisfy any range.
     assert!(matches!(evaluate_range("bytes=0-1", 0), Full));
+  }
+
+  #[test]
+  fn cache_key_strips_tracking_params() {
+    // Tracking params drop out; real params and order are preserved.
+    assert_eq!(
+      cache_key(Some("h"), "/p?utm_source=x&q=1&fbclid=abc&sort=asc"),
+      "h|/p?q=1&sort=asc"
+    );
+    // A URL with only tracking params collapses to the bare path.
+    assert_eq!(cache_key(Some("h"), "/p?utm_medium=y"), "h|/p");
+    // No query string is untouched.
+    assert_eq!(cache_key(Some("h"), "/p"), "h|/p");
+  }
+
+  #[test]
+  fn stats_track_hits_and_misses() {
+    let mut cache = ResponseCache::default();
+    assert!(cache.get("h|/a", Duration::ZERO).is_none()); // miss
+    cache.insert(
+      "h|/a".to_string(),
+      200,
+      vec![],
+      b"x".to_vec(),
+      Duration::from_secs(60),
+      4096,
+      false,
+      Duration::ZERO,
+      vec!["tagA".to_string()],
+    );
+    assert!(cache.get("h|/a", Duration::ZERO).is_some()); // hit
+    let s = cache.stats();
+    assert_eq!(s.entries, 1);
+    assert_eq!(s.hits, 1);
+    assert_eq!(s.misses, 1);
+    assert!((s.hit_ratio - 0.5).abs() < 1e-9);
+  }
+
+  #[test]
+  fn purge_by_surrogate_drops_tagged_entries() {
+    let mut cache = ResponseCache::default();
+    let ins = |cache: &mut ResponseCache, key: &str, tag: &str| {
+      cache.insert(
+        key.to_string(),
+        200,
+        vec![],
+        b"x".to_vec(),
+        Duration::from_secs(60),
+        4096,
+        false,
+        Duration::ZERO,
+        vec![tag.to_string()],
+      );
+    };
+    ins(&mut cache, "h|/a", "product-1");
+    ins(&mut cache, "h|/b", "product-1");
+    ins(&mut cache, "h|/c", "product-2");
+    assert_eq!(cache.purge_by_surrogate("product-1"), 2);
+    assert!(cache.get("h|/a", Duration::ZERO).is_none());
+    assert!(cache.get("h|/c", Duration::ZERO).is_some());
+    assert_eq!(cache.purge_by_surrogate("nope"), 0);
+  }
+
+  #[test]
+  fn surrogate_keys_parsed_from_header() {
+    let h = vec![("Surrogate-Key".to_string(), "a b  c".to_string())];
+    assert_eq!(response_surrogate_keys(&h), vec!["a", "b", "c"]);
+    assert!(response_surrogate_keys(&[]).is_empty());
   }
 }

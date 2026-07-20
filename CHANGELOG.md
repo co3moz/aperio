@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Cache depth package.** `GET /aperio/api/cache/stats` reports entry count, byte size, and hit/miss ratio (with a dashboard card on the Breakdown page). Tracking query parameters (`utm_*`, `gclid`, `fbclid`, …) are stripped from the cache key so ad-tagged URL variants share one entry. `APERIO_CACHE_NEGATIVE_TTL` negatively caches `404`/`410` responses for a short window to shield a backend from repeated misses. A backend `Surrogate-Key` response header tags cache entries, and `POST /aperio/api/cache/purge` with `surrogate_key` invalidates every entry carrying that tag (CDN-style tag purge).
 - **Serve mode SPA fallback + custom 404.** `APERIO_SERVE_SPA=1` falls a navigation that resolves to no file back to the root `index.html` (status 200) so a client-side router owns the route; `APERIO_SERVE_404` serves a custom page for the remaining misses.
 
 - **Canary tokens + token new-IP alerting.** A per-token `canary` flag turns a dynamic token into a decoy: any successful authentication with it emits a `canary_tripped` webhook + audit event, so a leaked `aperio.yaml`/dump surfaces as a clear breach signal. Independently, the server remembers the source IPs each token connects from (in-memory) and emits `token_new_ip` the first time a token appears from a previously unseen address.

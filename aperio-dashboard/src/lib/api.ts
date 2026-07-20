@@ -326,6 +326,14 @@ export interface OrgQuota {
   max_bytes_month?: number
 }
 
+export interface CacheStats {
+  entries: number
+  bytes: number
+  hits: number
+  misses: number
+  hit_ratio: number
+}
+
 export interface OrgOidcPayload {
   issuer: string
   client_id: string
@@ -468,6 +476,12 @@ export const api = {
     payload: { role?: Role; enabled?: boolean; password?: string },
   ) => mutate(`/users/${encodeURIComponent(id)}`, json('PUT', payload)),
   deleteUser: (id: string) => mutate(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  cacheStats: () => request<CacheStats>('/cache/stats'),
+  purgeCache: (payload: {
+    hostname?: string
+    path_prefix?: string
+    surrogate_key?: string
+  }) => request<{ removed: number }>('/cache/purge', json('POST', payload)),
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),

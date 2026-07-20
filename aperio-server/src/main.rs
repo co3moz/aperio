@@ -927,6 +927,10 @@ async fn async_main() {
         axum::routing::post(crate::api::purge::cache_purge_handler),
       )
       .route(
+        "/api/cache/stats",
+        get(crate::api::purge::cache_stats_handler),
+      )
+      .route(
         "/api/inbox",
         get(crate::api::inbox::inbox_list_handler).delete(crate::api::inbox::inbox_clear_handler),
       )
