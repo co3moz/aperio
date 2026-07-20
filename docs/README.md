@@ -24,6 +24,11 @@ Short, focused articles on each part of the product. For the project overview an
 - [Observability](observability.md) — Prometheus metrics, OpenTelemetry tracing, structured access log, audit trail, webhooks, persistent statistics.
 - [Client Resilience](client-resilience.md) — reconnect backoff, backend health probing, config hot-reload, graceful drain, bandwidth pacing.
 
+## Security
+
+- [Production Hardening Checklist](production-hardening.md) — a pre-flight checklist for going live: TLS, token hygiene, admin IP fencing, lockout, retention, backups, and alerting.
+- [Threat Model](threat-model.md) — the trust boundaries (visitor ↔ server ↔ client ↔ backend), what each side is trusted to do, and the controls that defend each boundary.
+
 ## Under the Hood
 
 - [Tunnel Protocol & Advanced Features](tunnel-protocol.md) — WebSocket pass-through, chunked body streaming, binary frames, compression, the response cache, custom error pages.
