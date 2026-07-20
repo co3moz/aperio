@@ -26,6 +26,7 @@ project follows semantic versioning per release tag.
 - **Per-organization quotas + monthly usage.** Orgs gain `max_clients` / `max_tokens` / `max_users` / `max_bytes_month` quotas enforced at the relevant create/connect/dispatch points; `PUT /aperio/api/orgs/{id}/quota` sets them and `GET /aperio/api/orgs/{id}/usage` reports current-month usage (also emitting an `org_usage` webhook). A per-org quota + usage dialog is added to the dashboard.
 - **Per-organization OIDC (SSO).** An org can bring its own identity provider (`PUT /aperio/api/orgs/{id}/oidc`): members sign in at `/aperio/oidc/login?org=<id>` and get a session **bound to that org** — an admin within their own tenant, never the master super-admin. Orgs without an override fall back to the global `APERIO_OIDC_*` settings.
 - **Zero-downtime restarts.** `APERIO_REUSEPORT` binds the listener with `SO_REUSEPORT` so a new process can share the port with the draining old one, enabling rolling restarts without dropping visitor traffic.
+- **Client cross-server failover.** `APERIO_SERVER_URLS` (comma-separated) lets a client rotate across a fleet of Aperio servers on connection failure — the client half of a highly-available deployment.
 - **Protocol fuzzing.** `cargo-fuzz` targets under `fuzz/` for the tunnel binary-frame parser and the JSON/zlib decode paths, with a short CI smoke run.
 
 ## [0.3.0] - 2026-07-19

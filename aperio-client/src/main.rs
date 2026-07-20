@@ -389,6 +389,30 @@ fn build_specs(
   let ws_url =
     build_ws_url(&server_addr).map_err(|e| format!("Failed to build WebSocket URL: {}", e))?;
 
+  // Additional server URLs for cross-server failover (APERIO_SERVER_URLS,
+  // comma-separated). The primary (server_addr) is always the first candidate;
+  // the reconnect loop rotates to the next after a failed connection.
+  let mut ws_urls = vec![ws_url.clone()];
+  if let Ok(raw) = std::env::var("APERIO_SERVER_URLS") {
+    for extra in raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+      match build_ws_url(extra) {
+        Ok(u) if !ws_urls.contains(&u) => ws_urls.push(u),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(
+          "Ignoring invalid server URL '{}' in APERIO_SERVER_URLS: {}",
+          extra,
+          e
+        ),
+      }
+    }
+  }
+  if ws_urls.len() > 1 {
+    info!(
+      "Cross-server failover across {} servers configured",
+      ws_urls.len()
+    );
+  }
+
   let parse_bw = |raw: Option<&str>| {
     raw.and_then(|raw| {
       let parsed = parse_bandwidth(raw);
@@ -526,6 +550,7 @@ fn build_specs(
       token,
       server_addr,
       ws_url,
+      ws_urls: ws_urls.clone(),
       target,
       hostnames: settings.hostnames.clone(),
       path: settings.path.clone(),
@@ -597,6 +622,7 @@ fn build_specs(
         token: token.clone(),
         server_addr: server_addr.clone(),
         ws_url: ws_url.clone(),
+        ws_urls: ws_urls.clone(),
         target,
         hostnames: entry
           .hostname
@@ -833,5 +859,9 @@ fn log_spec(spec: &ServiceSpec) {
       t.target, t.protocol
     );
   }
+  info!("- Server URL: {}", spec.server_addr);
   info!("- WebSocket URL: {}", spec.ws_url);
+  if spec.ws_urls.len() > 1 {
+    info!("- Failover servers: {}", spec.ws_urls.len());
+  }
 }

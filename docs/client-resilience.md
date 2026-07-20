@@ -38,3 +38,7 @@ Backends often answer `http://` targets with a redirect to `https://`, or bounce
 ## Self-diagnosis
 
 `aperio-client check` resolves the configuration with the usual precedence — reporting which layer (CLI argument, `./aperio.yaml`, environment, `~/.aperio.yaml`) supplied each value — and verifies every hop: the server health endpoint (including a version and protocol comparison), token validity via a real tunnel handshake, every local target (all `services:` entries in multi-service mode), and their health endpoints when configured. Exit code 0 = all green — handy in support requests and provisioning scripts.
+
+## Cross-server failover
+
+`APERIO_SERVER_URLS` (comma-separated) lists additional Aperio servers the client may connect to. The primary `APERIO_SERVER_URL` is always tried first; after a failed or dropped connection the reconnect loop rotates to the next server, so a client survives a whole server going down as long as another accepts it. This is the client half of a highly-available deployment — point several clients at a server fleet behind a shared token (and, when the servers share persistent state, at a shared token store). With a single server the setting is a no-op.

@@ -88,6 +88,10 @@ pub(crate) struct ServiceSpec {
   pub(crate) token: String,
   pub(crate) server_addr: String,
   pub(crate) ws_url: String,
+  /// All candidate server WebSocket URLs, primary first (from
+  /// `APERIO_SERVER_URLS`). The reconnect loop rotates to the next one after a
+  /// failed connection, so a client can fail over across a server fleet.
+  pub(crate) ws_urls: Vec<String>,
   pub(crate) target: String,
   /// Public hostname(s) claimed for this service (first is the primary).
   pub(crate) hostnames: Vec<String>,
@@ -339,17 +343,25 @@ pub(crate) async fn run_service(
   // Set when the server announces a graceful shutdown: the next reconnect
   // skips the exponential backoff (one short jittered delay instead).
   let mut fast_reconnect = false;
+  // Index into `spec.ws_urls` for cross-server failover: advanced after each
+  // failed/dropped connection so the client rotates across the server fleet.
+  let mut server_idx = 0usize;
   'outer: loop {
     if *cancel.borrow() {
       break;
     }
 
+    let current_ws = spec
+      .ws_urls
+      .get(server_idx % spec.ws_urls.len().max(1))
+      .cloned()
+      .unwrap_or_else(|| spec.ws_url.clone());
     info!(
       "[{}] Connecting to Aperio Server at: {}...",
-      label, spec.server_addr
+      label, current_ws
     );
 
-    let ws_req_result = spec.ws_url.clone().into_client_request();
+    let ws_req_result = current_ws.into_client_request();
     let ws_req = match ws_req_result {
       Ok(mut req) => {
         // Set Authorization Token Header securely (avoids leaking token in query params / logs)
@@ -1026,6 +1038,11 @@ pub(crate) async fn run_service(
       );
       d
     };
+    // Cross-server failover: after a failed/dropped connection, try the next
+    // server on the next attempt (no-op with a single server).
+    if spec.ws_urls.len() > 1 {
+      server_idx = server_idx.wrapping_add(1);
+    }
     tokio::select! {
       _ = tokio::time::sleep(delay) => {}
       _ = cancel.changed() => break 'outer,
