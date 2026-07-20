@@ -151,6 +151,14 @@ pub(crate) struct ServerConfig {
   pub(crate) route_limits: crate::route_limits::RouteLimits,
   /// WAF-lite deny/size rules (the `waf:` section of aperio-server.yaml).
   pub(crate) waf: crate::waf::WafRules,
+  /// Trust-on-first-use token pinning (`APERIO_TOKEN_PINNING`). When on, the
+  /// first client device key announced for a dynamic token is pinned, and a
+  /// later connection with a different (or missing) key for that token is
+  /// rejected — so a leaked token replayed from another machine cannot serve.
+  /// This effectively binds a pinned token to a single client device; moving
+  /// the token to another box means carrying its device key (or rotating the
+  /// token, which clears the pin). Env-only.
+  pub(crate) token_pinning: bool,
   /// When true, services reached through their random subdomain are marked
   /// non-indexable: an `X-Robots-Tag: noindex, nofollow` response header
   /// plus a disallow-all `/robots.txt`, so preview environments never end

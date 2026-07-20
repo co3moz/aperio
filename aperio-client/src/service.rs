@@ -33,6 +33,46 @@ use crate::proxy::ws::{WsStreamHandle, handle_upgrade_request};
 use crate::tcp::{TcpStreamHandle, handle_tcp_open};
 use crate::udp::{UdpStreamHandle, handle_udp_open};
 
+/// Resolves this client's trust-on-first-use device key for token pinning,
+/// announced in the Ping. Opt-in and resolved once per process:
+/// `APERIO_DEVICE_KEY` supplies an explicit value; otherwise, if
+/// `APERIO_DEVICE_KEY_FILE` names a path, its contents are used — generating
+/// and persisting a fresh random key there on first run. `None` (nothing
+/// announced) when neither is set.
+fn resolve_device_key() -> Option<String> {
+  if let Ok(v) = std::env::var("APERIO_DEVICE_KEY") {
+    let v = v.trim().to_string();
+    if !v.is_empty() {
+      return Some(v);
+    }
+  }
+  let path = std::env::var("APERIO_DEVICE_KEY_FILE")
+    .ok()
+    .map(|p| p.trim().to_string())
+    .filter(|p| !p.is_empty())?;
+  match std::fs::read_to_string(&path) {
+    Ok(k) if !k.trim().is_empty() => Some(k.trim().to_string()),
+    _ => {
+      let key = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+      );
+      match std::fs::write(&path, &key) {
+        Ok(()) => info!("Generated a new device key at {path} for token pinning"),
+        Err(e) => warn!("Could not persist the device key to {path}: {e}"),
+      }
+      Some(key)
+    }
+  }
+}
+
+/// The process-wide device key, resolved once.
+fn device_key() -> Option<String> {
+  static KEY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+  KEY.get_or_init(resolve_device_key).clone()
+}
+
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
@@ -405,6 +445,7 @@ pub(crate) async fn run_service(
             );
             let max_request_body_ping = spec.max_request_body;
             let response_timeout_ping = spec.response_timeout;
+            let client_key_ping = device_key();
             let webhook_inbox_ping = spec.webhook_inbox;
             let denied_ping = spec.denied.clone();
 
@@ -460,6 +501,7 @@ pub(crate) async fn run_service(
                   resilience,
                   max_request_body: max_request_body_ping,
                   response_timeout: response_timeout_ping,
+                  client_key: client_key_ping.clone(),
                   webhook_inbox: webhook_inbox_ping,
                   denied: denied_ping.clone(),
                 };

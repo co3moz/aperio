@@ -74,6 +74,10 @@ pub struct ClientTimings {
 }
 
 /// Message structure exchanged over the WebSocket reverse tunnel.
+// The `Ping` variant is intentionally wide (it announces the client's full
+// per-service configuration); boxing its many small fields would only obscure
+// the protocol for no real memory win, since Pings are short-lived.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub(crate) enum TunnelMessage {
@@ -161,6 +165,11 @@ pub(crate) enum TunnelMessage {
     /// server's global gateway response timeout (None = use the global value).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     response_timeout: Option<u64>,
+    /// Trust-on-first-use device key for token pinning (`APERIO_DEVICE_KEY`).
+    /// The server pins the first key seen for the token and rejects later
+    /// connections announcing a different key (None = not announced).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    client_key: Option<String>,
     /// Ask the server to persist inbound POSTs to this service into its
     /// webhook inbox (browse & re-fire from the dashboard).
     #[serde(default)]

@@ -689,6 +689,9 @@ async fn async_main() {
     error_pages: error_pages::from_config_file(),
     route_limits: route_limits::from_config_file(),
     waf: waf::from_config_file(),
+    token_pinning: std::env::var("APERIO_TOKEN_PINNING")
+      .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+      .unwrap_or(false),
     preview_noindex,
   };
 

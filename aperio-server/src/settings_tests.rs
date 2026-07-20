@@ -47,6 +47,7 @@ fn base_config() -> ServerConfig {
     error_pages: Default::default(),
     route_limits: Default::default(),
     waf: Default::default(),
+    token_pinning: false,
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,

@@ -624,6 +624,7 @@ pub(crate) async fn handle_socket(
               resilience,
               max_request_body,
               response_timeout,
+              client_key,
               webhook_inbox,
               denied,
             } => {
@@ -634,6 +635,9 @@ pub(crate) async fn handle_socket(
               // mutating another connection's state.
               let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
               let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
+              // Token pinning context captured under the clients lock and used
+              // after it is released: (token id, token name, org).
+              let mut pin_ctx: Option<(String, String, Option<String>)> = None;
               {
                 let mut clients = state.clients.lock().await;
                 if let Some(handle) = clients.get_mut(&client_id) {
@@ -908,8 +912,71 @@ pub(crate) async fn handle_socket(
                     }
                   }
                   handle.last_ping_at = Some(Instant::now());
+                  // Dynamic-token clients are subject to token pinning.
+                  if let Some(id) = handle.perms.token_id.clone() {
+                    pin_ctx = Some((
+                      id,
+                      handle.perms.token_name.clone().unwrap_or_default(),
+                      handle.perms.org_id.clone(),
+                    ));
+                  }
                 }
               }
+
+              // Trust-on-first-use token pinning (APERIO_TOKEN_PINNING): pin the
+              // first device key seen for a dynamic token and reject a later
+              // connection that presents a different (or missing) key. Done
+              // outside the clients lock so we never hold two store locks.
+              if state.config().token_pinning
+                && let Some((token_id, token_name, org)) = pin_ctx
+              {
+                let verdict = {
+                  let mut store = state.token_store.lock().await;
+                  match client_key.as_deref() {
+                    Some(key) => store.pin_key(&token_id, key),
+                    // No key announced: only a reject when the token is already
+                    // pinned to a device (a pinned token requires its key).
+                    None => store
+                      .list()
+                      .iter()
+                      .any(|t| t.id == token_id && t.pinned_key.is_some())
+                      .then_some(crate::store::tokens::PinOutcome::Mismatch),
+                  }
+                };
+                match verdict {
+                  Some(crate::store::tokens::PinOutcome::Mismatch) => {
+                    warn!(
+                      "Token pinning: client {} presented token '{}' from a device whose key does not match the pinned device — rejecting the connection",
+                      client_id, token_name
+                    );
+                    state
+                      .audit_in(
+                        "token_pin_mismatch",
+                        &token_name,
+                        &client_ip,
+                        org.clone(),
+                        &format!("token={token_name} client={client_id}"),
+                      )
+                      .await;
+                    state
+                      .emit_event_in(
+                        "token_pin_mismatch",
+                        serde_json::json!({"token": token_name, "client_id": client_id}),
+                        org,
+                      )
+                      .await;
+                    break;
+                  }
+                  Some(crate::store::tokens::PinOutcome::Pinned) => {
+                    info!(
+                      "Token pinning: pinned token '{}' to the connecting device",
+                      token_name
+                    );
+                  }
+                  _ => {}
+                }
+              }
+
               let pong = TunnelMessage::Pong {
                 timestamp,
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),

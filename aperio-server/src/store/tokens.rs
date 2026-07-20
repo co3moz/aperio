@@ -62,6 +62,23 @@ pub struct ApiToken {
   /// being accepted (the rotation's grace deadline).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prev_expires_at: Option<u64>,
+  /// Trust-on-first-use device pin: the first client device key seen for this
+  /// token (announced in the Ping). When token pinning is enabled, a later
+  /// connection that announces a different key is rejected — so a leaked token
+  /// replayed from another machine cannot serve. Cleared on rotation.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pinned_key: Option<String>,
+}
+
+/// Result of pinning a client device key to a token.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinOutcome {
+  /// The token had no pin; this key is now pinned.
+  Pinned,
+  /// The announced key matches the existing pin.
+  Match,
+  /// The announced key differs from the existing pin — reject the connection.
+  Mismatch,
 }
 
 impl ApiToken {
@@ -159,6 +176,7 @@ impl TokenStore {
       org_id,
       prev_token_hash: None,
       prev_expires_at: None,
+      pinned_key: None,
     };
     self.tokens.push(record.clone());
     self.persist();
@@ -253,6 +271,25 @@ impl TokenStore {
     })
   }
 
+  /// Trust-on-first-use pin: records `key` as the token's device pin when it
+  /// has none (persisting), reports a match when it equals the existing pin,
+  /// or a mismatch otherwise. Returns None for an unknown token id.
+  pub fn pin_key(&mut self, id: &str, key: &str) -> Option<PinOutcome> {
+    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
+    let outcome = match token.pinned_key.as_deref() {
+      None => {
+        token.pinned_key = Some(key.to_string());
+        PinOutcome::Pinned
+      }
+      Some(existing) if existing == key => PinOutcome::Match,
+      Some(_) => PinOutcome::Mismatch,
+    };
+    if outcome == PinOutcome::Pinned {
+      self.persist();
+    }
+    Some(outcome)
+  }
+
   /// Rotates a token's secret in place: a fresh secret becomes current and
   /// the old one stays accepted for `grace_seconds` (0 = immediate cutover).
   /// Permissions, limits and expiry are untouched. Returns the updated
@@ -273,6 +310,9 @@ impl TokenStore {
     }
     token.token_hash = hash_token(&secret);
     token.token_prefix = secret.chars().take(12).collect();
+    // A rotated secret is a fresh trust anchor: drop the device pin so the
+    // next connecting client re-pins (e.g. after moving the token to a new box).
+    token.pinned_key = None;
     let rotated = token.clone();
     self.persist();
     Some((rotated, secret))
@@ -528,6 +568,46 @@ mod tests {
       )
       .unwrap();
     assert!(!updated.canary);
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_pin_key_tofu_and_clear_on_rotate() {
+    let dir = temp_dir();
+    let mut store = TokenStore::load(&dir);
+    let (record, _secret) = store.create(
+      "pinned".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+      false,
+      None,
+    );
+
+    // First key pins; the same key matches; a different key is a mismatch.
+    assert_eq!(store.pin_key(&record.id, "devA"), Some(PinOutcome::Pinned));
+    assert_eq!(store.pin_key(&record.id, "devA"), Some(PinOutcome::Match));
+    assert_eq!(
+      store.pin_key(&record.id, "devB"),
+      Some(PinOutcome::Mismatch)
+    );
+    // The pin survives a reload.
+    let store2 = TokenStore::load(&dir);
+    assert_eq!(store2.list()[0].pinned_key.as_deref(), Some("devA"));
+
+    // Rotating the secret clears the pin so a new device can re-pin.
+    let mut store3 = TokenStore::load(&dir);
+    store3.rotate(&record.id, 0).unwrap();
+    assert!(store3.list()[0].pinned_key.is_none());
+    assert_eq!(store3.pin_key(&record.id, "devB"), Some(PinOutcome::Pinned));
+
+    // Unknown ids pin nothing.
+    assert_eq!(store3.pin_key("nope", "x"), None);
 
     let _ = std::fs::remove_dir_all(&dir);
   }

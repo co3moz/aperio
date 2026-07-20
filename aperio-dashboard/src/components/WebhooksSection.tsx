@@ -50,7 +50,7 @@ import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
 const KNOWN_EVENTS =
-  'client_connected, client_disconnected, client_draining, token_created, token_revoked, token_expiring, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off, settings_updated, import_applied, alert_triggered, alert_resolved, canary_tripped, token_new_ip, db_backup'
+  'client_connected, client_disconnected, client_draining, token_created, token_revoked, token_expiring, tunnel_created, tunnel_deleted, share_created, maintenance_on, maintenance_off, settings_updated, import_applied, alert_triggered, alert_resolved, canary_tripped, token_new_ip, token_pin_mismatch, db_backup'
 
 function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   const { t } = useI18n()

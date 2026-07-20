@@ -87,3 +87,19 @@ Tokens and users can be grouped into **organizations** so one server hosts sever
 ## Defense in depth
 
 The client deliberately does not fully trust the server: it only connects to its configured HTTP/TCP targets (SSRF guards), caps tunnel message sizes, bounds decompression output, and enforces its own concurrency limit. All secret comparisons are constant-time; session cookies are `HttpOnly` + `SameSite=Lax`.
+
+## Token pinning (trust-on-first-use)
+
+`APERIO_TOKEN_PINNING=1` binds each dynamic token to a single client device. On the first connection, the server pins the device key the client announces; any later connection presenting a **different** (or missing) key for that token is rejected, and a `token_pin_mismatch` audit + webhook event fires. This means a token leaked into a CI log or a config dump cannot be replayed from another machine without also stealing that machine's device key.
+
+The client announces its device key when one is configured:
+
+- `APERIO_DEVICE_KEY` — an explicit value you manage (and copy to another box yourself if you deliberately move the token there).
+- `APERIO_DEVICE_KEY_FILE` — a file path; the client reads it, generating and persisting a fresh random key there on first run.
+
+Two consequences follow from the single-device binding, and are intentional:
+
+- **One token, one client.** While pinning is on, a pinned token serves from exactly the device that pinned it. Moving the token to a new machine is a manual step — carry the device key, or **rotate** the token, which clears the pin so the next client re-pins.
+- **Missing keys are rejected too.** Once a token is pinned, a connection that announces no device key is refused, so an attacker cannot simply omit it.
+
+Pinning provides replay rejection without a full PKI; it is not transport encryption (put Aperio behind TLS for confidentiality).
