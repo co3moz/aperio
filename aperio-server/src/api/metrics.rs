@@ -433,3 +433,7 @@ pub(crate) async fn route_trends_handler(
   routes.sort_by(|a, b| b["total"].as_u64().cmp(&a["total"].as_u64()));
   Json(routes)
 }
+
+#[cfg(test)]
+#[path = "metrics_tests.rs"]
+mod tests;

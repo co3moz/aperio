@@ -109,3 +109,7 @@ pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl I
 
   (StatusCode::OK, Json(health_info))
 }
+
+#[cfg(test)]
+#[path = "api_tests.rs"]
+mod tests;

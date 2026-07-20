@@ -149,3 +149,7 @@ pub(crate) async fn maintenance_set_handler(
   }
   (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }
+
+#[cfg(test)]
+#[path = "maintenance_tests.rs"]
+mod tests;
