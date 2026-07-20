@@ -218,6 +218,33 @@ impl AuditLog {
     self.recent.iter().cloned().collect()
   }
 
+  /// Verifies the tamper-evident hash chain across the active file and every
+  /// rotated generation. Returns `(file_name, broken_line)` for each file
+  /// whose chain is broken; an empty vec means every chain is intact.
+  pub fn verify(&self) -> Vec<(String, usize)> {
+    let mut broken = Vec::new();
+    let file_name = |p: &std::path::Path| {
+      p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.display().to_string())
+    };
+    let mut n = 1usize;
+    loop {
+      let gen_path = PathBuf::from(format!("{}.{}", self.path.display(), n));
+      if !gen_path.exists() {
+        break;
+      }
+      if let Ok(Some(line)) = verify_chain(&gen_path) {
+        broken.push((file_name(&gen_path), line));
+      }
+      n += 1;
+    }
+    if let Ok(Some(line)) = verify_chain(&self.path) {
+      broken.push((file_name(&self.path), line));
+    }
+    broken
+  }
+
   /// Retention: drops events older than `cutoff_ts` (unix seconds). Rotated
   /// generations whose newest event is older than the cutoff are deleted
   /// whole; in the active file only the leading *prefix* of old lines is

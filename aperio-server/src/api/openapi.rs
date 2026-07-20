@@ -78,6 +78,7 @@ use utoipa::OpenApi;
     crate::api::tunnels::tunnels_create_handler,
     crate::api::tunnels::tunnels_delete_handler,
     crate::api::webhooks::audit_handler,
+    crate::api::webhooks::audit_verify_handler,
     crate::api::webhooks::webhooks_list_handler,
     crate::api::webhooks::webhooks_create_handler,
     crate::api::webhooks::webhook_deliveries_handler,

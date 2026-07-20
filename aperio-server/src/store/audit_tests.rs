@@ -215,3 +215,24 @@ fn test_prune_older_than_keeps_chain_verifiable() {
   assert_eq!(log.prune_older_than(now - 24 * 3600), 0);
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_verify_reports_clean_and_tampered() {
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 0, 0);
+  for i in 0..4 {
+    log.record("event", "tester", "1.2.3.4", None, &format!("i={}", i));
+  }
+  // A clean log verifies with no broken files.
+  assert!(log.verify().is_empty());
+
+  // Tamper with the active file on disk; verify() must flag it by name.
+  let active = dir.join("audit.jsonl");
+  let raw = std::fs::read_to_string(&active).unwrap();
+  std::fs::write(&active, raw.replace("i=2", "i=X")).unwrap();
+  let broken = log.verify();
+  assert_eq!(broken.len(), 1);
+  assert_eq!(broken[0].0, "audit.jsonl");
+
+  let _ = std::fs::remove_dir_all(&dir);
+}

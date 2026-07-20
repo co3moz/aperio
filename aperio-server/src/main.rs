@@ -54,8 +54,8 @@ use crate::api::tokens::{
 };
 use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
 use crate::api::webhooks::{
-  audit_handler, webhook_deliveries_handler, webhook_redeliver_handler, webhooks_create_handler,
-  webhooks_delete_handler, webhooks_list_handler,
+  audit_handler, audit_verify_handler, webhook_deliveries_handler, webhook_redeliver_handler,
+  webhooks_create_handler, webhooks_delete_handler, webhooks_list_handler,
 };
 use crate::api::{dashboard_asset_handler, dashboard_handler, health_handler};
 use crate::auth::{
@@ -112,11 +112,81 @@ fn main() {
     std::process::exit(check_config::run());
   }
 
+  // `aperio-server --verify-audit` verifies the tamper-evident hash chain of
+  // the audit log and exits without starting the server.
+  if std::env::args().nth(1).as_deref() == Some("--verify-audit") {
+    std::process::exit(verify_audit());
+  }
+
   tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .build()
     .expect("failed to build the tokio runtime")
     .block_on(async_main());
+}
+
+/// `aperio-server --verify-audit`: verifies the tamper-evident hash chain of
+/// the audit log — the active `audit.jsonl` plus every rotated generation —
+/// and returns the process exit code (0 = intact, 1 = a broken/tampered line
+/// was found). Each file is checked independently; its first line is a
+/// rotation boundary and is not checkable against a rotated-away predecessor.
+fn verify_audit() -> i32 {
+  let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+  let base = std::path::PathBuf::from(&data_dir).join("audit.jsonl");
+
+  // Collect rotated generations (.1 newest .. .N oldest), then order oldest →
+  // active so the output reads chronologically.
+  let mut generations: Vec<std::path::PathBuf> = Vec::new();
+  let mut n = 1usize;
+  loop {
+    let gen_path = std::path::PathBuf::from(format!("{}.{}", base.display(), n));
+    if gen_path.exists() {
+      generations.push(gen_path);
+      n += 1;
+    } else {
+      break;
+    }
+  }
+  generations.reverse();
+  generations.push(base);
+
+  println!("Verifying audit log hash chain ({data_dir})");
+  let mut broken = 0usize;
+  let mut checked = 0usize;
+  for f in &generations {
+    if !f.exists() {
+      continue;
+    }
+    checked += 1;
+    match crate::store::audit::verify_chain(f) {
+      Ok(None) => println!("  ok    {}", f.display()),
+      Ok(Some(line)) => {
+        broken += 1;
+        println!(
+          "  FAIL  {} — hash chain breaks at line {}",
+          f.display(),
+          line
+        );
+      }
+      Err(e) => {
+        broken += 1;
+        println!("  FAIL  {} — cannot read: {}", f.display(), e);
+      }
+    }
+  }
+
+  println!();
+  if checked == 0 {
+    println!("No audit log found in {data_dir} (nothing to verify)");
+    return 0;
+  }
+  if broken > 0 {
+    println!("Audit verification FAILED: {broken} file(s) with a broken chain");
+    1
+  } else {
+    println!("Audit verification OK ({checked} file(s) intact)");
+    0
+  }
 }
 
 /// The asynchronous server proper: sets up logging, reads env config,
@@ -792,6 +862,7 @@ async fn async_main() {
         axum::routing::post(request_replay_handler),
       )
       .route("/api/audit", get(audit_handler))
+      .route("/api/audit/verify", get(audit_verify_handler))
       .route(
         "/api/maintenance",
         get(maintenance_list_handler).post(maintenance_set_handler),

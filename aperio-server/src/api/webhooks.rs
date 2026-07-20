@@ -36,6 +36,27 @@ pub(crate) async fn audit_handler(
   Json(events)
 }
 
+/// Verifies the tamper-evident hash chain of the audit log (active file plus
+/// rotated generations). Returns `{ok, broken: [{file, line}]}`. Not org-scoped
+/// — the audit files are server-global, so this is an admin-only integrity
+/// check surfaced from the dashboard.
+#[utoipa::path(get, path = "/aperio/api/audit/verify", tag = "dashboard",
+  description = "Verifies the audit log hash chain across all files; reports any broken line.",
+  responses((status = 200, description = "Chain verification result", body = serde_json::Value)))]
+pub(crate) async fn audit_verify_handler(
+  State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+  let broken = state.audit.lock().await.verify();
+  let broken_json: Vec<serde_json::Value> = broken
+    .into_iter()
+    .map(|(file, line)| serde_json::json!({"file": file, "line": line}))
+    .collect();
+  Json(serde_json::json!({
+    "ok": broken_json.is_empty(),
+    "broken": broken_json,
+  }))
+}
+
 /// Payload for creating a webhook definition.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct WebhookCreateRequest {
