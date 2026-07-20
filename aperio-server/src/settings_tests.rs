@@ -15,6 +15,7 @@ fn base_config() -> ServerConfig {
     ignore_client_auth: false,
     real_ip_header: None,
     trusted_proxies: Vec::new(),
+    admin_allowed_ips: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,

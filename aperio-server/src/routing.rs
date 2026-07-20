@@ -734,11 +734,16 @@ fn real_ip_header_value(headers: &HeaderMap, real_ip_header: Option<&str>) -> Op
   Some(parsed)
 }
 
-/// True when `ip` falls inside any of the trusted proxy ranges.
-fn is_trusted_proxy(ip: IpAddr, trusted: &[(IpAddr, u32)]) -> bool {
-  trusted
+/// True when `ip` falls inside any of the given IP/CIDR ranges.
+pub(crate) fn ip_in_ranges(ip: IpAddr, ranges: &[(IpAddr, u32)]) -> bool {
+  ranges
     .iter()
     .any(|(base, bits)| crate::auth::cidr_contains(*base, *bits, ip))
+}
+
+/// True when `ip` falls inside any of the trusted proxy ranges.
+fn is_trusted_proxy(ip: IpAddr, trusted: &[(IpAddr, u32)]) -> bool {
+  ip_in_ranges(ip, trusted)
 }
 
 /// Trusted-proxy chain resolution: walk `[XFF entries…, direct peer]` from the

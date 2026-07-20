@@ -34,6 +34,14 @@ pub(crate) struct ServerConfig {
   /// any CDN/proxy chain, not just Cloudflare. Empty = legacy behavior (first
   /// XFF entry).
   pub(crate) trusted_proxies: Vec<(IpAddr, u32)>,
+  /// Source IPs/CIDRs allowed to reach the admin surface — the `/aperio`
+  /// dashboard and `/aperio/api/*` endpoints (APERIO_ADMIN_ALLOWED_IPS, a
+  /// comma-separated list of IPs or CIDRs). Empty = no network restriction.
+  /// The login page and its auth endpoints stay reachable from any address so
+  /// password-gated services keep working; only the authenticated dashboard and
+  /// its APIs are network-fenced. Proxy traffic and tunnel connections are
+  /// never affected.
+  pub(crate) admin_allowed_ips: Vec<(IpAddr, u32)>,
   /// When true, session cookies include the `Secure` flag so browsers only
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).

@@ -237,6 +237,26 @@ async fn async_main() {
     },
     Err(_) => Vec::new(),
   };
+  // Source IPs/CIDRs allowed to reach the authenticated admin surface
+  // (`/aperio` dashboard + `/aperio/api/*`). Empty = no network restriction.
+  let admin_allowed_ips = match std::env::var("APERIO_ADMIN_ALLOWED_IPS") {
+    Ok(raw) => match crate::routing::parse_trusted_proxies(&raw) {
+      Ok(list) => list,
+      Err(e) => {
+        error!(
+          "APERIO_ADMIN_ALLOWED_IPS is invalid ({e}); refusing to start with a partial allowlist"
+        );
+        return;
+      }
+    },
+    Err(_) => Vec::new(),
+  };
+  if !admin_allowed_ips.is_empty() {
+    info!(
+      "Admin surface IP allowlist active ({} entries): only matching client IPs may reach the dashboard and its API",
+      admin_allowed_ips.len()
+    );
+  }
   let trust_proxy = trust_proxy || !trusted_proxies.is_empty();
   if !trusted_proxies.is_empty() {
     info!(
@@ -515,6 +535,7 @@ async fn async_main() {
     ignore_client_auth,
     real_ip_header,
     trusted_proxies,
+    admin_allowed_ips,
     secure_cookies,
     require_hostname_bind,
     metrics_token,
@@ -907,6 +928,48 @@ async fn async_main() {
             .header("Location", redirect_url)
             .body(Body::empty())
             .unwrap()
+        }
+      },
+    ));
+
+    // Network-level fence for the admin surface (APERIO_ADMIN_ALLOWED_IPS).
+    // Added after the session layer so it runs first (outermost): a blocked
+    // source IP is rejected with 403 before any auth check. Registered before
+    // the assets route below so public login assets stay reachable, and it
+    // wraps only the dashboard + /api routes — the login page, auth endpoints,
+    // health and OIDC routes live on the root router and are never fenced, so
+    // APERIO_SERVER_AUTH-protected proxied sites keep working from any address.
+    let ip_state = state.clone();
+    dash_router = dash_router.layer(axum::middleware::from_fn(
+      move |req: axum::extract::Request, next: axum::middleware::Next| {
+        let state = ip_state.clone();
+        async move {
+          let cfg = state.config();
+          if !cfg.admin_allowed_ips.is_empty() {
+            let peer = req
+              .extensions()
+              .get::<axum::extract::ConnectInfo<SocketAddr>>()
+              .map(|ci| ci.0.ip());
+            let allowed = peer.is_some_and(|peer_ip| {
+              let client_ip = crate::routing::extract_client_ip(
+                req.headers(),
+                peer_ip,
+                cfg.trust_proxy,
+                cfg.real_ip_header.as_deref(),
+                &cfg.trusted_proxies,
+              );
+              crate::routing::ip_in_ranges(client_ip, &cfg.admin_allowed_ips)
+            });
+            if !allowed {
+              return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::from(
+                  "Admin surface is restricted to allowed source IPs",
+                ))
+                .unwrap();
+            }
+          }
+          next.run(req).await
         }
       },
     ));

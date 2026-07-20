@@ -708,3 +708,13 @@ fn test_filter_pool_by_ip_denied_without_redirect_is_stealth() {
     IpFilterOutcome::Allowed(_) => panic!("the only candidate must reject the visitor"),
   }
 }
+
+#[test]
+fn test_ip_in_ranges_matches_plain_and_cidr() {
+  let ranges = parse_trusted_proxies("203.0.113.7, 10.0.0.0/8").unwrap();
+  assert!(ip_in_ranges("203.0.113.7".parse().unwrap(), &ranges));
+  assert!(ip_in_ranges("10.4.5.6".parse().unwrap(), &ranges));
+  assert!(!ip_in_ranges("192.168.1.1".parse().unwrap(), &ranges));
+  // An empty allowlist matches nothing (callers treat empty as "no fence").
+  assert!(!ip_in_ranges("10.4.5.6".parse().unwrap(), &[]));
+}
