@@ -48,11 +48,12 @@ jobs:
 
       # Guards against i18n drift: duplicate or stale (no-longer-used) keys in
       # any language dictionary fail the build; cross-language gaps are reported.
-      - name: Check dashboard i18n key coverage
+      - name: Check dashboard i18n key coverage & run unit tests
         working-directory: aperio-dashboard
         run: |
           npm ci
           npm run check-i18n
+          npm run test
 
   coverage:
     name: Test Coverage

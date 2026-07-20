@@ -15,6 +15,8 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 `npm run dev` in `aperio-dashboard/` serves the UI with hot reload and proxies API calls to a local server on port 8080. Debug builds of the server read `dist/` from disk at runtime, so a `npm run build` is picked up without recompiling the server.
 
+Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite (pure lib functions; scans `src/` only), which CI runs alongside the i18n check. `npm run test:e2e` runs the [Playwright](https://playwright.dev) shell smoke test against a static `vite preview` build (one-time `npx playwright install chromium` first); it is not wired into CI because full API-backed journeys need a running server.
+
 ## Tests & end-to-end suite
 
 `cargo test --all` runs the unit tests. `bash tests/e2e.sh` runs the end-to-end suite — a real `aperio-server`, several `aperio-client` processes, and stdlib-only Python mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
