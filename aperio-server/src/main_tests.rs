@@ -1407,3 +1407,294 @@ fn test_route_trends_minute_buckets() {
   assert_eq!(padded[4].total, 0);
   assert!(trends.routes.contains_key("*"));
 }
+
+// ===========================================================================
+// main.rs own helpers (below): the dashboard authorization floor, the audit
+// verifier CLI, the TCP listener binder, and the uptime availability snapshot.
+// The async `main`/`async_main` entrypoint and `shutdown_signal` are not
+// unit-testable in-process (they bind sockets, install signal handlers, and
+// never return), so they are deliberately left uncovered.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// required_role — minimum dashboard role per route
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_required_role_self_service_routes() {
+  use crate::required_role;
+  use crate::store::users::Role;
+  use axum::http::Method;
+  // Self-service /api/me/* is open to any signed-in role, even for mutations.
+  assert_eq!(
+    required_role("/api/me/totp/setup", &Method::POST),
+    Role::Viewer
+  );
+  assert_eq!(required_role("/api/me/totp", &Method::DELETE), Role::Viewer);
+  assert_eq!(
+    required_role("/api/me/passkeys", &Method::GET),
+    Role::Viewer
+  );
+}
+
+#[test]
+fn test_required_role_admin_only_routes() {
+  use crate::required_role;
+  use crate::store::users::Role;
+  use axum::http::Method;
+  // Routes that can change who controls the server are admin-only, including
+  // their GETs.
+  for (path, method) in [
+    ("/api/users", Method::GET),
+    ("/api/users", Method::POST),
+    ("/api/users/123", Method::PUT),
+    ("/api/settings", Method::GET),
+    ("/api/settings", Method::PUT),
+    ("/api/export", Method::GET),
+    ("/api/import", Method::POST),
+    ("/api/sessions", Method::GET),
+    ("/api/sessions/abc", Method::DELETE),
+    ("/api/orgs", Method::GET),
+    ("/api/orgs/o1/quota", Method::PUT),
+    ("/api/admin-keys", Method::GET),
+    ("/api/admin-keys/k1", Method::DELETE),
+  ] {
+    assert_eq!(
+      required_role(path, &method),
+      Role::Admin,
+      "{path} {method} must be admin-only"
+    );
+  }
+}
+
+#[test]
+fn test_required_role_reads_vs_mutations() {
+  use crate::required_role;
+  use crate::store::users::Role;
+  use axum::http::Method;
+  // Generic reads are open to viewers...
+  assert_eq!(required_role("/api/stats", &Method::GET), Role::Viewer);
+  assert_eq!(required_role("/api/logs", &Method::HEAD), Role::Viewer);
+  // ...and generic mutations require operator.
+  assert_eq!(required_role("/api/purge", &Method::POST), Role::Operator);
+  assert_eq!(
+    required_role("/api/tokens/t1", &Method::DELETE),
+    Role::Operator
+  );
+  assert_eq!(
+    required_role("/api/clients/c1/enabled", &Method::POST),
+    Role::Operator
+  );
+}
+
+// ---------------------------------------------------------------------------
+// observe_service_availability — per-entity uptime snapshot
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_observe_service_availability_states() {
+  use crate::observe_service_availability;
+  use crate::store::uptime::Availability;
+
+  let state = crate::test_support::test_state();
+
+  // No clients → empty snapshot.
+  assert!(observe_service_availability(&state).await.is_empty());
+
+  // Healthy client, keyed by its service_name → Up.
+  let mut up = mock_client(None, None, None, None);
+  up.service_name = Some("web".to_string());
+  state.clients.lock().await.insert("c-up".to_string(), up);
+
+  // Connected but draining → Degraded, keyed by reported_instance_id (no name).
+  let mut drain = mock_client(None, None, None, None);
+  drain.draining = true;
+  drain.reported_instance_id = Some("inst-drain".to_string());
+  state
+    .clients
+    .lock()
+    .await
+    .insert("c-drain".to_string(), drain);
+
+  // Backend probe failing → Degraded, keyed by connection id (no name/instance).
+  let mut bad_backend = mock_client(None, None, None, None);
+  bad_backend.backend_healthy = false;
+  state
+    .clients
+    .lock()
+    .await
+    .insert("c-badbackend".to_string(), bad_backend);
+
+  // Admin-disabled → Degraded as well.
+  let mut disabled = mock_client(None, None, None, None);
+  disabled.admin_enabled = false;
+  disabled.service_name = Some("disabled-svc".to_string());
+  state
+    .clients
+    .lock()
+    .await
+    .insert("c-disabled".to_string(), disabled);
+
+  let snap = observe_service_availability(&state).await;
+  assert_eq!(snap.get("web").unwrap().0, Availability::Up);
+  assert_eq!(snap.get("inst-drain").unwrap().0, Availability::Degraded);
+  assert_eq!(snap.get("c-badbackend").unwrap().0, Availability::Degraded);
+  assert_eq!(snap.get("disabled-svc").unwrap().0, Availability::Degraded);
+}
+
+#[tokio::test]
+async fn test_observe_service_availability_down_and_best_state_wins() {
+  use crate::observe_service_availability;
+  use crate::store::uptime::Availability;
+
+  // Short down-threshold so a stale heartbeat marks the client down.
+  let mut cfg = crate::test_support::test_config();
+  cfg.client_down_threshold = Duration::from_secs(1);
+  let state = crate::test_support::test_state_with(cfg);
+
+  // Stale heartbeat → Down.
+  let mut stale = mock_client(None, None, None, None);
+  stale.service_name = Some("svc".to_string());
+  stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
+  state
+    .clients
+    .lock()
+    .await
+    .insert("c-stale".to_string(), stale);
+
+  // A second, healthy connection for the SAME entity → the best state wins.
+  let mut healthy = mock_client(None, None, None, None);
+  healthy.service_name = Some("svc".to_string());
+  healthy.last_ping_at = Some(Instant::now());
+  state
+    .clients
+    .lock()
+    .await
+    .insert("c-healthy".to_string(), healthy);
+
+  let snap = observe_service_availability(&state).await;
+  assert_eq!(snap.get("svc").unwrap().0, Availability::Up);
+
+  // With only the stale connection left, the entity reads Down.
+  state.clients.lock().await.remove("c-healthy");
+  let snap = observe_service_availability(&state).await;
+  assert_eq!(snap.get("svc").unwrap().0, Availability::Down);
+}
+
+// ---------------------------------------------------------------------------
+// bind_listener — plain and SO_REUSEPORT TCP binding
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_bind_listener_plain_and_reuseport() {
+  use crate::bind_listener;
+
+  // Plain listener on an ephemeral port.
+  let l = bind_listener("127.0.0.1", 0, false)
+    .await
+    .expect("plain bind");
+  assert!(l.local_addr().unwrap().port() > 0);
+
+  // SO_REUSEPORT path over IPv4 (Domain::IPV4 branch).
+  let l = bind_listener("127.0.0.1", 0, true)
+    .await
+    .expect("reuseport v4 bind");
+  assert!(l.local_addr().unwrap().ip().is_ipv4());
+
+  // SO_REUSEPORT path over IPv6 (Domain::IPV6 branch). Skipped gracefully on
+  // hosts without a loopback ::1.
+  if let Ok(l) = bind_listener("::1", 0, true).await {
+    assert!(l.local_addr().unwrap().ip().is_ipv6());
+  }
+
+  // An unresolvable host returns an error instead of panicking.
+  assert!(
+    bind_listener("no.such.host.invalid.", 0, true)
+      .await
+      .is_err()
+  );
+}
+
+// ---------------------------------------------------------------------------
+// verify_audit — the --verify-audit CLI over the audit hash chain
+// ---------------------------------------------------------------------------
+
+/// Serializes the tests below that read/write the process-global
+/// APERIO_DATA_DIR environment variable.
+static AUDIT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn restore_data_dir(prev: Option<String>) {
+  match prev {
+    Some(v) => unsafe { std::env::set_var("APERIO_DATA_DIR", v) },
+    None => unsafe { std::env::remove_var("APERIO_DATA_DIR") },
+  }
+}
+
+#[test]
+fn test_verify_audit_intact_and_missing() {
+  use crate::verify_audit;
+  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let prev = std::env::var("APERIO_DATA_DIR").ok();
+
+  // A freshly written, well-formed audit log verifies intact → exit 0.
+  let dir = std::env::temp_dir().join(format!("aperio-verify-ok-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  {
+    let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
+    log.record("login", "admin", "127.0.0.1", None, "ok");
+    log.record("logout", "admin", "127.0.0.1", None, "bye");
+  }
+  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
+  assert_eq!(verify_audit(), 0);
+
+  // A directory with no audit log → nothing to verify → exit 0.
+  let empty = std::env::temp_dir().join(format!("aperio-verify-empty-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&empty).unwrap();
+  unsafe { std::env::set_var("APERIO_DATA_DIR", &empty) };
+  assert_eq!(verify_audit(), 0);
+
+  restore_data_dir(prev);
+}
+
+#[test]
+fn test_verify_audit_detects_tampering_across_generations() {
+  use crate::verify_audit;
+  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let prev = std::env::var("APERIO_DATA_DIR").ok();
+
+  let dir = std::env::temp_dir().join(format!("aperio-verify-bad-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  {
+    let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
+    log.record("login", "admin", "127.0.0.1", None, "a");
+    log.record("login", "admin", "127.0.0.1", None, "b");
+  }
+  // Keep an intact rotated generation, then tamper the active file so the
+  // verifier walks both files and reports exactly one broken chain → exit 1.
+  std::fs::copy(dir.join("audit.jsonl"), dir.join("audit.jsonl.1")).unwrap();
+  std::fs::write(
+    dir.join("audit.jsonl"),
+    "{\"not\":\"a valid chained audit line\"}\n",
+  )
+  .unwrap();
+  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
+  assert_eq!(verify_audit(), 1);
+
+  restore_data_dir(prev);
+}
+
+#[test]
+fn test_verify_audit_reports_unreadable_file() {
+  use crate::verify_audit;
+  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let prev = std::env::var("APERIO_DATA_DIR").ok();
+
+  // An audit.jsonl that is actually a directory cannot be read as a file, so
+  // the verifier reports it as unreadable (the `Err` arm) → exit 1.
+  let dir = std::env::temp_dir().join(format!("aperio-verify-unread-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(dir.join("audit.jsonl")).unwrap();
+  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
+  assert_eq!(verify_audit(), 1);
+
+  restore_data_dir(prev);
+}
