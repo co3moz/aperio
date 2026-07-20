@@ -860,6 +860,43 @@ async fn proxy_http_request(
       {
         return resp;
       }
+      // Per-hostname fallback URL (`fallbacks:` section): redirect an
+      // unclaimed hostname to a configured origin/status page instead of 504.
+      // Never for a denied visitor (stealth) — the redirect would leak the
+      // route's existence.
+      if !denied {
+        let cfg = state.config();
+        if !cfg.fallbacks.is_empty()
+          && let Some(rule) = cfg.fallbacks.matched(request_host.as_deref())
+        {
+          let path = uri_str.split('?').next().unwrap_or(&uri_str);
+          let query = uri_str.split_once('?').map(|(_, q)| q);
+          let location = crate::fallbacks::redirect_location(rule, path, query);
+          let status = if rule.permanent {
+            StatusCode::MOVED_PERMANENTLY
+          } else {
+            StatusCode::FOUND
+          };
+          log_request_success(
+            &state,
+            uuid::Uuid::new_v4().to_string(),
+            &method_str,
+            &uri_str,
+            status.as_u16(),
+            start_time.elapsed(),
+            request_host.as_deref(),
+            None,
+            None,
+            None,
+          )
+          .await;
+          return Response::builder()
+            .status(status)
+            .header("location", location)
+            .body(Body::empty())
+            .unwrap_or_else(|_| status.into_response());
+        }
+      }
       log_request_failure(
         &state,
         &method_str,

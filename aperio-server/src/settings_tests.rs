@@ -46,6 +46,7 @@ fn base_config() -> ServerConfig {
     static_routes: Default::default(),
     error_pages: Default::default(),
     route_limits: Default::default(),
+    fallbacks: Default::default(),
     waf: Default::default(),
     token_pinning: false,
     preview_noindex: false,

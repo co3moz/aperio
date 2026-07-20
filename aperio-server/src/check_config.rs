@@ -286,6 +286,19 @@ pub(crate) fn run() -> i32 {
       compiled.len()
     ));
   }
+  if let Some(rules) = check_section::<Vec<crate::fallbacks::FallbackRuleRaw>>(&mut r, "fallbacks")
+  {
+    let total = rules.len();
+    let compiled = crate::fallbacks::compile(rules).len();
+    if compiled < total {
+      r.fail(&format!(
+        "`fallbacks:` section has {} invalid rule(s) (bad hostname or non-http URL) of {total}",
+        total - compiled
+      ));
+    } else {
+      r.ok(&format!("`fallbacks:` section compiles ({total} rule(s))"));
+    }
+  }
   if let Some(rules) = check_section::<Vec<crate::waf::WafRuleRaw>>(&mut r, "waf") {
     let total = rules.len();
     let dropped = crate::waf::count_dropped(rules);

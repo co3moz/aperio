@@ -252,6 +252,23 @@ rate_limits:
 
 Like the other structured sections it is re-applied on config hot-reload, and `--check-config` validates it.
 
+#### Per-hostname fallback URLs (`fallbacks:`)
+
+When no client is connected to serve a hostname, the visitor normally gets a `504`. A `fallbacks:` entry turns that into a graceful redirect to an origin/status URL instead — a maintenance page, a static origin, a "back soon" site. A `*` hostname is the catch-all for any otherwise-unclaimed host (an exact hostname match wins over it).
+
+```yaml
+# aperio-server.yaml
+fallbacks:
+  - hostname: app.example.com
+    url: https://status.example.com     # 302 by default
+  - hostname: "*"
+    url: https://www.example.com
+    preserve_path: true                 # append the request path + query
+    permanent: true                     # 301 instead of 302
+```
+
+Rejected visitors (IP allowlist denials) never get a fallback redirect — the stealth `504` answer is preserved so the route's existence never leaks. Re-applied on hot-reload and validated by `--check-config`.
+
 #### WAF-lite (`waf:`)
 
 The `waf:` section is a small request firewall evaluated before a request is dispatched. Each rule ANDs the conditions it lists — a `path` regex, a `methods` list, and/or a `header` name + value regex — and a match answers `403 Forbidden`. A rule with `max_body` is a size limit for its matched route instead of a deny: exceeding it answers `413 Payload Too Large`. It is a coarse first line of defense (path/method/header/body-size filtering), meant to complement — not replace — the rate limits above.
