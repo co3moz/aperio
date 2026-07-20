@@ -1382,15 +1382,21 @@ async fn proxy_http_request(
       tokio::spawn(async move {
         let mut stream = raw_body.into_data_stream();
         let mut total: usize = 0;
+        // Whether the whole upload was relayed. On an over-limit truncation or a
+        // mid-stream read error we must NOT finalize the body: RequestEnd tells
+        // the backend "this body is complete", so sending it after a truncation
+        // would have the backend silently process a partial request as whole.
+        let mut complete = true;
         while let Some(chunk) = stream.next().await {
           match chunk {
             Ok(bytes) => {
               total += bytes.len();
               if total > max_body {
                 warn!(
-                  "Streamed request {} exceeded the max body size; truncating the upload",
+                  "Streamed request {} exceeded the max body size; aborting the upload",
                   pump_id
                 );
+                complete = false;
                 break;
               }
               counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -1407,17 +1413,26 @@ async fn proxy_http_request(
                 .await
                 .is_err()
               {
+                complete = false;
                 break;
               }
             }
             Err(e) => {
               warn!("Request body stream error for {}: {}", pump_id, e);
+              complete = false;
               break;
             }
           }
         }
-        if let Ok(json) = serde_json::to_string(&TunnelMessage::RequestEnd { id: pump_id }) {
-          let _ = pump_tx.send(Message::Text(json)).await;
+        if complete {
+          if let Ok(json) = serde_json::to_string(&TunnelMessage::RequestEnd { id: pump_id }) {
+            let _ = pump_tx.send(Message::Text(json)).await;
+          }
+        } else {
+          // Abort: drop the pending request so the awaiting handler resolves
+          // immediately (the visitor gets a prompt gateway error) rather than
+          // the backend receiving a truncated body framed as complete.
+          pump_state.pending_requests.lock().await.remove(&pump_id);
         }
       });
     }
