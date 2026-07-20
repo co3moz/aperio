@@ -206,3 +206,7 @@ pub(crate) async fn import_handler(
   )
     .into_response()
 }
+
+#[cfg(test)]
+#[path = "export_tests.rs"]
+mod tests;

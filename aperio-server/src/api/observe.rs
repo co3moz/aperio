@@ -149,3 +149,7 @@ pub(crate) async fn traffic_csv_handler(
   )
     .into_response()
 }
+
+#[cfg(test)]
+#[path = "observe_tests.rs"]
+mod tests;

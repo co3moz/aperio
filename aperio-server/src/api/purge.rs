@@ -352,3 +352,7 @@ pub(crate) async fn purge_handler(
   }))
   .into_response()
 }
+
+#[cfg(test)]
+#[path = "purge_tests.rs"]
+mod tests;

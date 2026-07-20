@@ -444,3 +444,7 @@ pub(crate) async fn orgs_usage_handler(
     .await;
   Json(usage).into_response()
 }
+
+#[cfg(test)]
+#[path = "orgs_tests.rs"]
+mod tests;
