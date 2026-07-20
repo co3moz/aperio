@@ -183,11 +183,18 @@ jobs:
 
       # Short smoke run of each tunnel-protocol fuzz target: enough to catch a
       # parser panic introduced by a change without holding up the pipeline.
+      #
+      # --target is pinned to the gnu triple on purpose: install-action has no
+      # cargo-fuzz binary of its own and falls back to cargo-binstall, which
+      # installs the *musl* build. cargo-fuzz then defaults the fuzz target to
+      # its own (musl) triple, which fails to build — musl std isn't installed
+      # and ASan is incompatible with statically linked libc. Forcing gnu
+      # (dynamic libc, std already present) sidesteps both.
       - name: Fuzz decode_binary_frame
-        run: cargo fuzz run binary_frame -- -max_total_time=30
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu binary_frame -- -max_total_time=30
 
       - name: Fuzz tunnel-message JSON/zlib decode
-        run: cargo fuzz run tunnel_message -- -max_total_time=30
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu tunnel_message -- -max_total_time=30
 
   e2e:
     name: End-to-End Tunnel Test
