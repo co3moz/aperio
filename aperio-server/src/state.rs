@@ -1426,45 +1426,9 @@ impl AppState {
     self.org_store.lock().await.find(id).cloned()
   }
 
-  /// Enforces the org's `max_tokens` quota. Err(msg) when at the cap.
-  pub(crate) async fn check_org_token_quota(&self, org: Option<&str>) -> Result<(), String> {
-    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_tokens) else {
-      return Ok(());
-    };
-    let count = self
-      .token_store
-      .lock()
-      .await
-      .list()
-      .iter()
-      .filter(|t| t.org_id.as_deref() == org)
-      .count() as u64;
-    if count >= max {
-      Err(format!("organization token quota reached ({max})"))
-    } else {
-      Ok(())
-    }
-  }
-
-  /// Enforces the org's `max_users` quota. Err(msg) when at the cap.
-  pub(crate) async fn check_org_user_quota(&self, org: Option<&str>) -> Result<(), String> {
-    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_users) else {
-      return Ok(());
-    };
-    let count = self
-      .users
-      .lock()
-      .await
-      .list()
-      .iter()
-      .filter(|u| u.org_id.as_deref() == org)
-      .count() as u64;
-    if count >= max {
-      Err(format!("organization user quota reached ({max})"))
-    } else {
-      Ok(())
-    }
-  }
+  // The token and user org quotas are enforced atomically inside their create
+  // handlers (api/tokens.rs, api/users.rs) — the cap count and the insert run
+  // under one held store lock so concurrent creates can't overshoot the cap.
 
   /// Enforces the org's `max_clients` quota against currently-connected
   /// clients. Err(msg) when at the cap.

@@ -211,11 +211,30 @@ pub(crate) async fn tokens_create_handler(
 
   // New tokens belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
-  if let Err(msg) = state.check_org_token_quota(org.as_deref()).await {
-    return (StatusCode::FORBIDDEN, msg).into_response();
-  }
+  // Enforce the org token quota atomically with the create: hold the
+  // token_store lock across the count and the insert so two concurrent creates
+  // can't both pass the check and overshoot the cap (the cap value itself comes
+  // from the org store and is fetched first).
+  let quota_max = state
+    .org_quota(org.as_deref())
+    .await
+    .and_then(|q| q.max_tokens);
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
+    if let Some(max) = quota_max {
+      let count = store
+        .list()
+        .iter()
+        .filter(|t| t.org_id.as_deref() == org.as_deref())
+        .count() as u64;
+      if count >= max {
+        return (
+          StatusCode::FORBIDDEN,
+          format!("organization token quota reached ({max})"),
+        )
+          .into_response();
+      }
+    }
     store.create(
       name,
       hostnames,

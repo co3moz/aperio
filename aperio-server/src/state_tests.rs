@@ -540,8 +540,6 @@ async fn test_org_quotas() {
 
   // No org / no quota → permissive.
   assert!(state.org_quota(None).await.is_none());
-  assert!(state.check_org_token_quota(None).await.is_ok());
-  assert!(state.check_org_user_quota(None).await.is_ok());
   assert!(state.check_org_client_quota(None).await.is_ok());
   assert!(!state.org_over_month_bytes(None).await);
 
@@ -559,31 +557,8 @@ async fn test_org_quotas() {
   };
   assert!(state.org_quota(Some(&org_id)).await.is_some());
 
-  // Under the caps everything is allowed.
-  assert!(state.check_org_token_quota(Some(&org_id)).await.is_ok());
-  assert!(state.check_org_user_quota(Some(&org_id)).await.is_ok());
+  // Under the caps the client quota is allowed.
   assert!(state.check_org_client_quota(Some(&org_id)).await.is_ok());
-
-  // Add a token in the org → the token cap of 1 is now reached.
-  {
-    let mut store = state.token_store.lock().await;
-    store.create(
-      "t".to_string(),
-      vec![],
-      vec![],
-      vec![],
-      None,
-      None,
-      None,
-      false,
-      false,
-      Some(org_id.clone()),
-    );
-  }
-  assert!(
-    state.check_org_token_quota(Some(&org_id)).await.is_err(),
-    "token quota reached"
-  );
 
   // Month-bytes quota is not exceeded with no traffic recorded.
   assert!(!state.org_over_month_bytes(Some(&org_id)).await);

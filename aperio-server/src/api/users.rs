@@ -96,14 +96,31 @@ pub(crate) async fn users_create_handler(
   };
   // New users belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
-  if let Err(msg) = state.check_org_user_quota(org.as_deref()).await {
-    return (StatusCode::FORBIDDEN, msg).into_response();
-  }
-  let created = state
-    .users
-    .lock()
+  // Enforce the org user quota atomically with the create: hold the users lock
+  // across the count and the insert so concurrent creates can't overshoot the
+  // cap (the cap comes from the org store, fetched first).
+  let quota_max = state
+    .org_quota(org.as_deref())
     .await
-    .create(&payload.username, &payload.password, role, org);
+    .and_then(|q| q.max_users);
+  let created = {
+    let mut users = state.users.lock().await;
+    if let Some(max) = quota_max {
+      let count = users
+        .list()
+        .iter()
+        .filter(|u| u.org_id.as_deref() == org.as_deref())
+        .count() as u64;
+      if count >= max {
+        return (
+          StatusCode::FORBIDDEN,
+          format!("organization user quota reached ({max})"),
+        )
+          .into_response();
+      }
+    }
+    users.create(&payload.username, &payload.password, role, org)
+  };
   match created {
     Ok(user) => {
       let ip = actor_ip(&state, &headers, addr);
