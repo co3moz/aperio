@@ -941,19 +941,17 @@ pub(crate) async fn handle_socket(
                   let mut store = state.token_store.lock().await;
                   match client_key.as_deref() {
                     Some(key) => store.pin_key(&token_id, key),
-                    // No key announced: only a reject when the token is already
-                    // pinned to a device (a pinned token requires its key).
-                    None => store
-                      .list()
-                      .iter()
-                      .any(|t| t.id == token_id && t.pinned_key.is_some())
-                      .then_some(crate::store::tokens::PinOutcome::Mismatch),
+                    // No key announced while pinning is required: reject (fail
+                    // closed). A key-less client can never satisfy pinning, so
+                    // enabling APERIO_TOKEN_PINNING requires every client to
+                    // carry a device key (APERIO_DEVICE_KEY[_FILE]).
+                    None => Some(crate::store::tokens::PinOutcome::Mismatch),
                   }
                 };
                 match verdict {
                   Some(crate::store::tokens::PinOutcome::Mismatch) => {
                     warn!(
-                      "Token pinning: client {} presented token '{}' from a device whose key does not match the pinned device — rejecting the connection",
+                      "Token pinning: client {} presented token '{}' without a matching device key — rejecting the connection",
                       client_id, token_name
                     );
                     state

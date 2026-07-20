@@ -386,6 +386,28 @@ pub(crate) fn response_surrogate_keys(headers: &[(String, String)]) -> Vec<Strin
     .collect()
 }
 
+/// True when a response must not be cached regardless of a positive TTL:
+/// it carries `Vary`/`Set-Cookie`, or a `Cache-Control` `no-store`/`no-cache`/
+/// `private`. Used to gate negative caching (404/410), which otherwise skips
+/// the `Cache-Control`-driven checks that the 200 path gets for free.
+pub(crate) fn response_uncacheable(headers: &[(String, String)]) -> bool {
+  for (name, value) in headers {
+    match name.to_ascii_lowercase().as_str() {
+      "vary" | "set-cookie" => return true,
+      "cache-control" => {
+        for directive in value.split(',') {
+          let d = directive.trim().to_ascii_lowercase();
+          if d == "no-store" || d == "no-cache" || d == "private" {
+            return true;
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  false
+}
+
 /// Short negative-cache TTL for 404/410 responses
 /// (`APERIO_CACHE_NEGATIVE_TTL`, seconds; 0/unset = negative caching off).
 pub(crate) fn negative_cache_ttl() -> Duration {
@@ -981,6 +1003,25 @@ mod tests {
     assert!(cache.get("h|/a", Duration::ZERO).is_none());
     assert!(cache.get("h|/c", Duration::ZERO).is_some());
     assert_eq!(cache.purge_by_surrogate("nope"), 0);
+  }
+
+  #[test]
+  fn uncacheable_detects_no_store_and_cookies() {
+    let cc = |v: &str| vec![("cache-control".to_string(), v.to_string())];
+    assert!(response_uncacheable(&cc("no-store")));
+    assert!(response_uncacheable(&cc("public, no-cache")));
+    assert!(response_uncacheable(&cc("private, max-age=60")));
+    assert!(response_uncacheable(&[(
+      "Set-Cookie".to_string(),
+      "s=1".to_string()
+    )]));
+    assert!(response_uncacheable(&[(
+      "Vary".to_string(),
+      "Accept".to_string()
+    )]));
+    // A plain cacheable 404 (short max-age) is fine to negatively cache.
+    assert!(!response_uncacheable(&cc("public, max-age=30")));
+    assert!(!response_uncacheable(&[]));
   }
 
   #[test]

@@ -115,7 +115,9 @@ pub(crate) fn compile(raw: Vec<RateLimitRuleRaw>) -> Vec<RateLimitRule> {
     }
     let hostname = rule.hostname.as_deref().and_then(normalize_hostname_bind);
     let path = rule.path.as_deref().and_then(normalize_path_bind);
-    let burst = rule.burst.filter(|b| *b > 0.0).unwrap_or(rule.rps.max(1.0));
+    // Floor the burst to at least one token, otherwise a sub-1.0 burst can
+    // never reach the 1-token gate and the route would 429 every request.
+    let burst = rule.burst.filter(|b| *b > 0.0).unwrap_or(rule.rps).max(1.0);
     let key = format!(
       "{}|{}",
       hostname.as_deref().unwrap_or("*"),

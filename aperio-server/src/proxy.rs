@@ -1425,8 +1425,12 @@ async fn proxy_http_request(
     // Await the response with the per-attempt response timeout: the serving
     // client's per-service `response_timeout` override when it declared one,
     // otherwise the global gateway response timeout.
+    // A declared 0 means "use the global value" (not a zero-second timeout that
+    // would fail every request instantly), matching the global timeout's own
+    // `.max(1)` clamp.
     let response_timeout = selected
       .response_timeout
+      .filter(|s| *s > 0)
       .map(std::time::Duration::from_secs)
       .unwrap_or_else(|| state.config().gateway_response_timeout);
     let outcome: Option<TunnelResponse> = if dispatched {
@@ -1613,7 +1617,9 @@ async fn proxy_http_request(
         if cache_eligible && tunnel_res.stream_rx.is_none() {
           let ttl = if status_code == StatusCode::OK {
             crate::cache::response_cache_ttl(&tunnel_res.headers)
-          } else if matches!(tunnel_res.status, 404 | 410) {
+          } else if matches!(tunnel_res.status, 404 | 410)
+            && !crate::cache::response_uncacheable(&tunnel_res.headers)
+          {
             let neg = crate::cache::negative_cache_ttl();
             (!neg.is_zero()).then_some(neg)
           } else {
