@@ -1043,11 +1043,19 @@ pub(crate) async fn handle_socket(
             } => {
               // Relay WebSocket frame to the public WS via the registered
               // channel — but only if this client owns the stream, matching the
-              // ownership check every other stream type performs.
-              let streams = state.ws_streams.lock().await;
-              if let Some(handle) = streams.get(&stream_id)
-                && handle.client_id == client_id
-              {
+              // ownership check every other stream type performs. Clone the
+              // sender out of the lock so `ws_streams` is never held across the
+              // bounded, awaited send: a slow public WS consumer applying
+              // backpressure would otherwise stall the whole tunnel read loop
+              // and block every other client's ws_streams access.
+              let chunk_tx = {
+                let streams = state.ws_streams.lock().await;
+                match streams.get(&stream_id) {
+                  Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
+                  _ => None,
+                }
+              };
+              if let Some(chunk_tx) = chunk_tx {
                 let ws_msg = if is_text {
                   Message::Text(data)
                 } else {
@@ -1060,8 +1068,19 @@ pub(crate) async fn handle_socket(
                     }
                   }
                 };
-                if handle.tx.send(WsStreamMessage::Data(ws_msg)).await.is_err() {
-                  debug!("WsStream channel closed for stream {}", stream_id);
+                // Bounded send: drop the stream if the public consumer stalls,
+                // mirroring deliver_response_chunk.
+                let send_res = tokio::time::timeout(
+                  state.config().gateway_response_timeout,
+                  chunk_tx.send(WsStreamMessage::Data(ws_msg)),
+                )
+                .await;
+                if !matches!(send_res, Ok(Ok(()))) {
+                  debug!(
+                    "Dropping WS stream {} (consumer gone or stalled)",
+                    stream_id
+                  );
+                  state.ws_streams.lock().await.remove(&stream_id);
                 }
               }
             }
@@ -1070,11 +1089,19 @@ pub(crate) async fn handle_socket(
               code: _,
               reason: _,
             } => {
-              let streams = state.ws_streams.lock().await;
-              if let Some(handle) = streams.get(&stream_id)
-                && handle.client_id == client_id
-              {
-                let _ = handle.tx.send(WsStreamMessage::Close).await;
+              let chunk_tx = {
+                let streams = state.ws_streams.lock().await;
+                match streams.get(&stream_id) {
+                  Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
+                  _ => None,
+                }
+              };
+              if let Some(chunk_tx) = chunk_tx {
+                let _ = tokio::time::timeout(
+                  state.config().gateway_response_timeout,
+                  chunk_tx.send(WsStreamMessage::Close),
+                )
+                .await;
               }
             }
             _ => {}
