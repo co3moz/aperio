@@ -271,3 +271,7 @@ pub(crate) async fn inbox_refire_handler(
     Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Re-fire response timeout").into_response(),
   }
 }
+
+#[cfg(test)]
+#[path = "inbox_tests.rs"]
+mod tests;

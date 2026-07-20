@@ -288,3 +288,7 @@ pub(crate) async fn tunnels_delete_handler(
     (StatusCode::NOT_FOUND, "Tunnel not found").into_response()
   }
 }
+
+#[cfg(test)]
+#[path = "tunnels_tests.rs"]
+mod tests;

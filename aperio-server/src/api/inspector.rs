@@ -206,3 +206,7 @@ pub(crate) async fn request_replay_handler(
     Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Replay response timeout").into_response(),
   }
 }
+
+#[cfg(test)]
+#[path = "inspector_tests.rs"]
+mod tests;
