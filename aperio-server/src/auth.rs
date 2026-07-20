@@ -532,25 +532,98 @@ pub(crate) async fn authorize_tunnel_token(
   if constant_time_eq_str(&presented, &state.config().token) {
     return Some(ClientPerms::master());
   }
-  let store = state.token_store.lock().await;
-  let token = store.verify(&presented)?;
-  // Dynamic tokens can be restricted to source IPs/CIDRs.
-  if !ip_allowed(client_ip, &token.allowed_ips) {
+  // Verify against the store, then release the lock before emitting events so
+  // we never hold the token store across an await on other state locks.
+  let (perms, canary, org_id) = {
+    let store = state.token_store.lock().await;
+    let token = store.verify(&presented)?;
+    // Dynamic tokens can be restricted to source IPs/CIDRs.
+    if !ip_allowed(client_ip, &token.allowed_ips) {
+      warn!(
+        "Token '{}' rejected: source IP {} not in allowed list {:?}",
+        token.name, client_ip, token.allowed_ips
+      );
+      return None;
+    }
+    (
+      ClientPerms {
+        master: false,
+        hostnames: token.hostnames.clone(),
+        paths: token.paths.clone(),
+        token_name: Some(token.name.clone()),
+        token_id: Some(token.id.clone()),
+        allow_public: token.allow_public,
+        org_id: token.org_id.clone(),
+      },
+      token.canary,
+      token.org_id.clone(),
+    )
+  };
+
+  let token_id = perms.token_id.clone().unwrap_or_default();
+  let token_name = perms.token_name.clone().unwrap_or_default();
+
+  // A canary/decoy token is never meant to be used: any authentication with it
+  // is a breach signal, so it always trips an alert.
+  if canary {
     warn!(
-      "Token '{}' rejected: source IP {} not in allowed list {:?}",
-      token.name, client_ip, token.allowed_ips
+      "CANARY TRIPPED: token '{}' authenticated from {}",
+      token_name, client_ip
     );
-    return None;
+    state
+      .audit_in(
+        "canary_tripped",
+        &token_name,
+        &client_ip.to_string(),
+        org_id.clone(),
+        &format!("token={} id={} ip={}", token_name, token_id, client_ip),
+      )
+      .await;
+    state
+      .emit_event_in(
+        "canary_tripped",
+        serde_json::json!({"token": token_name, "token_id": token_id, "ip": client_ip.to_string()}),
+        org_id.clone(),
+      )
+      .await;
   }
-  Some(ClientPerms {
-    master: false,
-    hostnames: token.hostnames.clone(),
-    paths: token.paths.clone(),
-    token_name: Some(token.name.clone()),
-    token_id: Some(token.id.clone()),
-    allow_public: token.allow_public,
-    org_id: token.org_id.clone(),
-  })
+
+  // Alert when a token connects from a source IP not seen before this run. The
+  // very first address a token is seen from establishes the baseline silently.
+  let is_new_ip = {
+    let mut seen = state.token_seen_ips.lock().await;
+    let ips = seen.entry(token_id.clone()).or_default();
+    if ips.is_empty() {
+      ips.insert(client_ip);
+      false
+    } else {
+      ips.insert(client_ip)
+    }
+  };
+  if is_new_ip {
+    warn!(
+      "Token '{}' connected from a new source IP {}",
+      token_name, client_ip
+    );
+    state
+      .audit_in(
+        "token_new_ip",
+        &token_name,
+        &client_ip.to_string(),
+        org_id.clone(),
+        &format!("token={} id={} ip={}", token_name, token_id, client_ip),
+      )
+      .await;
+    state
+      .emit_event_in(
+        "token_new_ip",
+        serde_json::json!({"token": token_name, "token_id": token_id, "ip": client_ip.to_string()}),
+        org_id,
+      )
+      .await;
+  }
+
+  Some(perms)
 }
 
 /// Checks whether `ip` matches an allowlist of plain IPs and CIDR ranges.

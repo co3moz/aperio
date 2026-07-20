@@ -45,6 +45,11 @@ pub struct ApiToken {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub allow_public: bool,
+  /// Marks this token as a canary/decoy: it is never meant to be used, so any
+  /// successful authentication with it is a strong breach signal. Presenting a
+  /// canary token emits a `canary_tripped` webhook + audit event.
+  #[serde(default)]
+  pub canary: bool,
   /// Organization this token belongs to; `None` = the master organization.
   /// A client that connects with this token inherits its organization.
   #[serde(default)]
@@ -128,6 +133,7 @@ impl TokenStore {
     max_rps: Option<f64>,
     daily_max_bytes: Option<u64>,
     allow_public: bool,
+    canary: bool,
     org_id: Option<String>,
   ) -> (ApiToken, String) {
     let secret = format!(
@@ -149,6 +155,7 @@ impl TokenStore {
       max_rps,
       daily_max_bytes,
       allow_public,
+      canary,
       org_id,
       prev_token_hash: None,
       prev_expires_at: None,
@@ -172,6 +179,7 @@ impl TokenStore {
     max_rps: Option<Option<f64>>,
     daily_max_bytes: Option<Option<u64>>,
     allow_public: Option<bool>,
+    canary: Option<bool>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -198,6 +206,9 @@ impl TokenStore {
     }
     if let Some(p) = allow_public {
       token.allow_public = p;
+    }
+    if let Some(c) = canary {
+      token.canary = c;
     }
     let updated = token.clone();
     self.persist();
@@ -329,6 +340,7 @@ mod tests {
       None,
       None,
       false,
+      false,
       None,
     );
     assert!(secret.starts_with("apr_"));
@@ -389,6 +401,7 @@ mod tests {
       None,
       None,
       false,
+      false,
       None,
     );
     let first_expiry = record.expires_at.unwrap();
@@ -411,6 +424,7 @@ mod tests {
       None,
       None,
       false,
+      false,
       None,
     );
     assert!(store.refresh(&forever).is_none());
@@ -424,6 +438,7 @@ mod tests {
       Some(0),
       None,
       None,
+      false,
       false,
       None,
     );
@@ -444,6 +459,7 @@ mod tests {
       None,
       None,
       None,
+      false,
       false,
       None,
     );
@@ -474,6 +490,49 @@ mod tests {
   }
 
   #[test]
+  fn test_canary_flag_create_update_persist() {
+    let dir = temp_dir();
+    let mut store = TokenStore::load(&dir);
+    let (record, _secret) = store.create(
+      "decoy".to_string(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+      true,
+      None,
+    );
+    assert!(record.canary);
+
+    // Survives reload.
+    let store2 = TokenStore::load(&dir);
+    assert!(store2.list()[0].canary);
+
+    // Can be toggled off in place.
+    let mut store3 = TokenStore::load(&dir);
+    let updated = store3
+      .update(
+        &record.id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(false),
+      )
+      .unwrap();
+    assert!(!updated.canary);
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
   fn test_expired_token_rejected() {
     let dir = temp_dir();
     let mut store = TokenStore::load(&dir);
@@ -485,6 +544,7 @@ mod tests {
       Some(0),
       None,
       None,
+      false,
       false,
       None,
     );

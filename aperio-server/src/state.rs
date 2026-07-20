@@ -1,6 +1,6 @@
 use axum::extract::ws::Message;
 use serde::Serialize;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -1016,6 +1016,10 @@ pub(crate) struct AppState {
   /// Per-token daily byte usage: token id → (day key, bytes). In-memory
   /// only — a restart resets the current day's usage.
   pub(crate) token_daily_bytes: Mutex<HashMap<String, (String, u64)>>,
+  /// Source IPs a dynamic token has connected from (token id → set of IPs).
+  /// In-memory only; drives the `token_new_ip` alert when a token connects
+  /// from an address it has not been seen from before this run.
+  pub(crate) token_seen_ips: Mutex<HashMap<String, HashSet<IpAddr>>>,
   pub(crate) last_session_gc: Mutex<Instant>,
   pub(crate) last_rate_gc: Mutex<Instant>,
   pub(crate) active_tunnel_count: AtomicUsize,

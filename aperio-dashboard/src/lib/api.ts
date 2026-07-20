@@ -142,6 +142,7 @@ export interface TokenView {
   max_rps: number | null
   daily_max_bytes: number | null
   allow_public: boolean
+  canary: boolean
 }
 
 export interface TokenCreatePayload {
@@ -153,6 +154,7 @@ export interface TokenCreatePayload {
   max_rps?: number
   daily_max_bytes?: number
   allow_public?: boolean
+  canary?: boolean
 }
 
 export interface TokenUpdatePayload {
@@ -163,6 +165,7 @@ export interface TokenUpdatePayload {
   max_rps?: number
   daily_max_bytes?: number
   allow_public?: boolean
+  canary?: boolean
 }
 
 export interface Webhook {

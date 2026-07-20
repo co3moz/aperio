@@ -657,6 +657,7 @@ async fn async_main() {
     )),
     token_rate: Mutex::new(HashMap::new()),
     token_daily_bytes: Mutex::new(HashMap::new()),
+    token_seen_ips: Mutex::new(HashMap::new()),
     last_session_gc: Mutex::new(Instant::now()),
     last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),
