@@ -31,5 +31,8 @@ Short, focused articles on each part of the product. For the project overview an
 
 ## Under the Hood
 
+- [Architecture Deep-Dive](architecture.md) — the tunnel protocol, the request lifecycle, the concurrency model, and where state lives.
 - [Tunnel Protocol & Advanced Features](tunnel-protocol.md) — WebSocket pass-through, chunked body streaming, binary frames, compression, the response cache, custom error pages.
-- [Development & Releases](development.md) — building from source, tests & coverage, the release process, project conventions.
+- [Performance Tuning](performance-tuning.md) — the throughput/latency knobs and their trade-offs: parallelism, limits, caching, compression, failover.
+- [Upgrade Guide & Compatibility](upgrade-guide.md) — safe upgrades and what client ↔ server version skew means.
+- [Development & Releases](development.md) — building from source, tests & coverage, benchmarks & fuzzing, the release process, project conventions.

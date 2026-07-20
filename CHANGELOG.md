@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Documentation deepening.** New architecture deep-dive (tunnel protocol, request lifecycle, concurrency, state), upgrade guide + client/server compatibility notes, and a performance-tuning guide.
 - **Server self-health + CSV export.** `GET /aperio/api/self-health` reports process RSS (Linux), SQLite store size, cache occupancy, uptime and client count (dashboard card); `GET /aperio/api/export/traffic.csv` streams the per-period traffic history as CSV.
 - **Benchmarks + load harness.** criterion micro-benchmarks for the cache hot paths (`cargo bench`, reported in CI) and a k6 soak test (`tests/soak.js`) with error-rate and p95 thresholds.
 
