@@ -73,6 +73,18 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
 
 /// Replaces every row of `table` with the given `(id, json)` records in one
 /// transaction, so a crash can never leave a half-written store.
+/// Writes `contents` to `path` atomically: write to a sibling `<path>.tmp`
+/// first, then rename it over the target. A crash or power loss mid-write
+/// leaves either the old file or the fully-written new one intact — never a
+/// truncated file (which for the tamper-evident audit log would be corruption).
+pub(crate) fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+  let mut tmp = path.as_os_str().to_owned();
+  tmp.push(".tmp");
+  let tmp = std::path::PathBuf::from(tmp);
+  std::fs::write(&tmp, contents)?;
+  std::fs::rename(&tmp, path)
+}
+
 /// Atomically replaces every row of `table`. Returns `true` on success; on a
 /// write failure it logs and returns `false` so a caller performing a
 /// security-relevant mutation (token/session/webhook revoke) can report the

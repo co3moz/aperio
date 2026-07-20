@@ -87,7 +87,7 @@ fn prune_access_log(state: &AppState, cutoff: u64) -> usize {
     }
   }
   if removed > 0 {
-    if std::fs::write(path, kept).is_err() {
+    if crate::store::atomic_write(std::path::Path::new(path), kept.as_bytes()).is_err() {
       warn!("Retention: failed to rewrite the access log {}", path);
       return 0;
     }

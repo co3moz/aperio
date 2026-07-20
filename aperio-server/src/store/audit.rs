@@ -294,7 +294,7 @@ impl AuditLog {
         if !kept.is_empty() {
           kept.push('\n');
         }
-        match std::fs::write(&self.path, &kept) {
+        match crate::store::atomic_write(&self.path, kept.as_bytes()) {
           Ok(()) => {
             removed += keep_from;
             self.current_size = kept.len() as u64;
