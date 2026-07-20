@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **TOTP replay prevention.** A successful two-factor login now records the step counter the code matched and refuses any later code from the same or an earlier step, so a code intercepted in transit can no longer be replayed within its ~90-second validity window. The enrollment code seeds the window for the same reason.
 - **Proxied WebSocket cleanup + ownership.** When a tunnel client disconnects, the server now drains its live proxied public WebSockets (sending a close to each) instead of leaking the `ws_streams` entry and its relay tasks and leaving the public peer hung. Inbound `WsData`/`WsClose` frames are also honoured only when the sending client owns the target stream, matching every other tunnel stream type.
 
 ### Added

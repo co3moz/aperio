@@ -77,26 +77,29 @@ fn code_at(secret: &[u8], counter: u64) -> u32 {
 }
 
 /// Verifies a user-entered 6-digit code against the secret at `now_secs`,
-/// tolerating one step of clock skew each way.
-pub(crate) fn verify(secret_b32: &str, code: &str, now_secs: u64) -> bool {
+/// tolerating one step of clock skew each way. On success returns the step
+/// counter the code matched, so the caller can persist it and reject a later
+/// replay of the same (or an older) code within its validity window.
+pub(crate) fn verify_step(secret_b32: &str, code: &str, now_secs: u64) -> Option<i64> {
   let code = code.trim();
   if code.len() != DIGITS as usize || !code.bytes().all(|b| b.is_ascii_digit()) {
-    return false;
+    return None;
   }
-  let Some(secret) = base32_decode(secret_b32) else {
-    return false;
-  };
+  let secret = base32_decode(secret_b32)?;
   if secret.is_empty() {
-    return false;
+    return None;
   }
-  let Ok(entered) = code.parse::<u32>() else {
-    return false;
-  };
+  let entered = code.parse::<u32>().ok()?;
   let step = (now_secs / STEP_SECS) as i64;
-  (-SKEW_STEPS..=SKEW_STEPS).any(|delta| {
-    let counter = step + delta;
-    counter >= 0 && code_at(&secret, counter as u64) == entered
-  })
+  (-SKEW_STEPS..=SKEW_STEPS)
+    .map(|delta| step + delta)
+    .find(|&counter| counter >= 0 && code_at(&secret, counter as u64) == entered)
+}
+
+/// True when the code is valid at `now_secs` (ignoring replay). Used where no
+/// replay window is tracked (e.g. TOTP enrollment / disable).
+pub(crate) fn verify(secret_b32: &str, code: &str, now_secs: u64) -> bool {
+  verify_step(secret_b32, code, now_secs).is_some()
 }
 
 /// The otpauth:// provisioning URL an authenticator app enrolls from.

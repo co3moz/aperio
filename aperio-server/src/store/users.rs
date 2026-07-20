@@ -77,6 +77,11 @@ pub struct User {
   /// SHA-256 hashes of the unused single-use recovery codes.
   #[serde(default)]
   pub recovery_hashes: Vec<String>,
+  /// Highest TOTP step counter already accepted for this user; a login code
+  /// must match a strictly newer step, so a code observed in transit cannot be
+  /// replayed within its ~90s validity window.
+  #[serde(default)]
+  pub totp_last_step: Option<i64>,
   /// Registered WebAuthn passkeys (passwordless sign-in).
   #[serde(default)]
   pub passkeys: Vec<StoredPasskey>,
@@ -170,6 +175,7 @@ impl UserStore {
       totp_secret: None,
       totp_pending: None,
       recovery_hashes: Vec::new(),
+      totp_last_step: None,
       passkeys: Vec::new(),
     };
     self.users.push(user.clone());
@@ -278,15 +284,33 @@ impl UserStore {
       .totp_pending
       .clone()
       .ok_or_else(|| "no TOTP enrollment in progress".to_string())?;
-    if !crate::totp::verify(&pending, code, now_secs) {
+    let Some(step) = crate::totp::verify_step(&pending, code, now_secs) else {
       return Err("invalid code".into());
-    }
+    };
     let (codes, hashes) = crate::totp::generate_recovery_codes(8);
     user.totp_secret = Some(pending);
     user.totp_pending = None;
     user.recovery_hashes = hashes;
+    // Seed the replay window so the enrollment code can't be reused to log in.
+    user.totp_last_step = Some(step);
     self.persist();
     Ok(codes)
+  }
+
+  /// Records a freshly accepted TOTP login step for replay prevention. Returns
+  /// true (and persists) when `step` is strictly newer than the last accepted
+  /// one; false when the same or an older step was already used — the caller
+  /// treats that as an invalid code so an intercepted code can't be replayed.
+  pub fn totp_try_advance_step(&mut self, id: &str, step: i64) -> bool {
+    let Some(user) = self.users.iter_mut().find(|u| u.id == id) else {
+      return false;
+    };
+    if user.totp_last_step.is_some_and(|last| step <= last) {
+      return false;
+    }
+    user.totp_last_step = Some(step);
+    self.persist();
+    true
   }
 
   /// Disables TOTP for a user, clearing the secret and recovery codes.

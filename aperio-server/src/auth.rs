@@ -261,8 +261,17 @@ pub(crate) async fn auth_login_handler(
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-              let ok = crate::totp::verify(&secret, code, now_secs)
-                || state.users.lock().await.consume_recovery(&user_id, code);
+              // Replay-hardened: a valid code is accepted only if its step is
+              // newer than the last one this user logged in with, so a code
+              // captured in transit can't be reused within its validity window.
+              let ok = match crate::totp::verify_step(&secret, code, now_secs) {
+                Some(step) => state
+                  .users
+                  .lock()
+                  .await
+                  .totp_try_advance_step(&user_id, step),
+                None => state.users.lock().await.consume_recovery(&user_id, code),
+              };
               if ok {
                 scope = Some(None);
                 identity = (Some(user_name), role);
