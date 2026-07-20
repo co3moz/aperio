@@ -219,7 +219,10 @@ pub(crate) async fn apply_overrides_validated(
 /// dashboard settings PUT and the `aperio-server.yaml` hot-reload.
 pub(crate) async fn swap_config(state: &Arc<AppState>, new_config: ServerConfig) {
   let old_config = state.config();
-  *state.config_store.write().expect("config lock poisoned") = Arc::new(new_config);
+  *state
+    .config_store
+    .write()
+    .unwrap_or_else(|e| e.into_inner()) = Arc::new(new_config);
   let new_config = state.config();
 
   if old_config.random_subdomain_suffix != new_config.random_subdomain_suffix {

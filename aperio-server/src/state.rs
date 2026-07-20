@@ -1197,10 +1197,14 @@ impl AppState {
 
   /// Snapshot of the live configuration (cheap Arc clone).
   pub(crate) fn config(&self) -> Arc<ServerConfig> {
+    // Recover from a poisoned lock rather than panicking: config() is on
+    // essentially every proxied request, so a single panic under the write
+    // lock must not turn into a total outage — the stored config is a valid
+    // Arc regardless of who poisoned the lock.
     self
       .config_store
       .read()
-      .expect("config lock poisoned")
+      .unwrap_or_else(|e| e.into_inner())
       .clone()
   }
 

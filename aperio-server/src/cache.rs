@@ -217,7 +217,7 @@ impl ResponseCache {
     if !(e.resilient && now < e.expires_at + max_stale)
       && let Some(e) = self.entries.remove(key)
     {
-      self.total_bytes -= e.body.len() as u64;
+      self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
     }
     self.misses += 1;
     SwrLookup::Miss
@@ -293,7 +293,7 @@ impl ResponseCache {
       if now >= e.expires_at
         && let Some(e) = self.entries.remove(key)
       {
-        self.total_bytes -= e.body.len() as u64;
+        self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
       }
       return None;
     }
@@ -328,7 +328,7 @@ impl ResponseCache {
       return;
     }
     if let Some(old) = self.entries.remove(&key) {
-      self.total_bytes -= old.body.len() as u64;
+      self.total_bytes = self.total_bytes.saturating_sub(old.body.len() as u64);
     }
     // Evict: expired entries first, then those closest to expiry.
     if self.total_bytes + size > max_bytes {
@@ -344,7 +344,7 @@ impl ResponseCache {
           break;
         }
         if let Some(e) = self.entries.remove(&k) {
-          self.total_bytes -= e.body.len() as u64;
+          self.total_bytes = self.total_bytes.saturating_sub(e.body.len() as u64);
         }
       }
     }
