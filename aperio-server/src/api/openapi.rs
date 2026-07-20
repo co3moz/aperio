@@ -77,6 +77,8 @@ use utoipa::OpenApi;
     crate::api::purge::purge_handler,
     crate::api::purge::cache_purge_handler,
     crate::api::purge::cache_stats_handler,
+    crate::api::observe::self_health_handler,
+    crate::api::observe::traffic_csv_handler,
     crate::api::inbox::inbox_list_handler,
     crate::api::inbox::inbox_clear_handler,
     crate::api::inbox::inbox_detail_handler,

@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Server self-health + CSV export.** `GET /aperio/api/self-health` reports process RSS (Linux), SQLite store size, cache occupancy, uptime and client count (dashboard card); `GET /aperio/api/export/traffic.csv` streams the per-period traffic history as CSV.
 - **Benchmarks + load harness.** criterion micro-benchmarks for the cache hot paths (`cargo bench`, reported in CI) and a k6 soak test (`tests/soak.js`) with error-rate and p95 thresholds.
 
 - **Dashboard tests.** A [vitest](https://vitest.dev) unit suite (run in CI alongside the i18n check) plus a [Playwright](https://playwright.dev) shell smoke test — the dashboard had zero tests before.

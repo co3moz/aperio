@@ -326,6 +326,14 @@ export interface OrgQuota {
   max_bytes_month?: number
 }
 
+export interface SelfHealth {
+  uptime_seconds: number
+  connected_clients: number
+  rss_bytes: number | null
+  store_bytes: number
+  cache: { entries: number; bytes: number; hits: number; misses: number; hit_ratio: number }
+}
+
 export interface CacheStats {
   entries: number
   bytes: number
@@ -477,6 +485,7 @@ export const api = {
   ) => mutate(`/users/${encodeURIComponent(id)}`, json('PUT', payload)),
   deleteUser: (id: string) => mutate(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   cacheStats: () => request<CacheStats>('/cache/stats'),
+  selfHealth: () => request<SelfHealth>('/self-health'),
   purgeCache: (payload: {
     hostname?: string
     path_prefix?: string

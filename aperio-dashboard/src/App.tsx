@@ -16,6 +16,7 @@ import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
 import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { CacheStatsSection } from './components/CacheStatsSection'
+import { SelfHealthSection } from './components/SelfHealthSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
 import { InboxSection } from './components/InboxSection'
 import { BandwidthSection } from './components/BandwidthSection'
@@ -370,6 +371,7 @@ export default function App() {
                   <SlowEndpointsSection />
                   <StageStatsSection />
                   <CacheStatsSection />
+                  <SelfHealthSection />
                 </div>
               )}
               {page === 'topology' && <TopologySection stats={stats} />}

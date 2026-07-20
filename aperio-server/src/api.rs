@@ -17,6 +17,7 @@ pub(crate) mod inbox;
 pub(crate) mod inspector;
 pub(crate) mod maintenance;
 pub(crate) mod metrics;
+pub(crate) mod observe;
 pub(crate) mod openapi;
 pub(crate) mod orgs;
 pub(crate) mod purge;

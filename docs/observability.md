@@ -125,3 +125,11 @@ curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
 ```
 
 Selectors (at least one required): `hostname` (a request hostname), `token` (a token label), `ip` (a visitor IP). A purge touches the in-memory traffic log, the request inspector captures, the per-hostname/per-token statistics aggregates, per-route latency stage windows, the response cache, and the structured `APERIO_ACCESS_LOG` file (rewritten in place). Lifetime totals and period buckets are aggregates without personal attribution and stay intact. Visitor IPs are deliberately never persisted in logs or stats (queries are sanitized, no IP field is written), so the `ip` selector only matches inspector captures via their forwarded-IP request headers. Every purge writes a `data_purged` audit event with the per-surface removal counts.
+
+## Server self-health
+
+`GET /aperio/api/self-health` (master-admin) returns a snapshot of the server process itself — uptime, connected clients, resident-set memory (Linux), the on-disk SQLite store size (db + WAL/SHM), and response-cache occupancy/hit-rate — surfaced as a card on the dashboard Breakdown page.
+
+## CSV export
+
+`GET /aperio/api/export/traffic.csv?unit=day|week|month|year&count=N` streams the per-period traffic history (requests, success/failed, bytes in/out, average latency) as CSV for the caller's organization, ready for a spreadsheet or a billing pipeline. A one-click *Export traffic CSV* button sits on the self-health card.

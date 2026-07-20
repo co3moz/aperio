@@ -953,6 +953,14 @@ async fn async_main() {
       .route("/api/audit", get(audit_handler))
       .route("/api/audit/verify", get(audit_verify_handler))
       .route(
+        "/api/self-health",
+        get(crate::api::observe::self_health_handler),
+      )
+      .route(
+        "/api/export/traffic.csv",
+        get(crate::api::observe::traffic_csv_handler),
+      )
+      .route(
         "/api/admin-keys",
         get(crate::api::admin_keys::admin_keys_list_handler)
           .post(crate::api::admin_keys::admin_keys_create_handler),
