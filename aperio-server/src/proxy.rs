@@ -30,6 +30,20 @@ use crate::telemetry;
 
 pub(crate) mod ws;
 
+/// Whether the buffered-5xx retry policy covers a given response status.
+/// `retry_statuses` empty = every 5xx (500-599); otherwise only the listed
+/// codes. `retry_on_5xx` off = never.
+fn retry_covers(retry_on_5xx: bool, retry_statuses: &[u16], status: u16) -> bool {
+  if !retry_on_5xx {
+    return false;
+  }
+  if retry_statuses.is_empty() {
+    (500..600).contains(&status)
+  } else {
+    retry_statuses.contains(&status)
+  }
+}
+
 /// Builds a 504 response: the hostname's own `error_pages:` page when one is
 /// configured, then the global APERIO_504_PAGE HTML, then the given
 /// plain-text message.
@@ -1302,6 +1316,48 @@ async fn proxy_http_request(
         let status_code =
           StatusCode::from_u16(tunnel_res.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
+        // Transparent retry on a buffered server error (APERIO_RETRY_ON_5XX):
+        // a fully-buffered 5xx the retry policy covers is re-dispatched to
+        // another client instead of being returned. No response bytes have
+        // reached the visitor yet, so this is safe for retryable methods.
+        // Streamed responses and streamed request bodies are never retried.
+        let cfg = state.config();
+        if tunnel_res.stream_rx.is_none()
+          && !stream_request
+          && retry_covers(cfg.retry_on_5xx, &cfg.retry_statuses, tunnel_res.status)
+          && method_retryable(&method_str, cfg.failover_all_methods)
+          && jumps_used < cfg.failover_max_jumps
+        {
+          let next = match pick_proxy_client(
+            &state,
+            &uri_path_owned,
+            request_host.as_deref(),
+            None,
+            None,
+            Some(caller_ip),
+          )
+          .await
+          {
+            crate::routing::PickOutcome::Selected(c) => Some(*c),
+            _ => None,
+          };
+          if let Some(next_client) = next {
+            jumps_used += 1;
+            warn!(
+              "5xx retry: {} {} returned {} from client {}, re-dispatching to {} (jump {}/{})",
+              method_str,
+              uri_path_owned,
+              tunnel_res.status,
+              selected.id,
+              next_client.id,
+              jumps_used,
+              cfg.failover_max_jumps
+            );
+            selected = next_client;
+            continue;
+          }
+        }
+
         let res_bytes = if let Some(ref encoded_body) = tunnel_res.body {
           use base64::prelude::*;
           BASE64_STANDARD.decode(encoded_body).unwrap_or_default()
@@ -1640,4 +1696,24 @@ fn trailer_header_map(trailers: &[(String, String)]) -> axum::http::HeaderMap {
     }
   }
   map
+}
+
+#[cfg(test)]
+mod retry_tests {
+  use super::retry_covers;
+
+  #[test]
+  fn retry_covers_respects_switch_and_status_set() {
+    // Off: never retries.
+    assert!(!retry_covers(false, &[], 500));
+    // On, no explicit set: every 5xx, but not 4xx/2xx.
+    assert!(retry_covers(true, &[], 500));
+    assert!(retry_covers(true, &[], 503));
+    assert!(retry_covers(true, &[], 599));
+    assert!(!retry_covers(true, &[], 404));
+    assert!(!retry_covers(true, &[], 200));
+    // On, explicit set: only the listed codes.
+    assert!(retry_covers(true, &[502, 503, 504], 503));
+    assert!(!retry_covers(true, &[502, 503, 504], 500));
+  }
 }

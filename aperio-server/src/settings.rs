@@ -83,6 +83,19 @@ pub(crate) struct ServerConfig {
   /// Allow failover for non-idempotent methods too
   /// (APERIO_FAILOVER_ALL_METHODS).
   pub(crate) failover_all_methods: bool,
+  /// When true (`APERIO_RETRY_ON_5XX`), a fully-buffered response whose status
+  /// is a retryable server error (see `retry_statuses`) is transparently
+  /// re-dispatched to another client instead of being returned to the visitor.
+  /// This is a *server-side* retry, distinct from `failover_mode` (which
+  /// governs connection-loss behavior): it triggers on an actual error
+  /// response, not a dropped connection. It reuses the failover budget —
+  /// bounded by `failover_max_jumps`, and honoring method retryability
+  /// (`failover_all_methods`). Streamed responses/requests are never retried,
+  /// since bytes may already have reached the visitor.
+  pub(crate) retry_on_5xx: bool,
+  /// Specific status codes that trigger a retry when `retry_on_5xx` is on
+  /// (`APERIO_RETRY_STATUSES`, comma-separated). Empty = every 5xx (500-599).
+  pub(crate) retry_statuses: Vec<u16>,
   /// Server-side GET response cache (APERIO_CACHE). Effective only for
   /// clients that announced `cache: true`, and only for responses whose
   /// `Cache-Control` explicitly allows shared caching.

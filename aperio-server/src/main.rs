@@ -620,6 +620,18 @@ async fn async_main() {
     failover_max_jumps,
     failover_window,
     failover_all_methods,
+    retry_on_5xx: std::env::var("APERIO_RETRY_ON_5XX")
+      .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+      .unwrap_or(false),
+    retry_statuses: std::env::var("APERIO_RETRY_STATUSES")
+      .ok()
+      .map(|raw| {
+        raw
+          .split(',')
+          .filter_map(|s| s.trim().parse::<u16>().ok())
+          .collect()
+      })
+      .unwrap_or_default(),
     cache_enabled,
     cache_max_bytes,
     cache_max_stale,

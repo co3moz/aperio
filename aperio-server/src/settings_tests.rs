@@ -29,6 +29,8 @@ fn base_config() -> ServerConfig {
     failover_max_jumps: 2,
     failover_window: Duration::from_secs(15),
     failover_all_methods: false,
+    retry_on_5xx: false,
+    retry_statuses: Vec::new(),
     cache_enabled: false,
     max_concurrent_requests: 100,
     login_lockout_threshold: 5,
