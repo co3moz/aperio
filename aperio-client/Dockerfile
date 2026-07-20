@@ -32,7 +32,7 @@ WORKDIR /app
 COPY --from=builder /usr/src/aperio/target/release/aperio-client /app/aperio-client
 
 ENV APERIO_SERVER_URL=http://localhost:8080
-ENV APERIO_CLIENT_TARGET=http://127.0.0.1:8000
-ENV APERIO_CLIENT_PASS_HOSTNAME=0
+ENV APERIO_TARGET=http://127.0.0.1:8000
+ENV APERIO_PASS_HOSTNAME=0
 
 CMD ["/app/aperio-client"]
