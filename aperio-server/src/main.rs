@@ -18,6 +18,7 @@ mod access_log;
 mod alerts;
 mod api;
 mod auth;
+mod backup;
 mod cache;
 mod check_config;
 mod config_file;
@@ -1304,6 +1305,10 @@ async fn async_main() {
   // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
   // is configured.
   retention::spawn(shutdown_state.clone());
+
+  // Scheduled physical DB snapshots (APERIO_BACKUP_*): inert unless both an
+  // interval and a directory are configured.
+  backup::spawn(shutdown_state.clone());
 
   let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
     .await
