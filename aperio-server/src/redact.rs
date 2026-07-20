@@ -85,9 +85,28 @@ pub(crate) fn mask() -> &'static str {
   MASK
 }
 
+/// High-signal secret substrings: any field/param/header name *containing* one
+/// is masked, so compound names (`aws_secret_access_key`, `user_password`,
+/// `x-api-key`, `session-token`) don't slip past the exact-match list.
+/// Over-masking a non-secret is safe; leaking a secret to the inspector, HAR
+/// download, or copy-as-cURL is not.
+const SENSITIVE_NEEDLES: &[&str] = &[
+  "password",
+  "passwd",
+  "secret",
+  "token",
+  "apikey",
+  "api_key",
+  "api-key",
+  "private_key",
+  "passphrase",
+  "credential",
+];
+
 fn field_is_sensitive(name: &str) -> bool {
   let lower = name.to_ascii_lowercase();
   SENSITIVE_FIELDS.iter().any(|f| lower == *f)
+    || SENSITIVE_NEEDLES.iter().any(|n| lower.contains(n))
 }
 
 /// Masks the values of sensitive query parameters in a request URI, so secrets
