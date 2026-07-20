@@ -798,3 +798,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
 pub(crate) async fn passkey_available_handler(State(state): State<Arc<AppState>>) -> Response {
   Json(serde_json::json!({ "available": state.webauthn.is_some() })).into_response()
 }
+
+#[cfg(test)]
+#[path = "webauthn_tests.rs"]
+mod tests;

@@ -63,6 +63,12 @@ vendored-openssl = ["dep:openssl", "openssl/vendored"]
 
 [dev-dependencies]
 criterion = "0.8.2"
+# Software WebAuthn authenticator (SoftPasskey) to drive full register /
+# authenticate ceremonies in webauthn.rs unit tests. Pinned to 0.5.5 so it
+# resolves the same webauthn-rs-proto as webauthn-rs (credential types unify).
+webauthn-authenticator-rs = { version = "=0.5.5", features = ["softpasskey"] }
+# In-process WebSocket client to drive the tunnel handshake in ws/tcp tests.
+tokio-tungstenite = "0.24"
 
 [[bench]]
 name = "hot_paths"

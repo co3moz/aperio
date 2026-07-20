@@ -136,28 +136,5 @@ pub fn email_allowed(email: &str, patterns: &[String]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_email_allowed() {
-    let patterns = vec!["ceo@corp.com".to_string(), "*@team.example.com".to_string()];
-    assert!(email_allowed("ceo@corp.com", &patterns));
-    assert!(email_allowed("CEO@Corp.com", &patterns));
-    assert!(email_allowed("dev@team.example.com", &patterns));
-    assert!(!email_allowed("dev@corp.com", &patterns));
-    assert!(!email_allowed(
-      "dev@evil-team.example.com.attacker.io",
-      &patterns
-    ));
-    assert!(!email_allowed("", &patterns));
-
-    // Wildcard-all
-    assert!(email_allowed("anyone@anywhere.io", &["*".to_string()]));
-    // Suffix trickery must not match the domain pattern
-    assert!(!email_allowed(
-      "x@nteam.example.com",
-      &["*@team.example.com".to_string()]
-    ));
-  }
-}
+#[path = "oidc_tests.rs"]
+mod tests;
