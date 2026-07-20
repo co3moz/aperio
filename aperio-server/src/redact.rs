@@ -75,6 +75,33 @@ fn field_is_sensitive(name: &str) -> bool {
   SENSITIVE_FIELDS.iter().any(|f| lower == *f)
 }
 
+/// Masks the values of sensitive query parameters in a request URI, so secrets
+/// carried in the query string (`?api_key=`, `?access_token=`, an OAuth
+/// `?code=`, and Aperio's own signed `?aperio_share=` token) never reach the
+/// inspector, the HAR download, or copy-as-cURL. The path and non-sensitive
+/// parameters are preserved.
+pub(crate) fn redact_uri(uri: &str) -> String {
+  let Some((path, query)) = uri.split_once('?') else {
+    return uri.to_string();
+  };
+  let redacted: Vec<String> = query
+    .split('&')
+    .map(|pair| match pair.split_once('=') {
+      Some((k, _))
+        if field_is_sensitive(k)
+          || k.eq_ignore_ascii_case("aperio_share")
+          || k.eq_ignore_ascii_case("code")
+          || k.eq_ignore_ascii_case("sig")
+          || k.eq_ignore_ascii_case("signature") =>
+      {
+        format!("{k}={MASK}")
+      }
+      _ => pair.to_string(),
+    })
+    .collect();
+  format!("{path}?{}", redacted.join("&"))
+}
+
 /// Masks one header value, preserving harmless structure: cookies keep their
 /// names, `Authorization` keeps its scheme, everything else is fully masked.
 fn redact_header_value(name: &str, value: &str) -> String {
@@ -182,6 +209,7 @@ pub(crate) fn redacted_view(captured: &CapturedRequest) -> CapturedRequest {
     return captured.clone();
   }
   let mut view = captured.clone();
+  view.uri = redact_uri(&view.uri);
   view.req_headers = redact_headers(&view.req_headers);
   view.resp_headers = redact_headers(&view.resp_headers);
   view.req_body = view.req_body.as_deref().map(redact_body_b64);
@@ -192,6 +220,22 @@ pub(crate) fn redacted_view(captured: &CapturedRequest) -> CapturedRequest {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn test_uri_query_redaction() {
+    // Sensitive params are masked, ordinary ones and the path are preserved.
+    assert_eq!(
+      redact_uri("/api/x?page=2&api_key=secret&token=abc&q=hello"),
+      format!("/api/x?page=2&api_key={MASK}&token={MASK}&q=hello")
+    );
+    // Aperio's own signed share token and OAuth code/sig are always masked.
+    assert_eq!(
+      redact_uri("/p?aperio_share=SIGNED&code=xyz&sig=zzz"),
+      format!("/p?aperio_share={MASK}&code={MASK}&sig={MASK}")
+    );
+    // No query string is untouched.
+    assert_eq!(redact_uri("/plain/path"), "/plain/path");
+  }
 
   #[test]
   fn test_header_redaction() {

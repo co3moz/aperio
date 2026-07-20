@@ -79,19 +79,20 @@ pub(crate) async fn inbox_detail_handler(
   };
   // Redacted like the request inspector: credential headers and secret body
   // fields are masked in the view while the raw capture backs the re-fire.
-  let (view_headers, view_body) = if crate::redact::redaction_enabled() {
+  let (view_uri, view_headers, view_body) = if crate::redact::redaction_enabled() {
     (
+      crate::redact::redact_uri(&entry.uri),
       crate::redact::redact_headers(&entry.headers),
       entry.body.as_deref().map(crate::redact::redact_body_b64),
     )
   } else {
-    (entry.headers.clone(), entry.body.clone())
+    (entry.uri.clone(), entry.headers.clone(), entry.body.clone())
   };
   Json(serde_json::json!({
     "id": entry.id,
     "timestamp": entry.timestamp,
     "method": entry.method,
-    "uri": entry.uri,
+    "uri": view_uri,
     "host": entry.host,
     "headers": view_headers,
     "body": view_body,

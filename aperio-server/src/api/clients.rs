@@ -488,15 +488,19 @@ pub(crate) async fn client_override_handler(
     },
   };
 
+  // Org isolation: a caller may only overrule a client of their effective org.
+  // A cross-org (or unknown) client is indistinguishable — both 404 — so a
+  // client's existence never leaks across orgs.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {
-      Some(handle) => {
+      Some(handle) if handle.perms.org_id == org => {
         handle.override_hostname_bind = new_hostname.clone();
         handle.override_path_bind = new_path.clone();
         true
       }
-      None => false,
+      _ => false,
     }
   };
   if found {
@@ -549,14 +553,16 @@ pub(crate) async fn client_enabled_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  // Org isolation: a caller may only enable/disable a client of their org.
+  let org = crate::auth::effective_org(&state, &headers).await;
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {
-      Some(handle) => {
+      Some(handle) if handle.perms.org_id == org => {
         handle.admin_enabled = payload.enabled;
         true
       }
-      None => false,
+      _ => false,
     }
   };
   if found {

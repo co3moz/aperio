@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::api::tokens::validate_token_perms;
-use crate::auth::{constant_time_eq_str, extract_token, validate_session};
+use crate::auth::{constant_time_eq_str, extract_token};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;
 
@@ -36,16 +36,19 @@ const TUNNEL_DEFAULT_TTL_SECS: u64 = 3_600;
 const TUNNEL_MAX_TTL_SECS: u64 = 7 * 24 * 3_600;
 
 /// Authorizes programmatic tunnel API calls: the master server token
-/// presented as `Authorization: Bearer` / `x-auth-token`, or an existing
-/// dashboard session cookie. Header auth makes the endpoint usable from CI
-/// without a browser login flow.
+/// presented as `Authorization: Bearer` / `x-auth-token`, or a dashboard
+/// session (or admin key) of at least the Operator role — minting a tunnel
+/// credential is an operator-level action, so a read-only Viewer is refused.
+/// Header auth makes the endpoint usable from CI without a browser login flow.
 async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
   if let Some(presented) = extract_token(headers)
     && constant_time_eq_str(&presented, &state.config().token)
   {
     return true;
   }
-  validate_session(state, headers).await
+  crate::auth::dashboard_role(state, headers)
+    .await
+    .is_some_and(|role| role >= crate::store::users::Role::Operator)
 }
 
 /// Provisions an ephemeral tunnel: mints a short-lived, hostname-scoped
