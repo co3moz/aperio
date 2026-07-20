@@ -379,12 +379,20 @@ pub(crate) async fn totp_disable_handler(
       }
     }
   };
-  let ok = crate::totp::verify(&secret, &payload.code, now_secs())
-    || state
+  // Replay-hardened like the login path: a TOTP code already used to sign in
+  // can't be replayed here to disable the second factor within its window.
+  let ok = match crate::totp::verify_step(&secret, &payload.code, now_secs()) {
+    Some(step) => state
       .users
       .lock()
       .await
-      .consume_recovery(&user_id, &payload.code);
+      .totp_try_advance_step(&user_id, step),
+    None => state
+      .users
+      .lock()
+      .await
+      .consume_recovery(&user_id, &payload.code),
+  };
   if !ok {
     return (StatusCode::UNAUTHORIZED, "Invalid code").into_response();
   }

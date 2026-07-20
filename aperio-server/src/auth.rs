@@ -1114,10 +1114,18 @@ pub(crate) async fn oidc_callback_handler(
   };
 
   // Exchange the authorization code for an access token.
-  let http = reqwest::Client::builder()
+  let http = match reqwest::Client::builder()
     .timeout(Duration::from_secs(15))
     .build()
-    .unwrap_or_default();
+  {
+    Ok(c) => c,
+    Err(e) => {
+      // Falling back to a default client would drop the 15s timeout, letting
+      // the token/userinfo calls hang indefinitely — fail cleanly instead.
+      error!("Failed to build the OIDC HTTP client: {}", e);
+      return (StatusCode::INTERNAL_SERVER_ERROR, "OIDC client init failed").into_response();
+    }
+  };
   let token_res = http
     .post(&rt.token_endpoint)
     .form(&[

@@ -251,7 +251,10 @@ pub(crate) async fn run_service(
       .timeout(Duration::from_secs(spec.health_timeout))
       .redirect(reqwest::redirect::Policy::none())
       .build()
-      .unwrap_or_default();
+      .unwrap_or_else(|e| {
+        error!("Failed to build the health-probe HTTP client: {e}; using a client without a timeout");
+        reqwest::Client::new()
+      });
     let (interval, threshold) = (spec.health_interval, spec.health_threshold);
     info!(
       "[{}] Backend health check: {} (every {}s, timeout {}s, threshold {})",
@@ -560,7 +563,10 @@ pub(crate) async fn run_service(
               .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
               .timeout(Duration::from_secs(spec.timeout_secs))
               .build()
-              .unwrap_or_default();
+              .unwrap_or_else(|e| {
+                error!("Failed to build the forwarding HTTP client: {e}; using a client without a timeout");
+                reqwest::Client::new()
+              });
 
             // Per-connection forwarding constants shared by all request tasks.
             if crate::proxy::h2::is_h2_target(&spec.target) && spec.pass_hostname {
