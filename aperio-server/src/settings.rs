@@ -240,8 +240,8 @@ pub(crate) struct SettingsOverrides {
 /// `503_page` file loading) are intentionally excluded — they need a restart.
 #[derive(serde::Deserialize, Default)]
 struct FileSettings {
-  server_gateway_timeout: Option<u64>,
-  server_gateway_response_timeout: Option<u64>,
+  gateway_timeout: Option<u64>,
+  gateway_response_timeout: Option<u64>,
   max_body_size: Option<usize>,
   max_tunnels: Option<usize>,
   require_hostname_bind: Option<bool>,
@@ -278,8 +278,8 @@ pub(crate) fn file_overrides() -> SettingsOverrides {
   let fs: FileSettings =
     serde_yaml::from_value(serde_yaml::Value::Mapping(doc)).unwrap_or_default();
   SettingsOverrides {
-    gateway_timeout_secs: fs.server_gateway_timeout,
-    gateway_response_timeout_secs: fs.server_gateway_response_timeout,
+    gateway_timeout_secs: fs.gateway_timeout,
+    gateway_response_timeout_secs: fs.gateway_response_timeout,
     max_body_size: fs.max_body_size,
     max_tunnels: fs.max_tunnels,
     require_hostname_bind: fs.require_hostname_bind,

@@ -10,6 +10,10 @@ project follows semantic versioning per release tag.
 
 - **Live-WebSocket connection limit.** `APERIO_MAX_WS_CONNECTIONS` (default `10000`, `0` = no cap) caps the number of concurrently-live proxied public WebSockets. WebSockets are long-lived, so they get their own ceiling separate from the short-lived `APERIO_MAX_CONCURRENT_REQUESTS` request limit; an upgrade beyond the cap is rejected with `503`. Closes a gap where a flood of proxied WebSocket upgrades could exhaust server memory/FDs/tasks (per-IP rate limiting throttles the connection *rate*, not the live *count*, and does nothing against a distributed source).
 
+### Changed
+
+- **Environment-variable names standardized (breaking).** Every setting now has exactly one canonical `APERIO_*` spelling, with no aliases. The client's `APERIO_CLIENT_*` scoping aliases (`APERIO_CLIENT_TARGET`, `APERIO_CLIENT_SERVE`, `APERIO_CLIENT_TIMEOUT`, …) and the `APERIO_HOSTNAME_BIND` / `APERIO_PATH_BIND` spellings are dropped in favour of the short canonical forms (`APERIO_TARGET`, `APERIO_SERVE`, `APERIO_TIMEOUT`, `APERIO_HOSTNAME`, `APERIO_PATH`, …); `APERIO_CLIENT_ID` keeps its name because "client" is part of the concept, not a redundant prefix. On the server the gateway-timeout vars lose their redundant `SERVER_` prefix — `APERIO_SERVER_GATEWAY_TIMEOUT` → `APERIO_GATEWAY_TIMEOUT` and `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` → `APERIO_GATEWAY_RESPONSE_TIMEOUT` — and the matching `aperio-server.yaml` keys become `gateway_timeout` / `gateway_response_timeout` to preserve the mechanical yaml↔env mapping.
+
 ## [0.4.0] - 2026-07-20
 
 ### Fixed

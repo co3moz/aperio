@@ -96,7 +96,7 @@ pub(crate) enum TunnelMessage {
     /// The server queues excess requests instead of dispatching them.
     #[serde(default)]
     max_concurrent: Option<u32>,
-    /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
+    /// True when the client has a TCP target configured (APERIO_TCP_TARGET).
     #[serde(default)]
     tcp: bool,
     /// Client build version (CARGO_PKG_VERSION), for display/diagnostics.
@@ -105,7 +105,7 @@ pub(crate) enum TunnelMessage {
     /// Tunnel wire protocol version this client speaks.
     #[serde(default)]
     protocol: Option<u32>,
-    /// Result of the client's own backend health probe (APERIO_CLIENT_TARGET_HEALTH).
+    /// Result of the client's own backend health probe (APERIO_TARGET_HEALTH).
     /// False takes this client out of routing without dropping the tunnel.
     #[serde(default = "default_true")]
     backend_healthy: bool,

@@ -530,12 +530,12 @@ pub(crate) struct ClientHandle {
   pub(crate) client_ip: String,
   /// Total request count processed by this specific client connection.
   pub(crate) request_count: Arc<AtomicU64>,
-  /// Path prefix the client declared via Ping (from APERIO_PATH_BIND),
+  /// Path prefix the client declared via Ping (from APERIO_PATH),
   /// validated against the token permissions.
   pub(crate) declared_path: Option<String>,
   /// Path bind granted by the token permissions when the client declared none.
   pub(crate) assigned_path: Option<String>,
-  /// Hostname the client declared via Ping (from APERIO_HOSTNAME_BIND),
+  /// Hostname the client declared via Ping (from APERIO_HOSTNAME),
   /// validated against the token permissions.
   pub(crate) declared_hostname: Option<String>,
   /// Additional hostnames the client declared beyond `declared_hostname`
@@ -576,7 +576,7 @@ pub(crate) struct ClientHandle {
   /// Tunnel protocol version announced via Ping.
   pub(crate) client_protocol: Option<u32>,
   /// Latest backend health verdict reported by the client's own probe
-  /// (APERIO_CLIENT_TARGET_HEALTH). False = excluded from routing while the
+  /// (APERIO_TARGET_HEALTH). False = excluded from routing while the
   /// tunnel connection itself stays up.
   pub(crate) backend_healthy: bool,
   /// False only while a configured health check has not completed its first

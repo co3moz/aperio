@@ -24,7 +24,7 @@ A raw TCP service (database, SSH, ...) declared in a client's `tunnels:` list ca
 
 ## Server-side response cache
 
-With `APERIO_CACHE=1` on the server, services that opt in on the client side (`cache: true` per `services:` entry, or `APERIO_CLIENT_CACHE=1`) get a shared in-memory GET cache at the server's edge: a cache hit is answered immediately, without touching the tunnel or your backend at all.
+With `APERIO_CACHE=1` on the server, services that opt in on the client side (`cache: true` per `services:` entry, or `APERIO_CACHE=1`) get a shared in-memory GET cache at the server's edge: a cache hit is answered immediately, without touching the tunnel or your backend at all.
 
 The cache is deliberately conservative and strictly `Cache-Control`-driven — your backend stays in full control via standard headers:
 

@@ -116,7 +116,7 @@ pub enum TunnelMessage {
     /// The server queues excess requests instead of dispatching them.
     #[serde(default)]
     max_concurrent: Option<u32>,
-    /// True when the client has a TCP target configured (APERIO_CLIENT_TCP_TARGET).
+    /// True when the client has a TCP target configured (APERIO_TCP_TARGET).
     #[serde(default)]
     tcp: bool,
     /// Client build version (CARGO_PKG_VERSION), for display/diagnostics.

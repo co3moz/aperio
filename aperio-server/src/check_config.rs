@@ -156,10 +156,10 @@ pub(crate) fn run() -> i32 {
   // --- Numeric scalars: set-but-unparsable values silently fall back to
   // defaults at startup; the lint surfaces them as errors. ---
   check_parse::<u16>(&mut r, "PORT", "port number");
-  check_parse::<u64>(&mut r, "APERIO_SERVER_GATEWAY_TIMEOUT", "number of seconds");
+  check_parse::<u64>(&mut r, "APERIO_GATEWAY_TIMEOUT", "number of seconds");
   check_parse::<u64>(
     &mut r,
-    "APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT",
+    "APERIO_GATEWAY_RESPONSE_TIMEOUT",
     "number of seconds",
   );
   check_parse::<usize>(&mut r, "APERIO_MAX_BODY_SIZE", "byte count");

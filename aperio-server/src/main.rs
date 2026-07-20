@@ -254,12 +254,12 @@ async fn async_main() {
     std::process::exit(1);
   }
 
-  let gateway_timeout_secs = std::env::var("APERIO_SERVER_GATEWAY_TIMEOUT")
+  let gateway_timeout_secs = std::env::var("APERIO_GATEWAY_TIMEOUT")
     .ok()
     .and_then(|val| val.parse::<u64>().ok())
     .unwrap_or(10);
 
-  let gateway_response_timeout_secs = std::env::var("APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT")
+  let gateway_response_timeout_secs = std::env::var("APERIO_GATEWAY_RESPONSE_TIMEOUT")
     .ok()
     .and_then(|val| val.parse::<u64>().ok())
     .unwrap_or(30);

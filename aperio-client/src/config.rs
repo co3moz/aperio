@@ -9,9 +9,10 @@
 //! 4. CLI arguments
 //!
 //! Naming is mechanical across the three surfaces: CLI `--server-token` ↔
-//! yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. The pre-rename spellings
-//! (`APERIO_CLIENT_*`, `APERIO_HOSTNAME_BIND`, flat yaml `token:`) remain
-//! accepted as aliases so existing Docker setups keep working.
+//! yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. Each setting has exactly
+//! one canonical env name (no `APERIO_CLIENT_*` scoping aliases) — `client_id`
+//! keeps `APERIO_CLIENT_ID` because "client" is part of the concept, not a
+//! redundant prefix.
 
 use clap::{Args, Parser, Subcommand};
 use std::collections::HashMap;
@@ -418,36 +419,35 @@ pub(crate) fn resolve_sources(
     server: source_of(
       cli.opts.server_url.is_some(),
       local_url.as_ref(),
-      env2("APERIO_SERVER_URL", "APERIO_SERVER_URL").as_ref(),
+      env_str("APERIO_SERVER_URL").as_ref(),
       home_url.as_ref(),
     ),
     token: source_of(
       cli.opts.server_token.is_some(),
       local_token.as_ref(),
-      env2("APERIO_SERVER_TOKEN", "APERIO_SERVER_TOKEN").as_ref(),
+      env_str("APERIO_SERVER_TOKEN").as_ref(),
       home_token.as_ref(),
     ),
     target: source_of(
       cli.target.is_some(),
       local.target.as_ref(),
-      env2("APERIO_TARGET", "APERIO_CLIENT_TARGET").as_ref(),
+      env_str("APERIO_TARGET").as_ref(),
       home.target.as_ref(),
     ),
   }
 }
 
-/// Non-empty environment lookup with a legacy alias.
-fn env2(new: &str, old: &str) -> Option<String> {
-  let get = |key: &str| std::env::var(key).ok().filter(|s| !s.trim().is_empty());
-  get(new).or_else(|| get(old))
+/// Non-empty environment lookup.
+fn env_str(key: &str) -> Option<String> {
+  std::env::var(key).ok().filter(|s| !s.trim().is_empty())
 }
 
-fn env_parse<T: std::str::FromStr>(new: &str, old: &str) -> Option<T> {
-  env2(new, old).and_then(|v| v.parse().ok())
+fn env_parse<T: std::str::FromStr>(key: &str) -> Option<T> {
+  env_str(key).and_then(|v| v.parse().ok())
 }
 
-fn env_bool(new: &str, old: &str) -> Option<bool> {
-  env2(new, old).map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+fn env_bool(key: &str) -> Option<bool> {
+  env_str(key).map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 /// Layered lookup: CLI > local file > environment > home file.
@@ -471,25 +471,25 @@ pub(crate) fn resolve_settings(
     token: layered(
       o.server_token.clone(),
       local.server_token(),
-      env2("APERIO_SERVER_TOKEN", "APERIO_SERVER_TOKEN"),
+      env_str("APERIO_SERVER_TOKEN"),
       home.server_token(),
     ),
     server: layered(
       o.server_url.clone(),
       local.server_url(),
-      env2("APERIO_SERVER_URL", "APERIO_SERVER_URL"),
+      env_str("APERIO_SERVER_URL"),
       home.server_url(),
     ),
     target: layered(
       cli.target.clone(),
       local.target.clone(),
-      env2("APERIO_TARGET", "APERIO_CLIENT_TARGET"),
+      env_str("APERIO_TARGET"),
       home.target.clone(),
     ),
     serve: layered(
       o.serve.clone(),
       local.serve.clone(),
-      env2("APERIO_SERVE", "APERIO_CLIENT_SERVE"),
+      env_str("APERIO_SERVE"),
       home.serve.clone(),
     )
     .map(|s| s.trim().to_string())
@@ -498,118 +498,115 @@ pub(crate) fn resolve_settings(
     path: layered(
       o.path.clone(),
       local.path.clone(),
-      env2("APERIO_PATH", "APERIO_PATH_BIND"),
+      env_str("APERIO_PATH"),
       home.path.clone(),
     ),
     trim_bind: layered(
       None,
       local.trim_bind,
-      env_bool("APERIO_TRIM_BIND", "APERIO_CLIENT_TRIM_BIND"),
+      env_bool("APERIO_TRIM_BIND"),
       home.trim_bind,
     ),
     pass_hostname: o.pass_hostname
       || layered(
         None,
         local.pass_hostname,
-        env_bool("APERIO_PASS_HOSTNAME", "APERIO_CLIENT_PASS_HOSTNAME"),
+        env_bool("APERIO_PASS_HOSTNAME"),
         home.pass_hostname,
       )
       .unwrap_or(false),
     max_response_body: layered(
       None,
       local.max_response_body,
-      env_parse(
-        "APERIO_MAX_RESPONSE_BODY",
-        "APERIO_CLIENT_MAX_RESPONSE_BODY",
-      ),
+      env_parse("APERIO_MAX_RESPONSE_BODY"),
       home.max_response_body,
     )
     .unwrap_or(50 * 1024 * 1024),
     max_request_body: layered(
       None,
       local.max_request_body,
-      env_parse("APERIO_MAX_REQUEST_BODY", "APERIO_MAX_REQUEST_BODY"),
+      env_parse("APERIO_MAX_REQUEST_BODY"),
       home.max_request_body,
     ),
     response_timeout: layered(
       None,
       local.response_timeout,
-      env_parse("APERIO_RESPONSE_TIMEOUT", "APERIO_CLIENT_RESPONSE_TIMEOUT"),
+      env_parse("APERIO_RESPONSE_TIMEOUT"),
       home.response_timeout,
     ),
     timeout_secs: layered(
       None,
       local.timeout,
-      env_parse("APERIO_TIMEOUT", "APERIO_CLIENT_TIMEOUT"),
+      env_parse("APERIO_TIMEOUT"),
       home.timeout,
     )
     .unwrap_or(30),
     max_concurrent: layered(
       o.max_concurrent,
       local.max_concurrent,
-      env_parse("APERIO_MAX_CONCURRENT", "APERIO_CLIENT_MAX_CONCURRENT"),
+      env_parse("APERIO_MAX_CONCURRENT"),
       home.max_concurrent,
     )
     .filter(|n| *n > 0),
     connections: layered(
       None,
       local.connections,
-      env_parse("APERIO_CONNECTIONS", "APERIO_CLIENT_CONNECTIONS"),
+      env_parse("APERIO_CONNECTIONS"),
       home.connections,
     )
     .filter(|n| *n > 0),
     priority: layered(
       o.priority,
       local.priority,
-      env_parse("APERIO_PRIORITY", "APERIO_CLIENT_PRIORITY"),
+      env_parse("APERIO_PRIORITY"),
       home.priority,
     )
     .unwrap_or(0),
     bandwidth: layered(
       None,
       local.bandwidth.clone(),
-      env2("APERIO_BANDWIDTH", "APERIO_CLIENT_BANDWIDTH"),
+      env_str("APERIO_BANDWIDTH"),
       home.bandwidth.clone(),
     ),
     max_message_size: layered(
       None,
       local.max_message_size,
-      env_parse("APERIO_MAX_MESSAGE_SIZE", "APERIO_CLIENT_MAX_MESSAGE_SIZE"),
+      env_parse("APERIO_MAX_MESSAGE_SIZE"),
       home.max_message_size,
     )
     .unwrap_or(32 * 1024 * 1024),
     max_redirects: layered(
       None,
       local.max_redirects,
-      env_parse("APERIO_MAX_REDIRECTS", "APERIO_CLIENT_MAX_REDIRECTS"),
+      env_parse("APERIO_MAX_REDIRECTS"),
       home.max_redirects,
     )
     .unwrap_or(5),
     tcp_target: layered(
       None,
       local.tcp_target.clone(),
-      env2("APERIO_TCP_TARGET", "APERIO_CLIENT_TCP_TARGET"),
+      env_str("APERIO_TCP_TARGET"),
       home.tcp_target.clone(),
     )
     .and_then(nonempty),
     target_health: layered(
       None,
       local.target_health.clone(),
-      env2("APERIO_TARGET_HEALTH", "APERIO_CLIENT_TARGET_HEALTH"),
+      env_str("APERIO_TARGET_HEALTH"),
       home.target_health.clone(),
     )
     .and_then(nonempty),
     wait_for_backend: layered(
       None,
       local.wait_for_backend,
-      env_bool("APERIO_WAIT_FOR_BACKEND", "APERIO_WAIT_FOR_BACKEND"),
+      env_bool("APERIO_WAIT_FOR_BACKEND"),
       home.wait_for_backend,
     )
     .unwrap_or(false),
     health_interval: layered(
       None,
       local.health_interval,
-      env_parse("APERIO_HEALTH_INTERVAL", "APERIO_CLIENT_HEALTH_INTERVAL"),
+      env_parse("APERIO_HEALTH_INTERVAL"),
       home.health_interval,
     )
     .unwrap_or(10)
@@ -617,7 +614,7 @@ pub(crate) fn resolve_settings(
     health_timeout: layered(
       None,
       local.health_timeout,
-      env_parse("APERIO_HEALTH_TIMEOUT", "APERIO_CLIENT_HEALTH_TIMEOUT"),
+      env_parse("APERIO_HEALTH_TIMEOUT"),
       home.health_timeout,
     )
     .unwrap_or(5)
@@ -625,30 +622,24 @@ pub(crate) fn resolve_settings(
     health_threshold: layered(
       None,
       local.health_threshold,
-      env_parse("APERIO_HEALTH_THRESHOLD", "APERIO_CLIENT_HEALTH_THRESHOLD"),
+      env_parse("APERIO_HEALTH_THRESHOLD"),
       home.health_threshold,
     )
     .unwrap_or(2)
     .max(1),
     public: o.public
-      || layered(
-        None,
-        local.public,
-        env_bool("APERIO_PUBLIC", "APERIO_CLIENT_PUBLIC"),
-        home.public,
-      )
-      .unwrap_or(false),
+      || layered(None, local.public, env_bool("APERIO_PUBLIC"), home.public).unwrap_or(false),
     visitor_auth: layered(
       o.visitor_auth.clone(),
       local.auth.clone(),
-      env2("APERIO_VISITOR_AUTH", "APERIO_VISITOR_AUTH"),
+      env_str("APERIO_VISITOR_AUTH"),
       home.auth.clone(),
     )
     .and_then(nonempty),
     allowed_ips: layered(
       o.allowed_ips.clone().map(|s| split_ip_list(&s)),
       local.allowed_ips.clone(),
-      env2("APERIO_ALLOWED_IPS", "APERIO_ALLOWED_IPS").map(|s| split_ip_list(&s)),
+      env_str("APERIO_ALLOWED_IPS").map(|s| split_ip_list(&s)),
       home.allowed_ips.clone(),
     )
     .unwrap_or_default(),
@@ -657,32 +648,26 @@ pub(crate) fn resolve_settings(
       .security_headers
       .clone()
       .or_else(|| home.security_headers.clone()),
-    cache: layered(
-      None,
-      local.cache,
-      env_bool("APERIO_CACHE", "APERIO_CLIENT_CACHE"),
-      home.cache,
-    )
-    .unwrap_or(false),
+    cache: layered(None, local.cache, env_bool("APERIO_CACHE"), home.cache).unwrap_or(false),
     resilience: o.resilience
       || layered(
         None,
         local.resilience,
-        env_bool("APERIO_RESILIENCE", "APERIO_CLIENT_RESILIENCE"),
+        env_bool("APERIO_RESILIENCE"),
         home.resilience,
       )
       .unwrap_or(false),
     webhook_inbox: layered(
       None,
       local.webhook_inbox,
-      env_bool("APERIO_WEBHOOK_INBOX", "APERIO_WEBHOOK_INBOX"),
+      env_bool("APERIO_WEBHOOK_INBOX"),
       home.webhook_inbox,
     )
     .unwrap_or(false),
     denied: layered(
       None,
       local.denied.clone(),
-      env2("APERIO_DENIED", "APERIO_DENIED"),
+      env_str("APERIO_DENIED"),
       home.denied.clone(),
     )
     .and_then(nonempty),
@@ -690,7 +675,7 @@ pub(crate) fn resolve_settings(
     client_id: layered(
       o.client_id.clone(),
       local.client_id.clone(),
-      env2("APERIO_CLIENT_ID", "APERIO_CLIENT_ID"),
+      env_str("APERIO_CLIENT_ID"),
       home.client_id.clone(),
     )
     .and_then(nonempty),
@@ -782,7 +767,7 @@ fn resolve_hostnames(o: &CommonOpts, local: &FileConfig, home: &FileConfig) -> V
     .clone()
     .map(|h| norm(h.into_vec()))
     .filter(|v| !v.is_empty());
-  let from_env = env2("APERIO_HOSTNAME", "APERIO_HOSTNAME_BIND")
+  let from_env = env_str("APERIO_HOSTNAME")
     .map(|s| norm(split_ip_list(&s)))
     .filter(|v| !v.is_empty());
   let from_home = home

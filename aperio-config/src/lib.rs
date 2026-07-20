@@ -637,10 +637,10 @@ pub struct ServerFileConfig {
   pub login_lockout_threshold: Option<u32>,
   /// Base lockout seconds, doubled per repeat (env: APERIO_LOGIN_LOCKOUT_SECS).
   pub login_lockout_secs: Option<u64>,
-  /// Seconds to wait for a client connection (env: APERIO_SERVER_GATEWAY_TIMEOUT).
-  pub server_gateway_timeout: Option<u64>,
-  /// Seconds to wait for a client response (env: APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT).
-  pub server_gateway_response_timeout: Option<u64>,
+  /// Seconds to wait for a client connection (env: APERIO_GATEWAY_TIMEOUT).
+  pub gateway_timeout: Option<u64>,
+  /// Seconds to wait for a client response (env: APERIO_GATEWAY_RESPONSE_TIMEOUT).
+  pub gateway_response_timeout: Option<u64>,
 
   // --- Proxy trust & cookies ---
   /// Trust `X-Forwarded-For` from proxies (env: APERIO_TRUST_PROXY).
