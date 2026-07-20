@@ -63,13 +63,14 @@ impl AdminKeyStore {
     AdminKeyStore { conn, keys }
   }
 
-  fn persist(&mut self) {
+  /// Rewrites the admin_keys table. Returns whether the write succeeded.
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .keys
       .iter()
       .filter_map(|k| serde_json::to_string(k).ok().map(|j| (k.id.clone(), j)))
       .collect();
-    crate::store::replace_all(&mut self.conn, "admin_keys", &rows);
+    crate::store::replace_all(&mut self.conn, "admin_keys", &rows)
   }
 
   /// Creates a new admin key, persists it, and returns the record plus the
@@ -102,14 +103,20 @@ impl AdminKeyStore {
   }
 
   /// Removes a key by ID. Returns true when a key was actually removed.
+  /// Revokes an admin key by id. Returns true only when it was removed *and*
+  /// durably persisted; on a write failure the removal is reverted and `false`
+  /// returned, so a revoked key can't silently reappear on restart.
   pub fn revoke(&mut self, id: &str) -> bool {
-    let before = self.keys.len();
-    self.keys.retain(|k| k.id != id);
-    let removed = self.keys.len() != before;
-    if removed {
-      self.persist();
+    let Some(pos) = self.keys.iter().position(|k| k.id == id) else {
+      return false;
+    };
+    let removed = self.keys.remove(pos);
+    if self.persist() {
+      true
+    } else {
+      self.keys.insert(pos, removed);
+      false
     }
-    removed
   }
 
   /// All key records (hashes included; strip before exposing).

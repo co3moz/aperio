@@ -95,7 +95,8 @@ impl WebhookStore {
     self.webhooks.len()
   }
 
-  fn persist(&mut self) {
+  /// Rewrites the webhooks table. Returns whether the write succeeded.
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .webhooks
       .iter()
@@ -105,7 +106,7 @@ impl WebhookStore {
           .map(|json| (w.id.clone(), json))
       })
       .collect();
-    crate::store::replace_all(&mut self.conn, "webhooks", &rows);
+    crate::store::replace_all(&mut self.conn, "webhooks", &rows)
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -134,14 +135,20 @@ impl WebhookStore {
     hook
   }
 
+  /// Deletes a webhook by id. Returns true only when it was removed *and*
+  /// durably persisted; on a write failure the removal is reverted and `false`
+  /// is returned, so a deleted webhook can't silently reappear on restart.
   pub fn delete(&mut self, id: &str) -> bool {
-    let before = self.webhooks.len();
-    self.webhooks.retain(|w| w.id != id);
-    let removed = self.webhooks.len() != before;
-    if removed {
-      self.persist();
+    let Some(pos) = self.webhooks.iter().position(|w| w.id == id) else {
+      return false;
+    };
+    let removed = self.webhooks.remove(pos);
+    if self.persist() {
+      true
+    } else {
+      self.webhooks.insert(pos, removed);
+      false
     }
-    removed
   }
 
   pub fn list(&self) -> &[Webhook] {

@@ -73,7 +73,11 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
 
 /// Replaces every row of `table` with the given `(id, json)` records in one
 /// transaction, so a crash can never leave a half-written store.
-pub(crate) fn replace_all(conn: &mut Connection, table: &str, rows: &[(String, String)]) {
+/// Atomically replaces every row of `table`. Returns `true` on success; on a
+/// write failure it logs and returns `false` so a caller performing a
+/// security-relevant mutation (token/session/webhook revoke) can report the
+/// failure instead of silently diverging from disk.
+pub(crate) fn replace_all(conn: &mut Connection, table: &str, rows: &[(String, String)]) -> bool {
   let res = (|| -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute(&format!("DELETE FROM {}", table), [])?;
@@ -85,8 +89,12 @@ pub(crate) fn replace_all(conn: &mut Connection, table: &str, rows: &[(String, S
     }
     tx.commit()
   })();
-  if let Err(e) = res {
-    error!("Failed to persist {} to the store: {}", table, e);
+  match res {
+    Ok(()) => true,
+    Err(e) => {
+      error!("Failed to persist {} to the store: {}", table, e);
+      false
+    }
   }
 }
 

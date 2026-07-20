@@ -166,15 +166,22 @@ impl SessionStore {
 
   pub(crate) fn remove(&mut self, token: &str) -> Option<SessionInfo> {
     let key = token_key(token);
-    let removed = self.sessions.remove(&key);
-    if removed.is_some()
-      && let Err(e) = self
-        .conn
-        .execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![key])
+    let removed = self.sessions.remove(&key)?;
+    if let Err(e) = self
+      .conn
+      .execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![key])
     {
-      error!("Failed to delete a session from the store: {}", e);
+      // The on-disk row survived: re-insert into memory so the two agree
+      // (a session logged out here must not silently persist to disk and come
+      // back on restart) and report nothing removed.
+      error!(
+        "Failed to delete a session from the store: {}; keeping it",
+        e
+      );
+      self.sessions.insert(key, removed);
+      return None;
     }
-    removed
+    Some(removed)
   }
 
   /// Drops every session that fails the predicate (bulk: expiry GC, user
@@ -207,15 +214,22 @@ impl SessionStore {
   /// Removes a session by its management id (hashed token). Returns whether
   /// anything was removed.
   pub(crate) fn remove_by_key(&mut self, key: &str) -> bool {
-    let removed = self.sessions.remove(key).is_some();
-    if removed
-      && let Err(e) = self
-        .conn
-        .execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![key])
+    let Some(removed) = self.sessions.remove(key) else {
+      return false;
+    };
+    if let Err(e) = self
+      .conn
+      .execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![key])
     {
-      error!("Failed to delete a session from the store: {}", e);
+      // Revert so memory matches the surviving on-disk row; report failure.
+      error!(
+        "Failed to delete a session from the store: {}; keeping it",
+        e
+      );
+      self.sessions.insert(key.to_string(), removed);
+      return false;
     }
-    removed
+    true
   }
 
   /// Drops every session whose key is NOT in `keep` and persists.

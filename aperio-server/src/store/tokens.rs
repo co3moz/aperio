@@ -124,7 +124,8 @@ impl TokenStore {
     self.tokens.len()
   }
 
-  fn persist(&mut self) {
+  /// Rewrites the tokens table. Returns whether the write succeeded.
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .tokens
       .iter()
@@ -134,7 +135,7 @@ impl TokenStore {
           .map(|json| (t.id.clone(), json))
       })
       .collect();
-    crate::store::replace_all(&mut self.conn, "tokens", &rows);
+    crate::store::replace_all(&mut self.conn, "tokens", &rows)
   }
 
   /// Creates a new token, persists it, and returns the record together with
@@ -233,15 +234,22 @@ impl TokenStore {
     Some(updated)
   }
 
-  /// Removes a token by ID. Returns true when a token was actually removed.
+  /// Removes a token by ID. Returns true when a token was actually removed
+  /// *and durably persisted*. On a persist failure the in-memory removal is
+  /// reverted so memory matches disk — otherwise a "revoked" token would come
+  /// back on the next restart — and `false` is returned so the caller reports
+  /// the failure rather than a false success.
   pub fn revoke(&mut self, id: &str) -> bool {
-    let before = self.tokens.len();
-    self.tokens.retain(|t| t.id != id);
-    let removed = self.tokens.len() != before;
-    if removed {
-      self.persist();
+    let Some(pos) = self.tokens.iter().position(|t| t.id == id) else {
+      return false;
+    };
+    let removed = self.tokens.remove(pos);
+    if self.persist() {
+      true
+    } else {
+      self.tokens.insert(pos, removed);
+      false
     }
-    removed
   }
 
   /// Returns all token records (hashes included; strip before exposing).
