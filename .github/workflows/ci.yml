@@ -73,7 +73,9 @@ jobs:
           node-version: 22
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
@@ -121,7 +123,9 @@ jobs:
 
       # Prebuilt binary instead of `cargo install` (no multi-minute compile).
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
 
       # Cache the RustSec advisory database between runs; a stale copy is
       # refreshed by cargo-audit's own git pull, so a weekly key is plenty.
@@ -168,7 +172,9 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
