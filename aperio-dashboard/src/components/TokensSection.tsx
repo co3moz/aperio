@@ -83,6 +83,14 @@ function formFromToken(tok: TokenView | null): TokenFormState {
   }
 }
 
+// Quick-fill presets for the create dialog: common token shapes so an operator
+// does not hand-tune the TTL each time.
+const TOKEN_PRESETS: { label: string; patch: Partial<TokenFormState> }[] = [
+  { label: 'CI preview', patch: { ttl: '86400', maxRps: '', canary: false } },
+  { label: '30-day', patch: { ttl: '2592000' } },
+  { label: 'Long-lived', patch: { ttl: '' } },
+]
+
 // Shared create/edit dialog. In edit mode the name is fixed and the TTL field
 // means "new lifetime from now" (0 = never expires, empty = keep current).
 function TokenFormDialog({
@@ -203,6 +211,22 @@ function TokenFormDialog({
         </DialogHeader>
         <div className="grid gap-4">
           {!editing && field(t('Name'), 'name', 'staging deploys')}
+          {!editing && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">{t('Presets')}:</span>
+              {TOKEN_PRESETS.map((p) => (
+                <Button
+                  key={p.label}
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  onClick={() => setForm((f) => ({ ...f, ...p.patch }))}
+                >
+                  {t(p.label)}
+                </Button>
+              ))}
+            </div>
+          )}
           {field(t('Allowed hostnames (comma separated, * = all)'), 'hostnames', '*')}
           {field(t('Allowed path binds (comma separated, * = all)'), 'paths', '*')}
           {field(t('Allowed source IPs / CIDRs'), 'ips', '0.0.0.0/0')}

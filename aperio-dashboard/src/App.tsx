@@ -99,7 +99,9 @@ export default function App() {
   const [passkeysOpen, setPasskeysOpen] = useState(false)
   // The server version only changes on restart; a slow poll keeps it honest.
   const { data: health } = usePoll(api.health, 300_000)
-  const [inspectId, setInspectId] = useState<string | null>(null)
+  // Capture permalink: the inspected request id lives in the URL (?inspect=),
+  // so an opened capture can be bookmarked or shared and reopens on reload.
+  const [inspectId, setInspectId] = useState<string | null>(() => readParams().get('inspect'))
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
@@ -114,9 +116,21 @@ export default function App() {
     writeParams(params, true)
   }, [])
   useEffect(() => {
-    const onPop = () => setPage(pageFromUrl())
+    const onPop = () => {
+      setPage(pageFromUrl())
+      setInspectId(readParams().get('inspect'))
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  // Open/close a capture, reflecting the id in the URL so it is shareable.
+  const setInspect = useCallback((id: string | null) => {
+    setInspectId(id)
+    const params = readParams()
+    if (id) params.set('inspect', id)
+    else params.delete('inspect')
+    writeParams(params, true)
   }, [])
 
   // Requests/second sparkline derived from the total_requests delta between
@@ -345,8 +359,8 @@ export default function App() {
                   <UptimeSection />
                 </>
               )}
-              {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspectId} />}
-              {page === 'tail' && <LiveTailSection logs={logs} onInspect={setInspectId} />}
+              {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
+              {page === 'tail' && <LiveTailSection logs={logs} onInspect={setInspect} />}
               {page === 'inbox' && <InboxSection />}
               {page === 'breakdown' && (
                 <div className="flex flex-col gap-6">
@@ -385,7 +399,7 @@ export default function App() {
       </SidebarInset>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
-      <InspectorDialog id={inspectId} onClose={() => setInspectId(null)} />
+      <InspectorDialog id={inspectId} onClose={() => setInspect(null)} />
     </SidebarProvider>
     </SessionProvider>
   )
