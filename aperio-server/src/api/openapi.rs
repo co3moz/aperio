@@ -35,6 +35,8 @@ use utoipa::OpenApi;
     crate::api::orgs::orgs_list_handler,
     crate::api::orgs::orgs_create_handler,
     crate::api::orgs::orgs_delete_handler,
+    crate::api::orgs::orgs_quota_handler,
+    crate::api::orgs::orgs_usage_handler,
     crate::api::orgs::orgs_select_handler,
     crate::api::admin_keys::admin_keys_list_handler,
     crate::api::admin_keys::admin_keys_create_handler,

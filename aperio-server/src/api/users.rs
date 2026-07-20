@@ -96,6 +96,9 @@ pub(crate) async fn users_create_handler(
   };
   // New users belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
+  if let Err(msg) = state.check_org_user_quota(org.as_deref()).await {
+    return (StatusCode::FORBIDDEN, msg).into_response();
+  }
   let created = state
     .users
     .lock()

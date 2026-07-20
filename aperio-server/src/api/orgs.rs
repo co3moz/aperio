@@ -219,3 +219,138 @@ pub(crate) async fn orgs_delete_handler(
     .await;
   StatusCode::OK.into_response()
 }
+
+/// Payload for setting an org's quotas. `Some(0)` clears a quota, `Some(n)`
+/// sets it, an absent field is left unchanged.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgQuotaRequest {
+  pub(crate) max_clients: Option<u64>,
+  pub(crate) max_tokens: Option<u64>,
+  pub(crate) max_users: Option<u64>,
+  pub(crate) max_bytes_month: Option<u64>,
+}
+
+/// Sets a child organization's quotas (master super-admin only).
+#[utoipa::path(put, path = "/aperio/api/orgs/{id}/quota", tag = "orgs",
+  description = "Sets a child org's quotas (max clients/tokens/users, monthly bytes).",
+  request_body = OrgQuotaRequest,
+  responses((status = 200, description = "Updated org"), (status = 404, description = "Unknown org")))]
+pub(crate) async fn orgs_quota_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+  Json(payload): Json<OrgQuotaRequest>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  if id == MASTER_ID {
+    return (
+      StatusCode::BAD_REQUEST,
+      "the master organization has no quota",
+    )
+      .into_response();
+  }
+  // Map Some(0) → clear, Some(n) → set, None → keep.
+  let to_opt = |v: Option<u64>| v.map(|n| if n == 0 { None } else { Some(n) });
+  let updated = state.org_store.lock().await.set_quota(
+    &id,
+    to_opt(payload.max_clients),
+    to_opt(payload.max_tokens),
+    to_opt(payload.max_users),
+    to_opt(payload.max_bytes_month),
+  );
+  match updated {
+    Some(org) => {
+      let ip = actor_ip(&state, &headers, addr);
+      state
+        .audit(
+          "org_quota_updated",
+          &state.session_actor(&headers).await,
+          &ip,
+          &format!(
+            "id={} max_clients={:?} max_tokens={:?} max_users={:?} max_bytes_month={:?}",
+            org.id, org.max_clients, org.max_tokens, org.max_users, org.max_bytes_month
+          ),
+        )
+        .await;
+      Json(serde_json::json!({
+        "id": org.id,
+        "name": org.name,
+        "max_clients": org.max_clients,
+        "max_tokens": org.max_tokens,
+        "max_users": org.max_users,
+        "max_bytes_month": org.max_bytes_month,
+      }))
+      .into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+  }
+}
+
+/// Reports an organization's current-month usage against its quotas, and emits
+/// an `org_usage` webhook event (a billing integration can subscribe or poll
+/// this endpoint on a schedule).
+#[utoipa::path(get, path = "/aperio/api/orgs/{id}/usage", tag = "orgs",
+  description = "Current-month usage vs quota for an organization; also emits an org_usage webhook.",
+  responses((status = 200, description = "Usage report", body = serde_json::Value)))]
+pub(crate) async fn orgs_usage_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  let org_key: Option<&str> = if id == MASTER_ID {
+    None
+  } else {
+    Some(id.as_str())
+  };
+  let org_id_opt: Option<String> = org_key.map(|s| s.to_string());
+
+  let month = crate::store::stats::period_keys()[2].clone();
+  let period = {
+    let stats = state.persistent_stats.lock().await;
+    stats
+      .snapshot_for_org(org_key)
+      .periods
+      .get(&month)
+      .cloned()
+      .unwrap_or_default()
+  };
+  let month_bytes = period.bytes_sent + period.bytes_received;
+
+  let counts = org_member_counts(&state).await;
+  let (users, tokens) = counts.get(&org_id_opt).copied().unwrap_or((0, 0));
+  let clients = state
+    .clients
+    .lock()
+    .await
+    .values()
+    .filter(|c| c.perms.org_id.as_deref() == org_key)
+    .count();
+  let quota = state.org_quota(org_key).await;
+
+  let usage = serde_json::json!({
+    "org_id": id,
+    "month": month,
+    "requests": period.requests,
+    "bytes": month_bytes,
+    "clients": clients,
+    "tokens": tokens,
+    "users": users,
+    "quota": quota.as_ref().map(|q| serde_json::json!({
+      "max_clients": q.max_clients,
+      "max_tokens": q.max_tokens,
+      "max_users": q.max_users,
+      "max_bytes_month": q.max_bytes_month,
+    })),
+  });
+  // Billing signal: subscribers to `org_usage` receive the same figures.
+  state
+    .emit_event_in("org_usage", usage.clone(), org_id_opt)
+    .await;
+  Json(usage).into_response()
+}

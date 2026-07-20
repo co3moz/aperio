@@ -211,6 +211,9 @@ pub(crate) async fn tokens_create_handler(
 
   // New tokens belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
+  if let Err(msg) = state.check_org_token_quota(org.as_deref()).await {
+    return (StatusCode::FORBIDDEN, msg).into_response();
+  }
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
     store.create(

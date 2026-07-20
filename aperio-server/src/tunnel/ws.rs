@@ -105,6 +105,13 @@ pub(crate) async fn ws_handler(
     }
   };
 
+  // Per-organization client quota (max_clients): reject when the org already
+  // has its allowed number of clients connected.
+  if let Err(msg) = state.check_org_client_quota(perms.org_id.as_deref()).await {
+    warn!("Tunnel connection rejected: {}", msg);
+    return (StatusCode::SERVICE_UNAVAILABLE, msg).into_response();
+  }
+
   // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
   // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
   loop {

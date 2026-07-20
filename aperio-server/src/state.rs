@@ -1391,6 +1391,94 @@ impl AppState {
     }
   }
 
+  /// The quota record for a child org (None for master or an unknown id).
+  pub(crate) async fn org_quota(
+    &self,
+    org: Option<&str>,
+  ) -> Option<crate::store::orgs::Organization> {
+    let id = org?;
+    self.org_store.lock().await.find(id).cloned()
+  }
+
+  /// Enforces the org's `max_tokens` quota. Err(msg) when at the cap.
+  pub(crate) async fn check_org_token_quota(&self, org: Option<&str>) -> Result<(), String> {
+    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_tokens) else {
+      return Ok(());
+    };
+    let count = self
+      .token_store
+      .lock()
+      .await
+      .list()
+      .iter()
+      .filter(|t| t.org_id.as_deref() == org)
+      .count() as u64;
+    if count >= max {
+      Err(format!("organization token quota reached ({max})"))
+    } else {
+      Ok(())
+    }
+  }
+
+  /// Enforces the org's `max_users` quota. Err(msg) when at the cap.
+  pub(crate) async fn check_org_user_quota(&self, org: Option<&str>) -> Result<(), String> {
+    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_users) else {
+      return Ok(());
+    };
+    let count = self
+      .users
+      .lock()
+      .await
+      .list()
+      .iter()
+      .filter(|u| u.org_id.as_deref() == org)
+      .count() as u64;
+    if count >= max {
+      Err(format!("organization user quota reached ({max})"))
+    } else {
+      Ok(())
+    }
+  }
+
+  /// Enforces the org's `max_clients` quota against currently-connected
+  /// clients. Err(msg) when at the cap.
+  pub(crate) async fn check_org_client_quota(&self, org: Option<&str>) -> Result<(), String> {
+    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_clients) else {
+      return Ok(());
+    };
+    let count = self
+      .clients
+      .lock()
+      .await
+      .values()
+      .filter(|c| c.perms.org_id.as_deref() == org)
+      .count() as u64;
+    if count >= max {
+      Err(format!("organization client quota reached ({max})"))
+    } else {
+      Ok(())
+    }
+  }
+
+  /// True when the org is over its `max_bytes_month` quota for the current
+  /// calendar month (proxied bytes in + out). False when no quota / no org.
+  pub(crate) async fn org_over_month_bytes(&self, org: Option<&str>) -> bool {
+    let Some(max) = self.org_quota(org).await.and_then(|q| q.max_bytes_month) else {
+      return false;
+    };
+    let month_key = crate::store::stats::period_keys()[2].clone();
+    let used = {
+      let stats = self.persistent_stats.lock().await;
+      stats
+        .snapshot_for_org(org)
+        .periods
+        .get(&month_key)
+        .map(|p| p.bytes_sent + p.bytes_received)
+        .unwrap_or(0)
+    };
+    used >= max
+  }
+
   /// Enforces the per-route rate limit (`rate_limits:` section) for a request.
   /// Returns true when the request may proceed, false when the matched route's
   /// shared token bucket is empty (the caller answers 429). No configured rule

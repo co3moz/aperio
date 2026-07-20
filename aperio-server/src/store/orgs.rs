@@ -25,6 +25,19 @@ pub struct Organization {
   pub name: String,
   /// Unix seconds of creation.
   pub created_at: u64,
+  /// Max concurrently-connected clients in this org (None = unlimited).
+  #[serde(default)]
+  pub max_clients: Option<u64>,
+  /// Max dynamic tokens in this org (None = unlimited).
+  #[serde(default)]
+  pub max_tokens: Option<u64>,
+  /// Max dashboard users in this org (None = unlimited).
+  #[serde(default)]
+  pub max_users: Option<u64>,
+  /// Max proxied bytes (in + out) this org may serve per calendar month
+  /// (None = unlimited). Enforced against the month's per-org stats bucket.
+  #[serde(default)]
+  pub max_bytes_month: Option<u64>,
 }
 
 /// Persistent store of child organizations, backed by the `organizations`
@@ -77,6 +90,10 @@ impl OrgStore {
       id: uuid::Uuid::new_v4().to_string(),
       name: name.to_string(),
       created_at: crate::store::tokens::now_secs(),
+      max_clients: None,
+      max_tokens: None,
+      max_users: None,
+      max_bytes_month: None,
     };
     self.orgs.push(org.clone());
     self.persist();
@@ -96,6 +113,39 @@ impl OrgStore {
 
   pub fn list(&self) -> &[Organization] {
     &self.orgs
+  }
+
+  /// Looks up an org by id.
+  pub fn find(&self, id: &str) -> Option<&Organization> {
+    self.orgs.iter().find(|o| o.id == id)
+  }
+
+  /// Updates an org's quotas in place. `Some(None)` clears a quota, `Some(v)`
+  /// sets it, `None` leaves it unchanged. Returns the updated record.
+  pub fn set_quota(
+    &mut self,
+    id: &str,
+    max_clients: Option<Option<u64>>,
+    max_tokens: Option<Option<u64>>,
+    max_users: Option<Option<u64>>,
+    max_bytes_month: Option<Option<u64>>,
+  ) -> Option<Organization> {
+    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
+    if let Some(v) = max_clients {
+      org.max_clients = v.filter(|n| *n > 0);
+    }
+    if let Some(v) = max_tokens {
+      org.max_tokens = v.filter(|n| *n > 0);
+    }
+    if let Some(v) = max_users {
+      org.max_users = v.filter(|n| *n > 0);
+    }
+    if let Some(v) = max_bytes_month {
+      org.max_bytes_month = v.filter(|n| *n > 0);
+    }
+    let updated = org.clone();
+    self.persist();
+    Some(updated)
   }
 }
 
@@ -130,6 +180,33 @@ mod tests {
     assert!(store.delete(&a.id));
     assert!(!store.delete(&a.id));
     assert!(store.list().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn test_set_quota_and_persist() {
+    let dir = temp_dir();
+    let mut store = OrgStore::load(&dir);
+    let org = store.create("Acme").unwrap();
+    assert!(org.max_tokens.is_none());
+
+    // Set two quotas; leave the others untouched.
+    let updated = store
+      .set_quota(&org.id, Some(Some(3)), Some(Some(10)), None, None)
+      .unwrap();
+    assert_eq!(updated.max_clients, Some(3));
+    assert_eq!(updated.max_tokens, Some(10));
+    assert!(updated.max_users.is_none());
+
+    // Survives reload; 0 clears a quota.
+    let mut reloaded = OrgStore::load(&dir);
+    assert_eq!(reloaded.find(&org.id).unwrap().max_tokens, Some(10));
+    let cleared = reloaded
+      .set_quota(&org.id, Some(Some(0)), None, None, None)
+      .unwrap();
+    assert!(cleared.max_clients.is_none());
+    assert_eq!(cleared.max_tokens, Some(10));
+
     let _ = std::fs::remove_dir_all(&dir);
   }
 }

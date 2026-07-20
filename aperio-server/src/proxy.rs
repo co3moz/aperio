@@ -901,6 +901,26 @@ async fn proxy_http_request(
       .into_response();
   }
 
+  // Per-organization monthly byte quota (max_bytes_month): once the serving
+  // org is over budget for the calendar month, its traffic is refused.
+  if state.org_over_month_bytes(selected.org_id.as_deref()).await {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      429,
+      start_time.elapsed(),
+      Some("Organization monthly byte quota exceeded"),
+      selected.org_id.clone(),
+    )
+    .await;
+    return (
+      StatusCode::TOO_MANY_REQUESTS,
+      "429 Too Many Requests - Organization monthly byte quota exceeded",
+    )
+      .into_response();
+  }
+
   // Server-side response cache (APERIO_CACHE + the client's `cache: true`):
   // a fresh cached GET answer skips the tunnel round-trip entirely. Only
   // credential-less plain GETs qualify, and only responses whose

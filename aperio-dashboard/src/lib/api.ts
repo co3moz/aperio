@@ -319,6 +319,29 @@ export interface Organization {
   tokens: number
 }
 
+export interface OrgQuota {
+  max_clients?: number
+  max_tokens?: number
+  max_users?: number
+  max_bytes_month?: number
+}
+
+export interface OrgUsage {
+  org_id: string
+  month: string
+  requests: number
+  bytes: number
+  clients: number
+  tokens: number
+  users: number
+  quota: {
+    max_clients: number | null
+    max_tokens: number | null
+    max_users: number | null
+    max_bytes_month: number | null
+  } | null
+}
+
 export interface DashboardUser {
   id: string
   username: string
@@ -487,6 +510,9 @@ export const api = {
   orgs: () => request<Organization[]>('/orgs'),
   createOrg: (name: string) => request<{ id: string; name: string }>('/orgs', json('POST', { name })),
   deleteOrg: (id: string) => mutate(`/orgs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setOrgQuota: (id: string, quota: OrgQuota) =>
+    mutate(`/orgs/${encodeURIComponent(id)}/quota`, json('PUT', quota)),
+  orgUsage: (id: string) => request<OrgUsage>(`/orgs/${encodeURIComponent(id)}/usage`),
   selectOrg: (id: string) => request<{ selected: string }>('/orgs/select', json('POST', { id })),
 }
 

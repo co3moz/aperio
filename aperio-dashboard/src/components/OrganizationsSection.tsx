@@ -1,4 +1,11 @@
-import { Building2Icon, KeyRoundIcon, PlusIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import {
+  Building2Icon,
+  GaugeIcon,
+  KeyRoundIcon,
+  PlusIcon,
+  Trash2Icon,
+  UsersIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
@@ -38,7 +45,7 @@ import {
 } from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
-import { api, ApiError, type Organization } from '@/lib/api'
+import { api, ApiError, type Organization, type OrgUsage } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 
 function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
@@ -150,6 +157,132 @@ function DeleteOrgButton({ org, onDone }: { org: Organization; onDone: () => voi
   )
 }
 
+// Per-org quota editor + current-month usage. Opens on demand and fetches
+// usage; saving updates the quota and re-fetches.
+function QuotaDialog({ org }: { org: Organization }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [usage, setUsage] = useState<OrgUsage | null>(null)
+  const [form, setForm] = useState({ clients: '', tokens: '', users: '', bytesMb: '' })
+  const [busy, setBusy] = useState(false)
+
+  const load = async () => {
+    const u = await api.orgUsage(org.id)
+    setUsage(u)
+    setForm({
+      clients: u.quota?.max_clients != null ? String(u.quota.max_clients) : '',
+      tokens: u.quota?.max_tokens != null ? String(u.quota.max_tokens) : '',
+      users: u.quota?.max_users != null ? String(u.quota.max_users) : '',
+      bytesMb:
+        u.quota?.max_bytes_month != null
+          ? String(Math.round(u.quota.max_bytes_month / (1024 * 1024)))
+          : '',
+    })
+  }
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (next) load().catch(() => setUsage(null))
+  }
+
+  // Empty input = clear the quota (send 0); a number sets it.
+  const num = (s: string) => {
+    const n = parseInt(s, 10)
+    return Number.isNaN(n) || n < 0 ? 0 : n
+  }
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      await api.setOrgQuota(org.id, {
+        max_clients: num(form.clients),
+        max_tokens: num(form.tokens),
+        max_users: num(form.users),
+        max_bytes_month: num(form.bytesMb) * 1024 * 1024,
+      })
+      await load()
+      toast.success(t('Quota updated'))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const mb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger
+        render={<Button variant="ghost" size="icon" aria-label={t('Quota & usage')} />}
+      >
+        <GaugeIcon />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('Quota & usage — {name}', { name: org.name })}</DialogTitle>
+          <DialogDescription>
+            {t('Leave a field empty for no limit. Usage is for the current calendar month.')}
+          </DialogDescription>
+        </DialogHeader>
+        {usage && (
+          <div className="rounded-md border p-3 text-sm text-muted-foreground">
+            {t('This month: {req} requests, {bytes}, {clients} clients, {tokens} tokens, {users} users', {
+              req: usage.requests,
+              bytes: mb(usage.bytes),
+              clients: usage.clients,
+              tokens: usage.tokens,
+              users: usage.users,
+            })}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>{t('Max clients')}</Label>
+            <Input
+              value={form.clients}
+              onChange={(e) => setForm((f) => ({ ...f, clients: e.target.value }))}
+              inputMode="numeric"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>{t('Max tokens')}</Label>
+            <Input
+              value={form.tokens}
+              onChange={(e) => setForm((f) => ({ ...f, tokens: e.target.value }))}
+              inputMode="numeric"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>{t('Max users')}</Label>
+            <Input
+              value={form.users}
+              onChange={(e) => setForm((f) => ({ ...f, users: e.target.value }))}
+              inputMode="numeric"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>{t('Max MB / month')}</Label>
+            <Input
+              value={form.bytesMb}
+              onChange={(e) => setForm((f) => ({ ...f, bytesMb: e.target.value }))}
+              inputMode="numeric"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            {t('Close')}
+          </Button>
+          <Button onClick={save} disabled={busy}>
+            {busy && <Spinner />} {t('Save quota')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function OrganizationsSection() {
   const { t } = useI18n()
   const { data: orgs, refresh } = usePoll(api.orgs, 30_000)
@@ -208,7 +341,10 @@ export function OrganizationsSection() {
                       {o.master ? (
                         <span className="text-muted-foreground">-</span>
                       ) : (
-                        <DeleteOrgButton org={o} onDone={refresh} />
+                        <div className="flex items-center gap-1">
+                          <QuotaDialog org={o} />
+                          <DeleteOrgButton org={o} onDone={refresh} />
+                        </div>
                       )}
                     </div>
                   </TableCell>

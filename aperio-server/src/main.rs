@@ -961,6 +961,14 @@ async fn async_main() {
         axum::routing::delete(crate::api::orgs::orgs_delete_handler),
       )
       .route(
+        "/api/orgs/:id/quota",
+        axum::routing::put(crate::api::orgs::orgs_quota_handler),
+      )
+      .route(
+        "/api/orgs/:id/usage",
+        get(crate::api::orgs::orgs_usage_handler),
+      )
+      .route(
         "/api/orgs/select",
         axum::routing::post(crate::api::orgs::orgs_select_handler),
       )
