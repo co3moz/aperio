@@ -6,6 +6,27 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Canary tokens + token new-IP alerting.** A per-token `canary` flag turns a dynamic token into a decoy: any successful authentication with it emits a `canary_tripped` webhook + audit event, so a leaked `aperio.yaml`/dump surfaces as a clear breach signal. Independently, the server remembers the source IPs each token connects from (in-memory) and emits `token_new_ip` the first time a token appears from a previously unseen address.
+- **Admin surface IP allowlist.** `APERIO_ADMIN_ALLOWED_IPS` (comma-separated IPs/CIDRs) fences the `/aperio` dashboard and `/aperio/api/*` endpoints to matching client IPs (`403` otherwise). The login page, auth endpoints, health and OIDC routes stay reachable from any address so `APERIO_SERVER_AUTH`-protected proxied sites keep working; proxy traffic and tunnels are never affected.
+- **Route-shadowing lint.** `--check-config` now flags `routes:` entries that can never fire because an earlier rule's hostname + path bind always matches them first (first-match order) — catching both exact duplicate binds and a broad rule hiding a narrower one.
+- **Hot-reload audit diff.** The `config_reloaded` audit entry now records `key: old→new` for every changed live setting (secret-looking keys masked, long values summarized) instead of just "reloaded".
+- **Audit chain verification.** `aperio-server --verify-audit` verifies the tamper-evident hash chain across the active audit log and every rotated generation (exit 0/1), and `GET /aperio/api/audit/verify` exposes the same check to the dashboard.
+- **Scheduled physical DB backups.** `APERIO_BACKUP_INTERVAL` / `APERIO_BACKUP_DIR` / `APERIO_BACKUP_KEEP` periodically snapshot the SQLite store with `VACUUM INTO` (a self-contained `aperio-<epoch>.db`, no WAL/SHM), pruning old snapshots and recording a `db_backup` event.
+- **i18n key coverage CI check.** `npm run check-i18n` parses the dashboard source with the TypeScript compiler and fails the build on duplicate or stale (no-longer-used) dictionary keys, reporting cross-language gaps.
+- **Production hardening + threat-model docs.** A pre-flight hardening checklist and a formal trust-boundary threat model under `docs/`.
+- **Transparent retry on buffered 5xx.** `APERIO_RETRY_ON_5XX` re-dispatches a fully-buffered server-error response to another client (bounded by the failover jump budget and method idempotency) instead of returning it; `APERIO_RETRY_STATUSES` narrows which codes qualify.
+- **Passive outlier ejection.** `APERIO_OUTLIER_EJECTION` temporarily removes a client from routing after too many 5xx/timeout/connection-loss failures in a short window (independent of the active `/health` probe), with per-route fail-open. Tunable via `APERIO_OUTLIER_MAX_FAILURES` / `_WINDOW` / `_EJECT_SECS`.
+- **Per-route request rate limiting.** A `rate_limits:` section (`[{hostname, path, rps, burst}]`) caps the aggregate request rate to a matched host+path via a shared token bucket, answering `429`; validated by `--check-config` and re-applied on hot-reload.
+- **Scoped programmatic admin keys.** Least-privilege, revocable `Authorization: Bearer` credentials for automation, scoped to a role + organization (no master token needed). Master-admin CRUD at `/aperio/api/admin-keys` with a one-time secret and a dashboard management section under Users.
+- **WAF-lite.** A `waf:` section of deny rules (path regex / method / header) answering `403`, plus per-route `max_body` size rules answering `413`, evaluated before dispatch; invalid rules are dropped and flagged by `--check-config`.
+- **Token-to-device pinning (TOFU).** `APERIO_TOKEN_PINNING` pins the first client device key announced for a dynamic token and rejects a later connection presenting a different/missing key (`token_pin_mismatch` event) — so a leaked token cannot be replayed from another machine. Clients announce a key via `APERIO_DEVICE_KEY` / `APERIO_DEVICE_KEY_FILE`; rotating the token clears the pin.
+- **Per-service response timeout.** A per-service `response_timeout` (announced via the tunnel handshake, `APERIO_RESPONSE_TIMEOUT`) overrides the global gateway response timeout for a slow report/upload endpoint.
+- **Per-organization quotas + monthly usage.** Orgs gain `max_clients` / `max_tokens` / `max_users` / `max_bytes_month` quotas enforced at the relevant create/connect/dispatch points; `PUT /aperio/api/orgs/{id}/quota` sets them and `GET /aperio/api/orgs/{id}/usage` reports current-month usage (also emitting an `org_usage` webhook). A per-org quota + usage dialog is added to the dashboard.
+- **Zero-downtime restarts.** `APERIO_REUSEPORT` binds the listener with `SO_REUSEPORT` so a new process can share the port with the draining old one, enabling rolling restarts without dropping visitor traffic.
+- **Protocol fuzzing.** `cargo-fuzz` targets under `fuzz/` for the tunnel binary-frame parser and the JSON/zlib decode paths, with a short CI smoke run.
+
 ## [0.3.0] - 2026-07-19
 
 ### Added
