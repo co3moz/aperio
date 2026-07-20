@@ -107,6 +107,15 @@ fn main() {
     return;
   }
 
+  // `aperio-server --print-schema` prints the JSON Schema for
+  // `aperio-server.yaml` (the file is the primary configuration surface; env
+  // vars are the fallback) and exits. Point an editor's `yaml.schemas` at the
+  // output for autocompletion and validation. Needs no config load.
+  if std::env::args().nth(1).as_deref() == Some("--print-schema") {
+    println!("{}", aperio_config::server_schema_json());
+    return;
+  }
+
   // Must happen before the runtime exists: the loader writes environment
   // variables, which is only sound while no other thread can read them.
   config_file::load();

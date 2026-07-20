@@ -208,7 +208,7 @@ Building the client emits JSON Schemas for both config files to `schemas/` (git-
 }
 ```
 
-Run `cargo build -p aperio-client` once to generate them (or `cargo run -p aperio-config > schemas/aperio-client.schema.json` and `cargo run -p aperio-config -- --server > schemas/aperio-server.schema.json`). Tagged releases attach each schema twice: a versioned `aperio-{client,server}.<tag>.json` for pinning, and a stable-named `aperio-{client,server}.schema.json` so schema managers can point at a URL that always serves the latest release:
+Run `cargo build -p aperio-client` once to generate them (or `cargo run -p aperio-config > schemas/aperio-client.schema.json` and `cargo run -p aperio-config -- --server > schemas/aperio-server.schema.json`). The server binary also emits its own schema — `aperio-server --print-schema > aperio-server.schema.json` — so a deployment can regenerate it without the source tree. Tagged releases attach each schema twice: a versioned `aperio-{client,server}.<tag>.json` for pinning, and a stable-named `aperio-{client,server}.schema.json` so schema managers can point at a URL that always serves the latest release:
 
 ```
 https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.json
@@ -219,7 +219,9 @@ https://github.com/co3moz/aperio/releases/latest/download/aperio-server.schema.j
 
 ### The `aperio-server.yaml` file
 
-Every server environment variable can equally live in an `aperio-server.yaml` file next to the binary (or at the path in `APERIO_SERVER_CONFIG`; the name deliberately differs from the client's `aperio.yaml` so the two are never confused). Keys follow the naming standard — the environment variable without the `APERIO_` prefix, lowercase: `max_body_size` maps to `APERIO_MAX_BODY_SIZE`, and `host`, `port`, `log_level` map to their bare names. Booleans are written as `true`/`false`, and list-valued settings (e.g. `trusted_proxies`) may use YAML lists:
+`aperio-server.yaml` is the primary way to configure the server — a single, reviewable, schema-checked file (see [Editor autocompletion](#editor-autocompletion-json-schema) and `--print-schema`), with structured sections (`headers:`, `routes:`, `error_pages:`, …) that have no environment-variable equivalent. Environment variables remain fully supported as the fallback surface — convenient for container orchestration and secrets injection — and every scalar setting is expressible either way.
+
+Put the file next to the binary (or at the path in `APERIO_SERVER_CONFIG`; the name deliberately differs from the client's `aperio.yaml` so the two are never confused). Keys follow the naming standard — the environment variable without the `APERIO_` prefix, lowercase: `max_body_size` maps to `APERIO_MAX_BODY_SIZE`, and `host`, `port`, `log_level` map to their bare names. Booleans are written as `true`/`false`, and list-valued settings (e.g. `trusted_proxies`) may use YAML lists:
 
 ```yaml
 # aperio-server.yaml
