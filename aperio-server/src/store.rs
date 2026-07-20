@@ -125,3 +125,7 @@ pub(crate) fn backup_corrupt(path: &Path) -> Option<PathBuf> {
   let backup = path.with_file_name(format!("{name}.corrupt.{secs}"));
   std::fs::rename(path, &backup).ok().map(|_| backup)
 }
+
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;

@@ -217,6 +217,153 @@ fn test_prune_older_than_keeps_chain_verifiable() {
 }
 
 #[test]
+fn test_load_continues_chain_from_rotated_generation() {
+  // A restart right after a rotation leaves an empty/absent active file; the
+  // chain must resume from the newest rotated generation, not restart.
+  let (dir, dir_str) = temp_dir();
+  let active = dir.join("audit.jsonl");
+
+  let mut log = AuditLog::load(&dir_str, 0, 0);
+  log.record("a", "tester", "1.2.3.4", None, "first");
+  log.record("b", "tester", "1.2.3.4", None, "second");
+  drop(log);
+
+  // Simulate the active file having been rotated away to generation 1.
+  std::fs::rename(&active, dir.join("audit.jsonl.1")).unwrap();
+
+  // Reload with no active file: last_hash comes from generation 1's last line.
+  let mut log2 = AuditLog::load(&dir_str, 0, 0);
+  log2.record("c", "tester", "1.2.3.4", None, "third");
+
+  let gen1 = std::fs::read_to_string(dir.join("audit.jsonl.1")).unwrap();
+  let last_gen1 = gen1.lines().last().unwrap();
+  let active_raw = std::fs::read_to_string(&active).unwrap();
+  let first: AuditEvent = serde_json::from_str(active_raw.lines().next().unwrap()).unwrap();
+  assert_eq!(first.prev, line_hash(last_gen1));
+
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_recent_ring_evicts_oldest() {
+  // The in-memory ring is capped; older events fall off the front.
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 0, 0);
+  for i in 0..(AUDIT_RECENT_CAP + 5) {
+    log.record("event", "tester", "1.2.3.4", None, &format!("i={}", i));
+  }
+  assert_eq!(log.recent().len(), AUDIT_RECENT_CAP);
+  // The very first event was evicted; the newest is retained.
+  assert_eq!(log.recent().last().unwrap().details, "i=204");
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_verify_flags_broken_rotated_generation() {
+  let (dir, dir_str) = temp_dir();
+  // Small threshold so several rotated generations accumulate.
+  let mut log = AuditLog::load(&dir_str, 250, 5);
+  for i in 0..30 {
+    log.record("event", "tester", "1.2.3.4", None, &format!("i={}", i));
+  }
+  let gen1 = dir.join("audit.jsonl.1");
+  assert!(gen1.exists(), "expected a rotated generation to exist");
+
+  // Tamper the first line of generation 1 so the next line's `prev` breaks.
+  let raw = std::fs::read_to_string(&gen1).unwrap();
+  let mut lines: Vec<String> = raw.lines().map(str::to_string).collect();
+  assert!(
+    lines.len() >= 2,
+    "rotated generation needs >=2 lines to detect"
+  );
+  let mut ev: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+  ev["details"] = serde_json::json!("tampered");
+  lines[0] = serde_json::to_string(&ev).unwrap();
+  std::fs::write(&gen1, format!("{}\n", lines.join("\n"))).unwrap();
+
+  let broken = log.verify();
+  assert!(
+    broken.iter().any(|(name, _)| name == "audit.jsonl.1"),
+    "verify() should flag the tampered rotated generation, got {:?}",
+    broken
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_prune_deletes_old_rotated_generations() {
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 250, 5);
+  for i in 0..30 {
+    log.record("event", "tester", "1.2.3.4", None, &format!("i={}", i));
+  }
+  drop(log);
+
+  let now = crate::store::tokens::now_secs();
+  // Age every rotated generation well past the cutoff so they get dropped.
+  let mut aged_lines = 0usize;
+  for n in 1..=5 {
+    let gen_path = dir.join(format!("audit.jsonl.{n}"));
+    let Ok(raw) = std::fs::read_to_string(&gen_path) else {
+      break;
+    };
+    let aged: Vec<String> = raw
+      .lines()
+      .map(|l| {
+        aged_lines += 1;
+        let mut ev: serde_json::Value = serde_json::from_str(l).unwrap();
+        ev["ts"] = serde_json::json!(now - 10 * 24 * 3600);
+        serde_json::to_string(&ev).unwrap()
+      })
+      .collect();
+    std::fs::write(&gen_path, format!("{}\n", aged.join("\n"))).unwrap();
+  }
+  assert!(aged_lines > 0, "expected rotated generations to age");
+  assert!(dir.join("audit.jsonl.1").exists());
+
+  let mut log = AuditLog::load(&dir_str, 250, 5);
+  let removed = log.prune_older_than(now - 24 * 3600);
+  assert_eq!(
+    removed, aged_lines,
+    "all aged rotated lines should be pruned"
+  );
+  assert!(
+    !dir.join("audit.jsonl.1").exists(),
+    "the aged rotated generation should be deleted whole"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_verify_chain_flags_unparseable_line() {
+  let (dir, _dir_str) = temp_dir();
+  let path = dir.join("audit.jsonl");
+  std::fs::write(&path, "this is not json at all\n").unwrap();
+  assert_eq!(verify_chain(&path).unwrap(), Some(1));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_set_rotation_takes_effect() {
+  // Rotation is disabled at load, then enabled via set_rotation; the next
+  // events must trigger a rotation once the threshold is crossed.
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 0, 2);
+  log.record("event", "tester", "1.2.3.4", None, "before");
+  assert!(!dir.join("audit.jsonl.1").exists());
+
+  log.set_rotation(200, 2);
+  for i in 0..10 {
+    log.record("event", "tester", "1.2.3.4", None, &format!("i={}", i));
+  }
+  assert!(
+    dir.join("audit.jsonl.1").exists(),
+    "set_rotation should enable size-based rotation"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_verify_reports_clean_and_tampered() {
   let (dir, dir_str) = temp_dir();
   let mut log = AuditLog::load(&dir_str, 0, 0);
