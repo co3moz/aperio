@@ -89,18 +89,23 @@ jobs:
       # gated: the table lands in the job summary, the full HTML report as
       # a downloadable artifact.
       - name: Measure coverage (unit tests + e2e)
+        # Test-only scaffolding (`*_tests.rs`, the shared `test_support.rs`
+        # fixture) is excluded from the report — it is not shipped code and
+        # should not count towards or dilute the per-file coverage numbers.
+        env:
+          COV_IGNORE: (_tests|test_support)\.rs$
         run: |
           source <(cargo llvm-cov show-env --sh)
           cargo llvm-cov clean --workspace
           cargo test --workspace
           cargo build -p aperio-server -p aperio-client
           bash tests/e2e.sh
-          cargo llvm-cov report --html --output-dir coverage-html
+          cargo llvm-cov report --html --output-dir coverage-html --ignore-filename-regex "$COV_IGNORE"
           echo '## Coverage (unit tests + e2e)' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cargo llvm-cov report --summary-only >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --summary-only --ignore-filename-regex "$COV_IGNORE" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --lcov --output-path lcov.info --ignore-filename-regex "$COV_IGNORE"
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4

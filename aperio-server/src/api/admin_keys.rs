@@ -205,3 +205,7 @@ pub(crate) async fn admin_keys_revoke_handler(
     .await;
   (StatusCode::OK, "revoked").into_response()
 }
+
+#[cfg(test)]
+#[path = "admin_keys_tests.rs"]
+mod tests;

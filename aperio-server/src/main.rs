@@ -1580,6 +1580,10 @@ async fn shutdown_signal(state: Arc<AppState>) {
 }
 
 #[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
 
