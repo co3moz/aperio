@@ -199,7 +199,18 @@ impl AuditLog {
       let generation = |n: usize| PathBuf::from(format!("{}.{}", self.path.display(), n));
       let _ = std::fs::remove_file(generation(self.max_files));
       for n in (1..self.max_files).rev() {
-        let _ = std::fs::rename(generation(n), generation(n + 1));
+        // A missing source is expected before enough rotations have happened;
+        // any other error means a rotated audit generation was silently dropped.
+        if let Err(e) = std::fs::rename(generation(n), generation(n + 1))
+          && e.kind() != std::io::ErrorKind::NotFound
+        {
+          warn!(
+            "Audit rotation failed to shift generation {} -> {}: {}",
+            n,
+            n + 1,
+            e
+          );
+        }
       }
       if let Err(e) = std::fs::rename(&self.path, generation(1)) {
         warn!("Audit rotation failed to rename {:?}: {}", self.path, e);
