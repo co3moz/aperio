@@ -137,6 +137,26 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+  bench:
+    name: Benchmarks (report)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Runs the criterion hot-path micro-benchmarks with a short measurement
+      # window: it catches a bench that stops compiling and surfaces the timings
+      # in the job log. Reported, not gated — a hard regression threshold needs
+      # a persisted baseline, which is intentionally out of scope here.
+      - name: Run benchmarks
+        run: cargo bench -p aperio-server --bench hot_paths -- --warm-up-time 1 --measurement-time 2
+
   fuzz:
     name: Protocol Fuzzing (smoke)
     runs-on: ubuntu-latest

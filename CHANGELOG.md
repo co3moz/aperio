@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Benchmarks + load harness.** criterion micro-benchmarks for the cache hot paths (`cargo bench`, reported in CI) and a k6 soak test (`tests/soak.js`) with error-rate and p95 thresholds.
+
 - **Dashboard tests.** A [vitest](https://vitest.dev) unit suite (run in CI alongside the i18n check) plus a [Playwright](https://playwright.dev) shell smoke test — the dashboard had zero tests before.
 - **Dashboard polish.** Capture permalinks — the inspected request id lives in the URL (`?inspect=`), so an opened capture can be bookmarked, shared, and reopens on reload — and quick-fill token presets (CI preview / 30-day / long-lived) in the token create dialog.
 - **Per-hostname fallback URLs.** A `fallbacks:` section redirects an unclaimed hostname (no connected client) to a configured origin/status URL (`302`, or `301` with `permanent`, optional `preserve_path`) instead of a `504`, with a `*` catch-all. Rejected visitors still get the stealth answer so a route's existence never leaks.

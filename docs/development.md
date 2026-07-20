@@ -32,6 +32,10 @@ cargo +nightly fuzz run tunnel_message
 
 CI runs a short smoke pass of each. The `fuzz/` crate is a standalone workspace, so it never affects the main `cargo build`/`test`.
 
+### Benchmarks & load
+
+[criterion](https://github.com/bheisler/criterion.rs) micro-benchmarks for the cache hot paths live in [`aperio-server/benches/hot_paths.rs`](../aperio-server/benches/hot_paths.rs) (`cargo bench -p aperio-server --bench hot_paths`); CI runs them with a short measurement window and reports the timings (a hard regression gate would need a persisted baseline, which is out of scope). For sustained load, [`tests/soak.js`](../tests/soak.js) is a [k6](https://k6.io) soak test with error-rate and p95-latency thresholds — run manually against a live stack, not in CI. (Windows e2e is intentionally not run: development and the primary target are Unix; Windows issues are handled via feedback when they arise.)
+
 ## Test coverage
 
 Coverage is measured with [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) (`cargo install cargo-llvm-cov` + `rustup component add llvm-tools-preview`):

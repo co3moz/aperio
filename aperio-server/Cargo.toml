@@ -60,3 +60,10 @@ socket2 = "0.6.4"
 # Used by the release workflow: build OpenSSL from source for the target
 # instead of probing the host system (cross-compilation, musl static).
 vendored-openssl = ["dep:openssl", "openssl/vendored"]
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "hot_paths"
+harness = false
