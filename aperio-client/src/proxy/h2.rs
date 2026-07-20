@@ -220,7 +220,30 @@ pub(crate) async fn handle_incoming_request_h2(
   let mut total: usize = 0;
   let mut trailers: Option<Vec<(String, String)>> = None;
 
-  while let Some(frame_res) = body.frame().await {
+  loop {
+    // Bound each body read: the head timeout above does not cover the body, so
+    // a backend that sends the head then stalls mid-body would otherwise hang
+    // this task forever and leak the server's in-flight request slot.
+    let frame_res = match tokio::time::timeout(
+      std::time::Duration::from_secs(ctx.timeout_secs.max(1)),
+      body.frame(),
+    )
+    .await
+    {
+      Ok(Some(fr)) => fr,
+      Ok(None) => break,
+      Err(_) => {
+        warn!(
+          "HTTP/2 body read timeout for request ID {}; ending stream",
+          id
+        );
+        if streaming {
+          break;
+        } else {
+          return Some(make_error_response(id, 504));
+        }
+      }
+    };
     let frame = match frame_res {
       Ok(f) => f,
       Err(e) => {

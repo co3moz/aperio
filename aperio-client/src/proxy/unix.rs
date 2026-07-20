@@ -196,7 +196,25 @@ pub(crate) async fn handle_incoming_request_unix(
   let mut streaming = false;
   let mut total: usize = 0;
 
-  while let Some(frame_res) = body.frame().await {
+  loop {
+    // Bound each body read: the dial/head `timeout` above does not cover the
+    // body, so a backend that stalls mid-body would hang this task forever and
+    // leak the server's in-flight request slot.
+    let frame_res = match tokio::time::timeout(timeout, body.frame()).await {
+      Ok(Some(fr)) => fr,
+      Ok(None) => break,
+      Err(_) => {
+        warn!(
+          "Unix-socket body read timeout for request ID {}; ending stream",
+          id
+        );
+        if streaming {
+          break;
+        } else {
+          return Some(make_error_response(id, 504));
+        }
+      }
+    };
     let frame = match frame_res {
       Ok(f) => f,
       Err(e) => {
