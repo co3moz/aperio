@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Serve mode SPA fallback + custom 404.** `APERIO_SERVE_SPA=1` falls a navigation that resolves to no file back to the root `index.html` (status 200) so a client-side router owns the route; `APERIO_SERVE_404` serves a custom page for the remaining misses.
+
 - **Canary tokens + token new-IP alerting.** A per-token `canary` flag turns a dynamic token into a decoy: any successful authentication with it emits a `canary_tripped` webhook + audit event, so a leaked `aperio.yaml`/dump surfaces as a clear breach signal. Independently, the server remembers the source IPs each token connects from (in-memory) and emits `token_new_ip` the first time a token appears from a previously unseen address.
 - **Admin surface IP allowlist.** `APERIO_ADMIN_ALLOWED_IPS` (comma-separated IPs/CIDRs) fences the `/aperio` dashboard and `/aperio/api/*` endpoints to matching client IPs (`403` otherwise). The login page, auth endpoints, health and OIDC routes stay reachable from any address so `APERIO_SERVER_AUTH`-protected proxied sites keep working; proxy traffic and tunnels are never affected.
 - **Route-shadowing lint.** `--check-config` now flags `routes:` entries that can never fire because an earlier rule's hostname + path bind always matches them first (first-match order) — catching both exact duplicate binds and a broad rule hiding a narrower one.

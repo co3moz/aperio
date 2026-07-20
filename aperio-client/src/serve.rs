@@ -17,8 +17,46 @@ use hyper_util::rt::TokioIo;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+/// Options for static serving: SPA history fallback and a custom 404 page.
+#[derive(Clone, Default)]
+pub(crate) struct ServeOptions {
+  /// When true, a navigation request (Accept: text/html) that resolves to no
+  /// file is answered with the root `index.html` (status 200) so a client-side
+  /// router owns the route — the standard single-page-app deployment.
+  pub(crate) spa: bool,
+  /// Pre-read HTML served (status 404) for not-found requests that the SPA
+  /// fallback does not cover.
+  pub(crate) not_found_html: Option<Vec<u8>>,
+}
+
+/// Reads serve options from the environment (`APERIO_SERVE_SPA`,
+/// `APERIO_SERVE_404`). A missing/unreadable 404 file logs and is ignored.
+pub(crate) fn options_from_env() -> ServeOptions {
+  let spa = std::env::var("APERIO_SERVE_SPA")
+    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let not_found_html = std::env::var("APERIO_SERVE_404")
+    .ok()
+    .map(|p| p.trim().to_string())
+    .filter(|p| !p.is_empty())
+    .and_then(|p| match std::fs::read(&p) {
+      Ok(bytes) => {
+        info!("Static file mode: custom 404 page loaded from {}", p);
+        Some(bytes)
+      }
+      Err(e) => {
+        warn!("serve: cannot read custom 404 page {}: {}", p, e);
+        None
+      }
+    });
+  ServeOptions {
+    spa,
+    not_found_html,
+  }
+}
+
 /// Starts the loopback static server; returns the bound port.
-pub(crate) async fn start(dir: &str) -> Result<u16, String> {
+pub(crate) async fn start(dir: &str, opts: ServeOptions) -> Result<u16, String> {
   let root = std::fs::canonicalize(dir).map_err(|e| {
     format!(
       "CRITICAL ERROR: serve: cannot open directory '{}': {}",
@@ -54,10 +92,12 @@ pub(crate) async fn start(dir: &str) -> Result<u16, String> {
         }
       };
       let root = root.clone();
+      let opts = opts.clone();
       tokio::spawn(async move {
         let service = service_fn(move |req| {
           let root = root.clone();
-          async move { Ok::<_, std::convert::Infallible>(handle(&root, &req).await) }
+          let opts = opts.clone();
+          async move { Ok::<_, std::convert::Infallible>(handle(&root, &opts, &req).await) }
         });
         let _ = hyper::server::conn::http1::Builder::new()
           .serve_connection(TokioIo::new(stream), service)
@@ -69,28 +109,72 @@ pub(crate) async fn start(dir: &str) -> Result<u16, String> {
 }
 
 /// Builds the response for one request against the served root.
-async fn handle(root: &Path, req: &Request<hyper::body::Incoming>) -> Response<Full<Bytes>> {
+async fn handle(
+  root: &Path,
+  opts: &ServeOptions,
+  req: &Request<hyper::body::Incoming>,
+) -> Response<Full<Bytes>> {
   let head_only = req.method() == Method::HEAD;
   if req.method() != Method::GET && !head_only {
     return simple(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
   }
-  let Some(path) = resolve(root, req.uri().path()) else {
-    return simple(StatusCode::NOT_FOUND, "not found");
-  };
-  match tokio::fs::read(&path).await {
-    Ok(bytes) => {
-      let mime = mime_guess::from_path(&path)
-        .first_or_octet_stream()
-        .to_string();
-      let body = if head_only { Vec::new() } else { bytes };
-      Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", mime)
-        .body(Full::new(Bytes::from(body)))
-        .unwrap_or_default()
-    }
-    Err(_) => simple(StatusCode::NOT_FOUND, "not found"),
+  if let Some(path) = resolve(root, req.uri().path())
+    && let Ok(bytes) = tokio::fs::read(&path).await
+  {
+    let mime = mime_guess::from_path(&path)
+      .first_or_octet_stream()
+      .to_string();
+    let body = if head_only { Vec::new() } else { bytes };
+    return Response::builder()
+      .status(StatusCode::OK)
+      .header("content-type", mime)
+      .body(Full::new(Bytes::from(body)))
+      .unwrap_or_default();
   }
+  not_found(root, opts, req, head_only).await
+}
+
+/// Handles a request that resolved to no file: SPA history fallback (serve the
+/// root index.html with 200 for a navigation) first, then a custom 404 page,
+/// then a plain 404.
+async fn not_found(
+  root: &Path,
+  opts: &ServeOptions,
+  req: &Request<hyper::body::Incoming>,
+  head_only: bool,
+) -> Response<Full<Bytes>> {
+  if opts.spa && wants_html(req) {
+    let index = root.join("index.html");
+    if index.is_file()
+      && let Ok(bytes) = tokio::fs::read(&index).await
+    {
+      let body = if head_only { Vec::new() } else { bytes };
+      return Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/html; charset=utf-8")
+        .body(Full::new(Bytes::from(body)))
+        .unwrap_or_default();
+    }
+  }
+  if let Some(html) = &opts.not_found_html {
+    let body = if head_only { Vec::new() } else { html.clone() };
+    return Response::builder()
+      .status(StatusCode::NOT_FOUND)
+      .header("content-type", "text/html; charset=utf-8")
+      .body(Full::new(Bytes::from(body)))
+      .unwrap_or_default();
+  }
+  simple(StatusCode::NOT_FOUND, "not found")
+}
+
+/// True when the request prefers an HTML response (a browser navigation),
+/// used to decide whether the SPA fallback applies.
+fn wants_html(req: &Request<hyper::body::Incoming>) -> bool {
+  req
+    .headers()
+    .get("accept")
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|a| a.contains("text/html") || a.contains("*/*"))
 }
 
 /// Plain-text response helper.

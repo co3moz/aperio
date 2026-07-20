@@ -358,7 +358,7 @@ async fn serve_port(
   if let Some(port) = started.get(dir) {
     return Ok(*port);
   }
-  let port = serve::start(dir).await?;
+  let port = serve::start(dir, serve::options_from_env()).await?;
   started.insert(dir.to_string(), port);
   Ok(port)
 }

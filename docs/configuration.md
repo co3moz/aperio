@@ -57,7 +57,7 @@ The positional target is optional — a bare port number expands to `http://loca
 | `--server-url URL` (alias `--server`) | Aperio server URL |
 | `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
 | `--target TARGET` | Alternative to the positional target (usable with subcommands) |
-| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist`. Also available per `services:` entry via `serve:`, so one client can serve several directories on different binds. |
+| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist`. Also available per `services:` entry via `serve:`, so one client can serve several directories on different binds. Two options refine not-found handling: `APERIO_SERVE_SPA=1` makes a navigation (Accept: text/html) that resolves to no file fall back to the root `index.html` with status 200 — the correct behavior for React/Vue router SPAs; `APERIO_SERVE_404=/path/to/404.html` serves a custom page (status 404) for the remaining misses. |
 | `--hostname HOSTNAME` (alias `--host`) | Hostname bind(s) (e.g. `app.example.com`, or comma-separated `a.example.com,b.example.com`) |
 | `--path PREFIX` | Path bind (e.g. `/api`) |
 | `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |
