@@ -167,14 +167,16 @@ async fn not_found(
   simple(StatusCode::NOT_FOUND, "not found")
 }
 
-/// True when the request prefers an HTML response (a browser navigation),
-/// used to decide whether the SPA fallback applies.
+/// True when the request is a browser navigation (its `Accept` explicitly
+/// prefers HTML), used to decide whether the SPA fallback applies. A generic
+/// `*/*` (scripts, styles, fonts, `fetch()`) is deliberately excluded, so a
+/// missing hashed asset still 404s instead of being served `index.html`.
 fn wants_html(req: &Request<hyper::body::Incoming>) -> bool {
   req
     .headers()
     .get("accept")
     .and_then(|v| v.to_str().ok())
-    .is_some_and(|a| a.contains("text/html") || a.contains("*/*"))
+    .is_some_and(|a| a.contains("text/html"))
 }
 
 /// Plain-text response helper.

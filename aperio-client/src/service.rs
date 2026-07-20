@@ -58,7 +58,29 @@ fn resolve_device_key() -> Option<String> {
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
       );
-      match std::fs::write(&path, &key) {
+      // The device key is a pinning secret; persist it owner-only (0600) on
+      // Unix so a local user cannot read it and replay a leaked token.
+      let write_res = {
+        use std::io::Write;
+        #[cfg(unix)]
+        let opened = {
+          use std::os::unix::fs::OpenOptionsExt;
+          std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+        };
+        #[cfg(not(unix))]
+        let opened = std::fs::OpenOptions::new()
+          .write(true)
+          .create(true)
+          .truncate(true)
+          .open(&path);
+        opened.and_then(|mut f| f.write_all(key.as_bytes()))
+      };
+      match write_res {
         Ok(()) => info!("Generated a new device key at {path} for token pinning"),
         Err(e) => warn!("Could not persist the device key to {path}: {e}"),
       }
