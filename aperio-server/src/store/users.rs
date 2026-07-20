@@ -284,15 +284,16 @@ impl UserStore {
       .totp_pending
       .clone()
       .ok_or_else(|| "no TOTP enrollment in progress".to_string())?;
-    let Some(step) = crate::totp::verify_step(&pending, code, now_secs) else {
+    if !crate::totp::verify(&pending, code, now_secs) {
       return Err("invalid code".into());
-    };
+    }
     let (codes, hashes) = crate::totp::generate_recovery_codes(8);
     user.totp_secret = Some(pending);
     user.totp_pending = None;
     user.recovery_hashes = hashes;
-    // Seed the replay window so the enrollment code can't be reused to log in.
-    user.totp_last_step = Some(step);
+    // The replay window is seeded by the first real login, not enrollment:
+    // seeding here would reject a legitimate login made within the same 30s
+    // step as enrollment (a very common flow).
     self.persist();
     Ok(codes)
   }
