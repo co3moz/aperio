@@ -4,20 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
-## [Unreleased]
-
-### Added
-
-- **`aperio-server --print-schema`.** The server binary now emits the JSON Schema for `aperio-server.yaml` on demand (previously only produced as a build artifact of `aperio-client`), so a deployment can regenerate it without the source tree — point an editor's `yaml.schemas` at the output for completion and validation. Reinforces `aperio-server.yaml` as the primary, schema-checked configuration surface, with environment variables as the fallback.
-- **`aperio-server --print-config`.** Prints the effective configuration and exits without starting the server: every `APERIO_*` value in effect, each attributed to its source (the environment or the `aperio-server.yaml` file), the structured file sections, and any persisted dashboard overrides (which win at runtime). Secret-looking values are masked and long ones summarized. Answers "what is actually set, and where did it come from?" without reading the process env by hand.
-- **Live-WebSocket connection limit.** `APERIO_MAX_WS_CONNECTIONS` (default `10000`, `0` = no cap) caps the number of concurrently-live proxied public WebSockets. WebSockets are long-lived, so they get their own ceiling separate from the short-lived `APERIO_MAX_CONCURRENT_REQUESTS` request limit; an upgrade beyond the cap is rejected with `503`. Closes a gap where a flood of proxied WebSocket upgrades could exhaust server memory/FDs/tasks (per-IP rate limiting throttles the connection *rate*, not the live *count*, and does nothing against a distributed source).
+## [0.4.0] - 2026-07-20
 
 ### Changed
 
 - **Configuration reference reorganized.** The server settings reference now leads with a curated **Common settings** table (~15 everyday knobs) before the complete topic-grouped tables, and the client settings table is fronted by a note calling out the three required settings versus the optional per-service tuning — so the ~90-variable surface no longer reads as one flat wall.
 - **Environment-variable names standardized (breaking).** Every setting now has exactly one canonical `APERIO_*` spelling, with no aliases. The client's `APERIO_CLIENT_*` scoping aliases (`APERIO_CLIENT_TARGET`, `APERIO_CLIENT_SERVE`, `APERIO_CLIENT_TIMEOUT`, …) and the `APERIO_HOSTNAME_BIND` / `APERIO_PATH_BIND` spellings are dropped in favour of the short canonical forms (`APERIO_TARGET`, `APERIO_SERVE`, `APERIO_TIMEOUT`, `APERIO_HOSTNAME`, `APERIO_PATH`, …); `APERIO_CLIENT_ID` keeps its name because "client" is part of the concept, not a redundant prefix. On the server the gateway-timeout vars lose their redundant `SERVER_` prefix — `APERIO_SERVER_GATEWAY_TIMEOUT` → `APERIO_GATEWAY_TIMEOUT` and `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` → `APERIO_GATEWAY_RESPONSE_TIMEOUT` — and the matching `aperio-server.yaml` keys become `gateway_timeout` / `gateway_response_timeout` to preserve the mechanical yaml↔env mapping.
-
-## [0.4.0] - 2026-07-20
 
 ### Fixed
 
@@ -33,6 +25,9 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **`aperio-server --print-schema`.** The server binary now emits the JSON Schema for `aperio-server.yaml` on demand (previously only produced as a build artifact of `aperio-client`), so a deployment can regenerate it without the source tree — point an editor's `yaml.schemas` at the output for completion and validation. Reinforces `aperio-server.yaml` as the primary, schema-checked configuration surface, with environment variables as the fallback.
+- **`aperio-server --print-config`.** Prints the effective configuration and exits without starting the server: every `APERIO_*` value in effect, each attributed to its source (the environment or the `aperio-server.yaml` file), the structured file sections, and any persisted dashboard overrides (which win at runtime). Secret-looking values are masked and long ones summarized. Answers "what is actually set, and where did it come from?" without reading the process env by hand.
+- **Live-WebSocket connection limit.** `APERIO_MAX_WS_CONNECTIONS` (default `10000`, `0` = no cap) caps the number of concurrently-live proxied public WebSockets. WebSockets are long-lived, so they get their own ceiling separate from the short-lived `APERIO_MAX_CONCURRENT_REQUESTS` request limit; an upgrade beyond the cap is rejected with `503`. Closes a gap where a flood of proxied WebSocket upgrades could exhaust server memory/FDs/tasks (per-IP rate limiting throttles the connection *rate*, not the live *count*, and does nothing against a distributed source).
 - **Documentation deepening.** New architecture deep-dive (tunnel protocol, request lifecycle, concurrency, state), upgrade guide + client/server compatibility notes, and a performance-tuning guide.
 - **Server self-health + CSV export.** `GET /aperio/api/self-health` reports process RSS (Linux), SQLite store size, cache occupancy, uptime and client count (dashboard card); `GET /aperio/api/export/traffic.csv` streams the per-period traffic history as CSV.
 - **Benchmarks + load harness.** criterion micro-benchmarks for the cache hot paths (`cargo bench`, reported in CI) and a k6 soak test (`tests/soak.js`) with error-rate and p95 thresholds.
