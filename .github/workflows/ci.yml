@@ -97,7 +97,10 @@ jobs:
         run: |
           source <(cargo llvm-cov show-env --sh)
           cargo llvm-cov clean --workspace
-          cargo test --workspace
+          # --no-fail-fast so a single failing/flaky test cannot abort the run
+          # before later crates' tests emit their profraw (which would silently
+          # understate coverage). The real pass/fail gate is the `build` job.
+          cargo test --workspace --no-fail-fast
           cargo build -p aperio-server -p aperio-client
           bash tests/e2e.sh
           cargo llvm-cov report --html --output-dir coverage-html --ignore-filename-regex "$COV_IGNORE"
