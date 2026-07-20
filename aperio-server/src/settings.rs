@@ -448,6 +448,49 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
   })
 }
 
+/// Computes the human-readable diff between two effective configurations,
+/// over the dashboard-editable / live-reloadable key set ([`settings_view`]).
+/// Each changed key is rendered as `key: old→new`, with secret-looking keys
+/// masked and long values (e.g. custom HTML pages) summarized by length. Used
+/// to answer "why did behavior change?" from the `config_reloaded` audit entry.
+pub(crate) fn config_reload_diff(old: &ServerConfig, new: &ServerConfig) -> Vec<String> {
+  let render = |k: &str, v: &serde_json::Value| -> String {
+    if v.is_null() {
+      return "unset".to_string();
+    }
+    if crate::redact::config_key_is_secret(k) {
+      return crate::redact::mask().to_string();
+    }
+    let s = match v {
+      serde_json::Value::String(s) => s.clone(),
+      other => other.to_string(),
+    };
+    if s.chars().count() > 60 {
+      format!("<{} chars>", s.chars().count())
+    } else {
+      s
+    }
+  };
+
+  let (serde_json::Value::Object(a), serde_json::Value::Object(b)) =
+    (settings_view(old), settings_view(new))
+  else {
+    return Vec::new();
+  };
+  let mut keys: std::collections::BTreeSet<String> = a.keys().cloned().collect();
+  keys.extend(b.keys().cloned());
+  let null = serde_json::Value::Null;
+  let mut diffs = Vec::new();
+  for k in keys {
+    let ov = a.get(&k).unwrap_or(&null);
+    let nv = b.get(&k).unwrap_or(&null);
+    if ov != nv {
+      diffs.push(format!("{}: {}→{}", k, render(&k, ov), render(&k, nv)));
+    }
+  }
+  diffs
+}
+
 /// Load-balancing behavior applied after routing narrows the candidate pool.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum LbStrategy {

@@ -1122,18 +1122,18 @@ async fn async_main() {
         last_mtime = mtime;
         match config_file::reload() {
           Ok(_) => {
-            reload_state.reload_from_file().await;
+            let diff = reload_state.reload_from_file().await;
             info!(
               "Reloaded {}: live settings and headers/routes re-applied (structural keys need a restart)",
               watch_path.display()
             );
+            let detail = if diff.is_empty() {
+              format!("{} (no live-setting changes)", watch_path.display())
+            } else {
+              format!("{} | {}", watch_path.display(), diff.join(", "))
+            };
             reload_state
-              .audit(
-                "config_reloaded",
-                "system",
-                "system",
-                &watch_path.display().to_string(),
-              )
+              .audit("config_reloaded", "system", "system", &detail)
               .await;
           }
           Err(e) => warn!("Config reload of {} failed: {}", watch_path.display(), e),

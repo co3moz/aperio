@@ -113,6 +113,29 @@ fn override_keys_lists_only_set_fields() {
 }
 
 #[test]
+fn config_reload_diff_reports_changes_and_masks_secrets() {
+  let old = base_config();
+  let mut new = base_config();
+  new.max_tunnels = 20;
+  new.lb_strategy = LbStrategy::Sticky;
+  new.auth_credentials = Some("alice:hunter2".to_string());
+
+  let diff = config_reload_diff(&old, &new);
+  let joined = diff.join(" | ");
+  assert!(joined.contains("max_tunnels: 10→20"), "{joined}");
+  assert!(
+    joined.contains("lb_strategy: round-robin→sticky"),
+    "{joined}"
+  );
+  // The secret value must never appear verbatim; only the masked placeholder.
+  assert!(joined.contains("auth_credentials:"), "{joined}");
+  assert!(!joined.contains("hunter2"), "{joined}");
+
+  // No changes → empty diff.
+  assert!(config_reload_diff(&old, &base_config()).is_empty());
+}
+
+#[test]
 fn apply_settings_overrides_updates_valid_and_skips_invalid() {
   let base = base_config();
   let o = SettingsOverrides {

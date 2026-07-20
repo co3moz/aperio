@@ -55,6 +55,21 @@ pub(crate) fn redaction_enabled() -> bool {
   })
 }
 
+/// True when a configuration/setting key name suggests it carries a secret and
+/// its value must be masked in logs and the audit trail (matches *auth*,
+/// *token*, *secret*, *password*, *credential*, case-insensitive).
+pub(crate) fn config_key_is_secret(name: &str) -> bool {
+  let lower = name.to_ascii_lowercase();
+  ["auth", "token", "secret", "password", "credential"]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// The placeholder substituted for masked secret values.
+pub(crate) fn mask() -> &'static str {
+  MASK
+}
+
 fn field_is_sensitive(name: &str) -> bool {
   let lower = name.to_ascii_lowercase();
   SENSITIVE_FIELDS.iter().any(|f| lower == *f)

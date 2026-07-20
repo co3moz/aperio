@@ -1111,7 +1111,10 @@ impl AppState {
   /// current structured `headers`/`routes`, and applies it. Called on file
   /// hot-reload. Structural keys (host/port/data_dir, proxy trust, OIDC,
   /// `expose` ports) are not re-applied live and need a restart.
-  pub(crate) async fn reload_from_file(self: &Arc<Self>) {
+  /// Returns the list of live-setting keys that changed (`key: old→new`, with
+  /// secrets masked) so the caller can record it in the `config_reloaded`
+  /// audit entry.
+  pub(crate) async fn reload_from_file(self: &Arc<Self>) -> Vec<String> {
     let file_layer = crate::settings::file_overrides();
     let dashboard = self.settings_overrides.lock().await.clone();
     let base = crate::settings::apply_settings_overrides(&self.config_env_defaults, &file_layer);
@@ -1119,7 +1122,10 @@ impl AppState {
     effective.header_rules = crate::headers::from_config_file();
     effective.static_routes = crate::static_routes::from_config_file();
     effective.error_pages = crate::error_pages::from_config_file();
+    let old = self.config();
+    let diff = crate::settings::config_reload_diff(&old, &effective);
     crate::api::settings::swap_config(self, effective).await;
+    diff
   }
 
   /// Snapshot of the live configuration (cheap Arc clone).
