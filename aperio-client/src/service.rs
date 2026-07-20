@@ -790,9 +790,18 @@ pub(crate) async fn run_service(
                                               data,
                                               is_text,
                                           } => {
-                                              // Forward from tunnel → backend WS
-                                              let streams = active_ws_streams.lock().await;
-                                              if let Some(handle) = streams.get(&stream_id) {
+                                              // Forward from tunnel → backend WS. Clone the sender out of
+                                              // the lock so active_ws_streams is never held across the
+                                              // bounded, awaited send: a backend WS that stops reading
+                                              // would otherwise fill the channel and wedge the entire
+                                              // tunnel read loop (every other stream, and the liveness
+                                              // watchdog with it). Bound the send and tear the stream
+                                              // down on a persistent stall.
+                                              let tx = {
+                                                  let streams = active_ws_streams.lock().await;
+                                                  streams.get(&stream_id).map(|h| h.tx.clone())
+                                              };
+                                              if let Some(tx) = tx {
                                                   let ws_msg = if is_text {
                                                       Message::Text(data)
                                                   } else {
@@ -804,8 +813,14 @@ pub(crate) async fn run_service(
                                                           }
                                                       }
                                                   };
-                                                  if handle.tx.send(ws_msg).await.is_err() {
-                                                      debug!("Backend WS channel closed for stream {}", stream_id);
+                                                  let sent = tokio::time::timeout(
+                                                      Duration::from_secs(spec.timeout_secs),
+                                                      tx.send(ws_msg),
+                                                  )
+                                                  .await;
+                                                  if !matches!(sent, Ok(Ok(()))) {
+                                                      debug!("Backend WS channel closed/stalled for stream {}; dropping", stream_id);
+                                                      active_ws_streams.lock().await.remove(&stream_id);
                                                   }
                                               }
                                           }
@@ -917,12 +932,25 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::TcpData { stream_id, data } => {
-                                              let streams = active_tcp_streams.lock().await;
-                                              if let Some(handle) = streams.get(&stream_id) {
+                                              // Clone the sender out of the lock: a backend that accepts
+                                              // the connection but stops reading must not wedge the whole
+                                              // tunnel read loop while active_tcp_streams is held. Bound
+                                              // the send and drop the stream on a persistent stall.
+                                              let tx = {
+                                                  let streams = active_tcp_streams.lock().await;
+                                                  streams.get(&stream_id).map(|h| h.tx.clone())
+                                              };
+                                              if let Some(tx) = tx {
                                                   match BASE64_STANDARD.decode(&data) {
                                                       Ok(bytes) => {
-                                                          if handle.tx.send(bytes).await.is_err() {
-                                                              debug!("TCP backend channel closed for stream {}", stream_id);
+                                                          let sent = tokio::time::timeout(
+                                                              Duration::from_secs(spec.timeout_secs),
+                                                              tx.send(bytes),
+                                                          )
+                                                          .await;
+                                                          if !matches!(sent, Ok(Ok(()))) {
+                                                              debug!("TCP backend channel closed/stalled for stream {}; dropping", stream_id);
+                                                              active_tcp_streams.lock().await.remove(&stream_id);
                                                           }
                                                       }
                                                       Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
