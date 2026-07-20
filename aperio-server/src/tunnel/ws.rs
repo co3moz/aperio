@@ -28,6 +28,10 @@ use crate::state::{
   WsStreamMessage,
 };
 
+#[cfg(test)]
+#[path = "ws_tests.rs"]
+mod tests;
+
 /// Delivers one streamed response chunk to the waiting public consumer,
 /// verifying stream ownership and accounting the bytes. Shared by the JSON
 /// (base64) and protocol v2 binary frame paths.

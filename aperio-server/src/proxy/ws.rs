@@ -527,3 +527,7 @@ async fn relay_ws_stream(
     duration.as_millis()
   );
 }
+
+#[cfg(test)]
+#[path = "ws_tests.rs"]
+mod tests;

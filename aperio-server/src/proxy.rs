@@ -1894,6 +1894,10 @@ fn trailer_header_map(trailers: &[(String, String)]) -> axum::http::HeaderMap {
 }
 
 #[cfg(test)]
+#[path = "proxy_tests.rs"]
+mod proxy_tests;
+
+#[cfg(test)]
 mod retry_tests {
   use super::retry_covers;
 
