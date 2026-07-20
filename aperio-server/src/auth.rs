@@ -1155,15 +1155,17 @@ pub(crate) async fn oidc_callback_handler(
   #[derive(Deserialize)]
   struct UserInfo {
     email: Option<String>,
+    #[serde(default)]
+    email_verified: Option<bool>,
   }
   let userinfo = http
     .get(&rt.userinfo_endpoint)
     .bearer_auth(&access_token)
     .send()
     .await;
-  let email = match userinfo {
+  let (email, email_verified) = match userinfo {
     Ok(res) if res.status().is_success() => match res.json::<UserInfo>().await {
-      Ok(u) => u.email.unwrap_or_default(),
+      Ok(u) => (u.email.unwrap_or_default(), u.email_verified),
       Err(e) => {
         error!("OIDC userinfo parse error: {}", e);
         return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
@@ -1173,6 +1175,37 @@ pub(crate) async fn oidc_callback_handler(
       return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
     }
   };
+
+  // Refuse an identity the IdP explicitly reports as unverified: the allowlist
+  // is keyed on email, so without this an attacker who can set an arbitrary
+  // *unverified* address at a multi-tenant IdP would be handed a full admin
+  // session. An IdP that omits the claim is trusted as before, but we log it so
+  // the operator can tighten the IdP if needed.
+  if email_verified == Some(false) {
+    warn!(
+      "OIDC login denied for {} (email not verified by the IdP)",
+      email
+    );
+    state
+      .audit(
+        "oidc_login_denied",
+        &email,
+        &caller_ip.to_string(),
+        "email_verified=false",
+      )
+      .await;
+    return (
+      StatusCode::FORBIDDEN,
+      "403 Forbidden - Your email address is not verified",
+    )
+      .into_response();
+  }
+  if email_verified.is_none() {
+    warn!(
+      "OIDC userinfo for {} omitted email_verified; accepting on trust",
+      email
+    );
+  }
 
   if !oidc::email_allowed(&email, &rt.allowed_emails) {
     warn!("OIDC login denied for {} (not in allowlist)", email);
