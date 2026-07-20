@@ -137,56 +137,5 @@ pub(crate) fn redirect_location(rule: &FallbackRule, path: &str, query: Option<&
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn rules(yaml: &str) -> Fallbacks {
-    Fallbacks {
-      rules: compile(serde_yaml::from_str(yaml).unwrap()),
-    }
-  }
-
-  #[test]
-  fn exact_match_wins_over_catch_all() {
-    let f = rules(
-      "- hostname: app.example.com\n  url: https://status.example.com\n- hostname: \"*\"\n  url: https://www.example.com\n",
-    );
-    assert_eq!(
-      f.matched(Some("app.example.com")).unwrap().url,
-      "https://status.example.com"
-    );
-    // Any other host falls to the catch-all.
-    assert_eq!(
-      f.matched(Some("other.example.com")).unwrap().url,
-      "https://www.example.com"
-    );
-  }
-
-  #[test]
-  fn no_catch_all_means_no_match() {
-    let f = rules("- hostname: app.example.com\n  url: https://s.example.com\n");
-    assert!(f.matched(Some("nope.com")).is_none());
-    // Invalid (non-http) URLs are dropped at compile.
-    let bad = rules("- hostname: a.com\n  url: ftp://x\n");
-    assert!(bad.is_empty());
-  }
-
-  #[test]
-  fn redirect_location_preserves_path_when_asked() {
-    let rule = FallbackRule {
-      hostname: "*".into(),
-      url: "https://origin.example.com/".into(),
-      permanent: false,
-      preserve_path: true,
-    };
-    assert_eq!(
-      redirect_location(&rule, "/a/b", Some("q=1")),
-      "https://origin.example.com/a/b?q=1"
-    );
-    let plain = FallbackRule {
-      preserve_path: false,
-      ..rule
-    };
-    assert_eq!(redirect_location(&plain, "/a/b", Some("q=1")), plain.url);
-  }
-}
+#[path = "fallbacks_tests.rs"]
+mod tests;

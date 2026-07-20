@@ -229,49 +229,5 @@ fn describe(
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn rules_from(yaml: &str) -> WafRules {
-    let raw: Vec<WafRuleRaw> = serde_yaml::from_str(yaml).unwrap();
-    WafRules {
-      rules: compile(raw),
-    }
-  }
-
-  #[test]
-  fn deny_matches_path_method_and_header() {
-    let waf = rules_from(
-      "- path: \"^/admin\"\n  methods: [POST]\n- header:\n    name: user-agent\n    regex: \"(?i)sqlmap\"\n",
-    );
-    let mut h = HeaderMap::new();
-    // Path+method deny.
-    assert!(waf.deny_reason("POST", "/admin/x", &h).is_some());
-    // Wrong method → no match on the first rule.
-    assert!(waf.deny_reason("GET", "/admin/x", &h).is_none());
-    // Header rule.
-    h.insert("user-agent", "sqlMAP/1.0".parse().unwrap());
-    assert!(waf.deny_reason("GET", "/", &h).is_some());
-  }
-
-  #[test]
-  fn body_rule_only_trips_over_limit() {
-    let waf = rules_from("- path: \"^/upload\"\n  max_body: 100\n");
-    let h = HeaderMap::new();
-    // A body rule is not a deny rule.
-    assert!(waf.deny_reason("POST", "/upload", &h).is_none());
-    // Under the limit is fine; over trips 413.
-    assert!(waf.body_reason("POST", "/upload", &h, 50).is_none());
-    assert!(waf.body_reason("POST", "/upload", &h, 500).is_some());
-    // Different path is unaffected.
-    assert!(waf.body_reason("POST", "/other", &h, 500).is_none());
-  }
-
-  #[test]
-  fn invalid_regex_rule_is_dropped() {
-    let (rules, dropped) =
-      compile_reported(serde_yaml::from_str("- path: \"(unclosed\"\n- path: \"^/ok\"\n").unwrap());
-    assert_eq!(rules.len(), 1);
-    assert_eq!(dropped, 1);
-  }
-}
+#[path = "waf_tests.rs"]
+mod tests;

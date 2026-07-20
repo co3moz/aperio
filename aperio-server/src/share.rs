@@ -342,3 +342,7 @@ pub(crate) fn check_share_access(
   }
   None
 }
+
+#[cfg(test)]
+#[path = "share_tests.rs"]
+mod tests;

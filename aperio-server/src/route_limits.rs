@@ -135,38 +135,5 @@ pub(crate) fn compile(raw: Vec<RateLimitRuleRaw>) -> Vec<RateLimitRule> {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn rules_from(yaml: &str) -> RouteLimits {
-    let raw: Vec<RateLimitRuleRaw> = serde_yaml::from_str(yaml).unwrap();
-    RouteLimits {
-      rules: compile(raw),
-    }
-  }
-
-  #[test]
-  fn matches_first_rule_by_host_and_path() {
-    let limits = rules_from(
-      "- hostname: app.example.com\n  path: /login\n  rps: 5\n- path: /export\n  rps: 1\n",
-    );
-    // Host + path specific rule.
-    let r = limits.matched(Some("app.example.com"), "/login").unwrap();
-    assert_eq!(r.rps, 5.0);
-    assert_eq!(r.burst, 5.0);
-    // Path-only rule matches any host on a segment boundary.
-    assert!(limits.matched(Some("other.com"), "/export/data").is_some());
-    // No rule for an unrelated path.
-    assert!(limits.matched(Some("app.example.com"), "/other").is_none());
-    // Host-specific rule does not fire for a different host.
-    assert!(limits.matched(Some("nope.com"), "/login").is_none());
-  }
-
-  #[test]
-  fn burst_defaults_to_rps_and_invalid_rules_dropped() {
-    let limits = rules_from("- path: /a\n  rps: 3\n- path: /b\n  rps: 0\n");
-    assert_eq!(limits.matched(None, "/a").unwrap().burst, 3.0);
-    // rps 0 rule is dropped.
-    assert!(limits.matched(None, "/b").is_none());
-  }
-}
+#[path = "route_limits_tests.rs"]
+mod tests;
