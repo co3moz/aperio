@@ -72,6 +72,8 @@ The positional target is optional — a bare port number expands to `http://loca
 
 ### Settings
 
+Only three settings are required — `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, and `APERIO_TARGET` (the target can be the positional argument). Together with the everyday flags in [CLI](#cli) above, they cover most usage. Everything else in the table is optional per-service tuning (health probing, caching, concurrency, body limits); reach for it only when you need it. `aperio-client check` reports which layer supplied each resolved value.
+
 | Env variable | CLI | yaml key | Description | Default |
 | --- | --- | --- | --- | --- |
 | `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. | — |
@@ -387,7 +389,29 @@ error_pages:
     503_page: ./pages/app-503.html
 ```
 
+### Common settings
+
+Most deployments only need a handful of settings. These everyday knobs cover the common cases; the topic tables that follow — **Core**, **Routing & load balancing**, **Limits & protection**, **Authentication & dashboard**, **OIDC / SSO** — are the complete reference for advanced tuning. Run `aperio-server --print-config` to see which are set and where each value came from.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_SERVER_TOKEN` | **Required.** Master token: authenticates clients and is the dashboard admin password. | — |
+| `HOST` / `PORT` | Bind address and listen port. | `0.0.0.0` / `8080` |
+| `APERIO_DATA_DIR` | Directory for persisted state. **Mount a volume here in Docker.** | `./data` |
+| `LOG_LEVEL` | `error` / `warn` / `info` / `debug` / `trace`. | `info` |
+| `APERIO_SERVER_AUTH` | `user:password` visitor login in front of all proxied traffic. | — |
+| `APERIO_TRUST_PROXY` + `APERIO_TRUSTED_PROXIES` | Trust `X-Forwarded-For` behind your reverse proxy / CDN, and which hops to trust. | `0` |
+| `APERIO_RANDOM_SUBDOMAIN` | Auto-assign every client a random subdomain from a `*` pattern. | — |
+| `APERIO_LB_STRATEGY` | Load balancing: `round-robin`, `primary-standby`, or `sticky`. | `round-robin` |
+| `APERIO_MAX_TUNNELS` | Max simultaneously connected tunnel clients. | `10` |
+| `APERIO_MAX_BODY_SIZE` | Max request body size in bytes. | `10485760` (10 MB) |
+| `APERIO_CACHE` | Enable the server-side GET response cache (opt-in per service). | `0` |
+| `APERIO_METRICS` | Enable the Prometheus endpoint at `/aperio/metrics`. | `0` |
+| `APERIO_UI_LANGUAGE` | Default dashboard / login language. | `en` |
+
 ### Core
+
+> The tables below are the **complete reference** — every server setting, grouped by topic. For a first deployment, [Common settings](#common-settings) above is usually enough.
 
 | Variable | Description | Default |
 | --- | --- | --- |
