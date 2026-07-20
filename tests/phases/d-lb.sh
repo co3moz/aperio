@@ -6,8 +6,8 @@ start_backend "$BACKEND2_PORT"
 
 step "Primary-standby strategy"
 start_server APERIO_LB_STRATEGY='primary-standby'
-start_client primary "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
-start_client standby "$BACKEND2_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND" APERIO_CLIENT_PRIORITY=1
+start_client primary "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
+start_client standby "$BACKEND2_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND" APERIO_PRIORITY=1
 wait_routable "$HOSTNAME_BIND"
 # Give the standby's first heartbeat (priority announcement) time to land.
 retry 20 sh -c "curl -s '$BASE/aperio/health' | grep -q '\"connected_clients\":2'" \
@@ -29,8 +29,8 @@ stop_server
 
 step "Sticky sessions"
 start_server APERIO_LB_STRATEGY='sticky'
-start_client a "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
-start_client b "$BACKEND2_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
+start_client a "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
+start_client b "$BACKEND2_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 wait_routable "$HOSTNAME_BIND"
 retry 20 sh -c "curl -s '$BASE/aperio/health' | grep -q '\"connected_clients\":2'" \
   || fail "both clients did not connect"

@@ -25,7 +25,7 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/hello")"
 assert_status 504 "$CODE" "proxying without a client returns 504"
 
 step "Tunnel proxying through a connected client"
-start_client main "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
+start_client main "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 wait_routable "$HOSTNAME_BIND"
 
 BODY="$(curl -s -H "Host: ${HOSTNAME_BIND}" "$BASE/hello?x=1")"
@@ -136,7 +136,7 @@ TUNNEL_ID="$(echo "$TUNNEL" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
   || fail "could not parse the tunnel response: $TUNNEL"
 
 env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$EPHEMERAL_TOKEN" \
-  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" \
   "$CLIENT_BIN" >"$LOG_DIR/client-base-ephemeral.log" 2>&1 &
 EPHEMERAL_PID=$!
 CLIENT_PIDS+=($EPHEMERAL_PID)
@@ -450,7 +450,7 @@ TOK_SECRET="$(echo "$TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
 # A client authenticating with the child-org token, bound to ORG_HOST.
-start_client orgtraffic "$BACKEND_PORT" APERIO_SERVER_TOKEN="$TOK_SECRET" APERIO_HOSTNAME_BIND="$ORG_HOST"
+start_client orgtraffic "$BACKEND_PORT" APERIO_SERVER_TOKEN="$TOK_SECRET" APERIO_HOSTNAME="$ORG_HOST"
 wait_routable "$ORG_HOST"
 # Drive a uniquely-identifiable request through the org's client.
 curl -s -H "Host: ${ORG_HOST}" "$BASE/orgtraffic-probe" >/dev/null

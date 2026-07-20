@@ -4,7 +4,7 @@ PHASE="failover"
 
 step "Starting aperio-server with retry-wait failover"
 start_server APERIO_FAILOVER='retry-wait' APERIO_FAILOVER_WINDOW=20
-start_client one "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
+start_client one "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 wait_routable "$HOSTNAME_BIND"
 
 step "In-flight failover after a mid-request client kill"
@@ -13,7 +13,7 @@ curl -s -H "Host: ${HOSTNAME_BIND}" "$BASE/slow" >"$LOG_DIR/failover-response.tx
 CURL_PID=$!
 sleep 1
 kill "$FIRST_CLIENT_PID" 2>/dev/null || true
-start_client two "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
+start_client two "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 wait "$CURL_PID" || fail "in-flight request did not complete"
 assert_contains "$(cat "$LOG_DIR/failover-response.txt")" "backend ${BACKEND_PORT} GET /slow" \
   "request survived the client kill via failover"

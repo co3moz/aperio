@@ -27,9 +27,9 @@ retry 15 curl -sf "http://127.0.0.1:${CACHE_BACKEND_PORT}/warm" || fail "cache b
 WARM="$(curl -s -D - "http://127.0.0.1:${CACHE_BACKEND_PORT}/warm")"
 assert_contains "$WARM" "max-age=1" "the cache backend is the one answering its port"
 
-start_client resilient "$CACHE_BACKEND_PORT" APERIO_HOSTNAME_BIND=cache.e2e.local APERIO_CACHE=1 APERIO_RESILIENCE=1
+start_client resilient "$CACHE_BACKEND_PORT" APERIO_HOSTNAME=cache.e2e.local APERIO_CACHE=1 APERIO_RESILIENCE=1
 RESILIENT_PID="${CLIENT_PIDS[${#CLIENT_PIDS[@]}-1]}"
-start_client plain "$CACHE_BACKEND_PORT" APERIO_HOSTNAME_BIND=plain.e2e.local APERIO_CACHE=1
+start_client plain "$CACHE_BACKEND_PORT" APERIO_HOSTNAME=plain.e2e.local APERIO_CACHE=1
 PLAIN_PID="${CLIENT_PIDS[${#CLIENT_PIDS[@]}-1]}"
 wait_routable cache.e2e.local /data
 wait_routable plain.e2e.local /data
@@ -64,7 +64,7 @@ assert_contains "$BODY_AND_HDRS" "x-aperio-stale: true" "expired entry is marked
 assert_contains "$BODY_AND_HDRS" "cacheable /data" "stale body is the cached response"
 
 # A reconnecting client takes over immediately: fresh answer, no stale marker.
-start_client resilient2 "$CACHE_BACKEND_PORT" APERIO_HOSTNAME_BIND=cache.e2e.local APERIO_CACHE=1 APERIO_RESILIENCE=1
+start_client resilient2 "$CACHE_BACKEND_PORT" APERIO_HOSTNAME=cache.e2e.local APERIO_CACHE=1 APERIO_RESILIENCE=1
 wait_routable cache.e2e.local /data
 HDRS="$(curl -s -D - -o /dev/null -H "Host: cache.e2e.local" "$BASE/fresh-after-reconnect")"
 if printf '%s' "$HDRS" | grep -qi "x-aperio-stale"; then
@@ -104,7 +104,7 @@ http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_
 PYEOF
 BACKEND_PIDS+=($!)
 retry 15 curl -sf "http://127.0.0.1:${SF_BACKEND_PORT}/count" || fail "single-flight backend did not come up"
-start_client singleflight "$SF_BACKEND_PORT" APERIO_HOSTNAME_BIND=sf.e2e.local APERIO_CACHE=1
+start_client singleflight "$SF_BACKEND_PORT" APERIO_HOSTNAME=sf.e2e.local APERIO_CACHE=1
 wait_routable sf.e2e.local /count
 # Five concurrent identical cacheable misses must reach the backend once.
 # Wait only on the curl PIDs — a bare `wait` would also block on the
@@ -152,7 +152,7 @@ http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_
 PYEOF
 BACKEND_PIDS+=($!)
 retry 15 curl -sf "http://127.0.0.1:${SWR_BACKEND_PORT}/count" || fail "SWR backend did not come up"
-start_client swr "$SWR_BACKEND_PORT" APERIO_HOSTNAME_BIND=swr.e2e.local APERIO_CACHE=1
+start_client swr "$SWR_BACKEND_PORT" APERIO_HOSTNAME=swr.e2e.local APERIO_CACHE=1
 wait_routable swr.e2e.local /count
 curl -sf -H 'Host: swr.e2e.local' "$BASE/page" >/dev/null || fail "SWR warm-up failed"
 sleep 2  # past max-age=1, inside the 60s SWR window

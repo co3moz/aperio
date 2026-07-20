@@ -78,6 +78,34 @@ assert_contains "$BODY" "504 Gateway Timeout" "other hostnames keep the default 
 
 stop_server
 
+step "aperio-server --print-schema"
+SCHEMA="$("$SERVER_BIN" --print-schema)"
+assert_contains "$SCHEMA" '"ServerFileConfig"' "--print-schema emits the server file-config schema"
+echo "$SCHEMA" | "$PYTHON" -c "import sys,json; json.load(sys.stdin)" \
+  || fail "--print-schema output is not valid JSON"
+echo "  ok: --print-schema emits valid JSON schema"
+
+step "aperio-server --print-config"
+PCFG="$LOG_DIR/aperio-print.yaml"
+cat > "$PCFG" <<YAML
+max_body_size: 4242
+trusted_proxies: [10.0.0.0/8]
+headers:
+  request:
+    add:
+      X-A: b
+YAML
+PC_OUT="$(APERIO_SERVER_CONFIG="$PCFG" APERIO_SERVER_TOKEN="print-secret-token" \
+  APERIO_DATA_DIR="$LOG_DIR/print-data" "$SERVER_BIN" --print-config)"
+assert_contains "$PC_OUT" "APERIO_MAX_BODY_SIZE" "--print-config lists a file-set variable"
+assert_contains "$PC_OUT" "[aperio-server.yaml]" "--print-config attributes it to the file"
+assert_contains "$PC_OUT" "Structured aperio-server.yaml sections: headers" \
+  "--print-config lists structured sections"
+case "$PC_OUT" in
+  *print-secret-token*) fail "--print-config leaked the master token" ;;
+  *) echo "  ok: --print-config masks the master token" ;;
+esac
+
 step "Server config lint (--check-config)"
 LINT_CFG="$LOG_DIR/lint.yaml"
 cat > "$LINT_CFG" <<YAML

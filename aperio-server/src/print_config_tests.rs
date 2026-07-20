@@ -174,10 +174,10 @@ fn summarizes_over_long_values() {
 
   let out = render();
 
-  assert!(
-    out.contains("APERIO_RANDOM_SUBDOMAIN = <90 chars>"),
-    "{out}"
-  );
+  // Key padding depends on the widest variable in the (process-global) env,
+  // so assert on the key and the summarized-value tail separately.
+  assert!(out.contains("APERIO_RANDOM_SUBDOMAIN"), "{out}");
+  assert!(out.contains("= <90 chars>"), "{out}");
   assert!(
     !out.contains(&long),
     "long value should be summarized: {out}"

@@ -6,7 +6,7 @@ step "One service, several hostnames"
 start_server APERIO_RANDOM_SUBDOMAIN=
 start_backend "$BACKEND_PORT"
 # A comma-separated hostname bind claims both names for the one client.
-start_client multi "$BACKEND_PORT" APERIO_HOSTNAME_BIND="one.e2e.local,two.e2e.local"
+start_client multi "$BACKEND_PORT" APERIO_HOSTNAME="one.e2e.local,two.e2e.local"
 wait_routable one.e2e.local /hello
 BODY_ONE="$(curl -s -H "Host: one.e2e.local" "$BASE/hello")"
 assert_contains "$BODY_ONE" "backend ${BACKEND_PORT}" "the first hostname routes to the service"

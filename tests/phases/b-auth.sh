@@ -4,7 +4,7 @@ PHASE="auth"
 
 step "Starting aperio-server with a visitor password"
 start_server APERIO_SERVER_AUTH='demo:secret123'
-start_client main "$BACKEND_PORT" APERIO_HOSTNAME_BIND="$HOSTNAME_BIND"
+start_client main "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 retry 20 curl -s -o /dev/null "$BASE/aperio/health" || true
 # Wait until the client is registered (login page would mask wait_routable).
 retry 20 sh -c "curl -s '$BASE/aperio/health' | grep -q '\"connected_clients\":1'" \
@@ -44,7 +44,7 @@ assert_contains "$RESP" "/aperio/auth" "a tampered share token is rejected"
 
 step "Public service opt-out of the visitor gate"
 # Master token always may publish public services: this hostname bypasses auth.
-start_client public "$BACKEND_PORT" APERIO_HOSTNAME_BIND=pub.e2e.local APERIO_PUBLIC=1
+start_client public "$BACKEND_PORT" APERIO_HOSTNAME=pub.e2e.local APERIO_PUBLIC=1
 retry 20 sh -c "curl -s -H 'Host: pub.e2e.local' '$BASE/hello' | grep -q 'backend ${BACKEND_PORT} GET /hello'" \
   || fail "public client did not bypass the visitor gate"
 echo "  ok: public client serves without login"
@@ -58,7 +58,7 @@ NP="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
 NP_TOKEN="$(echo "$NP" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 [ -n "$NP_TOKEN" ] || fail "could not parse the token response: $NP"
 env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$NP_TOKEN" \
-  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_PUBLIC=1 \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_PUBLIC=1 \
   "$CLIENT_BIN" >"$LOG_DIR/client-auth-nopublic.log" 2>&1 &
 CLIENT_PIDS+=($!)
 retry 20 sh -c "grep -q 'does not permit publishing public' '$LOG_DIR/server-auth.log'" \
@@ -80,7 +80,7 @@ ROT_NEW="$(echo "$ROTATED" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 [ -n "$ROT_NEW" ] && [ "$ROT_NEW" != "$ROT_OLD" ] || fail "rotation did not mint a new secret: $ROTATED"
 # Both secrets authenticate a tunnel while the grace window is open.
 env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$ROT_OLD" \
-  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot.e2e.local \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot.e2e.local \
   "$CLIENT_BIN" >"$LOG_DIR/client-auth-rot-old.log" 2>&1 &
 CLIENT_PIDS+=($!)
 wait_routable rot.e2e.local
@@ -90,7 +90,7 @@ curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"grace_seconds":0}' "$BASE/aperio/api/tokens/$ROT_ID/rotate" >/dev/null \
   || fail "second rotation failed"
 env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$ROT_NEW" \
-  APERIO_CLIENT_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot2.e2e.local \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=rot2.e2e.local \
   "$CLIENT_BIN" >"$LOG_DIR/client-auth-rot-stale.log" 2>&1 &
 CLIENT_PIDS+=($!)
 retry 20 sh -c "grep -qi 'invalid token\|401\|unauthorized' '$LOG_DIR/client-auth-rot-stale.log'" \

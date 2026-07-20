@@ -131,7 +131,7 @@ start_server() { # [KEY=VAL ...]
     APERIO_SERVER_TOKEN="$TOKEN" \
     APERIO_DATA_DIR="$DATA_DIR" \
     APERIO_RANDOM_SUBDOMAIN='*.e2e.local' \
-    APERIO_SERVER_GATEWAY_TIMEOUT=3 \
+    APERIO_GATEWAY_TIMEOUT=3 \
     APERIO_UPTIME_TICK_SECS=1 \
     APERIO_WEBHOOK_RETRY_SCHEDULE=0 \
     "$@" \
@@ -158,7 +158,7 @@ start_client() { # <name> <backend_port> [KEY=VAL ...]
   shift 2
   env APERIO_SERVER_URL="$BASE" \
     APERIO_SERVER_TOKEN="$TOKEN" \
-    APERIO_CLIENT_TARGET="http://127.0.0.1:${backend_port}" \
+    APERIO_TARGET="http://127.0.0.1:${backend_port}" \
     "$@" \
     "$CLIENT_BIN" >"$LOG_DIR/client-$PHASE-$name.log" 2>&1 &
   CLIENT_PIDS+=($!)

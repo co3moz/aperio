@@ -57,7 +57,7 @@ PYEOF
 step "WebSocket pass-through"
 start_server
 start_ws_backend "$WS_PORT"
-start_client ws "$WS_PORT" APERIO_HOSTNAME_BIND=ws.e2e.local
+start_client ws "$WS_PORT" APERIO_HOSTNAME=ws.e2e.local
 wait_routable ws.e2e.local "/ping"
 WS_OUT="$("$PYTHON" "$LOG_DIR/ws_probe.py" "$SERVER_PORT" ws.e2e.local)" \
   || fail "ws probe failed: $WS_OUT"
