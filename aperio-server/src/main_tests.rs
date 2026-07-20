@@ -488,6 +488,7 @@ async fn test_proxy_handler_success() {
       cache: false,
       resilience: false,
       max_request_body: None,
+      response_timeout: None,
       webhook_inbox: false,
       denied: None,
     },
@@ -777,6 +778,7 @@ fn mock_client(
     cache: false,
     resilience: false,
     max_request_body: None,
+    response_timeout: None,
     webhook_inbox: false,
     denied: None,
   }

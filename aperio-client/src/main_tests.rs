@@ -13,6 +13,7 @@ fn base_settings() -> ClientSettings {
     pass_hostname: false,
     max_response_body: 50 * 1024 * 1024,
     max_request_body: None,
+    response_timeout: None,
     timeout_secs: 30,
     max_concurrent: None,
     connections: None,

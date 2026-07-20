@@ -1259,9 +1259,15 @@ async fn proxy_http_request(
       });
     }
 
-    // Await the response with the per-attempt response timeout.
+    // Await the response with the per-attempt response timeout: the serving
+    // client's per-service `response_timeout` override when it declared one,
+    // otherwise the global gateway response timeout.
+    let response_timeout = selected
+      .response_timeout
+      .map(std::time::Duration::from_secs)
+      .unwrap_or_else(|| state.config().gateway_response_timeout);
     let outcome: Option<TunnelResponse> = if dispatched {
-      let timeout_fut = tokio::time::sleep(state.config().gateway_response_timeout);
+      let timeout_fut = tokio::time::sleep(response_timeout);
       tokio::pin!(timeout_fut);
       tokio::select! {
           _ = &mut timeout_fut => {

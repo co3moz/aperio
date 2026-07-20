@@ -156,6 +156,11 @@ pub(crate) enum TunnelMessage {
     /// the tunnel (None = only the server's global limit applies).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_request_body: Option<u64>,
+    /// How long, in seconds, the server should wait for this service to answer
+    /// a dispatched request before failing it — a per-service override of the
+    /// server's global gateway response timeout (None = use the global value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response_timeout: Option<u64>,
     /// Ask the server to persist inbound POSTs to this service into its
     /// webhook inbox (browse & re-fire from the dashboard).
     #[serde(default)]

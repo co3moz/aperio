@@ -176,6 +176,11 @@ pub enum TunnelMessage {
     /// the tunnel (None = only the global APERIO_MAX_BODY_SIZE applies).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_request_body: Option<u64>,
+    /// Per-service override of the global gateway response timeout, in seconds:
+    /// how long the server waits for this service to answer a dispatched
+    /// request before failing it (None = use the global value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response_timeout: Option<u64>,
     /// The client asks the server to persist inbound POSTs to this service
     /// into the webhook inbox (browse & re-fire from the dashboard).
     #[serde(default)]

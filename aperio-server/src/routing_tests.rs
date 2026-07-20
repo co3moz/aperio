@@ -50,6 +50,7 @@ fn base_handle() -> ClientHandle {
     cache: false,
     resilience: false,
     max_request_body: None,
+    response_timeout: None,
     webhook_inbox: false,
     denied: None,
   }

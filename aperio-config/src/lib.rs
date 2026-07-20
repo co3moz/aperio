@@ -261,6 +261,11 @@ pub struct ServiceEntry {
   /// the server rejects bigger uploads with 413 before they enter the tunnel.
   #[schemars(extend("examples" = [1048576]))]
   pub max_request_body: Option<u64>,
+  /// Seconds the server should wait for this service to answer a dispatched
+  /// request before failing it — a per-service override of the server's global
+  /// gateway response timeout, for slow report/upload endpoints.
+  #[schemars(extend("examples" = [120]))]
+  pub response_timeout: Option<u64>,
   /// How many backend redirects to follow transparently before passing one through.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
@@ -373,6 +378,11 @@ pub struct FileConfig {
   /// the server rejects bigger uploads with 413 before they enter the tunnel.
   #[schemars(extend("examples" = [1048576]))]
   pub max_request_body: Option<u64>,
+  /// Seconds the server should wait for this service to answer a dispatched
+  /// request before failing it — a per-service override of the server's global
+  /// gateway response timeout (defaults applied per service).
+  #[schemars(extend("examples" = [120]))]
+  pub response_timeout: Option<u64>,
   /// Seconds to wait for the backend to respond before failing a request.
   #[schemars(extend("examples" = [30]))]
   pub timeout: Option<u64>,

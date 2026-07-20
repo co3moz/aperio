@@ -59,6 +59,9 @@ pub(crate) struct ServiceSpec {
   /// (announced via Ping; the server answers bigger uploads with an early
   /// 413 before they enter the tunnel; None = only the server's limit).
   pub(crate) max_request_body: Option<u64>,
+  /// Per-service override of the server's gateway response timeout, in seconds
+  /// (announced via Ping; None = the server's global value applies).
+  pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
   /// Parallel tunnel connections for this service (1–16). The supervisor
@@ -401,6 +404,7 @@ pub(crate) async fn run_service(
               spec.resilience,
             );
             let max_request_body_ping = spec.max_request_body;
+            let response_timeout_ping = spec.response_timeout;
             let webhook_inbox_ping = spec.webhook_inbox;
             let denied_ping = spec.denied.clone();
 
@@ -455,6 +459,7 @@ pub(crate) async fn run_service(
                   cache,
                   resilience,
                   max_request_body: max_request_body_ping,
+                  response_timeout: response_timeout_ping,
                   webhook_inbox: webhook_inbox_ping,
                   denied: denied_ping.clone(),
                 };

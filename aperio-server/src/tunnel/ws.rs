@@ -293,6 +293,7 @@ pub(crate) async fn handle_socket(
         cache: false,
         resilience: false,
         max_request_body: None,
+        response_timeout: None,
         webhook_inbox: false,
         denied: None,
       },
@@ -619,6 +620,7 @@ pub(crate) async fn handle_socket(
               cache,
               resilience,
               max_request_body,
+              response_timeout,
               webhook_inbox,
               denied,
             } => {
@@ -703,6 +705,15 @@ pub(crate) async fn handle_socket(
                       info!(
                         "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
                         client_id, limit
+                      );
+                    }
+                  }
+                  if handle.response_timeout != response_timeout {
+                    handle.response_timeout = response_timeout;
+                    if let Some(secs) = response_timeout {
+                      info!(
+                        "Client {} declared a per-service response timeout of {}s (overrides the global gateway response timeout)",
+                        client_id, secs
                       );
                     }
                   }

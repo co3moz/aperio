@@ -624,6 +624,10 @@ pub(crate) struct ClientHandle {
   /// Enforced before dispatch with an early 413; never loosens the global
   /// APERIO_MAX_BODY_SIZE limit.
   pub(crate) max_request_body: Option<u64>,
+  /// Client-declared per-service response timeout, in seconds (via Ping).
+  /// Overrides the global gateway response timeout for this service's
+  /// dispatches (None = use the global value).
+  pub(crate) response_timeout: Option<u64>,
   /// The client asked to persist inbound POSTs to this service into the
   /// webhook inbox (`webhook_inbox: true` via Ping).
   pub(crate) webhook_inbox: bool,

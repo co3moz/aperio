@@ -310,6 +310,9 @@ pub(crate) struct ClientSettings {
   /// server's global limit applies). Announced via Ping; the server rejects
   /// bigger uploads with an early 413 before they enter the tunnel.
   pub(crate) max_request_body: Option<u64>,
+  /// Per-service override of the server's gateway response timeout, in seconds
+  /// (announced via Ping; None = the server's global value applies).
+  pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
   /// Parallel tunnel connections per service (config files only; 1 = default).
@@ -527,6 +530,12 @@ pub(crate) fn resolve_settings(
       local.max_request_body,
       env_parse("APERIO_MAX_REQUEST_BODY", "APERIO_MAX_REQUEST_BODY"),
       home.max_request_body,
+    ),
+    response_timeout: layered(
+      None,
+      local.response_timeout,
+      env_parse("APERIO_RESPONSE_TIMEOUT", "APERIO_CLIENT_RESPONSE_TIMEOUT"),
+      home.response_timeout,
     ),
     timeout_secs: layered(
       None,
