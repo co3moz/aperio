@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- **Proxied WebSocket cleanup + ownership.** When a tunnel client disconnects, the server now drains its live proxied public WebSockets (sending a close to each) instead of leaking the `ws_streams` entry and its relay tasks and leaving the public peer hung. Inbound `WsData`/`WsClose` frames are also honoured only when the sending client owns the target stream, matching every other tunnel stream type.
+
 ### Added
 
 - **Documentation deepening.** New architecture deep-dive (tunnel protocol, request lifecycle, concurrency, state), upgrade guide + client/server compatibility notes, and a performance-tuning guide.

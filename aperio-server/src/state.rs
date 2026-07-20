@@ -909,6 +909,14 @@ pub(crate) struct PendingRequest {
   pub(crate) client_id: String,
 }
 
+/// Registered relay for a proxied public WebSocket: the sender that pushes
+/// tunnel frames to the public side, tagged with the serving client's id so a
+/// `WsData`/`WsClose` frame can be verified to come from the owning client.
+pub(crate) struct WsStreamHandle {
+  pub(crate) tx: mpsc::Sender<WsStreamMessage>,
+  pub(crate) client_id: String,
+}
+
 /// A WebSocket frame relayed from the tunnel client, to be forwarded to the public WS.
 pub(crate) enum WsStreamMessage {
   /// A data frame (text or binary) to forward to the public WebSocket.
@@ -1073,7 +1081,7 @@ pub(crate) struct AppState {
   pub(crate) last_rate_gc: Mutex<Instant>,
   pub(crate) active_tunnel_count: AtomicUsize,
   /// Active WebSocket proxy streams: stream_id → sender to relay tunnel WsData to public WS.
-  pub(crate) ws_streams: Mutex<HashMap<String, mpsc::Sender<WsStreamMessage>>>,
+  pub(crate) ws_streams: Mutex<HashMap<String, WsStreamHandle>>,
   /// Pending WebSocket upgrade responses: upgrade_id → oneshot to resolve when client responds.
   pub(crate) pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
   /// Persistent store of dashboard-created dynamic API tokens.

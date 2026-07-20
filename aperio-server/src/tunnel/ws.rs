@@ -1031,9 +1031,13 @@ pub(crate) async fn handle_socket(
               data,
               is_text,
             } => {
-              // Relay WebSocket frame to the public WS via the registered channel
+              // Relay WebSocket frame to the public WS via the registered
+              // channel — but only if this client owns the stream, matching the
+              // ownership check every other stream type performs.
               let streams = state.ws_streams.lock().await;
-              if let Some(tx) = streams.get(&stream_id) {
+              if let Some(handle) = streams.get(&stream_id)
+                && handle.client_id == client_id
+              {
                 let ws_msg = if is_text {
                   Message::Text(data)
                 } else {
@@ -1046,7 +1050,7 @@ pub(crate) async fn handle_socket(
                     }
                   }
                 };
-                if tx.send(WsStreamMessage::Data(ws_msg)).await.is_err() {
+                if handle.tx.send(WsStreamMessage::Data(ws_msg)).await.is_err() {
                   debug!("WsStream channel closed for stream {}", stream_id);
                 }
               }
@@ -1057,8 +1061,10 @@ pub(crate) async fn handle_socket(
               reason: _,
             } => {
               let streams = state.ws_streams.lock().await;
-              if let Some(tx) = streams.get(&stream_id) {
-                let _ = tx.send(WsStreamMessage::Close).await;
+              if let Some(handle) = streams.get(&stream_id)
+                && handle.client_id == client_id
+              {
+                let _ = handle.tx.send(WsStreamMessage::Close).await;
               }
             }
             _ => {}
@@ -1178,6 +1184,23 @@ pub(crate) async fn handle_socket(
     drop(streams);
     for tx in closing {
       let _ = tx.send(TcpConsumerMsg::Close).await;
+    }
+  }
+
+  // Close proxied public WebSockets served by the disconnected client, so a
+  // passive listener does not hang forever and the ws_streams entry + its
+  // relay tasks are not leaked (the sibling of the TCP/UDP cleanup above).
+  {
+    let mut streams = state.ws_streams.lock().await;
+    let closing: Vec<_> = streams
+      .iter()
+      .filter(|(_, h)| h.client_id == client_id)
+      .map(|(_, h)| h.tx.clone())
+      .collect();
+    streams.retain(|_, h| h.client_id != client_id);
+    drop(streams);
+    for tx in closing {
+      let _ = tx.send(WsStreamMessage::Close).await;
     }
   }
 }

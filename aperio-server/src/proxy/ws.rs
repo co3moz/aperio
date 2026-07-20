@@ -352,10 +352,12 @@ pub(crate) async fn handle_ws_proxy(
       let uri_clone = uri_str.clone();
       let start_time_clone = start_time;
 
+      let owner_client_id = chosen_client_id.clone();
       ws.on_upgrade(move |public_ws| {
         relay_ws_stream(
           state_clone,
           stream_id_clone,
+          owner_client_id,
           public_ws,
           client_tx_clone,
           method_clone,
@@ -391,9 +393,11 @@ pub(crate) async fn handle_ws_proxy(
 }
 
 /// Relays WebSocket frames bidirectionally between the public WebSocket and the tunnel.
+#[allow(clippy::too_many_arguments)]
 async fn relay_ws_stream(
   state: Arc<AppState>,
   stream_id: String,
+  owner_client_id: String,
   public_ws: WebSocket,
   tunnel_tx: mpsc::Sender<Message>,
   method: String,
@@ -405,10 +409,17 @@ async fn relay_ws_stream(
   // Channel for relaying frames from tunnel → public WS
   let (relay_tx, mut relay_rx) = mpsc::channel::<WsStreamMessage>(64);
 
-  // Register the relay channel so handle_socket can push WsData frames to us
+  // Register the relay channel so handle_socket can push WsData frames to us,
+  // tagged with the serving client's id for ownership verification.
   {
     let mut streams = state.ws_streams.lock().await;
-    streams.insert(stream_id.clone(), relay_tx);
+    streams.insert(
+      stream_id.clone(),
+      crate::state::WsStreamHandle {
+        tx: relay_tx,
+        client_id: owner_client_id,
+      },
+    );
   }
 
   let stream_id_clone = stream_id.clone();
