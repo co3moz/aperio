@@ -83,6 +83,58 @@ fn check_section<T: serde::de::DeserializeOwned>(r: &mut Report, key: &str) -> O
   }
 }
 
+/// Flags client-less `routes:` entries that can never fire because an earlier
+/// entry always matches them first (routing is first-match, in file order).
+///
+/// Route *i* shadows route *j* (i < j) when every request that could match *j*
+/// also matches *i*: *i*'s hostname is unrestricted or identical to *j*'s, and
+/// *i*'s path bind is unrestricted or a prefix of *j*'s bind. This catches both
+/// exact duplicate binds and a broad rule hiding a narrower one placed after it.
+fn lint_route_shadowing(r: &mut Report, routes: &[crate::static_routes::RouteRule]) {
+  // Normalize each rule's hostname/path exactly as the runtime does, so the
+  // reachability analysis matches real first-match routing. `None` = matches
+  // any host / any path.
+  let norm: Vec<(Option<String>, Option<String>)> = routes
+    .iter()
+    .map(|rule| {
+      let host = rule
+        .hostname
+        .as_deref()
+        .and_then(crate::routing::normalize_hostname_bind);
+      let path = rule
+        .path
+        .as_deref()
+        .and_then(crate::routing::normalize_path_bind);
+      (host, path)
+    })
+    .collect();
+
+  let desc = |v: &Option<String>| v.clone().unwrap_or_else(|| "*".to_string());
+  for (j, (bh, bp)) in norm.iter().enumerate() {
+    for (i, (ah, ap)) in norm.iter().enumerate().take(j) {
+      let host_covers = ah.is_none() || ah == bh;
+      let path_covers = match ap {
+        None => true,
+        Some(a) => bp
+          .as_ref()
+          .is_some_and(|b| crate::routing::path_matches_bind(b, a)),
+      };
+      if host_covers && path_covers {
+        r.warn(&format!(
+          "route #{} (host={}, path={}) is unreachable — route #{} (host={}, path={}) always matches it first",
+          j + 1,
+          desc(bh),
+          desc(bp),
+          i + 1,
+          desc(ah),
+          desc(ap),
+        ));
+        break;
+      }
+    }
+  }
+}
+
 /// Runs the full lint. Returns the process exit code.
 pub(crate) fn run() -> i32 {
   let mut r = Report::default();
@@ -194,10 +246,11 @@ pub(crate) fn run() -> i32 {
 
   // --- Structured sections ---
   check_section::<crate::headers::HeaderRules>(&mut r, "headers");
-  if let Some(routes) = check_section::<Vec<crate::static_routes::RouteRule>>(&mut r, "routes")
-    && let Err(e) = crate::static_routes::StaticRoutes::compile(routes)
-  {
-    r.fail(&format!("`routes:` section does not compile: {e}"));
+  if let Some(routes) = check_section::<Vec<crate::static_routes::RouteRule>>(&mut r, "routes") {
+    match crate::static_routes::StaticRoutes::compile(routes.clone()) {
+      Ok(_) => lint_route_shadowing(&mut r, &routes),
+      Err(e) => r.fail(&format!("`routes:` section does not compile: {e}")),
+    }
   }
   if let Some(expose) = check_section::<Vec<crate::expose::ExposeRule>>(&mut r, "expose") {
     let mut ports = std::collections::HashSet::new();
@@ -272,5 +325,53 @@ pub(crate) fn run() -> i32 {
   } else {
     println!("Configuration OK ({} warning(s))", r.warnings);
     0
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::static_routes::RouteRule;
+
+  fn rule(host: Option<&str>, path: Option<&str>) -> RouteRule {
+    RouteRule {
+      hostname: host.map(|s| s.to_string()),
+      path: path.map(|s| s.to_string()),
+      redirect: Some("https://example.com".to_string()),
+      permanent: false,
+      preserve_path: false,
+      respond: None,
+    }
+  }
+
+  #[test]
+  fn test_shadowing_flags_broad_rule_hiding_narrow_one() {
+    let mut r = Report::default();
+    // A catch-all path on a host precedes a specific path on the same host.
+    let routes = vec![rule(Some("a.com"), None), rule(Some("a.com"), Some("/api"))];
+    lint_route_shadowing(&mut r, &routes);
+    assert_eq!(r.warnings, 1);
+  }
+
+  #[test]
+  fn test_shadowing_flags_exact_duplicate_bind() {
+    let mut r = Report::default();
+    let routes = vec![rule(None, Some("/api")), rule(None, Some("/api"))];
+    lint_route_shadowing(&mut r, &routes);
+    assert_eq!(r.warnings, 1);
+  }
+
+  #[test]
+  fn test_no_shadowing_for_distinct_routes() {
+    let mut r = Report::default();
+    let routes = vec![
+      rule(Some("a.com"), Some("/api")),
+      rule(Some("b.com"), Some("/api")),
+      rule(Some("a.com"), Some("/web")),
+      rule(Some("a.com"), Some("/api/v1")), // narrower than /api, but /api is earlier → shadowed
+    ];
+    lint_route_shadowing(&mut r, &routes);
+    // Only /api/v1 (index 3) is shadowed by /api (index 0).
+    assert_eq!(r.warnings, 1);
   }
 }
