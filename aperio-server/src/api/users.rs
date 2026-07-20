@@ -570,3 +570,7 @@ pub(crate) async fn sessions_clear_handler(
     .await;
   Json(serde_json::json!({ "ended": ended })).into_response()
 }
+
+#[cfg(test)]
+#[path = "users_tests.rs"]
+mod tests;

@@ -301,3 +301,7 @@ async fn offer_compression_to_connected(state: &Arc<AppState>) {
     }
   }
 }
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;

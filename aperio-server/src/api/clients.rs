@@ -592,3 +592,7 @@ pub(crate) async fn client_enabled_handler(
     (StatusCode::NOT_FOUND, "Client not found").into_response()
   }
 }
+
+#[cfg(test)]
+#[path = "clients_tests.rs"]
+mod tests;

@@ -603,3 +603,7 @@ pub(crate) async fn tokens_revoke_handler(
     (StatusCode::NOT_FOUND, "Token not found").into_response()
   }
 }
+
+#[cfg(test)]
+#[path = "tokens_tests.rs"]
+mod tests;
