@@ -46,6 +46,14 @@ jobs:
       - name: Run automated tests
         run: cargo test --all
 
+      # Guards against i18n drift: duplicate or stale (no-longer-used) keys in
+      # any language dictionary fail the build; cross-language gaps are reported.
+      - name: Check dashboard i18n key coverage
+        working-directory: aperio-dashboard
+        run: |
+          npm ci
+          npm run check-i18n
+
   coverage:
     name: Test Coverage
     runs-on: ubuntu-latest
