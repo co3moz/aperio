@@ -54,6 +54,18 @@ jobs:
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      # Windows Defender real-time scanning of every .obj the vendored OpenSSL C
+      # build emits is a large, silent tax on this job. Exclude the build dirs
+      # before anything writes to them. Best-effort: never fail the build if the
+      # runner ever drops the admin rights Add-MpPreference needs.
+      - name: Exclude build dirs from Defender (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionProcess "cl.exe","link.exe","rustc.exe","cargo.exe","nasm.exe","perl.exe" -ErrorAction SilentlyContinue
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
