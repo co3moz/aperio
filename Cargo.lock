@@ -175,6 +175,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2",
+ "socket2",
  "subtle",
  "tokio",
  "tower-http 0.5.2",

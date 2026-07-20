@@ -52,3 +52,12 @@ The same run also publishes the multi-arch (amd64+arm64) Docker images `ghcr.io/
 - Configuration naming follows the [one-name-three-surfaces standard](configuration.md#the-standard-one-name-three-surfaces) — CLI `--kebab-case` ↔ yaml `snake_case` ↔ env `APERIO_SNAKE_CASE`. Never rename across surfaces; keep legacy spellings as aliases.
 - Unit tests live next to the module in a `<module>_tests.rs` file, included with `#[cfg(test)] #[path = "..."] mod tests;`.
 - Every feature, fix, or behavior change updates `CHANGELOG.md` (`[Unreleased]` section, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format) in the same commit.
+
+## Zero-downtime restarts
+
+With `APERIO_REUSEPORT=1` the server binds its listener with `SO_REUSEPORT`, so a second process can bind the same `host:port` while the first is still running. A rolling restart is then:
+
+1. Start the new process (same `PORT`, `APERIO_REUSEPORT=1`). The kernel begins load-balancing new connections across both.
+2. Send `SIGTERM` to the old process. It broadcasts a `ServerShutdown` to its connected clients (so they reconnect immediately instead of waiting out their backoff) and drains in-flight requests before exiting.
+
+Tunnels re-establish on the surviving process, so visitor traffic keeps flowing across the swap. `SO_REUSEPORT` is a Unix feature (Linux/BSD/macOS); on other platforms the flag is ignored and a plain listener is used.

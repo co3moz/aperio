@@ -192,6 +192,43 @@ fn verify_audit() -> i32 {
   }
 }
 
+/// Binds the main TCP listener. With `reuseport`, the socket is created with
+/// `SO_REUSEADDR` + `SO_REUSEPORT` so multiple server processes can share the
+/// same port for zero-downtime restarts; otherwise a plain listener is used.
+async fn bind_listener(
+  host: &str,
+  port: u16,
+  reuseport: bool,
+) -> std::io::Result<tokio::net::TcpListener> {
+  if !reuseport {
+    return tokio::net::TcpListener::bind(format!("{host}:{port}")).await;
+  }
+  use socket2::{Domain, Protocol, Socket, Type};
+  use std::net::ToSocketAddrs;
+  let addr = format!("{host}:{port}")
+    .to_socket_addrs()?
+    .next()
+    .ok_or_else(|| {
+      std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("could not resolve {host}:{port}"),
+      )
+    })?;
+  let domain = if addr.is_ipv6() {
+    Domain::IPV6
+  } else {
+    Domain::IPV4
+  };
+  let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+  socket.set_reuse_address(true)?;
+  #[cfg(unix)]
+  socket.set_reuse_port(true)?;
+  socket.set_nonblocking(true)?;
+  socket.bind(&addr.into())?;
+  socket.listen(1024)?;
+  tokio::net::TcpListener::from_std(socket.into())
+}
+
 /// The asynchronous server proper: sets up logging, reads env config,
 /// registers paths/middleware, and binds the TCP listener.
 async fn async_main() {
@@ -1371,15 +1408,28 @@ async fn async_main() {
   // interval and a directory are configured.
   backup::spawn(shutdown_state.clone());
 
-  let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
-    .await
-    .unwrap();
+  // Zero-downtime restarts (APERIO_REUSEPORT): bind with SO_REUSEPORT so a new
+  // process can bind the same host:port while the old one is still draining its
+  // tunnels. Deploy = start the new process, then SIGTERM the old one; the
+  // kernel load-balances new connections across both during the overlap, and
+  // clients reconnect to whichever process survives.
+  let reuseport = std::env::var("APERIO_REUSEPORT")
+    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let listener = match bind_listener(&host, port, reuseport).await {
+    Ok(l) => l,
+    Err(e) => {
+      error!("Failed to bind {}:{}: {}", host, port, e);
+      std::process::exit(1);
+    }
+  };
 
   info!(
-    "Aperio Server v{} listening on {}:{} with connection info tracing enabled",
+    "Aperio Server v{} listening on {}:{} with connection info tracing enabled{}",
     env!("CARGO_PKG_VERSION"),
     host,
-    port
+    port,
+    if reuseport { " (SO_REUSEPORT)" } else { "" }
   );
 
   axum::serve(
