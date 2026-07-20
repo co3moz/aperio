@@ -1060,6 +1060,10 @@ pub(crate) struct AppState {
   /// dashboard-editable) max_concurrent_requests limit. A plain counter
   /// instead of a semaphore so the limit can change at runtime.
   pub(crate) active_proxied_requests: Arc<AtomicUsize>,
+  /// Currently-live proxied public WebSockets, checked against
+  /// `max_ws_connections`. WebSockets are long-lived, so they get their own
+  /// counter separate from the (short-lived) HTTP request slots above.
+  pub(crate) active_ws_connections: Arc<AtomicUsize>,
   pub(crate) path_rr: Mutex<HashMap<RouteGroupKey, usize>>,
   /// Dashboard sessions, persisted in SQLite so restarts don't sign
   /// everyone out.
@@ -1172,6 +1176,16 @@ impl Drop for RequestSlot {
   }
 }
 
+/// RAII slot in the live-WebSocket limit; released when the proxied WebSocket
+/// (and this permit, moved into its relay) drops.
+pub(crate) struct WsSlot(Arc<AtomicUsize>);
+
+impl Drop for WsSlot {
+  fn drop(&mut self) {
+    self.0.fetch_sub(1, Ordering::SeqCst);
+  }
+}
+
 impl AppState {
   /// Rebuilds the live config from the layers (env defaults ->
   /// `aperio-server.yaml` live settings -> dashboard overrides) with the
@@ -1223,6 +1237,20 @@ impl AppState {
       })
       .ok()
       .map(|_| RequestSlot(self.active_proxied_requests.clone()))
+  }
+
+  /// Claims a live-WebSocket slot under `max_ws_connections`, or None at
+  /// capacity. Held (via the returned [`WsSlot`]) for the whole life of the
+  /// proxied WebSocket, so long-lived connections can't pile up unbounded.
+  pub(crate) fn try_acquire_ws_slot(&self) -> Option<WsSlot> {
+    let limit = self.config().max_ws_connections;
+    self
+      .active_ws_connections
+      .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+        if cur < limit { Some(cur + 1) } else { None }
+      })
+      .ok()
+      .map(|_| WsSlot(self.active_ws_connections.clone()))
   }
 
   /// Records a server-global (master-organization) audit event: config

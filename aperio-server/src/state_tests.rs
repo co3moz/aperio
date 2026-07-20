@@ -471,6 +471,23 @@ async fn test_config_snapshot_and_request_slots() {
   drop(s3);
 }
 
+#[tokio::test]
+async fn ws_slots_respect_the_live_websocket_limit() {
+  use crate::test_support::test_config;
+  let mut cfg = test_config();
+  cfg.max_ws_connections = 2;
+  let state = crate::test_support::test_state_with(cfg);
+
+  let a = state.try_acquire_ws_slot().expect("ws slot 1");
+  let b = state.try_acquire_ws_slot().expect("ws slot 2");
+  assert!(state.try_acquire_ws_slot().is_none(), "at the WS cap");
+  drop(a);
+  // Dropping a live WebSocket frees a slot for the next upgrade.
+  let c = state.try_acquire_ws_slot().expect("ws slot after drop");
+  drop(b);
+  drop(c);
+}
+
 // ----- AppState: token limits & byte accounting -----
 
 #[tokio::test]

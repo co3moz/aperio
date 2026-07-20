@@ -58,6 +58,32 @@ pub(crate) async fn handle_ws_proxy(
       .into_response();
   }
 
+  // Cap concurrently-live proxied WebSockets. They are long-lived, so they get
+  // their own ceiling (max_ws_connections) separate from the short-lived HTTP
+  // request slots; the RAII permit is held for the whole connection (moved into
+  // the relay below) and released when it closes. Acquired before the expensive
+  // setup so a flood can't pile up pending upgrades either.
+  let ws_slot = match state.try_acquire_ws_slot() {
+    Some(s) => s,
+    None => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        503,
+        start_time.elapsed(),
+        Some("WebSocket connection limit exceeded"),
+        None,
+      )
+      .await;
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "503 Service Unavailable - WebSocket connection limit reached",
+      )
+        .into_response();
+    }
+  };
+
   // 2. Visitor-auth gate (shared with the HTTP path): a client-declared
   // per-service password supersedes the server's own gate; public routes skip
   // it. A share cookie set during the page load also covers its WebSockets.
@@ -353,7 +379,10 @@ pub(crate) async fn handle_ws_proxy(
       let start_time_clone = start_time;
 
       let owner_client_id = chosen_client_id.clone();
-      ws.on_upgrade(move |public_ws| {
+      ws.on_upgrade(move |public_ws| async move {
+        // Hold the WS slot for the whole life of the relay; it releases when
+        // the connection closes and this future ends.
+        let _ws_slot = ws_slot;
         relay_ws_stream(
           state_clone,
           stream_id_clone,
@@ -364,6 +393,7 @@ pub(crate) async fn handle_ws_proxy(
           uri_clone,
           start_time_clone,
         )
+        .await
       })
     }
     Err(rejection) => {

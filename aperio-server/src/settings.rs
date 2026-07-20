@@ -123,6 +123,11 @@ pub(crate) struct ServerConfig {
   /// Concurrent proxied requests limit (APERIO_MAX_CONCURRENT_REQUESTS);
   /// requests beyond it are rejected with 429.
   pub(crate) max_concurrent_requests: usize,
+  /// Max concurrently-live proxied public WebSockets (APERIO_MAX_WS_CONNECTIONS).
+  /// Unlike HTTP requests these are long-lived, so they get their own ceiling
+  /// (separate from `max_concurrent_requests`); beyond it an upgrade is
+  /// rejected with 503. Env-only.
+  pub(crate) max_ws_connections: usize,
   /// Consecutive login failures per IP before a lockout starts
   /// (APERIO_LOGIN_LOCKOUT_THRESHOLD).
   pub(crate) login_lockout_threshold: u32,

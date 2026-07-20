@@ -397,6 +397,7 @@ error_pages:
 | `APERIO_ALERT_CLIENT_DOWN` | Seconds a known service may stay down before an `alert_triggered` event (kind `client_down`); resolves when it comes back. `0`/unset = off. | off |
 | `APERIO_MAX_BODY_SIZE` | Max request body size in bytes. | `10485760` (10 MB) |
 | `APERIO_MAX_CONCURRENT_REQUESTS` | Max in-flight proxied requests across all tunnels. | `100` |
+| `APERIO_MAX_WS_CONNECTIONS` | Max concurrently-live proxied public WebSockets (they are long-lived, so they get their own ceiling separate from the request limit above); beyond it an upgrade gets `503`. `0` = no cap. | `10000` |
 | `APERIO_MAX_TUNNELS` | Max simultaneously connected tunnel clients. | `10` |
 | `APERIO_IP_LIMIT_MAX` | Per-IP token bucket burst capacity. | `100` |
 | `APERIO_IP_LIMIT_REFILL` | Per-IP refill rate (requests/second). | `5` |

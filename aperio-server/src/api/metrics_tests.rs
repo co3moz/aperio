@@ -48,6 +48,7 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     outlier_eject: Duration::from_secs(30),
     cache_enabled: false,
     max_concurrent_requests: 100,
+    max_ws_connections: 10_000,
     login_lockout_threshold: 5,
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,
@@ -105,6 +106,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
+    active_ws_connections: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(crate::store::sessions::SessionStore::load(&tmp_dir(
       "sessions",

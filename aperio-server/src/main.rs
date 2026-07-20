@@ -276,6 +276,16 @@ async fn async_main() {
     .and_then(|val| val.parse::<usize>().ok())
     .unwrap_or(100);
 
+  // Max concurrently-live proxied public WebSockets. WebSockets are long-lived,
+  // so they get their own ceiling separate from the (short-lived) HTTP request
+  // limit above; the default is generous enough to never touch normal use while
+  // still capping a pathological pile-up. 0 is treated as "no cap".
+  let max_ws_connections = std::env::var("APERIO_MAX_WS_CONNECTIONS")
+    .ok()
+    .and_then(|val| val.parse::<usize>().ok())
+    .map(|v| if v == 0 { usize::MAX } else { v })
+    .unwrap_or(10_000);
+
   // Max connected tunnel clients limit (default: 10 active clients)
   let max_tunnels = std::env::var("APERIO_MAX_TUNNELS")
     .ok()
@@ -705,6 +715,7 @@ async fn async_main() {
     cache_max_bytes,
     cache_max_stale,
     max_concurrent_requests,
+    max_ws_connections,
     login_lockout_threshold: std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")
       .ok()
       .and_then(|v| v.parse::<u32>().ok())
@@ -827,6 +838,7 @@ async fn async_main() {
     settings_overrides: Mutex::new(settings_overrides),
     settings_path,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
+    active_ws_connections: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),
     sessions: Mutex::new(crate::store::sessions::SessionStore::load(&data_dir)),
     rate_limiter: Mutex::new(HashMap::new()),

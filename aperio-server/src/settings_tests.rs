@@ -37,6 +37,7 @@ fn base_config() -> ServerConfig {
     outlier_eject: Duration::from_secs(30),
     cache_enabled: false,
     max_concurrent_requests: 100,
+    max_ws_connections: 10_000,
     login_lockout_threshold: 5,
     login_lockout_secs: 60,
     audit_max_size: 10 * 1024 * 1024,

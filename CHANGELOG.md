@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **Live-WebSocket connection limit.** `APERIO_MAX_WS_CONNECTIONS` (default `10000`, `0` = no cap) caps the number of concurrently-live proxied public WebSockets. WebSockets are long-lived, so they get their own ceiling separate from the short-lived `APERIO_MAX_CONCURRENT_REQUESTS` request limit; an upgrade beyond the cap is rejected with `503`. Closes a gap where a flood of proxied WebSocket upgrades could exhaust server memory/FDs/tasks (per-IP rate limiting throttles the connection *rate*, not the live *count*, and does nothing against a distributed source).
+
 ## [0.4.0] - 2026-07-20
 
 ### Fixed
