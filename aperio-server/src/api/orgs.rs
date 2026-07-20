@@ -289,6 +289,93 @@ pub(crate) async fn orgs_quota_handler(
   }
 }
 
+/// Payload for setting an org's OIDC override. Empty `issuer` clears it.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgOidcRequest {
+  #[serde(default)]
+  pub(crate) issuer: String,
+  #[serde(default)]
+  pub(crate) client_id: String,
+  #[serde(default)]
+  pub(crate) client_secret: String,
+  #[serde(default)]
+  pub(crate) allowed_emails: Vec<String>,
+}
+
+/// Sets or clears a child org's OIDC SSO override (master super-admin only).
+/// The client secret is write-only; the response never echoes it.
+#[utoipa::path(put, path = "/aperio/api/orgs/{id}/oidc", tag = "orgs",
+  description = "Sets or clears a child org's OIDC override (empty issuer clears).",
+  request_body = OrgOidcRequest,
+  responses((status = 200, description = "Updated"), (status = 404, description = "Unknown org")))]
+pub(crate) async fn orgs_oidc_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+  Json(payload): Json<OrgOidcRequest>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  if id == MASTER_ID {
+    return (
+      StatusCode::BAD_REQUEST,
+      "the master organization uses the global OIDC settings",
+    )
+      .into_response();
+  }
+  let oidc = if payload.issuer.trim().is_empty() {
+    None
+  } else {
+    let allowed_emails: Vec<String> = payload
+      .allowed_emails
+      .iter()
+      .map(|e| e.trim().to_ascii_lowercase())
+      .filter(|e| !e.is_empty())
+      .collect();
+    if payload.client_id.trim().is_empty() || payload.client_secret.trim().is_empty() {
+      return (
+        StatusCode::BAD_REQUEST,
+        "client_id and client_secret are required",
+      )
+        .into_response();
+    }
+    if allowed_emails.is_empty() {
+      return (
+        StatusCode::BAD_REQUEST,
+        "allowed_emails must list at least one pattern",
+      )
+        .into_response();
+    }
+    Some(crate::store::orgs::OrgOidc {
+      issuer: payload.issuer.trim().to_string(),
+      client_id: payload.client_id.trim().to_string(),
+      client_secret: payload.client_secret,
+      allowed_emails,
+    })
+  };
+  let configured = oidc.is_some();
+  let updated = state.org_store.lock().await.set_oidc(&id, oidc);
+  // Drop any cached runtime so the next login rebuilds from the new config.
+  state.org_oidc.lock().await.remove(&id);
+  match updated {
+    Some(_) => {
+      let ip = actor_ip(&state, &headers, addr);
+      state
+        .audit(
+          "org_oidc_updated",
+          &state.session_actor(&headers).await,
+          &ip,
+          &format!("id={id} configured={configured}"),
+        )
+        .await;
+      Json(serde_json::json!({ "id": id, "configured": configured })).into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+  }
+}
+
 /// Reports an organization's current-month usage against its quotas, and emits
 /// an `org_usage` webhook event (a billing integration can subscribe or poll
 /// this endpoint on a schedule).

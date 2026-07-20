@@ -41,6 +41,11 @@ pub(crate) struct SessionInfo {
   /// so an org switch survives a restart.
   #[serde(default)]
   pub(crate) selected_org: Option<String>,
+  /// The organization this session is fixed to (per-org OIDC login). When set,
+  /// the session acts within this org and cannot switch or reach master — it
+  /// is an org-scoped admin, not the super-admin. `None` for all other logins.
+  #[serde(default)]
+  pub(crate) bound_org: Option<String>,
 }
 
 /// Current unix time in seconds.
@@ -271,6 +276,7 @@ mod tests {
       username: username.map(str::to_string),
       role: Role::Admin,
       selected_org: None,
+      bound_org: None,
     }
   }
 

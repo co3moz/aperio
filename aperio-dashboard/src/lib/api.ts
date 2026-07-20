@@ -326,6 +326,13 @@ export interface OrgQuota {
   max_bytes_month?: number
 }
 
+export interface OrgOidcPayload {
+  issuer: string
+  client_id: string
+  client_secret: string
+  allowed_emails: string[]
+}
+
 export interface OrgUsage {
   org_id: string
   month: string
@@ -513,6 +520,11 @@ export const api = {
   setOrgQuota: (id: string, quota: OrgQuota) =>
     mutate(`/orgs/${encodeURIComponent(id)}/quota`, json('PUT', quota)),
   orgUsage: (id: string) => request<OrgUsage>(`/orgs/${encodeURIComponent(id)}/usage`),
+  setOrgOidc: (id: string, oidc: OrgOidcPayload) =>
+    request<{ id: string; configured: boolean }>(
+      `/orgs/${encodeURIComponent(id)}/oidc`,
+      json('PUT', oidc),
+    ),
   selectOrg: (id: string) => request<{ selected: string }>('/orgs/select', json('POST', { id })),
 }
 

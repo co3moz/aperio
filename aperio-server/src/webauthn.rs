@@ -528,6 +528,7 @@ pub(crate) async fn passkey_login_finish_handler(
       username: Some(username),
       role,
       selected_org: None,
+      bound_org: None,
     },
   );
   let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
@@ -775,6 +776,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       username: Some(username),
       role,
       selected_org: None,
+      bound_org: None,
     },
   );
   let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };

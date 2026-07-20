@@ -852,6 +852,7 @@ async fn async_main() {
     webauthn_ceremonies: Mutex::new(crate::webauthn::WebauthnCeremonies::default()),
     uptime: Mutex::new(crate::store::uptime::UptimeStore::load(&data_dir)),
     oidc: oidc_runtime,
+    org_oidc: Mutex::new(HashMap::new()),
     oidc_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
@@ -1004,6 +1005,10 @@ async fn async_main() {
       .route(
         "/api/orgs/:id/usage",
         get(crate::api::orgs::orgs_usage_handler),
+      )
+      .route(
+        "/api/orgs/:id/oidc",
+        axum::routing::put(crate::api::orgs::orgs_oidc_handler),
       )
       .route(
         "/api/orgs/select",

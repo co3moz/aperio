@@ -370,6 +370,7 @@ pub(crate) async fn auth_login_handler(
       username: identity.0,
       role: identity.1,
       selected_org: None,
+      bound_org: None,
     },
   );
 
@@ -761,6 +762,17 @@ pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> b
 /// `org_id` is None), `Some(id)` = the caller's child organization. Returns
 /// `None` for callers without a valid global session too (they can't act).
 pub(crate) async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  // A per-org OIDC session is fixed to its org and never reaches master.
+  if let Some(token) = session_cookie(headers) {
+    let sessions = state.sessions.lock().await;
+    if let Some(info) = sessions.get(token)
+      && info.expires_at > crate::store::sessions::now_secs()
+      && info.scope_host.is_none()
+      && info.bound_org.is_some()
+    {
+      return info.bound_org.clone();
+    }
+  }
   if let Some(username) = dashboard_username(state, headers).await {
     return state
       .users
@@ -916,14 +928,69 @@ fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap) -> Option<String> {
 
 /// Starts the OIDC authorization code flow: stores a CSRF state token and
 /// redirects the browser to the identity provider.
+/// Resolves a per-organization OIDC runtime, building and caching it from the
+/// org's stored config on first use. Returns None when the org has no OIDC
+/// override or its config fails to build (logged, never fatal).
+pub(crate) async fn resolve_org_oidc(
+  state: &AppState,
+  org_id: &str,
+) -> Option<crate::oidc::OidcRuntime> {
+  if let Some(rt) = state.org_oidc.lock().await.get(org_id) {
+    return Some(rt.clone());
+  }
+  let cfg = state.org_store.lock().await.find(org_id)?.oidc.clone()?;
+  match crate::oidc::build_runtime(
+    &cfg.issuer,
+    &cfg.client_id,
+    &cfg.client_secret,
+    cfg.allowed_emails.clone(),
+    "openid email profile".to_string(),
+    None,
+  )
+  .await
+  {
+    Ok(rt) => {
+      state
+        .org_oidc
+        .lock()
+        .await
+        .insert(org_id.to_string(), rt.clone());
+      Some(rt)
+    }
+    Err(e) => {
+      warn!("Per-org OIDC for {} failed to build: {}", org_id, e);
+      None
+    }
+  }
+}
+
 pub(crate) async fn oidc_login_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let Some(rt) = state.oidc.clone() else {
-    return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
+  // A per-org login (`?org=<id>`) authenticates against that org's OIDC and
+  // binds the session to it; otherwise the global OIDC runtime is used.
+  let org = query
+    .get("org")
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty() && s != "master");
+  let (rt, bound_org) = match &org {
+    Some(id) => match resolve_org_oidc(&state, id).await {
+      Some(rt) => (rt, Some(id.clone())),
+      None => {
+        return (
+          StatusCode::NOT_FOUND,
+          "OIDC is not configured for this organization",
+        )
+          .into_response();
+      }
+    },
+    None => match state.oidc.clone() {
+      Some(rt) => (rt, None),
+      None => return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response(),
+    },
   };
   let caller_ip = extract_client_ip(
     &headers,
@@ -948,10 +1015,10 @@ pub(crate) async fn oidc_login_handler(
   {
     let mut states = state.oidc_states.lock().await;
     let now = Instant::now();
-    states.retain(|_, (_, exp)| *exp > now);
+    states.retain(|_, (_, _, exp)| *exp > now);
     states.insert(
       state_token.clone(),
-      (redirect_after, now + Duration::from_secs(600)),
+      (redirect_after, bound_org, now + Duration::from_secs(600)),
     );
   }
 
@@ -991,9 +1058,6 @@ pub(crate) async fn oidc_callback_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let Some(rt) = state.oidc.clone() else {
-    return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response();
-  };
   let caller_ip = extract_client_ip(
     &headers,
     addr.ip(),
@@ -1008,15 +1072,26 @@ pub(crate) async fn oidc_callback_handler(
     return (StatusCode::BAD_REQUEST, "Missing code/state parameter").into_response();
   };
 
-  // Validate and consume the CSRF state.
-  let redirect_after = {
+  // Validate and consume the CSRF state, recovering the bound org (if any).
+  let (redirect_after, bound_org) = {
     let mut states = state.oidc_states.lock().await;
     match states.remove(state_param) {
-      Some((redirect, exp)) if exp > Instant::now() => redirect,
+      Some((redirect, org, exp)) if exp > Instant::now() => (redirect, org),
       _ => {
         return (StatusCode::BAD_REQUEST, "Invalid or expired OIDC state").into_response();
       }
     }
+  };
+  // Use the same runtime the login flow selected: the org's, or the global one.
+  let rt = match &bound_org {
+    Some(id) => match resolve_org_oidc(&state, id).await {
+      Some(rt) => rt,
+      None => return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response(),
+    },
+    None => match state.oidc.clone() {
+      Some(rt) => rt,
+      None => return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response(),
+    },
   };
   let Some(redirect_uri) = oidc_redirect_uri(&state, &headers) else {
     return (StatusCode::BAD_REQUEST, "Missing Host header").into_response();
@@ -1124,6 +1199,9 @@ pub(crate) async fn oidc_callback_handler(
       username: Some(email.clone()),
       role: Role::Admin,
       selected_org: None,
+      // A per-org login is fixed to that org (an org-scoped admin, never the
+      // master super-admin); a global OIDC login stays master.
+      bound_org: bound_org.clone(),
     },
   );
   let secure_flag = if state.config().secure_cookies {

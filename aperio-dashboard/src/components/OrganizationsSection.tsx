@@ -270,6 +270,7 @@ function QuotaDialog({ org }: { org: Organization }) {
             />
           </div>
         </div>
+        <OidcForm org={org} />
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             {t('Close')}
@@ -280,6 +281,69 @@ function QuotaDialog({ org }: { org: Organization }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// Per-org OIDC SSO override: sign-in at /aperio/oidc/login?org=<id> binds the
+// session to this org. The secret is write-only; empty issuer clears the config.
+function OidcForm({ org }: { org: Organization }) {
+  const { t } = useI18n()
+  const [f, setF] = useState({ issuer: '', clientId: '', clientSecret: '', emails: '' })
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      await api.setOrgOidc(org.id, {
+        issuer: f.issuer.trim(),
+        client_id: f.clientId.trim(),
+        client_secret: f.clientSecret,
+        allowed_emails: f.emails
+          .split(',')
+          .map((e) => e.trim())
+          .filter(Boolean),
+      })
+      toast.success(f.issuer.trim() ? t('OIDC configured') : t('OIDC cleared'))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <details className="rounded-md border p-3">
+      <summary className="cursor-pointer text-sm font-medium">{t('OIDC SSO override')}</summary>
+      <p className="mb-2 mt-1 text-xs text-muted-foreground">
+        {t('Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.', { id: org.id })}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          placeholder={t('Issuer URL')}
+          value={f.issuer}
+          onChange={(e) => setF((s) => ({ ...s, issuer: e.target.value }))}
+        />
+        <Input
+          placeholder={t('Client id')}
+          value={f.clientId}
+          onChange={(e) => setF((s) => ({ ...s, clientId: e.target.value }))}
+        />
+        <Input
+          type="password"
+          placeholder={t('Client secret')}
+          value={f.clientSecret}
+          onChange={(e) => setF((s) => ({ ...s, clientSecret: e.target.value }))}
+        />
+        <Input
+          placeholder={t('Allowed emails (comma)')}
+          value={f.emails}
+          onChange={(e) => setF((s) => ({ ...s, emails: e.target.value }))}
+        />
+      </div>
+      <Button size="sm" className="mt-2" onClick={save} disabled={busy}>
+        {busy && <Spinner />} {t('Save OIDC')}
+      </Button>
+    </details>
   )
 }
 

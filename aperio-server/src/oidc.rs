@@ -23,23 +23,70 @@ struct DiscoveryDoc {
   userinfo_endpoint: Option<String>,
 }
 
-/// Loads OIDC configuration from `APERIO_OIDC_*` environment variables and
-/// the issuer's `/.well-known/openid-configuration`. Returns `None` when the
-/// feature is not configured; exits the process on misconfiguration so a
-/// broken SSO setup never silently exposes the proxied app.
+/// Builds an OIDC runtime by fetching the issuer's discovery document.
+/// Returns an error string on any misconfiguration instead of exiting, so it
+/// is safe to call for a per-organization override (a bad tenant config must
+/// not take the whole server down). `load_from_env` maps the error to a fatal
+/// startup exit; the per-org path surfaces it as a login failure.
+pub async fn build_runtime(
+  issuer: &str,
+  client_id: &str,
+  client_secret: &str,
+  allowed_emails: Vec<String>,
+  scopes: String,
+  redirect_url_override: Option<String>,
+) -> Result<OidcRuntime, String> {
+  let issuer = issuer.trim().trim_end_matches('/');
+  if issuer.is_empty() {
+    return Err("OIDC issuer is empty".into());
+  }
+  if client_id.trim().is_empty() || client_secret.trim().is_empty() {
+    return Err("OIDC client id / client secret are missing".into());
+  }
+  if allowed_emails.is_empty() {
+    return Err(
+      "OIDC allowed emails must be set (comma separated; supports user@x.com, *@x.com, *)".into(),
+    );
+  }
+  let discovery_url = format!("{issuer}/.well-known/openid-configuration");
+  info!("Fetching OIDC discovery document from {}", discovery_url);
+  let doc: DiscoveryDoc = reqwest::Client::new()
+    .get(&discovery_url)
+    .timeout(std::time::Duration::from_secs(15))
+    .send()
+    .await
+    .and_then(|r| r.error_for_status())
+    .map_err(|e| format!("failed to fetch OIDC discovery document: {e}"))?
+    .json()
+    .await
+    .map_err(|e| format!("failed to parse OIDC discovery document: {e}"))?;
+  let userinfo_endpoint = doc
+    .userinfo_endpoint
+    .ok_or_else(|| "OIDC issuer does not advertise a userinfo_endpoint".to_string())?;
+
+  info!(
+    "OIDC runtime built (issuer: {}, allowed: {:?})",
+    issuer, allowed_emails
+  );
+  Ok(OidcRuntime {
+    authorization_endpoint: doc.authorization_endpoint,
+    token_endpoint: doc.token_endpoint,
+    userinfo_endpoint,
+    client_id: client_id.to_string(),
+    client_secret: client_secret.to_string(),
+    scopes,
+    allowed_emails,
+    redirect_url_override,
+  })
+}
+
+/// Loads OIDC configuration from `APERIO_OIDC_*` environment variables. Returns
+/// `None` when the feature is not configured; exits the process on
+/// misconfiguration so a broken SSO setup never silently exposes the app.
 pub async fn load_from_env() -> Option<OidcRuntime> {
   let issuer = std::env::var("APERIO_OIDC_ISSUER").ok()?;
-  let issuer = issuer.trim().trim_end_matches('/').to_string();
-  if issuer.is_empty() {
+  if issuer.trim().is_empty() {
     return None;
-  }
-  let client_id = std::env::var("APERIO_OIDC_CLIENT_ID").unwrap_or_default();
-  let client_secret = std::env::var("APERIO_OIDC_CLIENT_SECRET").unwrap_or_default();
-  if client_id.trim().is_empty() || client_secret.trim().is_empty() {
-    error!(
-      "APERIO_OIDC_ISSUER is set but APERIO_OIDC_CLIENT_ID / APERIO_OIDC_CLIENT_SECRET are missing!"
-    );
-    std::process::exit(1);
   }
   let allowed_emails: Vec<String> = std::env::var("APERIO_OIDC_ALLOWED_EMAILS")
     .unwrap_or_default()
@@ -47,61 +94,27 @@ pub async fn load_from_env() -> Option<OidcRuntime> {
     .map(|s| s.trim().to_ascii_lowercase())
     .filter(|s| !s.is_empty())
     .collect();
-  if allowed_emails.is_empty() {
-    error!(
-      "APERIO_OIDC_ALLOWED_EMAILS must be set (comma separated; supports user@x.com, *@x.com, *)"
-    );
-    std::process::exit(1);
-  }
   let scopes =
     std::env::var("APERIO_OIDC_SCOPES").unwrap_or_else(|_| "openid email profile".to_string());
   let redirect_url_override = std::env::var("APERIO_OIDC_REDIRECT_URL")
     .ok()
     .filter(|s| !s.trim().is_empty());
-
-  let discovery_url = format!("{}/.well-known/openid-configuration", issuer);
-  info!("Fetching OIDC discovery document from {}", discovery_url);
-  let doc: DiscoveryDoc = match reqwest::Client::new()
-    .get(&discovery_url)
-    .timeout(std::time::Duration::from_secs(15))
-    .send()
-    .await
-    .and_then(|r| r.error_for_status())
-  {
-    Ok(res) => match res.json().await {
-      Ok(doc) => doc,
-      Err(e) => {
-        error!("Failed to parse OIDC discovery document: {}", e);
-        std::process::exit(1);
-      }
-    },
-    Err(e) => {
-      error!("Failed to fetch OIDC discovery document: {}", e);
-      std::process::exit(1);
-    }
-  };
-  let userinfo_endpoint = match doc.userinfo_endpoint {
-    Some(u) => u,
-    None => {
-      error!("OIDC issuer does not advertise a userinfo_endpoint; cannot proceed");
-      std::process::exit(1);
-    }
-  };
-
-  info!(
-    "OIDC SSO enabled (issuer: {}, allowed: {:?})",
-    issuer, allowed_emails
-  );
-  Some(OidcRuntime {
-    authorization_endpoint: doc.authorization_endpoint,
-    token_endpoint: doc.token_endpoint,
-    userinfo_endpoint,
-    client_id,
-    client_secret,
-    scopes,
+  match build_runtime(
+    &issuer,
+    &std::env::var("APERIO_OIDC_CLIENT_ID").unwrap_or_default(),
+    &std::env::var("APERIO_OIDC_CLIENT_SECRET").unwrap_or_default(),
     allowed_emails,
+    scopes,
     redirect_url_override,
-  })
+  )
+  .await
+  {
+    Ok(rt) => Some(rt),
+    Err(e) => {
+      error!("OIDC configuration error: {e}");
+      std::process::exit(1);
+    }
+  }
 }
 
 /// Checks an authenticated email against the allowed patterns

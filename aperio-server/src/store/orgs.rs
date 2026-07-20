@@ -38,6 +38,20 @@ pub struct Organization {
   /// (None = unlimited). Enforced against the month's per-org stats bucket.
   #[serde(default)]
   pub max_bytes_month: Option<u64>,
+  /// Per-organization OIDC SSO override. When set, `/aperio/oidc/login?org=<id>`
+  /// authenticates against this issuer and binds the session to the org.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub oidc: Option<OrgOidc>,
+}
+
+/// Per-organization OIDC single sign-on configuration.
+#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
+pub struct OrgOidc {
+  pub issuer: String,
+  pub client_id: String,
+  pub client_secret: String,
+  /// Allowed email patterns (exact, `*@domain`, or `*`).
+  pub allowed_emails: Vec<String>,
 }
 
 /// Persistent store of child organizations, backed by the `organizations`
@@ -94,6 +108,7 @@ impl OrgStore {
       max_tokens: None,
       max_users: None,
       max_bytes_month: None,
+      oidc: None,
     };
     self.orgs.push(org.clone());
     self.persist();
@@ -143,6 +158,15 @@ impl OrgStore {
     if let Some(v) = max_bytes_month {
       org.max_bytes_month = v.filter(|n| *n > 0);
     }
+    let updated = org.clone();
+    self.persist();
+    Some(updated)
+  }
+
+  /// Sets or clears an org's OIDC override. Returns the updated record.
+  pub fn set_oidc(&mut self, id: &str, oidc: Option<OrgOidc>) -> Option<Organization> {
+    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
+    org.oidc = oidc;
     let updated = org.clone();
     self.persist();
     Some(updated)
