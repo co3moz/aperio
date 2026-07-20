@@ -154,6 +154,10 @@ fn test_is_h2_target() {
 
 #[test]
 fn test_build_h2_client_variants() {
+  // Building a TLS h2 client needs a rustls crypto provider; production
+  // installs it in main(), which unit tests don't run. Install it idempotently
+  // so this test doesn't depend on another test having installed it first.
+  let _ = rustls::crypto::ring::default_provider().install_default();
   assert!(matches!(
     build_h2_client("h2c://127.0.0.1:1"),
     Some(H2Client::Cleartext(_))
@@ -430,6 +434,9 @@ async fn test_h2_tls_target_handshake_fails_502() {
   // An h2:// (TLS) target pointed at a plaintext port: the TLS client dials,
   // the handshake fails, and the error maps to 502. Exercises the TLS request
   // arm and the h2:// wire-URL branch.
+  // The TLS client needs a rustls crypto provider (production installs it in
+  // main()); install it idempotently so the test is order-independent.
+  let _ = rustls::crypto::ring::default_provider().install_default();
   let port = start_h2c_backend().await;
   let target = format!("h2://127.0.0.1:{}", port);
   let h2_client = build_h2_client(&target).map(Arc::new);
