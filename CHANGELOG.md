@@ -8,6 +8,7 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **`aperio-server --print-config`.** Prints the effective configuration and exits without starting the server: every `APERIO_*` value in effect, each attributed to its source (the environment or the `aperio-server.yaml` file), the structured file sections, and any persisted dashboard overrides (which win at runtime). Secret-looking values are masked and long ones summarized. Answers "what is actually set, and where did it come from?" without reading the process env by hand.
 - **Live-WebSocket connection limit.** `APERIO_MAX_WS_CONNECTIONS` (default `10000`, `0` = no cap) caps the number of concurrently-live proxied public WebSockets. WebSockets are long-lived, so they get their own ceiling separate from the short-lived `APERIO_MAX_CONCURRENT_REQUESTS` request limit; an upgrade beyond the cap is rejected with `503`. Closes a gap where a flood of proxied WebSocket upgrades could exhaust server memory/FDs/tasks (per-IP rate limiting throttles the connection *rate*, not the live *count*, and does nothing against a distributed source).
 
 ### Changed

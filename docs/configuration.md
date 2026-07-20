@@ -301,6 +301,28 @@ Checking configuration (aperio-server.yaml)
 Configuration check FAILED: 1 error(s), 0 warning(s)
 ```
 
+#### Effective config (`--print-config`)
+
+`aperio-server --print-config` prints the resolved configuration and exits without starting the server. It answers "what is actually set, and where did each value come from?": every `APERIO_*` variable in effect, each attributed to its source — the real environment or the `aperio-server.yaml` file — plus the structured file sections and any persisted dashboard overrides (which win at runtime). Secret-looking values are masked and long ones summarized. Settings not listed use their built-in defaults (see the reference tables below, or `--print-schema` for the machine-readable catalogue):
+
+```console
+$ aperio-server --print-config
+Effective Aperio server configuration
+=====================================
+config file : ./aperio-server.yaml
+data dir    : ./data
+
+Settings (3 set, the rest use defaults):
+  APERIO_MAX_BODY_SIZE   = 8000000  [aperio-server.yaml]
+  APERIO_SERVER_TOKEN    = [REDACTED]  [env]
+  APERIO_TRUSTED_PROXIES = 10.0.0.0/8  [aperio-server.yaml]
+
+Structured aperio-server.yaml sections: headers
+
+Dashboard overrides (./data/settings.json) — these win over env/yaml at runtime:
+  cache_enabled = true
+```
+
 #### Hot-reload
 
 `aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change — cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:`, `routes:` and `error_pages:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).

@@ -27,6 +27,7 @@ mod expose;
 mod fallbacks;
 mod headers;
 mod oidc;
+mod print_config;
 mod protocol;
 mod proxy;
 mod redact;
@@ -114,6 +115,14 @@ fn main() {
   // environment) and exits without starting the server.
   if std::env::args().nth(1).as_deref() == Some("--check-config") {
     std::process::exit(check_config::run());
+  }
+
+  // `aperio-server --print-config` prints the effective configuration — which
+  // `APERIO_*` values are set and whether each came from the environment, the
+  // `aperio-server.yaml` file, or a persisted dashboard override — and exits
+  // without starting the server.
+  if std::env::args().nth(1).as_deref() == Some("--print-config") {
+    std::process::exit(print_config::run());
   }
 
   // `aperio-server --verify-audit` verifies the tamper-evident hash chain of

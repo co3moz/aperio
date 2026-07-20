@@ -154,6 +154,48 @@ pub(crate) fn document() -> Option<serde_yaml::Mapping> {
     .clone()
 }
 
+/// The set of environment-variable names that [`load`] materialized from the
+/// current document's scalar keys — i.e. the `APERIO_*` variables whose value
+/// originated from `aperio-server.yaml` rather than the real environment. Used
+/// by `--print-config` to attribute each variable to its source.
+pub(crate) fn materialized_env_names() -> std::collections::BTreeSet<String> {
+  let mut names = std::collections::BTreeSet::new();
+  let Some(doc) = document() else {
+    return names;
+  };
+  for (key, value) in &doc {
+    let Some(key) = key.as_str() else { continue };
+    if value.is_mapping()
+      || matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
+    {
+      continue;
+    }
+    if env_value(value).is_some() {
+      names.insert(env_name(key));
+    }
+  }
+  names
+}
+
+/// The structured (mapping / list-of-mapping) section keys of the current
+/// document — the keys [`load`] keeps as parsed YAML instead of turning into
+/// environment variables (`headers`, `routes`, `error_pages`, ...).
+pub(crate) fn structured_keys() -> Vec<String> {
+  let mut keys = Vec::new();
+  let Some(doc) = document() else {
+    return keys;
+  };
+  for (key, value) in &doc {
+    let Some(key) = key.as_str() else { continue };
+    if value.is_mapping()
+      || matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
+    {
+      keys.push(key.to_string());
+    }
+  }
+  keys
+}
+
 /// The watched config file path, if the file exists (or was explicitly
 /// configured). Used to set up the hot-reload watcher.
 pub(crate) fn watched_path() -> Option<std::path::PathBuf> {
