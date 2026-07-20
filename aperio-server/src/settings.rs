@@ -149,6 +149,8 @@ pub(crate) struct ServerConfig {
   /// Per-route request rate limits (the `rate_limits:` section of
   /// aperio-server.yaml); file-only, caps aggregate rps to a host+path.
   pub(crate) route_limits: crate::route_limits::RouteLimits,
+  /// WAF-lite deny/size rules (the `waf:` section of aperio-server.yaml).
+  pub(crate) waf: crate::waf::WafRules,
   /// When true, services reached through their random subdomain are marked
   /// non-indexable: an `X-Robots-Tag: noindex, nofollow` response header
   /// plus a disallow-all `/robots.txt`, so preview environments never end

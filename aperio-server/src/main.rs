@@ -40,6 +40,7 @@ mod store;
 mod telemetry;
 mod totp;
 mod tunnel;
+mod waf;
 mod webauthn;
 
 use crate::api::clients::{
@@ -687,6 +688,7 @@ async fn async_main() {
     static_routes: static_routes::from_config_file(),
     error_pages: error_pages::from_config_file(),
     route_limits: route_limits::from_config_file(),
+    waf: waf::from_config_file(),
     preview_noindex,
   };
 

@@ -252,6 +252,25 @@ rate_limits:
 
 Like the other structured sections it is re-applied on config hot-reload, and `--check-config` validates it.
 
+#### WAF-lite (`waf:`)
+
+The `waf:` section is a small request firewall evaluated before a request is dispatched. Each rule ANDs the conditions it lists — a `path` regex, a `methods` list, and/or a `header` name + value regex — and a match answers `403 Forbidden`. A rule with `max_body` is a size limit for its matched route instead of a deny: exceeding it answers `413 Payload Too Large`. It is a coarse first line of defense (path/method/header/body-size filtering), meant to complement — not replace — the rate limits above.
+
+```yaml
+# aperio-server.yaml
+waf:
+  - path: "^/\\.git"            # block probes for an exposed repo
+  - path: "^/admin"
+    methods: [POST, PUT, DELETE]
+  - header:
+      name: user-agent
+      regex: "(?i)sqlmap|nikto"
+  - path: "^/upload"
+    max_body: 1048576          # 1 MiB cap on this path
+```
+
+An invalid regex or a rule with no conditions is dropped with a logged error (and flagged by `--check-config`) rather than breaking proxying. Re-applied on hot-reload.
+
 #### Config lint (`--check-config`)
 
 `aperio-server --check-config` validates the layered configuration — the file (if any) plus the environment — and exits without starting the server: no port is bound and the data directory is untouched. It flags values the server would otherwise silently replace with defaults (unparsable numbers, unknown `lb_strategy`/`failover` values, a bad `random_subdomain` pattern), malformed `trusted_proxies`/`server_auth`, unreadable `504_page`/`503_page`/`error_pages:` files, invalid structured sections (`headers:`, `routes:`, `expose:`, `error_pages:`), and incomplete OIDC settings. Exit code 0 means the configuration is valid (warnings possible), 1 means at least one error — handy as a pre-deploy CI step or before a restart:

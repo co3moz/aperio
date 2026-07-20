@@ -165,6 +165,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
+ "regex",
  "reqwest 0.12.28",
  "rusqlite",
  "rust-embed",

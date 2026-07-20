@@ -758,6 +758,28 @@ async fn proxy_http_request(
   let request_host = extract_request_host(&headers);
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
 
+  // WAF-lite deny rules (`waf:` section): reject path/method/header attacks
+  // with 403 before the request is dispatched or its body read.
+  {
+    let cfg = state.config();
+    if !cfg.waf.is_empty()
+      && let Some(reason) = cfg.waf.deny_reason(&method_str, &uri_path_owned, &headers)
+    {
+      let reason = reason.to_string();
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        403,
+        start_time.elapsed(),
+        Some(&format!("WAF deny: {reason}")),
+        None,
+      )
+      .await;
+      return (StatusCode::FORBIDDEN, "403 Forbidden - Blocked by WAF").into_response();
+    }
+  }
+
   // Per-route rate limit (`rate_limits:` section): a shared token bucket caps
   // aggregate rps to a matched host+path, protecting expensive endpoints.
   if !state
@@ -1078,6 +1100,36 @@ async fn proxy_http_request(
       }
     }
   };
+
+  // WAF-lite body-size rules (`waf:` with `max_body`): reject an oversized
+  // body on a matched route with 413, now that the length is known. Streamed
+  // request bodies (protocol v2) are governed only by the global body limit.
+  if !stream_request {
+    let cfg = state.config();
+    if !cfg.waf.is_empty()
+      && let Some(reason) =
+        cfg
+          .waf
+          .body_reason(&method_str, &uri_path_owned, &headers, body_bytes.len())
+    {
+      let reason = reason.to_string();
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        413,
+        start_time.elapsed(),
+        Some(&format!("WAF body-size deny: {reason}")),
+        selected.org_id.clone(),
+      )
+      .await;
+      return (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "413 Payload Too Large - Blocked by WAF",
+      )
+        .into_response();
+    }
+  }
 
   let base64_body = if body_bytes.is_empty() {
     None

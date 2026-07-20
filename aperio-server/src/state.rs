@@ -1169,6 +1169,7 @@ impl AppState {
     effective.static_routes = crate::static_routes::from_config_file();
     effective.error_pages = crate::error_pages::from_config_file();
     effective.route_limits = crate::route_limits::from_config_file();
+    effective.waf = crate::waf::from_config_file();
     let old = self.config();
     let diff = crate::settings::config_reload_diff(&old, &effective);
     crate::api::settings::swap_config(self, effective).await;

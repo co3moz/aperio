@@ -286,6 +286,17 @@ pub(crate) fn run() -> i32 {
       compiled.len()
     ));
   }
+  if let Some(rules) = check_section::<Vec<crate::waf::WafRuleRaw>>(&mut r, "waf") {
+    let total = rules.len();
+    let dropped = crate::waf::count_dropped(rules);
+    if dropped > 0 {
+      r.fail(&format!(
+        "`waf:` section has {dropped} invalid rule(s) (bad regex or no conditions) of {total}"
+      ));
+    } else {
+      r.ok(&format!("`waf:` section compiles ({total} rule(s))"));
+    }
+  }
   if let Some(pages) = check_section::<Vec<ErrorPageRuleLint>>(&mut r, "error_pages") {
     for rule in &pages {
       for (which, path) in [("504_page", &rule.page_504), ("503_page", &rule.page_503)] {

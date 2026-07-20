@@ -53,6 +53,7 @@ opentelemetry-semantic-conventions = "0.32"
 sha1 = "0.10"
 http-body = "1"
 webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
+regex = "1.13.0"
 
 [features]
 # Used by the release workflow: build OpenSSL from source for the target
