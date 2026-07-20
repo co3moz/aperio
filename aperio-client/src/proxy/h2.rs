@@ -315,3 +315,7 @@ pub(crate) async fn handle_incoming_request_h2(
     timings: None,
   })
 }
+
+#[cfg(test)]
+#[path = "h2_tests.rs"]
+mod tests;

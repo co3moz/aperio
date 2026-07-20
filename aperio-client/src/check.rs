@@ -325,3 +325,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   println!("{failures} check(s) failed.");
   std::process::exit(1);
 }
+
+#[cfg(test)]
+#[path = "check_tests.rs"]
+mod tests;

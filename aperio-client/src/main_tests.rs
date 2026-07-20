@@ -393,3 +393,395 @@ fn test_multi_hostname_list() {
     vec!["app.example.com".to_string(), "www.example.com".to_string()]
   );
 }
+
+/// Installs a process-wide TRACE subscriber once so `info!`/`warn!`/`error!`
+/// argument expressions are evaluated (and covered) during tests.
+fn init_tracing() {
+  use std::sync::Once;
+  static ONCE: Once = Once::new();
+  ONCE.call_once(|| {
+    let _ = tracing_subscriber::fmt()
+      .with_max_level(tracing::Level::TRACE)
+      .with_test_writer()
+      .try_init();
+  });
+}
+
+fn tcp_tunnel(target: &str) -> protocol::TunnelDecl {
+  protocol::TunnelDecl {
+    target: target.to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: None,
+    expose: None,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// build_specs: validation error branches.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_specs_requires_token_and_server() {
+  init_tracing();
+  let mut settings = base_settings();
+  settings.token = None;
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("tunnel token is required"), "got: {err}");
+
+  let mut settings = base_settings();
+  settings.server = None;
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("server URL is required"), "got: {err}");
+
+  // A malformed server URL fails the WebSocket-URL build.
+  let mut settings = base_settings();
+  settings.server = Some("ftp://nope".to_string());
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("WebSocket URL"), "got: {err}");
+}
+
+#[test]
+fn test_build_specs_invalid_allowed_ips() {
+  init_tracing();
+  // Client-level invalid allowlist entry.
+  let mut settings = base_settings();
+  settings.allowed_ips = vec!["not-an-ip".to_string()];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("allowed_ips"), "got: {err}");
+
+  // Per-service invalid allowlist entry.
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("svc".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    allowed_ips: Some(vec!["999.999.0.0/8".to_string()]),
+    ..Default::default()
+  }];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(
+    err.contains("svc") && err.contains("allowed_ips"),
+    "got: {err}"
+  );
+
+  // A valid mixture (IP, CIDR, '*') builds fine.
+  let mut settings = base_settings();
+  settings.allowed_ips = vec![
+    "10.0.0.1".to_string(),
+    "192.168.0.0/16".to_string(),
+    "*".to_string(),
+  ];
+  assert!(build_specs(&settings, "id", false).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_build_specs_invalid_unix_target() {
+  init_tracing();
+  // A unix:// target without a socket path is rejected.
+  let mut settings = base_settings();
+  settings.target = Some("unix://".to_string());
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(
+    err.contains("unix://") && err.contains("socket path"),
+    "got: {err}"
+  );
+
+  // Per-service unix target without a path.
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("sock".to_string()),
+    target: Some("unix://".to_string()),
+    ..Default::default()
+  }];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("sock"), "got: {err}");
+
+  // A well-formed unix target passes validation.
+  let mut settings = base_settings();
+  settings.target = Some("unix:///tmp/app.sock".to_string());
+  assert!(build_specs(&settings, "id", false).is_ok());
+}
+
+#[test]
+fn test_build_specs_invalid_denied() {
+  init_tracing();
+  // Client-level denied must be an absolute http(s) URL.
+  let mut settings = base_settings();
+  settings.denied = Some("/relative".to_string());
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("denied"), "got: {err}");
+
+  // Per-service denied is validated too.
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("d".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    denied: Some("ftp://x".to_string()),
+    ..Default::default()
+  }];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("d") && err.contains("denied"), "got: {err}");
+
+  // A valid absolute URL is accepted and propagated.
+  let mut settings = base_settings();
+  settings.denied = Some("https://example.com/denied".to_string());
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(
+    specs[0].denied.as_deref(),
+    Some("https://example.com/denied")
+  );
+}
+
+#[test]
+fn test_build_specs_invalid_bandwidth_warns() {
+  init_tracing();
+  // An unparseable bandwidth value is ignored (warned) rather than fatal.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("not-a-rate".to_string());
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].bandwidth_bps, None);
+
+  // A valid value parses through.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("8mbit".to_string());
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert!(specs[0].bandwidth_bps.is_some());
+}
+
+#[test]
+fn test_build_specs_server_urls_failover() {
+  init_tracing();
+  // APERIO_SERVER_URLS adds failover candidates; duplicates and invalid
+  // entries are skipped/warned.
+  // SAFETY: the var is set and cleared within this test.
+  unsafe {
+    std::env::set_var(
+      "APERIO_SERVER_URLS",
+      "https://backup.example.com, https://tunnel.example.com, ::not a url",
+    );
+  }
+  let specs = build_specs(&base_settings(), "id", false).unwrap();
+  unsafe { std::env::remove_var("APERIO_SERVER_URLS") };
+  // Primary + the one new valid backup (duplicate primary and the invalid
+  // entry are dropped).
+  assert!(specs[0].ws_urls.len() >= 2, "urls: {:?}", specs[0].ws_urls);
+  assert!(
+    specs[0]
+      .ws_urls
+      .iter()
+      .any(|u| u.contains("backup.example.com"))
+  );
+}
+
+#[test]
+fn test_build_specs_clamps_connections_warn() {
+  init_tracing();
+  // Single-service mode clamps an out-of-range top-level connections value.
+  let mut settings = base_settings();
+  settings.connections = Some(50);
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].connections, 16);
+}
+
+// ---------------------------------------------------------------------------
+// validate_tunnels: encrypt/psk/expose edge cases.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_tunnels_encrypt_and_expose() {
+  init_tracing();
+  let mut settings = base_settings();
+
+  // encrypt on a udp tunnel is rejected.
+  let mut d = tcp_tunnel("127.0.0.1:5432");
+  d.protocol = "udp".to_string();
+  d.encrypt = true;
+  settings.tunnels = vec![d];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("only supported for tcp"), "got: {err}");
+
+  // psk without encrypt is rejected.
+  let mut d = tcp_tunnel("127.0.0.1:5432");
+  d.psk = Some("k".to_string());
+  settings.tunnels = vec![d];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("psk without encrypt"), "got: {err}");
+
+  // A valid encrypted tcp tunnel with a psk passes.
+  let mut d = tcp_tunnel("127.0.0.1:5432");
+  d.encrypt = true;
+  d.psk = Some("k".to_string());
+  settings.tunnels = vec![d];
+  assert!(build_specs(&settings, "id", false).is_ok());
+
+  // expose on a non-tcp tunnel is rejected.
+  let mut d = tcp_tunnel("127.0.0.1:53");
+  d.protocol = "udp".to_string();
+  d.expose = Some("0.0.0.0:53".to_string());
+  settings.tunnels = vec![d];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("only supported for tcp"), "got: {err}");
+
+  // expose together with encrypt is rejected.
+  let mut d = tcp_tunnel("127.0.0.1:5432");
+  d.encrypt = true;
+  d.expose = Some("0.0.0.0:5432".to_string());
+  settings.tunnels = vec![d];
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("expose together with encrypt"), "got: {err}");
+
+  // A plain exposed tcp tunnel passes and is normalized through.
+  let mut d = tcp_tunnel("127.0.0.1:5432");
+  d.expose = Some("0.0.0.0:5432".to_string());
+  settings.tunnels = vec![d];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].tunnels[0].expose.as_deref(), Some("0.0.0.0:5432"));
+}
+
+#[test]
+fn test_build_specs_requires_target() {
+  init_tracing();
+  // No target, no tunnels, no services → the target is mandatory.
+  let mut settings = base_settings();
+  settings.target = None;
+  let err = build_specs(&settings, "id", false).unwrap_err();
+  assert!(err.contains("target is required"), "got: {err}");
+}
+
+#[test]
+fn test_build_specs_single_service_path_trim_bind() {
+  init_tracing();
+  // A top-level path bind defaults trim_bind to true in single-service mode.
+  let mut settings = base_settings();
+  settings.path = Some("/api".to_string());
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].path.as_deref(), Some("/api"));
+  assert!(specs[0].trim_bind);
+}
+
+// ---------------------------------------------------------------------------
+// apply_serve_mode: top-level serve.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_apply_serve_mode_top_level() {
+  init_tracing();
+  let dir = std::env::temp_dir().join(format!("aperio-serve-top-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let dir = dir.to_string_lossy().into_owned();
+
+  // Top-level serve with no target rewrites the top-level target.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.serve = Some(dir.clone());
+  let mut started = std::collections::HashMap::new();
+  apply_serve_mode(&mut settings, &mut started).await.unwrap();
+  assert!(settings.target.unwrap().starts_with("http://127.0.0.1:"));
+  assert_eq!(started.len(), 1);
+
+  // Top-level serve together with a target is a conflict.
+  let mut settings = base_settings();
+  settings.serve = Some(dir.clone());
+  // base_settings sets target, so this is the mutual-exclusion path.
+  let err = apply_serve_mode(&mut settings, &mut started)
+    .await
+    .unwrap_err();
+  assert!(err.contains("mutually exclusive"), "got: {err}");
+
+  // A services entry without serve is skipped by the serve rewrite.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.services = vec![ServiceEntry {
+    name: Some("plain".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    serve: None,
+    ..Default::default()
+  }];
+  apply_serve_mode(&mut settings, &mut started).await.unwrap();
+  assert_eq!(
+    settings.services[0].target.as_deref(),
+    Some("http://localhost:3000"),
+    "a non-serve entry is left untouched"
+  );
+
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// spawn_services
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_spawn_services_derives_connection_ids() {
+  init_tracing();
+  let mut settings = base_settings();
+  settings.connections = Some(3);
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let shared = Shared {
+    shutting_down: Arc::new(AtomicBool::new(false)),
+    shutdown_notify: Arc::new(tokio::sync::Notify::new()),
+    inflight_requests: Arc::new(AtomicUsize::new(0)),
+  };
+  let running = spawn_services(&specs, &shared);
+  // One spec with connections: 3 → three service tasks.
+  assert_eq!(running.len(), 3);
+  // Cancel them all and let them wind down (they never connect).
+  for (cancel_tx, _) in &running {
+    let _ = cancel_tx.send(true);
+  }
+  for (_, task) in running {
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// log_spec
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_log_spec_all_branches() {
+  init_tracing();
+  // A richly configured named service touches every optional log line.
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("web".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    path: Some("/api".to_string()),
+    hostname: Some(aperio_config::Hostnames::Many(vec![
+      "a.example.com".to_string(),
+      "b.example.com".to_string(),
+    ])),
+    max_concurrent: Some(8),
+    priority: Some(5),
+    bandwidth: Some("8mbit".to_string()),
+    connections: Some(4),
+    tcp_target: Some("127.0.0.1:5432".to_string()),
+    public: Some(true),
+    auth: Some("user:pass".to_string()),
+    ..Default::default()
+  }];
+  settings.tunnels = vec![tcp_tunnel("127.0.0.1:6000")];
+  // Multiple failover servers so the failover log line runs.
+  unsafe { std::env::set_var("APERIO_SERVER_URLS", "https://backup.example.com") };
+  let specs = build_specs(&settings, "id", false).unwrap();
+  unsafe { std::env::remove_var("APERIO_SERVER_URLS") };
+  for spec in &specs {
+    log_spec(spec);
+  }
+
+  // The single, unnamed, tunnels-only variant: empty target + single hostname.
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.hostnames = vec!["only.example.com".to_string()];
+  settings.tunnels = vec![tcp_tunnel("127.0.0.1:6001")];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  log_spec(&specs[0]);
+
+  // A plain single service with no hostnames at all.
+  let mut settings = base_settings();
+  settings.hostnames = Vec::new();
+  let specs = build_specs(&settings, "id", false).unwrap();
+  log_spec(&specs[0]);
+}

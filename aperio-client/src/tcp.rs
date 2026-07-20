@@ -392,3 +392,7 @@ pub(crate) async fn bridge_connection(
 
   tokio::join!(to_server, to_local);
 }
+
+#[cfg(test)]
+#[path = "tcp_tests.rs"]
+mod tests;

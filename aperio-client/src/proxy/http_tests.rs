@@ -612,3 +612,301 @@ async fn test_handle_incoming_request_trim_bind_disabled() {
     observed
   );
 }
+
+#[tokio::test]
+async fn test_backend_connection_refused_502() {
+  // No server listening on this port → reqwest send() fails → 502.
+  let ctx = test_ctx("http://127.0.0.1:1", test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-refused".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered error");
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 502);
+}
+
+#[tokio::test]
+async fn test_invalid_method_400() {
+  let ctx = test_ctx("http://127.0.0.1:1", test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-badm".to_string(),
+      method: "BAD METHOD".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered error");
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn test_bad_base64_body_400() {
+  let ctx = test_ctx("http://127.0.0.1:1", test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-b64".to_string(),
+      method: "POST".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: Some("!!not-base64!!".to_string()),
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered error");
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn test_unparsable_incoming_uri_400() {
+  // The incoming URI is spliced into `http://localhost<uri>`; an invalid port
+  // makes that URL unparsable → build_dest_url returns 400.
+  let ctx = test_ctx("http://127.0.0.1:1", test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-uri".to_string(),
+      method: "GET".to_string(),
+      uri: ":notaport".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered error");
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn test_unparsable_target_url_502() {
+  // A malformed target URL fails to parse in build_dest_url → 502.
+  let ctx = test_ctx("http://[bad", test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-badtarget".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered error");
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 502);
+}
+
+#[tokio::test]
+async fn test_streamed_request_body_forwarded() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+  use tokio::sync::oneshot;
+
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+  let (tx, rx) = oneshot::channel::<String>();
+
+  tokio::spawn(async move {
+    let _tx = tx;
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = vec![0u8; 4096];
+      let n = socket.read(&mut buf).await.unwrap();
+      let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+      let _ = _tx.send(req_str);
+      let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+      let _ = socket.write_all(response.as_bytes()).await;
+    }
+  });
+
+  // Feed the request body through the streamed-body channel (v2 path).
+  let (btx, brx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
+  btx.send(Ok(b"stream-".to_vec())).await.unwrap();
+  btx.send(Ok(b"payload".to_vec())).await.unwrap();
+  drop(btx);
+
+  let ctx = test_ctx(&target_url, test_tunnel_tx());
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-sbody".to_string(),
+      method: "POST".to_string(),
+      uri: "/upload".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    Some(brx),
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+
+  let observed = rx.await.unwrap();
+  // The body arrives chunk-encoded (transfer-encoding: chunked); assert both
+  // parts reached the backend.
+  assert!(
+    observed.contains("transfer-encoding: chunked")
+      && observed.contains("stream-")
+      && observed.contains("payload"),
+    "streamed body must reach the backend, got: {observed}"
+  );
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn test_redirect_stops_after_max_hops() {
+  // A→B→C chain with max_hops=1: the second hop exceeds the limit, so the
+  // redirect is passed through instead of followed (attempt.stop()).
+  let c_port =
+    mock_server("HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nend".to_string())
+      .await;
+  let b_port = mock_server(format!(
+    "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/c\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    c_port
+  ))
+  .await;
+  let a_port = mock_server(format!(
+    "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/b\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    b_port
+  ))
+  .await;
+
+  let ctx = ForwardContext {
+    client: reqwest::Client::builder()
+      .redirect(redirect_policy(1))
+      .build()
+      .unwrap(),
+    ..test_ctx(&format!("http://127.0.0.1:{}", a_port), test_tunnel_tx())
+  };
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-hops".to_string(),
+      method: "GET".to_string(),
+      uri: "/".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await
+  .expect("expected buffered response");
+  // The second redirect (B→C) is not followed → the 302 is returned as-is.
+  let TunnelMessage::Response { status, .. } = result else {
+    panic!("Expected Response variant");
+  };
+  assert_eq!(status, 302);
+}
+
+#[tokio::test]
+async fn test_stream_truncated_at_limit() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+  let body_size = 600 * 1024;
+
+  tokio::spawn(async move {
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0; 1024];
+      let _ = socket.read(&mut buf).await.unwrap();
+      let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n\r\n",
+        body_size
+      );
+      socket.write_all(header.as_bytes()).await.unwrap();
+      // Write the payload in slices so more chunks arrive after streaming
+      // begins, letting the size cap trip mid-stream.
+      let payload = vec![0xCDu8; body_size];
+      for part in payload.chunks(64 * 1024) {
+        if socket.write_all(part).await.is_err() {
+          break;
+        }
+      }
+      let mut sink = [0u8; 1024];
+      while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
+    }
+  });
+
+  let (tx, mut rx) = mpsc::channel::<Message>(256);
+  // Cap below the payload so the streamed response is truncated.
+  let ctx = ForwardContext {
+    max_response_body_size: 300 * 1024,
+    ..test_ctx(&target_url, tx)
+  };
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-trunc".to_string(),
+      method: "GET".to_string(),
+      uri: "/big".to_string(),
+      headers: vec![],
+      body: None,
+    },
+    None,
+    false,
+  )
+  .await;
+  assert!(result.is_none(), "large body streams");
+
+  let mut got_end = false;
+  while let Some(Message::Text(json)) = rx.recv().await {
+    if let TunnelMessage::ResponseEnd { .. } = serde_json::from_str::<TunnelMessage>(&json).unwrap()
+    {
+      got_end = true;
+      break;
+    }
+  }
+  assert!(
+    got_end,
+    "truncated stream still terminates with ResponseEnd"
+  );
+}
+
+#[test]
+fn test_redirect_policy_none_when_zero() {
+  // max_hops == 0 yields a no-follow policy (smoke test of the early return).
+  let _ = redirect_policy(0);
+}

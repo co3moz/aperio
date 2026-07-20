@@ -328,3 +328,7 @@ async fn send_upgrade_error(stream_id: &str, tunnel_tx: &mpsc::Sender<Message>, 
     let _ = tunnel_tx.send(Message::Text(json)).await;
   }
 }
+
+#[cfg(test)]
+#[path = "ws_tests.rs"]
+mod tests;

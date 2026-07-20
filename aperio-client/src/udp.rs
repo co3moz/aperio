@@ -250,3 +250,7 @@ async fn bridge_udp_session(
   }
   let _ = ws_tx.send(Message::Close(None)).await;
 }
+
+#[cfg(test)]
+#[path = "udp_tests.rs"]
+mod tests;
