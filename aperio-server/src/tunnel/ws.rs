@@ -61,16 +61,22 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
         let mut stats = state.stats.lock().await;
         stats.total_bytes_transferred += len;
         drop(stats);
-        // Attribute streamed bytes to the sending client's organization.
-        let org = {
+        // Attribute streamed bytes to the sending client's organization and to
+        // the serving token's daily byte quota — a streamed response body would
+        // otherwise escape the quota that a buffered response is charged for.
+        let (org, token_id) = {
           let clients = state.clients.lock().await;
-          clients.get(client_id).and_then(|c| c.perms.org_id.clone())
+          match clients.get(client_id) {
+            Some(c) => (c.perms.org_id.clone(), c.perms.token_id.clone()),
+            None => (None, None),
+          }
         };
         state
           .persistent_stats
           .lock()
           .await
           .record_bytes_sent(len, org.as_deref());
+        state.add_token_bytes(token_id.as_deref(), len).await;
       }
       _ => {
         debug!(

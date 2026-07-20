@@ -6,6 +6,13 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Streamed response bytes now count toward the token daily quota.** A response delivered as a stream (rather than buffered) was charged to org stats but escaped the serving token's daily byte quota that buffered responses are charged for; each streamed chunk is now attributed to the token too.
+- **Rate-limit env vars reject nonsensical values.** `APERIO_IP_LIMIT_MAX` / `APERIO_IP_LIMIT_REFILL` now fall back to their defaults when set to `0`, a negative, `NaN`, or infinity (which would have wedged the limiter), matching the dashboard settings validation.
+- **`security_headers` mappings reject unknown keys.** A mistyped granular security-header field (e.g. `frame_option`) is now a config error instead of being silently ignored.
+- **Config schema:** the `failover` example lists the accepted values (`fail`/`retry`/`wait`/`retry-wait`); `off` was never valid. Additional secret-looking body/JSON field names (`totp`, `pin`, `passphrase`, `jwt`, `session_token`, `cvv`, …) are now redacted in the request inspector.
+
 ### Security
 
 - **TOTP replay prevention.** A successful two-factor login now records the step counter the code matched and refuses any later code from the same or an earlier step, so a code intercepted in transit can no longer be replayed within its ~90-second validity window. The enrollment code seeds the window for the same reason.

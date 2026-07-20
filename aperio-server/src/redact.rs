@@ -42,6 +42,21 @@ const SENSITIVE_FIELDS: &[&str] = &[
   "credential",
   "credentials",
   "otp",
+  "otp_code",
+  "totp",
+  "totp_code",
+  "mfa_code",
+  "pin",
+  "passphrase",
+  "pwd",
+  "id_token",
+  "session_token",
+  "auth_token",
+  "authtoken",
+  "jwt",
+  "bearer",
+  "cvv",
+  "cvc",
 ];
 
 /// True unless the operator opted out with `APERIO_INSPECTOR_REDACT=0`.

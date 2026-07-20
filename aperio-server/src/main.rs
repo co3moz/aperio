@@ -283,15 +283,21 @@ async fn async_main() {
     .unwrap_or(10);
 
   // Max IP token bucket capacity burst (default: 100 requests)
+  // Only a finite, strictly positive bucket size is meaningful: 0, a negative,
+  // NaN or infinity would silently wedge the limiter (never/always throttling),
+  // so reject those and fall back to the default — mirroring the dashboard
+  // settings validation (`v > 0.0`).
   let ip_limit_max = std::env::var("APERIO_IP_LIMIT_MAX")
     .ok()
     .and_then(|val| val.parse::<f64>().ok())
+    .filter(|v| v.is_finite() && *v > 0.0)
     .unwrap_or(100.0);
 
   // IP token bucket refill rate per second (default: 5.0 requests/sec, which is 300 req/min)
   let ip_limit_refill = std::env::var("APERIO_IP_LIMIT_REFILL")
     .ok()
     .and_then(|val| val.parse::<f64>().ok())
+    .filter(|v| v.is_finite() && *v > 0.0)
     .unwrap_or(5.0);
 
   // Optional Basic Auth credentials for proxied requests ("username:password")

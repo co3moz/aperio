@@ -94,6 +94,7 @@ pub enum SecurityHeaders {
 /// Individually selected security response headers; only the set fields are
 /// injected.
 #[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SecurityHeaderOptions {
   /// Inject `Strict-Transport-Security` (only meaningful behind HTTPS).
   pub hsts: Option<bool>,
@@ -601,7 +602,7 @@ pub struct ServerFileConfig {
 
   // --- Failover ---
   /// In-flight failover mode (env: APERIO_FAILOVER).
-  #[schemars(extend("examples" = ["off", "retry", "retry-wait"]))]
+  #[schemars(extend("examples" = ["fail", "retry", "wait", "retry-wait"]))]
   pub failover: Option<String>,
   /// Maximum failover re-dispatches per request (env: APERIO_FAILOVER_MAX_JUMPS).
   pub failover_max_jumps: Option<u32>,
