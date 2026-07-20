@@ -707,7 +707,11 @@ pub(crate) async fn handle_socket(
                     && n > 0
                   {
                     handle.max_concurrent = Some(n);
-                    handle.inflight_limiter = Some(Arc::new(Semaphore::new(n as usize)));
+                    // Clamp to the semaphore's permit ceiling: a client
+                    // announcing an absurd limit must not panic Semaphore::new
+                    // (its max is below u32::MAX on 32-bit targets).
+                    let permits = (n as usize).min(Semaphore::MAX_PERMITS);
+                    handle.inflight_limiter = Some(Arc::new(Semaphore::new(permits)));
                     info!(
                       "Client {} announced concurrency limit: {} — excess requests will be queued",
                       client_id, n

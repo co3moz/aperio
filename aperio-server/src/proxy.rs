@@ -1061,10 +1061,14 @@ async fn proxy_http_request(
         break;
       }
       let follow_rx = {
+        // Recover from a poisoned lock instead of panicking: this runs on the
+        // cacheable-request hot path, so one panic under the lock must not turn
+        // every subsequent request into a panic. The in-flight map is valid
+        // regardless of who poisoned it (mirrors the Drop impl above).
         let mut inflight = state
           .cache_inflight
           .lock()
-          .expect("cache_inflight lock poisoned");
+          .unwrap_or_else(|e| e.into_inner());
         match inflight.get(&cache_key) {
           Some(rx) => Some(rx.clone()),
           None => {
@@ -1110,7 +1114,7 @@ async fn proxy_http_request(
   let body_limit = effective_body_limit(state.config().max_body_size, selected.max_request_body);
   // Declared over-limit bodies keep failing fast with 413 even when they
   // would otherwise be streamed.
-  if content_length.is_some_and(|l| l as usize > body_limit) {
+  if content_length.is_some_and(|l| l > body_limit as u64) {
     log_request_failure(
       &state,
       &method_str,

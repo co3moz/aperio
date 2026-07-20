@@ -457,9 +457,12 @@ impl RouteTrend {
   /// The last `minutes` buckets ending at `now_minute`, gaps zero-filled,
   /// chronological. Feeds the dashboard sparklines directly.
   pub(crate) fn series(&self, minutes: usize, now_minute: u64) -> Vec<RouteTrendBucket> {
+    // Defensive: never let a large `minutes` underflow the start minute (a
+    // debug panic / release wrap). The window can't extend before minute 0.
+    let start = (now_minute + 1).saturating_sub(minutes as u64);
     (0..minutes)
       .map(|i| {
-        let minute = now_minute + 1 - minutes as u64 + i as u64;
+        let minute = start + i as u64;
         self
           .buckets
           .iter()
