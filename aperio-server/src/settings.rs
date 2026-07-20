@@ -96,6 +96,19 @@ pub(crate) struct ServerConfig {
   /// Specific status codes that trigger a retry when `retry_on_5xx` is on
   /// (`APERIO_RETRY_STATUSES`, comma-separated). Empty = every 5xx (500-599).
   pub(crate) retry_statuses: Vec<u16>,
+  /// Passive outlier ejection (`APERIO_OUTLIER_EJECTION`): when on, a client
+  /// that returns too many server errors / times out repeatedly in a short
+  /// window is temporarily removed from the routing pool, independent of the
+  /// active `/health` probe. Re-admitted automatically after `outlier_eject`.
+  pub(crate) outlier_ejection: bool,
+  /// Failures within `outlier_window` that trigger an ejection
+  /// (`APERIO_OUTLIER_MAX_FAILURES`, default 5).
+  pub(crate) outlier_max_failures: u32,
+  /// Rolling window failures are counted over (`APERIO_OUTLIER_WINDOW`, secs).
+  pub(crate) outlier_window: Duration,
+  /// How long an ejected client stays out of rotation before re-admission
+  /// (`APERIO_OUTLIER_EJECT_SECS`).
+  pub(crate) outlier_eject: Duration,
   /// Server-side GET response cache (APERIO_CACHE). Effective only for
   /// clients that announced `cache: true`, and only for responses whose
   /// `Cache-Control` explicitly allows shared caching.

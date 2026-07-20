@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::ClientPerms;
 use axum::http::HeaderMap;
+use std::collections::VecDeque;
 use std::sync::atomic::AtomicU64;
 
 // --- Fixtures ---------------------------------------------------------------
@@ -53,6 +54,8 @@ fn base_handle() -> ClientHandle {
     response_timeout: None,
     webhook_inbox: false,
     denied: None,
+    recent_failures: VecDeque::new(),
+    ejected_until: None,
   }
 }
 
@@ -440,6 +443,46 @@ fn pool_falls_back_to_unbound_when_not_strict() {
     select_client_pool(&clients, "/", Some("other.example.com"), false, HEALTHY).unwrap();
   assert_eq!(pool, vec!["unbound".to_string()]);
   assert_eq!(host_key, None);
+}
+
+#[test]
+fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
+  let future = std::time::Instant::now() + Duration::from_secs(60);
+
+  // One healthy, one ejected → only the healthy client is routed.
+  let mut ejected = base_handle();
+  ejected.ejected_until = Some(future);
+  let healthy = base_handle();
+  let clients = pool_of(vec![("ejected", ejected), ("healthy", healthy)]);
+  let (pool, _) = select_client_pool(&clients, "/", None, false, HEALTHY).unwrap();
+  assert_eq!(pool, vec!["healthy".to_string()]);
+
+  // Every candidate ejected → fail open (better a struggling client than none).
+  let mut a = base_handle();
+  a.ejected_until = Some(future);
+  let mut b = base_handle();
+  b.ejected_until = Some(future);
+  let all = pool_of(vec![("a", a), ("b", b)]);
+  let (pool, _) = select_client_pool(&all, "/", None, false, HEALTHY).unwrap();
+  assert_eq!(pool.len(), 2);
+}
+
+#[test]
+fn record_failure_ejects_after_threshold() {
+  let mut h = base_handle();
+  let now = std::time::Instant::now();
+  let window = Duration::from_secs(30);
+  let eject = Duration::from_secs(30);
+  // Below threshold: not yet ejected.
+  assert!(!h.record_failure(now, window, 3, eject));
+  assert!(!h.record_failure(now, window, 3, eject));
+  assert!(!h.is_ejected(now));
+  // Third failure crosses the threshold and ejects.
+  assert!(h.record_failure(now, window, 3, eject));
+  assert!(h.is_ejected(now));
+  // Still ejected before the window, clear after it.
+  assert!(h.is_ejected(now + Duration::from_secs(29)));
+  assert!(!h.is_ejected(now + Duration::from_secs(31)));
 }
 
 #[test]

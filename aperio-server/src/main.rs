@@ -632,6 +632,28 @@ async fn async_main() {
           .collect()
       })
       .unwrap_or_default(),
+    outlier_ejection: std::env::var("APERIO_OUTLIER_EJECTION")
+      .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+      .unwrap_or(false),
+    outlier_max_failures: std::env::var("APERIO_OUTLIER_MAX_FAILURES")
+      .ok()
+      .and_then(|v| v.trim().parse::<u32>().ok())
+      .filter(|n| *n > 0)
+      .unwrap_or(5),
+    outlier_window: Duration::from_secs(
+      std::env::var("APERIO_OUTLIER_WINDOW")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(30),
+    ),
+    outlier_eject: Duration::from_secs(
+      std::env::var("APERIO_OUTLIER_EJECT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(30),
+    ),
     cache_enabled,
     cache_max_bytes,
     cache_max_stale,

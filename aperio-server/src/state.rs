@@ -636,6 +636,13 @@ pub(crate) struct ClientHandle {
   /// the visitor; without one anywhere, the answer is stealth (identical to
   /// an unclaimed route).
   pub(crate) denied: Option<String>,
+  /// Passive outlier ejection: timestamps of recent dispatch failures
+  /// (5xx / response timeout / connection loss) still inside the outlier
+  /// window. Independent of the active `/health` probe (`backend_healthy`).
+  pub(crate) recent_failures: VecDeque<Instant>,
+  /// Instant until which this client is ejected from routing after crossing
+  /// the failure threshold (None = not ejected). Re-admitted automatically.
+  pub(crate) ejected_until: Option<Instant>,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -699,6 +706,38 @@ impl ClientPerms {
 }
 
 impl ClientHandle {
+  /// True while this client is passively ejected from routing.
+  pub(crate) fn is_ejected(&self, now: Instant) -> bool {
+    self.ejected_until.is_some_and(|t| now < t)
+  }
+
+  /// Records one dispatch failure (5xx / timeout / connection loss). Prunes
+  /// the failure window, then ejects the client for `eject_for` once
+  /// `threshold` failures land inside `window`. Returns true when this call
+  /// caused the ejection.
+  pub(crate) fn record_failure(
+    &mut self,
+    now: Instant,
+    window: Duration,
+    threshold: u32,
+    eject_for: Duration,
+  ) -> bool {
+    while self
+      .recent_failures
+      .front()
+      .is_some_and(|t| now.duration_since(*t) > window)
+    {
+      self.recent_failures.pop_front();
+    }
+    self.recent_failures.push_back(now);
+    if !self.is_ejected(now) && self.recent_failures.len() as u32 >= threshold {
+      self.ejected_until = Some(now + eject_for);
+      self.recent_failures.clear();
+      return true;
+    }
+    false
+  }
+
   /// Path bind used for routing: dashboard override wins over the declared
   /// value, which wins over the token-granted value.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {

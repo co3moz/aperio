@@ -41,3 +41,23 @@ The value is a pattern: the `*` in the leftmost label is replaced with a random 
 The dashboard can temporarily override any client's binds ("Overrule") — handy for redirecting a hostname live. Overrides live only in server memory: a reconnect or restart reverts to the client's own configuration.
 
 Related: [In-Flight Failover](failover.md) covers what happens when the chosen client dies mid-request.
+
+## Passive outlier ejection
+
+Active health probing (`APERIO_CLIENT_TARGET_HEALTH`) pulls a client from
+rotation when its own `/health` check fails. Passive outlier ejection is the
+complement: it reacts to how a client behaves under **real traffic**. When
+`APERIO_OUTLIER_EJECTION=1`, a client that returns too many server errors,
+times out, or drops connections in a short window is temporarily removed from
+the routing pool — even while its `/health` probe still reports green.
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `APERIO_OUTLIER_EJECTION` | Enable passive ejection. | off |
+| `APERIO_OUTLIER_MAX_FAILURES` | Failures within the window that trigger an ejection. | `5` |
+| `APERIO_OUTLIER_WINDOW` | Seconds the failures are counted over. | `30` |
+| `APERIO_OUTLIER_EJECT_SECS` | How long an ejected client stays out before automatic re-admission. | `30` |
+
+Ejection is **per-route fail-open**: if every candidate for a route is ejected,
+the route keeps serving from the struggling pool rather than returning no route
+at all — a bad backend is still better than a guaranteed error.

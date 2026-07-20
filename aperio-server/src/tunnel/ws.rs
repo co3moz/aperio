@@ -7,6 +7,7 @@ use axum::{
   response::{IntoResponse, Response},
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -296,6 +297,8 @@ pub(crate) async fn handle_socket(
         response_timeout: None,
         webhook_inbox: false,
         denied: None,
+        recent_failures: VecDeque::new(),
+        ejected_until: None,
       },
     );
     drop(clients);

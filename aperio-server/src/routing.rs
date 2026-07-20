@@ -287,6 +287,19 @@ pub(crate) fn select_client_pool(
     (ids, None)
   };
 
+  // Passive outlier ejection: drop clients currently ejected after repeated
+  // dispatch failures — but only if a non-ejected candidate remains for this
+  // route, so a route whose whole pool is struggling still fails open rather
+  // than returning no route at all. When the feature is disabled no client is
+  // ever ejected, so this is a no-op. Independent of the `/health` probe above.
+  let now = std::time::Instant::now();
+  let live: Vec<String> = pool
+    .iter()
+    .filter(|id| clients.get(*id).is_none_or(|c| !c.is_ejected(now)))
+    .cloned()
+    .collect();
+  let pool = if live.is_empty() { pool } else { live };
+
   if pool.is_empty() {
     None
   } else {
