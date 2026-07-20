@@ -749,3 +749,7 @@ pub fn server_schema_json() -> String {
   let schema = schemars::schema_for!(ServerFileConfig);
   serde_json::to_string_pretty(&schema).unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;
