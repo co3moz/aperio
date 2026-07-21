@@ -76,6 +76,13 @@ fn resolve_service_name() -> String {
 
 /// Builds the OTLP/HTTP batch exporter and tracer provider.
 fn build_provider() -> Result<SdkTracerProvider, String> {
+  // The OTLP HTTP exporter builds a reqwest Client on the `rustls-no-provider`
+  // stack, which requires a process-wide crypto provider to already be
+  // installed. `main()` installs ring at startup, but guarantee it here too so
+  // the exporter never depends on call ordering (and so unit tests that build a
+  // provider directly work without a full server boot). Idempotent: a no-op
+  // once a default is set.
+  let _ = rustls::crypto::ring::default_provider().install_default();
   let endpoint = resolve_endpoint();
   let exporter = SpanExporter::builder()
     .with_http()
