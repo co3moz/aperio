@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [0.4.1] - 2026-07-21
+
+### Changed
+
+- **OTLP trace export no longer pulls in the aws-lc-rs crypto backend.** The OpenTelemetry OTLP/HTTP exporter previously resolved (through reqwest 0.13) to the aws-lc-rs rustls provider, adding a second crypto backend and its `aws-lc-sys` C/asm build to the dependency graph. It now builds on `rustls-no-provider` and reuses the process-wide ring provider and webpki-roots the rest of the server already uses (installed before the exporter's client is built). No change to TLS behaviour — just a smaller dependency tree and faster release builds.
+
 ## [0.4.0] - 2026-07-20
 
 ### Changed
