@@ -231,23 +231,27 @@ jobs:
         run: bash tests/e2e.sh
 
   # ---------------------------------------------------------------------------
-  # Release-cache warming.
+  # Release-cache warming (Windows only).
   #
-  # Release builds (release.yml) cross-compile the full matrix with vendored
-  # OpenSSL — a heavy, from-source C build. GitHub scopes each cache to the ref
-  # that wrote it and a tag build can only read its own + the default branch's
-  # caches, never another tag's, so v0.4.0 could never reuse v0.3.0's cache.
+  # Every release target builds with vendored OpenSSL (a from-source C build),
+  # but only the windows-msvc job is slow enough — and on a costly-enough
+  # runner — for warming to pay off: on Linux/macOS the OpenSSL compile is
+  # quick, Linux runners are cheap, and macOS runners bill at ~10x so warming
+  # them would cost more than the release build ever saves. So we warm just
+  # Windows and let the other targets build cold (as they always did).
   #
-  # These two jobs populate that cache on the default branch instead, where
-  # every future release tag *can* read it. rust-cache stores only the compiled
-  # dependencies (not the workspace crates), so the expensive vendored-OpenSSL
-  # artifact is exactly what gets cached and reused across releases.
+  # GitHub scopes each cache to the ref that wrote it, and a tag build can only
+  # read its own + the default branch's caches, never another tag's — so
+  # v0.4.0 could never reuse v0.3.0's cache. These jobs populate the Windows
+  # cache on the default branch instead, where every future release tag *can*
+  # read it. rust-cache stores only compiled dependencies (not the workspace
+  # crates), so the expensive vendored-OpenSSL artifact is exactly what persists.
   #
-  # Cost control: the expensive matrix (incl. the 10x macOS runners) only spins
-  # up when Cargo.lock / a Cargo.toml actually changed — i.e. when the resolved
-  # dependency set, and thus the cache, could differ. Ordinary code-only pushes
-  # skip it after a ~15s check. A second lookup-only probe inside the job skips
-  # the rebuild entirely if the cache key is nonetheless unchanged.
+  # Cost control: the Windows build only spins up when Cargo.lock / a Cargo.toml
+  # actually changed — i.e. when the resolved dependency set, and thus the
+  # cache, could differ. Ordinary code-only pushes skip it after a ~15s check.
+  # A second lookup-only probe inside the job skips the rebuild entirely if the
+  # cache key is nonetheless unchanged.
   # ---------------------------------------------------------------------------
   detect-deps-change:
     name: Detect dependency changes
@@ -277,25 +281,10 @@ jobs:
           fi
 
   warm-release-cache:
-    name: Warm release cache (${{ matrix.target }})
+    name: Warm Windows release cache
     needs: detect-deps-change
     if: needs.detect-deps-change.outputs.changed == 'true'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      # Must mirror release.yml's build matrix so the cache keys line up.
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -306,15 +295,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc
 
       # Cheap existence check (no download, no save). An exact hit means the
       # resolved deps + rustc are unchanged and there is nothing to rebuild.
+      # `shared-key` matches release.yml's cache step for this target exactly.
       - name: Probe release cache
         id: probe
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.target }}
+          shared-key: x86_64-pc-windows-msvc
           lookup-only: true
 
       - name: Install Node.js (dashboard build)
@@ -323,12 +313,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install musl tools
-        if: steps.probe.outputs.cache-hit != 'true' && contains(matrix.target, 'musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Exclude build dirs from Defender (Windows)
-        if: steps.probe.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      - name: Exclude build dirs from Defender
+        if: steps.probe.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction SilentlyContinue
@@ -341,10 +327,10 @@ jobs:
         if: steps.probe.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.target }}
+          shared-key: x86_64-pc-windows-msvc
 
       # Same command release.yml runs, so it compiles the identical dependency
       # set (vendored OpenSSL included) that the release build will then restore.
       - name: Build to populate cache
         if: steps.probe.outputs.cache-hit != 'true'
-        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }} --features aperio-server/vendored-openssl
+        run: cargo build --release --locked -p aperio-server -p aperio-client --target x86_64-pc-windows-msvc --features aperio-server/vendored-openssl
