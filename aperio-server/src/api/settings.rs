@@ -201,7 +201,7 @@ pub(crate) async fn apply_overrides_validated(
 
   match serde_json::to_string_pretty(&payload) {
     Ok(json) => {
-      if let Err(e) = std::fs::write(&state.settings_path, json) {
+      if let Err(e) = write_owner_only(&state.settings_path, json.as_bytes()) {
         error!(
           "Failed to persist settings to {:?}: {}",
           state.settings_path, e
@@ -212,6 +212,40 @@ pub(crate) async fn apply_overrides_validated(
   }
 
   Ok(())
+}
+
+/// Persists `contents` to `path`, owner-only (0600) on Unix. `settings.json`
+/// holds `auth_credentials` as plaintext `user:password`, so a default-umask
+/// (typically 0644) write would let other local users read it. Mirrors the
+/// device-key persistence in the client's `service.rs`.
+fn write_owner_only(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+  use std::io::Write;
+  #[cfg(unix)]
+  let opened = {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+      .write(true)
+      .create(true)
+      .truncate(true)
+      .mode(0o600)
+      .open(path)
+  };
+  #[cfg(not(unix))]
+  let opened = std::fs::OpenOptions::new()
+    .write(true)
+    .create(true)
+    .truncate(true)
+    .open(path);
+  let mut file = opened?;
+  // `.mode()` only applies when the file is created; a pre-existing settings
+  // file written before this fix keeps its old (possibly 0644) permissions, so
+  // tighten it explicitly on every write.
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+  }
+  file.write_all(contents)
 }
 
 /// Swaps in a freshly built config and pushes settings that back live
