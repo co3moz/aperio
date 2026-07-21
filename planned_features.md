@@ -28,3 +28,26 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   released binary stays download-and-run. Until then the cost is mitigated by
   the default-branch release cache (ci.yml `warm-release-cache`) and the Windows
   Defender exclusion in `release.yml`. Discuss before implementing.
+
+- [ ] **#3 Re-validate the dashboard SSE live stream while it is open.** The
+  dashboard live stream (`live_stream_handler` in `aperio-server/src/api/clients.rs`)
+  only resolves the caller's org/role at connection time; an already-open stream
+  keeps emitting live traffic + stats even after the session is revoked, expires,
+  or is cleared via "sign out everywhere". Re-check `validate_session` /
+  `dashboard_role` periodically inside the stream loop (e.g. on each stats tick)
+  and close the stream when the session is no longer valid; an explicit
+  "auth revoked" signal on the `state.shutdown` path could also drive it. Low
+  severity: requires an already-authenticated session and leaks at most one
+  ~2s tick of data after revocation. (From the 2026-07 static security review.)
+
+- [ ] **#4 Stream static-serve responses instead of reading whole files into
+  memory.** In `--serve` mode, `handle` in `aperio-client/src/serve.rs` reads the
+  entire resolved file into memory with `tokio::fs::read` on every request (even
+  HEAD), and `max_response_body_size` only bounds what the *tunnel* forwards —
+  the file is already fully buffered in the serve process. Concurrent requests to
+  a large served file can OOM the client. Stream the file (e.g. `ReaderStream` /
+  chunked body, which means moving the response body off `Full<Bytes>` to a boxed
+  body) and/or add a per-serve max file size; on HEAD return metadata without
+  reading the body. Low severity: opt-in feature, client-process-only DoS bounded
+  by the size of files the operator chose to publish (a `dist/` of web assets is a
+  non-issue). (From the 2026-07 static security review.)
