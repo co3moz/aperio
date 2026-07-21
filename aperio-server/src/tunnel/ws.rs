@@ -107,6 +107,12 @@ pub(crate) async fn ws_handler(
     state.config().real_ip_header.as_deref(),
     &state.config().trusted_proxies,
   );
+  // Rate-limit before token verification, matching the sibling /aperio/tcp and
+  // /aperio/udp endpoints. Without this, repeated upgrade attempts from one IP
+  // allow unbounded token brute-force and canary/webhook event spam.
+  if !state.check_rate_limit(tunnel_client_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
   let perms = match authorize_tunnel_token(&state, &headers, tunnel_client_ip).await {
     Some(p) => p,
     None => {
