@@ -229,3 +229,122 @@ jobs:
       # exercising proxying, dashboard APIs, and the programmatic tunnels API.
       - name: Run E2E integration test
         run: bash tests/e2e.sh
+
+  # ---------------------------------------------------------------------------
+  # Release-cache warming.
+  #
+  # Release builds (release.yml) cross-compile the full matrix with vendored
+  # OpenSSL — a heavy, from-source C build. GitHub scopes each cache to the ref
+  # that wrote it and a tag build can only read its own + the default branch's
+  # caches, never another tag's, so v0.4.0 could never reuse v0.3.0's cache.
+  #
+  # These two jobs populate that cache on the default branch instead, where
+  # every future release tag *can* read it. rust-cache stores only the compiled
+  # dependencies (not the workspace crates), so the expensive vendored-OpenSSL
+  # artifact is exactly what gets cached and reused across releases.
+  #
+  # Cost control: the expensive matrix (incl. the 10x macOS runners) only spins
+  # up when Cargo.lock / a Cargo.toml actually changed — i.e. when the resolved
+  # dependency set, and thus the cache, could differ. Ordinary code-only pushes
+  # skip it after a ~15s check. A second lookup-only probe inside the job skips
+  # the rebuild entirely if the cache key is nonetheless unchanged.
+  # ---------------------------------------------------------------------------
+  detect-deps-change:
+    name: Detect dependency changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Warm only when the manifests that determine the resolved dependency set
+      # (and hence rust-cache's key) changed in this push. An unknown/empty base
+      # (e.g. a brand-new branch) falls through to warming, to be safe.
+      - name: Did Cargo.lock / Cargo.toml change?
+        id: filter
+        run: |
+          base='${{ github.event.before }}'
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$base" '${{ github.sha }}' | grep -qE '(^|/)Cargo\.(lock|toml)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  warm-release-cache:
+    name: Warm release cache (${{ matrix.target }})
+    needs: detect-deps-change
+    if: needs.detect-deps-change.outputs.changed == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # Must mirror release.yml's build matrix so the cache keys line up.
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installed before the probe so the cache key hashes the same rustc the
+      # release job uses; otherwise the probe would key on the image's default
+      # rustc and never match.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Cheap existence check (no download, no save). An exact hit means the
+      # resolved deps + rustc are unchanged and there is nothing to rebuild.
+      - name: Probe release cache
+        id: probe
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+          lookup-only: true
+
+      - name: Install Node.js (dashboard build)
+        if: steps.probe.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install musl tools
+        if: steps.probe.outputs.cache-hit != 'true' && contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Exclude build dirs from Defender (Windows)
+        if: steps.probe.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionProcess "cl.exe","link.exe","rustc.exe","cargo.exe","nasm.exe","perl.exe" -ErrorAction SilentlyContinue
+
+      # Restores any partial cache and — the whole point — SAVES the fresh one
+      # under the default-branch scope for release tag builds to reuse.
+      - name: Restore & save dependency cache
+        if: steps.probe.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+
+      # Same command release.yml runs, so it compiles the identical dependency
+      # set (vendored OpenSSL included) that the release build will then restore.
+      - name: Build to populate cache
+        if: steps.probe.outputs.cache-hit != 'true'
+        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }} --features aperio-server/vendored-openssl
