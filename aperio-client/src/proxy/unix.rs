@@ -106,11 +106,18 @@ pub(crate) async fn handle_incoming_request_unix(
   let mut host_header_val = None;
   for (k, v) in headers.iter() {
     let k_lower = k.to_lowercase();
+    // Strip the hop-by-hop framing headers transfer-encoding / trailer so a
+    // visitor-supplied `transfer-encoding: chunked` cannot collide with hyper's
+    // own http1 framing — the same request-smuggling guard as http.rs and
+    // h2.rs. content-length is kept so content-length-only backends still get a
+    // framed body (dropping it would force chunked on streamed uploads).
     if k_lower == "connection"
       || k_lower == "keep-alive"
       || k_lower == "upgrade"
       || k_lower == "proxy-connection"
       || k_lower == "accept-encoding"
+      || k_lower == "transfer-encoding"
+      || k_lower == "trailer"
       || k_lower.starts_with("sec-websocket-")
     {
       continue;

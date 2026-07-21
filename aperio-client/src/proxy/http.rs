@@ -307,12 +307,22 @@ pub(crate) async fn handle_incoming_request(
   for (k, v) in headers.iter() {
     let k_lower = k.to_lowercase();
 
-    // CRITICAL: Strip connection control, upgrade, and websocket headers
+    // CRITICAL: Strip connection control, upgrade, and websocket headers.
+    // transfer-encoding / trailer are hop-by-hop framing headers: forwarding a
+    // visitor-supplied `transfer-encoding: chunked` would collide with
+    // reqwest's own body framing and open an HTTP desync / request-smuggling
+    // surface. Dropping transfer-encoding leaves content-length as the single
+    // framing signal (mirrors the h2.rs path, which also drops only TE).
+    // content-length is intentionally kept: the streamed-upload path below
+    // relies on it so reqwest frames with content-length instead of falling
+    // back to chunked, which content-length-only backends cannot read.
     if k_lower == "connection"
       || k_lower == "keep-alive"
       || k_lower == "upgrade"
       || k_lower == "proxy-connection"
       || k_lower == "accept-encoding"
+      || k_lower == "transfer-encoding"
+      || k_lower == "trailer"
       || k_lower.starts_with("sec-websocket-")
     {
       continue;
