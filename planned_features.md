@@ -51,3 +51,32 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   reading the body. Low severity: opt-in feature, client-process-only DoS bounded
   by the size of files the operator chose to publish (a `dist/` of web assets is a
   non-issue). (From the 2026-07 static security review.)
+
+- [ ] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
+  server.** tokio-tungstenite 0.23 dials with a single
+  `TcpStream::connect("domain:port")` (`connect.rs:73`), so address selection and
+  IPv4/IPv6 fallback are left entirely to the OS resolver. On the musl/Alpine
+  client image this is unreliable: when a Cloudflare-fronted server hostname
+  publishes AAAA but the host has no working internet IPv6, the client tries the
+  IPv6 address and fails (`ENETUNREACH`), and — unlike a glibc `curl` on the same
+  host — does not fall back to the reachable IPv4. musl does not honor
+  `AI_ADDRCONFIG` the way glibc does, so even disabling IPv6 in the container
+  (`net.ipv6.conf.all.disable_ipv6=1`) does not help: getaddrinfo still returns
+  the AAAA and the client still tries it first (fails with `EADDRNOTAVAIL`). This
+  caused a real outage (2026-07); the only reliable workarounds are DNS-side
+  (drop AAAA / pin an IPv4 via `extra_hosts`), which is a footgun.
+  Proposed fix (client-only):
+  - **Tier 1 — config escape hatch:** an `ip_family: auto | ipv4 | ipv6` field
+    (CLI `--ip-family`, env `APERIO_IP_FAMILY`). `ipv4` connects only to A
+    records, deterministically dodging unreachable AAAA. ~small change.
+  - **Tier 2 — robust default (`auto`):** replace the single `TcpStream::connect`
+    with a shared connect helper that `lookup_host`s all addresses, applies the
+    `ip_family` filter, and does Happy Eyeballs (RFC 8305: race IPv4/IPv6 with a
+    small head-start, first to connect wins), with a per-address connect timeout.
+    Feed the connected socket to `client_async_tls_with_config` so TLS
+    (rustls/webpki-roots) is unchanged.
+  Apply the shared helper at all three dial sites so they behave consistently:
+  `service.rs:411` (main tunnel), `check.rs:190` (preflight check), `tcp.rs:304`
+  (TCP tunnel). Tests: unit for the family filter/ordering; an e2e phase dialing a
+  dual-stack loopback with `ip_family: ipv4`. Ship both tiers (auto default + the
+  knob). (From a 2026-07 field debugging session.)
