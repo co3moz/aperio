@@ -298,14 +298,18 @@ fn tunnel_ws_url(
 mod tests;
 
 /// Fetches the peer's declared tunnels from the server, retrying while the
-/// peer is not connected (yet). Fatal on authentication errors — retrying
-/// cannot fix a wrong token.
+/// peer is not connected (yet). An auth error or a bad URL for this peer skips
+/// just this binding (returns no tunnels) — it must not tear down the whole
+/// process, which may be binding other healthy peers.
 async fn discover_with_retry(server: &str, spec: &BindSpec) -> Vec<TunnelDecl> {
   let url = match build_http_url(server, &format!("/aperio/tunnels/{}", spec.client_id)) {
     Ok(u) => u,
     Err(e) => {
-      error!("Failed to build discovery URL: {}", e);
-      std::process::exit(1);
+      error!(
+        "Failed to build discovery URL for client {}: {}; skipping this binding",
+        spec.client_id, e
+      );
+      return Vec::new();
     }
   };
   let http = reqwest::Client::builder()
@@ -328,17 +332,17 @@ async fn discover_with_retry(server: &str, spec: &BindSpec) -> Vec<TunnelDecl> {
       },
       Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
         error!(
-          "Server rejected the token for client {} (401). --bind-tunnels requires the SAME token that client connected with.",
+          "Server rejected the token for client {} (401); skipping this binding. --bind-tunnels requires the SAME token that client connected with.",
           spec.client_id
         );
-        std::process::exit(1);
+        return Vec::new();
       }
       Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
         error!(
-          "Token mismatch for client {} (403): --bind-tunnels requires the SAME token that client connected with.",
+          "Token mismatch for client {} (403); skipping this binding. --bind-tunnels requires the SAME token that client connected with.",
           spec.client_id
         );
-        std::process::exit(1);
+        return Vec::new();
       }
       Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
         warn!(
