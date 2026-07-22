@@ -1712,6 +1712,9 @@ async fn proxy_http_request(
             selected.org_id.as_deref(),
             &timeline,
           );
+          // Mirror the request waterfall into the trace as child spans of
+          // proxy.request (no-op unless OTLP export is on).
+          crate::telemetry::emit_phase_spans(start_time, &timeline);
           captured.push_back(CapturedRequest {
             id: request_id.clone(),
             timestamp: Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),

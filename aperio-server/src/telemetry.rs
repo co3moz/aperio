@@ -10,9 +10,10 @@
 //! and the propagation helpers become cheap no-ops (the global propagator stays
 //! the default noop, so nothing is extracted or injected).
 
+use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::trace::{Span, SpanKind, Tracer, TracerProvider as _};
 use opentelemetry_otlp::{Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -36,6 +37,15 @@ impl OtelGuard {
       eprintln!("OpenTelemetry provider shutdown error: {e}");
     }
   }
+}
+
+/// Set once at startup when OTLP export is installed. Lets hot-path code skip
+/// the (otherwise no-op) child-span synthesis when tracing is off.
+static OTEL_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True when OTLP trace export is active for this process.
+pub(crate) fn otel_enabled() -> bool {
+  OTEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// True for `1`/`true` (case-insensitive) environment values.
@@ -215,6 +225,7 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
         "OpenTelemetry OTLP trace export enabled (endpoint: {})",
         resolve_endpoint()
       );
+      OTEL_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
       // Surface an unreachable collector immediately instead of silently
       // dropping every span. Detached thread with blocking IO — advisory only,
       // never blocks startup and needs no Tokio runtime (export still runs).
@@ -296,6 +307,44 @@ pub(crate) fn record_status(span: &tracing::Span, status: u16) {
     "otel.status_code",
     if status >= 500 { "ERROR" } else { "OK" },
   );
+}
+
+/// Emits one child span per request phase under the current `proxy.request`
+/// span, reproducing the dashboard's request waterfall inside the trace (queue,
+/// tunnel→client, client processing, backend TTFB, backend body, client→tunnel,
+/// tunnel→server, server→visitor). The phase offsets are µs from the request's
+/// arrival (t0); t0's wall clock is recovered from the monotonic `start_time`,
+/// so the child timestamps line up with the parent. The client-anchored stages
+/// carry `aperio.estimated = true` since they are split-transit estimates (the
+/// client/server clocks are never mixed), not exact measurements. No-op unless
+/// OTLP export is enabled; only the buffered response path has a timeline.
+pub(crate) fn emit_phase_spans(
+  start_time: std::time::Instant,
+  timeline: &crate::state::RequestTimeline,
+) {
+  if !otel_enabled() {
+    return;
+  }
+  use std::time::{Duration, SystemTime};
+  let parent_cx = tracing::Span::current().context();
+  let t0 = SystemTime::now()
+    .checked_sub(start_time.elapsed())
+    .unwrap_or_else(SystemTime::now);
+  let tracer = global::tracer("aperio-server");
+  for (name, from_us, to_us, estimated) in timeline.stages() {
+    let start = t0 + Duration::from_micros(from_us);
+    // Clamp so a phase can never end before it starts (estimation rounding).
+    let end = t0 + Duration::from_micros(to_us.max(from_us));
+    let mut builder = tracer
+      .span_builder(name)
+      .with_kind(SpanKind::Internal)
+      .with_start_time(start);
+    if estimated {
+      builder = builder.with_attributes(vec![KeyValue::new("aperio.estimated", true)]);
+    }
+    let mut span = tracer.build_with_context(builder, &parent_cx);
+    span.end_with_timestamp(end);
+  }
 }
 
 #[cfg(test)]

@@ -675,3 +675,50 @@ async fn test_reload_from_file_returns_diff() {
   let diff = state.reload_from_file().await;
   assert!(diff.is_empty(), "no changes: {diff:?}");
 }
+
+#[test]
+fn request_timeline_stages_expands_and_collapses() {
+  use crate::protocol::ClientTimings;
+  // With client timings: eight phases, the five middle ones flagged estimated,
+  // strictly monotonic and contiguous (each phase starts where the last ended).
+  let t = RequestTimeline::assemble(
+    100,
+    10_000,
+    10_200,
+    Some(ClientTimings {
+      backend_sent_us: 500,
+      backend_first_byte_us: 6_000,
+      backend_done_us: 7_500,
+      respond_us: 8_000,
+    }),
+  );
+  let stages = t.stages();
+  assert_eq!(stages.len(), 8);
+  assert_eq!(stages[0].0, "queue & routing");
+  assert_eq!((stages[0].1, stages[0].2), (0, 100));
+  assert!(!stages[0].3);
+  // Middle five are the estimated client stages.
+  assert!(
+    stages[1..7].iter().all(|s| s.3),
+    "client stages must be estimated"
+  );
+  assert_eq!(stages[7].0, "server → visitor");
+  assert!(!stages[7].3);
+  // Contiguous + monotonic.
+  for w in stages.windows(2) {
+    assert_eq!(w[0].2, w[1].1, "phases must be contiguous");
+    assert!(w[0].1 <= w[0].2, "phase must not go backwards");
+  }
+  assert_eq!(stages.last().unwrap().2, 10_200);
+
+  // Without client timings: three phases with a single collapsed round-trip.
+  let t = RequestTimeline::assemble(100, 10_000, 10_200, None);
+  let stages = t.stages();
+  assert_eq!(stages.len(), 3);
+  assert_eq!(stages[1].0, "tunnel round-trip (client & backend)");
+  assert_eq!((stages[1].1, stages[1].2), (100, 10_000));
+  assert!(
+    stages.iter().all(|s| !s.3),
+    "no stage is estimated without client timings"
+  );
+}
