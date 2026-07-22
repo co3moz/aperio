@@ -10,6 +10,10 @@ project follows semantic versioning per release tag.
 
 - **OTLP traces carry the request phase breakdown as child spans.** With `APERIO_OTEL` enabled, each `proxy.request` span now nests a child span per phase of the request waterfall — queue & routing, tunnel→client, client processing, backend wait (TTFB), backend body, client→tunnel, tunnel→server, server→visitor — so Jaeger (or any OTLP viewer) shows the same timing breakdown as the dashboard's request timeline, pinpointing where a slow request spends its time. The client-anchored stages are estimates (transit split evenly; client and server clocks are never mixed) and carry an `aperio.estimated` attribute. Synthesized entirely server-side from timings the client already reports — no client or protocol change — on the buffered (non-streamed) response path.
 
+### Fixed
+
+- **A slow tunneled WebSocket/TCP stream can no longer stall the whole connection.** Server→client `WsData`/`TcpData` frames were delivered with an awaited, timeout-bounded channel send *inside* the tunnel read loop, so one backend that stopped reading could block the loop for up to the request timeout — starving `Pong` processing and tripping the 15 s liveness watchdog, which reset the connection and dropped every stream on it. Delivery is now a non-blocking `try_send` (as UDP already did): a backed-up stream is dropped on its own, leaving the connection and every other stream healthy.
+
 ## [0.4.2] - 2026-07-22
 
 ### Security
