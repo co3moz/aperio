@@ -24,6 +24,14 @@ pub(crate) const FRAME_RESPONSE_CHUNK: u8 = 2;
 
 /// Encodes a v2 binary chunk frame.
 pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Vec<u8> {
+  // The length prefix is one byte: ids are request UUIDs (~36 bytes), always
+  // well under 255. Assert the invariant so a future change that grows the id
+  // is caught in tests rather than silently truncating on the wire.
+  debug_assert!(
+    id.len() <= u8::MAX as usize,
+    "binary frame id length {} exceeds the u8 length prefix",
+    id.len()
+  );
   let mut out = Vec::with_capacity(2 + id.len() + payload.len());
   out.push(tag);
   out.push(id.len() as u8);
