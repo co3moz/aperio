@@ -11,6 +11,8 @@ These rules apply to all future work in this repository.
 4. Do **not** run preview-style checks. Prioritize the project's existing checks instead: `build`, `clippy`, `fmt`, and the `e2e` tests.
 8. **Run the `e2e` suite only once, at the very end, after all requested work is done** — not after each individual task. The e2e run is slow; during development rely on `build`, `clippy`, `fmt`, and unit tests, then run `bash tests/e2e.sh` a single time before finishing. (New e2e phases/assertions may still be *written* per task; just don't *execute* the suite until the end.)
 
+13. **Run the full test suite locally before finishing — CI is expensive.** GitHub Actions minutes cost real money; never lean on CI to catch a failure we could have caught locally. Before finishing any task, run the **complete** unit/integration suite with `cargo test --workspace` — **not** a filtered subset (`cargo test dial::` passing tells you nothing about the rest of the crate). This is what would have caught the flaky `service::tests::test_run_service_message_loop`. For timing-sensitive or flaky tests, run the affected test several times (a loop) to confirm stability, not just once. This is in addition to the single end-of-work `e2e` run (rule 8).
+
 ## Language
 5. Use **English** in all changes (code, comments, commit messages, docs).
 
