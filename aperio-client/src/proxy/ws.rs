@@ -112,22 +112,31 @@ pub(crate) async fn handle_upgrade_request(
     ws_dest_str = parsed.to_string();
   }
 
-  // Build the WebSocket request with the original headers (KEEP upgrade headers here)
+  // Build the WebSocket request. `into_client_request` sets Host/Connection/
+  // Upgrade and generates the per-hop Sec-WebSocket-Key/Version; we forward only
+  // the end-to-end negotiation headers (subprotocol, extensions, origin).
   let ws_req = match ws_dest_str.clone().into_client_request() {
     Ok(mut req) => {
-      // Map relevant headers from the upgrade request (keep Sec-WebSocket-*, etc.)
       for (k, v) in headers.iter() {
         let k_lower = k.to_lowercase();
-        // Skip headers that tokio-tungstenite manages or that cause issues
+        // Skip headers that tokio-tungstenite manages or that cause issues.
+        // Sec-WebSocket-Key/Version/Accept are per-hop handshake mechanics that
+        // tungstenite generates and validates: forwarding the visitor's would
+        // clobber the key it computes Sec-WebSocket-Accept against and break the
+        // backend handshake with strict servers.
         if k_lower == "host"
           || k_lower == "connection"
           || k_lower == "accept-encoding"
           || k_lower == "content-length"
           || k_lower == "content-type"
+          || k_lower == "sec-websocket-key"
+          || k_lower == "sec-websocket-version"
+          || k_lower == "sec-websocket-accept"
         {
           continue;
         }
-        // Keep upgrade-related headers for the backend WS handshake
+        // Forward end-to-end upgrade headers (subprotocol/extensions/origin);
+        // `sec-websocket-key`/`version`/`accept` are excluded above.
         let is_upgrade_header =
           k_lower == "upgrade" || k_lower.starts_with("sec-websocket-") || k_lower == "origin";
 
