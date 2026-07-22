@@ -561,6 +561,22 @@ async fn test_handle_incoming_request_trim_bind() {
 }
 
 #[tokio::test]
+async fn test_build_dest_url_trims_only_at_segment_boundary() {
+  let ctx = ForwardContext {
+    path_bind: Some("/api".to_string()),
+    trim_bind: true,
+    ..test_ctx("http://127.0.0.1:1", test_tunnel_tx())
+  };
+  let path = |uri: &str| build_dest_url(&ctx, "id", uri).unwrap().path().to_string();
+  // Exact bind and a sub-path are trimmed.
+  assert_eq!(path("/api/hello"), "/hello");
+  assert_eq!(path("/api"), "/");
+  // A different route that merely shares the `api` prefix must NOT be trimmed.
+  assert_eq!(path("/apiv2/hello"), "/apiv2/hello");
+  assert_eq!(path("/apitrash"), "/apitrash");
+}
+
+#[tokio::test]
 async fn test_handle_incoming_request_trim_bind_disabled() {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;

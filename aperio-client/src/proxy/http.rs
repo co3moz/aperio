@@ -201,7 +201,13 @@ pub(crate) fn build_dest_url(
     && let Some(ref bind) = ctx.path_bind
   {
     let bind_trimmed = bind.trim_matches('/');
-    if incoming_path.starts_with(bind_trimmed) {
+    // Match only at a path-segment boundary: bind `/api` trims `/api` and
+    // `/api/x` but must NOT match `/apiv2/x` (which is a different route).
+    let matches_bind = match incoming_path.strip_prefix(bind_trimmed) {
+      Some(rest) => rest.is_empty() || rest.starts_with('/'),
+      None => false,
+    };
+    if matches_bind {
       incoming_path = incoming_path[bind_trimmed.len()..]
         .trim_start_matches('/')
         .to_string();

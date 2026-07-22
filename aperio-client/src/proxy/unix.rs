@@ -53,7 +53,13 @@ fn build_origin_uri(ctx: &ForwardContext, uri_str: &str) -> String {
     && let Some(ref bind) = ctx.path_bind
   {
     let bind_trimmed = bind.trim_matches('/');
-    if path.starts_with(bind_trimmed) {
+    // Match only at a path-segment boundary (see http.rs): bind `/api` must not
+    // match `/apiv2/x`.
+    let matches_bind = match path.strip_prefix(bind_trimmed) {
+      Some(rest) => rest.is_empty() || rest.starts_with('/'),
+      None => false,
+    };
+    if matches_bind {
       path = path[bind_trimmed.len()..]
         .trim_start_matches('/')
         .to_string();
