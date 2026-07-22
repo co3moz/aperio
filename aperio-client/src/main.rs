@@ -294,13 +294,22 @@ fn spawn_services(
   specs
     .iter()
     .flat_map(|spec| {
-      (1..=spec.connections).map(|conn| {
+      // One shared backend-health state per service: the backend is probed
+      // once (by the first connection), not once per parallel connection.
+      let health = service::BackendHealth::for_spec(spec);
+      (1..=spec.connections).map(move |conn| {
         let mut spec = spec.clone();
         if conn > 1 {
           spec.client_id = format!("{}-c{}", spec.client_id, conn);
         }
         let (cancel_tx, cancel_rx) = watch::channel(false);
-        let handle = tokio::spawn(run_service(spec, shared.clone(), cancel_rx));
+        let handle = tokio::spawn(run_service(
+          spec,
+          shared.clone(),
+          cancel_rx,
+          health.clone(),
+          conn == 1,
+        ));
         (cancel_tx, handle)
       })
     })

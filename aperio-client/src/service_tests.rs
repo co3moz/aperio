@@ -298,7 +298,13 @@ async fn test_run_service_message_loop() {
 
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
 
   // Mock server: accept, then push one of each server→client frame, close.
   let (stream, _) = listener.accept().await.unwrap();
@@ -568,7 +574,13 @@ async fn test_run_service_cancel_while_connected() {
   let spec = test_spec(&ws_url, "http://127.0.0.1:9");
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
 
   let (stream, _) = listener.accept().await.unwrap();
   let mut ws = accept_async(stream).await.unwrap();
@@ -598,7 +610,13 @@ async fn test_run_service_invalid_token_header() {
   spec.token = "bad\ntoken".to_string();
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   // Let the header-build error fire once, then cancel out of the reconnect.
   tokio::time::sleep(Duration::from_millis(150)).await;
   cancel_tx.send(true).unwrap();
@@ -617,7 +635,13 @@ async fn test_run_service_server_shutdown_fast_reconnect() {
   let spec = test_spec(&ws_url, "http://127.0.0.1:9");
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
 
   let (stream, _) = listener.accept().await.unwrap();
   let mut ws = accept_async(stream).await.unwrap();
@@ -654,7 +678,13 @@ async fn test_run_service_connection_refused_failover() {
   ];
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   // Let one failed connect + failover rotation happen, then cancel.
   tokio::time::sleep(Duration::from_millis(200)).await;
   cancel_tx.send(true).unwrap();
@@ -684,7 +714,13 @@ async fn test_run_service_http_401_rejection() {
   let spec = test_spec(&format!("ws://127.0.0.1:{port}/"), "http://127.0.0.1:9");
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
@@ -716,7 +752,13 @@ async fn test_run_service_http_500_rejection() {
   let spec = test_spec(&format!("ws://127.0.0.1:{port}/"), "http://127.0.0.1:9");
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
@@ -760,7 +802,13 @@ async fn test_run_service_health_probe_flap() {
   spec.health_threshold = 1;
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   // Span three probes (t≈0,1,2s): fail → restored → unhealthy.
   tokio::time::sleep(Duration::from_millis(2400)).await;
   cancel_tx.send(true).unwrap();
@@ -781,7 +829,13 @@ async fn test_run_service_health_probe_healthy() {
   spec.target_health = Some("healthz".to_string());
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(400)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
@@ -799,7 +853,13 @@ async fn test_run_service_health_probe_absolute_url_unhealthy() {
   spec.target_health = Some("http://127.0.0.1:9/health".to_string());
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
@@ -826,7 +886,13 @@ async fn test_run_service_wait_for_backend() {
   spec.wait_for_backend = true;
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(400)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
@@ -845,11 +911,38 @@ async fn test_run_service_wait_for_backend_implied_by_health() {
   spec.target_health = Some("http://127.0.0.1:9/health".to_string());
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(spec, shared, cancel_rx));
+  let svc = tokio::spawn(run_service(
+    spec.clone(),
+    shared,
+    cancel_rx,
+    BackendHealth::for_spec(&spec),
+    true,
+  ));
   tokio::time::sleep(Duration::from_millis(200)).await;
   cancel_tx.send(true).unwrap();
   tokio::time::timeout(Duration::from_secs(5), svc)
     .await
     .expect("exits")
     .unwrap();
+}
+
+#[test]
+fn test_backend_health_for_spec_initial_state() {
+  let mut spec = test_spec("ws://x/", "http://localhost:3000");
+  // No gating: healthy and probed immediately.
+  let h = BackendHealth::for_spec(&spec);
+  assert!(h.healthy.load(Ordering::SeqCst));
+  assert!(h.probed.load(Ordering::SeqCst));
+  // A target_health check starts the service out of routing (unhealthy,
+  // unprobed) until the first probe passes.
+  spec.target_health = Some("/healthz".to_string());
+  let h = BackendHealth::for_spec(&spec);
+  assert!(!h.healthy.load(Ordering::SeqCst));
+  assert!(!h.probed.load(Ordering::SeqCst));
+  // wait_for_backend (without a health check) also starts gated.
+  spec.target_health = None;
+  spec.wait_for_backend = true;
+  let h = BackendHealth::for_spec(&spec);
+  assert!(!h.healthy.load(Ordering::SeqCst));
+  assert!(!h.probed.load(Ordering::SeqCst));
 }

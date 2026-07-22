@@ -10,6 +10,10 @@ project follows semantic versioning per release tag.
 
 - **OTLP traces carry the request phase breakdown as child spans.** With `APERIO_OTEL` enabled, each `proxy.request` span now nests a child span per phase of the request waterfall — queue & routing, tunnel→client, client processing, backend wait (TTFB), backend body, client→tunnel, tunnel→server, server→visitor — so Jaeger (or any OTLP viewer) shows the same timing breakdown as the dashboard's request timeline, pinpointing where a slow request spends its time. The client-anchored stages are estimates (transit split evenly; client and server clocks are never mixed) and carry an `aperio.estimated` attribute. Synthesized entirely server-side from timings the client already reports — no client or protocol change — on the buffered (non-streamed) response path.
 
+### Changed
+
+- **The backend health probe runs once per service, not once per parallel connection.** A service with `connections: N` spawned N independent `target_health`/`wait_for_backend` probes against the backend — N× the health-check load (doubled by the `connections: 2` default), and connections could briefly disagree during a blip. The probe is now a single per-service task writing a shared verdict that every connection reports in its heartbeat.
+
 ### Fixed
 
 - **Static-serve listeners are stopped when a config reload drops their directory.** In `--serve` mode the client started a loopback HTTP listener per served directory but never tracked or cancelled it, so a config reload that changed or removed a `serve:` directory left the old listener running forever (a file-descriptor/memory leak). `serve::start` now returns the accept loop's handle, and a reload aborts the listeners for directories the new config no longer serves.

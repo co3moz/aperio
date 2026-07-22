@@ -204,33 +204,56 @@ pub(crate) struct Shared {
   pub(crate) inflight_requests: Arc<AtomicUsize>,
 }
 
+/// Per-service backend-health state, shared by every parallel connection of a
+/// service (`connections: N`) so the backend is probed once per service, not
+/// once per connection. Every connection reports `healthy`/`probed` in its
+/// heartbeat; only the probe-owning connection drives the probe/gate that
+/// writes them, and `changed` wakes all connections when the verdict flips.
+#[derive(Clone)]
+pub(crate) struct BackendHealth {
+  pub(crate) healthy: Arc<AtomicBool>,
+  pub(crate) probed: Arc<AtomicBool>,
+  pub(crate) changed: Arc<tokio::sync::Notify>,
+}
+
+impl BackendHealth {
+  /// Initial state for `spec`: a service with a `target_health` check or a
+  /// `wait_for_backend` gate starts out of routing (unhealthy, unprobed) so no
+  /// connection reports the backend up before it has been checked; otherwise it
+  /// is healthy immediately.
+  pub(crate) fn for_spec(spec: &ServiceSpec) -> Self {
+    let gated = spec.target_health.is_some() || (spec.wait_for_backend && !spec.target.is_empty());
+    Self {
+      healthy: Arc::new(AtomicBool::new(!gated)),
+      probed: Arc::new(AtomicBool::new(!gated)),
+      changed: Arc::new(tokio::sync::Notify::new()),
+    }
+  }
+}
+
 /// Runs one tunnel service until the process shuts down or `cancel` fires
-/// (config reload → the supervisor respawns with a fresh spec).
+/// (config reload → the supervisor respawns with a fresh spec). `health` is the
+/// service's shared backend-health state; `run_probe` is true only for the one
+/// connection that owns the health probe/gate (the others just report it).
 pub(crate) async fn run_service(
   spec: ServiceSpec,
   shared: Shared,
   mut cancel: watch::Receiver<bool>,
+  health: BackendHealth,
+  run_probe: bool,
 ) {
   let label = spec.label();
 
-  // Latest backend health verdict, reported to the server via heartbeats. An
-  // unhealthy backend never tears the tunnel down: the server just takes
-  // this client out of routing until the backend recovers.
-  //
-  // Initial verdict: healthy only when no health check is configured (there
-  // is nothing to prove). With a `target_health` check the backend starts
-  // *unhealthy* and stays out of routing until the first probe succeeds, so a
-  // client never claims a backend is up before it has actually checked it.
-  let backend_healthy = Arc::new(AtomicBool::new(spec.target_health.is_none()));
-  // False until the first probe of a configured health check completes, so
-  // the dashboard can show "checking" instead of "backend down" before the
-  // backend has actually been probed. Always true when no check is set.
-  let backend_probed = Arc::new(AtomicBool::new(spec.target_health.is_none()));
-  // Fired whenever the health verdict flips, so the heartbeat loop can push an
-  // immediate Ping instead of waiting out its interval — the first successful
-  // probe makes a healthy backend routable within a probe, not a ping cycle.
-  let health_changed = Arc::new(tokio::sync::Notify::new());
-  let probe_task = spec.target_health.as_ref().map(|health_path| {
+  // Backend health is shared across the service's parallel connections (created
+  // once by the supervisor). This connection reports it in every heartbeat and,
+  // when it owns the probe, drives the probe/gate that updates it.
+  let BackendHealth {
+    healthy: backend_healthy,
+    probed: backend_probed,
+    changed: health_changed,
+  } = health;
+  let probe_task = if run_probe {
+    spec.target_health.as_ref().map(|health_path| {
     let health_changed = health_changed.clone();
     let probed = backend_probed.clone();
     let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
@@ -281,7 +304,7 @@ pub(crate) async fn run_service(
         if ok {
           consecutive_failures = 0;
           if !flag.swap(true, Ordering::SeqCst) {
-            health_changed.notify_one();
+            health_changed.notify_waiters();
             if first_result {
               info!("Backend healthy: {} — now routable", health_url);
             } else {
@@ -291,7 +314,7 @@ pub(crate) async fn run_service(
         } else {
           consecutive_failures = consecutive_failures.saturating_add(1);
           if consecutive_failures >= threshold && flag.swap(false, Ordering::SeqCst) {
-            health_changed.notify_one();
+            health_changed.notify_waiters();
             warn!(
               "Backend health check failed {} consecutive time(s): {} — reporting unhealthy to the server (tunnel stays connected)",
               consecutive_failures, health_url
@@ -308,13 +331,16 @@ pub(crate) async fn run_service(
         }
         if first_result {
           probed.store(true, Ordering::SeqCst);
-          health_changed.notify_one();
+          health_changed.notify_waiters();
         }
         first_result = false;
         tokio::time::sleep(Duration::from_secs(interval)).await;
       }
     })
-  });
+  })
+  } else {
+    None
+  };
 
   // Wait-for-backend startup gate (`wait_for_backend: true`): without a
   // configured health check the service normally claims a healthy backend
@@ -324,7 +350,8 @@ pub(crate) async fn run_service(
   // backend accepts a connection; after that the gate never re-engages
   // (`target_health` is the tool for continuous health tracking, and it
   // supersedes this gate entirely when configured).
-  let wait_task = if spec.wait_for_backend
+  let wait_task = if run_probe
+    && spec.wait_for_backend
     && spec.target_health.is_none()
     && !spec.target.is_empty()
   {
@@ -344,7 +371,7 @@ pub(crate) async fn run_service(
         if backend_accepts_connections(&target).await {
           flag.store(true, Ordering::SeqCst);
           probed.store(true, Ordering::SeqCst);
-          health_changed.notify_one();
+          health_changed.notify_waiters();
           info!("[{}] Backend is up ({}) — now routable", label, target);
           break;
         }

@@ -55,8 +55,14 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   a Tokio worker thread; move them to `tokio::fs` or `spawn_blocking` as part of the
   same rework. (From the 2026-07 static security review + a 2026-07 client review.)
 
-- [ ] **#7 Run the backend health probe once per service, not per parallel
-  connection.** Each parallel connection of a service (`connections: N`) runs its
+- [x] **#7 Run the backend health probe once per service, not per parallel
+  connection.** shipped: `BackendHealth::for_spec` builds one shared verdict per
+  service; `spawn_services` creates it once and passes it to every connection's
+  `run_service`, with only the first connection (`run_probe`) driving the
+  probe/`wait_for_backend` gate (`notify_waiters` wakes all connections on a
+  flip). Original note below.
+
+  Each parallel connection of a service (`connections: N`) runs its
   own `run_service`, which builds its own `backend_healthy`/`backend_probed`
   flags and spawns its own `probe_task` hitting the backend's `target_health`
   endpoint independently (`aperio-client/src/service.rs`). So `connections: N`
