@@ -4,7 +4,7 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
-## [Unreleased]
+## [0.4.2] - 2026-07-22
 
 ### Security
 

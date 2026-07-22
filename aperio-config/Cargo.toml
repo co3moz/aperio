@@ -1,6 +1,6 @@
 [package]
 name = "aperio-config"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 
 # Shared schema of the client `aperio.yaml` file. Kept as its own crate so the
