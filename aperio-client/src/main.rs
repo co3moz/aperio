@@ -516,9 +516,11 @@ fn build_specs(
   }
 
   // Parallel connections per service: bounded so a typo cannot exhaust the
-  // server's tunnel slots (it also has its own max_tunnels guard).
+  // server's tunnel slots (it also has its own max_tunnels guard). Defaults to
+  // 2 so a single dropped connection (e.g. a CDN recycling a long-lived
+  // WebSocket) is covered by the sibling connection with no visitor-facing gap.
   let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
-    let n = raw.unwrap_or(1).max(1);
+    let n = raw.unwrap_or(2).max(1);
     if n > 16 {
       warn!(
         "{} requests {} connections; clamping to the maximum of 16",

@@ -16,6 +16,11 @@ project follows semantic versioning per release tag.
 
 - **Client IP-family control when dialing the server.** A new `ip_family` setting (`auto` (default), `ipv4`, `ipv6`; CLI `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) chooses which address family the client uses to reach the tunnel server. The client now resolves every address itself and tries each in turn (IPv4-first, interleaved for `auto`) with a per-address connect timeout, so a hostname that resolves to an unreachable family — e.g. a Cloudflare-fronted server publishing AAAA the host cannot route to — no longer strands the connection; `ipv4` forces IPv4 deterministically. Applied to all three server-dial sites (main tunnel, `check`, and the TCP bridge).
 - **OTLP endpoint reachability probe at startup.** With `APERIO_OTEL` enabled, the server now TCP-probes the configured OTLP endpoint on startup and logs the result ("OTLP endpoint … is reachable" / "… unreachable — trace spans will be dropped"), so a misconfigured or down collector is obvious immediately instead of silently dropping every span. Advisory only — it runs off-thread, never blocks, and never fails startup.
+- **A client process's parallel connections are grouped into one dashboard entry.** A client opening multiple connections to a service (`connections: N`) previously appeared as N look-alike rows in *Active Tunnel Connections* and N nodes in *Topology*, each also minting its own random preview hostname. The client now announces its process identity via an `x-aperio-instance` handshake header; the dashboard collapses a process's connections to the same service into a single row/node with a `×N` connection count (request counts summed, enable/disable acting on all N), and the server derives one shared random hostname per process+service instead of a distinct one per connection.
+
+### Changed
+
+- **Client services now open 2 parallel connections by default (was 1).** `connections` defaults to `2` so a single dropped connection — e.g. a CDN recycling a long-lived WebSocket — is covered by the sibling connection with no visitor-facing gap; the server load-balances across them. Set `connections: 1` (yaml) or `APERIO_CONNECTIONS=1` to restore the previous single-connection behaviour.
 
 ### Fixed
 

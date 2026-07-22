@@ -321,7 +321,8 @@ pub(crate) struct ClientSettings {
   pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
-  /// Parallel tunnel connections per service (config files only; 1 = default).
+  /// Parallel tunnel connections per service (yaml `connections`, env
+  /// `APERIO_CONNECTIONS`; 2 = default).
   pub(crate) connections: Option<u32>,
   pub(crate) priority: u32,
   pub(crate) bandwidth: Option<String>,

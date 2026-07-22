@@ -223,9 +223,9 @@ fn test_build_specs_multi_service_fallbacks() {
 
 #[test]
 fn test_build_specs_connections() {
-  // Default is a single connection.
+  // Default is two parallel connections (resilience against single drops).
   let specs = build_specs(&base_settings(), "base-id", false).unwrap();
-  assert_eq!(specs[0].connections, 1);
+  assert_eq!(specs[0].connections, 2);
 
   // Configured values pass through; per-entry overrides the top level;
   // out-of-range values are clamped to 16.

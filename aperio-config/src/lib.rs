@@ -240,8 +240,9 @@ pub struct ServiceEntry {
   /// Most requests this service handles at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
-  /// Parallel tunnel connections opened for this service (1–16, default 1);
-  /// the server load-balances across them like separate clients.
+  /// Parallel tunnel connections opened for this service (1–16, default 2);
+  /// the server load-balances across them like separate clients, so a single
+  /// dropped connection leaves no visitor-facing gap.
   #[schemars(extend("examples" = [2]))]
   pub connections: Option<u32>,
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
@@ -369,7 +370,8 @@ pub struct FileConfig {
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
   /// Parallel tunnel connections opened for the exposed service (1–16,
-  /// default 1); the server load-balances across them like separate clients.
+  /// default 2); the server load-balances across them like separate clients,
+  /// so a single dropped connection leaves no visitor-facing gap.
   #[schemars(extend("examples" = [2]))]
   pub connections: Option<u32>,
   /// Largest response body, in bytes, the client will relay to a visitor.
