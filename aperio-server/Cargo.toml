@@ -42,7 +42,13 @@ url = "2.5"
 flate2 = "1"
 # OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Uses the HTTP/protobuf
 # exporter over reqwest+rustls to reuse the existing TLS stack (no tonic/openssl).
-# NOTE: we deliberately do NOT enable otlp's `reqwest-rustls` feature — on
+# NOTE 1: we use otlp's `reqwest-blocking-client`, NOT `reqwest-client` (async).
+# The batch span processor drives the exporter from its own dedicated OS thread
+# with no Tokio runtime; the async reqwest client panics there ("there is no
+# reactor running") the moment a real span is exported, so nothing ever reaches
+# the collector. The blocking client owns an internal runtime and exports fine
+# from that thread.
+# NOTE 2: we deliberately do NOT enable otlp's `reqwest-rustls` feature — on
 # reqwest 0.13 that resolves to the aws-lc-rs crypto provider, a heavy C/asm
 # build (aws-lc-sys) that dominates the Windows release build. Instead the
 # `reqwest_otlp` edge below pins reqwest's `rustls-no-provider`, which reuses the
@@ -53,12 +59,12 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "trace",
   "http-proto",
-  "reqwest-client",
+  "reqwest-blocking-client",
 ] }
 # Feature-unification-only dependency: forces the reqwest 0.13 that
-# opentelemetry-otlp pulls onto `rustls-no-provider` (ring, not aws-lc-rs). Not
-# referenced from code — opentelemetry-otlp owns the reqwest client.
-reqwest_otlp = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# opentelemetry-otlp pulls onto `rustls-no-provider` (ring, not aws-lc-rs) and
+# the blocking client. Not referenced from code — opentelemetry-otlp owns it.
+reqwest_otlp = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider", "blocking"] }
 tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"
 sha1 = "0.10"
