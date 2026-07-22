@@ -79,7 +79,9 @@ fn resolve_device_key() -> Option<String> {
       };
       match write_res {
         Ok(()) => info!("Generated a new device key at {path} for token pinning"),
-        Err(e) => warn!("Could not persist the device key to {path}: {e}"),
+        Err(e) => warn!(
+          "Could not persist the device key to {path}: {e}. Running with an in-memory key that changes on every restart — if the server enforces token pinning it will reject this client after a restart. On a read-only or ephemeral filesystem, set a stable key via the APERIO_DEVICE_KEY environment variable instead of a file."
+        ),
       }
       Some(key)
     }
