@@ -80,3 +80,23 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   (TCP tunnel). Tests: unit for the family filter/ordering; an e2e phase dialing a
   dual-stack loopback with `ip_family: ipv4`. Ship both tiers (auto default + the
   knob). (From a 2026-07 field debugging session.)
+
+- [ ] **#6 Probe the OTLP endpoint at startup when OTel export is enabled.**
+  With `APERIO_OTEL` on, the batch span exporter silently POSTs to
+  `otel_endpoint`; any failure (wrong host/port, DNS, collector down, wrong
+  protocol/path) is invisible — spans just never arrive, and the only visible log
+  is the harmless `BatchSpanProcessor.ExportingDueToTimer` heartbeat. In a 2026-07
+  session this made a misconfig indistinguishable from "no traffic to trace":
+  Jaeger stayed empty with no error. After building the provider in
+  `telemetry::build_provider` / `init` (`aperio-server/src/telemetry.rs`), do a
+  lightweight reachability probe to the resolved endpoint host:port (a short-
+  timeout TCP connect, or an HTTP request to the `/v1/traces` path) and log a
+  clear line: INFO on success ("OTLP endpoint <ep> reachable"), WARN on failure
+  ("OTLP endpoint <ep> unreachable: <err> — spans will be dropped"). Must NOT fail
+  startup — tracing is non-critical, so a bad collector must never take the server
+  down; run the probe non-blocking (spawn it, or a single short-timeout connect
+  before serving). Consider also surfacing the batch exporter's own runtime export
+  errors (currently swallowed) and/or a periodic re-check. Note the probe only
+  confirms the collector is listening, not that spans parse end-to-end, but it
+  catches the common wrong-endpoint / not-running / DNS cases immediately.
+  (From a 2026-07 field debugging session.)
