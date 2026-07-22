@@ -50,7 +50,33 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   body) and/or add a per-serve max file size; on HEAD return metadata without
   reading the body. Low severity: opt-in feature, client-process-only DoS bounded
   by the size of files the operator chose to publish (a `dist/` of web assets is a
-  non-issue). (From the 2026-07 static security review.)
+  non-issue). Also in scope: `serve.rs::resolve` uses blocking `std::fs::canonicalize`/
+  `is_file`/`is_dir` in the async `handle` path — those synchronous syscalls run on
+  a Tokio worker thread; move them to `tokio::fs` or `spawn_blocking` as part of the
+  same rework. (From the 2026-07 static security review + a 2026-07 client review.)
+
+- [ ] **#7 Run the backend health probe once per service, not per parallel
+  connection.** Each parallel connection of a service (`connections: N`) runs its
+  own `run_service`, which builds its own `backend_healthy`/`backend_probed`
+  flags and spawns its own `probe_task` hitting the backend's `target_health`
+  endpoint independently (`aperio-client/src/service.rs`). So `connections: N`
+  makes N independent probes and reports `backend_healthy` per connection — N×
+  the health-check load on the backend, and connections can disagree during a
+  blip. Now that `connections` defaults to 2 this doubles the probe load by
+  default. Move the probe out of `run_service` into `spawn_services`
+  (`aperio-client/src/main.rs`): one probe per service writing a shared
+  `Arc<AtomicBool>` that every connection's `run_service` reads for its Ping.
+  Touches `run_service`'s signature (13 call sites, mostly tests). Low-moderate
+  severity. (From a 2026-07 client review.)
+
+- [ ] **#8 Pool Unix-domain-socket backend connections.** `dial_and_send` in
+  `aperio-client/src/proxy/unix.rs` opens a fresh `UnixStream::connect` +
+  `http1::handshake` for every request with no reuse. Under very high request
+  rates that is per-request connect/handshake overhead (a keep-alive pool via
+  `hyper-util`'s legacy client would amortize it). Low priority: Unix sockets
+  have no TCP `TIME_WAIT`, so FDs are released promptly — the reviewer's "EMFILE
+  / FD exhaustion" framing is overstated; this is an efficiency win, not a leak
+  fix. (From a 2026-07 client review.)
 
 - [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
   server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
