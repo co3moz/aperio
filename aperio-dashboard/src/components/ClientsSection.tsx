@@ -2,6 +2,7 @@ import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon, SlidersHorizontalIcon 
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AddClientWizard } from './AddClientWizard'
+import { groupClientsByInstance } from '@/lib/clientGroups'
 import { EmptyRow, SectionHeader, StatusDot } from './shared'
 import { TintBadge } from './badges'
 import {
@@ -182,14 +183,22 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
 
 // Kill switch: a disabled client stays connected but receives no new
 // requests; in-flight requests complete. Disabling asks for confirmation.
-function EnableToggle({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
+function EnableToggle({
+  connections,
+  onDone,
+}: {
+  connections: ClientDetail[]
+  onDone: () => void
+}) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
+  // A group's parallel connections share enabled/draining state; act on all.
+  const client = connections[0]
 
   const setEnabled = async (enabled: boolean) => {
     setBusy(true)
     try {
-      await api.setClientEnabled(client.id, enabled)
+      await Promise.all(connections.map((c) => api.setClientEnabled(c.id, enabled)))
       const label = enabled
         ? t('Client {id} enabled', { id: client.id.slice(0, 8) })
         : t('Client {id} disabled', { id: client.id.slice(0, 8) })
@@ -330,22 +339,25 @@ export function ClientsSection({
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: -1 }))
 
   const needle = search.trim().toLowerCase()
-  const filtered = clients.filter(
-    (c) =>
-      !needle ||
-      (c.instance_id ?? c.id).toLowerCase().includes(needle) ||
-      c.ip.toLowerCase().includes(needle) ||
-      (c.service ?? '').toLowerCase().includes(needle) ||
-      (c.token_name ?? '').toLowerCase().includes(needle) ||
-      (c.path_bind ?? '').toLowerCase().includes(needle) ||
-      c.hostname_binds.some((h) => h.toLowerCase().includes(needle)),
-  )
-  const sorted = [...filtered].sort(
-    (a, b) => (sortValue(a, sort.key) - sortValue(b, sort.key)) * sort.dir,
-  )
+  const matchesConn = (c: ClientDetail) =>
+    !needle ||
+    (c.instance_id ?? c.id).toLowerCase().includes(needle) ||
+    c.ip.toLowerCase().includes(needle) ||
+    (c.service ?? '').toLowerCase().includes(needle) ||
+    (c.token_name ?? '').toLowerCase().includes(needle) ||
+    (c.path_bind ?? '').toLowerCase().includes(needle) ||
+    c.hostname_binds.some((h) => h.toLowerCase().includes(needle))
+  // Collapse a process's parallel connections to the same service into one row
+  // (with a connection count) instead of N look-alikes.
+  const filtered = groupClientsByInstance(clients).filter((g) => g.connections.some(matchesConn))
+  const groupSort = (g: (typeof filtered)[number]) =>
+    sort.key === 'requests' ? g.requestCount : sortValue(g.rep, sort.key)
+  const sorted = [...filtered].sort((a, b) => (groupSort(a) - groupSort(b)) * sort.dir)
 
   const bulkSet = async (enabled: boolean) => {
-    const targets = filtered.filter((c) => c.enabled !== enabled && !c.draining)
+    const targets = filtered
+      .flatMap((g) => g.connections)
+      .filter((c) => c.enabled !== enabled && !c.draining)
     if (targets.length === 0) {
       toast.info(enabled ? t('No clients to enable') : t('No clients to disable'))
       return
@@ -405,8 +417,10 @@ export function ClientsSection({
                 {t('No clients match "{search}"', { search })}
               </EmptyRow>
             ) : (
-              sorted.map((c) => (
-                <TableRow key={c.id}>
+              sorted.map((g) => {
+                const c = g.rep
+                return (
+                <TableRow key={g.key}>
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
                       <div className="flex flex-wrap items-center gap-1">
@@ -427,6 +441,14 @@ export function ClientsSection({
                         {c.service && (
                           <HintBadge tint="blue" hint={t('Service name announced by the client (services: list)')}>
                             {c.service}
+                          </HintBadge>
+                        )}
+                        {g.connections.length > 1 && (
+                          <HintBadge
+                            tint="gray"
+                            hint={t('This one client process holds {count} parallel connections to this service (connections: {count}); actions apply to all of them', { count: g.connections.length })}
+                          >
+                            ×{g.connections.length}
                           </HintBadge>
                         )}
                         {c.public && (
@@ -528,13 +550,15 @@ export function ClientsSection({
                     </div>
                   </TableCell>
                   <TableCell>{formatUptime(c.connected_for_seconds)}</TableCell>
-                  <TableCell className="tabular-nums">{c.request_count}</TableCell>
+                  <TableCell className="tabular-nums">{g.requestCount}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
                       {canMutate ? (
                         <>
-                          <OverruleDialog client={c} onDone={onChanged} />
-                          <EnableToggle client={c} onDone={onChanged} />
+                          {g.connections.length === 1 && (
+                            <OverruleDialog client={c} onDone={onChanged} />
+                          )}
+                          <EnableToggle connections={g.connections} onDone={onChanged} />
                         </>
                       ) : (
                         <span className="text-muted-foreground">-</span>
@@ -542,7 +566,8 @@ export function ClientsSection({
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+                )
+              })
             )}
           </TableBody>
         </Table>

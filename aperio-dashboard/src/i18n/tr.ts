@@ -683,4 +683,6 @@ export const tr: Record<string, string> = {
   'No organizations yet': 'Henüz organizasyon yok',
   'master': 'master',
   'Switch organization': 'Organizasyon değiştir',
+  'This one client process holds {count} parallel connections to this service (connections: {count}); actions apply to all of them':
+    'Bu tek client süreci bu servise {count} paralel bağlantı tutuyor (connections: {count}); işlemler hepsine uygulanır',
 }

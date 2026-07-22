@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card'
 import { SectionHeader } from './shared'
 import { useI18n } from '@/i18n'
 import type { ClientDetail, ServerStats } from '@/lib/api'
+import { groupClientsByInstance } from '@/lib/clientGroups'
 
 /** Node grid geometry (SVG user units). */
 const ROW_H = 64
@@ -115,25 +116,29 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
   const clients = useMemo(() => stats?.active_clients ?? [], [stats])
   const rates = useClientRates(clients)
 
+  // One node per (process, service): a client's parallel connections collapse
+  // into a single node with a connection count, instead of N look-alikes.
+  const groups = useMemo(() => groupClientsByInstance(clients), [clients])
+
   const routes = useMemo(() => {
     const map = new Map<string, RouteNode>()
-    for (const c of clients) {
-      for (const r of clientRoutes(c)) {
+    for (const g of groups) {
+      for (const r of clientRoutes(g.rep)) {
         const node = map.get(r) ?? { key: r, label: r === '*' ? t('(any request)') : r, clients: [] }
-        node.clients.push(c.id)
+        node.clients.push(g.key)
         map.set(r, node)
       }
     }
     return [...map.values()].sort((a, b) => a.key.localeCompare(b.key))
-  }, [clients, t])
+  }, [groups, t])
 
-  const rows = Math.max(routes.length, clients.length, 1)
+  const rows = Math.max(routes.length, groups.length, 1)
   const height = TOP_PAD + rows * ROW_H + 8
   const colY = (count: number, i: number) =>
     TOP_PAD + ((rows - count) * ROW_H) / 2 + i * ROW_H
 
   const routeY = new Map(routes.map((r, i) => [r.key, colY(routes.length, i)]))
-  const clientY = new Map(clients.map((c, i) => [c.id, colY(clients.length, i)]))
+  const clientY = new Map(groups.map((g, i) => [g.key, colY(groups.length, i)]))
 
   return (
     <section className="flex flex-col gap-3">
@@ -184,20 +189,22 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
               }),
             )}
 
-            {/* client -> backend edges, labeled with the live rate */}
-            {clients.map((c) => {
-              const y = (clientY.get(c.id) ?? 0) + NODE_H / 2
-              const rate = rates.get(c.id)
+            {/* client -> backend edges, labeled with the live rate (summed
+                across the group's connections) */}
+            {groups.map((g) => {
+              const y = (clientY.get(g.key) ?? 0) + NODE_H / 2
+              const hasRate = g.connections.some((c) => rates.get(c.id) !== undefined)
+              const rate = g.connections.reduce((s, c) => s + (rates.get(c.id) ?? 0), 0)
               return (
-                <g key={`edge-${c.id}`}>
+                <g key={`edge-${g.key}`}>
                   <path
                     d={edgePath(COL_X[1] + NODE_W, y, COL_X[2], y)}
-                    stroke={healthTint(c)}
+                    stroke={healthTint(g.rep)}
                     strokeWidth={1.5}
                     fill="none"
                     opacity={0.7}
                   />
-                  {rate !== undefined && (
+                  {hasRate && (
                     <text
                       x={(COL_X[1] + NODE_W + COL_X[2]) / 2}
                       y={y - 6}
@@ -221,24 +228,26 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
                 mono
               />
             ))}
-            {clients.map((c) => (
+            {groups.map((g) => (
               <NodeBox
-                key={c.id}
+                key={g.key}
                 x={COL_X[1]}
-                y={clientY.get(c.id) ?? 0}
-                label={c.service ?? c.id.slice(0, 8)}
-                sub={`${c.request_count} req · v${c.version ?? '?'}`}
-                tint={healthTint(c)}
+                y={clientY.get(g.key) ?? 0}
+                label={g.rep.service ?? g.rep.id.slice(0, 8)}
+                sub={`${g.requestCount} req · v${g.rep.version ?? '?'}${
+                  g.connections.length > 1 ? ` · ×${g.connections.length}` : ''
+                }`}
+                tint={healthTint(g.rep)}
               />
             ))}
-            {clients.map((c) => (
+            {groups.map((g) => (
               <NodeBox
-                key={`backend-${c.id}`}
+                key={`backend-${g.key}`}
                 x={COL_X[2]}
-                y={clientY.get(c.id) ?? 0}
-                label={c.backend_healthy ? t('backend healthy') : t('backend failing')}
-                sub={c.token_name ?? undefined}
-                tint={c.backend_healthy ? 'var(--primary)' : 'var(--destructive)'}
+                y={clientY.get(g.key) ?? 0}
+                label={g.rep.backend_healthy ? t('backend healthy') : t('backend failing')}
+                sub={g.rep.token_name ?? undefined}
+                tint={g.rep.backend_healthy ? 'var(--primary)' : 'var(--destructive)'}
               />
             ))}
           </svg>

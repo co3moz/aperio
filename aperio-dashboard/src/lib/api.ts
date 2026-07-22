@@ -51,6 +51,11 @@ export interface ClientDetail {
   enabled: boolean
   instance_id: string | null
   instance_id_shared: boolean
+  /** Process-wide instance group (the client's raw client_id base), shared by
+   * every service and parallel connection of one client process. Used to group
+   * connections in the UI so a multi-connection client shows as one entity.
+   * null for clients that predate the x-aperio-instance header. */
+  instance_group: string | null
 }
 
 export interface ServerStats {
