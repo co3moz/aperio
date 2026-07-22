@@ -209,6 +209,7 @@ fn base_settings() -> ClientSettings {
     resilience: false,
     webhook_inbox: false,
     denied: None,
+    ip_family: crate::dial::IpFamily::Auto,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

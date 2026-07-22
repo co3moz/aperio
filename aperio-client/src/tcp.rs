@@ -7,9 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
-use tokio_tungstenite::{
-  connect_async,
-  tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message},
+use tokio_tungstenite::tungstenite::{
+  client::IntoClientRequest, http::HeaderValue, protocol::Message,
 };
 use tracing::{error, info};
 
@@ -301,7 +300,7 @@ pub(crate) async fn bridge_connection(
     }
     Err(_) => return,
   }
-  let (ws, _) = match connect_async(req).await {
+  let (ws, _) = match crate::dial::connect_ws(req, None).await {
     Ok(x) => x,
     Err(e) => {
       error!("TCP bridge failed to reach server: {:?}", e);

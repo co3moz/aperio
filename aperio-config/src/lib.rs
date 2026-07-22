@@ -446,6 +446,11 @@ pub struct FileConfig {
   /// of the route admits them (unset = stealth; services may override).
   #[schemars(extend("examples" = ["https://example.com/not-for-you"]))]
   pub denied: Option<String>,
+  /// IP family used to dial the tunnel server: `auto` (default, tries both),
+  /// `ipv4`, or `ipv6`. Set `ipv4` when the server hostname resolves to an
+  /// IPv6 address the host cannot reach (env: APERIO_IP_FAMILY).
+  #[schemars(extend("examples" = ["auto", "ipv4"]))]
+  pub ip_family: Option<String>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

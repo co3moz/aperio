@@ -1,10 +1,7 @@
 //! `aperio-client check`: configuration & connectivity diagnostics.
 
 use std::time::Duration;
-use tokio_tungstenite::{
-  connect_async,
-  tungstenite::{client::IntoClientRequest, http::HeaderValue},
-};
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue};
 
 use crate::config::{ClientSettings, SettingsSources, build_http_url, build_ws_url};
 use crate::protocol::PROTOCOL_VERSION;
@@ -187,7 +184,9 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
           ),
           Some(req) => {
             let started = std::time::Instant::now();
-            match tokio::time::timeout(Duration::from_secs(5), connect_async(req)).await {
+            match tokio::time::timeout(Duration::from_secs(5), crate::dial::connect_ws(req, None))
+              .await
+            {
               Ok(Ok((mut ws, _))) => {
                 let rtt = started.elapsed();
                 let _ = ws.close(None).await;

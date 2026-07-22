@@ -12,13 +12,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, watch};
-use tokio_tungstenite::{
-  connect_async_with_config,
-  tungstenite::{
-    client::IntoClientRequest,
-    http::HeaderValue,
-    protocol::{Message, WebSocketConfig},
-  },
+use tokio_tungstenite::tungstenite::{
+  client::IntoClientRequest,
+  http::HeaderValue,
+  protocol::{Message, WebSocketConfig},
 };
 use tracing::{debug, error, info, warn};
 
@@ -408,7 +405,7 @@ pub(crate) async fn run_service(
           max_frame_size: Some(spec.max_message_size),
           ..Default::default()
         };
-        match connect_async_with_config(req, Some(ws_config), false).await {
+        match crate::dial::connect_ws(req, Some(ws_config)).await {
           Ok((ws_stream, _)) => {
             info!("[{}] Successfully connected to Aperio Server!", label);
             let connected_at = Instant::now();

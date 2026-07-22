@@ -168,6 +168,11 @@ pub(crate) struct CommonOpts {
   /// `cache` and the server-side cache (yaml: resilience, env: APERIO_RESILIENCE)
   #[arg(long, global = true)]
   pub(crate) resilience: bool,
+  /// IP family to dial the server over: auto (default), ipv4, or ipv6. Use
+  /// ipv4 when the server hostname resolves to an unreachable IPv6 address
+  /// (yaml: ip_family, env: APERIO_IP_FAMILY)
+  #[arg(long = "ip-family", global = true, value_name = "auto|ipv4|ipv6")]
+  pub(crate) ip_family: Option<String>,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -350,6 +355,9 @@ pub(crate) struct ClientSettings {
   pub(crate) webhook_inbox: bool,
   /// Redirect URL for visitors rejected by `allowed_ips` (None = stealth).
   pub(crate) denied: Option<String>,
+  /// IP family to dial the server over (auto/ipv4/ipv6). Process-wide; applied
+  /// at startup via `dial::set_ip_family`.
+  pub(crate) ip_family: crate::dial::IpFamily,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -671,6 +679,15 @@ pub(crate) fn resolve_settings(
       home.denied.clone(),
     )
     .and_then(nonempty),
+    ip_family: crate::dial::IpFamily::parse(
+      layered(
+        o.ip_family.clone(),
+        local.ip_family.clone(),
+        env_str("APERIO_IP_FAMILY"),
+        home.ip_family.clone(),
+      )
+      .as_deref(),
+    ),
     services: local.services.clone().unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),

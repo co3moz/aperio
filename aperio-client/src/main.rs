@@ -7,6 +7,7 @@ use tracing::{error, info, warn};
 mod bind_tunnels;
 mod check;
 mod config;
+mod dial;
 mod e2e;
 mod protocol;
 mod proxy;
@@ -81,6 +82,10 @@ async fn main() {
   let home_cfg = load_home_config();
   let file_cfg = load_file_config(cli.opts.config.as_deref());
   let mut settings = resolve_settings(&cli, &home_cfg, &file_cfg);
+
+  // Fix the server dialing family for the process. Effective at startup only;
+  // a hot-reload cannot change it (mirrors other connection-level globals).
+  dial::set_ip_family(settings.ip_family);
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {

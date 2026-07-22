@@ -52,8 +52,16 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   by the size of files the operator chose to publish (a `dist/` of web assets is a
   non-issue). (From the 2026-07 static security review.)
 
-- [ ] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
-  server.** tokio-tungstenite 0.23 dials with a single
+- [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
+  server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
+  it resolves every address, applies an `ip_family` (auto/ipv4/ipv6; CLI
+  `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) preference, and tries
+  each in turn (IPv4-first interleaved) with a per-address connect timeout. Wired
+  into all three dial sites (service/check/tcp). Delivered the config knob + the
+  address-fallback tier; kept it as sequential-with-timeout rather than full
+  RFC 8305 concurrent racing. Original design below.
+
+  tokio-tungstenite 0.23 dials with a single
   `TcpStream::connect("domain:port")` (`connect.rs:73`), so address selection and
   IPv4/IPv6 fallback are left entirely to the OS resolver. On the musl/Alpine
   client image this is unreliable: when a Cloudflare-fronted server hostname
