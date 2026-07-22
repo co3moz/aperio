@@ -405,7 +405,17 @@ pub(crate) async fn run_service(
           max_frame_size: Some(spec.max_message_size),
           ..Default::default()
         };
-        match crate::dial::connect_ws(req, Some(ws_config)).await {
+        // Dial under the cancel signal so a shutdown aborts an in-progress
+        // connect/handshake immediately instead of waiting for it to finish
+        // (a half-open server can otherwise stall the handshake with no
+        // timeout, keeping the service alive past cancel).
+        let connect_fut = crate::dial::connect_ws(req, Some(ws_config));
+        tokio::pin!(connect_fut);
+        let connect_result = tokio::select! {
+          _ = cancel.changed() => break 'outer,
+          r = &mut connect_fut => r,
+        };
+        match connect_result {
           Ok((ws_stream, _)) => {
             info!("[{}] Successfully connected to Aperio Server!", label);
             let connected_at = Instant::now();

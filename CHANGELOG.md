@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Fixed
+
+- **Shutdown aborts an in-progress server connection attempt.** The client's reconnect loop awaited the server dial (TCP connect + WebSocket handshake) without watching the cancel signal, so a half-open server that accepted the socket but stalled the handshake — which has no timeout — could keep a service alive past a requested shutdown. The dial now runs under the cancel signal and is torn down immediately when the client is told to stop.
+
 ## [0.4.2] - 2026-07-22
 
 ### Security
