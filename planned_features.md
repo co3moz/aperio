@@ -89,7 +89,14 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   dual-stack loopback with `ip_family: ipv4`. Ship both tiers (auto default + the
   knob). (From a 2026-07 field debugging session.)
 
-- [ ] **#6 Probe the OTLP endpoint at startup when OTel export is enabled.**
+- [x] **#6 Probe the OTLP endpoint at startup when OTel export is enabled.**
+  shipped: `telemetry::init` now spawns a detached thread that TCP-connects to
+  the resolved endpoint host:port (`endpoint_host_port` parses host/port incl.
+  IPv6 literals + scheme-default ports) and logs INFO on success / WARN on
+  failure ("… unreachable — trace spans will be dropped"). Blocking IO on a
+  thread so it needs no Tokio runtime and never blocks startup. Original note
+  below.
+
   With `APERIO_OTEL` on, the batch span exporter silently POSTs to
   `otel_endpoint`; any failure (wrong host/port, DNS, collector down, wrong
   protocol/path) is invisible — spans just never arrive, and the only visible log

@@ -63,6 +63,88 @@ fn resolve_endpoint() -> String {
   }
 }
 
+/// Extracts `(host, port)` from a resolved OTLP endpoint URL for the startup
+/// reachability probe. Handles an explicit port, a scheme default (https ->
+/// 443, else 80), and a bracketed IPv6 literal. Returns `None` when the URL has
+/// no `scheme://` authority to probe.
+fn endpoint_host_port(endpoint: &str) -> Option<(String, u16)> {
+  let (scheme, rest) = endpoint.split_once("://")?;
+  let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+  // Drop any userinfo (`user@host`), unusual for OTLP but cheap to handle.
+  let authority = authority.rsplit('@').next().unwrap_or(authority);
+  if authority.is_empty() {
+    return None;
+  }
+  let default_port = if scheme.eq_ignore_ascii_case("https") {
+    443
+  } else {
+    80
+  };
+  // Bracketed IPv6 literal, e.g. `[::1]:4318`.
+  if let Some(inner) = authority.strip_prefix('[') {
+    let (host, after) = inner.split_once(']')?;
+    let port = after
+      .strip_prefix(':')
+      .and_then(|p| p.parse().ok())
+      .unwrap_or(default_port);
+    return Some((host.to_string(), port));
+  }
+  match authority.rsplit_once(':') {
+    Some((host, port)) if !host.is_empty() => {
+      Some((host.to_string(), port.parse().unwrap_or(default_port)))
+    }
+    _ => Some((authority.to_string(), default_port)),
+  }
+}
+
+/// Best-effort startup reachability check for the OTLP endpoint. Spans are
+/// exported asynchronously and a broken endpoint (wrong host/port, DNS,
+/// collector down) is otherwise silent — every span is just dropped. A single
+/// short TCP connect turns that into one clear log line. Runs synchronously
+/// with blocking IO so it is independent of any Tokio runtime (`init` may be
+/// called before/without one); callers run it on a detached thread so startup
+/// never blocks. Only the collector's TCP liveness is checked, not the full
+/// path.
+fn probe_endpoint(endpoint: String) {
+  use std::net::ToSocketAddrs;
+  let Some((host, port)) = endpoint_host_port(&endpoint) else {
+    return;
+  };
+  let addrs = match (host.as_str(), port).to_socket_addrs() {
+    Ok(a) => a,
+    Err(e) => {
+      tracing::warn!(
+        "OTLP endpoint {} could not be resolved ({}) — trace spans will be dropped",
+        endpoint,
+        e
+      );
+      return;
+    }
+  };
+  let timeout = std::time::Duration::from_secs(5);
+  let mut last_err = None;
+  for addr in addrs {
+    match std::net::TcpStream::connect_timeout(&addr, timeout) {
+      Ok(_) => {
+        tracing::info!("OTLP endpoint {} is reachable", endpoint);
+        return;
+      }
+      Err(e) => last_err = Some(e),
+    }
+  }
+  match last_err {
+    Some(e) => tracing::warn!(
+      "OTLP endpoint {} is unreachable ({}) — trace spans will be dropped",
+      endpoint,
+      e
+    ),
+    None => tracing::warn!(
+      "OTLP endpoint {} resolved to no addresses — trace spans will be dropped",
+      endpoint
+    ),
+  }
+}
+
 /// Service name reported on every span (`APERIO_OTEL_SERVICE_NAME`, then
 /// `OTEL_SERVICE_NAME`, defaulting to `aperio-server`).
 fn resolve_service_name() -> String {
@@ -133,6 +215,11 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
         "OpenTelemetry OTLP trace export enabled (endpoint: {})",
         resolve_endpoint()
       );
+      // Surface an unreachable collector immediately instead of silently
+      // dropping every span. Detached thread with blocking IO — advisory only,
+      // never blocks startup and needs no Tokio runtime (export still runs).
+      let probe_endpoint_url = resolve_endpoint();
+      std::thread::spawn(move || probe_endpoint(probe_endpoint_url));
       OtelGuard(Some(provider))
     }
     Err(e) => {

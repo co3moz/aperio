@@ -147,6 +147,48 @@ fn resolve_endpoint_prefers_aperio_var_over_conventional() {
 }
 
 // --------------------------------------------------------------------------
+// endpoint_host_port (startup probe target parsing)
+// --------------------------------------------------------------------------
+
+#[test]
+fn endpoint_host_port_reads_explicit_port() {
+  assert_eq!(
+    endpoint_host_port("http://trace:4318/v1/traces"),
+    Some(("trace".to_string(), 4318))
+  );
+}
+
+#[test]
+fn endpoint_host_port_defaults_by_scheme_when_no_port() {
+  assert_eq!(
+    endpoint_host_port("http://collector/v1/traces"),
+    Some(("collector".to_string(), 80))
+  );
+  assert_eq!(
+    endpoint_host_port("https://collector/v1/traces"),
+    Some(("collector".to_string(), 443))
+  );
+}
+
+#[test]
+fn endpoint_host_port_handles_ipv6_literal() {
+  assert_eq!(
+    endpoint_host_port("http://[::1]:4318/v1/traces"),
+    Some(("::1".to_string(), 4318))
+  );
+  assert_eq!(
+    endpoint_host_port("https://[2606:4700::1]/v1/traces"),
+    Some(("2606:4700::1".to_string(), 443))
+  );
+}
+
+#[test]
+fn endpoint_host_port_rejects_missing_authority() {
+  assert_eq!(endpoint_host_port("not-a-url"), None);
+  assert_eq!(endpoint_host_port("http:///v1/traces"), None);
+}
+
+// --------------------------------------------------------------------------
 // resolve_service_name
 // --------------------------------------------------------------------------
 
