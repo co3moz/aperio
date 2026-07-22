@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Added
+
+- **OTLP traces carry the request phase breakdown as child spans.** With `APERIO_OTEL` enabled, each `proxy.request` span now nests a child span per phase of the request waterfall — queue & routing, tunnel→client, client processing, backend wait (TTFB), backend body, client→tunnel, tunnel→server, server→visitor — so Jaeger (or any OTLP viewer) shows the same timing breakdown as the dashboard's request timeline, pinpointing where a slow request spends its time. The client-anchored stages are estimates (transit split evenly; client and server clocks are never mixed) and carry an `aperio.estimated` attribute. Synthesized entirely server-side from timings the client already reports — no client or protocol change — on the buffered (non-streamed) response path.
+
 ## [0.4.2] - 2026-07-22
 
 ### Security
@@ -16,7 +22,6 @@ project follows semantic versioning per release tag.
 
 - **Client IP-family control when dialing the server.** A new `ip_family` setting (`auto` (default), `ipv4`, `ipv6`; CLI `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) chooses which address family the client uses to reach the tunnel server. The client now resolves every address itself and tries each in turn (IPv4-first, interleaved for `auto`) with a per-address connect timeout, so a hostname that resolves to an unreachable family — e.g. a Cloudflare-fronted server publishing AAAA the host cannot route to — no longer strands the connection; `ipv4` forces IPv4 deterministically. Applied to all three server-dial sites (main tunnel, `check`, and the TCP bridge).
 - **OTLP endpoint reachability probe at startup.** With `APERIO_OTEL` enabled, the server now TCP-probes the configured OTLP endpoint on startup and logs the result ("OTLP endpoint … is reachable" / "… unreachable — trace spans will be dropped"), so a misconfigured or down collector is obvious immediately instead of silently dropping every span. Advisory only — it runs off-thread, never blocks, and never fails startup.
-- **OTLP traces carry the request phase breakdown as child spans.** With `APERIO_OTEL` enabled, each `proxy.request` span now nests a child span per phase of the request waterfall — queue & routing, tunnel→client, client processing, backend wait (TTFB), backend body, client→tunnel, tunnel→server, server→visitor — so Jaeger (or any OTLP viewer) shows the same timing breakdown as the dashboard's request timeline, pinpointing where a slow request spends its time. The client-anchored stages are estimates (transit split evenly; client and server clocks are never mixed) and carry an `aperio.estimated` attribute. Synthesized entirely server-side from timings the client already reports — no client or protocol change — on the buffered (non-streamed) response path.
 - **A client process's parallel connections are grouped into one dashboard entry.** A client opening multiple connections to a service (`connections: N`) previously appeared as N look-alike rows in *Active Tunnel Connections* and N nodes in *Topology*, each also minting its own random preview hostname. The client now announces its process identity via an `x-aperio-instance` handshake header; the dashboard collapses a process's connections to the same service into a single row/node with a `×N` connection count (request counts summed, enable/disable acting on all N), and the server derives one shared random hostname per process+service instead of a distinct one per connection.
 
 ### Changed
