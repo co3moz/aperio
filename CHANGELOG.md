@@ -4,6 +4,23 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Security
+
+- **Tunnel WebSocket upgrades are rate-limited before token verification.** The main `/aperio/ws` endpoint verified the connection token without first applying the per-IP rate limit that the sibling `/aperio/tcp` and `/aperio/udp` endpoints already enforce, leaving unbounded token brute-force and canary/`token_new_ip` webhook spam open from a single IP. It now applies the same rate-limit gate before authorization.
+- **Hop-by-hop framing headers are stripped in the HTTP/1 and Unix-socket proxy paths.** The client's reqwest (`proxy/http.rs`) and hyper http/1 (`proxy/unix.rs`) request-forwarding paths did not drop `transfer-encoding`, so a visitor-supplied `transfer-encoding: chunked` could ride through and collide with the client's own body framing — an HTTP desync / request-smuggling surface against raw-socket backends. They now strip `transfer-encoding` (and the hop-by-hop `trailer`), leaving `content-length` as the single framing signal, matching the HTTP/2 path. `content-length` is deliberately kept so streamed uploads still frame without falling back to chunked.
+- **`settings.json` is written owner-only (0600).** The dashboard settings file holds `auth_credentials` as plaintext `user:password` but was written with the default umask (typically 0644), readable by other local users. It is now created — and re-permissioned on every write — as mode 0600 on Unix, matching the client device-key file.
+
+### Added
+
+- **Client IP-family control when dialing the server.** A new `ip_family` setting (`auto` (default), `ipv4`, `ipv6`; CLI `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) chooses which address family the client uses to reach the tunnel server. The client now resolves every address itself and tries each in turn (IPv4-first, interleaved for `auto`) with a per-address connect timeout, so a hostname that resolves to an unreachable family — e.g. a Cloudflare-fronted server publishing AAAA the host cannot route to — no longer strands the connection; `ipv4` forces IPv4 deterministically. Applied to all three server-dial sites (main tunnel, `check`, and the TCP bridge).
+- **OTLP endpoint reachability probe at startup.** With `APERIO_OTEL` enabled, the server now TCP-probes the configured OTLP endpoint on startup and logs the result ("OTLP endpoint … is reachable" / "… unreachable — trace spans will be dropped"), so a misconfigured or down collector is obvious immediately instead of silently dropping every span. Advisory only — it runs off-thread, never blocks, and never fails startup.
+
+### Fixed
+
+- **OTLP trace export no longer panics its exporter thread.** The batch span processor drives the OTLP/HTTP exporter from a dedicated thread that has no Tokio runtime; with the async reqwest client it panicked (`there is no reactor running, must be called from the context of a Tokio 1.x runtime`) the moment a real span was exported, killing the exporter so — with OTel enabled — no span ever reached the collector. The exporter now uses the blocking reqwest client, which owns an internal runtime and exports correctly from that thread. TLS behaviour (rustls with the process-wide ring provider) is unchanged.
+
 ## [0.4.1] - 2026-07-21
 
 ### Changed
