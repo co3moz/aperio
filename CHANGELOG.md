@@ -4,12 +4,6 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
-## [Unreleased]
-
-### Fixed
-
-- **Shutdown aborts an in-progress server connection attempt.** The client's reconnect loop awaited the server dial (TCP connect + WebSocket handshake) without watching the cancel signal, so a half-open server that accepted the socket but stalled the handshake — which has no timeout — could keep a service alive past a requested shutdown. The dial now runs under the cancel signal and is torn down immediately when the client is told to stop.
-
 ## [0.4.2] - 2026-07-22
 
 ### Security
@@ -26,6 +20,7 @@ project follows semantic versioning per release tag.
 ### Fixed
 
 - **OTLP trace export no longer panics its exporter thread.** The batch span processor drives the OTLP/HTTP exporter from a dedicated thread that has no Tokio runtime; with the async reqwest client it panicked (`there is no reactor running, must be called from the context of a Tokio 1.x runtime`) the moment a real span was exported, killing the exporter so — with OTel enabled — no span ever reached the collector. The exporter now uses the blocking reqwest client, which owns an internal runtime and exports correctly from that thread. TLS behaviour (rustls with the process-wide ring provider) is unchanged.
+- **Shutdown aborts an in-progress server connection attempt.** The client's reconnect loop awaited the server dial (TCP connect + WebSocket handshake) without watching the cancel signal, so a half-open server that accepted the socket but stalled the handshake — which has no timeout — could keep a service alive past a requested shutdown. The dial now runs under the cancel signal and is torn down immediately when the client is told to stop.
 
 ## [0.4.1] - 2026-07-21
 
