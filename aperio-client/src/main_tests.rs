@@ -323,7 +323,12 @@ async fn test_apply_serve_mode_per_service() {
   assert_eq!(build_specs(&settings, "base-id", false).unwrap().len(), 3);
 
   // A reload with the same directories reuses the running servers.
-  let before = started.clone();
+  let ports = |m: &std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>| {
+    let mut v: Vec<(String, u16)> = m.iter().map(|(k, (p, _))| (k.clone(), *p)).collect();
+    v.sort();
+    v
+  };
+  let before = ports(&started);
   let mut reloaded = base_settings();
   reloaded.target = None;
   reloaded.services = settings.services.clone();
@@ -331,7 +336,7 @@ async fn test_apply_serve_mode_per_service() {
     entry.target = None; // as freshly parsed from the config file
   }
   apply_serve_mode(&mut reloaded, &mut started).await.unwrap();
-  assert_eq!(before, started);
+  assert_eq!(before, ports(&started));
   assert_eq!(
     reloaded.services[0].target, settings.services[0].target,
     "the reloaded entry points at the same loopback server"

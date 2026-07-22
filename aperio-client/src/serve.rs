@@ -55,8 +55,13 @@ pub(crate) fn options_from_env() -> ServeOptions {
   }
 }
 
-/// Starts the loopback static server; returns the bound port.
-pub(crate) async fn start(dir: &str, opts: ServeOptions) -> Result<u16, String> {
+/// Starts the loopback static server; returns the bound port and the accept
+/// loop's `JoinHandle` so a config reload that drops this directory can abort
+/// the listener instead of leaking it.
+pub(crate) async fn start(
+  dir: &str,
+  opts: ServeOptions,
+) -> Result<(u16, tokio::task::JoinHandle<()>), String> {
   let root = std::fs::canonicalize(dir).map_err(|e| {
     format!(
       "CRITICAL ERROR: serve: cannot open directory '{}': {}",
@@ -81,7 +86,7 @@ pub(crate) async fn start(dir: &str, opts: ServeOptions) -> Result<u16, String> 
     root.display(),
     port
   );
-  tokio::spawn(async move {
+  let handle = tokio::spawn(async move {
     loop {
       let (stream, _) = match listener.accept().await {
         Ok(conn) => conn,
@@ -105,7 +110,7 @@ pub(crate) async fn start(dir: &str, opts: ServeOptions) -> Result<u16, String> 
       });
     }
   });
-  Ok(port)
+  Ok((port, handle))
 }
 
 /// Builds the response for one request against the served root.

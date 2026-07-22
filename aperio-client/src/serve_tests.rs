@@ -64,7 +64,7 @@ fn resolve_directory_without_index_is_none() {
 /// bound base URL plus the root path (kept so the caller can delete it).
 async fn spawn(opts: ServeOptions) -> (String, std::path::PathBuf) {
   let root = setup();
-  let port = start(root.to_str().unwrap(), opts).await.unwrap();
+  let (port, _handle) = start(root.to_str().unwrap(), opts).await.unwrap();
   (format!("http://127.0.0.1:{port}"), root)
 }
 
@@ -189,7 +189,7 @@ async fn spa_without_index_falls_through_to_404() {
   let root = std::env::temp_dir().join(format!("aperio-serve-noindex-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&root).unwrap();
   let root = std::fs::canonicalize(&root).unwrap();
-  let port = start(
+  let (port, _handle) = start(
     root.to_str().unwrap(),
     ServeOptions {
       spa: true,

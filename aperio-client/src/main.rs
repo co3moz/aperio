@@ -138,7 +138,8 @@ async fn main() {
   // Static file mode: start one loopback server per served directory and
   // point the target(s) at them. Listeners survive config reloads — a
   // directory seen before reuses its server, a new one gets a fresh server.
-  let mut serve_started: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+  let mut serve_started: std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)> =
+    std::collections::HashMap::new();
   if let Err(e) = apply_serve_mode(&mut settings, &mut serve_started).await {
     error!("{}", e);
     std::process::exit(1);
@@ -312,8 +313,12 @@ fn spawn_services(
 /// services and config reloads. Errors on conflicting backend settings.
 async fn apply_serve_mode(
   settings: &mut ClientSettings,
-  started: &mut std::collections::HashMap<String, u16>,
+  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
 ) -> Result<(), String> {
+  // Directories the (possibly reloaded) config still serves; any running
+  // listener not in this set is aborted at the end so a reload that drops a
+  // `serve:` directory does not leak its accept loop.
+  let mut needed: std::collections::HashSet<String> = std::collections::HashSet::new();
   if let Some(dir) = settings.serve.clone() {
     if settings.target.is_some() || settings.tcp_target.is_some() {
       return Err(
@@ -326,6 +331,7 @@ async fn apply_serve_mode(
       );
     }
     let port = serve_port(&dir, started).await?;
+    needed.insert(dir.clone());
     settings.target = Some(format!("http://127.0.0.1:{}", port));
   }
   for (i, entry) in settings.services.iter_mut().enumerate() {
@@ -348,8 +354,22 @@ async fn apply_serve_mode(
       ));
     }
     let port = serve_port(&dir, started).await?;
+    needed.insert(dir.clone());
     entry.target = Some(format!("http://127.0.0.1:{}", port));
   }
+  // Stop listeners for directories the new config no longer serves.
+  started.retain(|dir, (_, handle)| {
+    if needed.contains(dir) {
+      true
+    } else {
+      handle.abort();
+      info!(
+        "Static file mode: stopped serving {} (no longer in config)",
+        dir
+      );
+      false
+    }
+  });
   Ok(())
 }
 
@@ -358,13 +378,13 @@ async fn apply_serve_mode(
 /// with the same value reuses the running server.
 async fn serve_port(
   dir: &str,
-  started: &mut std::collections::HashMap<String, u16>,
+  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
 ) -> Result<u16, String> {
-  if let Some(port) = started.get(dir) {
+  if let Some((port, _)) = started.get(dir) {
     return Ok(*port);
   }
-  let port = serve::start(dir, serve::options_from_env()).await?;
-  started.insert(dir.to_string(), port);
+  let (port, handle) = serve::start(dir, serve::options_from_env()).await?;
+  started.insert(dir.to_string(), (port, handle));
   Ok(port)
 }
 
