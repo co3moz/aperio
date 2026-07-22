@@ -257,6 +257,11 @@ pub enum TunnelMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trailers: Option<Vec<(String, String)>>,
   },
+  /// Abnormal end of a streamed response (body exceeded the size limit, or the
+  /// backend errored mid-stream). The server drops the visitor's body stream
+  /// with an error so the visitor sees an aborted response, not a silently
+  /// truncated success.
+  ResponseAbort { id: String },
   /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,

@@ -348,17 +348,18 @@ async fn test_h2_stream_truncated_at_limit() {
     handle_incoming_request_h2(&ctx, req("h2-trunc", "GET", "/big-multiframe"), None, false).await;
   assert!(result.is_none(), "streams then truncates");
 
-  let mut got_end = false;
+  let mut got_abort = false;
   while let Some(Message::Text(json)) = rx.recv().await {
-    if let TunnelMessage::ResponseEnd { .. } = serde_json::from_str::<TunnelMessage>(&json).unwrap()
+    if let TunnelMessage::ResponseAbort { .. } =
+      serde_json::from_str::<TunnelMessage>(&json).unwrap()
     {
-      got_end = true;
+      got_abort = true;
       break;
     }
   }
   assert!(
-    got_end,
-    "truncated stream still terminates with ResponseEnd"
+    got_abort,
+    "a truncated stream must terminate with ResponseAbort, not a clean ResponseEnd"
   );
 }
 

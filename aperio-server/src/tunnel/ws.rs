@@ -540,6 +540,29 @@ pub(crate) async fn handle_socket(
                 }
               }
             }
+            TunnelMessage::ResponseAbort { id } => {
+              // Drop the visitor's body stream with an error so an incomplete
+              // response (size limit hit, or backend errored mid-stream) is not
+              // delivered as a clean success. The error propagates through the
+              // body, terminating the visitor connection abnormally.
+              let removed = state.response_streams.lock().await.remove(&id);
+              if let Some(handle) = removed {
+                if handle.client_id != client_id {
+                  warn!(
+                    "ResponseAbort for request ID {} rejected: not owned by client {}",
+                    id, client_id
+                  );
+                  state.response_streams.lock().await.insert(id, handle);
+                } else {
+                  let _ = handle
+                    .tx
+                    .send(Err(std::io::Error::other(
+                      "response aborted by client (size limit or backend error)",
+                    )))
+                    .await;
+                }
+              }
+            }
             TunnelMessage::TcpData { stream_id, data } => {
               let consumer_tx = {
                 let streams = state.tcp_streams.lock().await;

@@ -238,6 +238,12 @@ pub(crate) enum TunnelMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trailers: Option<Vec<(String, String)>>,
   },
+  /// Abnormal end of a streamed response (e.g. the body exceeded
+  /// `max_response_body_size`, or the backend errored mid-stream). Unlike
+  /// `ResponseEnd` this must NOT look successful: the server drops the visitor's
+  /// body stream with an error so the visitor sees an incomplete/aborted
+  /// response instead of a silently truncated 200.
+  ResponseAbort { id: String },
   /// Server instructs the client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,

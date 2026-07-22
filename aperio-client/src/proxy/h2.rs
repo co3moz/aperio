@@ -217,6 +217,7 @@ pub(crate) async fn handle_incoming_request_h2(
   let mut body = res.into_body();
   let mut buf: Vec<u8> = Vec::new();
   let mut streaming = false;
+  let mut aborted = false;
   let mut total: usize = 0;
   let mut trailers: Option<Vec<(String, String)>> = None;
 
@@ -234,10 +235,11 @@ pub(crate) async fn handle_incoming_request_h2(
       Ok(None) => break,
       Err(_) => {
         warn!(
-          "HTTP/2 body read timeout for request ID {}; ending stream",
+          "HTTP/2 body read timeout for request ID {}; aborting stream",
           id
         );
         if streaming {
+          aborted = true;
           break;
         } else {
           return Some(make_error_response(id, 504));
@@ -249,9 +251,10 @@ pub(crate) async fn handle_incoming_request_h2(
       Err(e) => {
         if streaming {
           error!(
-            "HTTP/2 body error from backend for request ID {}: {:?}; ending stream",
+            "HTTP/2 body error from backend for request ID {}: {:?}; aborting stream",
             id, e
           );
+          aborted = true;
           break;
         }
         error!("Failed to retrieve HTTP/2 response body: {:?}", e);
@@ -286,9 +289,10 @@ pub(crate) async fn handle_incoming_request_h2(
       } else {
         if total > ctx.max_response_body_size {
           warn!(
-            "Streamed HTTP/2 response for request ID {} exceeded limit ({} bytes); truncating",
+            "Streamed HTTP/2 response for request ID {} exceeded limit ({} bytes); aborting",
             id, ctx.max_response_body_size
           );
+          aborted = true;
           break;
         }
         if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks)
@@ -311,6 +315,15 @@ pub(crate) async fn handle_incoming_request_h2(
   }
 
   if streaming {
+    if aborted {
+      let abort = TunnelMessage::ResponseAbort { id: id.clone() };
+      let _ = send_tunnel_msg(tunnel_tx, &abort).await;
+      warn!(
+        "Tunnel request ABORTED (h2, streamed): ID={} Status={} Bytes={}",
+        id, status, total
+      );
+      return None;
+    }
     let end = TunnelMessage::ResponseEnd {
       id: id.clone(),
       trailers,

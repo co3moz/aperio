@@ -891,17 +891,18 @@ async fn test_stream_truncated_at_limit() {
   .await;
   assert!(result.is_none(), "large body streams");
 
-  let mut got_end = false;
+  let mut got_abort = false;
   while let Some(Message::Text(json)) = rx.recv().await {
-    if let TunnelMessage::ResponseEnd { .. } = serde_json::from_str::<TunnelMessage>(&json).unwrap()
+    if let TunnelMessage::ResponseAbort { .. } =
+      serde_json::from_str::<TunnelMessage>(&json).unwrap()
     {
-      got_end = true;
+      got_abort = true;
       break;
     }
   }
   assert!(
-    got_end,
-    "truncated stream still terminates with ResponseEnd"
+    got_abort,
+    "a truncated stream must terminate with ResponseAbort, not a clean ResponseEnd"
   );
 }
 

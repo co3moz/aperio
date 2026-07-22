@@ -393,6 +393,7 @@ pub(crate) async fn handle_incoming_request(
       let mut stream = res.bytes_stream();
       let mut buf: Vec<u8> = Vec::new();
       let mut streaming = false;
+      let mut aborted = false;
       let mut total: usize = 0;
 
       loop {
@@ -425,9 +426,10 @@ pub(crate) async fn handle_incoming_request(
             } else {
               if total > ctx.max_response_body_size {
                 warn!(
-                  "Streamed response for request ID {} exceeded limit ({} bytes); truncating",
+                  "Streamed response for request ID {} exceeded limit ({} bytes); aborting",
                   id, ctx.max_response_body_size
                 );
+                aborted = true;
                 break;
               }
               if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks)
@@ -441,9 +443,10 @@ pub(crate) async fn handle_incoming_request(
           Some(Err(e)) => {
             if streaming {
               error!(
-                "Body stream error from backend for request ID {}: {:?}; ending stream",
+                "Body stream error from backend for request ID {}: {:?}; aborting stream",
                 id, e
               );
+              aborted = true;
               break;
             }
             error!(
@@ -457,6 +460,17 @@ pub(crate) async fn handle_incoming_request(
       }
 
       if streaming {
+        if aborted {
+          // Abnormal end: the visitor must see an aborted response, not a
+          // silently truncated success.
+          let abort = TunnelMessage::ResponseAbort { id: id.clone() };
+          let _ = send_tunnel_msg(tunnel_tx, &abort).await;
+          warn!(
+            "Tunnel request ABORTED (streamed): ID={} Status={} Bytes={}",
+            id, status, total
+          );
+          return None;
+        }
         let end = TunnelMessage::ResponseEnd {
           id: id.clone(),
           trailers: None,

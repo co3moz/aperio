@@ -12,6 +12,7 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A streamed response that hits the size limit — or whose backend errors mid-body — now aborts instead of silently truncating.** On exceeding `max_response_body_size` (or a mid-stream backend failure/read timeout), the client sent a clean `ResponseEnd`, so a chunked response with no `Content-Length` reached the visitor as a successful, complete-looking `200` that was actually cut short. The client now sends a new additive `ResponseAbort` frame; the server drops the visitor's body stream with an error, terminating the connection abnormally so the visitor detects the incomplete response. Covers the http/1, HTTP/2, and Unix-socket proxy paths; older servers ignore the frame and fall back to the existing stream timeout.
 - **A slow tunneled WebSocket/TCP stream can no longer stall the whole connection.** Server→client `WsData`/`TcpData` frames were delivered with an awaited, timeout-bounded channel send *inside* the tunnel read loop, so one backend that stopped reading could block the loop for up to the request timeout — starving `Pong` processing and tripping the 15 s liveness watchdog, which reset the connection and dropped every stream on it. Delivery is now a non-blocking `try_send` (as UDP already did): a backed-up stream is dropped on its own, leaving the connection and every other stream healthy.
 
 ## [0.4.2] - 2026-07-22
