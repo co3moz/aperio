@@ -161,6 +161,19 @@ pub(crate) fn random_subdomain_hostname(pattern: &str) -> String {
   pattern.replacen('*', &label, 1)
 }
 
+/// Deterministic variant of [`random_subdomain_hostname`]: the label is derived
+/// from `seed` (a stable per-instance + declared-bind key) so every parallel
+/// connection of the same client process independently produces the *same*
+/// random hostname — no coordination, no race — instead of each minting a
+/// distinct name.
+pub(crate) fn random_subdomain_hostname_seeded(pattern: &str, seed: &str) -> String {
+  use sha2::{Digest, Sha256};
+  let digest = Sha256::digest(seed.as_bytes());
+  // 5 bytes -> 10 hex chars, matching the random label's length.
+  let label: String = digest.iter().take(5).map(|b| format!("{b:02x}")).collect();
+  pattern.replacen('*', &label, 1)
+}
+
 pub(crate) fn normalize_hostname_bind(host: &str) -> Option<String> {
   const MAX_HOSTNAME_LEN: usize = 253;
 

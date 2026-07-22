@@ -39,6 +39,7 @@ fn base_handle() -> ClientHandle {
     backend_probed: true,
     priority: 0,
     reported_instance_id: None,
+    instance_group: None,
     bandwidth_bps: Arc::new(AtomicU64::new(0)),
     service_name: None,
     public: false,
@@ -761,4 +762,23 @@ fn test_ip_in_ranges_matches_plain_and_cidr() {
   assert!(!ip_in_ranges("192.168.1.1".parse().unwrap(), &ranges));
   // An empty allowlist matches nothing (callers treat empty as "no fence").
   assert!(!ip_in_ranges("10.4.5.6".parse().unwrap(), &[]));
+}
+
+#[test]
+fn test_random_subdomain_hostname_seeded_is_deterministic_and_distinct() {
+  let pattern = "*-aperio.example.com";
+  // Same seed -> same hostname (so parallel connections of one process share it).
+  let a = random_subdomain_hostname_seeded(pattern, "grp1\0app.example.com");
+  let b = random_subdomain_hostname_seeded(pattern, "grp1\0app.example.com");
+  assert_eq!(a, b);
+  // Different seed (other instance, or other declared bind) -> different label.
+  let c = random_subdomain_hostname_seeded(pattern, "grp2\0app.example.com");
+  let d = random_subdomain_hostname_seeded(pattern, "grp1\0other.example.com");
+  assert_ne!(a, c);
+  assert_ne!(a, d);
+  // Label shape matches the random variant: a 10-char label in place of `*`.
+  assert!(a.ends_with("-aperio.example.com"));
+  let label = a.strip_suffix("-aperio.example.com").unwrap();
+  assert_eq!(label.len(), 10);
+  assert!(label.chars().all(|c| c.is_ascii_hexdigit()));
 }

@@ -84,6 +84,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .reported_instance_id
         .as_deref()
         .is_some_and(|iid| instance_counts.get(iid).copied().unwrap_or(0) > 1),
+      instance_group: handle.instance_group.clone(),
     })
     .collect();
 

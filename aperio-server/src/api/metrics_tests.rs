@@ -192,6 +192,7 @@ fn mock_client() -> ClientHandle {
     backend_probed: true,
     priority: 0,
     reported_instance_id: None,
+    instance_group: None,
     bandwidth_bps: Arc::new(AtomicU64::new(0)),
     service_name: None,
     public: false,

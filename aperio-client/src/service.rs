@@ -105,6 +105,12 @@ pub(crate) struct ServiceSpec {
   /// recognizing this client.
   pub(crate) client_id: String,
   pub(crate) token: String,
+  /// Process-wide instance group id (the raw `client_id` base, shared by every
+  /// service and every parallel connection of this process). Announced to the
+  /// server via the `x-aperio-instance` handshake header so the dashboard can
+  /// group a process's connections and the server can share one random hostname
+  /// across them. Unlike `client_id`, this is never suffixed per connection.
+  pub(crate) instance_group: String,
   pub(crate) server_addr: String,
   pub(crate) ws_url: String,
   /// All candidate server WebSocket URLs, primary first (from
@@ -390,6 +396,12 @@ pub(crate) async fn run_service(
         match HeaderValue::from_str(&format!("Bearer {}", spec.token)) {
           Ok(val) => {
             req.headers_mut().insert("Authorization", val);
+            // Announce the process-wide instance group so the server can group
+            // this process's connections and share one random hostname across
+            // them. Non-secret; safe as a plain header.
+            if let Ok(g) = HeaderValue::from_str(&spec.instance_group) {
+              req.headers_mut().insert("x-aperio-instance", g);
+            }
             Ok(req)
           }
           Err(e) => Err(format!("Invalid token header format: {:?}", e)),

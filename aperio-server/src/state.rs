@@ -91,6 +91,12 @@ pub(crate) struct ClientDetail {
   /// misconfiguration warning surfaced in the dashboard (`--bind-tunnels`
   /// and failover `wait` lookups become ambiguous).
   pub(crate) instance_id_shared: bool,
+  /// Process-wide instance group id (the client's raw `client_id` base, shared
+  /// by every service and every parallel connection of one client process).
+  /// `None` for clients that predate the `x-aperio-instance` handshake header.
+  /// The dashboard groups connections by this so a multi-connection client
+  /// shows as one entity.
+  pub(crate) instance_group: Option<String>,
 }
 
 /// Enhanced metrics stats combined with active client details.
@@ -588,6 +594,12 @@ pub(crate) struct ClientHandle {
   /// server-assigned connection ID it survives reconnects of the same
   /// process, letting the failover `wait` mode recognize a returning client.
   pub(crate) reported_instance_id: Option<String>,
+  /// Process-wide instance group id from the `x-aperio-instance` handshake
+  /// header (the client's raw `client_id` base). Shared by every service and
+  /// parallel connection of one client process; used to group connections in
+  /// the dashboard and to share one random hostname across them. `None` for
+  /// clients that do not send the header.
+  pub(crate) instance_group: Option<String>,
   /// Announced downstream link capacity in bytes/second (0 = unlimited).
   /// Shared with the connection's writer task, which paces outgoing frames.
   pub(crate) bandwidth_bps: Arc<AtomicU64>,

@@ -51,6 +51,7 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     name: None,
     client_id: "test-client".to_string(),
     token: "apr_test".to_string(),
+    instance_group: "test-client".to_string(),
     server_addr: "https://tunnel.example.com".to_string(),
     ws_url: ws_url.to_string(),
     ws_urls: vec![ws_url.to_string()],

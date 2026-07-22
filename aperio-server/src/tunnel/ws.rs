@@ -22,6 +22,7 @@ use crate::protocol::{
 };
 use crate::routing::{
   extract_client_ip, normalize_hostname_bind, normalize_path_bind, random_subdomain_hostname,
+  random_subdomain_hostname_seeded,
 };
 use crate::state::{
   AppState, ClientHandle, ClientPerms, ResponseStreamHandle, TcpConsumerMsg, TunnelResponse,
@@ -155,10 +156,27 @@ pub(crate) async fn ws_handler(
     }
   }
 
+  // Process-wide instance group (the client's raw `client_id` base): groups a
+  // process's parallel connections in the dashboard and shares one random
+  // hostname across them. Optional — older clients omit it.
+  let instance_group = headers
+    .get("x-aperio-instance")
+    .and_then(|v| v.to_str().ok())
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
   ws.max_message_size(state.config().max_body_size.saturating_mul(2))
     .max_frame_size(state.config().max_body_size)
-    .on_upgrade(move |socket| handle_socket(socket, tunnel_client_ip.to_string(), state, perms))
+    .on_upgrade(move |socket| {
+      handle_socket(
+        socket,
+        tunnel_client_ip.to_string(),
+        state,
+        perms,
+        instance_group,
+      )
+    })
 }
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
@@ -167,6 +185,7 @@ pub(crate) async fn handle_socket(
   client_ip: String,
   state: Arc<AppState>,
   perms: ClientPerms,
+  instance_group: Option<String>,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let client_id = uuid::Uuid::new_v4().to_string();
@@ -265,7 +284,19 @@ pub(crate) async fn handle_socket(
     .config()
     .random_subdomain_suffix
     .as_ref()
-    .map(|pattern| random_subdomain_hostname(pattern));
+    .map(|pattern| {
+      // Derive the label deterministically from the instance group + declared
+      // binds so every parallel connection of one process gets the *same* random
+      // hostname (shared, not one per connection). Fall back to a fresh random
+      // label when the client sends no instance group or declares no hostname.
+      match &instance_group {
+        Some(group) if !assigned_hostnames.is_empty() => {
+          let seed = format!("{group}\0{}", assigned_hostnames.join(","));
+          random_subdomain_hostname_seeded(pattern, &seed)
+        }
+        _ => random_subdomain_hostname(pattern),
+      }
+    });
   if let Some(ref h) = random_hostname {
     assigned_hostnames.push(h.clone());
   }
@@ -305,6 +336,7 @@ pub(crate) async fn handle_socket(
         backend_probed: true,
         priority: 0,
         reported_instance_id: None,
+        instance_group: instance_group.clone(),
         bandwidth_bps: bandwidth_bps.clone(),
         service_name: None,
         public: false,
