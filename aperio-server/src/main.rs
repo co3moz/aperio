@@ -90,6 +90,12 @@ use crate::tunnel::ws::ws_handler;
 /// single-threaded, then hands over to the async server on a multi-thread
 /// runtime.
 fn main() {
+  // Route every panic through structured logging before the runtime contains
+  // it (see `install_panic_logger`), so a panic in a spawned task or a
+  // background thread is visible in the server's own log stream instead of
+  // only reaching stderr with no task context.
+  install_panic_logger();
+
   // Pin the process-wide rustls provider to ring. The dependency tree pulls
   // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
   // unification), and with two providers rustls refuses to auto-select one —
@@ -145,6 +151,43 @@ fn main() {
     .build()
     .expect("failed to build the tokio runtime")
     .block_on(async_main());
+}
+
+/// Installs a process-wide panic hook that logs every panic through `tracing`
+/// (message, source location, thread, and a backtrace when `RUST_BACKTRACE` is
+/// set) before the runtime contains it.
+///
+/// This changes observability, not control flow. Under the default `unwind`
+/// strategy a panic still only unwinds its own task/connection (or is turned
+/// into a 500 by the catch-panic layer) — the process keeps running. But such a
+/// contained panic is otherwise easy to miss: its `JoinHandle` is never
+/// awaited, so the only trace is an unstructured stderr line with no task
+/// context. Routing it through `tracing` puts it in the server's normal log
+/// pipeline (including JSON logs and any OTLP export) so it can be alerted on.
+fn install_panic_logger() {
+  std::panic::set_hook(Box::new(|info| {
+    let message = info
+      .payload()
+      .downcast_ref::<&str>()
+      .map(|s| (*s).to_string())
+      .or_else(|| info.payload().downcast_ref::<String>().cloned())
+      .unwrap_or_else(|| "<non-string panic payload>".to_string());
+    let location = info
+      .location()
+      .map(|l| l.to_string())
+      .unwrap_or_else(|| "<unknown>".to_string());
+    let thread = std::thread::current();
+    let thread = thread.name().unwrap_or("<unnamed>").to_string();
+    let backtrace = std::backtrace::Backtrace::capture();
+    tracing::error!(
+      target: "aperio_server::panic",
+      panic_message = %message,
+      panic_location = %location,
+      panic_thread = %thread,
+      panic_backtrace = %backtrace,
+      "panic caught — the task/connection is unwound; the process continues"
+    );
+  }));
 }
 
 /// `aperio-server --verify-audit`: verifies the tamper-evident hash chain of
@@ -1444,7 +1487,13 @@ async fn async_main() {
 
   let shutdown_state = state.clone();
 
-  let app = app.with_state(state);
+  // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
+  // clean 500 for that one request instead of abruptly dropping the connection.
+  // The panic is still logged by the global hook (see `install_panic_logger`);
+  // every other in-flight request and the process are unaffected.
+  let app = app
+    .with_state(state)
+    .layer(tower_http::catch_panic::CatchPanicLayer::new());
 
   let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
