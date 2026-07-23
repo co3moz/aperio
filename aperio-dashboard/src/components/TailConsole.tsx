@@ -1,15 +1,12 @@
-import { ArrowDownIcon, PauseIcon, PlayIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { ArrowDownIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { SectionHeader } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { RequestLog } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
-// Rendered line cap — the tail keeps only the newest window, like a terminal
+// Rendered line cap — the console keeps only the newest window, like a terminal
 // scrollback, so a busy tunnel cannot grow the DOM without bound.
 const MAX_LINES = 500
 
@@ -26,48 +23,33 @@ function lineTime(timestamp: string): string {
 }
 
 /**
- * `tail -f`-style live view of the access log: one monospace line per proxied
- * request, streamed via the same SSE feed as the traffic table. Auto-scrolls
- * while the view is pinned to the bottom; scrolling up unpins so history can
- * be read, and a jump-to-bottom control re-pins.
+ * `tail -f`-style console view of the access log: one monospace line per proxied
+ * request. It renders the already-filtered, already-pause-gated log window that
+ * the traffic view owns, so the search box, method/status chips and pause
+ * control are shared with the table view. Auto-scrolls while pinned to the
+ * bottom; scrolling up unpins so history can be read, and a jump-to-bottom
+ * control re-pins.
  */
-export function LiveTailSection({
+export function TailConsole({
   logs,
+  loading,
   onInspect,
 }: {
-  logs: RequestLog[] | null
+  logs: RequestLog[]
+  loading: boolean
   onInspect: (id: string) => void
 }) {
   const { t } = useI18n()
-  const [filter, setFilter] = useState('')
-  const [paused, setPaused] = useState(false)
-  const [frozen, setFrozen] = useState<RequestLog[]>([])
   // Ids cleared from view (kept so "clear" doesn't refill from the shared feed).
   const [clearedBefore, setClearedBefore] = useState<string | null>(null)
   const [pinned, setPinned] = useState(true)
   const scroller = useRef<HTMLDivElement>(null)
 
-  const togglePause = () => {
-    if (!paused) setFrozen(logs ?? [])
-    setPaused((p) => !p)
-  }
-
-  const source = paused ? frozen : (logs ?? [])
   // "Clear" remembers the newest id at clear time; only later entries show.
   const afterClear = clearedBefore
-    ? source.slice(source.findIndex((l) => l.id === clearedBefore) + 1)
-    : source
-  const needle = filter.toLowerCase()
-  const matched = needle
-    ? afterClear.filter(
-        (l) =>
-          l.uri.toLowerCase().includes(needle) ||
-          l.method.toLowerCase().includes(needle) ||
-          (l.host ?? '').toLowerCase().includes(needle) ||
-          String(l.status ?? '').includes(needle),
-      )
-    : afterClear
-  const visible = matched.slice(-MAX_LINES)
+    ? logs.slice(logs.findIndex((l) => l.id === clearedBefore) + 1)
+    : logs
+  const visible = afterClear.slice(-MAX_LINES)
 
   // Follow the stream: keep the newest line in view while pinned.
   useEffect(() => {
@@ -84,39 +66,16 @@ export function LiveTailSection({
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <SectionHeader title={t('Live Log Tail')}>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button size="sm" variant={paused ? 'secondary' : 'outline'} onClick={togglePause} />
-            }
-          >
-            {paused ? <PlayIcon /> : <PauseIcon />} {paused ? t('Paused') : t('Live')}
-          </TooltipTrigger>
-          <TooltipContent>
-            {paused ? t('Resume live updates') : t('Freeze the stream while you read')}
-          </TooltipContent>
-        </Tooltip>
+    <>
+      <Card className="relative overflow-hidden py-0">
         <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setClearedBefore(source.length ? source[source.length - 1].id : null)}
+          size="xs"
+          variant="secondary"
+          className="absolute right-3 top-3 z-10 opacity-80 hover:opacity-100"
+          onClick={() => setClearedBefore(logs.length ? logs[logs.length - 1].id : null)}
         >
           <Trash2Icon /> {t('Clear')}
         </Button>
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder={t('Filter by host/path/method/status...')}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="w-72 pl-8"
-          />
-        </div>
-      </SectionHeader>
-
-      <Card className="relative overflow-hidden py-0">
         <div
           ref={scroller}
           onScroll={onScroll}
@@ -124,7 +83,7 @@ export function LiveTailSection({
         >
           {visible.length === 0 ? (
             <div className="flex h-full items-center justify-center text-zinc-500">
-              {logs === null ? t('Waiting for the stream...') : t('No requests yet — the tail follows new traffic as it arrives.')}
+              {loading ? t('Waiting for the stream...') : t('No requests matching filter')}
             </div>
           ) : (
             visible.map((log) => (
@@ -163,18 +122,11 @@ export function LiveTailSection({
         )}
       </Card>
 
-      <div className="flex flex-wrap justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
-          {t('Showing the newest {max} lines; click a line to open the inspector.', {
-            max: MAX_LINES,
-          })}
-        </span>
-        {paused && (
-          <span className="text-xs text-amber-600 dark:text-amber-400">
-            {t('Paused — stream frozen at {count} requests.', { count: frozen.length })}
-          </span>
-        )}
-      </div>
-    </section>
+      <span className="text-xs text-muted-foreground">
+        {t('Showing the newest {max} lines; click a line to open the inspector.', {
+          max: MAX_LINES,
+        })}
+      </span>
+    </>
   )
 }

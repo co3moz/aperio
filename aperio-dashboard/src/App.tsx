@@ -22,7 +22,6 @@ import { InboxSection } from './components/InboxSection'
 import { BandwidthSection } from './components/BandwidthSection'
 import { RouteTrendsSection } from './components/RouteTrendsSection'
 import { SlowEndpointsSection } from './components/SlowEndpointsSection'
-import { LiveTailSection } from './components/LiveTailSection'
 import { TrafficSection } from './components/TrafficSection'
 import { UsersSection } from './components/UsersSection'
 import { AdminKeysSection } from './components/AdminKeysSection'
@@ -64,7 +63,8 @@ function isPage(value: string | null): value is Page {
 }
 
 // Old bookmarks used the four coarse tabs; land them on the closest new page.
-const LEGACY_TABS: Record<string, Page> = { access: 'tokens', system: 'settings' }
+// `tail` was merged into the traffic view as its console toggle.
+const LEGACY_TABS: Record<string, Page> = { access: 'tokens', system: 'settings', tail: 'traffic' }
 
 function pageFromUrl(): Page {
   const t = readParams().get('tab')
@@ -361,7 +361,6 @@ export default function App() {
                 </>
               )}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
-              {page === 'tail' && <LiveTailSection logs={logs} onInspect={setInspect} />}
               {page === 'inbox' && <InboxSection />}
               {page === 'breakdown' && (
                 <div className="flex flex-col gap-6">

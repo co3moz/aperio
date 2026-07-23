@@ -1,7 +1,8 @@
-import { PauseIcon, PlayIcon, SearchIcon } from 'lucide-react'
+import { PauseIcon, PlayIcon, SearchIcon, TableIcon, TerminalIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { MethodBadge, StatusBadge } from './badges'
+import { TailConsole } from './TailConsole'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -168,11 +169,14 @@ export function TrafficSection({
   const [filter, setFilter] = useState(() => readParams().get('q') ?? '')
   const [method, setMethod] = useState<string | null>(() => readParams().get('method'))
   const [statusFilter, setStatusFilter] = useState<string | null>(() => readParams().get('status'))
+  const [view, setView] = useState<'table' | 'console'>(() =>
+    readParams().get('view') === 'console' ? 'console' : 'table',
+  )
   const { t } = useI18n()
   const [paused, setPaused] = useState(false)
   const [frozen, setFrozen] = useState<RequestLog[]>([])
 
-  // Reflect the active filters in the URL so the view is shareable/bookmarkable.
+  // Reflect the active filters + view in the URL so it is shareable/bookmarkable.
   useEffect(() => {
     const params = readParams()
     const apply = (key: string, value: string | null) => {
@@ -182,8 +186,9 @@ export function TrafficSection({
     apply('q', filter)
     apply('method', method)
     apply('status', statusFilter)
+    apply('view', view === 'console' ? 'console' : null)
     writeParams(params)
-  }, [filter, method, statusFilter])
+  }, [filter, method, statusFilter, view])
 
   const togglePause = () => {
     if (!paused) setFrozen(logs ?? [])
@@ -194,7 +199,10 @@ export function TrafficSection({
   const needle = filter.toLowerCase()
   const matched = source.filter(
     (log) =>
-      (log.uri.toLowerCase().includes(needle) || log.method.toLowerCase().includes(needle)) &&
+      (log.uri.toLowerCase().includes(needle) ||
+        log.method.toLowerCase().includes(needle) ||
+        (log.host ?? '').toLowerCase().includes(needle) ||
+        String(log.status ?? '').includes(needle)) &&
       (!method || log.method.toUpperCase() === method) &&
       matchesStatus(log, statusFilter),
   )
@@ -204,6 +212,24 @@ export function TrafficSection({
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Live Tunnel Traffic')}>
+        <div className="flex overflow-hidden rounded-md border">
+          <Button
+            size="sm"
+            variant={view === 'table' ? 'secondary' : 'ghost'}
+            className="rounded-none border-0"
+            onClick={() => setView('table')}
+          >
+            <TableIcon /> {t('Table')}
+          </Button>
+          <Button
+            size="sm"
+            variant={view === 'console' ? 'secondary' : 'ghost'}
+            className="rounded-none border-0"
+            onClick={() => setView('console')}
+          >
+            <TerminalIcon /> {t('Console')}
+          </Button>
+        </div>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -231,7 +257,7 @@ export function TrafficSection({
         </div>
       </SectionHeader>
 
-      {source.length > 0 && <TrafficStats logs={source} />}
+      {view === 'table' && source.length > 0 && <TrafficStats logs={source} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">{t('Method')}</span>
@@ -271,7 +297,8 @@ export function TrafficSection({
         )}
       </div>
 
-      <Card className="overflow-hidden py-0">
+      {view === 'table' ? (
+        <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -334,10 +361,17 @@ export function TrafficSection({
             )}
           </TableBody>
         </Table>
-      </Card>
+        </Card>
+      ) : (
+        <TailConsole
+          logs={matched}
+          loading={logs === null && !paused}
+          onInspect={onInspect}
+        />
+      )}
 
       <div className="flex flex-wrap justify-between gap-2">
-        {total > MAX_ROWS ? (
+        {view === 'table' && total > MAX_ROWS ? (
           <span className="text-xs text-muted-foreground">
             {t('Showing the latest {max} of {total} matching requests.', { max: MAX_ROWS, total })}
           </span>
