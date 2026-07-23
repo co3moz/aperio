@@ -1,6 +1,8 @@
 # In-Flight Failover
 
-By default, a request that has already been dispatched to a client answers **502** if that client's connection drops before it responds. `APERIO_FAILOVER` changes this. Failover only ever triggers while **no response bytes have reached the visitor yet**, so a re-dispatch is completely transparent.
+By default, a request that has already been dispatched to a client answers **502** if that client's connection drops before it responds. `APERIO_FAILOVER` (yaml `failover`) changes this. Failover only ever triggers while **no response bytes have reached the visitor yet**, so a re-dispatch is completely transparent.
+
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_FAILOVER` → `failover`, `APERIO_FAILOVER_WINDOW` → `failover_window`). YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
 
 ## Modes
 
@@ -15,8 +17,8 @@ Two settings bound the behavior:
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `APERIO_FAILOVER_MAX_JUMPS` | Max re-dispatch attempts per request. | `2` |
-| `APERIO_FAILOVER_WINDOW` | Total seconds the waiting modes may spend, across all jumps, starting at the first failure. | `15` |
+| `failover_max_jumps` (env `APERIO_FAILOVER_MAX_JUMPS`) | Max re-dispatch attempts per request. | `2` |
+| `failover_window` (env `APERIO_FAILOVER_WINDOW`) | Total seconds the waiting modes may spend, across all jumps, starting at the first failure. | `15` |
 
 ## Idempotency
 
@@ -48,8 +50,8 @@ re-dispatches to a freshly picked client, and honors the same guards —
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `APERIO_RETRY_ON_5XX` | Retry buffered server-error responses on another client. | off |
-| `APERIO_RETRY_STATUSES` | Comma-separated status codes that trigger the retry. Empty = every 5xx (500–599). | every 5xx |
+| `retry_on_5xx` (env `APERIO_RETRY_ON_5XX`) | Retry buffered server-error responses on another client. | off |
+| `retry_statuses` (env `APERIO_RETRY_STATUSES`) | Comma-separated status codes that trigger the retry. Empty = every 5xx (500–599). | every 5xx |
 
 Streamed responses are never retried (bytes may already be in flight), and the
 retry shares the failover jump budget, so a persistently failing pool cannot

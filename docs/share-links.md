@@ -20,7 +20,7 @@ Nothing is stored server-side. The signing key is derived from the master token,
 
 - Links survive server restarts — there is no table of issued links to lose.
 - Links cannot be revoked individually — they simply expire.
-- Rotating `APERIO_SERVER_TOKEN` invalidates **all** outstanding links at once.
+- Rotating `APERIO_SERVER_TOKEN` (yaml `server_token`) invalidates **all** outstanding links at once.
 
 Because anyone holding a link has access until it expires, scope links tightly: restrict them to a path prefix where possible and pick the shortest lifetime that does the job.
 

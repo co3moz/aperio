@@ -2,6 +2,8 @@
 
 Aperio has several independent auth layers. They answer different questions — *who may open a tunnel*, *who may visit the proxied site*, and *who may administer the server* — and you enable only the ones you need.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SERVER_AUTH` → `server_auth`, `APERIO_DASHBOARD_AUTH` → `dashboard_auth`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+
 ## The master token
 
 `APERIO_SERVER_TOKEN` is root: it authenticates tunnel clients, logs into the dashboard (user `aperio`), and authorizes the ephemeral-tunnel API. Treat it accordingly — front the server with TLS so it never travels in plaintext, and prefer dynamic tokens for day-to-day clients.

@@ -6,6 +6,8 @@ later ones limit the damage and make an incident visible. Nothing here is
 exotic — every item maps to an existing setting — but going live with the
 secure defaults in place is the difference between a tunnel and a liability.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_TRUST_PROXY` → `trust_proxy`, `APERIO_ADMIN_ALLOWED_IPS` → `admin_allowed_ips`). YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
+
 Run `aperio-server --check-config` after wiring these up: it validates the
 layered configuration (env + `aperio-server.yaml`) without binding a port.
 

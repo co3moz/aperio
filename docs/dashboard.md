@@ -1,6 +1,6 @@
 # The Dashboard
 
-The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a separate `APERIO_DASHBOARD_AUTH` password). It is a Vite + React app embedded into the server binary — no extra deployment.
+The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a separate `APERIO_DASHBOARD_AUTH` (yaml `dashboard_auth`) password). It is a Vite + React app embedded into the server binary — no extra deployment.
 
 ## Live overview
 
@@ -12,7 +12,7 @@ Every connected client with its binds, health dot, last heartbeat, client versio
 
 - **Enable/Disable kill switch** — a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
 
-Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving — backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only — time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
+Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving — backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only — time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
 - **Overrule** — temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
 
 ## Live traffic table
@@ -53,7 +53,7 @@ Click any row in the traffic table to see full request/response headers and body
 
 **Every buffered capture carries a high-resolution timeline**: microsecond stage offsets from the request's arrival at the server — queueing/routing, dispatch into the tunnel, the client's own stages (backend request sent, first byte, body complete, response handed back — measured on the client's monotonic clock and anchored by splitting the unaccounted tunnel transit evenly, marked as estimated), the response arriving back, and the hand-off to the visitor. The inspector renders it as a waterfall. Streamed responses and pre-timing clients simply omit it.
 
-**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector — and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0`.
+**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector — and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0` (yaml `inspector_redact`).
 
 ## Add Client wizard
 
@@ -65,7 +65,7 @@ Admins see every live dashboard session on the Users page — who is signed in, 
 
 ## Maintenance mode
 
-Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE`, served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
+Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
 
 ## Organizations
 

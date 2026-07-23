@@ -2,6 +2,8 @@
 
 Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server picks a client in four steps: eligibility, hostname, path, and strategy.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+
 ## Eligibility
 
 Clients are skipped when they are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`, default 15 s), when their own backend health probe is failing, when they are draining for shutdown, or when they were disabled from the dashboard. In-flight requests always finish.
@@ -53,10 +55,10 @@ the routing pool — even while its `/health` probe still reports green.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `APERIO_OUTLIER_EJECTION` | Enable passive ejection. | off |
-| `APERIO_OUTLIER_MAX_FAILURES` | Failures within the window that trigger an ejection. | `5` |
-| `APERIO_OUTLIER_WINDOW` | Seconds the failures are counted over. | `30` |
-| `APERIO_OUTLIER_EJECT_SECS` | How long an ejected client stays out before automatic re-admission. | `30` |
+| `outlier_ejection` (env `APERIO_OUTLIER_EJECTION`) | Enable passive ejection. | off |
+| `outlier_max_failures` (env `APERIO_OUTLIER_MAX_FAILURES`) | Failures within the window that trigger an ejection. | `5` |
+| `outlier_window` (env `APERIO_OUTLIER_WINDOW`) | Seconds the failures are counted over. | `30` |
+| `outlier_eject_secs` (env `APERIO_OUTLIER_EJECT_SECS`) | How long an ejected client stays out before automatic re-admission. | `30` |
 
 Ejection is **per-route fail-open**: if every candidate for a route is ejected,
 the route keeps serving from the struggling pool rather than returning no route

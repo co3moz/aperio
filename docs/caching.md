@@ -11,9 +11,10 @@ Caching is **off by default** and strictly opt-in on both sides.
 
 A response is only cached when three independent conditions all agree:
 
-1. **The server operator enabled the cache** — `APERIO_CACHE=1` (or
-   `cache_enabled: true` in `aperio-server.yaml`, or the dashboard's live
-   settings). This provisions the shared in-memory cache and its memory budget.
+1. **The server operator enabled the cache** — `cache: true` in
+   `aperio-server.yaml` (env `APERIO_CACHE=1`; the dashboard's live settings
+   persist it as a `cache_enabled` override). This provisions the shared
+   in-memory cache and its memory budget.
 2. **The service owner opted the service in** — `cache: true` in the client
    config (per `services:` entry, or top-level, or `APERIO_CACHE=1` on the
    client). Only the service owner knows whether *their* responses are safe to
@@ -74,20 +75,23 @@ nothing is stored, no matter the flags.
 `resilience: true` on a service (needs `cache: true` and the server cache) lets
 cached responses keep answering visitors **while no healthy client is
 connected**, instead of failing with `504`. Fresh-or-expired entries answer up
-to `APERIO_CACHE_MAX_STALE` seconds past their lifetime, marked
+to the `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifetime, marked
 `x-aperio-stale: true` once past it and always with an `Age` header. The moment
 a client reconnects, normal proxying takes over. See
 [Client Resilience](client-resilience.md).
 
 ## Knobs
 
-| Setting | Effect | Default |
-|---|---|---|
-| `APERIO_CACHE` (server) | Enable the shared response cache. | `0` |
-| `cache: true` (client, per service) | Opt this service in. | `0` |
-| `APERIO_CACHE_MAX_BYTES` | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
-| `resilience: true` (client, per service) | Serve stale while no client is connected. | `0` |
-| `APERIO_CACHE_MAX_STALE` | Serve-stale window in seconds; `0` disables it. | `3600` |
+Every setting is shown by its yaml key (env var in parentheses). Server keys go
+in `aperio-server.yaml`, client keys in `aperio.yaml` (per `services:` entry).
+
+| yaml key | Where | Effect | Default |
+|---|---|---|---|
+| `cache` (env `APERIO_CACHE`) | server | Enable the shared response cache. | `0` |
+| `cache` (env `APERIO_CACHE`) | client, per service | Opt this service in. | `0` |
+| `cache_max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
+| `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |
+| `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
 
 The full option reference lives in [Configuration](configuration.md); the
 end-to-end request path is in

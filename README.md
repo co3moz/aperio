@@ -108,7 +108,7 @@ Everything else lives in [docs/](docs/README.md) as short, focused articles:
 
 ## Security Notes
 
-- Always front the server with TLS (Traefik/Caddy/nginx) and set `APERIO_TRUST_PROXY=1` behind it; clients should use `https://`/`wss://` URLs so tokens never travel in plaintext.
+- Always front the server with TLS (Traefik/Caddy/nginx) and set `APERIO_TRUST_PROXY=1` (yaml `trust_proxy`) behind it; clients should use `https://`/`wss://` URLs so tokens never travel in plaintext.
 - Prefer **dynamic tokens** over sharing the master token: scope them to a hostname, pin them to source IPs, give them a TTL. Treat the master token as root.
 - The client deliberately does not fully trust the server: it only connects to its configured targets (SSRF guards), caps tunnel message sizes, bounds decompression output, and enforces its own concurrency limit.
 

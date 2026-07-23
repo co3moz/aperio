@@ -50,7 +50,7 @@ A single client process can expose several targets — put a `services:` list in
 
 ## Next steps
 
-- Put the server behind TLS and set `APERIO_TRUST_PROXY=1` — see [Tokens & Authentication](tokens-and-auth.md) for why the master token should never travel in plaintext.
+- Put the server behind TLS and set `APERIO_TRUST_PROXY=1` (yaml `trust_proxy`) — see [Tokens & Authentication](tokens-and-auth.md) for why the master token should never travel in plaintext.
 - Give each client its own hostname — see [Routing & Load Balancing](routing-and-load-balancing.md).
 - Mint scoped tokens instead of sharing the master token — see [Tokens & Authentication](tokens-and-auth.md).
 - Browse every setting on both sides — see the [Configuration Reference](configuration.md).

@@ -61,7 +61,7 @@ The same run also publishes the multi-arch (amd64+arm64) Docker images `ghcr.io/
 
 ## Zero-downtime restarts
 
-With `APERIO_REUSEPORT=1` the server binds its listener with `SO_REUSEPORT`, so a second process can bind the same `host:port` while the first is still running. A rolling restart is then:
+With `APERIO_REUSEPORT=1` (yaml `reuseport`) the server binds its listener with `SO_REUSEPORT`, so a second process can bind the same `host:port` while the first is still running. A rolling restart is then:
 
 1. Start the new process (same `PORT`, `APERIO_REUSEPORT=1`). The kernel begins load-balancing new connections across both.
 2. Send `SIGTERM` to the old process. It broadcasts a `ServerShutdown` to its connected clients (so they reconnect immediately instead of waiting out their backoff) and drains in-flight requests before exiting.

@@ -8,7 +8,7 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
-Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions** — responses since protocol v1, and request bodies (uploads) with protocol v2 — so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (default 50 MB).
+Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions** — responses since protocol v1, and request bodies (uploads) with protocol v2 — so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`) (default 50 MB).
 
 Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64-in-JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames.
 
@@ -16,7 +16,7 @@ One trade-off: streamed uploads cannot fail over or be replayed from the request
 
 ## Tunnel compression
 
-With `APERIO_TUNNEL_COMPRESSION=1` the server offers per-message zlib compression for JSON frames. Clients that support it acknowledge, and both directions switch to compressed frames; older clients keep working uncompressed. The client bounds decompression output as a memory-protection measure.
+With `APERIO_TUNNEL_COMPRESSION=1` (yaml `tunnel_compression`) the server offers per-message zlib compression for JSON frames. Clients that support it acknowledge, and both directions switch to compressed frames; older clients keep working uncompressed. The client bounds decompression output as a memory-protection measure.
 
 ## Emergency tunnels
 
@@ -33,8 +33,8 @@ The cache is deliberately conservative and strictly `Cache-Control`-driven — y
 - Requests with credentials attached (`Authorization` or `Cookie`) or a `Cache-Control: no-cache`/`no-store` request header always bypass the cache.
 - Cache hits carry an `x-aperio-cache: hit` response header, so they are easy to spot in the browser or the request inspector.
 
-Total memory is bounded by `APERIO_CACHE_MAX_BYTES` (default 64 MB): inserting past the budget evicts the entries closest to expiry, and a single body larger than a quarter of the budget is never cached. Both flags can also be toggled live from the dashboard's server settings.
+Total memory is bounded by `APERIO_CACHE_MAX_BYTES` (yaml `cache_max_bytes`) (default 64 MB): inserting past the budget evicts the entries closest to expiry, and a single body larger than a quarter of the budget is never cached. Both flags can also be toggled live from the dashboard's server settings.
 
 ## Custom error pages
 
-`APERIO_504_PAGE=/app/error_504.html` serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page. `APERIO_503_PAGE` does the same for the maintenance-mode response.
+`APERIO_504_PAGE=/app/error_504.html` (yaml `504_page`) serves your own HTML (loaded once at startup) on gateway-timeout responses — e.g. a branded "tunnel is offline, check back soon" page. `APERIO_503_PAGE` (yaml `503_page`) does the same for the maintenance-mode response.

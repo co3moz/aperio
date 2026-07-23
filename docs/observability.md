@@ -2,6 +2,8 @@
 
 Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+
 ## Prometheus metrics
 
 Enable with `APERIO_METRICS=1`. The endpoint always requires a token: set `APERIO_METRICS_TOKEN`, or let the server generate one on first start (persisted in `APERIO_DATA_DIR/metrics_token`, printed to the log once).
@@ -107,10 +109,10 @@ Independent TTLs — all in days, unset = keep forever — bound how long each d
 
 | Variable | Prunes |
 | --- | --- |
-| `APERIO_RETENTION_CAPTURES` | Inspector captures and webhook inbox entries |
-| `APERIO_RETENTION_ACCESS_LOG` | Structured access-log file lines (rewritten in place) |
-| `APERIO_RETENTION_AUDIT` | Audit events — expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
-| `APERIO_RETENTION_STATS` | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
+| `retention_captures` (env `APERIO_RETENTION_CAPTURES`) | Inspector captures and webhook inbox entries |
+| `retention_access_log` (env `APERIO_RETENTION_ACCESS_LOG`) | Structured access-log file lines (rewritten in place) |
+| `retention_audit` (env `APERIO_RETENTION_AUDIT`) | Audit events — expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
+| `retention_stats` (env `APERIO_RETENTION_STATS`) | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
 
 The same hourly cycle also runs the **disk-usage guard** when `APERIO_DB_MAX_BYTES` caps the SQLite store: nearing the cap (90%) emits a `disk_usage_warning` webhook/audit event once per episode, and exceeding it auto-prunes the lowest-priority persisted data (oldest webhook inbox entries, delivery-log rows, and day-stat buckets), vacuums the database so the file shrinks on disk, and records a `disk_pruned` event with before/after sizes.
 

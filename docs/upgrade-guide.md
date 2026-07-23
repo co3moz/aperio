@@ -39,11 +39,11 @@ validates the exact keys a given version accepts.
 2. **Validate the config against the new binary.** `aperio-server --check-config`
    flags anything the new version would reject or silently default — run it
    before restarting.
-3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` or a logical
+3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` (yaml `backup_*`) or a logical
    `/aperio/api/export`) so a rollback has a known-good state. The SQLite schema
    is created idempotently; new columns are additive with serde defaults, so an
    older store loads cleanly into a newer server.
-4. **Roll the server forward.** With `APERIO_REUSEPORT=1` you can start the new
+4. **Roll the server forward.** With `APERIO_REUSEPORT=1` (yaml `reuseport`) you can start the new
    process alongside the old one and drain the old one for a
    [zero-downtime restart](development.md#zero-downtime-restarts); otherwise a
    normal restart broadcasts a graceful shutdown so clients reconnect promptly.

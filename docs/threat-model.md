@@ -38,7 +38,7 @@ Controls:
 - Per-IP token-bucket rate limiting, a global concurrency cap, and a request
   body-size limit.
 - Client-IP resolution that does **not** trust `X-Forwarded-For` unless a proxy
-  is configured (`APERIO_TRUSTED_PROXIES`), so a visitor cannot spoof its IP to
+  is configured (`APERIO_TRUSTED_PROXIES` (yaml `trusted_proxies`)), so a visitor cannot spoof its IP to
   dodge rate limits.
 - Visitor authentication (server password / share links / OIDC) in front of
   protected services; unauthenticated hostnames answer only what routing
@@ -54,7 +54,7 @@ Controls:
 
 - Session authentication with role-based access (viewer / operator / admin) and
   optional TOTP / passkey second factor.
-- Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` restricts the dashboard and
+- Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` (yaml `admin_allowed_ips`) restricts the dashboard and
   its API to operator CIDRs, answering `403` otherwise — while leaving the login
   page and visitor-auth endpoints reachable so password-gated proxied services
   keep working.
