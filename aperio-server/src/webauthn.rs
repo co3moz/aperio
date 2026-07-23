@@ -37,30 +37,86 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
     Ok(u) => u,
     Err(e) => {
       warn!(
-        "Invalid APERIO_WEBAUTHN_ORIGIN '{}': {} — passkey sign-in disabled",
+        "Invalid APERIO_WEBAUTHN_ORIGIN '{}': {}; passkey sign-in disabled",
         origin_raw, e
       );
       return None;
     }
   };
-  let Some(rp_id) = origin.domain().map(str::to_string) else {
+  let Some(origin_domain) = origin.domain().map(str::to_string) else {
     warn!(
-      "APERIO_WEBAUTHN_ORIGIN '{}' has no domain (IP origins are not valid RP IDs) — passkey sign-in disabled",
+      "APERIO_WEBAUTHN_ORIGIN '{}' has no domain (IP origins are not valid RP IDs); passkey sign-in disabled",
       origin_raw
     );
     return None;
   };
-  match WebauthnBuilder::new(&rp_id, &origin).map(|b| b.rp_name("Aperio").build()) {
+
+  // Optional parent RP ID so one passkey works across *every* subdomain of a
+  // registrable domain (e.g. RP ID `robogon.com` covers `aperio.robogon.com`
+  // AND `test-aperio.robogon.com`). WebAuthn has no wildcard RP ID; the
+  // supported mechanism is a parent-domain RP ID plus accepting ceremonies from
+  // its subdomains. Must be the origin's host or a parent domain of it (never a
+  // public suffix like `com`, which the browser rejects). Changing the RP ID
+  // invalidates passkeys registered under the previous one; users re-enroll.
+  let rp_id_override = std::env::var("APERIO_WEBAUTHN_RP_ID")
+    .ok()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+  let (rp_id, rp_origin, allow_subdomains) = match rp_id_override {
+    Some(parent) => {
+      let is_parent = origin_domain == parent
+        || origin_domain
+          .strip_suffix(&parent)
+          .map(|p| p.ends_with('.'))
+          .unwrap_or(false);
+      if !is_parent {
+        warn!(
+          "APERIO_WEBAUTHN_RP_ID '{}' must be the host of APERIO_WEBAUTHN_ORIGIN ('{}') or a parent domain of it; passkey sign-in disabled",
+          parent, origin_domain
+        );
+        return None;
+      }
+      // Validate ceremonies against the parent origin so every subdomain of it
+      // is accepted (keeping the configured scheme and port).
+      let mut parent_origin = origin.clone();
+      if parent_origin.set_host(Some(&parent)).is_err() {
+        warn!(
+          "APERIO_WEBAUTHN_RP_ID '{}' is not a valid host; passkey sign-in disabled",
+          parent
+        );
+        return None;
+      }
+      (parent, parent_origin, true)
+    }
+    None => (origin_domain, origin.clone(), false),
+  };
+
+  let build = WebauthnBuilder::new(&rp_id, &rp_origin).map(|b| {
+    let b = b.rp_name("Aperio");
+    let b = if allow_subdomains {
+      b.allow_subdomains(true)
+    } else {
+      b
+    };
+    b.build()
+  });
+  match build {
     Ok(Ok(webauthn)) => {
       info!(
-        "Passkey sign-in enabled (RP ID {}, origin {})",
-        rp_id, origin
+        "Passkey sign-in enabled (RP ID {}, origin {}{})",
+        rp_id,
+        rp_origin,
+        if allow_subdomains {
+          ", subdomains accepted"
+        } else {
+          ""
+        }
       );
       Some(webauthn)
     }
     Ok(Err(e)) | Err(e) => {
       warn!(
-        "Could not initialize WebAuthn: {} — passkey sign-in disabled",
+        "Could not initialize WebAuthn: {}; passkey sign-in disabled",
         e
       );
       None
