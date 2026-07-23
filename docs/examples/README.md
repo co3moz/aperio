@@ -41,6 +41,9 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [s_behind_proxy](s_behind_proxy/) | Run the server behind a reverse proxy / CDN with correct client IPs. |
 | [s_observability](s_observability/) | Prometheus metrics, access log, OpenTelemetry traces, and alerting. |
 | [s_oidc](s_oidc/) | Put an identity-provider (SSO) login in front of everything the tunnel serves. |
+| [s_share_links](s_share_links/) | Temporary, scoped visitor access to a gated site, no accounts. |
+| [s_organizations](s_organizations/) | Multi-tenancy: isolate one server into separate organizations. |
+| [s_dashboard](s_dashboard/) | The admin dashboard: separate password, IP fencing, headless off. |
 | [s_tuning](s_tuning/) | Capacity knobs: concurrency, parallel connections, bandwidth, timeouts. |
 | [m_tuning](m_tuning/) | Per-service capacity knobs: hot API, slow reports, bandwidth-paced media. |
 

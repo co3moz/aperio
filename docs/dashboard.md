@@ -99,3 +99,9 @@ The *API Explorer* page (System group) renders the server's own `/aperio/api/ope
 ## The admin API
 
 Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json`, point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md).
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_dashboard`](examples/s_dashboard/): separate password, IP fencing, headless off

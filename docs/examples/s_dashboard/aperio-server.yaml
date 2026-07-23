@@ -1,0 +1,20 @@
+server_token: apr_dashboard_change_me
+port: 8080
+
+# The dashboard is built in at /aperio. By default you sign in as user "aperio"
+# with the master token above. Give it a separate password so the master token
+# need not be shared with dashboard users (username stays "aperio"):
+dashboard_auth: a-dashboard-password
+
+# Fence the admin surface (the dashboard + /aperio/api/*) to your operator
+# network. The login page and visitor-auth endpoints stay reachable so proxied
+# sites keep working; only the authenticated admin surface is network-restricted.
+admin_allowed_ips:
+  - 10.0.0.0/8
+  - 203.0.113.7
+
+# Default dashboard / login language when the browser's language is unsupported.
+ui_language: en
+
+# To run headless with no dashboard at all, set:
+# dashboard: false

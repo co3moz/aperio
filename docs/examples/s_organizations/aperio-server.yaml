@@ -1,0 +1,7 @@
+server_token: apr_orgs_master_change_me
+port: 8080
+
+# Organizations are runtime tenants: the built-in `aperio` super-admin (this
+# master token) creates them over the API or from the dashboard sidebar. There
+# is nothing tenant-specific to configure in this file; see the README for the
+# create / select / mint-token flow.

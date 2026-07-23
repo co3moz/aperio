@@ -1,0 +1,7 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_dashboard_change_me
+
+# A plain service, so the dashboard has live traffic to show.
+target: http://localhost:3000
+hostname: app.example.com

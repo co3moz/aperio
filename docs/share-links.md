@@ -27,3 +27,9 @@ Because anyone holding a link has access until it expires, scope links tightly: 
 ## Auditing
 
 Every link creation is recorded in the audit log as `share_created` and emitted to webhooks, so you always know what was shared, when, and by whom.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_share_links`](examples/s_share_links/): temporary visitor access to a gated site

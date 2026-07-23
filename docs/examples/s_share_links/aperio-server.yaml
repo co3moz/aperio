@@ -1,0 +1,8 @@
+server_token: apr_share_change_me
+port: 8080
+
+# Share links grant temporary, gate-free access to a site that is otherwise
+# gated. Put a visitor login in front of everything proxied so there is a gate
+# to bypass with a link (OIDC works the same way, see the s_oidc example).
+# Format is user:password.
+server_auth: viewer:a-visitor-password

@@ -75,3 +75,9 @@ Each child organization can carry quotas, max concurrently-connected clients, dy
 ## Per-organization OIDC (SSO)
 
 An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The resulting session is **bound to that organization**, the user is an admin *within* their org (their tokens, users, and traffic) but never the master super-admin, and cannot switch to other orgs. Organizations without an override fall back to the global `APERIO_OIDC_*` (yaml `oidc_*`) settings.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_organizations`](examples/s_organizations/): multi-tenancy: create, select, mint a scoped token
