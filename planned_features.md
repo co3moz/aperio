@@ -75,6 +75,40 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   Touches `run_service`'s signature (13 call sites, mostly tests). Low-moderate
   severity. (From a 2026-07 client review.)
 
+- [ ] **#10 Turn Topology into the full routing map (config + live), not a
+  second Clients table.** Today `TopologySection.tsx` derives its graph purely
+  from `stats.active_clients` — the same snapshot the Clients table renders — so
+  it only shows *connected* clients and adds nothing but live req/s edge labels.
+  It should become the one view that shows *how a request is routed*, including
+  routing that has no live tunnel client. Clean split: **Clients = who is
+  connected now (table); Topology = the routing map (config + live)**. Needs a
+  dedicated `GET /api/topology` handler returning a typed
+  `TopologyGraph { nodes, edges }` (org-scoped like the others), unioning the
+  in-memory client registry with the config-side route registries. Three parts:
+  - **A — client-less route nodes.** Fold in the server-side route definitions
+    that exist whether or not a client is connected: static routes
+    (`static_routes.rs` `RouteRule`: redirect/respond), expose rules
+    (`expose.rs` `ExposeRule`: public TCP port → tunnel key), and route rate
+    limits (`route_limits.rs`) as an overlay. These have no `ClientDetail` today
+    so Topology can't see them; they render as route nodes that terminate in a
+    redirect/respond/expose sink instead of a backend.
+  - **B — "declared but offline" gap.** From each token's granted binds
+    (`store/tokens.rs`: `hostnames`/`paths` a token *may* claim), emit a dim /
+    dashed route node when no active client currently claims that bind — the one
+    thing a table structurally cannot show (there is no row for an absent
+    client). This surfaces "the service that should be up but isn't" at a
+    glance. Decision needed: derive expected binds from granted token scopes
+    (broad) vs. an explicit "expected services" declaration (precise).
+  - **C — routing-health overlay.** Surface per-client routing state the graph
+    is the natural home for and that no screen shows today: `ejected_until`
+    (passive outlier ejection — a client silently pulled from rotation right
+    now), `draining`, and load-balance fan-out (N clients on one hostname shown
+    as a one-to-many group, not N unrelated rows). Colour nodes/edges by state.
+  Non-goal for now: per-connection **bytes**/**geo** edge weights — the server
+  tracks bytes only in aggregate (`PersistentStats`), not per connection, so
+  that needs new server-side counters and is out of scope. Ship A/B/C behind the
+  new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
+
 - [ ] **#8 Pool Unix-domain-socket backend connections.** `dial_and_send` in
   `aperio-client/src/proxy/unix.rs` opens a fresh `UnixStream::connect` +
   `http1::handshake` for every request with no reuse. Under very high request
