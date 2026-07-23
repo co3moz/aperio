@@ -199,7 +199,7 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t('Delete webhook "{name}"?', { name: hook.name })}</AlertDialogTitle>
-          <AlertDialogDescription>
+          <AlertDialogDescription className="[overflow-wrap:anywhere]">
             {t('No further events will be delivered to {url}.', { url: hook.url })}
           </AlertDialogDescription>
         </AlertDialogHeader>
