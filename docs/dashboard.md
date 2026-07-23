@@ -19,9 +19,9 @@ Below the table, an **Uptime** panel tracks each service's availability history:
 
 The traffic table is streamed live: the server pushes each proxied request over Server-Sent Events (`/aperio/api/stream`) as it completes, so rows appear the moment traffic flows instead of on a polling interval. If the stream can't be established (e.g. a proxy that buffers SSE) the table transparently falls back to periodic polling, and the **Live/Paused** toggle still freezes the view while you inspect. Latency percentiles (p50/p95/p99), a status-class mix bar, and method/status filters sit on top of the same feed.
 
-## Live log tail
+## Console view
 
-The *Live Tail* page (Traffic group) is a `tail -f` for the access log: one monospace line per proxied request — time, status (color-coded), method, hostname, path, latency, and the error reason on failures — streamed over the same SSE feed as the traffic table. The view auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), **Live/Paused** freezes the stream, *Clear* empties the scrollback, and a free-text filter matches host, path, method, or status. Clicking a line opens the request inspector.
+Live Traffic has a **Table / Console** toggle. The console is a `tail -f` for the access log: one monospace line per proxied request — time, status (color-coded), method, hostname, path, latency, and the error reason on failures — over the *same* SSE feed, search, method/status filters, and **Live/Paused** control as the table. It auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), and *Clear* empties the scrollback. Clicking a line opens the request inspector.
 
 ## Webhook inbox
 
@@ -29,7 +29,7 @@ The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks 
 
 ## Topology
 
-The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map: public routes (hostname and path binds, plus a catch-all node) → tunnel clients (health-colored: green healthy, amber draining or failing backend probes, red unhealthy/disabled) → their backends, with a per-client live request rate on the edge. An alternative visual view of the same data as the clients table, fed by the same SSE stream.
+The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map — routes → tunnel clients → backends — with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: static `routes:` (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes — so "the service that should be up but isn't" is visible at a glance. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
 
 ## Route trends
 
