@@ -905,44 +905,6 @@ impl RequestTimeline {
       estimated_anchor: anchored.is_some(),
     }
   }
-
-  /// The waterfall decomposition as `(name, from_us, to_us, estimated)` phases,
-  /// matching the dashboard timeline. The five middle stages appear only when
-  /// the client reported its offsets; otherwise a single collapsed tunnel
-  /// round-trip stands in for them. Used to synthesize OTLP child spans.
-  pub(crate) fn stages(&self) -> Vec<(&'static str, u64, u64, bool)> {
-    let mut out = Vec::with_capacity(8);
-    out.push(("queue & routing", 0, self.dispatched_us, false));
-    match (
-      self.client_received_us,
-      self.backend_sent_us,
-      self.backend_first_byte_us,
-      self.backend_done_us,
-      self.client_responded_us,
-    ) {
-      (Some(cr), Some(bs), Some(bf), Some(bd), Some(crd)) => {
-        out.push(("tunnel → client", self.dispatched_us, cr, true));
-        out.push(("client processing", cr, bs, true));
-        out.push(("backend wait (first byte)", bs, bf, true));
-        out.push(("backend body", bf, bd, true));
-        out.push(("client → tunnel", bd, crd, true));
-        out.push(("tunnel → server", crd, self.response_received_us, true));
-      }
-      _ => out.push((
-        "tunnel round-trip (client & backend)",
-        self.dispatched_us,
-        self.response_received_us,
-        false,
-      )),
-    }
-    out.push((
-      "server → visitor",
-      self.response_received_us,
-      self.finished_us,
-      false,
-    ));
-    out
-  }
 }
 
 /// Sender half of an in-flight streamed response body, kept so the tunnel

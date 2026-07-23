@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Changed
+
+- **OTLP request traces now mirror the real flow, not an estimated waterfall.** The per-request child spans were six flat, split-transit *estimates* presented as the timeline — approximations that read like measurements. They are replaced by three **measured** server-clock spans that follow the request's actual path — `queue & routing` (arrival → dispatched: auth, wait-for-client, admission, routing), `tunnel round-trip` (dispatched → response: out over the tunnel to the client and back), and `server → visitor` (response → served) — so a trace shows at a glance where a request spent its time. The client/backend breakdown (`tunnel → client`, `client → backend`, backend first-byte/body, `client → tunnel`) is still available on the buffered path but now **nests under** `tunnel round-trip` and stays flagged `aperio.estimated = true`, so estimated detail can no longer be mistaken for a measured boundary. Streamed responses, which report no client offsets, now get the three real spans too (previously a coarse collapsed set).
+
 ## [0.4.3] - 2026-07-23
 
 ### Added

@@ -13,7 +13,7 @@
 use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::{Span, SpanKind, Tracer, TracerProvider as _};
+use opentelemetry::trace::{Span, SpanKind, TraceContextExt, Tracer, TracerProvider as _};
 use opentelemetry_otlp::{Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -309,15 +309,29 @@ pub(crate) fn record_status(span: &tracing::Span, status: u16) {
   );
 }
 
-/// Emits one child span per request phase under the current `proxy.request`
-/// span, reproducing the dashboard's request waterfall inside the trace (queue,
-/// tunnel→client, client processing, backend TTFB, backend body, client→tunnel,
-/// tunnel→server, server→visitor). The phase offsets are µs from the request's
-/// arrival (t0); t0's wall clock is recovered from the monotonic `start_time`,
-/// so the child timestamps line up with the parent. The client-anchored stages
-/// carry `aperio.estimated = true` since they are split-transit estimates (the
-/// client/server clocks are never mixed), not exact measurements. No-op unless
-/// OTLP export is enabled; only the buffered response path has a timeline.
+/// Emits the request's flow as child spans under the current `proxy.request`
+/// span, so a trace shows what actually happened to the request. Three
+/// top-level children mirror the real path, each with **measured** server-clock
+/// timestamps:
+///
+/// ```text
+/// proxy.request
+/// ├─ queue & routing        arrival → dispatched      (auth, wait-for-client, admission, routing)
+/// ├─ tunnel round-trip      dispatched → response     (out over the tunnel to the client, and back)
+/// │  ├─ tunnel → client     ┐
+/// │  ├─ client → backend    │  buffered path only; nested detail of what the
+/// │  ├─ backend (first byte)│  client/backend did. These are split-transit
+/// │  ├─ backend body        │  ESTIMATES (client & server clocks never mixed),
+/// │  ├─ client → tunnel     │  flagged `aperio.estimated = true`.
+/// │  └─ tunnel → server     ┘
+/// └─ server → visitor       response → finished       (response streamed back)
+/// ```
+///
+/// The three top-level spans are real, observed boundaries; only the nested
+/// client/backend breakdown is estimated (and present only when the client
+/// reported its offsets — the buffered response path). `t0`'s wall clock is
+/// recovered from the monotonic `start_time` so the children line up under the
+/// parent. No-op unless OTLP export is enabled.
 pub(crate) fn emit_phase_spans(
   start_time: std::time::Instant,
   timeline: &crate::state::RequestTimeline,
@@ -331,20 +345,79 @@ pub(crate) fn emit_phase_spans(
     .checked_sub(start_time.elapsed())
     .unwrap_or_else(SystemTime::now);
   let tracer = global::tracer("aperio-server");
-  for (name, from_us, to_us, estimated) in timeline.stages() {
-    let start = t0 + Duration::from_micros(from_us);
-    // Clamp so a phase can never end before it starts (estimation rounding).
-    let end = t0 + Duration::from_micros(to_us.max(from_us));
-    let mut builder = tracer
-      .span_builder(name)
-      .with_kind(SpanKind::Internal)
-      .with_start_time(start);
-    if estimated {
-      builder = builder.with_attributes(vec![KeyValue::new("aperio.estimated", true)]);
-    }
-    let mut span = tracer.build_with_context(builder, &parent_cx);
-    span.end_with_timestamp(end);
+  let at = |us: u64| t0 + Duration::from_micros(us);
+
+  // A leaf child span [from, to] under `cx`. `to` is clamped so a span can
+  // never end before it starts (estimation/rounding).
+  let leaf =
+    |name: &'static str, from: u64, to: u64, cx: &opentelemetry::Context, estimated: bool| {
+      let mut builder = tracer
+        .span_builder(name)
+        .with_kind(SpanKind::Internal)
+        .with_start_time(at(from));
+      if estimated {
+        builder = builder.with_attributes(vec![KeyValue::new("aperio.estimated", true)]);
+      }
+      let mut span = tracer.build_with_context(builder, cx);
+      span.end_with_timestamp(at(to.max(from)));
+    };
+
+  // 1. Real: the server received the request and processed it up to dispatch.
+  leaf(
+    "queue & routing",
+    0,
+    timeline.dispatched_us,
+    &parent_cx,
+    false,
+  );
+
+  // 2. Real: the request went out over the tunnel to the client and the server
+  //    waited for the response. The estimated client/backend breakdown (only on
+  //    the buffered path, where the client reports its offsets) nests under it.
+  let tunnel_builder = tracer
+    .span_builder("tunnel round-trip")
+    .with_kind(SpanKind::Internal)
+    .with_start_time(at(timeline.dispatched_us));
+  let tunnel_span = tracer.build_with_context(tunnel_builder, &parent_cx);
+  let tunnel_cx = parent_cx.with_span(tunnel_span);
+  if let (Some(cr), Some(bs), Some(bf), Some(bd), Some(crd)) = (
+    timeline.client_received_us,
+    timeline.backend_sent_us,
+    timeline.backend_first_byte_us,
+    timeline.backend_done_us,
+    timeline.client_responded_us,
+  ) {
+    leaf(
+      "tunnel → client",
+      timeline.dispatched_us,
+      cr,
+      &tunnel_cx,
+      true,
+    );
+    leaf("client → backend", cr, bs, &tunnel_cx, true);
+    leaf("backend (first byte)", bs, bf, &tunnel_cx, true);
+    leaf("backend body", bf, bd, &tunnel_cx, true);
+    leaf("client → tunnel", bd, crd, &tunnel_cx, true);
+    leaf(
+      "tunnel → server",
+      crd,
+      timeline.response_received_us,
+      &tunnel_cx,
+      true,
+    );
   }
+  tunnel_cx
+    .span()
+    .end_with_timestamp(at(timeline.response_received_us));
+
+  // 3. Real: the response was served back to the visitor.
+  leaf(
+    "server → visitor",
+    timeline.response_received_us,
+    timeline.finished_us,
+    &parent_cx,
+    false,
+  );
 }
 
 #[cfg(test)]

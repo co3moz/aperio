@@ -677,10 +677,10 @@ async fn test_reload_from_file_returns_diff() {
 }
 
 #[test]
-fn request_timeline_stages_expands_and_collapses() {
+fn request_timeline_assemble_anchors_client_offsets() {
   use crate::protocol::ClientTimings;
-  // With client timings: eight phases, the five middle ones flagged estimated,
-  // strictly monotonic and contiguous (each phase starts where the last ended).
+  // The three real boundaries pass through verbatim; the client offsets are
+  // anchored onto the tunnel round-trip by an even transit split.
   let t = RequestTimeline::assemble(
     100,
     10_000,
@@ -692,33 +692,29 @@ fn request_timeline_stages_expands_and_collapses() {
       respond_us: 8_000,
     }),
   );
-  let stages = t.stages();
-  assert_eq!(stages.len(), 8);
-  assert_eq!(stages[0].0, "queue & routing");
-  assert_eq!((stages[0].1, stages[0].2), (0, 100));
-  assert!(!stages[0].3);
-  // Middle five are the estimated client stages.
-  assert!(
-    stages[1..7].iter().all(|s| s.3),
-    "client stages must be estimated"
-  );
-  assert_eq!(stages[7].0, "server → visitor");
-  assert!(!stages[7].3);
-  // Contiguous + monotonic.
-  for w in stages.windows(2) {
-    assert_eq!(w[0].2, w[1].1, "phases must be contiguous");
-    assert!(w[0].1 <= w[0].2, "phase must not go backwards");
-  }
-  assert_eq!(stages.last().unwrap().2, 10_200);
+  // Measured, verbatim.
+  assert_eq!(t.dispatched_us, 100);
+  assert_eq!(t.response_received_us, 10_000);
+  assert_eq!(t.finished_us, 10_200);
+  assert!(t.estimated_anchor);
+  // Transit = round_trip(9_900) - respond(8_000) = 1_900; anchor = 100 + 950.
+  let anchor = 100 + (10_000 - 100 - 8_000) / 2;
+  assert_eq!(t.client_received_us, Some(anchor));
+  assert_eq!(t.backend_sent_us, Some(anchor + 500));
+  assert_eq!(t.backend_first_byte_us, Some(anchor + 6_000));
+  assert_eq!(t.backend_done_us, Some(anchor + 7_500));
+  assert_eq!(t.client_responded_us, Some(anchor + 8_000));
+  // Client stages stay within the measured tunnel round-trip [dispatched, received].
+  assert!(t.client_received_us.unwrap() >= t.dispatched_us);
+  assert!(t.client_responded_us.unwrap() <= t.response_received_us);
 
-  // Without client timings: three phases with a single collapsed round-trip.
+  // Without client timings: only the three measured boundaries, no anchor.
   let t = RequestTimeline::assemble(100, 10_000, 10_200, None);
-  let stages = t.stages();
-  assert_eq!(stages.len(), 3);
-  assert_eq!(stages[1].0, "tunnel round-trip (client & backend)");
-  assert_eq!((stages[1].1, stages[1].2), (100, 10_000));
-  assert!(
-    stages.iter().all(|s| !s.3),
-    "no stage is estimated without client timings"
+  assert_eq!(
+    (t.dispatched_us, t.response_received_us, t.finished_us),
+    (100, 10_000, 10_200)
   );
+  assert!(!t.estimated_anchor);
+  assert_eq!(t.client_received_us, None);
+  assert_eq!(t.backend_sent_us, None);
 }
