@@ -75,8 +75,18 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   Touches `run_service`'s signature (13 call sites, mostly tests). Low-moderate
   severity. (From a 2026-07 client review.)
 
-- [ ] **#10 Turn Topology into the full routing map (config + live), not a
-  second Clients table.** Today `TopologySection.tsx` derives its graph purely
+- [x] **#10 Turn Topology into the full routing map (config + live), not a
+  second Clients table.** shipped: a dedicated `GET /api/topology`
+  (`aperio-server/src/api/topology.rs`) returns `{ clients, routes, exposes,
+  offline }`; `TopologySection.tsx` self-fetches it and renders — A: client-less
+  static `routes:` and public `expose:` ports (master-only); B: dashed
+  "declared but offline" nodes from token-granted binds no client serves
+  (per-org); C: passive outlier ejection (`ejected` now on every client detail)
+  coloured/labelled in the map. Deferred the route-limits overlay and
+  per-connection bytes/geo edge weights (server tracks bytes only in aggregate).
+  Original note below.
+
+  Today `TopologySection.tsx` derives its graph purely
   from `stats.active_clients` — the same snapshot the Clients table renders — so
   it only shows *connected* clients and adds nothing but live req/s edge labels.
   It should become the one view that shows *how a request is routed*, including
