@@ -84,6 +84,21 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   / FD exhaustion" framing is overstated; this is an efficiency win, not a leak
   fix. (From a 2026-07 client review.)
 
+- [ ] **#9 Per-stream backpressure for tunneled WS/TCP delivery instead of
+  drop-on-full.** The `try_send` fix (commit `2e5273b`) protects the tunnel read
+  loop — one stalled backend can no longer starve `Pong` and trip the liveness
+  watchdog — but it converts *transient* backpressure into stream death: when a
+  stream's 64-slot channel fills, the stream is dropped on the spot. WS/TCP are
+  lossless protocols (the UDP analogy the fix borrowed is weak), so a healthy
+  but legitimately slow consumer — e.g. a large file piped over a tunneled TCP
+  stream whose backend socket applies flow control — can be killed by a burst
+  of server→client frames that momentarily outpaces the backend. Fix properly:
+  per-stream backpressure that pauses reading *that stream's* frames without
+  blocking the shared loop (e.g. buffer-and-park the stream with a bounded
+  spill, or a per-stream credit/window echoed to the server), or at minimum a
+  substantially larger per-stream buffer plus a grace timeout before dropping.
+  (From the 2026-07 unpushed-commits review.)
+
 - [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
   server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
   it resolves every address, applies an `ip_family` (auto/ipv4/ipv6; CLI
