@@ -156,8 +156,8 @@ stop_server() {
 start_client() { # <name> <backend_port> [KEY=VAL ...]
   local name="$1" backend_port="$2"
   shift 2
-  # Pin one connection per service by default so per-client-count assertions
-  # stay deterministic (the client default is 2); a phase may override by
+  # Pin one connection per service so per-client-count assertions stay
+  # deterministic regardless of the client's default; a phase may override by
   # passing APERIO_CONNECTIONS=N as an extra pair.
   env APERIO_CONNECTIONS=1 \
     APERIO_SERVER_URL="$BASE" \
