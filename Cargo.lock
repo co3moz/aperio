@@ -121,7 +121,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "aperio-client"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "aperio-config",
  "base64 0.22.1",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-config"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "schemars",
  "serde",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-server"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "aperio-config",
  "argon2",
