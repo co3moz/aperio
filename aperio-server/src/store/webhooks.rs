@@ -11,7 +11,7 @@ pub enum WebhookFormat {
   Generic,
   /// Slack incoming-webhook message (`text`, mrkdwn).
   Slack,
-  /// Discord webhook message (`content`, markdown).
+  /// Discord webhook message: a rich embed (coloured card with title + fields).
   Discord,
   /// Microsoft Teams incoming-webhook MessageCard.
   Teams,
@@ -431,6 +431,37 @@ fn data_lines(data: &serde_json::Value, bullet: &str) -> String {
   }
 }
 
+/// Turns an event slug into a human title: `client_connected` → `Client
+/// connected`.
+fn pretty_event(event: &str) -> String {
+  let spaced = event.replace('_', " ");
+  let mut chars = spaced.chars();
+  match chars.next() {
+    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    None => spaced,
+  }
+}
+
+/// Discord embed colour (decimal RGB) encoding an event's nature: green for a
+/// good/recovered state, red for a failure, amber for something needing
+/// attention, and Discord blurple for everything else. New events fall through
+/// to blurple.
+fn discord_color(event: &str) -> u32 {
+  match event {
+    "client_connected" | "alert_resolved" | "maintenance_off" | "tunnel_created"
+    | "share_created" | "token_created" | "db_backup" | "import_applied" => 0x2ecc71,
+    "client_disconnected"
+    | "alert_triggered"
+    | "canary_tripped"
+    | "token_revoked"
+    | "token_pin_mismatch" => 0xe74c3c,
+    "client_draining" | "maintenance_on" | "token_expiring" | "token_new_ip" | "org_usage" => {
+      0xf1c40f
+    }
+    _ => 0x5865f2,
+  }
+}
+
 /// Builds the delivery body for one webhook: the raw event JSON for
 /// `generic`, or a ready-made message for the chat service's
 /// incoming-webhook endpoint.
@@ -457,13 +488,39 @@ pub(crate) fn render_payload(
       serde_json::json!({ "text": text }).to_string()
     }
     WebhookFormat::Discord => {
-      let lines = data_lines(data, "- ");
-      let content = if lines.is_empty() {
-        format!("**aperio** — `{event}`")
-      } else {
-        format!("**aperio** — `{event}`\n{lines}")
-      };
-      serde_json::json!({ "content": content }).to_string()
+      // A rich embed rather than a plain-text line: a coloured card titled with
+      // the event, one embed field per event data entry. Discord rejects an
+      // empty field value, so blanks become a dash.
+      let fields: Vec<serde_json::Value> = data
+        .as_object()
+        .map(|map| {
+          map
+            .iter()
+            .map(|(k, v)| {
+              let val = match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+              };
+              let val = if val.is_empty() {
+                "—".to_string()
+              } else {
+                val
+              };
+              serde_json::json!({ "name": k, "value": val, "inline": true })
+            })
+            .collect()
+        })
+        .unwrap_or_default();
+      serde_json::json!({
+        "username": "aperio",
+        "embeds": [{
+          "title": pretty_event(event),
+          "color": discord_color(event),
+          "fields": fields,
+          "timestamp": timestamp,
+        }],
+      })
+      .to_string()
     }
     WebhookFormat::Teams => {
       let facts: Vec<serde_json::Value> = data
@@ -645,12 +702,27 @@ mod tests {
       &data,
     ))
     .unwrap();
-    assert!(
-      discord["content"]
-        .as_str()
-        .unwrap()
-        .contains("ip: 10.0.0.1")
-    );
+    // A rich embed: title from the event, colour by nature, one field per datum.
+    let embed = &discord["embeds"][0];
+    assert_eq!(embed["title"], "Client connected");
+    assert_eq!(embed["color"], 0x2ecc71); // green for a "connected" event
+    assert_eq!(embed["timestamp"], ts);
+    let fields = embed["fields"].as_array().unwrap();
+    assert_eq!(fields.len(), 2);
+    let ip = fields
+      .iter()
+      .find(|f| f["name"] == "ip")
+      .expect("ip field present");
+    assert_eq!(ip["value"], "10.0.0.1");
+    // A failure event gets the red colour instead.
+    let down: serde_json::Value = serde_json::from_str(&render_payload(
+      WebhookFormat::Discord,
+      "client_disconnected",
+      ts,
+      &data,
+    ))
+    .unwrap();
+    assert_eq!(down["embeds"][0]["color"], 0xe74c3c);
 
     let teams: serde_json::Value = serde_json::from_str(&render_payload(
       WebhookFormat::Teams,
