@@ -78,6 +78,9 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       },
       healthy: handle.is_healthy(state.config().client_down_threshold),
       draining: handle.draining,
+      ejected: handle
+        .ejected_until
+        .is_some_and(|until| std::time::Instant::now() < until),
       enabled: handle.admin_enabled,
       instance_id: handle.reported_instance_id.clone(),
       instance_id_shared: handle

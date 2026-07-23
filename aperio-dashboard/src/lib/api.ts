@@ -48,6 +48,9 @@ export interface ClientDetail {
   bandwidth_bps: number | null
   healthy: boolean
   draining: boolean
+  /** Passively ejected from routing right now after crossing the outlier
+   * failure threshold (re-admitted automatically). The connection stays up. */
+  ejected: boolean
   enabled: boolean
   instance_id: string | null
   instance_id_shared: boolean

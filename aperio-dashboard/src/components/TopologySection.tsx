@@ -57,9 +57,17 @@ function clientRoutes(c: ClientDetail): string[] {
 }
 
 function healthTint(c: ClientDetail): string {
-  if (!c.enabled || !c.healthy) return 'var(--destructive)'
+  if (!c.enabled || !c.healthy || c.ejected) return 'var(--destructive)'
   if (c.draining || !c.backend_healthy) return AMBER
   return 'var(--primary)'
+}
+
+/** The routing state worth calling out under a client node, if any. */
+function statusWord(c: ClientDetail, t: (k: string) => string): string | undefined {
+  if (c.ejected) return t('ejected')
+  if (c.draining) return t('draining')
+  if (!c.enabled) return t('disabled')
+  return undefined
 }
 
 function staticLabel(r: TopoStaticRoute): string {
@@ -245,7 +253,7 @@ export function TopologySection() {
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Topology')}
-        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.')}
+        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.')}
       />
       <Card className="overflow-x-auto p-4">
         {empty ? (
@@ -333,7 +341,9 @@ export function TopologySection() {
               />
             ))}
             {/* tunnel clients (col 1) */}
-            {groups.map((g) => (
+            {groups.map((g) => {
+              const st = statusWord(g.rep, t)
+              return (
               <NodeBox
                 key={g.key}
                 x={COL_X[1]}
@@ -341,10 +351,11 @@ export function TopologySection() {
                 label={g.rep.service ?? g.rep.id.slice(0, 8)}
                 sub={`${g.requestCount} req · v${g.rep.version ?? '?'}${
                   g.connections.length > 1 ? ` · ×${g.connections.length}` : ''
-                }`}
+                }${st ? ` · ${st}` : ''}`}
                 tint={healthTint(g.rep)}
               />
-            ))}
+              )
+            })}
             {/* backends (col 2) */}
             {groups.map((g) => (
               <NodeBox

@@ -657,6 +657,8 @@ export const zh: Record<string, string> = {
   'Console': '控制台',
   'Requests in real time — table or console': '实时请求——表格或控制台',
   'no client': '无客户端',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率）、服务器自身的无客户端路由——静态重定向/响应和公共 expose 端口——以及为无客户端提供服务的令牌授权路由绘制的虚线节点。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用或无客户端提供服务。',
   'offline': '离线',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率）、服务器自身的无客户端路由——静态重定向/响应和公共 expose 端口——以及为无客户端提供服务的令牌授权路由绘制的虚线节点。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用、已剔除或无客户端提供服务。',
+  'ejected': '已剔除',
+  'draining': '排空中',
 }

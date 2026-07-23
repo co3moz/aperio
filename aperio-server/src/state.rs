@@ -83,6 +83,10 @@ pub(crate) struct ClientDetail {
   pub(crate) healthy: bool,
   /// True while the client is gracefully draining before shutdown.
   pub(crate) draining: bool,
+  /// True while the client is passively ejected from routing after crossing the
+  /// outlier failure threshold (5xx / timeout / connection loss). The tunnel
+  /// connection stays up; it is re-admitted automatically when the window ends.
+  pub(crate) ejected: bool,
   /// Dashboard kill switch state (false = excluded from routing).
   pub(crate) enabled: bool,
   /// Client-process instance id self-reported via Ping (`--client-id`).
