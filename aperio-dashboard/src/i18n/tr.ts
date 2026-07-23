@@ -625,7 +625,6 @@ export const tr: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Kullanıcı adı boşken passkey düğmesine basıldığında bu passkey doğrudan önerilir. Kimlik bilgisini cihazda saklayan bir doğrulayıcı gerektirir (platform doğrulayıcıları ve modern güvenlik anahtarları saklar).',
   'Topology': 'Topoloji',
   'Routes, clients & backends as a live map': 'Rotalar, istemciler ve backend’ler canlı harita olarak',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': 'Genel rotaların istemcilere ve backend’lerine nasıl ulaştığı, canlı istek hızlarıyla. Yeşil = sağlıklı, sarı = drenajda ya da backend sağlık kontrolü başarısız, kırmızı = sağlıksız ya da devre dışı.',
   '(any request)': '(her istek)',
   'Routes': 'Rotalar',
   'Tunnel clients': 'Tünel istemcileri',
@@ -680,4 +679,6 @@ export const tr: Record<string, string> = {
   'Table': 'Tablo',
   'Console': 'Konsol',
   'Requests in real time — table or console': 'Gerçek zamanlı istekler — tablo veya konsol',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla) ile sunucunun sahip olduğu istemcisiz yönlendirme — statik yönlendirmeler/yanıtlar ve genel expose portları. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı veya hizmet veren istemci yok.',
+  'no client': 'istemci yok',
 }

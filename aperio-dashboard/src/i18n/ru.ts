@@ -625,7 +625,6 @@ export const ru: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Нажатие кнопки passkey с пустым именем пользователя сразу предложит этот ключ. Требуется аутентификатор, хранящий учётные данные (платформенные аутентификаторы и современные ключи безопасности умеют это).',
   'Topology': 'Топология',
   'Routes, clients & backends as a live map': 'Маршруты, клиенты и бэкенды на живой карте',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': 'Как публичные маршруты достигают клиентов и их бэкендов, с живой частотой запросов. Зелёный = здоров, жёлтый = дренаж или сбои проб бэкенда, красный = нездоров или отключён.',
   '(any request)': '(любой запрос)',
   'Routes': 'Маршруты',
   'Tunnel clients': 'Туннельные клиенты',
@@ -676,4 +675,6 @@ export const ru: Record<string, string> = {
   'Table': 'Таблица',
   'Console': 'Консоль',
   'Requests in real time — table or console': 'Запросы в реальном времени — таблица или консоль',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), а также бесклиентная маршрутизация самого сервера — статические перенаправления/ответы и публичные expose-порты. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён или нет обслуживающего клиента.',
+  'no client': 'нет клиента',
 }

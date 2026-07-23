@@ -30,6 +30,7 @@ use utoipa::OpenApi;
     crate::api::clients::stats_handler,
     crate::api::clients::stats_history_handler,
     crate::api::clients::uptime_handler,
+    crate::api::topology::topology_handler,
     crate::api::users::totp_setup_handler,
     crate::api::users::sessions_list_handler,
     crate::api::orgs::orgs_list_handler,

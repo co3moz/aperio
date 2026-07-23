@@ -606,7 +606,6 @@ export const zh: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': '用户名留空时按下通行密钥按钮会直接提供此通行密钥。需要能够存储凭据的验证器（平台验证器和新型安全密钥均支持）。',
   'Topology': '拓扑',
   'Routes, clients & backends as a live map': '路由、客户端与后端的实时地图',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': '公共路由如何到达客户端及其后端，并显示实时请求速率。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康或已禁用。',
   '(any request)': '（任意请求）',
   'Routes': '路由',
   'Tunnel clients': '隧道客户端',
@@ -657,4 +656,6 @@ export const zh: Record<string, string> = {
   'Table': '表格',
   'Console': '控制台',
   'Requests in real time — table or console': '实时请求——表格或控制台',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率），以及服务器自身拥有的无客户端路由——静态重定向/响应和公共 expose 端口。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用或无客户端提供服务。',
+  'no client': '无客户端',
 }

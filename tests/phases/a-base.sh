@@ -69,6 +69,14 @@ UPTIME="$(curl -s -b "$COOKIES" "$BASE/aperio/api/uptime")"
 assert_contains "$UPTIME" '"pct_today":' "uptime entries carry percentages"
 assert_contains "$UPTIME" '"days":' "uptime entries carry daily buckets"
 
+TOPO="$(curl -s -b "$COOKIES" "$BASE/aperio/api/topology")"
+assert_contains "$TOPO" '"clients":' "topology returns the live clients array"
+assert_contains "$TOPO" "\"$HOSTNAME_BIND\"" "topology shows the connected client's hostname bind"
+assert_contains "$TOPO" '"routes":' "topology includes the client-less static routes array"
+assert_contains "$TOPO" '"exposes":' "topology includes the public expose ports array"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/topology")"
+assert_status 302 "$CODE" "topology without a session redirects to login"
+
 LOGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs")"
 assert_contains "$LOGS" '/submit' "request log captured the proxied POST"
 

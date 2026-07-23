@@ -627,7 +627,6 @@ export const de: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Wird der Passkey-Button mit leerem Benutzernamen gedrückt, wird dieser Passkey direkt angeboten. Erfordert einen Authenticator, der das Credential speichert (Plattform-Authenticator und moderne Sicherheitsschlüssel tun das).',
   'Topology': 'Topologie',
   'Routes, clients & backends as a live map': 'Routen, Clients & Backends als Live-Karte',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': 'Wie öffentliche Routen Clients und deren Backends erreichen, mit Live-Anfrageraten. Grün = gesund, gelb = draining oder fehlschlagende Backend-Probes, rot = ungesund oder deaktiviert.',
   '(any request)': '(jede Anfrage)',
   'Routes': 'Routen',
   'Tunnel clients': 'Tunnel-Clients',
@@ -678,4 +677,6 @@ export const de: Record<string, string> = {
   'Table': 'Tabelle',
   'Console': 'Konsole',
   'Requests in real time — table or console': 'Anfragen in Echtzeit – Tabelle oder Konsole',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten) sowie das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert oder kein Client bedient.',
+  'no client': 'kein Client',
 }

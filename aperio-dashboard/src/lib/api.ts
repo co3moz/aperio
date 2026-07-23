@@ -437,9 +437,37 @@ function json(method: string, body: unknown): RequestInit {
   }
 }
 
+/** A client-less static route (the `routes:` section): a hostname/path that
+ * resolves to a server-produced redirect or fixed response, no client behind it. */
+export interface TopoStaticRoute {
+  hostname: string | null
+  path: string | null
+  action: 'redirect' | 'respond'
+  target: string | null
+  status: number
+}
+
+/** An experimental public TCP expose port. The shared key is never sent; only
+ * whether a connected client currently serves it. */
+export interface TopoExpose {
+  port: number
+  protocol: string
+  served: boolean
+  served_by: string | null
+}
+
+/** The routing map: live tunnel clients plus the client-less routing the server
+ * owns (static routes + expose ports; master organization only). */
+export interface TopologyGraph {
+  clients: ClientDetail[]
+  routes: TopoStaticRoute[]
+  exposes: TopoExpose[]
+}
+
 export const api = {
   stats: () => request<ServerStats>('/stats'),
   uptime: () => request<UptimeEntry[]>('/uptime'),
+  topology: () => request<TopologyGraph>('/topology'),
   statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {
     const params = new URLSearchParams()
     if (q.from) {

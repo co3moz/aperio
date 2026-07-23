@@ -23,6 +23,7 @@ pub(crate) mod orgs;
 pub(crate) mod purge;
 pub(crate) mod settings;
 pub(crate) mod tokens;
+pub(crate) mod topology;
 pub(crate) mod tunnels;
 pub(crate) mod users;
 pub(crate) mod webhooks;

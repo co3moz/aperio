@@ -83,6 +83,17 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
   rules
 }
 
+/// Parses the `expose:` rules for read-only display (the topology map),
+/// returning an empty list on any error instead of exiting — unlike
+/// `from_config_file`, which runs at startup where a malformed section must
+/// fail fast. Reads the already-parsed, in-memory config document.
+pub(crate) fn configured_rules() -> Vec<ExposeRule> {
+  let Some(section) = crate::config_file::structured("expose") else {
+    return Vec::new();
+  };
+  serde_yaml::from_value(section).unwrap_or_default()
+}
+
 /// Spawns one listener task per expose rule. Called once at startup.
 pub(crate) fn spawn_listeners(state: Arc<AppState>, host: &str, rules: Vec<ExposeRule>) {
   for rule in rules {

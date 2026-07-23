@@ -164,6 +164,11 @@ impl StaticRoutes {
   pub(crate) fn is_empty(&self) -> bool {
     self.rules.is_empty()
   }
+
+  /// The compiled rules, for display (the topology map).
+  pub(crate) fn rules(&self) -> &[RouteRule] {
+    &self.rules
+  }
 }
 
 /// Reads and compiles the `routes:` section of `aperio-server.yaml`.

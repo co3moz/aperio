@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { SectionHeader } from './shared'
+import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
-import type { ClientDetail, ServerStats } from '@/lib/api'
+import { api, type ClientDetail, type TopoExpose, type TopoStaticRoute } from '@/lib/api'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 
 /** Node grid geometry (SVG user units). */
@@ -13,10 +14,22 @@ const NODE_H = 40
 const COL_X = [24, 320, 620]
 const WIDTH = COL_X[2] + NODE_W + 24
 
+const AMBER = 'oklch(0.75 0.15 85)'
+const SKY = 'oklch(0.7 0.12 230)'
+
 interface RouteNode {
   key: string
   label: string
-  clients: string[] // client ids served by this route
+  /** `client`: a live tunnel client serves it; `static`: a client-less
+   *  redirect/respond; `expose`: a public TCP port. */
+  kind: 'client' | 'static' | 'expose'
+  /** Group keys of the client(s) this route reaches (empty for a self-contained
+   *  static route or an unserved expose port). */
+  clientKeys: string[]
+  /** Secondary line under the label (the action for static/expose nodes). */
+  sub?: string
+  mono?: boolean
+  tint?: string
 }
 
 /** Routes a client serves: its hostname binds and/or path bind; a client
@@ -36,8 +49,13 @@ function clientRoutes(c: ClientDetail): string[] {
 
 function healthTint(c: ClientDetail): string {
   if (!c.enabled || !c.healthy) return 'var(--destructive)'
-  if (c.draining || !c.backend_healthy) return 'oklch(0.75 0.15 85)' // amber
+  if (c.draining || !c.backend_healthy) return AMBER
   return 'var(--primary)'
+}
+
+function staticLabel(r: TopoStaticRoute): string {
+  if (r.hostname && r.path) return `${r.hostname}${r.path}`
+  return r.hostname ?? r.path ?? '*'
 }
 
 /** Cubic edge between two node anchor points. */
@@ -46,7 +64,7 @@ function edgePath(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`
 }
 
-/** Per-client request rate from consecutive stats snapshots. */
+/** Per-client request rate from consecutive topology snapshots. */
 function useClientRates(clients: ClientDetail[]): Map<string, number> {
   const prev = useRef<Map<string, { count: number; at: number }>>(new Map())
   const [rates, setRates] = useState<Map<string, number>>(new Map())
@@ -75,6 +93,7 @@ function NodeBox({
   sub,
   tint,
   mono,
+  dim,
 }: {
   x: number
   y: number
@@ -82,9 +101,10 @@ function NodeBox({
   sub?: string
   tint?: string
   mono?: boolean
+  dim?: boolean
 }) {
   return (
-    <g>
+    <g opacity={dim ? 0.55 : 1}>
       <rect
         x={x}
         y={y}
@@ -93,6 +113,7 @@ function NodeBox({
         rx={10}
         className="fill-card stroke-border"
         strokeWidth={1}
+        strokeDasharray={dim ? '4 3' : undefined}
       />
       {tint && <circle cx={x + 14} cy={y + NODE_H / 2} r={4} fill={tint} />}
       <text
@@ -111,43 +132,95 @@ function NodeBox({
   )
 }
 
-export function TopologySection({ stats }: { stats: ServerStats | null }) {
+export function TopologySection() {
   const { t } = useI18n()
-  const clients = useMemo(() => stats?.active_clients ?? [], [stats])
+  const { data } = usePoll(api.topology, 5_000)
+  const clients = useMemo(() => data?.clients ?? [], [data])
+  const staticRoutes: TopoStaticRoute[] = useMemo(() => data?.routes ?? [], [data])
+  const exposes: TopoExpose[] = useMemo(() => data?.exposes ?? [], [data])
   const rates = useClientRates(clients)
 
   // One node per (process, service): a client's parallel connections collapse
   // into a single node with a connection count, instead of N look-alikes.
   const groups = useMemo(() => groupClientsByInstance(clients), [clients])
 
-  const routes = useMemo(() => {
-    const map = new Map<string, RouteNode>()
+  // Client id → its group key, to attach a served expose port to its client.
+  const groupKeyByClientId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const g of groups) for (const c of g.connections) m.set(c.id, g.key)
+    return m
+  }, [groups])
+
+  const routeNodes = useMemo(() => {
+    const nodes: RouteNode[] = []
+
+    // Live-client routes, deduped so several clients on one hostname fan out
+    // from a single route node.
+    const clientMap = new Map<string, RouteNode>()
     for (const g of groups) {
       for (const r of clientRoutes(g.rep)) {
-        const node = map.get(r) ?? { key: r, label: r === '*' ? t('(any request)') : r, clients: [] }
-        node.clients.push(g.key)
-        map.set(r, node)
+        const key = `r:${r}`
+        const node =
+          clientMap.get(key) ??
+          ({ key, label: r === '*' ? t('(any request)') : r, kind: 'client', clientKeys: [], mono: true } as RouteNode)
+        node.clientKeys.push(g.key)
+        clientMap.set(key, node)
       }
     }
-    return [...map.values()].sort((a, b) => a.key.localeCompare(b.key))
-  }, [groups, t])
+    nodes.push(...[...clientMap.values()].sort((a, b) => a.label.localeCompare(b.label)))
 
-  const rows = Math.max(routes.length, groups.length, 1)
+    // Client-less static routes: self-contained (the server answers directly).
+    staticRoutes.forEach((r, i) => {
+      const sub =
+        r.action === 'redirect'
+          ? `→ ${r.target ?? ''} (${r.status})`
+          : `respond ${r.status}`
+      nodes.push({
+        key: `static:${i}`,
+        label: staticLabel(r),
+        kind: 'static',
+        clientKeys: [],
+        sub,
+        mono: true,
+        tint: r.action === 'redirect' ? SKY : 'var(--muted-foreground)',
+      })
+    })
+
+    // Public expose ports: reach their serving client, or dangle when none does.
+    exposes.forEach((e) => {
+      const gk = e.served_by ? groupKeyByClientId.get(e.served_by) : undefined
+      nodes.push({
+        key: `expose:${e.port}`,
+        label: `:${e.port}`,
+        kind: 'expose',
+        clientKeys: gk ? [gk] : [],
+        sub: e.served ? `expose · ${e.protocol}` : `expose · ${t('no client')}`,
+        mono: true,
+        tint: e.served ? 'var(--primary)' : 'var(--destructive)',
+      })
+    })
+
+    return nodes
+  }, [groups, staticRoutes, exposes, groupKeyByClientId, t])
+
+  const rows = Math.max(routeNodes.length, groups.length, 1)
   const height = TOP_PAD + rows * ROW_H + 8
   const colY = (count: number, i: number) =>
     TOP_PAD + ((rows - count) * ROW_H) / 2 + i * ROW_H
 
-  const routeY = new Map(routes.map((r, i) => [r.key, colY(routes.length, i)]))
+  const routeY = new Map(routeNodes.map((r, i) => [r.key, colY(routeNodes.length, i)]))
   const clientY = new Map(groups.map((g, i) => [g.key, colY(groups.length, i)]))
+
+  const empty = clients.length === 0 && staticRoutes.length === 0 && exposes.length === 0
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Topology')}
-        description={t('How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.')}
+        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.')}
       />
       <Card className="overflow-x-auto p-4">
-        {clients.length === 0 ? (
+        {empty ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             {t('No clients connected')}
           </p>
@@ -173,13 +246,13 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
             ))}
 
             {/* route -> client edges */}
-            {routes.flatMap((r) =>
-              r.clients.map((cid) => {
+            {routeNodes.flatMap((r) =>
+              r.clientKeys.map((gk) => {
                 const y1 = (routeY.get(r.key) ?? 0) + NODE_H / 2
-                const y2 = (clientY.get(cid) ?? 0) + NODE_H / 2
+                const y2 = (clientY.get(gk) ?? 0) + NODE_H / 2
                 return (
                   <path
-                    key={`${r.key}->${cid}`}
+                    key={`${r.key}->${gk}`}
                     d={edgePath(COL_X[0] + NODE_W, y1, COL_X[1], y2)}
                     className="stroke-border"
                     strokeWidth={1.25}
@@ -218,16 +291,19 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
               )
             })}
 
-            {/* nodes */}
-            {routes.map((r) => (
+            {/* nodes: routes (col 0) */}
+            {routeNodes.map((r) => (
               <NodeBox
                 key={r.key}
                 x={COL_X[0]}
                 y={routeY.get(r.key) ?? 0}
                 label={r.label}
-                mono
+                sub={r.sub}
+                tint={r.tint}
+                mono={r.mono}
               />
             ))}
+            {/* tunnel clients (col 1) */}
             {groups.map((g) => (
               <NodeBox
                 key={g.key}
@@ -240,6 +316,7 @@ export function TopologySection({ stats }: { stats: ServerStats | null }) {
                 tint={healthTint(g.rep)}
               />
             ))}
+            {/* backends (col 2) */}
             {groups.map((g) => (
               <NodeBox
                 key={`backend-${g.key}`}

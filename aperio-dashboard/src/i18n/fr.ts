@@ -625,7 +625,6 @@ export const fr: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'Appuyer sur le bouton passkey avec un identifiant vide propose directement cette passkey. Nécessite un authentificateur qui stocke l\'identifiant (les authentificateurs de plateforme et les clés de sécurité modernes le font).',
   'Topology': 'Topologie',
   'Routes, clients & backends as a live map': 'Routes, clients et backends en carte en direct',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': 'Comment les routes publiques atteignent les clients et leurs backends, avec les débits de requêtes en direct. Vert = sain, orange = en drainage ou sondes backend en échec, rouge = défaillant ou désactivé.',
   '(any request)': '(toute requête)',
   'Routes': 'Routes',
   'Tunnel clients': 'Clients du tunnel',
@@ -676,4 +675,6 @@ export const fr: Record<string, string> = {
   'Table': 'Tableau',
   'Console': 'Console',
   'Requests in real time — table or console': 'Requêtes en temps réel — tableau ou console',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Comment chaque route atteint sa destination : clients de tunnel et leurs backends (avec les débits de requêtes en direct), ainsi que le routage sans client géré par le serveur — redirections/réponses statiques et ports expose publics. Vert = sain, ambre = en vidange ou sondes backend en échec, rouge = défaillant, désactivé ou aucun client ne le sert.',
+  'no client': 'aucun client',
 }

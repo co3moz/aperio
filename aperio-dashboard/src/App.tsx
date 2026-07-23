@@ -373,7 +373,7 @@ export default function App() {
                   <SelfHealthSection />
                 </div>
               )}
-              {page === 'topology' && <TopologySection stats={stats} />}
+              {page === 'topology' && <TopologySection />}
               {page === 'tokens' && <TokensSection />}
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}

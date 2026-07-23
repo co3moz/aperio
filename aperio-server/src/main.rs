@@ -921,6 +921,7 @@ async fn async_main() {
       .route("/api/stats", get(stats_handler))
       .route("/api/stats/history", get(stats_history_handler))
       .route("/api/uptime", get(uptime_handler))
+      .route("/api/topology", get(crate::api::topology::topology_handler))
       .route("/api/logs", get(logs_handler))
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))

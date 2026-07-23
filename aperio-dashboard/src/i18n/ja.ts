@@ -623,7 +623,6 @@ export const ja: Record<string, string> = {
   'Pressing the passkey button with an empty username offers this passkey directly. Requires an authenticator that stores the credential (platform authenticators and modern security keys do).': 'ユーザー名を空にしてパスキーボタンを押すと、このパスキーが直接提示されます。資格情報を保存できる認証器が必要です（プラットフォーム認証器や最新のセキュリティキーは対応しています）。',
   'Topology': 'トポロジー',
   'Routes, clients & backends as a live map': 'ルート・クライアント・バックエンドのライブマップ',
-  'How public routes reach clients and their backends, with live request rates. Green = healthy, amber = draining or failing backend probes, red = unhealthy or disabled.': '公開ルートがクライアントとバックエンドに届く経路を、ライブのリクエストレートとともに表示します。緑 = 正常、黄 = ドレイン中またはバックエンドのヘルスチェック失敗、赤 = 異常または無効。',
   '(any request)': '（すべてのリクエスト）',
   'Routes': 'ルート',
   'Tunnel clients': 'トンネルクライアント',
@@ -674,4 +673,6 @@ export const ja: Record<string, string> = {
   'Table': 'テーブル',
   'Console': 'コンソール',
   'Requests in real time — table or console': 'リアルタイムのリクエスト — テーブルまたはコンソール',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）に加え、サーバー自身が持つクライアントレスなルーティング — 静的なリダイレクト/レスポンスと公開 expose ポート。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・提供するクライアントなし。',
+  'no client': 'クライアントなし',
 }
