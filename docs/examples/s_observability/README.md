@@ -1,5 +1,8 @@
 # Observability
 
+> **Concept:** [Observability](../../observability.md).
+
+
 Everything the server can emit about traffic, in one config:
 
 - **Prometheus metrics**, `metrics: true` serves `/aperio/metrics`, gated by `metrics_token` (a random one is generated and persisted if unset).

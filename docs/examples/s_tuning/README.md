@@ -1,5 +1,8 @@
 # Tuning (capacity & throughput)
 
+> **Concept:** [Performance Tuning](../../performance-tuning.md).
+
+
 The knobs that shape how much traffic flows and how fast, on both sides:
 
 - **Client**, `max_concurrent` announces a per-connection cap the server queues against instead of flooding the backend; `connections` opens parallel tunnel connections the server load-balances across (so one service isn't serialized behind a single WebSocket); `bandwidth` has the server pace responses to what the client's uplink can drain; `timeout`, `max_response_body`, and `max_redirects` bound individual requests.

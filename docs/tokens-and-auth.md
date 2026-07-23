@@ -105,3 +105,12 @@ Two consequences follow from the single-device binding, and are intentional:
 - **Missing keys are rejected too.** Once a token is pinned, a connection that announces no device key is refused, so an attacker cannot simply omit it.
 
 Pinning provides replay rejection without a full PKI; it is not transport encryption (put Aperio behind TLS for confidentiality).
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_oidc`](examples/s_oidc/): SSO login in front
+- [`m_visitor_auth`](examples/m_visitor_auth/): visitor login gates
+- [`s_allowed_ips`](examples/s_allowed_ips/): restrict to visitor IPs
+- [`m_allowed_ips`](examples/m_allowed_ips/): per-service IP allowlists

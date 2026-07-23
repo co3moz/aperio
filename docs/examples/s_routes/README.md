@@ -1,5 +1,8 @@
 # Client-less Routes
 
+> **Concept:** [Routing & Load Balancing](../../routing-and-load-balancing.md).
+
+
 A `routes:` list binds a hostname and/or path prefix directly to a server-produced answer, no tunnel client involved. Each rule matches on an exact `hostname` and/or a `path` prefix (bind semantics; first match wins, in file order) and carries exactly one action:
 
 - `redirect`, 302, or 301 with `permanent: true`; `preserve_path: true` appends the request path and query.

@@ -1,5 +1,8 @@
 # In-Flight Failover
 
+> **Concept:** [In-Flight Failover](../../failover.md).
+
+
 `failover` decides what happens when a client dies **mid-request**:
 
 - `fail` (default), the request fails immediately.

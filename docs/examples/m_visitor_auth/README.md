@@ -1,5 +1,8 @@
 # Visitor Authentication
 
+> **Concept:** [Tokens & Authentication](../../tokens-and-auth.md).
+
+
 Three ways to control who may reach proxied services, shown together:
 
 - **Server-wide gate**, `server_auth: user:password` puts a login form in front of *all* proxied traffic.

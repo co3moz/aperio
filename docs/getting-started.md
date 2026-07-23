@@ -54,3 +54,9 @@ A single client process can expose several targets, put a `services:` list in `a
 - Give each client its own hostname, see [Routing & Load Balancing](routing-and-load-balancing.md).
 - Mint scoped tokens instead of sharing the master token, see [Tokens & Authentication](tokens-and-auth.md).
 - Browse every setting on both sides, see the [Configuration Reference](configuration.md).
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_simple`](examples/s_simple/): minimal one-target pair

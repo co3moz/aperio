@@ -97,3 +97,12 @@ The full option reference lives in [Configuration](configuration.md); the
 end-to-end request path is in
 [Tunnel Protocol & Advanced Features](tunnel-protocol.md), and the throughput
 trade-offs in [Performance Tuning](performance-tuning.md).
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_cache`](examples/s_cache/): server-side GET cache
+- [`m_cache`](examples/m_cache/): per-service cache opt-in
+- [`s_resilience`](examples/s_resilience/): serve stale while offline
+- [`m_resilience`](examples/m_resilience/): per-service serve-stale

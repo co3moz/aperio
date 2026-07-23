@@ -75,3 +75,10 @@ Long-lived servers should bound their footprint so GC pauses and disk pressure
 never surprise you: set the `APERIO_RETENTION_*` TTLs and the `APERIO_DB_MAX_BYTES`
 cap (which auto-prunes and vacuums past the limit), and rely on the disk-usage
 warning webhook. See [Observability](observability.md).
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_tuning`](examples/s_tuning/): capacity knobs
+- [`m_tuning`](examples/m_tuning/): per-service capacity knobs

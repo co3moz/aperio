@@ -44,3 +44,10 @@ Backends often answer `http://` targets with a redirect to `https://`, or bounce
 ## Cross-server failover
 
 `APERIO_SERVER_URLS` (comma-separated) lists additional Aperio servers the client may connect to. The primary `APERIO_SERVER_URL` is always tried first; after a failed or dropped connection the reconnect loop rotates to the next server, so a client survives a whole server going down as long as another accepts it. This is the client half of a highly-available deployment, point several clients at a server fleet behind a shared token (and, when the servers share persistent state, at a shared token store). With a single server the setting is a no-op.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_health_check`](examples/s_health_check/): backend health probe
+- [`m_health_check`](examples/m_health_check/): per-service health probes

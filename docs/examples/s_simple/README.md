@@ -1,5 +1,8 @@
 # Simple
 
+> **Concept:** [Getting Started](../../getting-started.md).
+
+
 The minimal working pair: a server with just a master token, and a client that forwards all traffic to a single local backend.
 
 Run the server, then start the client next to its `aperio.yaml`:

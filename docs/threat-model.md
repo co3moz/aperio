@@ -102,3 +102,11 @@ log off-box so an attacker who reaches the server cannot quietly rewrite history
 
 See the [Production Hardening Checklist](production-hardening.md) to put these
 controls in place.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_emergency_tunnels_2`](examples/s_emergency_tunnels_2/): end-to-end encrypted tunnels
+- [`s_allowed_ips`](examples/s_allowed_ips/): restrict to visitor IPs
+- [`s_behind_proxy`](examples/s_behind_proxy/): behind a reverse proxy / CDN

@@ -45,3 +45,9 @@ See the [action's README](../aperio-tunnel-action/README.md) for all inputs and 
 ## Keeping previews out of search engines
 
 Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked, protect those with the visitor password or OIDC if they should stay private.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_random_subdomain`](examples/s_random_subdomain/): preview subdomains

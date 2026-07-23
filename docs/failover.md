@@ -56,3 +56,9 @@ re-dispatches to a freshly picked client, and honors the same guards,
 Streamed responses are never retried (bytes may already be in flight), and the
 retry shares the failover jump budget, so a persistently failing pool cannot
 loop forever.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_failover`](examples/s_failover/): in-flight failover

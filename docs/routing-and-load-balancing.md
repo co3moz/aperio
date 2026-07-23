@@ -63,3 +63,13 @@ the routing pool, even while its `/health` probe still reports green.
 Ejection is **per-route fail-open**: if every candidate for a route is ejected,
 the route keeps serving from the struggling pool rather than returning no route
 at all, a bad backend is still better than a guaranteed error.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_load_balancing`](examples/s_load_balancing/): primary/standby tiers
+- [`m_load_balancing`](examples/m_load_balancing/): per-service priority tiers
+- [`s_load_balancing_2`](examples/s_load_balancing_2/): sticky sessions
+- [`s_random_subdomain`](examples/s_random_subdomain/): preview subdomains
+- [`s_routes`](examples/s_routes/): client-less routes

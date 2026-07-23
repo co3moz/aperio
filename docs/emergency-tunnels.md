@@ -115,3 +115,11 @@ Experimental semantics, on purpose: the connection goes to the **first** healthy
 
 - Tunnel lists are discovered once when the binder starts (or when the peer first appears); re-run the binder after changing a peer's `tunnels:` list.
 - Client ids are self-reported by clients. Tokens gate everything, but treat ids as identifiers, not secrets.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_emergency_tunnels`](examples/s_emergency_tunnels/): break-glass TCP tunnels
+- [`s_emergency_tunnels_2`](examples/s_emergency_tunnels_2/): end-to-end encrypted tunnels
+- [`s_public_expose`](examples/s_public_expose/): raw public TCP port

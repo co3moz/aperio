@@ -38,3 +38,11 @@ Total memory is bounded by `APERIO_CACHE_MAX_BYTES` (yaml `cache_max_bytes`) (de
 ## Custom error pages
 
 `APERIO_504_PAGE=/app/error_504.html` (yaml `504_page`) serves your own HTML (loaded once at startup) on gateway-timeout responses, e.g. a branded "tunnel is offline, check back soon" page. `APERIO_503_PAGE` (yaml `503_page`) does the same for the maintenance-mode response.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_grpc`](examples/s_grpc/): gRPC over h2c
+- [`m_grpc`](examples/m_grpc/): gRPC + HTTP in one client
+- [`s_headers`](examples/s_headers/): header add/remove rules

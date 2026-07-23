@@ -555,3 +555,14 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
 | `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `POST /aperio/api/orgs/select` | Organization management and switching, see [Organizations](organizations.md). | master super-admin |
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_simple`](examples/s_simple/): minimal one-target pair
+- [`m_services`](examples/m_services/): several backends from one client
+- [`s_headers`](examples/s_headers/): header add/remove rules
+- [`m_headers`](examples/m_headers/): per-service header rules
+- [`s_static_site`](examples/s_static_site/): serve a static directory
+- [`m_static_site`](examples/m_static_site/): two static sites, one client

@@ -1,5 +1,8 @@
 # Headers
 
+> **Concept:** [Configuration](../../configuration.md).
+
+
 Header add/remove rules exist on both sides of the tunnel and compose:
 
 - **Client `headers:`**, `request` rules edit what the local backend receives, `response` rules what the visitor receives. Also available per `services:` entry (the entry replaces the top-level section entirely when set).

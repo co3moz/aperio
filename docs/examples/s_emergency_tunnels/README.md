@@ -1,5 +1,8 @@
 # Emergency Tunnels
 
+> **Concept:** [Emergency Tunnels](../../emergency-tunnels.md).
+
+
 A break-glass path to services you deliberately do **not** expose (a database, SSH, an internal DNS resolver). The client next to the private service declares them as `tunnels:`, nothing is routed or exposed publicly. When you need one, you bind it from anywhere with a second client, the **same token**, and the declaring client's **id**.
 
 Files in this folder:

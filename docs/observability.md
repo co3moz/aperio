@@ -135,3 +135,9 @@ Selectors (at least one required): `hostname` (a request hostname), `token` (a t
 ## CSV export
 
 `GET /aperio/api/export/traffic.csv?unit=day|week|month|year&count=N` streams the per-period traffic history (requests, success/failed, bytes in/out, average latency) as CSV for the caller's organization, ready for a spreadsheet or a billing pipeline. A one-click *Export traffic CSV* button sits on the self-health card.
+
+## Runnable examples
+
+Copy-and-adapt config pairs for this topic:
+
+- [`s_observability`](examples/s_observability/): metrics, traces, alerts

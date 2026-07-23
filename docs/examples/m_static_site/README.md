@@ -1,5 +1,8 @@
 # Static Sites (multi-service)
 
+> **Concept:** [Configuration](../../configuration.md).
+
+
 One client publishing **two static directories on two hostnames**, the work of two clients in a single process:
 
 - `a.example.com` → the files under `./sites/a`
