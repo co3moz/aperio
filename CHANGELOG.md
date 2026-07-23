@@ -13,6 +13,7 @@ project follows semantic versioning per release tag.
 ### Changed
 
 - **The backend health probe runs once per service, not once per parallel connection.** A service with `connections: N` spawned N independent `target_health`/`wait_for_backend` probes against the backend — N× the health-check load (doubled by the `connections: 2` default), and connections could briefly disagree during a blip. The probe is now a single per-service task writing a shared verdict that every connection reports in its heartbeat.
+- **The Clients / Uptime table is ordered by most-recent activity and hides long-dead services.** Rows were sorted alphabetically by name, so a live service and the leftover record of a one-off connection that errored and was closed sat side by side, and the dead ones lingered for their full 30-day retention. The table now sorts by the last successful ping (most-recently-active first, name as a tiebreak), and a service that has been continuously down for over 24 hours drops out of the view entirely — its record is still kept in the store until the existing GC removes it, so it reappears if it comes back up.
 
 ### Fixed
 

@@ -164,6 +164,14 @@ pub(crate) async fn uptime_handler(
   State(state): State<Arc<AppState>>,
   headers: axum::http::HeaderMap,
 ) -> Json<Vec<UptimeEntry>> {
+  // Hide services that have been continuously down for longer than this: a
+  // one-off/experimental connection that errored and was closed leaves an
+  // uptime record whose `last_seen` (only advanced while up/degraded) stops
+  // advancing, so it drops out of the view once stale, while a service that
+  // was up recently — or is up now — stays. The record itself lingers in the
+  // store until its own 30-day GC.
+  const HIDE_STALE_DOWN_SECS: u64 = 24 * 60 * 60;
+  let now = crate::store::sessions::now_secs();
   let org = crate::auth::effective_org(&state, &headers).await;
   let snapshot = state.uptime.lock().await.snapshot();
   let today = stats::recent_period_keys("day", 1).unwrap_or_default();
@@ -172,8 +180,13 @@ pub(crate) async fn uptime_handler(
 
   let mut entries: Vec<UptimeEntry> = snapshot
     .into_iter()
-    // Only service entities served by the caller's effective organization.
-    .filter(|(_, entity)| entity.org_id == org)
+    // Only service entities served by the caller's effective organization, and
+    // hide long-dead ones (down and not seen for over a day).
+    .filter(|(_, entity)| {
+      entity.org_id == org
+        && !(entity.status == crate::store::uptime::Availability::Down
+          && now.saturating_sub(entity.last_seen) > HIDE_STALE_DOWN_SECS)
+    })
     .map(|(name, entity)| {
       let mut days: Vec<UptimeDay> = last30
         .iter()
@@ -199,7 +212,13 @@ pub(crate) async fn uptime_handler(
       }
     })
     .collect();
-  entries.sort_by(|a, b| a.name.cmp(&b.name));
+  // Most-recently-active first (by last successful ping), then by name — so
+  // live/recently-up services lead and stale ones sink to the bottom.
+  entries.sort_by(|a, b| {
+    b.last_seen
+      .cmp(&a.last_seen)
+      .then_with(|| a.name.cmp(&b.name))
+  });
   Json(entries)
 }
 
