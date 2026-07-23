@@ -78,7 +78,7 @@ Every final outcome (success or failure, with the HTTP status or error, the atte
 
 ### Chat-service formats
 
-Besides the raw JSON above (`generic`, the default), a webhook can be created with a **format** of `slack`, `discord`, or `teams`: point it straight at that service's *incoming webhook* URL and Aperio delivers a ready-made message instead — a Slack mrkdwn `text`, a Discord rich **embed** (a coloured card titled with the event — green for good, red for failures, amber for warnings — carrying each event field), or a Teams MessageCard with the event's fields as facts. No relay or transformation service needed.
+Besides the raw JSON above (`generic`, the default), a webhook can be created with a **format** of `slack`, `discord`, or `teams`: point it straight at that service's *incoming webhook* URL and Aperio delivers a ready-made **coloured card** instead, titled with the event and carrying its fields — a Slack `attachment`, a Discord `embed`, or a Teams `MessageCard`. The card colour encodes the event's nature (green for good/recovered events, red for failures like `client_disconnected`/`alert_triggered`, amber for warnings, neutral otherwise). No relay or transformation service needed.
 
 ### Signed deliveries
 

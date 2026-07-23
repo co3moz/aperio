@@ -9,7 +9,7 @@ pub enum WebhookFormat {
   /// Raw `{event, timestamp, data}` JSON (default).
   #[default]
   Generic,
-  /// Slack incoming-webhook message (`text`, mrkdwn).
+  /// Slack incoming-webhook message: a coloured attachment (card with fields).
   Slack,
   /// Discord webhook message: a rich embed (coloured card with title + fields).
   Discord,
@@ -411,23 +411,21 @@ pub(crate) fn sign_payload(secret: &str, timestamp: u64, body: &str) -> String {
   out.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Renders `data`'s top-level fields as `key: value` bullet lines for the
-/// chat-service formats. Non-object payloads become a single JSON line.
-fn data_lines(data: &serde_json::Value, bullet: &str) -> String {
+/// The event payload's top-level fields as `(key, value)` string pairs, for the
+/// chat-service cards. A non-object payload becomes a single `data` entry.
+/// Empty values become a dash so a card field is never blank (Discord rejects
+/// an empty field value outright).
+fn data_entries(data: &serde_json::Value) -> Vec<(String, String)> {
+  let stringify = |v: &serde_json::Value| -> String {
+    let s = match v {
+      serde_json::Value::String(s) => s.clone(),
+      other => other.to_string(),
+    };
+    if s.is_empty() { "—".to_string() } else { s }
+  };
   match data.as_object() {
-    Some(map) if !map.is_empty() => map
-      .iter()
-      .map(|(k, v)| {
-        let val = match v {
-          serde_json::Value::String(s) => s.clone(),
-          other => other.to_string(),
-        };
-        format!("{bullet}{k}: {val}")
-      })
-      .collect::<Vec<_>>()
-      .join("\n"),
-    Some(_) => String::new(),
-    None => format!("{bullet}{data}"),
+    Some(map) => map.iter().map(|(k, v)| (k.clone(), stringify(v))).collect(),
+    None => vec![("data".to_string(), stringify(data))],
   }
 }
 
@@ -442,23 +440,23 @@ fn pretty_event(event: &str) -> String {
   }
 }
 
-/// Discord embed colour (decimal RGB) encoding an event's nature: green for a
-/// good/recovered state, red for a failure, amber for something needing
-/// attention, and Discord blurple for everything else. New events fall through
-/// to blurple.
-fn discord_color(event: &str) -> u32 {
+/// Card colour (hex RGB, no `#`) encoding an event's nature, shared by every
+/// chat format: green for a good/recovered state, red for a failure, amber for
+/// something needing attention, and a neutral blue for everything else. New
+/// events fall through to neutral.
+fn event_hex(event: &str) -> &'static str {
   match event {
     "client_connected" | "alert_resolved" | "maintenance_off" | "tunnel_created"
-    | "share_created" | "token_created" | "db_backup" | "import_applied" => 0x2ecc71,
+    | "share_created" | "token_created" | "db_backup" | "import_applied" => "2ecc71",
     "client_disconnected"
     | "alert_triggered"
     | "canary_tripped"
     | "token_revoked"
-    | "token_pin_mismatch" => 0xe74c3c,
+    | "token_pin_mismatch" => "e74c3c",
     "client_draining" | "maintenance_on" | "token_expiring" | "token_new_ip" | "org_usage" => {
-      0xf1c40f
+      "f1c40f"
     }
-    _ => 0x5865f2,
+    _ => "5865f2",
   }
 }
 
@@ -479,43 +477,36 @@ pub(crate) fn render_payload(
     })
     .to_string(),
     WebhookFormat::Slack => {
-      let lines = data_lines(data, "• ");
-      let text = if lines.is_empty() {
-        format!("*aperio* — `{event}`")
-      } else {
-        format!("*aperio* — `{event}`\n{lines}")
-      };
-      serde_json::json!({ "text": text }).to_string()
+      // A coloured attachment (the Slack analogue of a Discord embed): a card
+      // whose left bar encodes the event's nature, titled with the event, with
+      // each event field shown as a short attachment field.
+      let fields: Vec<serde_json::Value> = data_entries(data)
+        .into_iter()
+        .map(|(k, v)| serde_json::json!({ "title": k, "value": v, "short": true }))
+        .collect();
+      serde_json::json!({
+        "attachments": [{
+          "color": format!("#{}", event_hex(event)),
+          "title": pretty_event(event),
+          "fields": fields,
+          "footer": "aperio",
+        }],
+      })
+      .to_string()
     }
     WebhookFormat::Discord => {
       // A rich embed rather than a plain-text line: a coloured card titled with
-      // the event, one embed field per event data entry. Discord rejects an
-      // empty field value, so blanks become a dash.
-      let fields: Vec<serde_json::Value> = data
-        .as_object()
-        .map(|map| {
-          map
-            .iter()
-            .map(|(k, v)| {
-              let val = match v {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-              };
-              let val = if val.is_empty() {
-                "—".to_string()
-              } else {
-                val
-              };
-              serde_json::json!({ "name": k, "value": val, "inline": true })
-            })
-            .collect()
-        })
-        .unwrap_or_default();
+      // the event, one embed field per event data entry.
+      let fields: Vec<serde_json::Value> = data_entries(data)
+        .into_iter()
+        .map(|(k, v)| serde_json::json!({ "name": k, "value": v, "inline": true }))
+        .collect();
+      let color = u32::from_str_radix(event_hex(event), 16).unwrap_or(0x5865f2);
       serde_json::json!({
         "username": "aperio",
         "embeds": [{
           "title": pretty_event(event),
-          "color": discord_color(event),
+          "color": color,
           "fields": fields,
           "timestamp": timestamp,
         }],
@@ -523,27 +514,18 @@ pub(crate) fn render_payload(
       .to_string()
     }
     WebhookFormat::Teams => {
-      let facts: Vec<serde_json::Value> = data
-        .as_object()
-        .map(|map| {
-          map
-            .iter()
-            .map(|(k, v)| {
-              let val = match v {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-              };
-              serde_json::json!({ "name": k, "value": val })
-            })
-            .collect()
-        })
-        .unwrap_or_default();
+      // A MessageCard whose theme colour now tracks the event's nature (it was
+      // a fixed green for every event), titled with the event.
+      let facts: Vec<serde_json::Value> = data_entries(data)
+        .into_iter()
+        .map(|(k, v)| serde_json::json!({ "name": k, "value": v }))
+        .collect();
       serde_json::json!({
         "@type": "MessageCard",
         "@context": "https://schema.org/extensions",
-        "themeColor": "84cc16",
+        "themeColor": event_hex(event),
         "summary": format!("aperio: {event}"),
-        "title": format!("aperio — {event}"),
+        "title": pretty_event(event),
         "sections": [{ "facts": facts, "text": timestamp }],
       })
       .to_string()
@@ -554,7 +536,7 @@ pub(crate) fn render_payload(
 /// Background delivery of an event to all subscribed webhooks, with retries.
 /// The default (`generic`) payload shape is
 /// `{"event": "...", "timestamp": "...", "data": {...}}`; the chat formats
-/// (`slack`/`discord`/`teams`) send a ready-made message instead.
+/// (`slack`/`discord`/`teams`) send a ready-made coloured card instead.
 /// Webhooks with a signing secret get `X-Aperio-Timestamp` and
 /// `X-Aperio-Signature: sha256=<hex>` headers (see [`sign_payload`]) over the
 /// exact body sent. Failed attempts are retried per [`retry_schedule`] (5xx,
@@ -691,9 +673,17 @@ mod tests {
       &data,
     ))
     .unwrap();
-    let text = slack["text"].as_str().unwrap();
-    assert!(text.contains("client_connected"), "got: {text}");
-    assert!(text.contains("client_id: abc"), "got: {text}");
+    let att = &slack["attachments"][0];
+    assert_eq!(att["title"], "Client connected");
+    assert_eq!(att["color"], "#2ecc71"); // green for a "connected" event
+    let sfields = att["fields"].as_array().unwrap();
+    assert_eq!(sfields.len(), 2);
+    assert!(
+      sfields
+        .iter()
+        .any(|f| f["title"] == "client_id" && f["value"] == "abc"),
+      "got: {sfields:?}"
+    );
 
     let discord: serde_json::Value = serde_json::from_str(&render_payload(
       WebhookFormat::Discord,
@@ -732,6 +722,8 @@ mod tests {
     ))
     .unwrap();
     assert_eq!(teams["@type"], "MessageCard");
+    assert_eq!(teams["title"], "Client connected");
+    assert_eq!(teams["themeColor"], "2ecc71"); // green, no longer a fixed colour
     let facts = teams["sections"][0]["facts"].as_array().unwrap();
     assert_eq!(facts.len(), 2);
     assert_eq!(facts[0]["name"], "client_id");
