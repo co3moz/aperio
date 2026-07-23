@@ -52,6 +52,9 @@ export interface ClientDetail {
    * failure threshold (re-admitted automatically). The connection stays up. */
   ejected: boolean
   enabled: boolean
+  /** The service opted into caching (`cache: true`) but the server's response
+   * cache is disabled (APERIO_CACHE off), so the opt-in has no effect. */
+  cache_ignored: boolean
   instance_id: string | null
   instance_id_shared: boolean
   /** Process-wide instance group (the client's raw client_id base), shared by

@@ -82,6 +82,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .ejected_until
         .is_some_and(|until| std::time::Instant::now() < until),
       enabled: handle.admin_enabled,
+      cache_ignored: handle.cache && !state.config().cache_enabled,
       instance_id: handle.reported_instance_id.clone(),
       instance_id_shared: handle
         .reported_instance_id

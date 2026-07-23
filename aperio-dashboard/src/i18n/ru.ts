@@ -680,4 +680,6 @@ export const ru: Record<string, string> = {
   'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера — статические перенаправления/ответы и публичные expose-порты — и пунктирные узлы для выданных токену маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента.',
   'ejected': 'исключён',
   'draining': 'завершает работу',
+  'cache off': 'кэш выкл',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует — включите кэш сервера или уберите флаг.',
 }

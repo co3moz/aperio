@@ -50,6 +50,7 @@ fn base_handle() -> ClientHandle {
     allowed_ips_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
+    cache_ignored_warned: false,
     resilience: false,
     max_request_body: None,
     response_timeout: None,

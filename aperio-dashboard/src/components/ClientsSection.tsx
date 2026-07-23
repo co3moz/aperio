@@ -510,6 +510,14 @@ export function ClientsSection({
                             {t('SHARED ID')}
                           </HintBadge>
                         )}
+                        {c.cache_ignored && (
+                          <HintBadge
+                            tint="amber"
+                            hint={t('This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag')}
+                          >
+                            {t('cache off')}
+                          </HintBadge>
+                        )}
                       </div>
                       {c.token_name && (
                         <span className="text-xs text-muted-foreground">🔑 {c.token_name}</span>

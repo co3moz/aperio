@@ -89,6 +89,9 @@ pub(crate) struct ClientDetail {
   pub(crate) ejected: bool,
   /// Dashboard kill switch state (false = excluded from routing).
   pub(crate) enabled: bool,
+  /// True when the service opted into caching (`cache: true`) but the server's
+  /// response cache is disabled (APERIO_CACHE off), so the opt-in does nothing.
+  pub(crate) cache_ignored: bool,
   /// Client-process instance id self-reported via Ping (`--client-id`).
   pub(crate) instance_id: Option<String>,
   /// True when another live connection reports the same instance id — a
@@ -636,6 +639,9 @@ pub(crate) struct ClientHandle {
   /// The client opted its service into the server-side response cache
   /// (`cache: true` via Ping). Effective only with APERIO_CACHE on.
   pub(crate) cache: bool,
+  /// Ensures the "cache requested but the server cache is disabled" warning
+  /// logs once per connection, not on every heartbeat.
+  pub(crate) cache_ignored_warned: bool,
   /// The client asked for serve-stale resilience: cached responses for its
   /// routes stay servable (marked) while no healthy client is connected.
   pub(crate) resilience: bool,

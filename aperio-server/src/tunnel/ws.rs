@@ -347,6 +347,7 @@ pub(crate) async fn handle_socket(
         allowed_ips_invalid_warned: false,
         tunnels: Vec::new(),
         cache: false,
+        cache_ignored_warned: false,
         resilience: false,
         max_request_body: None,
         response_timeout: None,
@@ -787,6 +788,17 @@ pub(crate) async fn handle_socket(
                         client_id
                       );
                     }
+                  }
+                  // The service asked to be cached but the server's cache is
+                  // off, so the opt-in silently does nothing — warn once so the
+                  // operator can enable APERIO_CACHE (or the owner can drop the
+                  // flag). Surfaced in the dashboard as a badge too.
+                  if cache && !state.config().cache_enabled && !handle.cache_ignored_warned {
+                    handle.cache_ignored_warned = true;
+                    warn!(
+                      "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
+                      client_id
+                    );
                   }
                   if handle.max_request_body != max_request_body {
                     handle.max_request_body = max_request_body;

@@ -684,4 +684,6 @@ export const tr: Record<string, string> = {
   'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi — statik yönlendirmeler/yanıtlar ve genel expose portları — ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok.',
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
+  'cache off': 'önbellek kapalı',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok — sunucu önbelleğini aç veya bayrağı kaldır.',
 }

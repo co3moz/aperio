@@ -678,4 +678,6 @@ export const ja: Record<string, string> = {
   'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング — 静的なリダイレクト/レスポンスと公開 expose ポート — および、どのクライアントも提供していないトークン付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。',
   'ejected': '除外',
   'draining': 'ドレイン中',
+  'cache off': 'キャッシュ無効',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
 }

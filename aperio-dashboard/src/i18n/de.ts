@@ -682,4 +682,6 @@ export const de: Record<string, string> = {
   'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient.',
   'ejected': 'ausgeschlossen',
   'draining': 'wird geleert',
+  'cache off': 'Cache aus',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
 }

@@ -661,4 +661,6 @@ export const zh: Record<string, string> = {
   'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率）、服务器自身的无客户端路由——静态重定向/响应和公共 expose 端口——以及为无客户端提供服务的令牌授权路由绘制的虚线节点。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用、已剔除或无客户端提供服务。',
   'ejected': '已剔除',
   'draining': '排空中',
+  'cache off': '缓存关闭',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': '此服务启用了缓存（cache: true），但服务器响应缓存已禁用（APERIO_CACHE off），因此该选项无效——请启用服务器缓存或移除该标志。',
 }
