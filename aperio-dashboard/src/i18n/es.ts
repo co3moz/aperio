@@ -675,6 +675,7 @@ export const es: Record<string, string> = {
   'Table': 'Tabla',
   'Console': 'Consola',
   'Requests in real time — table or console': 'Solicitudes en tiempo real: tabla o consola',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Cómo cada ruta llega a su destino: clientes de túnel y sus backends (con tasas de solicitudes en vivo), más el enrutamiento sin cliente que gestiona el servidor: redirecciones/respuestas estáticas y puertos expose públicos. Verde = correcto, ámbar = drenando o sondas de backend fallando, rojo = con fallo, deshabilitado o sin cliente que lo sirva.',
   'no client': 'sin cliente',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Cómo cada ruta llega a su destino: clientes de túnel y sus backends (con tasas de solicitudes en vivo), el enrutamiento sin cliente del servidor —redirecciones/respuestas estáticas y puertos expose públicos— y nodos discontinuos para rutas concedidas a un token que ningún cliente sirve. Verde = correcto, ámbar = drenando o sondas de backend fallando, rojo = con fallo, deshabilitado o sin cliente que lo sirva.',
+  'offline': 'desconectado',
 }

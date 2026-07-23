@@ -675,6 +675,7 @@ export const ru: Record<string, string> = {
   'Table': 'Таблица',
   'Console': 'Консоль',
   'Requests in real time — table or console': 'Запросы в реальном времени — таблица или консоль',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), а также бесклиентная маршрутизация самого сервера — статические перенаправления/ответы и публичные expose-порты. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён или нет обслуживающего клиента.',
   'no client': 'нет клиента',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера — статические перенаправления/ответы и публичные expose-порты — и пунктирные узлы для выданных токену маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён или нет обслуживающего клиента.',
+  'offline': 'офлайн',
 }

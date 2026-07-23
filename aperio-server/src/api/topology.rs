@@ -44,6 +44,18 @@ pub(crate) struct TopoExpose {
   pub(crate) served_by: Option<String>,
 }
 
+/// A hostname/path a token is permitted to bind, but which no live client
+/// currently serves — a service that is declared (granted) yet offline.
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct TopoOffline {
+  /// The granted bind (hostname or path prefix).
+  pub(crate) bind: String,
+  /// Whether `bind` is a `hostname` or a `path`.
+  pub(crate) kind: String,
+  /// Name of a token that grants this bind.
+  pub(crate) token_name: String,
+}
+
 /// The routing map: live tunnel clients plus the client-less routing the server
 /// owns (static routes and public expose ports).
 #[derive(Serialize, utoipa::ToSchema)]
@@ -54,6 +66,8 @@ pub(crate) struct TopologyGraph {
   pub(crate) routes: Vec<TopoStaticRoute>,
   /// Public TCP expose ports (master organization only).
   pub(crate) exposes: Vec<TopoExpose>,
+  /// Token-granted binds no live client currently serves (declared but offline).
+  pub(crate) offline: Vec<TopoOffline>,
 }
 
 /// Handler for the routing-map view.
@@ -134,9 +148,52 @@ pub(crate) async fn topology_handler(
     (Vec::new(), Vec::new())
   };
 
+  // Declared-but-offline: hostnames/paths a token in this org may bind but that
+  // no live client currently serves. Scoped per-org like the client list.
+  let mut served: std::collections::HashSet<String> = std::collections::HashSet::new();
+  for c in &clients {
+    served.extend(c.hostname_binds.iter().cloned());
+    if let Some(h) = &c.override_hostname_bind {
+      served.insert(h.clone());
+    }
+    if let Some(p) = &c.path_bind {
+      served.insert(p.clone());
+    }
+    if let Some(p) = &c.override_path_bind {
+      served.insert(p.clone());
+    }
+  }
+  let mut offline: Vec<TopoOffline> = Vec::new();
+  let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+  {
+    let store = state.token_store.lock().await;
+    for tok in store
+      .list()
+      .iter()
+      .filter(|t| t.org_id == org && !t.is_expired())
+    {
+      for (binds, kind) in [(&tok.hostnames, "hostname"), (&tok.paths, "path")] {
+        for b in binds {
+          // "*"/empty are wildcard grants, not a concrete expected service.
+          if b == "*" || b.is_empty() || served.contains(b) {
+            continue;
+          }
+          if seen.insert(format!("{kind}:{b}")) {
+            offline.push(TopoOffline {
+              bind: b.clone(),
+              kind: kind.to_string(),
+              token_name: tok.name.clone(),
+            });
+          }
+        }
+      }
+    }
+  }
+
   Json(TopologyGraph {
     clients,
     routes,
     exposes,
+    offline,
   })
 }

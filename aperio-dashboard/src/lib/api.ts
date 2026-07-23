@@ -456,12 +456,22 @@ export interface TopoExpose {
   served_by: string | null
 }
 
+/** A hostname/path a token may bind but that no live client currently serves —
+ * declared (granted) yet offline. */
+export interface TopoOffline {
+  bind: string
+  kind: 'hostname' | 'path'
+  token_name: string
+}
+
 /** The routing map: live tunnel clients plus the client-less routing the server
- * owns (static routes + expose ports; master organization only). */
+ * owns (static routes + expose ports; master organization only) and the
+ * token-granted binds no client currently serves. */
 export interface TopologyGraph {
   clients: ClientDetail[]
   routes: TopoStaticRoute[]
   exposes: TopoExpose[]
+  offline: TopoOffline[]
 }
 
 export const api = {

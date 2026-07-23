@@ -74,6 +74,7 @@ assert_contains "$TOPO" '"clients":' "topology returns the live clients array"
 assert_contains "$TOPO" "\"$HOSTNAME_BIND\"" "topology shows the connected client's hostname bind"
 assert_contains "$TOPO" '"routes":' "topology includes the client-less static routes array"
 assert_contains "$TOPO" '"exposes":' "topology includes the public expose ports array"
+assert_contains "$TOPO" '"offline":' "topology includes the declared-but-offline binds array"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/topology")"
 assert_status 302 "$CODE" "topology without a session redirects to login"
 

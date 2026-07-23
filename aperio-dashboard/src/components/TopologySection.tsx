@@ -3,7 +3,13 @@ import { Card } from '@/components/ui/card'
 import { SectionHeader } from './shared'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
-import { api, type ClientDetail, type TopoExpose, type TopoStaticRoute } from '@/lib/api'
+import {
+  api,
+  type ClientDetail,
+  type TopoExpose,
+  type TopoOffline,
+  type TopoStaticRoute,
+} from '@/lib/api'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 
 /** Node grid geometry (SVG user units). */
@@ -21,15 +27,18 @@ interface RouteNode {
   key: string
   label: string
   /** `client`: a live tunnel client serves it; `static`: a client-less
-   *  redirect/respond; `expose`: a public TCP port. */
-  kind: 'client' | 'static' | 'expose'
+   *  redirect/respond; `expose`: a public TCP port; `offline`: a token-granted
+   *  bind no client currently serves. */
+  kind: 'client' | 'static' | 'expose' | 'offline'
   /** Group keys of the client(s) this route reaches (empty for a self-contained
-   *  static route or an unserved expose port). */
+   *  static route, an unserved expose port, or an offline bind). */
   clientKeys: string[]
   /** Secondary line under the label (the action for static/expose nodes). */
   sub?: string
   mono?: boolean
   tint?: string
+  /** Dashed + faded, for a declared-but-offline route. */
+  dim?: boolean
 }
 
 /** Routes a client serves: its hostname binds and/or path bind; a client
@@ -138,6 +147,7 @@ export function TopologySection() {
   const clients = useMemo(() => data?.clients ?? [], [data])
   const staticRoutes: TopoStaticRoute[] = useMemo(() => data?.routes ?? [], [data])
   const exposes: TopoExpose[] = useMemo(() => data?.exposes ?? [], [data])
+  const offline: TopoOffline[] = useMemo(() => data?.offline ?? [], [data])
   const rates = useClientRates(clients)
 
   // One node per (process, service): a client's parallel connections collapse
@@ -200,8 +210,22 @@ export function TopologySection() {
       })
     })
 
+    // Declared-but-offline: token-granted binds no client currently serves.
+    offline.forEach((o, i) => {
+      nodes.push({
+        key: `offline:${o.kind}:${o.bind}:${i}`,
+        label: o.bind,
+        kind: 'offline',
+        clientKeys: [],
+        sub: `${o.token_name} · ${t('offline')}`,
+        mono: true,
+        tint: 'var(--muted-foreground)',
+        dim: true,
+      })
+    })
+
     return nodes
-  }, [groups, staticRoutes, exposes, groupKeyByClientId, t])
+  }, [groups, staticRoutes, exposes, offline, groupKeyByClientId, t])
 
   const rows = Math.max(routeNodes.length, groups.length, 1)
   const height = TOP_PAD + rows * ROW_H + 8
@@ -211,13 +235,17 @@ export function TopologySection() {
   const routeY = new Map(routeNodes.map((r, i) => [r.key, colY(routeNodes.length, i)]))
   const clientY = new Map(groups.map((g, i) => [g.key, colY(groups.length, i)]))
 
-  const empty = clients.length === 0 && staticRoutes.length === 0 && exposes.length === 0
+  const empty =
+    clients.length === 0 &&
+    staticRoutes.length === 0 &&
+    exposes.length === 0 &&
+    offline.length === 0
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Topology')}
-        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.')}
+        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, or no client serving.')}
       />
       <Card className="overflow-x-auto p-4">
         {empty ? (
@@ -301,6 +329,7 @@ export function TopologySection() {
                 sub={r.sub}
                 tint={r.tint}
                 mono={r.mono}
+                dim={r.dim}
               />
             ))}
             {/* tunnel clients (col 1) */}
