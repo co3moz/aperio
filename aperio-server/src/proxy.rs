@@ -733,6 +733,10 @@ async fn proxy_http_request(
     }
   }
 
+  // A connected client is available (or was never waited for). Trace boundary
+  // for the pre-dispatch sub-phases (no-op unless OTLP is on).
+  let client_ready_at = Instant::now();
+
   // 4. Limit concurrency to prevent resource starvation / DoS
   let _permit = match state.try_acquire_request_slot() {
     Some(p) => p,
@@ -754,6 +758,9 @@ async fn proxy_http_request(
         .into_response();
     }
   };
+
+  // Admitted past the server-wide concurrency limit.
+  let admitted_at = Instant::now();
 
   // 4. Get an active client, preferring hostname- and path-bound matches
   // with per-group round-robin.
@@ -917,6 +924,8 @@ async fn proxy_http_request(
 
   // Attribute the request span to the selected client (initial pick; failover
   // may re-dispatch to another client below).
+  // A serving client is chosen (routing done).
+  let selected_at = Instant::now();
   tracing::Span::current().record("aperio.client.id", selected.id.as_str());
 
   // Per-token rate limit / daily quota of the serving token (dynamic tokens
@@ -1701,12 +1710,18 @@ async fn proxy_http_request(
             captured.pop_front();
           }
           let us = |at: Instant| at.duration_since(start_time).as_micros() as u64;
-          let timeline = crate::state::RequestTimeline::assemble(
+          let mut timeline = crate::state::RequestTimeline::assemble(
             us(dispatched_at),
             us(response_received_at),
             start_time.elapsed().as_micros() as u64,
             tunnel_res.timings,
           );
+          // Real server-side sub-boundaries of the pre-dispatch phase, for the
+          // trace waterfall (queue & routing → await client / admission /
+          // routing / dispatch prep).
+          timeline.client_ready_us = Some(us(client_ready_at));
+          timeline.admitted_us = Some(us(admitted_at));
+          timeline.selected_us = Some(us(selected_at));
           state.stage_stats.lock().await.record(
             request_host.as_deref(),
             selected.org_id.as_deref(),

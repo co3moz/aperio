@@ -316,7 +316,11 @@ pub(crate) fn record_status(span: &tracing::Span, status: u16) {
 ///
 /// ```text
 /// proxy.request
-/// ├─ queue & routing        arrival → dispatched      (auth, wait-for-client, admission, routing)
+/// ├─ queue & routing        arrival → dispatched      (server-side, before the request leaves)
+/// │  ├─ await client        arrival → client ready    (wait for a connected client)
+/// │  ├─ admission           → admitted                (server-wide concurrency slot)
+/// │  ├─ routing             → selected                (WAF, route limit, client pick)
+/// │  └─ dispatch prep       → dispatched              (token check, header/trace build, send)
 /// ├─ tunnel round-trip      dispatched → response     (out over the tunnel to the client, and back)
 /// │  ├─ tunnel → client     ┐
 /// │  ├─ client → backend    │  buffered path only; nested detail of what the
@@ -363,13 +367,38 @@ pub(crate) fn emit_phase_spans(
     };
 
   // 1. Real: the server received the request and processed it up to dispatch.
-  leaf(
-    "queue & routing",
-    0,
-    timeline.dispatched_us,
-    &parent_cx,
-    false,
-  );
+  //    Nest the measured server-side sub-phases when they were captured.
+  if let (Some(ready), Some(admitted), Some(selected)) = (
+    timeline.client_ready_us,
+    timeline.admitted_us,
+    timeline.selected_us,
+  ) {
+    let qb = tracer
+      .span_builder("queue & routing")
+      .with_kind(SpanKind::Internal)
+      .with_start_time(at(0));
+    let qspan = tracer.build_with_context(qb, &parent_cx);
+    let qcx = parent_cx.with_span(qspan);
+    leaf("await client", 0, ready, &qcx, false);
+    leaf("admission", ready, admitted, &qcx, false);
+    leaf("routing", admitted, selected, &qcx, false);
+    leaf(
+      "dispatch prep",
+      selected,
+      timeline.dispatched_us,
+      &qcx,
+      false,
+    );
+    qcx.span().end_with_timestamp(at(timeline.dispatched_us));
+  } else {
+    leaf(
+      "queue & routing",
+      0,
+      timeline.dispatched_us,
+      &parent_cx,
+      false,
+    );
+  }
 
   // 2. Real: the request went out over the tunnel to the client and the server
   //    waited for the response. The estimated client/backend breakdown (only on

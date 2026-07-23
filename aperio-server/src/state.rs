@@ -849,6 +849,13 @@ pub(crate) struct TunnelResponse {
 /// directions — clocks are never mixed, and the estimate is flagged.
 #[derive(Serialize, Clone, Copy)]
 pub(crate) struct RequestTimeline {
+  /// A connected client was available (end of any wait-for-client). Measured;
+  /// `None` when not captured. Sub-boundary of the pre-dispatch phase.
+  pub(crate) client_ready_us: Option<u64>,
+  /// Admitted past the server-wide concurrency limit. Measured.
+  pub(crate) admitted_us: Option<u64>,
+  /// A serving client was selected (routing done). Measured.
+  pub(crate) selected_us: Option<u64>,
   /// The request left the server into the tunnel (queueing, routing, and
   /// admission all happen before this).
   pub(crate) dispatched_us: u64,
@@ -894,6 +901,9 @@ impl RequestTimeline {
       )
     });
     RequestTimeline {
+      client_ready_us: None,
+      admitted_us: None,
+      selected_us: None,
       dispatched_us,
       client_received_us: anchored.map(|a| a.0),
       backend_sent_us: anchored.map(|a| a.1),

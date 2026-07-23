@@ -49,6 +49,9 @@ fn capture(id: &str, headers: Vec<(&str, &str)>) -> CapturedRequest {
 /// A minimal timeline so `StageStats::record` inserts a route entry.
 fn timeline() -> RequestTimeline {
   RequestTimeline {
+    client_ready_us: None,
+    admitted_us: None,
+    selected_us: None,
     dispatched_us: 0,
     client_received_us: None,
     backend_sent_us: None,
