@@ -1,6 +1,6 @@
 # Emergency Tunnels (bind-tunnels)
 
-An emergency fallback path for reaching services you deliberately do **not** expose: a database, an internal admin port, an SSH daemon. A running client declares them as *tunnels*; nothing about them is routed or exposed publicly. When you need one — a broken deployment, a dead VPN, a 3 a.m. incident — you bind it from anywhere with a second client, the **same token**, and that client's **id**.
+An emergency fallback path for reaching services you deliberately do **not** expose: a database, an internal admin port, an SSH daemon. A running client declares them as *tunnels*; nothing about them is routed or exposed publicly. When you need one, a broken deployment, a dead VPN, a 3 a.m. incident, you bind it from anywhere with a second client, the **same token**, and that client's **id**.
 
 This is not designed as a SaaS building block or a high-load proxy. It is a break-glass tool.
 
@@ -12,7 +12,7 @@ On the machine next to the private service, the client's `aperio.yaml` gains a `
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
-target: http://localhost:3000     # optional — a client may declare only tunnels
+target: http://localhost:3000     # optional, a client may declare only tunnels
 tunnels:
   - target: 127.0.0.1:27017       # MongoDB, never exposed
     protocol: tcp                 # tcp (default) or udp
@@ -22,7 +22,7 @@ tunnels:
     idle_timeout: 10              # udp only: relay expiry in seconds (default 60)
 ```
 
-The client announces the list to the server via its heartbeat and logs its **client id** at startup (`- Client ID: ...`). Make the id survive restarts with `--client-id <uuid>` / `APERIO_CLIENT_ID` / yaml `client_id` — otherwise a new random UUID is generated per run and your bind configuration goes stale. A config with only `tunnels:` (no `target`, no `services:`) is valid: the connection then exists purely for emergencies.
+The client announces the list to the server via its heartbeat and logs its **client id** at startup (`- Client ID: ...`). Make the id survive restarts with `--client-id <uuid>` / `APERIO_CLIENT_ID` / yaml `client_id`, otherwise a new random UUID is generated per run and your bind configuration goes stale. A config with only `tunnels:` (no `target`, no `services:`) is valid: the connection then exists purely for emergencies.
 
 ## Binding tunnels
 
@@ -34,7 +34,7 @@ aperio-client --bind-tunnels <client-id> \
   --server-token <the SAME token that client connected with>
 ```
 
-Every declared tunnel becomes a local `127.0.0.1` listener — by default on the **same port** as the declared target (`127.0.0.1:27017` above listens on local port 27017). Connections are relayed through the server to the declaring client, which dials its local target:
+Every declared tunnel becomes a local `127.0.0.1` listener, by default on the **same port** as the declared target (`127.0.0.1:27017` above listens on local port 27017). Connections are relayed through the server to the declaring client, which dials its local target:
 
 ```
 mongosh → 127.0.0.1:27017 → aperio-server → declaring client → 127.0.0.1:27017
@@ -56,20 +56,20 @@ bind-tunnels:
     token: apr_client_b_token
 ```
 
-- If two bound clients would claim the same local port, neither listener is opened and the error names both — define an `override` rule for one of them.
+- If two bound clients would claim the same local port, neither listener is opened and the error names both, define an `override` rule for one of them.
 - If a local port is already taken by something else, that bind fails and is skipped (the rest keep working).
 - A peer that is not connected yet is retried every 15 seconds, so the binder can be started first.
 
 ## The rules
 
 - **Same token.** The binder must present exactly the token the declaring client connected with. A different valid token gets `403`. The reasoning: whoever operates that client already holds its token; nothing new is granted.
-- **Explicit client id, always.** Even the master token must name a client id — there is no "list all tunnels" call. (The master token may bind any client's tunnels; dynamic tokens only clients using the very same token.)
-- **The declaring client dials only what it declared.** A `TcpOpen`/`UdpOpen` for an address outside its own `tunnels:` list is refused — the tunnel analogue of the HTTP SSRF guard. A compromised server cannot turn the client into a generic port scanner.
+- **Explicit client id, always.** Even the master token must name a client id, there is no "list all tunnels" call. (The master token may bind any client's tunnels; dynamic tokens only clients using the very same token.)
+- **The declaring client dials only what it declared.** A `TcpOpen`/`UdpOpen` for an address outside its own `tunnels:` list is refused, the tunnel analogue of the HTTP SSRF guard. A compromised server cannot turn the client into a generic port scanner.
 - Streams are audited on the server (`tcp_stream_opened` / `udp_stream_opened`, with client and target).
 
 ## End-to-end encryption
 
-By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange as the first frame of every stream and seal everything after it with ChaCha20-Poly1305 — the server relays only ciphertext.
+By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange as the first frame of every stream and seal everything after it with ChaCha20-Poly1305, the server relays only ciphertext.
 
 ```yaml
 # Declaring side (aperio.yaml)
@@ -84,15 +84,15 @@ bind-tunnels:
     psk: a-long-random-string     # must match the declaring side
 ```
 
-A passive server learns nothing either way. An **active** server could man-in-the-middle the plain key exchange, which is what the optional `psk` closes: it is mixed into the key derivation on both ends (never transmitted — note it is stripped from the tunnel announcement), so a MITM without it derives mismatched keys and the very first sealed frame fails to open; the stream dies instead of leaking data. Tampered, reordered, or replayed frames also fail closed. `encrypt` is TCP-only; the binder discovers the flag via tunnel discovery, so only the PSK needs out-of-band coordination.
+A passive server learns nothing either way. An **active** server could man-in-the-middle the plain key exchange, which is what the optional `psk` closes: it is mixed into the key derivation on both ends (never transmitted, note it is stripped from the tunnel announcement), so a MITM without it derives mismatched keys and the very first sealed frame fails to open; the stream dies instead of leaking data. Tampered, reordered, or replayed frames also fail closed. `encrypt` is TCP-only; the binder discovers the flag via tunnel discovery, so only the PSK needs out-of-band coordination.
 
 ## UDP tunnels
 
-A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer — enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic in either direction expires after 60 seconds by default — tune it per tunnel with `idle_timeout: <seconds>` on the declaration (e.g. `300` for long-lived WireGuard sessions, `10` for DNS; the binder picks the value up automatically via tunnel discovery, and the next datagram after an expiry opens a fresh relay); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput — it's a break-glass path, same as TCP.
+A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer, enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic in either direction expires after 60 seconds by default, tune it per tunnel with `idle_timeout: <seconds>` on the declaration (e.g. `300` for long-lived WireGuard sessions, `10` for DNS; the binder picks the value up automatically via tunnel discovery, and the next datagram after an expiry opens a fresh relay); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput, it's a break-glass path, same as TCP.
 
 ## Public expose (experimental)
 
-Emergency tunnels normally need a binder peer. An `expose:` entry in the server's `aperio-server.yaml` cuts the binder out: the server itself opens a raw public TCP port and relays every accepted connection to the declared tunnel of the client presenting the matching key — useful for exposing SSH or a game server without running `--bind-tunnels` anywhere.
+Emergency tunnels normally need a binder peer. An `expose:` entry in the server's `aperio-server.yaml` cuts the binder out: the server itself opens a raw public TCP port and relays every accepted connection to the declared tunnel of the client presenting the matching key, useful for exposing SSH or a game server without running `--bind-tunnels` anywhere.
 
 ```yaml
 # aperio-server.yaml
@@ -109,7 +109,7 @@ tunnels:
 
 The key is a shared secret between the two config files (minimum 8 characters; it is the only thing gating the port, so make it long and random). It travels only inside the tunnel handshake and is never revealed to `--bind-tunnels` consumers via tunnel discovery.
 
-Experimental semantics, on purpose: the connection goes to the **first** healthy client declaring the key (like client-id binding — no load balancing), TCP only, and `encrypt: true` tunnels are excluded (a raw public socket cannot run the client-side handshake). Remember the exposed port is **public**: anyone who can reach it talks straight to your backend, so keep the real authentication (SSH keys, database passwords) on the backend itself.
+Experimental semantics, on purpose: the connection goes to the **first** healthy client declaring the key (like client-id binding, no load balancing), TCP only, and `encrypt: true` tunnels are excluded (a raw public socket cannot run the client-side handshake). Remember the exposed port is **public**: anyone who can reach it talks straight to your backend, so keep the real authentication (SSH keys, database passwords) on the backend itself.
 
 ## Limitations
 

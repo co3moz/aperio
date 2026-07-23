@@ -1,6 +1,6 @@
 # Ephemeral Tunnels (CI & Preview Environments)
 
-Ephemeral tunnels turn Aperio into a preview-environment backend: one API call mints a **short-lived, hostname-scoped token**, a client connects with it, and the hostname goes live — ideal for per-PR previews.
+Ephemeral tunnels turn Aperio into a preview-environment backend: one API call mints a **short-lived, hostname-scoped token**, a client connects with it, and the hostname goes live, ideal for per-PR previews.
 
 ## The API
 
@@ -16,10 +16,10 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 ```
 
 - Omit `hostname` to get a **random subdomain** (requires `APERIO_RANDOM_SUBDOMAIN` (yaml `random_subdomain`) on the server).
-- `ttl_seconds` defaults to 1 hour and is capped at 7 days — the TTL is the safety net if cleanup never runs.
+- `ttl_seconds` defaults to 1 hour and is capped at 7 days, the TTL is the safety net if cleanup never runs.
 - `allowed_ips` restricts which source IPs may connect with the minted token.
 - The token's hostname is **auto-bound** on connect: run the client with just the server URL, the token, and the target.
-- `DELETE /aperio/api/tunnels/:id` revokes the token (same auth) — call it from your CI cleanup step.
+- `DELETE /aperio/api/tunnels/:id` revokes the token (same auth), call it from your CI cleanup step.
 
 Provisioning appears in the audit log and is delivered to webhooks as `tunnel_created` / `tunnel_deleted`.
 
@@ -44,4 +44,4 @@ See the [action's README](../aperio-tunnel-action/README.md) for all inputs and 
 
 ## Keeping previews out of search engines
 
-Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked — protect those with the visitor password or OIDC if they should stay private.
+Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked, protect those with the visitor password or OIDC if they should stay private.

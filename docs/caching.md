@@ -2,7 +2,7 @@
 
 Aperio can answer repeated `GET` requests from an in-memory cache on the
 **server**, instead of forwarding every one down the tunnel to your client and
-backend. On a hot, cacheable URL this removes the tunnel round-trip entirely —
+backend. On a hot, cacheable URL this removes the tunnel round-trip entirely,
 lower latency for visitors and far less load on the backend.
 
 Caching is **off by default** and strictly opt-in on both sides.
@@ -11,16 +11,16 @@ Caching is **off by default** and strictly opt-in on both sides.
 
 A response is only cached when three independent conditions all agree:
 
-1. **The server operator enabled the cache** — `cache: true` in
+1. **The server operator enabled the cache**, `cache: true` in
    `aperio-server.yaml` (env `APERIO_CACHE=1`; the dashboard's live settings
    persist it as a `cache_enabled` override). This provisions the shared
    in-memory cache and its memory budget.
-2. **The service owner opted the service in** — `cache: true` in the client
+2. **The service owner opted the service in**, `cache: true` in the client
    config (per `services:` entry, or top-level, or `APERIO_CACHE=1` on the
    client). Only the service owner knows whether *their* responses are safe to
    cache, so this consent lives with the client and is announced over the
    tunnel.
-3. **The response says it is cacheable** — the cache is strictly
+3. **The response says it is cacheable**, the cache is strictly
    `Cache-Control`-driven (see below).
 
 This separation is deliberate: the operator provides the capability, the service
@@ -46,7 +46,7 @@ they advertise:
 - Only **credential-less plain `GET`s** are answered from the cache (a request
   carrying `Authorization`/cookies bypasses it).
 
-Nothing is cached implicitly — if your backend never sends `Cache-Control`,
+Nothing is cached implicitly, if your backend never sends `Cache-Control`,
 nothing is stored, no matter the flags.
 
 ## What you get on a hit
@@ -56,16 +56,16 @@ nothing is stored, no matter the flags.
   a matching `If-None-Match` is answered `304 Not Modified` at the edge with no
   tunnel round-trip.
 - **Single-flight**: concurrent identical cacheable `GET`s collapse into one
-  upstream fetch — followers wait for the leader and answer from the freshly
+  upstream fetch, followers wait for the leader and answer from the freshly
   stored entry, so expiry on a hot URL cannot stampede the backend.
 - **`stale-while-revalidate` (RFC 5861)**: a response advertising
   `stale-while-revalidate=N` keeps serving for `N` seconds past expiry (marked
-  `x-aperio-stale`) while one background revalidation refreshes it — visitors
+  `x-aperio-stale`) while one background revalidation refreshes it, visitors
   never wait on the refresh.
 - **`Range` requests**: single-range requests (video scrubbing, resumable
-  downloads) are sliced from the stored full body at the edge — `206 Partial
+  downloads) are sliced from the stored full body at the edge, `206 Partial
   Content` with `Accept-Ranges`/`Content-Range`, `416` when out of range,
-  honoring `If-Range` — without re-traversing the tunnel.
+  honoring `If-Range`, without re-traversing the tunnel.
 - **Purge**: `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`
   and/or `path_prefix` (empty body = the whole cache) for immediate
   invalidation after a deploy.

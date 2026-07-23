@@ -2,7 +2,7 @@
 
 Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Prometheus metrics
 
@@ -37,13 +37,13 @@ APERIO_OTEL_SERVICE_NAME=aperio-server            # optional, defaults to "aperi
 
 The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
 
-**Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace — the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
+**Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace, the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
 
 > **Note:** enabling the OTLP exporter compiles `aws-lc-sys`/rustls into the build, which needs a C toolchain (and CMake) at build time. Prebuilt release binaries already include it.
 
 ## Alerting
 
-Two threshold rules turn the webhook pipeline into a simple pager — point a Slack/Discord/Teams webhook at the `alert_triggered` event:
+Two threshold rules turn the webhook pipeline into a simple pager, point a Slack/Discord/Teams webhook at the `alert_triggered` event:
 
 ```bash
 APERIO_ALERT_ERROR_RATE=5        # alert when ≥5% of proxied requests fail (5xx)…
@@ -52,19 +52,19 @@ APERIO_ALERT_MIN_REQUESTS=20     # quiet windows below 20 requests never alert (
 APERIO_ALERT_CLIENT_DOWN=120     # alert when a known service stays down for 2 minutes
 ```
 
-Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears — the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.
+Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears, the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.
 
 ## Access log
 
-Every proxied request is emitted as a structured `aperio_access` tracing event on stdout — JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL` — ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
+Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
 
 ## Audit log
 
-Administrative and security events — logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams — are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
+Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
 
 ## Webhooks
 
-Define webhooks from the dashboard (name, URL, subscribed events — `*` for all). A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
+Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
 
 ```json
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
@@ -74,17 +74,17 @@ Available events: `client_connected`, `client_disconnected`, `client_draining`, 
 
 ### Delivery reliability & the delivery log
 
-A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff** — by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried.
+A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried.
 
-Every final outcome (success or failure, with the HTTP status or error, the attempt count, and the exact payload sent) lands in the **delivery log**: the *Recent deliveries* table on the dashboard's Webhooks page, or `GET /aperio/api/webhooks/deliveries` (`?webhook_id=` to filter). The last 500 outcomes are kept in `aperio.db`. Any logged delivery can be **redelivered** — the same payload is re-sent to the webhook's current URL with a fresh signature and the normal retry policy (`POST /aperio/api/webhooks/deliveries/{id}/redeliver`, or the *Redeliver* button), and the outcome is logged as a new row.
+Every final outcome (success or failure, with the HTTP status or error, the attempt count, and the exact payload sent) lands in the **delivery log**: the *Recent deliveries* table on the dashboard's Webhooks page, or `GET /aperio/api/webhooks/deliveries` (`?webhook_id=` to filter). The last 500 outcomes are kept in `aperio.db`. Any logged delivery can be **redelivered**, the same payload is re-sent to the webhook's current URL with a fresh signature and the normal retry policy (`POST /aperio/api/webhooks/deliveries/{id}/redeliver`, or the *Redeliver* button), and the outcome is logged as a new row.
 
 ### Chat-service formats
 
-Besides the raw JSON above (`generic`, the default), a webhook can be created with a **format** of `slack`, `discord`, or `teams`: point it straight at that service's *incoming webhook* URL and Aperio delivers a ready-made **coloured card** instead, titled with the event and carrying its fields — a Slack `attachment`, a Discord `embed`, or a Teams `MessageCard`. The card colour encodes the event's nature (green for good/recovered events, red for failures like `client_disconnected`/`alert_triggered`, amber for warnings, neutral otherwise). No relay or transformation service needed.
+Besides the raw JSON above (`generic`, the default), a webhook can be created with a **format** of `slack`, `discord`, or `teams`: point it straight at that service's *incoming webhook* URL and Aperio delivers a ready-made **coloured card** instead, titled with the event and carrying its fields, a Slack `attachment`, a Discord `embed`, or a Teams `MessageCard`. The card colour encodes the event's nature (green for good/recovered events, red for failures like `client_disconnected`/`alert_triggered`, amber for warnings, neutral otherwise). No relay or transformation service needed.
 
 ### Signed deliveries
 
-Give a webhook a **signing secret** (16–128 chars, set at creation; never shown again) and every delivery carries:
+Give a webhook a **signing secret** (16-128 chars, set at creation; never shown again) and every delivery carries:
 
 - `X-Aperio-Timestamp`: Unix seconds at send time.
 - `X-Aperio-Signature`: `sha256=<hex HMAC-SHA256 over "<timestamp>.<raw body>">` with the shared secret.
@@ -99,26 +99,26 @@ ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.ti
 
 ## Persistent statistics
 
-Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/aperio.db` (SQLite) — flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
+Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/aperio.db` (SQLite), flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
 
 Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into an `(other)` bucket so unbounded hostname cardinality cannot grow the stats file.
 
 ## Retention policies
 
-Independent TTLs — all in days, unset = keep forever — bound how long each data type is held, enforced by a background pruner (at startup, then hourly; each pruning cycle writes a `retention_pruned` audit event with per-surface counts):
+Independent TTLs, all in days, unset = keep forever, bound how long each data type is held, enforced by a background pruner (at startup, then hourly; each pruning cycle writes a `retention_pruned` audit event with per-surface counts):
 
 | Variable | Prunes |
 | --- | --- |
 | `retention_captures` (env `APERIO_RETENTION_CAPTURES`) | Inspector captures and webhook inbox entries |
 | `retention_access_log` (env `APERIO_RETENTION_ACCESS_LOG`) | Structured access-log file lines (rewritten in place) |
-| `retention_audit` (env `APERIO_RETENTION_AUDIT`) | Audit events — expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
+| `retention_audit` (env `APERIO_RETENTION_AUDIT`) | Audit events, expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
 | `retention_stats` (env `APERIO_RETENTION_STATS`) | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
 
 The same hourly cycle also runs the **disk-usage guard** when `APERIO_DB_MAX_BYTES` caps the SQLite store: nearing the cap (90%) emits a `disk_usage_warning` webhook/audit event once per episode, and exceeding it auto-prunes the lowest-priority persisted data (oldest webhook inbox entries, delivery-log rows, and day-stat buckets), vacuums the database so the file shrinks on disk, and records a `disk_pruned` event with before/after sizes.
 
 ## Right-to-erasure selective purge
 
-`POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store — the GDPR-style "erase what you hold about X" operation:
+`POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store, the GDPR-style "erase what you hold about X" operation:
 
 ```bash
 curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
@@ -130,7 +130,7 @@ Selectors (at least one required): `hostname` (a request hostname), `token` (a t
 
 ## Server self-health
 
-`GET /aperio/api/self-health` (master-admin) returns a snapshot of the server process itself — uptime, connected clients, resident-set memory (Linux), the on-disk SQLite store size (db + WAL/SHM), and response-cache occupancy/hit-rate — surfaced as a card on the dashboard Breakdown page.
+`GET /aperio/api/self-health` (master-admin) returns a snapshot of the server process itself, uptime, connected clients, resident-set memory (Linux), the on-disk SQLite store size (db + WAL/SHM), and response-cache occupancy/hit-rate, surfaced as a card on the dashboard Breakdown page.
 
 ## CSV export
 

@@ -10,7 +10,7 @@ log a warning when they differ. The protocol is designed to tolerate skew:
 
 - **New optional Ping fields degrade gracefully.** A field a peer does not know
   is simply absent (serde defaults fill it in), so an **older client keeps
-  working against a newer server** and vice-versa — it just does not benefit
+  working against a newer server** and vice-versa, it just does not benefit
   from the newer feature. Every per-service flag (cache, resilience, response
   timeout, device key, …) was added this way.
 - **A protocol-version bump signals a breaking frame change.** When the major
@@ -37,7 +37,7 @@ validates the exact keys a given version accepts.
 1. **Read the [CHANGELOG](../CHANGELOG.md).** Breaking changes are called out
    under the release's `Changed` section.
 2. **Validate the config against the new binary.** `aperio-server --check-config`
-   flags anything the new version would reject or silently default — run it
+   flags anything the new version would reject or silently default, run it
    before restarting.
 3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` (yaml `backup_*`) or a logical
    `/aperio/api/export`) so a rollback has a known-good state. The SQLite schema
@@ -55,6 +55,6 @@ validates the exact keys a given version accepts.
 
 Downgrading the server is generally safe because store changes are additive: a
 newer store opened by an older server ignores columns it does not know. The
-exception is a protocol-version bump — pair the server downgrade with clients
+exception is a protocol-version bump, pair the server downgrade with clients
 that speak the matching version. Always keep the pre-upgrade backup until the
 new version has run cleanly for a while.

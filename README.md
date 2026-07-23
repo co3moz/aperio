@@ -1,6 +1,6 @@
 # Aperio 🛡️
 
-Aperio is a secure, self-hosted reverse tunneling system written in Rust. It exposes HTTP services running behind NATs, firewalls, or private networks to the public internet — through a single outbound WebSocket connection, with no inbound ports opened on your network.
+Aperio is a secure, self-hosted reverse tunneling system written in Rust. It exposes HTTP services running behind NATs, firewalls, or private networks to the public internet, through a single outbound WebSocket connection, with no inbound ports opened on your network.
 
 It ships with multi-tenant routing, scoped access tokens, SSO protection, and a built-in admin dashboard.
 
@@ -9,14 +9,14 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 - Hostname- and path-based routing; round-robin, primary-standby (failover tier), or sticky-session load balancing
 - Automatic random subdomains (`a1b2c3.example.com`) under a wildcard domain
 - Scoped, revocable API tokens with hostname/path/IP restrictions, TTLs, per-token rate limits and daily byte quotas
-- Ephemeral tunnels via API + GitHub Action — per-PR preview environments in one step
+- Ephemeral tunnels via API + GitHub Action, per-PR preview environments in one step
 - Signed share links: temporary, scoped visitor access to protected sites without accounts
 - OIDC / SSO protection for proxied traffic (Cloudflare Access style)
 - WebSocket & Socket.io pass-through, chunked streaming for large bodies, optional zlib tunnel compression
 - gRPC / HTTP/2 backends via `h2c://` and `h2://` targets, with end-to-end trailer relay (`grpc-status`)
 - Emergency tunnels: reach normally unexposed TCP services (a database, SSH) in a pinch
 - Header rewrite rules on both sides: per-service on the client, server-wide via `aperio-server.yaml`
-- Opt-in server-side response cache, strictly `Cache-Control`-driven — cached GETs answer without touching the tunnel
+- Opt-in server-side response cache, strictly `Cache-Control`-driven, cached GETs answer without touching the tunnel
 - Admin dashboard: live traffic, request inspector & replay, client kill switch, maintenance mode, add-client wizard, audit log, webhooks
 - REST admin API described by a generated OpenAPI 3.1 spec (`/aperio/api/openapi.json`)
 - Prometheus metrics, OpenTelemetry distributed tracing, structured JSON access log, persistent statistics, backend health probing, graceful drain
@@ -27,8 +27,8 @@ It ships with multi-tenant routing, scoped access tokens, SSO protection, and a 
 
 Aperio has two components:
 
-- **`aperio-server`** — the public-facing side. It terminates public HTTP(S) traffic (usually behind a TLS-terminating proxy such as Traefik, Caddy, or nginx) and forwards requests over persistent WebSocket tunnels to connected clients.
-- **`aperio-client`** — runs inside your private network. It dials out to the server, keeps the tunnel alive with heartbeats, and forwards incoming requests to your local backend.
+- **`aperio-server`**, the public-facing side. It terminates public HTTP(S) traffic (usually behind a TLS-terminating proxy such as Traefik, Caddy, or nginx) and forwards requests over persistent WebSocket tunnels to connected clients.
+- **`aperio-client`**, runs inside your private network. It dials out to the server, keeps the tunnel alive with heartbeats, and forwards incoming requests to your local backend.
 
 ```
         Public request                        Outbound WebSocket tunnel
@@ -60,7 +60,7 @@ docker run -d --name aperio-client \
   -e APERIO_TARGET="http://localhost:3000" \
   ghcr.io/co3moz/aperio-client:latest
 
-# 3. Open http://your-server-ip:8080 — requests are proxied to localhost:3000
+# 3. Open http://your-server-ip:8080, requests are proxied to localhost:3000
 #    Dashboard: http://your-server-ip:8080/aperio  (user: aperio, password: your token)
 ```
 
@@ -81,7 +81,7 @@ aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xx
 # Claim a specific hostname while doing it
 aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx --hostname app.example.com
 
-# Publish a folder of static files — no backend needed
+# Publish a folder of static files, no backend needed
 aperio-client --serve ./dist --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 ```
 
@@ -92,7 +92,7 @@ Everything else lives in [docs/](docs/README.md) as short, focused articles:
 | | |
 | --- | --- |
 | [Getting Started](docs/getting-started.md) | Step-by-step first tunnel, with Docker or the CLI. |
-| [Configuration Reference](docs/configuration.md) | **Every setting on both sides** — the env/CLI/yaml naming standard, precedence, full tables, HTTP endpoints. |
+| [Configuration Reference](docs/configuration.md) | **Every setting on both sides**, the env/CLI/yaml naming standard, precedence, full tables, HTTP endpoints. |
 | [Routing & Load Balancing](docs/routing-and-load-balancing.md) | Hostname/path binds, strategies, random subdomains, overrules. |
 | [In-Flight Failover](docs/failover.md) | Surviving a client death mid-request. |
 | [Tokens & Authentication](docs/tokens-and-auth.md) | Master/dynamic tokens, visitor password, OIDC/SSO, hardening advice. |

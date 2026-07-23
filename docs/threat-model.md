@@ -14,16 +14,16 @@ visitor.**
   (untrusted)        (semi-trusted)            (trusted)          (trusted)
 ```
 
-- **Visitor** — anyone on the internet sending requests to a published
+- **Visitor**, anyone on the internet sending requests to a published
   hostname. Fully untrusted.
-- **Server** — the Aperio server: the public front door, router, and admin
+- **Server**, the Aperio server: the public front door, router, and admin
   surface. Trusted to route and to enforce policy, but treated by the client as
   a potentially-hostile relay (it never receives the client's local
   credentials, only proxied traffic).
-- **Client** — the `aperio-client` process running next to a service. Trusted;
+- **Client**, the `aperio-client` process running next to a service. Trusted;
   it dials **outbound** to the server, so nothing on the client's side accepts
   inbound connections.
-- **Backend** — the local service the client forwards to. Trusted; reached only
+- **Backend**, the local service the client forwards to. Trusted; reached only
   over the loopback/private address the client was pointed at.
 
 ## Trust boundaries
@@ -55,7 +55,7 @@ Controls:
 - Session authentication with role-based access (viewer / operator / admin) and
   optional TOTP / passkey second factor.
 - Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` (yaml `admin_allowed_ips`) restricts the dashboard and
-  its API to operator CIDRs, answering `403` otherwise — while leaving the login
+  its API to operator CIDRs, answering `403` otherwise, while leaving the login
   page and visitor-auth endpoints reachable so password-gated proxied services
   keep working.
 - The metrics endpoint always requires a token.
@@ -73,7 +73,7 @@ Controls:
 - Token scoping: a dynamic token only binds the hostnames/paths it was granted,
   with optional source-IP allowlists, TTLs, rate limits, and quotas.
 - Leak detection: `token_new_ip` fires when a token connects from an unseen
-  address, and canary tokens fire `canary_tripped` on any use — so a token
+  address, and canary tokens fire `canary_tripped` on any use, so a token
   lifted from a CI log or a dump surfaces quickly.
 
 ### 4. Client → Backend

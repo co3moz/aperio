@@ -3,10 +3,10 @@
 A pre-flight checklist for taking an Aperio server to production. It is ordered
 roughly by blast radius: the first items keep an attacker off the box, the
 later ones limit the damage and make an incident visible. Nothing here is
-exotic — every item maps to an existing setting — but going live with the
+exotic, every item maps to an existing setting, but going live with the
 secure defaults in place is the difference between a tunnel and a liability.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_TRUST_PROXY` → `trust_proxy`, `APERIO_ADMIN_ALLOWED_IPS` → `admin_allowed_ips`). YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_TRUST_PROXY` → `trust_proxy`, `APERIO_ADMIN_ALLOWED_IPS` → `admin_allowed_ips`). YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
 
 Run `aperio-server --check-config` after wiring these up: it validates the
 layered configuration (env + `aperio-server.yaml`) without binding a port.
@@ -43,7 +43,7 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 - [ ] **Turn on a second factor** (TOTP or a passkey) for dashboard admins.
 - [ ] **Seed canary tokens.** Mint one or more decoy tokens flagged as canary
       and leave them where a leak would surface them (a stale config, a repo).
-      Any authentication with one fires a `canary_tripped` alert — a
+      Any authentication with one fires a `canary_tripped` alert, a
       high-signal breach indicator.
 
 ## Abuse & brute-force protection
@@ -67,8 +67,8 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 
 ## Observability & incident response
 
-- [ ] **Point a webhook at the security events** — `canary_tripped`,
-      `token_new_ip`, `alert_triggered`, `disk_usage_warning` — so they page
+- [ ] **Point a webhook at the security events**, `canary_tripped`,
+      `token_new_ip`, `alert_triggered`, `disk_usage_warning`, so they page
       someone. See [Observability](observability.md).
 - [ ] **Enable threshold alerting** (`APERIO_ALERT_ERROR_RATE` /
       `APERIO_ALERT_CLIENT_DOWN`).

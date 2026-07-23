@@ -1,6 +1,6 @@
 # Performance Tuning
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key — the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_MAX_CONCURRENT_REQUESTS` → `max_concurrent_requests`, `APERIO_CACHE_MAX_BYTES` → `cache_max_bytes`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_MAX_CONCURRENT_REQUESTS` → `max_concurrent_requests`, `APERIO_CACHE_MAX_BYTES` → `cache_max_bytes`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 The knobs that shape Aperio's throughput and latency, and the trade-offs behind
 each. Defaults are chosen for a small-to-medium deployment; tune from there
@@ -9,7 +9,7 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
 
 ## Client-side parallelism
 
-- **`connections` (per service, 1–16).** The number of parallel tunnel
+- **`connections` (per service, 1-16).** The number of parallel tunnel
   connections a client opens for one service. One connection serializes at the
   WebSocket; several spread requests across sockets and CPU cores on the
   backend. Raise it for a high-RPS backend that can absorb the concurrency;
@@ -17,7 +17,7 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
   client in the routing pool.
 - **`max_concurrent` (per service).** The client's own in-flight cap. The server
   queues requests beyond it (bounded by the gateway timeout) instead of flooding
-  the backend — the backpressure valve that protects a fragile origin.
+  the backend, the backpressure valve that protects a fragile origin.
 
 ## Server-side limits
 
@@ -27,12 +27,12 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
 - **`APERIO_MAX_BODY_SIZE`.** Upload ceiling. Bodies over ~256 KiB stream
   (protocol v2) instead of buffering, so a large limit does not cost memory per
-  request — but it does bound how big a single upload can be.
+  request, but it does bound how big a single upload can be.
 
 ## The response cache
 
 `APERIO_CACHE=1` plus a service's `cache: true` lets the server answer repeated
-cacheable GETs from memory, skipping the tunnel round-trip entirely — the single
+cacheable GETs from memory, skipping the tunnel round-trip entirely, the single
 biggest latency win for read-heavy, cacheable content.
 
 - **`APERIO_CACHE_MAX_BYTES`** bounds the cache; past it, entries closest to
@@ -40,7 +40,7 @@ biggest latency win for read-heavy, cacheable content.
   at the cost of server memory. Watch the hit ratio on the cache stats card.
 - **stale-while-revalidate** (`Cache-Control: stale-while-revalidate=N`) serves a
   slightly-stale entry instantly while one elected leader refreshes it in the
-  background — visitors never wait on a refresh, and a stampede never hits the
+  background, visitors never wait on a refresh, and a stampede never hits the
   backend.
 - **Negative caching** (`APERIO_CACHE_NEGATIVE_TTL`) shields a backend from
   repeated 404/410 probes; keep the TTL short so a resource that appears is not
@@ -49,7 +49,7 @@ biggest latency win for read-heavy, cacheable content.
   ad-tagged URL variants share one entry.
 
 Only enable the cache for services whose responses are genuinely shared and
-`Cache-Control`-correct — the cache is strictly header-driven and never guesses.
+`Cache-Control`-correct, the cache is strictly header-driven and never guesses.
 
 ## Compression
 

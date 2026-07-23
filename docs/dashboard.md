@@ -1,19 +1,19 @@
 # The Dashboard
 
-The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a separate `APERIO_DASHBOARD_AUTH` (yaml `dashboard_auth`) password). It is a Vite + React app embedded into the server binary — no extra deployment.
+The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a separate `APERIO_DASHBOARD_AUTH` (yaml `dashboard_auth`) password). It is a Vite + React app embedded into the server binary, no extra deployment.
 
 ## Live overview
 
-Connected clients, a request-rate chart, lifetime average response time, and today's traffic — persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s) and `traffic` events (one per request) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
+Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s) and `traffic` events (one per request) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
 
 ## Clients table
 
 Every connected client with its binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, announced concurrency limit, and a `BACKEND DOWN` badge when the client's own health probe is failing. Two controls act on live clients:
 
-- **Enable/Disable kill switch** — a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
+- **Enable/Disable kill switch**, a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
 
-Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving — backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only — time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
-- **Overrule** — temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
+Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving, backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only, time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
+- **Overrule**, temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
 
 ## Live traffic table
 
@@ -21,27 +21,27 @@ The traffic table is streamed live: the server pushes each proxied request over 
 
 ## Console view
 
-Live Traffic has a **Table / Console** toggle. The console is a `tail -f` for the access log: one monospace line per proxied request — time, status (color-coded), method, hostname, path, latency, and the error reason on failures — over the *same* SSE feed, search, method/status filters, and **Live/Paused** control as the table. It auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), and *Clear* empties the scrollback. Clicking a line opens the request inspector.
+Live Traffic has a **Table / Console** toggle. The console is a `tail -f` for the access log: one monospace line per proxied request, time, status (color-coded), method, hostname, path, latency, and the error reason on failures, over the *same* SSE feed, search, method/status filters, and **Live/Paused** control as the table. It auto-scrolls while pinned to the bottom; scrolling up unpins it so history can be read (a *Jump to latest* button re-pins), and *Clear* empties the scrollback. Clicking a line opens the request inspector.
 
 ## Webhook inbox
 
-The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks (Stripe, GitHub, ...) persisted for services that opted in with `webhook_inbox: true` in the client config: every POST routed to such a service is stored (headers and payload, restart-surviving, newest 500 kept) so an event that arrived while the backend was down or misbehaving is never lost. Each entry expands into its (redacted) headers and pretty-printed payload, and **Re-fire** re-dispatches the original request to whichever client currently serves the route — the cure for "Stripe fired while my laptop was closed". Entries can be deleted one by one or the whole inbox cleared; re-fires are audit-logged (`webhook_refired`).
+The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks (Stripe, GitHub, ...) persisted for services that opted in with `webhook_inbox: true` in the client config: every POST routed to such a service is stored (headers and payload, restart-surviving, newest 500 kept) so an event that arrived while the backend was down or misbehaving is never lost. Each entry expands into its (redacted) headers and pretty-printed payload, and **Re-fire** re-dispatches the original request to whichever client currently serves the route, the cure for "Stripe fired while my laptop was closed". Entries can be deleted one by one or the whole inbox cleared; re-fires are audit-logged (`webhook_refired`).
 
 ## Topology
 
-The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map — routes → tunnel clients → backends — with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: static `routes:` (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes — so "the service that should be up but isn't" is visible at a glance. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
+The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map, routes → tunnel clients → backends, with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: static `routes:` (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes, so "the service that should be up but isn't" is visible at a glance. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
 
 ## Route trends
 
-The *Breakdown* page opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes — height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx) — plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
+The *Breakdown* page opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes, height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx), plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
 
 ## Bandwidth accounting
 
-The *Breakdown* page carries a **Bandwidth** report: bytes through the tunnel per token and per hostname, bucketed per day (last 14) or per month (last 6) — the billing-style view. Each cell's tooltip splits the bucket into sent/received bytes and request counts; rows are ordered by total consumption. Buckets follow the standard stats retention (60 days / 24 months) and survive restarts. Raw data: `GET /aperio/api/bandwidth?unit=day|month&count=N`.
+The *Breakdown* page carries a **Bandwidth** report: bytes through the tunnel per token and per hostname, bucketed per day (last 14) or per month (last 6), the billing-style view. Each cell's tooltip splits the bucket into sent/received bytes and request counts; rows are ordered by total consumption. Buckets follow the standard stats retention (60 days / 24 months) and survive restarts. Raw data: `GET /aperio/api/bandwidth?unit=day|month&count=N`.
 
 ## Slowest endpoints
 
-The *Breakdown* page also lists the **slowest endpoints**: a rolling in-memory latency window per `host|path` (query strings stripped), ranked by recent p95 — with p50, max, lifetime request and 5xx counts per endpoint. Endpoints need a handful of recent samples before they appear, and up to 300 distinct paths are tracked (overflow folds into an *other* bucket). Also available raw at `GET /aperio/api/slow-endpoints`.
+The *Breakdown* page also lists the **slowest endpoints**: a rolling in-memory latency window per `host|path` (query strings stripped), ranked by recent p95, with p50, max, lifetime request and 5xx counts per endpoint. Endpoints need a handful of recent samples before they appear, and up to 300 distinct paths are tracked (overflow folds into an *other* bucket). Also available raw at `GET /aperio/api/slow-endpoints`.
 
 ## Stage latencies
 
@@ -49,11 +49,11 @@ The Breakdown page carries a *Stage latencies* table: for every route, the rolli
 
 ## Request inspector & replay
 
-Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests) — then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
+Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests), then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
 
-**Every buffered capture carries a high-resolution timeline**: microsecond stage offsets from the request's arrival at the server — queueing/routing, dispatch into the tunnel, the client's own stages (backend request sent, first byte, body complete, response handed back — measured on the client's monotonic clock and anchored by splitting the unaccounted tunnel transit evenly, marked as estimated), the response arriving back, and the hand-off to the visitor. The inspector renders it as a waterfall. Streamed responses and pre-timing clients simply omit it.
+**Every buffered capture carries a high-resolution timeline**: microsecond stage offsets from the request's arrival at the server, queueing/routing, dispatch into the tunnel, the client's own stages (backend request sent, first byte, body complete, response handed back, measured on the client's monotonic clock and anchored by splitting the unaccounted tunnel transit evenly, marked as estimated), the response arriving back, and the hand-off to the visitor. The inspector renders it as a waterfall. Streamed responses and pre-timing clients simply omit it.
 
-**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector — and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0` (yaml `inspector_redact`).
+**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector, and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0` (yaml `inspector_redact`).
 
 ## Add Client wizard
 
@@ -61,7 +61,7 @@ Pick a token strategy (placeholder, or mint a scoped token on the spot), describ
 
 ## Active sessions
 
-Admins see every live dashboard session on the Users page — who is signed in, from which IP and browser, since when; the caller's own session is marked. Any session can be ended individually (its cookie stops working on the next request), and **Sign out everywhere else** ends all sessions but your own. Both actions are audited (`session_revoked`, `sessions_cleared`). The session list and its controls are admin-only, `GET/DELETE /aperio/api/sessions[/{id}]`.
+Admins see every live dashboard session on the Users page, who is signed in, from which IP and browser, since when; the caller's own session is marked. Any session can be ended individually (its cookie stops working on the next request), and **Sign out everywhere else** ends all sessions but your own. Both actions are audited (`session_revoked`, `sessions_cleared`). The session list and its controls are admin-only, `GET/DELETE /aperio/api/sessions[/{id}]`.
 
 ## Maintenance mode
 
@@ -69,23 +69,23 @@ Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page
 
 ## Organizations
 
-When the built-in `aperio` super-admin is signed in, an **organization picker** appears at the top of the sidebar and an **Organizations** page (create / delete child organizations, with live user and token counts) is available. Switching organizations re-scopes every page — clients, tokens, users, traffic, stats, webhooks, audit — to the selected tenant. Named users don't see the picker: they are pinned to their own organization. See [Organizations](organizations.md).
+When the built-in `aperio` super-admin is signed in, an **organization picker** appears at the top of the sidebar and an **Organizations** page (create / delete child organizations, with live user and token counts) is available. Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant. Named users don't see the picker: they are pinned to their own organization. See [Organizations](organizations.md).
 
 ## Server settings
 
-Almost every runtime setting — timeouts, limits, load-balancing strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML — can be edited live and takes effect immediately: changing the random-subdomain pattern re-issues connected clients' random hostnames on the spot, and enabling tunnel compression is offered to already-connected clients. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust, and OIDC remain env-only. Changes are audited as `settings_updated`. Server settings are a whole-server concern, so the page (and its export/import) is reserved for the master super-admin; a named organization admin manages their own organization, not the server.
+Almost every runtime setting, timeouts, limits, load-balancing strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML, can be edited live and takes effect immediately: changing the random-subdomain pattern re-issues connected clients' random hostnames on the spot, and enabling tunnel compression is offered to already-connected clients. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust, and OIDC remain env-only. Changes are audited as `settings_updated`. Server settings are a whole-server concern, so the page (and its export/import) is reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 
 ## Also here
 
-- **API Tokens / Webhooks** — create, edit, revoke (see [Tokens & Authentication](tokens-and-auth.md), [Observability](observability.md)).
-- **Share links** — generate signed visitor-access URLs (see [Share Links](share-links.md)).
-- **Traffic breakdown** — top consumers per token and per hostname, plus a **traffic history** chart over the persisted statistics: last 7/30/60 days, 26 weeks, 24 months, or a custom date range, with successful/failed requests, transfer volume, and average latency per bucket (`GET /aperio/api/stats/history`).
-- **Audit log** — the last 200 administrative/security events.
+- **API Tokens / Webhooks**, create, edit, revoke (see [Tokens & Authentication](tokens-and-auth.md), [Observability](observability.md)).
+- **Share links**, generate signed visitor-access URLs (see [Share Links](share-links.md)).
+- **Traffic breakdown**, top consumers per token and per hostname, plus a **traffic history** chart over the persisted statistics: last 7/30/60 days, 26 weeks, 24 months, or a custom date range, with successful/failed requests, transfer volume, and average latency per bucket (`GET /aperio/api/stats/history`).
+- **Audit log**, the last 200 administrative/security events.
 
 ## API explorer
 
-The *API Explorer* page (System group) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded — no external Swagger assets are loaded.
+The *API Explorer* page (System group) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded, no external Swagger assets are loaded.
 
 ## The admin API
 
-Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json` — point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md).
+Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json`, point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md).
