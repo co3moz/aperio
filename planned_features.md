@@ -206,3 +206,21 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   confirms the collector is listening, not that spans parse end-to-end, but it
   catches the common wrong-endpoint / not-running / DNS cases immediately.
   (From a 2026-07 field debugging session.)
+
+- [ ] **#11 Supervise long-lived background loops so a panic restarts (or at
+  least surfaces) instead of silently killing the loop.** Under the default
+  `unwind` strategy a panic only unwinds its own task, so the process survives —
+  but a bare `tokio::spawn`ed background loop (the stats/uptime tickers, the
+  token-expiry sweep, accept loops, expose listeners in `main.rs`, and the
+  per-connection writer tasks) that panics just *stops*, silently, with no
+  restart. Its function is lost for the life of the process (e.g. uptime stops
+  ticking) even though nothing crashed. The global panic hook added for #1/#2
+  now makes such a panic *visible* in the log, but does not bring the loop back.
+  Wrap the critical long-lived loops in a supervisor: a small helper that
+  `tokio::spawn`s the loop, awaits its `JoinHandle`, and on a panic/early-exit
+  logs it and respawns with a short backoff (a `JoinSet`-based supervisor, or a
+  `spawn_supervised(name, factory)` wrapper). Scope carefully — only genuinely
+  restartable, idempotent loops (tickers, accept loops); one-shot tasks and
+  request-scoped work must stay as they are. Decide per loop whether a restart
+  is safe or whether a panic there should instead be escalated to a graceful
+  shutdown. (From a 2026-07 panic-resilience review.)
