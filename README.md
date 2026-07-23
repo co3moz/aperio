@@ -12,6 +12,8 @@ Put a local service on the public internet through one outbound connection. No i
 
 The client always dials **out**, so nothing on your network accepts inbound connections.
 
+[![The Aperio admin dashboard](docs/images/dashboard-overview.png)](docs/dashboard.md)
+
 ## Quick start
 
 ```bash
@@ -41,23 +43,23 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 
 Click a feature for the details.
 
-| Feature | In short |
-| --- | --- |
+| Feature                                                        | In short                                             |
+| ----------------------------------------------------------------| ------------------------------------------------------|
 | [Routing & load balancing](docs/routing-and-load-balancing.md) | hostname/path binds, failover tiers, sticky sessions |
-| [Random subdomains](docs/routing-and-load-balancing.md) | auto `a1b2c3.example.com` on a wildcard domain |
-| [Access tokens](docs/tokens-and-auth.md) | scoped, revocable, rate-limited, IP-pinned |
-| [Visitor auth & SSO](docs/tokens-and-auth.md) | OIDC or a password in front of a site |
-| [Share links](docs/share-links.md) | temporary visitor access, no account |
-| [PR preview tunnels](docs/ephemeral-tunnels.md) | one per pull request |
-| [Emergency TCP tunnels](docs/emergency-tunnels.md) | reach a DB or SSH in a pinch |
-| [Failover](docs/failover.md) | survive a client dying mid-request |
-| [WebSocket, streaming, gRPC](docs/tunnel-protocol.md) | pass-through, chunked bodies, h2c/h2 |
-| [Response cache](docs/caching.md) | serve GETs without the tunnel |
-| [Multi-tenancy](docs/organizations.md) | isolated organizations on one server |
-| [Admin dashboard](docs/dashboard.md) | live traffic, inspector, replay, kill switch |
-| [Observability](docs/observability.md) | Prometheus, OpenTelemetry, access log, webhooks |
-| [Client resilience](docs/client-resilience.md) | reconnect, health probes, graceful drain |
-| [Configuration](docs/configuration.md) | every setting: env, CLI, or yaml |
+| [Random subdomains](docs/routing-and-load-balancing.md)        | auto `a1b2c3.example.com` on a wildcard domain       |
+| [Access tokens](docs/tokens-and-auth.md)                       | scoped, revocable, rate-limited, IP-pinned           |
+| [Visitor auth & SSO](docs/tokens-and-auth.md)                  | OIDC or a password in front of a site                |
+| [Share links](docs/share-links.md)                             | temporary visitor access, no account                 |
+| [PR preview tunnels](docs/ephemeral-tunnels.md)                | one per pull request                                 |
+| [Emergency TCP tunnels](docs/emergency-tunnels.md)             | reach a DB or SSH in a pinch                         |
+| [Failover](docs/failover.md)                                   | survive a client dying mid-request                   |
+| [WebSocket, streaming, gRPC](docs/tunnel-protocol.md)          | pass-through, chunked bodies, h2c/h2                 |
+| [Response cache](docs/caching.md)                              | serve GETs without the tunnel                        |
+| [Multi-tenancy](docs/organizations.md)                         | isolated organizations on one server                 |
+| [Admin dashboard](docs/dashboard.md)                           | live traffic, inspector, replay, kill switch         |
+| [Observability](docs/observability.md)                         | Prometheus, OpenTelemetry, access log, webhooks      |
+| [Client resilience](docs/client-resilience.md)                 | reconnect, health probes, graceful drain             |
+| [Configuration](docs/configuration.md)                         | every setting: env, CLI, or yaml                     |
 
 Full index: **[docs/](docs/README.md)**.
 

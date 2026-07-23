@@ -4,9 +4,13 @@ The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a sep
 
 ## Live overview
 
+![Overview: stat tiles and the live request-rate chart](images/dashboard-overview.png)
+
 Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s) and `traffic` events (one per request) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
 
 ## Clients table
+
+![Clients table: binds, health, version, and the uptime panel](images/dashboard-clients.png)
 
 Every connected client with its binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, announced concurrency limit, and a `BACKEND DOWN` badge when the client's own health probe is failing. Two controls act on live clients:
 
@@ -16,6 +20,8 @@ Below the table, an **Uptime** panel tracks each service's availability history:
 - **Overrule**, temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
 
 ## Live traffic table
+
+![Live traffic table with latency percentiles and a status mix bar](images/dashboard-traffic.png)
 
 The traffic table is streamed live: the server pushes each proxied request over Server-Sent Events (`/aperio/api/stream`) as it completes, so rows appear the moment traffic flows instead of on a polling interval. If the stream can't be established (e.g. a proxy that buffers SSE) the table transparently falls back to periodic polling, and the **Live/Paused** toggle still freezes the view while you inspect. Latency percentiles (p50/p95/p99), a status-class mix bar, and method/status filters sit on top of the same feed.
 
@@ -28,6 +34,8 @@ Live Traffic has a **Table / Console** toggle. The console is a `tail -f` for th
 The *Webhook Inbox* page (Traffic group) shows the inbound third-party webhooks (Stripe, GitHub, ...) persisted for services that opted in with `webhook_inbox: true` in the client config: every POST routed to such a service is stored (headers and payload, restart-surviving, newest 500 kept) so an event that arrived while the backend was down or misbehaving is never lost. Each entry expands into its (redacted) headers and pretty-printed payload, and **Re-fire** re-dispatches the original request to whichever client currently serves the route, the cure for "Stripe fired while my laptop was closed". Entries can be deleted one by one or the whole inbox cleared; re-fires are audit-logged (`webhook_refired`).
 
 ## Topology
+
+![Topology map: routes, tunnel clients, and backends](images/dashboard-topology.png)
 
 The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map, routes → tunnel clients → backends, with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: static `routes:` (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes, so "the service that should be up but isn't" is visible at a glance. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
 
@@ -48,6 +56,8 @@ The *Breakdown* page also lists the **slowest endpoints**: a rolling in-memory l
 The Breakdown page carries a *Stage latencies* table: for every route, the rolling mean/σ/latest of each request stage (queue, tunnel transit per direction, client processing, backend wait/body, serve). A stage whose latest sample sits far above its usual band gets an **anomaly** badge, so a regression is attributable to a specific hop. Fed by the same timeline data as the inspector waterfall; `GET /aperio/api/stage-stats`.
 
 ## Request inspector & replay
+
+![Request inspector: headers, body, timeline waterfall, replay and cURL](images/dashboard-inspector.png)
 
 Click any row in the traffic table to see full request/response headers and body previews (up to 64 KB per direction, last 50 requests), then **replay** the request through the tunnel with one click while debugging a backend, copy it as an equivalent `curl` command, or download it as a devtools-importable HAR file.
 
