@@ -2,7 +2,7 @@ server:
   url: https://tunnel.example.com
   token: apr_services_change_me
 
-# Several backends from one client — one tunnel connection per entry.
+# Several backends from one client, one tunnel connection per entry.
 # Per-entry fields override the top-level ones; binds are strictly per entry.
 services:
   - name: web                       # label in client logs and the dashboard

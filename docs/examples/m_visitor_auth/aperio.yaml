@@ -10,7 +10,7 @@ services:
     hostname: staff.example.com
     auth: staff:replace-with-a-strong-password
 
-  # No visitor gate at all — a public status page.
+  # No visitor gate at all, a public status page.
   - name: status
     target: http://localhost:4000
     hostname: status.example.com

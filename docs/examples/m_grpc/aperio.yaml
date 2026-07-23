@@ -4,7 +4,7 @@ server:
 
 services:
   - name: grpc
-    target: h2c://127.0.0.1:50051   # HTTP/2 cleartext — what a local gRPC server speaks
+    target: h2c://127.0.0.1:50051   # HTTP/2 cleartext, what a local gRPC server speaks
     hostname: grpc.example.com
 
   - name: web

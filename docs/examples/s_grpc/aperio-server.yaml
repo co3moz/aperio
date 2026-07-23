@@ -1,6 +1,6 @@
 server_token: apr_grpc_change_me
 port: 8080
 
-# Nothing gRPC-specific to configure here — the server accepts h2c from the
+# Nothing gRPC-specific to configure here, the server accepts h2c from the
 # fronting proxy. Make sure that proxy forwards gRPC as HTTP/2, or trailers
 # (grpc-status) are lost on the visitor leg.

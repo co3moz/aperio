@@ -8,7 +8,7 @@ target: http://localhost:3000
 # excess instead of flooding the backend.
 max_concurrent: 16
 
-# Parallel tunnel connections (1–16). The server pools them like separate
+# Parallel tunnel connections (1-16). The server pools them like separate
 # clients, so heavy parallel traffic isn't serialized behind one WebSocket.
 connections: 4
 

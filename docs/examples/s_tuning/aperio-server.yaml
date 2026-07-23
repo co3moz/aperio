@@ -15,6 +15,6 @@ ip_limit_refill: 5
 gateway_timeout: 10
 gateway_response_timeout: 30
 
-# zlib-compress tunnel frames — worthwhile for text-heavy traffic over slow
+# zlib-compress tunnel frames, worthwhile for text-heavy traffic over slow
 # client uplinks; enabled per connection once the client acknowledges it.
 tunnel_compression: true

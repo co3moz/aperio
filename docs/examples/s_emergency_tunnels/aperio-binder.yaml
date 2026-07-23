@@ -1,4 +1,4 @@
-# Binder side — run anywhere you need access, then:
+# Binder side, run anywhere you need access, then:
 #   aperio-client --bind-tunnels --config aperio-binder.yaml
 server:
   url: https://tunnel.example.com

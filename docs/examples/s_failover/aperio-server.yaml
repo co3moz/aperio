@@ -12,6 +12,6 @@ failover_max_jumps: 2
 # across all jumps (default 15).
 failover_window: 15
 
-# Keep POST/PATCH out of failover (default) — a re-dispatched request may
+# Keep POST/PATCH out of failover (default), a re-dispatched request may
 # reach a backend twice. Set true only if your backends are idempotent.
 failover_all_methods: false

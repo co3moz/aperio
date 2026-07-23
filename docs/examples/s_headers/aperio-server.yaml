@@ -2,7 +2,7 @@ server_token: apr_headers_change_me
 port: 8080
 
 # Server-wide header rules, applied to every proxied request across all
-# services. Client rules run too — each side edits its own leg of the tunnel.
+# services. Client rules run too, each side edits its own leg of the tunnel.
 headers:
   request:
     add:

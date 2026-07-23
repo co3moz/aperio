@@ -1,7 +1,7 @@
 server_token: apr_allowed_ips_change_me
 port: 8080
 
-# If this server sits behind a reverse proxy, resolve real visitor IPs —
+# If this server sits behind a reverse proxy, resolve real visitor IPs,
 # IP allowlists are meaningless when every visitor looks like the proxy.
 # trusted_proxies:
 #   - 10.0.0.0/8

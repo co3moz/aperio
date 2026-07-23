@@ -1,7 +1,7 @@
 server_token: apr_routes_change_me
 port: 8080
 
-# Server-answered routes — no tunnel client involved. First match wins,
+# Server-answered routes, no tunnel client involved. First match wins,
 # in file order; each rule carries exactly one action.
 routes:
   # Vanity redirect: the old domain permanently forwards to the new one,

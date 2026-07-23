@@ -6,5 +6,5 @@ port: 8080
 lb_strategy: primary-standby
 
 # Seconds without a heartbeat before a client leaves the routing pool
-# (default 15) — this is how fast a dead primary is detected.
+# (default 15), this is how fast a dead primary is detected.
 client_down_threshold: 15
