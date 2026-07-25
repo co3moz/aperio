@@ -708,7 +708,22 @@ async fn proxy_http_request(
       }
     }
 
-    if !reconnected {
+    // Scale-to-zero means *no* client is connected, so this global wait is
+    // exactly where a cold start has to happen: without it the request would
+    // 504 here and never reach the per-route check further down.
+    let mut recovered = reconnected;
+    if !recovered && state.config().scaling_enabled {
+      crate::scaling::cold_start_wait(
+        &state,
+        extract_request_host(&headers).as_deref(),
+        uri.path(),
+        caller_ip,
+      )
+      .await;
+      recovered = state.connection_state.lock().await.connected;
+    }
+
+    if !recovered {
       // A resilient cached answer (possibly stale) beats the 504.
       if let Some(resp) =
         stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
@@ -737,9 +752,12 @@ async fn proxy_http_request(
   // for the pre-dispatch sub-phases (no-op unless OTLP is on).
   let client_ready_at = Instant::now();
 
-  // 4. Limit concurrency to prevent resource starvation / DoS
-  let _permit = match state.try_acquire_request_slot() {
-    Some(p) => p,
+  // 4. Limit concurrency to prevent resource starvation / DoS.
+  // Kept in an Option so the cold-start hold below can *release* it: waiting
+  // up to a minute for a service to start while holding a global concurrency
+  // slot would starve every healthy service on the server.
+  let mut permit = match state.try_acquire_request_slot() {
+    Some(p) => Some(p),
     None => {
       log_request_failure(
         &state,
@@ -819,6 +837,54 @@ async fn proxy_http_request(
   } else {
     None
   };
+  // Cold start (scale-to-zero): when nothing serves this route and an
+  // autoscaling record is armed for it, ask for capacity and hold the request
+  // for the record's budget instead of answering 504. The request was never
+  // dispatched, so holding it is safe for any method, unlike a failover
+  // re-dispatch.
+  if state.config().scaling_enabled
+    && matches!(
+      pick_proxy_client(
+        &state,
+        &uri_path_owned,
+        request_host.as_deref(),
+        None,
+        None,
+        Some(caller_ip),
+      )
+      .await,
+      PickOutcome::NoRoute
+    )
+  {
+    // Release the global slot first: the hold can last tens of seconds.
+    drop(permit.take());
+    crate::scaling::cold_start_wait(&state, request_host.as_deref(), &uri_path_owned, caller_ip)
+      .await;
+    permit = match state.try_acquire_request_slot() {
+      Some(p) => Some(p),
+      None => {
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          429,
+          start_time.elapsed(),
+          Some("Concurrency limit exceeded after a cold start"),
+          None,
+        )
+        .await;
+        return (
+          StatusCode::TOO_MANY_REQUESTS,
+          "429 Too Many Requests - Concurrency limit reached on tunnel server",
+        )
+          .into_response();
+      }
+    };
+  }
+  // From here the slot is held for the rest of the request; the binding keeps
+  // the guard alive without the cold-start branch being able to touch it again.
+  let _permit = permit;
+
   let mut selected = match pick_proxy_client(
     &state,
     &uri_path_owned,

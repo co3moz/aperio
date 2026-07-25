@@ -29,6 +29,11 @@ use crate::state::{
   WsStreamMessage,
 };
 
+/// Bind context captured for the autoscaling upsert: the hostnames this
+/// connection serves, its path bind, its organization, and the token that
+/// armed it.
+type ScalingBindCtx = (Vec<String>, Option<String>, Option<String>, Option<String>);
+
 #[cfg(test)]
 #[path = "ws_tests.rs"]
 mod tests;
@@ -345,6 +350,7 @@ pub(crate) async fn handle_socket(
         visitor_auth_denied_warned: false,
         allowed_ips: Vec::new(),
         allowed_ips_invalid_warned: false,
+        scaling_invalid_warned: false,
         tunnels: Vec::new(),
         cache: false,
         cache_ignored_warned: false,
@@ -706,6 +712,7 @@ pub(crate) async fn handle_socket(
               client_key,
               webhook_inbox,
               denied,
+              scaling,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -717,6 +724,10 @@ pub(crate) async fn handle_socket(
               // Token pinning context captured under the clients lock and used
               // after it is released: (token id, token name, org).
               let mut pin_ctx: Option<(String, String, Option<String>)> = None;
+              // Bind context for the autoscaling upsert, captured under the
+              // clients lock and used after it is released (the scaling store
+              // must never be locked while the clients map is).
+              let mut scaling_ctx: Option<ScalingBindCtx> = None;
               {
                 let mut clients = state.clients.lock().await;
                 if let Some(handle) = clients.get_mut(&client_id) {
@@ -1014,6 +1025,18 @@ pub(crate) async fn handle_socket(
                       handle.perms.org_id.clone(),
                     ));
                   }
+                  if scaling.is_some() {
+                    scaling_ctx = Some((
+                      handle
+                        .effective_hostnames()
+                        .into_iter()
+                        .cloned()
+                        .collect::<Vec<String>>(),
+                      handle.effective_path_bind().cloned(),
+                      handle.perms.org_id.clone(),
+                      handle.perms.token_id.clone(),
+                    ));
+                  }
                 }
               }
 
@@ -1069,6 +1092,76 @@ pub(crate) async fn handle_socket(
                 }
               }
 
+              // Autoscaling: arm (or refresh) one record per hostname this
+              // client serves. The record deliberately outlives the connection,
+              // which is the whole point of `min: 0`: the server must be able
+              // to call the endpoint when nothing is running. A fleet of
+              // identical replicas converges on one record per bind, because
+              // the store dedupes by a hash of the declaration.
+              if let (true, Some(decl), Some((hostnames, path, org, token_id))) = (
+                state.config().scaling_enabled,
+                scaling.as_ref(),
+                scaling_ctx,
+              ) {
+                for hostname in hostnames {
+                  let record = crate::api::scaling::record_from_decl(
+                    decl,
+                    org.clone(),
+                    &hostname,
+                    path.as_deref(),
+                  );
+                  let record = match record {
+                    Ok(record) => record,
+                    Err(e) => {
+                      let warned = {
+                        let mut clients = state.clients.lock().await;
+                        match clients.get_mut(&client_id) {
+                          Some(handle) => {
+                            let already = handle.scaling_invalid_warned;
+                            handle.scaling_invalid_warned = true;
+                            already
+                          }
+                          None => true,
+                        }
+                      };
+                      if !warned {
+                        warn!(
+                          "Client {} declared an invalid scaling block: {}",
+                          client_id, e
+                        );
+                      }
+                      break;
+                    }
+                  };
+                  let id = record.id.clone();
+                  let outcome = {
+                    let mut store = state.scaling_store.lock().await;
+                    store.upsert(
+                      record,
+                      token_id.as_deref(),
+                      crate::store::tokens::now_secs(),
+                    )
+                  };
+                  match outcome {
+                    crate::store::scaling::Upsert::Unchanged => {}
+                    other => {
+                      // A changed declaration re-arms a record the breaker may
+                      // have disarmed: the operator just told us something new.
+                      state.scaling_runtime.lock().await.rearm(&id);
+                      info!(
+                        "Autoscaling record {} for {} ({:?})",
+                        if other == crate::store::scaling::Upsert::Created {
+                          "armed"
+                        } else {
+                          "updated"
+                        },
+                        hostname,
+                        other
+                      );
+                    }
+                  }
+                }
+              }
               let pong = TunnelMessage::Pong {
                 timestamp,
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),

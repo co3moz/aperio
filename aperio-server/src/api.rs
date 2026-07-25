@@ -22,6 +22,7 @@ pub(crate) mod observe;
 pub(crate) mod openapi;
 pub(crate) mod orgs;
 pub(crate) mod purge;
+pub(crate) mod scaling;
 pub(crate) mod settings;
 pub(crate) mod tokens;
 pub(crate) mod topology;

@@ -61,6 +61,7 @@ pub(crate) async fn export_handler(
   let webhooks = state.webhook_store.lock().await.list().to_vec();
   let users = state.users.lock().await.list().to_vec();
   let organizations = state.org_store.lock().await.list().to_vec();
+  let scaling = state.scaling_store.lock().await.list().to_vec();
   let settings_overrides = state.settings_overrides.lock().await.clone();
 
   state
@@ -85,6 +86,7 @@ pub(crate) async fn export_handler(
     "webhooks": webhooks,
     "users": users,
     "organizations": organizations,
+    "scaling": scaling,
     "settings_overrides": settings_overrides,
   });
   (
@@ -116,6 +118,8 @@ pub(crate) struct ImportDump {
   users: Option<Vec<User>>,
   settings_overrides: Option<SettingsOverrides>,
   organizations: Option<Vec<Organization>>,
+  /// Autoscaling records, keyed by the bind they protect.
+  scaling: Option<Vec<crate::store::scaling::ScalingRecord>>,
 }
 
 /// Applies a dump: each present section *replaces* the corresponding store.
@@ -176,6 +180,10 @@ pub(crate) async fn import_handler(
   if let Some(users) = dump.users {
     let n = state.users.lock().await.import(users);
     counts.insert("users".into(), n.into());
+  }
+  if let Some(scaling) = dump.scaling {
+    let n = state.scaling_store.lock().await.import(scaling);
+    counts.insert("scaling".into(), n.into());
   }
   if let Some(organizations) = dump.organizations {
     let n = state.org_store.lock().await.import(organizations);

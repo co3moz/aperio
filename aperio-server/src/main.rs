@@ -34,6 +34,7 @@ mod redact;
 mod retention;
 mod route_limits;
 mod routing;
+mod scaling;
 mod settings;
 mod share;
 mod state;
@@ -485,6 +486,24 @@ async fn async_main() {
     .ok()
     .filter(|t| !t.trim().is_empty());
 
+  // Autoscaling (default: disabled). A client's `scaling:` block is ignored
+  // entirely unless the operator turns the feature on.
+  let scaling_enabled = std::env::var("APERIO_SCALING")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let scaling_allow_http = std::env::var("APERIO_SCALING_ALLOW_HTTP")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let scaling_allow_private = std::env::var("APERIO_SCALING_ALLOW_PRIVATE")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+  let scaling_record_ttl = Duration::from_secs(
+    std::env::var("APERIO_SCALING_RECORD_TTL")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .unwrap_or(30 * 24 * 3600),
+  );
+
   // Edge integration (default: disabled). The token is the on/off switch:
   // without it the `/aperio/api/edge/*` routes are not registered at all.
   let edge_token = std::env::var("APERIO_EDGE_TOKEN")
@@ -751,6 +770,10 @@ async fn async_main() {
     secure_cookies,
     require_hostname_bind,
     metrics_token,
+    scaling_enabled,
+    scaling_allow_http,
+    scaling_allow_private,
+    scaling_record_ttl,
     edge_token,
     edge_service_url,
     edge_entrypoints,
@@ -952,6 +975,9 @@ async fn async_main() {
     captured_requests: Mutex::new(VecDeque::with_capacity(CAPTURE_MAX_ENTRIES)),
     audit: Mutex::new(AuditLog::load(&data_dir, audit_max_size, audit_max_files)),
     persistent_stats: Mutex::new(StatsStore::load(&data_dir)),
+    scaling_store: Mutex::new(crate::store::scaling::ScalingStore::load(&data_dir)),
+    scaling_runtime: Mutex::new(crate::scaling::ScalingRuntime::default()),
+    scaling_calls: crate::scaling::call_semaphore(),
     webhook_store: Mutex::new(WebhookStore::load(&data_dir)),
     org_store: Mutex::new(crate::store::orgs::OrgStore::load(&data_dir)),
     webhook_deliveries: std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
@@ -1123,6 +1149,14 @@ async fn async_main() {
       .route(
         "/api/orgs/:id/quota",
         axum::routing::put(crate::api::orgs::orgs_quota_handler),
+      )
+      .route(
+        "/api/scaling",
+        get(crate::api::scaling::scaling_list_handler),
+      )
+      .route(
+        "/api/scaling/:id",
+        axum::routing::delete(crate::api::scaling::scaling_delete_handler),
       )
       .route(
         "/api/orgs/:id/hostnames",
@@ -1398,6 +1432,18 @@ async fn async_main() {
       stats_flush_state.uptime.lock().await.save_if_dirty();
     }
   });
+
+  // Autoscaling loops: the scale-out sampler and the record TTL sweep. Both
+  // are no-ops unless the feature is enabled, so a server that never uses it
+  // pays nothing.
+  if state.config().scaling_enabled {
+    tokio::spawn(crate::scaling::run_scale_out_loop(state.clone()));
+    tokio::spawn(crate::scaling::run_prune_loop(
+      state.clone(),
+      state.config().scaling_record_ttl.as_secs(),
+    ));
+    info!("Autoscaling enabled: client `scaling:` declarations are honored");
+  }
 
   // Availability ticker: observe every service entity and accrue elapsed
   // time into the uptime history (APERIO_UPTIME_TICK_SECS, default 10).

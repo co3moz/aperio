@@ -103,6 +103,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_CACHE` |  | `cache` | Opt this service into the server-side GET response cache (needs `APERIO_CACHE=1` on the **server**; strictly `Cache-Control`-driven). Per `services:` entry via `cache:`. | `0` |
 | `APERIO_RESILIENCE` | `--resilience` | `resilience` | Keep serving this service's cached responses while no healthy client is connected, instead of a 504: fresh-or-expired entries answer visitors (marked `x-aperio-stale: true` once past their lifetime, always with an `Age` header) up to the server's `APERIO_CACHE_MAX_STALE` window. Needs `cache: true` and the server cache. The moment a client reconnects, normal proxying takes over. Per `services:` entry via `resilience:`. | `0` |
 | `APERIO_WEBHOOK_INBOX` |  | `webhook_inbox` | Persist every inbound **POST** to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per `services:` entry via `webhook_inbox:`. | `0` |
+| `APERIO_IDLE_TIMEOUT` | `--` | `idle_timeout` | Retire this client after it has served nothing for this long (e.g. `5m`); unset = never. The scale-in half of `scaling:`, see [Autoscaling](autoscaling.md). The shutdown is graceful, and the clock only starts after the first request. |  |
 | `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `--bind-tunnels`. | random UUID per run |
 | `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `APERIO_TOKEN_PINNING`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
 | `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
@@ -521,6 +522,16 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `APERIO_METRICS` | `1` = enable the Prometheus endpoint at `/aperio/metrics`. | `0` |
 | `APERIO_METRICS_TOKEN` | Token required to scrape metrics (`?token=` or `Authorization: Bearer`). Unset = a random one is generated on first start and persisted in `APERIO_DATA_DIR/metrics_token`. | generated |
 
+### Autoscaling
+
+Let the server ask an endpoint you control for capacity when a bind needs it: a cold start when nothing is serving the hostname, a scale-out when the pool saturates. Full walkthrough: [Autoscaling](autoscaling.md).
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_SCALING` | `1` = honor the `scaling:` block clients announce. Off = the declaration is ignored entirely. | `0` |
+| `APERIO_SCALING_ALLOW_HTTP` | `1` = permit a plain-http autoscaling endpoint. The URL comes from a client, so https is the floor by default. | `0` |
+| `APERIO_SCALING_RECORD_TTL` | Seconds after which an autoscaling record nothing has re-announced is dropped. | `2592000` (30 days) |
+
 ### Edge proxy integration
 
 Publish the hostnames Aperio currently serves to a dynamic reverse proxy in front of it, so Traefik or Caddy can route and issue certificates for names that only exist at runtime. Full walkthrough: [Behind a Dynamic Edge Proxy](edge-proxy.md).
@@ -572,6 +583,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/api/export` | Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). | master super-admin |
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
+| `GET /aperio/api/scaling`, `DELETE /aperio/api/scaling/:id` | Autoscaling records armed by clients, with live pool utilization, see [Autoscaling](autoscaling.md). | dashboard session |
 | `GET /aperio/api/edge/ask?domain=`, `GET /aperio/api/edge/traefik` | Live hostname inventory for a reverse proxy in front of Aperio (Caddy on-demand TLS, Traefik HTTP provider), see [Behind a Dynamic Edge Proxy](edge-proxy.md). | `APERIO_EDGE_TOKEN` |
 | `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `PUT /aperio/api/orgs/:id/hostnames`, `POST /aperio/api/orgs/select` | Organization management, hostname allowlist, and switching, see [Organizations](organizations.md). | master super-admin |
 

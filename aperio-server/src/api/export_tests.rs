@@ -20,6 +20,7 @@ fn import_dump(
     users,
     settings_overrides,
     organizations,
+    scaling: None,
   })
 }
 

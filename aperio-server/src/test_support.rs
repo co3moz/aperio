@@ -55,6 +55,9 @@ pub(crate) fn test_stats_store() -> StatsStore {
 pub(crate) fn test_webhook_store() -> WebhookStore {
   WebhookStore::load(&tmp("hooks"))
 }
+pub(crate) fn test_scaling_store() -> crate::store::scaling::ScalingStore {
+  crate::store::scaling::ScalingStore::load(&tmp("scaling"))
+}
 pub(crate) fn test_org_store() -> crate::store::orgs::OrgStore {
   crate::store::orgs::OrgStore::load(&tmp("orgs"))
 }
@@ -90,6 +93,10 @@ pub(crate) fn test_config() -> ServerConfig {
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token: None,
+    scaling_enabled: false,
+    scaling_allow_http: false,
+    scaling_allow_private: false,
+    scaling_record_ttl: Duration::from_secs(3600),
     edge_token: None,
     edge_service_url: None,
     edge_entrypoints: Vec::new(),
@@ -185,6 +192,9 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     audit: Mutex::new(test_audit_log()),
     persistent_stats: Mutex::new(test_stats_store()),
     webhook_deliveries: test_delivery_log(),
+    scaling_store: Mutex::new(crate::test_support::test_scaling_store()),
+    scaling_runtime: Mutex::new(crate::scaling::ScalingRuntime::default()),
+    scaling_calls: crate::scaling::call_semaphore(),
     webhook_store: Mutex::new(test_webhook_store()),
     org_store: Mutex::new(test_org_store()),
     uptime: Mutex::new(test_uptime_store()),
@@ -256,6 +266,7 @@ pub(crate) fn mock_client(
     visitor_auth_denied_warned: false,
     allowed_ips: Vec::new(),
     allowed_ips_invalid_warned: false,
+    scaling_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
     cache_ignored_warned: false,

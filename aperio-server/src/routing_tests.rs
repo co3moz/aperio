@@ -48,6 +48,7 @@ fn base_handle() -> ClientHandle {
     visitor_auth_denied_warned: false,
     allowed_ips: Vec::new(),
     allowed_ips_invalid_warned: false,
+    scaling_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
     cache_ignored_warned: false,

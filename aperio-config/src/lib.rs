@@ -164,6 +164,55 @@ impl SecurityHeaders {
   }
 }
 
+/// Autoscaling declaration: the URL the *server* calls when this service needs
+/// capacity it does not have. Aperio never starts or stops anything itself, it
+/// only signals a desired capacity to an endpoint the operator controls.
+///
+/// The record outlives the client process on purpose: the whole point of
+/// `min: 0` is that the server can call this URL when nothing is running.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub struct ScalingDecl {
+  /// Endpoint the server POSTs to when it wants more capacity. HTTPS only
+  /// unless the server allows plain HTTP; private and loopback addresses are
+  /// refused, since the caller is a lower-trust credential than an operator.
+  #[schemars(extend("examples" = ["https://api.provider.example/apps/web/scale"]))]
+  pub url: String,
+  /// Sent as `Authorization: Bearer` on the outgoing call. Write-only: the
+  /// server never echoes it back and never logs it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub secret: Option<String>,
+  /// Instances that should always be running. `0` opts into scale-to-zero:
+  /// a request for an unserved hostname triggers a cold start instead of a
+  /// 504.
+  #[serde(default)]
+  pub min: u32,
+  /// Ceiling the server will never ask to exceed (0 = only cold starts, no
+  /// scale-out).
+  #[serde(default)]
+  pub max: u32,
+  /// How long a visitor request may be held while a cold start completes,
+  /// e.g. `45s` (default 45s, 0 = do not hold, answer immediately).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["45s"]))]
+  pub cold_start: Option<String>,
+  /// Pool utilization above which the server asks for one more instance,
+  /// between 0 and 1 (default 0.8).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [0.8]))]
+  pub target_utilization: Option<f64>,
+  /// How long utilization must stay above the target before scaling out,
+  /// e.g. `15s` (default 15s). Guards against reacting to a single spike.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["15s"]))]
+  pub window: Option<String>,
+  /// Minimum gap between two calls for this bind, e.g. `60s` (default 60s).
+  /// A new instance needs time to appear; without this the server would ask
+  /// again while it is still starting.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["60s"]))]
+  pub cooldown: Option<String>,
+}
+
 /// The Aperio server this client connects to: either a bare URL string, or a
 /// `{ url, token }` section that also carries the tunnel token.
 #[derive(Deserialize, JsonSchema)]
@@ -476,6 +525,18 @@ pub struct FileConfig {
   /// keyed by the peer's client id.
   #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
   pub bind_tunnels: Option<HashMap<String, BindTunnelEntry>>,
+  /// Autoscaling: the endpoint the server calls when this client's services
+  /// need capacity. Applies to every service this client exposes; each
+  /// hostname bind gets its own record on the server.
+  pub scaling: Option<ScalingDecl>,
+  /// Shut this client down after it has served no request for this long, e.g.
+  /// `5m` (unset = never). The scale-in half of `scaling`: the server never
+  /// stops anything, an idle client retires itself. The shutdown is graceful
+  /// (the server stops routing to it first, in-flight requests finish), and
+  /// the timer only starts once the client has served its first request, so a
+  /// slow cold start cannot make it exit before it is ever used.
+  #[schemars(extend("examples" = ["5m"]))]
+  pub idle_timeout: Option<String>,
 }
 
 impl FileConfig {
@@ -721,6 +782,13 @@ pub struct ServerFileConfig {
   pub metrics: Option<bool>,
   /// Bearer token gating the metrics endpoint (env: APERIO_METRICS_TOKEN).
   pub metrics_token: Option<String>,
+  /// Honor client `scaling:` declarations (env: APERIO_SCALING).
+  pub scaling: Option<bool>,
+  /// Allow a plain-http autoscaling endpoint (env: APERIO_SCALING_ALLOW_HTTP).
+  pub scaling_allow_http: Option<bool>,
+  /// Seconds after which an unrefreshed autoscaling record is dropped
+  /// (env: APERIO_SCALING_RECORD_TTL).
+  pub scaling_record_ttl: Option<u64>,
   /// Credential enabling the edge-integration endpoints, which publish the
   /// live hostname inventory to a reverse proxy in front of this server
   /// (env: APERIO_EDGE_TOKEN).

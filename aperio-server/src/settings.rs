@@ -52,6 +52,18 @@ pub(crate) struct ServerConfig {
   pub(crate) require_hostname_bind: bool,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   pub(crate) metrics_token: Option<String>,
+  /// Honor `scaling:` blocks announced by clients. Off disables the whole
+  /// autoscaling feature server-side, whatever a client declares.
+  pub(crate) scaling_enabled: bool,
+  /// Allow a plain-http autoscaling endpoint. Off by default: the URL comes
+  /// from a client, so it is an SSRF vector and https is the floor.
+  pub(crate) scaling_allow_http: bool,
+  /// Allow an autoscaling endpoint on a private or loopback address. Off by
+  /// default because the URL comes from a client, which makes it an SSRF
+  /// vector; on when the provider API genuinely lives on the internal network.
+  pub(crate) scaling_allow_private: bool,
+  /// Drop autoscaling records nothing has re-announced for this many seconds.
+  pub(crate) scaling_record_ttl: Duration,
   /// Credential gating the edge-integration endpoints (`/aperio/api/edge/*`),
   /// which publish the live hostname inventory to a reverse proxy in front of
   /// this server. None disables those endpoints entirely.

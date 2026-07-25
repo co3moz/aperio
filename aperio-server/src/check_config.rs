@@ -206,6 +206,21 @@ pub(crate) fn run() -> i32 {
       )),
     }
   }
+  // --- Autoscaling ---
+  check_parse::<u64>(&mut r, "APERIO_SCALING_RECORD_TTL", "number of seconds");
+  if env("APERIO_SCALING").is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) {
+    r.ok("APERIO_SCALING is on (client scaling: declarations are honored)");
+    if env("APERIO_SCALING_ALLOW_HTTP").is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    {
+      r.warn(
+        "APERIO_SCALING_ALLOW_HTTP lets a client point the server at a plain-http endpoint; keep it off outside a trusted network",
+      );
+    }
+  } else if env("APERIO_SCALING_ALLOW_HTTP").is_some() || env("APERIO_SCALING_RECORD_TTL").is_some()
+  {
+    r.warn("APERIO_SCALING_* set without APERIO_SCALING — autoscaling stays disabled");
+  }
+
   // --- Edge integration: the token is the on/off switch, so the other keys
   // are silently inert without it. ---
   {

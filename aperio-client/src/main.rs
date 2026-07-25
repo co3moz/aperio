@@ -182,6 +182,8 @@ async fn main() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
+    // 0 = nothing served yet, which keeps the idle clock stopped.
+    last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
   };
   {
     let shutting_down = shared.shutting_down.clone();
@@ -210,6 +212,44 @@ async fn main() {
       info!("Shutdown signal received: draining before exit...");
       shutting_down.store(true, Ordering::SeqCst);
       shutdown_notify.notify_waiters();
+    });
+  }
+
+  // Idle retirement (`idle_timeout`): once this client has served a request
+  // and then stayed quiet for the configured span, it drains and exits, so a
+  // scale-to-zero service scales itself back in. The server never stops a
+  // client; it only ever asks for more capacity.
+  if let Some(idle_secs) = settings.idle_timeout {
+    let shutting_down = shared.shutting_down.clone();
+    let shutdown_notify = shared.shutdown_notify.clone();
+    let last_request_at = shared.last_request_at.clone();
+    tokio::spawn(async move {
+      loop {
+        tokio::time::sleep(Duration::from_secs(idle_secs.clamp(1, 30))).await;
+        if shutting_down.load(Ordering::SeqCst) {
+          return;
+        }
+        let last = last_request_at.load(Ordering::SeqCst);
+        // Never served anything yet: a client that was just started must not
+        // retire before it has had the chance to be used.
+        if last == 0 {
+          continue;
+        }
+        let now = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap_or_default()
+          .as_secs();
+        if now.saturating_sub(last) >= idle_secs {
+          info!(
+            "Idle for {}s (idle_timeout={}s): draining and exiting",
+            now.saturating_sub(last),
+            idle_secs
+          );
+          shutting_down.store(true, Ordering::SeqCst);
+          shutdown_notify.notify_waiters();
+          return;
+        }
+      }
     });
   }
 
@@ -640,6 +680,7 @@ fn build_specs(
       resilience: settings.resilience,
       webhook_inbox: settings.webhook_inbox,
       denied: settings.denied.clone(),
+      scaling: settings.scaling.clone(),
       tunnels,
       headers: crate::config::merge_security_headers(
         settings.headers.clone(),
@@ -755,6 +796,7 @@ fn build_specs(
           .unwrap_or_else(|| settings.allowed_ips.clone()),
         resilience: entry.resilience.unwrap_or(settings.resilience),
         webhook_inbox: entry.webhook_inbox.unwrap_or(settings.webhook_inbox),
+        scaling: settings.scaling.clone(),
         denied: entry
           .denied
           .clone()

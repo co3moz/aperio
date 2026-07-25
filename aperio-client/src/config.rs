@@ -312,6 +312,12 @@ pub(crate) fn load_home_config() -> FileConfig {
 /// environment > ~/.aperio.yaml and applying defaults.
 pub(crate) struct ClientSettings {
   pub(crate) token: Option<String>,
+  /// Autoscaling declaration (config files only): the endpoint the server
+  /// calls when a service of this client needs capacity.
+  pub(crate) scaling: Option<aperio_config::ScalingDecl>,
+  /// Retire this client after it has served nothing for this long, in
+  /// seconds (config files / env only; None = never).
+  pub(crate) idle_timeout: Option<u64>,
   /// Admin API key used by the `api` subcommand (never by the tunnel).
   pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
@@ -498,6 +504,21 @@ pub(crate) fn resolve_settings(
       env_str("APERIO_SERVER_TOKEN"),
       home.server_token(),
     ),
+    scaling: local.scaling.clone().or_else(|| home.scaling.clone()),
+    idle_timeout: layered(
+      None,
+      local.idle_timeout.clone(),
+      env_str("APERIO_IDLE_TIMEOUT"),
+      home.idle_timeout.clone(),
+    )
+    .and_then(|raw| match crate::api::parse_duration(&raw) {
+      Ok(0) => None,
+      Ok(secs) => Some(secs),
+      Err(e) => {
+        error!("CRITICAL ERROR: invalid idle_timeout: {}", e);
+        std::process::exit(1);
+      }
+    }),
     api_key: layered(
       o.api_key.clone(),
       local.server_api_key(),

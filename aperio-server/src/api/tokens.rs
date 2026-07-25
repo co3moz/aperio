@@ -646,6 +646,16 @@ pub(crate) async fn tokens_revoke_handler(
   let revoked = state.token_store.lock().await.revoke(&id);
   if revoked {
     info!("Dynamic token revoked: {}", id);
+    // An autoscaling record must never outlive the credential that armed it:
+    // otherwise a revoked token would keep the server calling a scaling
+    // endpoint on its behalf.
+    let disowned = state.scaling_store.lock().await.disown(&id);
+    if disowned > 0 {
+      info!(
+        "Disarmed {} autoscaling record(s) owned only by the revoked token {}",
+        disowned, id
+      );
+    }
     let dropped = state.disconnect_token_clients(&id).await;
     if dropped > 0 {
       info!(

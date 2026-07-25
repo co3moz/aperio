@@ -82,6 +82,9 @@ pub(crate) enum ApiCommand {
   /// Programmatic admin API keys
   #[command(subcommand, name = "admin-key")]
   AdminKey(AdminKeyCmd),
+  /// Autoscaling records armed by clients
+  #[command(subcommand)]
+  Scaling(ScalingCmd),
   /// Captured requests (inspector)
   #[command(subcommand)]
   Request(RequestCmd),
@@ -517,6 +520,17 @@ pub(crate) struct AdminKeyCreateArgs {
   /// Lifetime: 30m, 2h, 1d, or never (default)
   #[arg(long, value_name = "DURATION")]
   expire: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ScalingCmd {
+  /// List armed records with their live pool capacity and utilization
+  List,
+  /// Disarm a record (a running client re-arms it on its next heartbeat)
+  Disarm {
+    /// Record id, as shown by `api scaling list`
+    id: String,
+  },
 }
 
 #[derive(Subcommand)]
@@ -1027,6 +1041,11 @@ fn build_call(
     }
     ApiCommand::AdminKey(AdminKeyCmd::Revoke { id }) => {
       Call::delete(format!("/aperio/api/admin-keys/{}", id))
+    }
+
+    ApiCommand::Scaling(ScalingCmd::List) => Call::get("/aperio/api/scaling"),
+    ApiCommand::Scaling(ScalingCmd::Disarm { id }) => {
+      Call::delete(format!("/aperio/api/scaling/{}", id))
     }
 
     ApiCommand::Request(RequestCmd::Show { id }) => {

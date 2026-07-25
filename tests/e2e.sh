@@ -26,6 +26,8 @@
 #                    serve-stale for resilient services while offline
 #   L. health      — target_health probes: reporting, routing exclusion,
 #                    recovery, and immediate first probe on a dead backend
+#   P. scaling     — autoscaling: a request cold starts a service from zero,
+#                    single flight, the records API, and the SSRF fence
 #   O. api-cli     — `aperio-client api ...`: share links, token lifecycle,
 #                    maintenance, tunnels, users/webhooks/cache, auth failures
 #
@@ -67,11 +69,12 @@ phase_file() { # <selector>
     "n"|"config") echo "$HERE/phases/n-config.sh" ;;
     "m"|"multihost") echo "$HERE/phases/m-multihost.sh" ;;
     "o"|"api-cli") echo "$HERE/phases/o-api-cli.sh" ;;
+    "p"|"scaling") echo "$HERE/phases/p-scaling.sh" ;;
     *) echo ""; return 1 ;;
   esac
 }
 
-ALL_PHASES=("a-base.sh" "b-auth.sh" "c-failover.sh" "d-lb.sh" "e-features.sh" "f-ws.sh" "g-tunnels.sh" "h-subdomain.sh" "i-h2.sh" "j-sessions.sh" "k-cache.sh" "l-health.sh" "m-multihost.sh" "n-config.sh" "o-api-cli.sh")
+ALL_PHASES=("a-base.sh" "b-auth.sh" "c-failover.sh" "d-lb.sh" "e-features.sh" "f-ws.sh" "g-tunnels.sh" "h-subdomain.sh" "i-h2.sh" "j-sessions.sh" "k-cache.sh" "l-health.sh" "m-multihost.sh" "n-config.sh" "o-api-cli.sh" "p-scaling.sh")
 
 if [ "$#" -gt 0 ]; then
   SELECTED=()

@@ -10,6 +10,7 @@ pub(crate) mod admin_keys;
 pub(crate) mod audit;
 pub(crate) mod inbox;
 pub(crate) mod orgs;
+pub(crate) mod scaling;
 pub(crate) mod sessions;
 pub(crate) mod stats;
 pub(crate) mod tokens;
@@ -66,7 +67,8 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
      CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-     CREATE TABLE IF NOT EXISTS admin_keys (id TEXT PRIMARY KEY, data TEXT NOT NULL);",
+     CREATE TABLE IF NOT EXISTS admin_keys (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS scaling (id TEXT PRIMARY KEY, data TEXT NOT NULL);",
   )?;
   Ok(conn)
 }

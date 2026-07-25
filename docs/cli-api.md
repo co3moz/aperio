@@ -171,6 +171,15 @@ printf '%s' "$NEW_PASSWORD" | aperio-client api user create --username alice --p
 
 A quota of `0` clears that limit. `org hostnames` replaces the organization's hostname allowlist, which fences every bind made inside it; passing no `--hostname` clears the fence. See [Organizations](organizations.md).
 
+### Autoscaling
+
+```bash
+aperio-client api scaling list
+aperio-client api scaling disarm <id>
+```
+
+Shows the records clients have armed with their live pool capacity and utilization, and disarms one. See [Autoscaling](autoscaling.md).
+
 ### Reports and diagnostics
 
 ```bash

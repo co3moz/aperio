@@ -632,6 +632,9 @@ pub(crate) struct ClientHandle {
   /// Ensures the "allowed_ips entry invalid" warning fires once per client
   /// connection, not on every heartbeat.
   pub(crate) allowed_ips_invalid_warned: bool,
+  /// True once this connection was warned about a malformed `scaling:` block,
+  /// so a heartbeat every few seconds cannot flood the log.
+  pub(crate) scaling_invalid_warned: bool,
   /// Tunnels declared by the client via Ping (`tunnels:` list): normally
   /// unexposed local services a peer client may bind with `--bind-tunnels`
   /// (same token, explicit client id required).
@@ -1082,6 +1085,12 @@ pub(crate) struct ConnectionState {
 pub(crate) struct AppState {
   pub(crate) clients: Mutex<HashMap<String, ClientHandle>>,
   pub(crate) client_connected: watch::Sender<bool>,
+  /// Persisted autoscaling records, armed per bind.
+  pub(crate) scaling_store: Mutex<crate::store::scaling::ScalingStore>,
+  /// In-memory per-bind scaling state (single flight, cooldown, breaker).
+  pub(crate) scaling_runtime: Mutex<crate::scaling::ScalingRuntime>,
+  /// Caps how many capacity calls may be in flight across every bind at once.
+  pub(crate) scaling_calls: Arc<tokio::sync::Semaphore>,
   pub(crate) connection_state: Mutex<ConnectionState>,
   pub(crate) server_start_time: Instant,
   pub(crate) pending_requests: Mutex<HashMap<String, PendingRequest>>,

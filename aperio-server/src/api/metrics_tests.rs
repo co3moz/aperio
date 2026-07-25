@@ -30,6 +30,10 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     secure_cookies: false,
     require_hostname_bind: false,
     metrics_token,
+    scaling_enabled: false,
+    scaling_allow_http: false,
+    scaling_allow_private: false,
+    scaling_record_ttl: Duration::from_secs(3600),
     edge_token: None,
     edge_service_url: None,
     edge_entrypoints: Vec::new(),
@@ -144,6 +148,11 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     webhook_deliveries: Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
       &tmp_dir("deliveries"),
     ))),
+    scaling_store: Mutex::new(crate::store::scaling::ScalingStore::load(&tmp_dir(
+      "scaling",
+    ))),
+    scaling_runtime: Mutex::new(crate::scaling::ScalingRuntime::default()),
+    scaling_calls: crate::scaling::call_semaphore(),
     webhook_store: Mutex::new(crate::store::webhooks::WebhookStore::load(&tmp_dir(
       "hooks",
     ))),
@@ -206,6 +215,7 @@ fn mock_client() -> ClientHandle {
     visitor_auth_denied_warned: false,
     allowed_ips: Vec::new(),
     allowed_ips_invalid_warned: false,
+    scaling_invalid_warned: false,
     tunnels: Vec::new(),
     cache: false,
     cache_ignored_warned: false,

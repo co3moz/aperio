@@ -8,6 +8,8 @@ fn settings_with(
   ClientSettings {
     token: token.map(|t| t.to_string()),
     api_key: None,
+    scaling: None,
+    idle_timeout: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: None,
     serve: None,

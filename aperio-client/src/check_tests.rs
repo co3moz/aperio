@@ -178,6 +178,8 @@ fn base_settings() -> ClientSettings {
   ClientSettings {
     token: None,
     api_key: None,
+    scaling: None,
+    idle_timeout: None,
     server: None,
     target: None,
     serve: None,

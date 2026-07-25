@@ -1,3 +1,4 @@
+use aperio_config::ScalingDecl;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -206,6 +207,13 @@ pub enum TunnelMessage {
     /// candidate of the route admits them (None = stealth).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     denied: Option<String>,
+    /// Autoscaling declaration: the endpoint the server calls when this
+    /// service needs capacity it does not have. Persisted server-side against
+    /// this client's binds and deliberately outliving the connection, so a
+    /// scale-to-zero service can be woken when nothing is running. Honored
+    /// only when the token permits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scaling: Option<ScalingDecl>,
   },
   Pong {
     timestamp: u64,

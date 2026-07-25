@@ -9,7 +9,7 @@ use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, watch};
 use tokio_tungstenite::tungstenite::{
@@ -177,6 +177,9 @@ pub(crate) struct ServiceSpec {
   /// Redirect URL for visitors this service's `allowed_ips` rejects
   /// (announced via Ping; None = stealth).
   pub(crate) denied: Option<String>,
+  /// Autoscaling declaration announced via Ping: the endpoint the server
+  /// calls when this service needs capacity (None = not managed).
+  pub(crate) scaling: Option<crate::protocol::ScalingDecl>,
 }
 
 impl ServiceSpec {
@@ -202,6 +205,11 @@ pub(crate) struct Shared {
   pub(crate) shutdown_notify: Arc<tokio::sync::Notify>,
   /// In-flight proxied requests across all services (drain waits on it).
   pub(crate) inflight_requests: Arc<AtomicUsize>,
+  /// Unix seconds of the last request this process started serving, and
+  /// whether it has ever served one. Together they drive `idle_timeout`: the
+  /// idle clock only starts after the first request, so a client that was
+  /// just cold-started cannot retire before it is ever used.
+  pub(crate) last_request_at: Arc<AtomicU64>,
 }
 
 /// Per-service backend-health state, shared by every parallel connection of a
@@ -533,6 +541,7 @@ pub(crate) async fn run_service(
             let client_key_ping = device_key();
             let webhook_inbox_ping = spec.webhook_inbox;
             let denied_ping = spec.denied.clone();
+            let scaling_ping = spec.scaling.clone();
 
             let ping_task = tokio::spawn(async move {
               // The first Ping goes out immediately: it announces the binds,
@@ -589,6 +598,7 @@ pub(crate) async fn run_service(
                   client_key: client_key_ping.clone(),
                   webhook_inbox: webhook_inbox_ping,
                   denied: denied_ping.clone(),
+                  scaling: scaling_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()
@@ -718,6 +728,13 @@ pub(crate) async fn run_service(
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
+                                              shared.last_request_at.store(
+                                                std::time::SystemTime::now()
+                                                  .duration_since(std::time::UNIX_EPOCH)
+                                                  .unwrap_or_default()
+                                                  .as_secs(),
+                                                Ordering::SeqCst,
+                                              );
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {

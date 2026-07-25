@@ -63,7 +63,7 @@ fn default_true() -> bool {
 
 // The tunnel declaration is shared with the `aperio.yaml` schema crate so the
 // same type serves both the config file and the wire (Ping) form.
-pub(crate) use aperio_config::TunnelDecl;
+pub(crate) use aperio_config::{ScalingDecl, TunnelDecl};
 
 /// Client-side stage durations of one proxied request, in microseconds from
 /// the moment the client received the tunnel request. Attached to buffered
@@ -187,6 +187,13 @@ pub(crate) enum TunnelMessage {
     /// (None = stealth: same answer as an unclaimed route).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     denied: Option<String>,
+    /// Autoscaling declaration: the endpoint the server calls when this
+    /// service needs capacity it does not have. Persisted server-side against
+    /// this client's binds and deliberately outliving the connection, so a
+    /// scale-to-zero service can be woken when nothing is running. Honored
+    /// only when the token permits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scaling: Option<ScalingDecl>,
   },
   Pong {
     timestamp: u64,

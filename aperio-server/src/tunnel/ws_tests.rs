@@ -159,6 +159,7 @@ fn base_ping() -> TunnelMessage {
     client_key: None,
     webhook_inbox: false,
     denied: None,
+    scaling: None,
   }
 }
 

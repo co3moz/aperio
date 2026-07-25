@@ -5,6 +5,8 @@ fn base_settings() -> ClientSettings {
   ClientSettings {
     token: Some("apr_test".to_string()),
     api_key: None,
+    scaling: None,
+    idle_timeout: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
     serve: None,
@@ -730,6 +732,7 @@ async fn test_spawn_services_derives_connection_ids() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
+    last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
   };
   let running = spawn_services(&specs, &shared);
   // One spec with connections: 3 → three service tasks.
