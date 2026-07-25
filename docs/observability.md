@@ -29,11 +29,12 @@ For quota and billing dashboards, per-tenant counters are exposed with `token` a
 
 Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
 
-```bash
-# on the aperio-server
-APERIO_OTEL=1
-APERIO_OTEL_ENDPOINT=http://otel-collector:4318   # base URL; /v1/traces is appended automatically
-APERIO_OTEL_SERVICE_NAME=aperio-server            # optional, defaults to "aperio-server"
+```yaml
+# aperio-server.yaml (wins over the environment; the env names are the
+# Docker-friendly equivalent)
+otel: true                                  # env: APERIO_OTEL=1
+otel_endpoint: http://otel-collector:4318   # env: APERIO_OTEL_ENDPOINT, base URL, /v1/traces is appended
+otel_service_name: aperio-server            # env: APERIO_OTEL_SERVICE_NAME, optional
 ```
 
 The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
@@ -46,12 +47,13 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are
 
 Two threshold rules turn the webhook pipeline into a simple pager, point a Slack/Discord/Teams webhook at the `alert_triggered` event:
 
-```bash
-# on the aperio-server
-APERIO_ALERT_ERROR_RATE=5        # alert when ≥5% of proxied requests fail (5xx)…
-APERIO_ALERT_WINDOW=300          # …measured over a 300 s sliding window (default)
-APERIO_ALERT_MIN_REQUESTS=20     # quiet windows below 20 requests never alert (default)
-APERIO_ALERT_CLIENT_DOWN=120     # alert when a known service stays down for 2 minutes
+```yaml
+# aperio-server.yaml (wins over the environment; the env names are the
+# Docker-friendly equivalent)
+alert_error_rate: 5        # env: APERIO_ALERT_ERROR_RATE, alert when ≥5% of proxied requests fail (5xx)…
+alert_window: 300          # env: APERIO_ALERT_WINDOW, …measured over a 300 s sliding window (default)
+alert_min_requests: 20     # env: APERIO_ALERT_MIN_REQUESTS, quiet windows below 20 requests never alert
+alert_client_down: 120     # env: APERIO_ALERT_CLIENT_DOWN, alert when a service stays down for 2 minutes
 ```
 
 Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears, the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.

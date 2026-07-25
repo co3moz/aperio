@@ -28,11 +28,13 @@ The rest of this article is for the case this cannot cover: **hostnames that are
 
 Both remaining options are served by two endpoints on the Aperio server, and both are **off until you set a token** there:
 
-```bash
-# on the aperio-server
-APERIO_EDGE_TOKEN=<a long random secret>        # required: enables the endpoints
-APERIO_EDGE_SERVICE_URL=http://aperio:8080      # only for the Traefik document
+```yaml
+# aperio-server.yaml
+edge_token: a-long-random-secret        # env: APERIO_EDGE_TOKEN, required, enables the endpoints
+edge_service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, only for the Traefik document
 ```
+
+The file wins over the environment, so the `APERIO_*` names are the env-only equivalent for Docker deployments.
 
 | Env variable | yaml key | Meaning |
 | --- | --- | --- |

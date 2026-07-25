@@ -13,10 +13,12 @@ Scaling **in** is deliberately not the server's job: an idle client retires itse
 
 Autoscaling is off unless the operator turns it on. A client's declaration is ignored entirely without it:
 
-```bash
-# on the aperio-server
-APERIO_SCALING=1
+```yaml
+# aperio-server.yaml
+scaling: true          # env: APERIO_SCALING=1
 ```
+
+The file is the primary surface and wins over the environment, so the `APERIO_*` form is there for Docker and other env-only deployments.
 
 Then declare it on the client, in `aperio.yaml`:
 
