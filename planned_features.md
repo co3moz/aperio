@@ -231,12 +231,15 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   single-flight state machine with cooldown/backoff/breaker and the
   SSRF-fenced actuator (`scaling.rs`), cold start on the empty-pool path,
   the scale-out sampler over the per-client concurrency limiters, client
-  `idle_timeout` with graceful drain, `GET/DELETE /api/scaling`, and
-  `aperio-client api scaling`. Two refinements were deliberately left out:
-  a per-token `allow_scaling` permission (today any token may arm a record
-  for its own bind, which the org fence and bind validation already
-  constrain, and `APERIO_SCALING` is the operator switch), and a dashboard
-  section for the records. Original plan below. Two halves of one feature, planned
+  `idle_timeout` with graceful drain, `GET/DELETE /api/scaling`,
+  `aperio-client api scaling`, and the dashboard's Autoscaling section
+  (`ScalingSection.tsx`: live instances/utilization per record, breaker
+  state, disarm). One refinement was deliberately left out: a per-token
+  `allow_scaling` permission (today any token may arm a record for its own
+  bind, which the org fence and bind validation already constrain, and
+  `APERIO_SCALING` is the operator switch).
+
+  Original plan below. Two halves of one feature, planned
   together because they share the same machinery: **0 to 1 (cold start)**, a
   request arrives for a bind no client serves and the server calls a
   client-declared URL to wake the service instead of answering 504; and **N to
