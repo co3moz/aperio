@@ -306,7 +306,11 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
     per hour), per-org caps. Client-side `idle_timeout` with a graceful drain
     ships with step 2, otherwise every cold-start cycle ends in a 502.
 
-- [ ] **#13 Optional per-organization hostname allowlist.** An organization can
+- [x] **#13 Optional per-organization hostname allowlist.** shipped: `hostnames`
+  on the org record, enforced in `ClientPerms` (org fence + token fence) and at
+  token create/edit, ephemeral tunnel provisioning, and the dashboard bind
+  override; random subdomains exempt; `PUT /api/orgs/{id}/hostnames`,
+  `aperio-client api org create|hostnames`, dashboard Organizations page. An organization can
   be given a list of hostname patterns (e.g. `acme.com`, `*.acme.example.com`)
   that fences every bind created inside it, so a tenant cannot claim a hostname
   it does not own. Today the only fence is the token's own `hostnames` list,
