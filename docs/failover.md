@@ -2,7 +2,7 @@
 
 By default, a request that has already been dispatched to a client answers **502** if that client's connection drops before it responds. `APERIO_FAILOVER` (yaml `failover`) changes this. Failover only ever triggers while **no response bytes have reached the visitor yet**, so a re-dispatch is completely transparent.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_FAILOVER` → `failover`, `APERIO_FAILOVER_WINDOW` → `failover_window`). YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_FAILOVER` → `failover`, `APERIO_FAILOVER_WINDOW` → `failover_window`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Modes
 

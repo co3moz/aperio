@@ -4,6 +4,8 @@ Aperio is usually not the outermost thing on the box. Traefik, Caddy, or nginx t
 
 There are three ways to solve it. Start at the top: the first one costs nothing and covers most deployments.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_EDGE_TOKEN` → `edge_token`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+
 ## 1. One wildcard domain: nothing to integrate
 
 If every tunnel hostname lives under a single domain you control, the edge never needs to know individual names. Give it one wildcard route and one wildcard certificate (DNS-01), and you are done.
@@ -33,8 +35,6 @@ Both remaining options are served by two endpoints on the Aperio server, and bot
 edge_token: a-long-random-secret        # env: APERIO_EDGE_TOKEN, required, enables the endpoints
 edge_service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, only for the Traefik document
 ```
-
-The file wins over the environment, so the `APERIO_*` names are the env-only equivalent for Docker deployments.
 
 | Env variable | yaml key | Meaning |
 | --- | --- | --- |

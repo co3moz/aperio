@@ -2,7 +2,7 @@
 
 Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Prometheus metrics
 
@@ -30,8 +30,7 @@ For quota and billing dashboards, per-tenant counters are exposed with `token` a
 Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
 
 ```yaml
-# aperio-server.yaml (wins over the environment; the env names are the
-# Docker-friendly equivalent)
+# aperio-server.yaml
 otel: true                                  # env: APERIO_OTEL=1
 otel_endpoint: http://otel-collector:4318   # env: APERIO_OTEL_ENDPOINT, base URL, /v1/traces is appended
 otel_service_name: aperio-server            # env: APERIO_OTEL_SERVICE_NAME, optional
@@ -48,8 +47,7 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are
 Two threshold rules turn the webhook pipeline into a simple pager, point a Slack/Discord/Teams webhook at the `alert_triggered` event:
 
 ```yaml
-# aperio-server.yaml (wins over the environment; the env names are the
-# Docker-friendly equivalent)
+# aperio-server.yaml
 alert_error_rate: 5        # env: APERIO_ALERT_ERROR_RATE, alert when ≥5% of proxied requests fail (5xx)…
 alert_window: 300          # env: APERIO_ALERT_WINDOW, …measured over a 300 s sliding window (default)
 alert_min_requests: 20     # env: APERIO_ALERT_MIN_REQUESTS, quiet windows below 20 requests never alert

@@ -2,7 +2,7 @@
 
 Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server picks a client in four steps: eligibility, hostname, path, and strategy.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`). YAML is the primary surface: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Eligibility
 

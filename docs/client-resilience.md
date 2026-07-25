@@ -2,7 +2,7 @@
 
 The client is built to run unattended: it survives server restarts, sick backends, config changes, and deployments without dropping visitor traffic on the floor.
 
-> **Config surfaces.** Client settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_TARGET_HEALTH` → `target_health`, `APERIO_MAX_CONCURRENT` → `max_concurrent`), settable per `services:` entry or at the top level. YAML is the primary surface. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Client settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_TARGET_HEALTH` → `target_health`, `APERIO_MAX_CONCURRENT` → `max_concurrent`), settable per `services:` entry or at the top level. YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Reconnect with backoff and jitter
 

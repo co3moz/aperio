@@ -9,6 +9,8 @@ Two things fall out of that one signal:
 
 Scaling **in** is deliberately not the server's job: an idle client retires itself with `idle_timeout`. The server never kills anything, which removes an entire class of "why did my instance disappear" incidents.
 
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SCALING` → `scaling`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+
 ## Enabling it
 
 Autoscaling is off unless the operator turns it on. A client's declaration is ignored entirely without it:
@@ -17,8 +19,6 @@ Autoscaling is off unless the operator turns it on. A client's declaration is ig
 # aperio-server.yaml
 scaling: true          # env: APERIO_SCALING=1
 ```
-
-The file is the primary surface and wins over the environment, so the `APERIO_*` form is there for Docker and other env-only deployments.
 
 Then declare it on the client, in `aperio.yaml`:
 
