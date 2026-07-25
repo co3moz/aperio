@@ -13,6 +13,7 @@ Child organizations are created from master by the super-admin. Once a child org
 Child organizations are managed through the dashboard's **Organizations** page or the API:
 
 ```bash
+# From anywhere, against the server's admin API.
 # List organizations (master + children, with per-org user/token counts)
 curl -b cookies.txt https://tunnel.example.com/aperio/api/orgs
 
@@ -78,6 +79,7 @@ Each child organization can carry quotas, max concurrently-connected clients, dy
 An organization can be fenced to the hostnames it actually owns. Without a fence, a token carrying `*` (or no hostname permission at all) may bind **any** hostname on the server, so an org admin minting a wildcard token for their own tenant could claim a hostname belonging to another one. Give the organization a hostname allowlist and that becomes impossible:
 
 ```bash
+# From anywhere, against the server's admin API.
 # At creation, or later on an existing organization
 curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   --data '{"hostnames":["acme.com","*.acme.example.com"]}' \

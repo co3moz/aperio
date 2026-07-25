@@ -14,12 +14,14 @@ Scaling **in** is deliberately not the server's job: an idle client retires itse
 Autoscaling is off unless the operator turns it on. A client's declaration is ignored entirely without it:
 
 ```bash
+# on the aperio-server
 APERIO_SCALING=1
 ```
 
 Then declare it on the client, in `aperio.yaml`:
 
 ```yaml
+# ./aperio.yaml (client)
 server:
   url: https://tunnel.example.com
   token: apr_...
@@ -100,6 +102,7 @@ Across all binds, at most eight calls are ever in flight at once, so a server re
 ## Watching it
 
 ```bash
+# from anywhere, with an admin key (see docs/cli-api.md)
 aperio-client api scaling list
 aperio-client api scaling disarm <id>
 ```

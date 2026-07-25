@@ -13,6 +13,7 @@ Each command performs exactly one call, prints the server's JSON answer (pretty-
 The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. Create one in the dashboard (*Settings, Admin Keys*), or over the API itself:
 
 ```bash
+# from anywhere, against the server's admin API
 curl -s -X POST -u "aperio:$APERIO_SERVER_TOKEN" https://tunnel.example.com/aperio/auth -c jar.txt
 curl -s -X POST -b jar.txt https://tunnel.example.com/aperio/api/admin-keys \
   -H 'Content-Type: application/json' -d '{"name":"ci","role":"operator"}'
@@ -27,6 +28,7 @@ The secret is returned exactly once. Hand it to the client the same way as any o
 | `aperio.yaml` | `server.api_key` |
 
 ```yaml
+# ./aperio.yaml (client)
 server:
   url: https://tunnel.example.com
   token: apr_...      # tunnel token, for exposing services
@@ -174,6 +176,7 @@ A quota of `0` clears that limit. `org hostnames` replaces the organization's ho
 ### Autoscaling
 
 ```bash
+# from anywhere, with an admin key
 aperio-client api scaling list
 aperio-client api scaling disarm <id>
 ```

@@ -30,6 +30,7 @@ For quota and billing dashboards, per-tenant counters are exposed with `token` a
 Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
 
 ```bash
+# on the aperio-server
 APERIO_OTEL=1
 APERIO_OTEL_ENDPOINT=http://otel-collector:4318   # base URL; /v1/traces is appended automatically
 APERIO_OTEL_SERVICE_NAME=aperio-server            # optional, defaults to "aperio-server"
@@ -46,6 +47,7 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are
 Two threshold rules turn the webhook pipeline into a simple pager, point a Slack/Discord/Teams webhook at the `alert_triggered` event:
 
 ```bash
+# on the aperio-server
 APERIO_ALERT_ERROR_RATE=5        # alert when ≥5% of proxied requests fail (5xx)…
 APERIO_ALERT_WINDOW=300          # …measured over a 300 s sliding window (default)
 APERIO_ALERT_MIN_REQUESTS=20     # quiet windows below 20 requests never alert (default)
@@ -92,6 +94,7 @@ Give a webhook a **signing secret** (16-128 chars, set at creation; never shown 
 Verify by recomputing the MAC over the exact received body bytes and comparing in constant time; reject stale timestamps (e.g. > 5 minutes old) to block replays:
 
 ```python
+# in your webhook receiver, not in Aperio
 import hmac, hashlib
 expected = hmac.new(secret, f"{ts}.".encode() + raw_body, hashlib.sha256).hexdigest()
 ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.time() - int(ts)) < 300
@@ -121,6 +124,7 @@ The same hourly cycle also runs the **disk-usage guard** when `APERIO_DB_MAX_BYT
 `POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store, the GDPR-style "erase what you hold about X" operation:
 
 ```bash
+# from anywhere, against the server's admin API
 curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
   --data '{"hostname": "app.example.com"}' https://tunnel.example.com/aperio/api/purge
 # → { "status": "ok", "removed": { "traffic_log": 12, "inspector_captures": 3, "stats_rows": 2, … } }

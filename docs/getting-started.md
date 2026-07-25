@@ -10,6 +10,7 @@ You need two pieces:
 ## 1. Start the server
 
 ```bash
+# on the public box
 docker run -d --name aperio-server \
   -p 8080:8080 \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
@@ -24,6 +25,7 @@ The token is the master credential: it authenticates tunnel clients and doubles 
 With Docker:
 
 ```bash
+# on the machine next to the service you are exposing
 docker run -d --name aperio-client \
   --network host \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
@@ -35,6 +37,7 @@ docker run -d --name aperio-client \
 Or with the CLI (installed via `curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh`):
 
 ```bash
+# on the machine next to the service you are exposing
 aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
 ```
 

@@ -26,9 +26,10 @@ The rest of this article is for the case this cannot cover: **hostnames that are
 
 ## Enabling the edge endpoints
 
-Both remaining options are served by two endpoints, and both are **off until you set a token**:
+Both remaining options are served by two endpoints on the Aperio server, and both are **off until you set a token** there:
 
 ```bash
+# on the aperio-server
 APERIO_EDGE_TOKEN=<a long random secret>        # required: enables the endpoints
 APERIO_EDGE_SERVICE_URL=http://aperio:8080      # only for the Traefik document
 ```
@@ -48,6 +49,7 @@ The token is accepted as `Authorization: Bearer <token>` or as a `?token=` query
 Caddy can ask before it issues a certificate. Point it at Aperio and every new tunnel hostname gets a certificate the moment it appears:
 
 ```
+# Caddyfile, on the edge proxy host
 {
   on_demand_tls {
     ask http://aperio:8080/aperio/api/edge/ask?token=YOUR_EDGE_TOKEN
@@ -93,7 +95,7 @@ Traefik cannot ask, so it needs the route list up front. `GET /aperio/api/edge/t
 Point Traefik's HTTP provider at it, in Traefik's **static** configuration:
 
 ```yaml
-# traefik.yml
+# traefik.yml, on the edge proxy host
 providers:
   http:
     endpoint: "http://aperio:8080/aperio/api/edge/traefik"

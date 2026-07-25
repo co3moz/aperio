@@ -154,6 +154,7 @@ The legacy flat form (`server: https://...` plus top-level `token:`) is still ac
 One client process can expose several targets: replace the single `target` with a `services:` list, and the client opens one tunnel connection per entry, each with its own binds, health probe, and knobs:
 
 ```yaml
+# ./aperio.yaml (client)
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -180,6 +181,7 @@ Per-entry fields: `name`, `target` (required, or `serve` in its place: a local d
 A `headers:` section (top-level, or per `services:` entry, the entry replaces the top-level section entirely when set) edits proxied HTTP traffic on the client: `request` rules apply to what the local backend receives, `response` rules to what the visitor receives. `add` sets a header, replacing any existing value of the same name; `remove` strips headers case-insensitively:
 
 ```yaml
+# ./aperio.yaml (client)
 headers:
   request:
     add:
@@ -198,6 +200,7 @@ Hop-by-hop and tunnel-critical headers (`Connection`, `Upgrade`, `Sec-WebSocket-
 A `security_headers:` key (top-level, or per `services:` entry, the entry replaces the top-level value when set) injects standard security response headers without hand-writing `headers:` rules. `security_headers: true` enables the standard set, `Strict-Transport-Security: max-age=63072000`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `false` opts a single service out of a top-level preset. A mapping picks headers individually:
 
 ```yaml
+# ./aperio.yaml (client)
 security_headers:
   hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
   hsts_max_age: 31536000      # optional, default 63072000 (2 years)
@@ -349,6 +352,7 @@ Dashboard overrides (./data/settings.json), these win over env/yaml at runtime:
 The file may also carry a structured `headers:` section, the server-wide counterpart of the client's per-service `headers:` config, applied to every proxied HTTP request across all services (WebSocket upgrades pass through untouched). `request` edits what tunnel clients (and thus backends) receive, `response` edits what visitors receive; `add` sets a header (replacing any existing value of the same name), `remove` strips names case-insensitively. Client rules run too, the server applies its rules on its side of the tunnel, the client applies its own on the backend side. Response edits happen before the response cache and the request inspector see the response, so all views agree. Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
 
 ```yaml
+# aperio-server.yaml
 headers:
   request:
     add:
@@ -365,6 +369,7 @@ headers:
 A structured `expose:` list opens raw public TCP ports that relay to declared client tunnels carrying the matching `expose: <key>`, see [Emergency Tunnels](emergency-tunnels.md#public-expose-experimental) for the full story and security notes.
 
 ```yaml
+# aperio-server.yaml
 expose:
   - protocol: tcp        # only tcp while experimental
     port: 2222
@@ -376,6 +381,7 @@ expose:
 A structured `routes:` list binds a hostname and/or path prefix directly to a server-produced answer, no tunnel client involved. Each rule matches on an exact `hostname` and/or a `path` prefix (bind semantics; first match wins, in file order) and carries exactly one action: `redirect` (302, or 301 with `permanent: true`; `preserve_path: true` appends the request path and query) or `respond` (a fixed response with optional `status`, `content_type`, `body`). Typical uses: vanity redirects, a "coming soon" page for a hostname whose client is not deployed yet, or a fixed `/robots.txt`. Routes match before client routing and maintenance-mode still wins; they serve operator-authored content, so the visitor gate does not apply.
 
 ```yaml
+# aperio-server.yaml
 routes:
   - hostname: old.example.com
     redirect: https://new.example.com
@@ -396,6 +402,7 @@ routes:
 A structured `error_pages:` list overrides the global `APERIO_504_PAGE` / `APERIO_503_PAGE` per hostname, so each exposed site can carry its own branding on gateway-timeout and maintenance responses. Each entry matches an exact `hostname` (case-insensitive) and points at HTML files via `504_page` and/or `503_page`; hostnames without an entry (and requests without a Host header) keep the global pages. Files are read when the section is loaded, at startup and on config hot-reload; an unreadable file logs an error and falls back to the global page:
 
 ```yaml
+# aperio-server.yaml
 error_pages:
   - hostname: app.example.com
     504_page: ./pages/app-504.html

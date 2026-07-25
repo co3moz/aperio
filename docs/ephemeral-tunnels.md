@@ -7,6 +7,7 @@ Ephemeral tunnels turn Aperio into a preview-environment backend: one API call m
 `POST /aperio/api/tunnels` authenticates with the master token in a header (no browser login) and works even when the dashboard is disabled:
 
 ```bash
+# from anywhere holding the master token, e.g. a CI job
 curl -X POST https://tunnel.example.com/aperio/api/tunnels \
   -H "Authorization: Bearer $APERIO_SERVER_TOKEN" \
   -H "Content-Type: application/json" \

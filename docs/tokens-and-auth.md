@@ -28,6 +28,7 @@ Secrets are stored as SHA-256 hashes in `APERIO_DATA_DIR/aperio.db` (SQLite) and
 A token created with a lifetime can slide its own expiry forward, mint it with a short TTL and let the holder keep it alive only while it is actually in use:
 
 ```bash
+# from anywhere holding the token, e.g. the CI job that uses it
 curl -X POST -H "Authorization: Bearer $APERIO_TOKEN" https://tunnel.example.com/aperio/api/tokens/refresh
 # → { "status": "ok", "id": "…", "expires_at": 1780000000 }
 ```
@@ -39,6 +40,7 @@ The endpoint authenticates with the token secret itself (no dashboard session ne
 Rotation replaces a token's **secret** without touching its identity, permissions, limits, expiry, and every reference to the token id stay as they are. The old secret keeps authenticating for the requested grace window, so running clients and CI jobs can migrate to the new secret without a hard cutover:
 
 ```bash
+# from anywhere, against the server's admin API
 curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
   --data '{"grace_seconds": 86400}' \
   https://tunnel.example.com/aperio/api/tokens/<id>/rotate
