@@ -57,6 +57,7 @@ Click a feature for the details.
 | [Response cache](docs/caching.md)                              | serve GETs without the tunnel                        |
 | [Multi-tenancy](docs/organizations.md)                         | isolated organizations on one server                 |
 | [Admin dashboard](docs/dashboard.md)                           | live traffic, inspector, replay, kill switch         |
+| [Admin API from the CLI](docs/cli-api.md)                      | script it all: `aperio-client api share \| token \| ...` |
 | [Observability](docs/observability.md)                         | Prometheus, OpenTelemetry, access log, webhooks      |
 | [Client resilience](docs/client-resilience.md)                 | reconnect, health probes, graceful drain             |
 | [Configuration](docs/configuration.md)                         | every setting: env, CLI, or yaml                     |

@@ -28,6 +28,10 @@ Because anyone holding a link has access until it expires, scope links tightly: 
 
 Every link creation is recorded in the audit log as `share_created` and emitted to webhooks, so you always know what was shared, when, and by whom.
 
+## From the command line
+
+`aperio-client api share --hostname app.example.com --path /docs --expire 1d` mints the same link from a script, no dashboard session required. See [Admin API from the CLI](cli-api.md).
+
 ## Runnable examples
 
 Copy-and-adapt config pairs for this topic:

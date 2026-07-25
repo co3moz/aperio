@@ -179,6 +179,10 @@ pub enum ServerValue {
     /// Tunnel token (master or a scoped dynamic token) that authorizes this client.
     #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
     token: Option<String>,
+    /// Admin API key used by `aperio-client api ...` calls (never for the
+    /// tunnel itself).
+    #[schemars(extend("examples" = ["apk_xxxxxxxxxxxxxxxx"]))]
+    api_key: Option<String>,
   },
 }
 
@@ -490,6 +494,14 @@ impl FileConfig {
     match &self.server {
       Some(ServerValue::Section { token: Some(t), .. }) => Some(t.clone()),
       _ => self.token.clone(),
+    }
+  }
+
+  /// Resolves the admin API key used by the `aperio-client api` commands.
+  pub fn server_api_key(&self) -> Option<String> {
+    match &self.server {
+      Some(ServerValue::Section { api_key, .. }) => api_key.clone(),
+      _ => None,
     }
   }
 }

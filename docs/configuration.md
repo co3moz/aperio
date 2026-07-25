@@ -44,11 +44,14 @@ aperio-client 3000                     Expose http://localhost:3000
 aperio-client example.com              Expose http://example.com
 aperio-client --bind-tunnels <id>      Bind the declared tunnels of a peer client locally
 aperio-client check                    Diagnose configuration and connectivity
+aperio-client api <group> <action>     Call the server's admin API (see below)
 aperio-client --version
 aperio-client --help
 ```
 
 The positional target is optional, a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. When omitted, the target comes from a config file or the environment.
+
+`aperio-client api ...` performs one admin API call and prints the JSON answer, the dashboard's operations (share links, tokens, tunnels, maintenance, users, reports) from a script. It authenticates with an admin key rather than the tunnel token; see [Admin API from the CLI](cli-api.md).
 
 `aperio-client check` resolves the configuration with the usual precedence, reporting **which layer** (CLI argument, `./aperio.yaml`, environment, `~/.aperio.yaml`) supplied each value, and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), every local target (all `services:` entries in multi-service mode), and their health endpoints when configured. Exit code 0 = all green, handy in support requests and provisioning scripts.
 
@@ -68,6 +71,7 @@ The positional target is optional, a bare port number expands to `http://localho
 | `--allowed-ips IPS` | Comma-separated visitor IPs/CIDRs allowed to reach this service (everyone when unset); enforced per candidate by the server, a fully rejected visitor gets the `denied:` redirect or a stealth answer |
 | `--client-id UUID` | Persistent client instance id (default: a random UUID per run) |
 | `--bind-tunnels [CLIENT_ID]` | Bind a peer client's declared tunnels locally (see [Emergency Tunnels](emergency-tunnels.md)) |
+| `--api-key KEY` | Admin API key used by the `api` subcommand (never by the tunnel) |
 | `--config FILE` | Config file path (default: `./aperio.yaml`) |
 
 ### Settings
@@ -78,6 +82,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | --- | --- | --- | --- | --- |
 | `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. |  |
 | `APERIO_SERVER_URL` | `--server-url` | `server.url` | **Required.** Server URL (`http/https/ws/wss`). |  |
+| `APERIO_API_KEY` | `--api-key` | `server.api_key` | Programmatic admin key for `aperio-client api ...` calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See [Admin API from the CLI](cli-api.md). |  |
 | `APERIO_SERVER_URLS` |  | `server.urls` | Additional server URLs to fail over to (comma-separated on env, a list in yaml), tried in order when the primary `server.url` is unreachable, for a redundant control plane. |  |
 | `APERIO_IP_FAMILY` | `--ip-family` | `ip_family` | Address family used to dial the server: `auto` (default; IPv4-first, trying each resolved address with a per-address timeout), `ipv4`, or `ipv6`. Use `ipv4` when the server hostname resolves to an unreachable IPv6 address. | `auto` |
 | `APERIO_TARGET` | positional / `--target` | `target` | **Required.** Local backend to forward to. `http(s)://` (a bare port or hostname is normalized to it), or `h2c://` / `h2://` for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), `te: trailers` is forwarded, and response trailers (`grpc-status`) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). `unix:///var/run/app.sock` forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). |  |

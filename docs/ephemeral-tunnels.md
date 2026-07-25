@@ -46,6 +46,10 @@ See the [action's README](../aperio-tunnel-action/README.md) for all inputs and 
 
 Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked, protect those with the visitor password or OIDC if they should stay private.
 
+## From the command line
+
+`aperio-client api tunnel create --name pr-42 --expire 2h` provisions a tunnel without hand-writing the `curl`, and works with the master token when no admin key is configured. See [Admin API from the CLI](cli-api.md).
+
 ## Runnable examples
 
 Copy-and-adapt config pairs for this topic:

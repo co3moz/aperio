@@ -4,6 +4,7 @@ use config::ServiceEntry;
 fn base_settings() -> ClientSettings {
   ClientSettings {
     token: Some("apr_test".to_string()),
+    api_key: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
     serve: None,

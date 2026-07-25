@@ -98,7 +98,7 @@ The *API Explorer* page (System group) renders the server's own `/aperio/api/ope
 
 ## The admin API
 
-Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json`, point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md).
+Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json`, point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md), and `aperio-client api ...` wraps the same surface as a command line, see [Admin API from the CLI](cli-api.md).
 
 ## Runnable examples
 

@@ -106,6 +106,10 @@ Two consequences follow from the single-device binding, and are intentional:
 
 Pinning provides replay rejection without a full PKI; it is not transport encryption (put Aperio behind TLS for confidentiality).
 
+## From the command line
+
+The whole token lifecycle is scriptable: `aperio-client api token create|list|update|rotate|revoke`, authenticated with an admin key. See [Admin API from the CLI](cli-api.md).
+
 ## Runnable examples
 
 Copy-and-adapt config pairs for this topic:

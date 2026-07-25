@@ -105,6 +105,12 @@ enum Command {
   },
   /// Diagnose configuration and connectivity
   Check,
+  /// Call the server's admin API: share links, tokens, tunnels, maintenance,
+  /// users, orgs, webhooks, cache, and the read-only reports
+  Api {
+    #[command(subcommand)]
+    command: crate::api::ApiCommand,
+  },
 }
 
 /// Options shared by all modes. Each maps mechanically onto a yaml key and
@@ -117,6 +123,10 @@ pub(crate) struct CommonOpts {
   /// Tunnel token, master or dynamic (yaml: server.token, env: APERIO_SERVER_TOKEN)
   #[arg(long, visible_alias = "token", global = true, value_name = "TOKEN")]
   pub(crate) server_token: Option<String>,
+  /// Admin API key for the `api` subcommand, not the tunnel itself
+  /// (yaml: server.api_key, env: APERIO_API_KEY)
+  #[arg(long = "api-key", global = true, value_name = "KEY")]
+  pub(crate) api_key: Option<String>,
   /// What to expose or check, same forms as the positional argument
   /// (yaml: target, env: APERIO_TARGET)
   #[arg(long = "target", global = true, value_name = "TARGET")]
@@ -195,6 +205,8 @@ pub(crate) enum CliMode {
   TcpBridge,
   /// `aperio-client check`: configuration & connectivity diagnostics.
   Check,
+  /// `aperio-client api ...`: one admin API call, then exit.
+  Api(crate::api::ApiCommand),
   /// `aperio-client --bind-tunnels [id]`: bind the declared tunnels of one
   /// (or every configured) peer client as local listeners. The id is empty
   /// when the flag was given without a value (yaml section drives it).
@@ -224,6 +236,7 @@ fn cli_to_args(cli: Cli) -> CliArgs {
     (None, None) => (CliMode::Run, None),
     (Some(Command::Tcp { local_port }), _) => (CliMode::TcpBridge, Some(local_port)),
     (Some(Command::Check), _) => (CliMode::Check, None),
+    (Some(Command::Api { command }), _) => (CliMode::Api(command), None),
   };
   CliArgs {
     mode,
@@ -299,6 +312,8 @@ pub(crate) fn load_home_config() -> FileConfig {
 /// environment > ~/.aperio.yaml and applying defaults.
 pub(crate) struct ClientSettings {
   pub(crate) token: Option<String>,
+  /// Admin API key used by the `api` subcommand (never by the tunnel).
+  pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
   pub(crate) target: Option<String>,
   /// Static directory to serve instead of a backend (single-service mode;
@@ -482,6 +497,12 @@ pub(crate) fn resolve_settings(
       local.server_token(),
       env_str("APERIO_SERVER_TOKEN"),
       home.server_token(),
+    ),
+    api_key: layered(
+      o.api_key.clone(),
+      local.server_api_key(),
+      env_str("APERIO_API_KEY"),
+      home.server_api_key(),
     ),
     server: layered(
       o.server_url.clone(),

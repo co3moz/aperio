@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+mod api;
 mod bind_tunnels;
 mod check;
 mod config;
@@ -47,8 +48,13 @@ async fn main() {
   // non-TTY stdout (Docker, pipes, service managers) keeps the structured
   // JSON format (pino.js style). APERIO_LOG_FORMAT=json|pretty overrides
   // the auto-detection.
+  // One-shot admin API calls print their JSON answer on stdout, so their logs
+  // stay quiet (warnings and above) and go to stderr: a piped `api` call must
+  // emit nothing but the response document.
+  let api_mode = matches!(cli.mode, CliMode::Api(_));
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-    let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let default = if api_mode { "warn" } else { "info" };
+    let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| default.to_string());
     tracing_subscriber::EnvFilter::new(level)
   });
 
@@ -60,7 +66,14 @@ async fn main() {
       !std::io::stdout().is_terminal()
     }
   };
-  if json_logs {
+  if api_mode {
+    tracing_subscriber::fmt()
+      .compact()
+      .with_target(false)
+      .with_writer(std::io::stderr)
+      .with_env_filter(log_filter)
+      .init();
+  } else if json_logs {
     tracing_subscriber::fmt()
       .json()
       .with_current_span(false)
@@ -76,7 +89,9 @@ async fn main() {
       .init();
   }
 
-  info!("Starting Aperio Client...");
+  if !api_mode {
+    info!("Starting Aperio Client...");
+  }
 
   // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
   let home_cfg = load_home_config();
@@ -86,6 +101,11 @@ async fn main() {
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
   dial::set_ip_family(settings.ip_family);
+
+  // Admin API mode: perform one call, print the JSON answer, exit.
+  if let CliMode::Api(ref command) = cli.mode {
+    api::run_api(&settings, &cli.opts, command).await;
+  }
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {

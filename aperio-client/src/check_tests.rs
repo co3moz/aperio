@@ -177,6 +177,7 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
 fn base_settings() -> ClientSettings {
   ClientSettings {
     token: None,
+    api_key: None,
     server: None,
     target: None,
     serve: None,

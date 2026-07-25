@@ -7,6 +7,7 @@ fn settings_with(
 ) -> ClientSettings {
   ClientSettings {
     token: token.map(|t| t.to_string()),
+    api_key: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: None,
     serve: None,
