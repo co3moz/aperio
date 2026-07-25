@@ -1,4 +1,3 @@
-use aperio_config::ScalingDecl;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -58,6 +57,39 @@ fn default_true() -> bool {
 /// Serde default protocol of a declared tunnel.
 fn default_tcp() -> String {
   "tcp".to_string()
+}
+
+/// Autoscaling declaration a client announces in its Ping: the endpoint the
+/// server calls when this service needs capacity it does not have.
+///
+/// Mirrors `aperio_config::ScalingDecl` (the `scaling:` block of the client's
+/// `aperio.yaml`) rather than importing it: this module is included verbatim
+/// by the fuzz targets, so it must depend on nothing beyond serde.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ScalingDecl {
+  /// Endpoint the server POSTs to when it wants more capacity.
+  pub url: String,
+  /// Bearer credential for that call. Write-only: never echoed, never logged.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub secret: Option<String>,
+  /// Instances that should always run; 0 opts into scale-to-zero.
+  #[serde(default)]
+  pub min: u32,
+  /// Ceiling the server never asks to exceed (0 = cold starts only).
+  #[serde(default)]
+  pub max: u32,
+  /// How long a visitor request may be held during a cold start (e.g. `45s`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cold_start: Option<String>,
+  /// Pool utilization above which one more instance is requested, in (0, 1].
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub target_utilization: Option<f64>,
+  /// How long utilization must stay above the target before acting.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub window: Option<String>,
+  /// Minimum gap between two calls for one bind.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cooldown: Option<String>,
 }
 
 /// One tunnel declared by a client (`tunnels:` list in its aperio.yaml): a

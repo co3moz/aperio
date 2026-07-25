@@ -14,7 +14,7 @@ use axum::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use aperio_config::ScalingDecl;
+use crate::protocol::ScalingDecl;
 
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
