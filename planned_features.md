@@ -224,3 +224,124 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   request-scoped work must stay as they are. Decide per loop whether a restart
   is safe or whether a panic there should instead be escalated to a graceful
   shutdown. (From a 2026-07 panic-resilience review.)
+
+- [ ] **#12 Capacity-aware autoscaling: the server signals desired capacity,
+  the client declares the actuator.** Two halves of one feature, planned
+  together because they share the same machinery: **0 to 1 (cold start)**, a
+  request arrives for a bind no client serves and the server calls a
+  client-declared URL to wake the service instead of answering 504; and **N to
+  N+1 (scale out)**, the connected pool is saturated and the server asks for
+  one more instance. Scale *in* stays client-driven (an idle client shuts
+  itself down), so the server never kills anything. Aperio is the sensor and
+  the policy, never the orchestrator: it emits a desired-capacity signal to a
+  URL the operator controls and the provider decides what to do with it.
+  - **Declaration.** One `scaling:` block in `aperio.yaml`, announced via Ping
+    and persisted server-side (it must outlive the client process):
+    `url`, `secret` (write-only), `min` (0 enables cold start), `max`,
+    `cold_start` budget, `target_utilization`, `window`, `cooldown`. Honored
+    only when the token carries a new `allow_scaling` permission (same trust
+    model as `public` / `visitor_auth`), with an `APERIO_IGNORE_CLIENT_SCALING`
+    server-side escape hatch. Also settable from the admin API so a client
+    never has to know about it.
+  - **Record identity.** Keyed by `(org_id, hostname_bind, path_bind)`: that is
+    all a request carries, so the lookup is O(1) on the miss path. Ownership is
+    a *set* of token ids (8 identical replicas may hold 8 different tokens);
+    the record disarms when the last owner token is revoked or expires.
+    Duplicate registration is deduped by a content hash of the config, so N
+    identical replicas are an idempotent no-op refresh (no audit spam, no
+    flapping). A differing config is last-writer-wins plus an audit entry, and
+    the dashboard flags a conflict when two live clients disagree.
+  - **One state machine per bind** (in memory, not persisted): Idle to Waking
+    to Idle, with single flight (a burst of requests produces exactly one
+    actuator call), cooldown with exponential backoff, and a circuit breaker
+    that disarms after K consecutive failures. The same machine serves both
+    triggers, only the reason differs.
+  - **Where it hooks in.** Cold start belongs on the empty-pool path
+    (`PickOutcome::NoRoute` in `proxy.rs`), *not* to `FailoverMode`: failover
+    only governs in-flight failures and never covered the empty pool, so wake
+    changes no existing guarantee. The record carries its own `on_empty: hold |
+    fail` policy for that path. Because the request was never dispatched,
+    holding it is safe for every method, so the `failover_all_methods` /
+    idempotency rules must NOT be reused here.
+  - **Scale-out signal.** Every client already carries an `inflight_limiter`
+    semaphore sized by its announced `max_concurrent`, so pool utilization is
+    `1 - (sum available_permits / sum max_concurrent)` over routable clients,
+    and requests over capacity already wait on that semaphore. Trigger on
+    sustained utilization above `target_utilization` for `window` *plus* real
+    semaphore wait time (p95), never on raw request counts, which are far too
+    noisy. Exclude standby-tier clients (priority > 0) under
+    `primary-standby`, and note that sticky routing cannot be relieved by
+    adding instances.
+  - **Known traps to design for.** (a) `try_acquire_request_slot` runs *before*
+    client selection, so a hold on the empty-pool path would pin a global
+    concurrency slot for the whole cold-start budget and starve healthy
+    services; the wait must release the permit or the route must resolve
+    earlier. (b) With an empty pool there are no candidates to evaluate
+    `allowed_ips` against, so a visitor who would have been denied can trigger
+    a paid cold start and learn the route exists; check the token's IP scope
+    before firing. (c) Bots, crawlers and uptime checks will keep a
+    scale-to-zero service awake forever unless the trigger is filtered by
+    method/path. (d) Wait for a *routable* candidate, not merely a connected
+    one (`backend_healthy` / `wait_for_backend` gate). (e) An `idle_timeout`
+    shorter than the cold start produces a death spiral; the client must not
+    start its idle timer before serving a request, and "woken but died without
+    serving" must count against the breaker. (f) Never fire while the bind is
+    in maintenance mode or its client was disabled from the dashboard: both are
+    explicit operator intent. (g) An owner token that expired while the service
+    slept would burn the budget on every request; check validity before firing.
+    (h) A server restart drops the in-memory state, so bound the blast radius
+    with a global concurrent-actuator semaphore. (i) Several aperio-servers in
+    HA each hold their own view, so the actuator must be idempotent; document
+    it. (j) With `resilience: true`, serve the stale cached answer immediately
+    and fire the actuator in the background rather than holding the visitor.
+    (k) The outbound call is SSRF from a lower-trust credential: https only, no
+    private or loopback targets by default, no redirects, short timeout,
+    response body ignored, optional host allowlist, secret never logged, every
+    firing audited.
+  - **Delivery order.** 1) Capacity telemetry only (utilization, semaphore wait,
+    saturation in `/api/stats`, Prometheus and the dashboard) so the signal can
+    be validated with zero risk. 2) The actuator plus the desired-capacity
+    state machine with `min: 0`, i.e. cold start. 3) Scale-out on the same
+    machine. 4) Policy refinements: hysteresis, cost guards (max scale events
+    per hour), per-org caps. Client-side `idle_timeout` with a graceful drain
+    ships with step 2, otherwise every cold-start cycle ends in a 502.
+
+- [ ] **#13 Optional per-organization hostname allowlist.** An organization can
+  be given a list of hostname patterns (e.g. `acme.com`, `*.acme.example.com`)
+  that fences every bind created inside it, so a tenant cannot claim a hostname
+  it does not own. Today the only fence is the token's own `hostnames` list,
+  and `hostname_allowed` treats an empty list or `*` as "any hostname on this
+  server" (`state.rs`), so an org admin minting a wildcard token for their own
+  org can bind another tenant's hostname. Enforce the org fence in three
+  places: token create/update rejects permissions outside it, the Ping bind
+  validation re-checks it (tokens can predate the allowlist, so this is the
+  defence in depth that actually holds), and random-subdomain assignment stays
+  within it. Inside a fenced org, `*` then means "any hostname within the org's
+  patterns" instead of "anything". The master organization has no allowlist
+  (None = unrestricted, current behavior), and the field is optional so
+  existing deployments are unchanged. Surfaces as `hostnames` on the org record
+  (dashboard org form, `PUT /api/orgs/{id}`, `aperio-client api org`), next to
+  the existing quotas. Related: [[#12]] records are org-keyed, so the same
+  fence bounds which hostnames a scaling record may be armed for.
+
+- [ ] **#14 Publish live hostnames to a dynamic edge proxy (Traefik, Caddy,
+  nginx).** With Aperio behind a dynamic reverse proxy, every new tunnel
+  hostname needs a router and a certificate at the edge, which today means
+  hand-written config or a wildcard. The server already knows the full live
+  inventory (`/api/topology`: connected clients, their binds, token-granted
+  but offline binds, static routes, exposes), so it can serve that inventory in
+  the format each proxy consumes. Two endpoints, sharing one hostname
+  inventory: (a) a **Traefik HTTP provider** document
+  (`GET /aperio/api/edge/traefik`) returning `http.routers` / `http.services`
+  with a `Host(...)` rule per live hostname pointing back at this server, plus
+  the cert resolver, so Traefik picks up a new tunnel within its poll interval;
+  (b) a proxy-agnostic **hostname check** (`GET /aperio/api/edge/ask?domain=`)
+  answering 200 or 404 by whether the hostname is currently served, which is
+  exactly Caddy's on-demand TLS `ask` contract and doubles as a generic probe
+  for scripts and nginx templating. Both must be authenticated (admin key or a
+  dedicated read-only edge token), org-scoped, cacheable, and must never expose
+  the expose shared key or any secret. Decide before implementing: whether the
+  inventory should include declared-but-offline binds (needed for a cert to
+  exist before the first client connects, but it lets a tenant provoke an ACME
+  request for any hostname their token permits, so it should probably be
+  opt-in), and which proxy is the primary target for the first cut.
