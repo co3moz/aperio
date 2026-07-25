@@ -24,6 +24,7 @@ Short, focused articles on each part of the product. For the project overview an
 - [Admin API from the CLI](cli-api.md), run the dashboard's operations from scripts with `aperio-client api ...`: share links, tokens, tunnels, maintenance, users, reports.
 - [Observability](observability.md), Prometheus metrics, OpenTelemetry tracing, structured access log, audit trail, webhooks, persistent statistics.
 - [Client Resilience](client-resilience.md), reconnect backoff, backend health probing, config hot-reload, graceful drain, bandwidth pacing.
+- [Behind a Dynamic Edge Proxy](edge-proxy.md), run Traefik or Caddy in front and let them learn Aperio's runtime hostnames: wildcard routing, Caddy on-demand TLS, and the Traefik HTTP provider.
 - [Response Caching](caching.md), the server-side GET cache: the two-key opt-in, what gets cached, edge 304 / single-flight / stale-while-revalidate / range hits, and serve-stale resilience.
 
 ## Security

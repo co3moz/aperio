@@ -206,6 +206,48 @@ pub(crate) fn run() -> i32 {
       )),
     }
   }
+  // --- Edge integration: the token is the on/off switch, so the other keys
+  // are silently inert without it. ---
+  {
+    let token = env("APERIO_EDGE_TOKEN");
+    let others = [
+      "APERIO_EDGE_SERVICE_URL",
+      "APERIO_EDGE_ENTRYPOINTS",
+      "APERIO_EDGE_CERT_RESOLVER",
+      "APERIO_EDGE_INCLUDE_OFFLINE",
+    ];
+    let configured: Vec<&str> = others.into_iter().filter(|k| env(k).is_some()).collect();
+    match (&token, configured.is_empty()) {
+      (Some(_), _) => {
+        r.ok("APERIO_EDGE_TOKEN is set (edge endpoints enabled)");
+        match env("APERIO_EDGE_SERVICE_URL") {
+          Some(url) if url.starts_with("http://") || url.starts_with("https://") => {
+            r.ok(&format!("APERIO_EDGE_SERVICE_URL = {}", url.trim()))
+          }
+          Some(url) => r.fail(&format!(
+            "APERIO_EDGE_SERVICE_URL '{}' must be an http:// or https:// URL the edge proxy can reach",
+            url.trim()
+          )),
+          None => r.warn(
+            "APERIO_EDGE_SERVICE_URL is not set — /aperio/api/edge/traefik answers 503 without it (the Caddy ask endpoint still works)",
+          ),
+        }
+        if env("APERIO_EDGE_INCLUDE_OFFLINE")
+          .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
+          r.warn(
+            "APERIO_EDGE_INCLUDE_OFFLINE publishes hostnames no client is serving — a tenant can provoke a certificate request for any hostname its token permits",
+          );
+        }
+      }
+      (None, false) => r.warn(&format!(
+        "{} set without APERIO_EDGE_TOKEN — the edge endpoints stay disabled",
+        configured.join(", ")
+      )),
+      (None, true) => {}
+    }
+  }
+
   if let Some(raw) = env("APERIO_RANDOM_SUBDOMAIN") {
     match crate::routing::normalize_random_subdomain_pattern(&raw) {
       Some(p) => r.ok(&format!("APERIO_RANDOM_SUBDOMAIN pattern {p}")),

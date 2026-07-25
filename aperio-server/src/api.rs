@@ -12,6 +12,7 @@ use crate::state::AppState;
 
 pub(crate) mod admin_keys;
 pub(crate) mod clients;
+pub(crate) mod edge;
 pub(crate) mod export;
 pub(crate) mod inbox;
 pub(crate) mod inspector;

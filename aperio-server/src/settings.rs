@@ -52,6 +52,25 @@ pub(crate) struct ServerConfig {
   pub(crate) require_hostname_bind: bool,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   pub(crate) metrics_token: Option<String>,
+  /// Credential gating the edge-integration endpoints (`/aperio/api/edge/*`),
+  /// which publish the live hostname inventory to a reverse proxy in front of
+  /// this server. None disables those endpoints entirely.
+  pub(crate) edge_token: Option<String>,
+  /// URL the edge proxy should forward matched traffic to (this server as the
+  /// edge sees it, e.g. `http://aperio:8080`). Required by the Traefik
+  /// document; the `ask` endpoint does not need it.
+  pub(crate) edge_service_url: Option<String>,
+  /// Traefik entry points the generated routers bind to (empty = let Traefik
+  /// apply its own defaults).
+  pub(crate) edge_entrypoints: Vec<String>,
+  /// Traefik certificate resolver named on the generated routers (None = no
+  /// TLS block, e.g. when the edge terminates TLS some other way).
+  pub(crate) edge_cert_resolver: Option<String>,
+  /// Include hostnames a token permits but no client currently serves, so a
+  /// certificate can exist before the first client connects. Off by default:
+  /// it lets a tenant provoke an ACME request for any hostname its token
+  /// covers.
+  pub(crate) edge_include_offline: bool,
   /// Canonical pattern for automatic random subdomains (from
   /// `APERIO_RANDOM_SUBDOMAIN`): a hostname whose leftmost label contains a
   /// `*` placeholder, e.g. `*.example.com` or `*-test.example.com`. When

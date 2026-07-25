@@ -23,6 +23,8 @@ use utoipa::OpenApi;
   paths(
     crate::api::health_handler,
     crate::api::metrics::metrics_handler,
+    crate::api::edge::edge_ask_handler,
+    crate::api::edge::edge_traefik_handler,
     crate::api::metrics::stage_stats_handler,
     crate::api::metrics::slow_endpoints_handler,
     crate::api::metrics::bandwidth_handler,
@@ -134,6 +136,8 @@ mod tests {
     for expected in [
       "/aperio/health",
       "/aperio/metrics",
+      "/aperio/api/edge/ask",
+      "/aperio/api/edge/traefik",
       "/aperio/api/stats",
       "/aperio/api/stats/history",
       "/aperio/api/uptime",

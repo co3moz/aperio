@@ -521,6 +521,18 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `APERIO_METRICS` | `1` = enable the Prometheus endpoint at `/aperio/metrics`. | `0` |
 | `APERIO_METRICS_TOKEN` | Token required to scrape metrics (`?token=` or `Authorization: Bearer`). Unset = a random one is generated on first start and persisted in `APERIO_DATA_DIR/metrics_token`. | generated |
 
+### Edge proxy integration
+
+Publish the hostnames Aperio currently serves to a dynamic reverse proxy in front of it, so Traefik or Caddy can route and issue certificates for names that only exist at runtime. Full walkthrough: [Behind a Dynamic Edge Proxy](edge-proxy.md).
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APERIO_EDGE_TOKEN` | Credential the edge proxy presents (`Authorization: Bearer` or `?token=`). **Unset = the `/aperio/api/edge/*` endpoints are not registered at all.** |  |
+| `APERIO_EDGE_SERVICE_URL` | URL the edge should forward matched traffic to, i.e. this server as the edge sees it (e.g. `http://aperio:8080`). Required by the Traefik document; the Caddy `ask` endpoint works without it. |  |
+| `APERIO_EDGE_ENTRYPOINTS` | Comma-separated Traefik entry points set on the generated routers. Empty = leave it to Traefik's defaults. |  |
+| `APERIO_EDGE_CERT_RESOLVER` | Traefik certificate resolver named on the generated routers. Unset = no `tls` block. |  |
+| `APERIO_EDGE_INCLUDE_OFFLINE` | `1` = also publish hostnames a token permits but no client is serving, so a certificate can exist before the first connect. Lets a tenant provoke an ACME request for any hostname its token covers. | `0` |
+
 ### OIDC / SSO
 
 Put an identity-provider login (Google, Keycloak, Authentik, ...) in front of everything the tunnel serves. Unauthenticated visitors are redirected to the provider; after login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist, exact addresses, `*@domain`, or `*`. Sessions last 24h.
@@ -560,6 +572,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/api/export` | Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). | master super-admin |
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
+| `GET /aperio/api/edge/ask?domain=`, `GET /aperio/api/edge/traefik` | Live hostname inventory for a reverse proxy in front of Aperio (Caddy on-demand TLS, Traefik HTTP provider), see [Behind a Dynamic Edge Proxy](edge-proxy.md). | `APERIO_EDGE_TOKEN` |
 | `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `PUT /aperio/api/orgs/:id/hostnames`, `POST /aperio/api/orgs/select` | Organization management, hostname allowlist, and switching, see [Organizations](organizations.md). | master super-admin |
 
 ## Runnable examples

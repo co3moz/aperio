@@ -721,6 +721,22 @@ pub struct ServerFileConfig {
   pub metrics: Option<bool>,
   /// Bearer token gating the metrics endpoint (env: APERIO_METRICS_TOKEN).
   pub metrics_token: Option<String>,
+  /// Credential enabling the edge-integration endpoints, which publish the
+  /// live hostname inventory to a reverse proxy in front of this server
+  /// (env: APERIO_EDGE_TOKEN).
+  pub edge_token: Option<String>,
+  /// URL the edge proxy forwards matched traffic to (env: APERIO_EDGE_SERVICE_URL).
+  #[schemars(extend("examples" = ["http://aperio:8080"]))]
+  pub edge_service_url: Option<String>,
+  /// Traefik entry points for the generated routers (env: APERIO_EDGE_ENTRYPOINTS).
+  #[schemars(extend("examples" = ["websecure"]))]
+  pub edge_entrypoints: Option<String>,
+  /// Traefik certificate resolver for the generated routers (env: APERIO_EDGE_CERT_RESOLVER).
+  #[schemars(extend("examples" = ["letsencrypt"]))]
+  pub edge_cert_resolver: Option<String>,
+  /// Also publish hostnames a token permits but no client serves yet
+  /// (env: APERIO_EDGE_INCLUDE_OFFLINE).
+  pub edge_include_offline: Option<bool>,
 
   // --- Auth, dashboard & SSO ---
   /// Visitor auth `user:password` gate (env: APERIO_SERVER_AUTH).

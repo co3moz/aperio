@@ -485,6 +485,29 @@ async fn async_main() {
     .ok()
     .filter(|t| !t.trim().is_empty());
 
+  // Edge integration (default: disabled). The token is the on/off switch:
+  // without it the `/aperio/api/edge/*` routes are not registered at all.
+  let edge_token = std::env::var("APERIO_EDGE_TOKEN")
+    .ok()
+    .filter(|t| !t.trim().is_empty());
+  let edge_service_url = std::env::var("APERIO_EDGE_SERVICE_URL")
+    .ok()
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty());
+  let edge_entrypoints: Vec<String> = std::env::var("APERIO_EDGE_ENTRYPOINTS")
+    .unwrap_or_default()
+    .split(',')
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty())
+    .collect();
+  let edge_cert_resolver = std::env::var("APERIO_EDGE_CERT_RESOLVER")
+    .ok()
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty());
+  let edge_include_offline = std::env::var("APERIO_EDGE_INCLUDE_OFFLINE")
+    .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
+
   // Server-side GET response cache (default: disabled). Only effective for
   // clients that announce `cache: true`, and strictly Cache-Control-driven.
   let cache_enabled = std::env::var("APERIO_CACHE")
@@ -728,6 +751,11 @@ async fn async_main() {
     secure_cookies,
     require_hostname_bind,
     metrics_token,
+    edge_token,
+    edge_service_url,
+    edge_entrypoints,
+    edge_cert_resolver,
+    edge_include_offline,
     random_subdomain_suffix,
     client_down_threshold: Duration::from_secs(client_down_threshold_secs),
     tunnel_compression,
@@ -1331,6 +1359,30 @@ async fn async_main() {
   if metrics_enabled {
     app = app.route("/aperio/metrics", get(metrics_handler));
     info!("Prometheus metrics endpoint enabled at /aperio/metrics");
+  }
+
+  // Edge integration. Registered outside the dashboard session middleware on
+  // purpose: the edge proxy holds only APERIO_EDGE_TOKEN, and the endpoints
+  // must work with the dashboard disabled. Without the token they do not
+  // exist at all.
+  if state.config().edge_token.is_some() {
+    app = app
+      .route(
+        "/aperio/api/edge/ask",
+        get(crate::api::edge::edge_ask_handler),
+      )
+      .route(
+        "/aperio/api/edge/traefik",
+        get(crate::api::edge::edge_traefik_handler),
+      );
+    info!(
+      "Edge integration enabled at /aperio/api/edge/ask and /aperio/api/edge/traefik{}",
+      if state.config().edge_service_url.is_some() {
+        ""
+      } else {
+        " (set APERIO_EDGE_SERVICE_URL for the Traefik document)"
+      }
+    );
   }
 
   // Flush persistent stats periodically and once more on shutdown.

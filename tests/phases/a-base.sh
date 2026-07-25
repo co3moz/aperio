@@ -7,7 +7,10 @@ start_backend "$BACKEND_PORT"
 step "Starting aperio-server (base configuration)"
 ACCESS_LOG="$LOG_DIR/access.jsonl"
 METRICS_TOKEN="e2e-metrics-token"
-start_server APERIO_ACCESS_LOG="$ACCESS_LOG" APERIO_METRICS=1 APERIO_METRICS_TOKEN="$METRICS_TOKEN"
+EDGE_TOKEN="e2e-edge-token"
+start_server APERIO_ACCESS_LOG="$ACCESS_LOG" APERIO_METRICS=1 APERIO_METRICS_TOKEN="$METRICS_TOKEN" \
+  APERIO_EDGE_TOKEN="$EDGE_TOKEN" APERIO_EDGE_SERVICE_URL="http://aperio:8080" \
+  APERIO_EDGE_ENTRYPOINTS=websecure APERIO_EDGE_CERT_RESOLVER=letsencrypt
 BASE_DATA_DIR="$DATA_DIR"
 
 step "Health endpoint"
@@ -334,6 +337,34 @@ assert_status 400 "$CODE" "the reserved name master is rejected"
 # The implicit master org cannot be deleted.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/master")"
 assert_status 400 "$CODE" "the master org cannot be deleted"
+
+step "Edge proxy integration (Caddy ask + Traefik provider)"
+# The ask endpoint is Caddy's on-demand TLS contract: 200 = issue a cert.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${EDGE_TOKEN}" \
+  "$BASE/aperio/api/edge/ask?domain=${HOSTNAME_BIND}")"
+assert_status 200 "$CODE" "ask authorizes a hostname a client is serving"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${EDGE_TOKEN}" \
+  "$BASE/aperio/api/edge/ask?domain=nobody.e2e.local")"
+assert_status 404 "$CODE" "ask refuses a hostname nobody serves"
+# Caddy cannot send headers, so the token is accepted in the query string.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+  "$BASE/aperio/api/edge/ask?token=${EDGE_TOKEN}&domain=${HOSTNAME_BIND}")"
+assert_status 200 "$CODE" "ask accepts the token as a query parameter"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/edge/ask?domain=${HOSTNAME_BIND}")"
+assert_status 401 "$CODE" "ask without a credential is refused"
+# The Traefik document routes every served hostname back to this server.
+TRAEFIK="$(curl -sf -H "Authorization: Bearer ${EDGE_TOKEN}" "$BASE/aperio/api/edge/traefik")" \
+  || fail "the traefik document could not be fetched"
+assert_contains "$TRAEFIK" "Host(\`${HOSTNAME_BIND}\`)" "the traefik document carries a Host rule per hostname"
+assert_contains "$TRAEFIK" '"passHostHeader":true' "the traefik service preserves the Host header"
+assert_contains "$TRAEFIK" '"certResolver":"letsencrypt"' "the traefik routers carry the cert resolver"
+assert_contains "$TRAEFIK" '"url":"http://aperio:8080"' "the traefik service points at the configured URL"
+# Polling twice must produce a byte-identical document, or Traefik churns.
+TRAEFIK2="$(curl -sf -H "Authorization: Bearer ${EDGE_TOKEN}" "$BASE/aperio/api/edge/traefik")"
+if [ "$TRAEFIK" != "$TRAEFIK2" ]; then
+  fail "the traefik document is not stable between polls"
+fi
+echo "  ok: the traefik document is byte-identical between polls"
 
 step "Organization hostname allowlist"
 # A separate, fenced org so the isolation checks below keep their own org.
