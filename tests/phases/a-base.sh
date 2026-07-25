@@ -402,6 +402,8 @@ assert_status 403 "$CODE" "an ephemeral tunnel outside the allowlist is refused"
 # the server must drop it rather than route it.
 start_client fenced "$BACKEND_PORT" \
   APERIO_SERVER_TOKEN="$FENCED_SECRET" APERIO_HOSTNAME="evil.e2e.local"
+# Portable last-element index: bash 3.2 (macOS) has no negative subscripts.
+FENCED_CLIENT_PID="${CLIENT_PIDS[$(( ${#CLIENT_PIDS[@]} - 1 ))]}"
 sleep 3
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.e2e.local' "$BASE/hello")"
 if [ "$CODE" = "200" ]; then
@@ -418,6 +420,16 @@ assert_status 200 "$CODE" "clearing the allowlist lifts the fence"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
   || fail "switching back to master failed"
+# Stop the fenced client and wait for the server to drop it, so only `main`
+# stays connected: the client-control test further down reads
+# active_clients[0], whose order is not deterministic, and would otherwise
+# apply its kill switch to this client. The wait has to happen after the
+# switch back to master, since `only_main_connected` counts the clients of
+# whichever organization the session currently has selected.
+kill "$FENCED_CLIENT_PID" 2>/dev/null || true
+wait "$FENCED_CLIENT_PID" 2>/dev/null || true
+retry 15 only_main_connected \
+  || fail "the fenced client did not disconnect before the client-control test"
 
 step "Organization isolation (effective-org scoping)"
 # Switch the super-admin into the child org: resources created now belong to it.
