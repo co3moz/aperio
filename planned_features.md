@@ -225,8 +225,18 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   is safe or whether a panic there should instead be escalated to a graceful
   shutdown. (From a 2026-07 panic-resilience review.)
 
-- [ ] **#12 Capacity-aware autoscaling: the server signals desired capacity,
-  the client declares the actuator.** Two halves of one feature, planned
+- [x] **#12 Capacity-aware autoscaling: the server signals desired capacity,
+  the client declares the actuator.** shipped: `scaling:` in `aperio.yaml`
+  announced via Ping and persisted per bind (`store/scaling.rs`), the
+  single-flight state machine with cooldown/backoff/breaker and the
+  SSRF-fenced actuator (`scaling.rs`), cold start on the empty-pool path,
+  the scale-out sampler over the per-client concurrency limiters, client
+  `idle_timeout` with graceful drain, `GET/DELETE /api/scaling`, and
+  `aperio-client api scaling`. Two refinements were deliberately left out:
+  a per-token `allow_scaling` permission (today any token may arm a record
+  for its own bind, which the org fence and bind validation already
+  constrain, and `APERIO_SCALING` is the operator switch), and a dashboard
+  section for the records. Original plan below. Two halves of one feature, planned
   together because they share the same machinery: **0 to 1 (cold start)**, a
   request arrives for a bind no client serves and the server calls a
   client-declared URL to wake the service instead of answering 504; and **N to
@@ -328,8 +338,13 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   the existing quotas. Related: [[#12]] records are org-keyed, so the same
   fence bounds which hostnames a scaling record may be armed for.
 
-- [ ] **#14 Publish live hostnames to a dynamic edge proxy (Traefik, Caddy,
-  nginx).** With Aperio behind a dynamic reverse proxy, every new tunnel
+- [x] **#14 Publish live hostnames to a dynamic edge proxy (Traefik, Caddy,
+  nginx).** shipped: `GET /aperio/api/edge/ask` (Caddy on-demand TLS) and
+  `GET /aperio/api/edge/traefik` (Traefik HTTP provider), both gated by
+  `APERIO_EDGE_TOKEN`, plus the wildcard-label setup documented in
+  `docs/edge-proxy.md`. Left out: writing the same document to a file for
+  Traefik's file provider (`APERIO_TRAEFIK_FILE`), which would remove the
+  network coupling on a single host. Original plan below. With Aperio behind a dynamic reverse proxy, every new tunnel
   hostname needs a router and a certificate at the edge, which today means
   hand-written config or a wildcard. The server already knows the full live
   inventory (`/api/topology`: connected clients, their binds, token-granted
