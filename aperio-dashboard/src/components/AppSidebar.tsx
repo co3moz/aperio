@@ -4,6 +4,7 @@ import {
   InboxIcon,
   ChartPieIcon,
   ConstructionIcon,
+  GaugeIcon,
   GlobeIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
@@ -46,6 +47,7 @@ export type Page =
   | 'tokens'
   | 'share'
   | 'maintenance'
+  | 'scaling'
   | 'settings'
   | 'webhooks'
   | 'audit'
@@ -87,6 +89,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials' },
       { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access' },
       { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch' },
+      { id: 'scaling', label: 'Autoscaling', icon: GaugeIcon, hint: 'Cold start & scale-out records' },
     ],
   },
   {

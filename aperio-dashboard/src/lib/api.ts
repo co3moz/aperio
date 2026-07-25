@@ -363,6 +363,38 @@ export interface OrgOidcPayload {
   allowed_emails: string[]
 }
 
+/** One armed autoscaling record, with the live state of its pool. */
+export interface ScalingRecord {
+  /** `org|hostname|path`, the bind this record protects. */
+  id: string
+  hostname: string
+  path: string | null
+  /** Endpoint the server calls when this bind needs capacity. */
+  url: string
+  /** Whether the call carries a bearer secret (the secret is never returned). */
+  authenticated: boolean
+  /** 0 = scale to zero: a request may cold start the service. */
+  min: number
+  /** Ceiling the server never asks to exceed (0 = cold starts only). */
+  max: number
+  cold_start_secs: number
+  target_utilization: number
+  window_secs: number
+  cooldown_secs: number
+  /** Tokens that armed it; the record disarms when the last one is gone. */
+  owners: number
+  created_at: number
+  last_seen: number
+  /** True once the breaker tripped after repeated failures. */
+  disarmed: boolean
+  /** Clients currently able to serve the bind. */
+  instances: number
+  /** Sum of their announced concurrency limits (0 = not measurable). */
+  capacity: number
+  inflight: number
+  utilization: number
+}
+
 export interface OrgUsage {
   org_id: string
   month: string
@@ -581,6 +613,8 @@ export const api = {
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: () => request<AuditEvent[]>('/audit'),
   maintenance: () => request<string[]>('/maintenance'),
+  scaling: () => request<ScalingRecord[]>('/scaling'),
+  disarmScaling: (id: string) => mutate(`/scaling/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<SettingsPayload>('/settings'),
   updateSettings: (overrides: SettingsOverrides) =>
     request<{ effective: SettingsValues }>('/settings', json('PUT', overrides)),

@@ -8,6 +8,7 @@ import { UptimeSection } from './components/UptimeSection'
 import { CommandPalette, type Command } from './components/CommandPalette'
 import { InspectorDialog } from './components/InspectorDialog'
 import { MaintenanceSection } from './components/MaintenanceSection'
+import { ScalingSection } from './components/ScalingSection'
 import { SettingsSection } from './components/SettingsSection'
 import { ShareLinksSection } from './components/ShareLinksSection'
 import { StatsCards } from './components/StatsCards'
@@ -377,6 +378,7 @@ export default function App() {
               {page === 'tokens' && <TokensSection />}
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
+              {page === 'scaling' && <ScalingSection />}
               {page === 'settings' && <SettingsSection />}
               {page === 'users' && (
                 <div className="space-y-6">
