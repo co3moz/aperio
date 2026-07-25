@@ -264,3 +264,58 @@ async fn delete_is_org_scoped() {
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn create_refuses_a_hostname_outside_the_org_allowlist() {
+  let mut config = test_config();
+  config.random_subdomain_suffix = Some("*.preview.example.com".to_string());
+  let state = Arc::new(test_state_with(config));
+  let org_id = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.com".to_string()])
+    .unwrap()
+    .id;
+  let token = seed_session(&state, Role::Admin, None, Some(org_id)).await;
+  let headers = cookie_headers(&token);
+
+  // An explicitly requested hostname must be one the org may claim.
+  let resp = tunnels_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req(None, Some("evil.example.com"), Vec::new(), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(state.token_store.lock().await.list().is_empty());
+
+  // Inside the fence it is provisioned.
+  let resp = tunnels_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req(None, Some("pr-7.acme.com"), Vec::new(), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // A server-generated random subdomain is exempt: the caller cannot choose
+  // it, so it can never be another tenant's hostname.
+  let resp = tunnels_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req(None, None, Vec::new(), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  assert!(
+    body["hostname"]
+      .as_str()
+      .unwrap()
+      .ends_with(".preview.example.com")
+  );
+}

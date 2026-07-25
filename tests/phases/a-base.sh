@@ -335,6 +335,59 @@ assert_status 400 "$CODE" "the reserved name master is rejected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/master")"
 assert_status 400 "$CODE" "the master org cannot be deleted"
 
+step "Organization hostname allowlist"
+# A separate, fenced org so the isolation checks below keep their own org.
+FENCED="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"Fenced","hostnames":["fenced.e2e.local","*.fenced.e2e.local"]}' \
+  "$BASE/aperio/api/orgs")" || fail "creating a fenced org failed"
+FENCED_ID="$(echo "$FENCED" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[ -n "$FENCED_ID" ] || fail "could not parse the fenced org id"
+assert_contains "$FENCED" 'fenced.e2e.local' "the create response echoes the allowlist"
+# An invalid pattern is refused.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"Broken","hostnames":["app.*.com"]}' "$BASE/aperio/api/orgs")"
+assert_status 400 "$CODE" "an invalid hostname pattern is rejected"
+# Switch into the fenced org: its tokens may only carry its own hostnames.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${FENCED_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null \
+  || fail "selecting the fenced org failed"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"outside","hostnames":["evil.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 403 "$CODE" "a token for a hostname outside the org allowlist is refused"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"inside","hostnames":["app.fenced.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 200 "$CODE" "a token inside the allowlist is created"
+# A wildcard token stays legal: the fence narrows it when a client connects.
+FENCED_TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"fenced-wildcard","hostnames":["*"]}' "$BASE/aperio/api/tokens")" \
+  || fail "a wildcard token in a fenced org should be allowed"
+FENCED_SECRET="$(echo "$FENCED_TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$FENCED_SECRET" ] || fail "could not parse the fenced wildcard token secret"
+# Ephemeral tunnels obey the fence too.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"t","hostname":"evil.e2e.local"}' "$BASE/aperio/api/tunnels")"
+assert_status 403 "$CODE" "an ephemeral tunnel outside the allowlist is refused"
+# Connect a client with the wildcard token and declare an out-of-fence bind:
+# the server must drop it rather than route it.
+start_client fenced "$BACKEND_PORT" \
+  APERIO_SERVER_TOKEN="$FENCED_SECRET" APERIO_HOSTNAME="evil.e2e.local"
+sleep 3
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.e2e.local' "$BASE/hello")"
+if [ "$CODE" = "200" ]; then
+  fail "isolation breach: a fenced org bound a hostname outside its allowlist"
+fi
+echo "  ok: an out-of-fence bind declared by a client is dropped ($CODE)"
+# Clearing the fence restores the unrestricted behavior.
+curl -sf -b "$COOKIES" -X PUT -H 'Content-Type: application/json' --data '{"hostnames":[]}' \
+  "$BASE/aperio/api/orgs/${FENCED_ID}/hostnames" >/dev/null || fail "clearing the allowlist failed"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"now-allowed","hostnames":["evil.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 200 "$CODE" "clearing the allowlist lifts the fence"
+# Back to master for the checks that follow.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null \
+  || fail "switching back to master failed"
+
 step "Organization isolation (effective-org scoping)"
 # Switch the super-admin into the child org: resources created now belong to it.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \

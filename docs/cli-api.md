@@ -151,7 +151,8 @@ aperio-client api user revoke <session-id> | --all
 aperio-client api user reset-totp <user-id>
 
 aperio-client api org list
-aperio-client api org create --name acme
+aperio-client api org create --name acme [--hostname acme.com,*.acme.example.com]
+aperio-client api org hostnames <id> [--hostname "*.acme.example.com"]
 aperio-client api org quota <id> [--max-clients 10] [--max-tokens 20] [--max-users 5] [--max-bytes-month 0]
 aperio-client api org usage <id>
 aperio-client api org delete <id>
@@ -168,7 +169,7 @@ Passing `-` as a password reads it from stdin, so a secret never lands in the sh
 printf '%s' "$NEW_PASSWORD" | aperio-client api user create --username alice --password - --role viewer
 ```
 
-A quota of `0` clears that limit. See [Organizations](organizations.md).
+A quota of `0` clears that limit. `org hostnames` replaces the organization's hostname allowlist, which fences every bind made inside it; passing no `--hostname` clears the fence. See [Organizations](organizations.md).
 
 ### Reports and diagnostics
 

@@ -564,11 +564,19 @@ pub(crate) async fn authorize_tunnel_token(
         token_id: Some(token.id.clone()),
         allow_public: token.allow_public,
         org_id: token.org_id.clone(),
+        // Filled in below: the org store must not be locked while the token
+        // store lock is held.
+        org_hostnames: Vec::new(),
       },
       token.canary,
       token.org_id.clone(),
     )
   };
+  // Resolve the organization's hostname allowlist once, so every later bind
+  // check on this connection is a pure in-memory comparison.
+  let mut perms = perms;
+  perms.org_hostnames = state.org_store.lock().await.hostnames_of(org_id.as_deref());
+  let perms = perms;
 
   let token_id = perms.token_id.clone().unwrap_or_default();
   let token_name = perms.token_name.clone().unwrap_or_default();

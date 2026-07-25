@@ -9,6 +9,7 @@ fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
     token_id: Some("id".to_string()),
     allow_public: false,
     org_id: None,
+    org_hostnames: Vec::new(),
   }
 }
 
@@ -33,6 +34,58 @@ fn wildcard_entry_is_unrestricted() {
   let p = perms(&["*"], &["*"]);
   assert!(p.hostname_allowed("a.example.com"));
   assert!(p.path_allowed("/anything"));
+}
+
+/// Perms carrying an organization hostname allowlist.
+fn fenced_perms(hostnames: &[&str], org_hostnames: &[&str]) -> ClientPerms {
+  let mut p = perms(hostnames, &[]);
+  p.org_hostnames = org_hostnames.iter().map(|s| s.to_string()).collect();
+  p
+}
+
+#[test]
+fn org_allowlist_fences_binds_the_token_would_otherwise_permit() {
+  // A wildcard token inside a fenced org may only bind within the fence.
+  let p = fenced_perms(&["*"], &["*.acme.com"]);
+  assert!(p.hostname_allowed("app.acme.com"));
+  assert!(!p.hostname_allowed("evil.example.com"));
+  // The parent domain is not a subdomain of itself.
+  assert!(!p.hostname_allowed("acme.com"));
+
+  // An unrestricted token (empty list) is fenced just the same.
+  let p = fenced_perms(&[], &["acme.com"]);
+  assert!(p.hostname_allowed("acme.com"));
+  assert!(!p.hostname_allowed("other.com"));
+
+  // Both fences must admit the bind: inside the org, but not on the token.
+  let p = fenced_perms(&["app.acme.com"], &["*.acme.com"]);
+  assert!(p.hostname_allowed("app.acme.com"));
+  assert!(!p.hostname_allowed("other.acme.com"));
+}
+
+#[test]
+fn org_allowlist_never_fences_the_master_token() {
+  let mut m = ClientPerms::master();
+  m.org_hostnames = vec!["acme.com".to_string()];
+  assert!(m.hostname_allowed("anything.example.com"));
+}
+
+#[test]
+fn granted_hostnames_drop_entries_outside_the_org_fence() {
+  // A token minted before the org was fenced still carries the old hostname;
+  // it must not be auto-bound on connect.
+  let p = fenced_perms(
+    &["app.acme.com", "legacy.example.com", "*"],
+    &["*.acme.com"],
+  );
+  assert_eq!(p.granted_hostnames(), vec!["app.acme.com".to_string()]);
+
+  // Without a fence every specific grant is kept.
+  let p = perms(&["app.acme.com", "legacy.example.com"], &[]);
+  assert_eq!(
+    p.granted_hostnames(),
+    vec!["app.acme.com".to_string(), "legacy.example.com".to_string()]
+  );
 }
 
 #[test]
@@ -562,7 +615,7 @@ async fn test_org_quotas() {
 
   let org_id = {
     let mut orgs = state.org_store.lock().await;
-    let org = orgs.create("acme").expect("org");
+    let org = orgs.create("acme", Vec::new()).expect("org");
     orgs.set_quota(
       &org.id,
       Some(Some(1)), // max_clients
@@ -621,6 +674,7 @@ async fn test_disconnect_token_clients() {
     token_id: Some("tok-1".to_string()),
     allow_public: false,
     org_id: None,
+    org_hostnames: Vec::new(),
   };
   state.clients.lock().await.insert("c1".to_string(), c);
   state

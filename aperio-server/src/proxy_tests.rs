@@ -1275,7 +1275,12 @@ async fn handler_streamed_upload_truncates_oversized_body() {
 async fn handler_org_month_quota_returns_429() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let org = state.org_store.lock().await.create("o1").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("o1", Vec::new())
+    .unwrap();
   state
     .org_store
     .lock()

@@ -78,7 +78,12 @@ async fn export_includes_seeded_data() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
   // Seed an organization so the dump has a non-empty section.
-  state.org_store.lock().await.create("acme").unwrap();
+  state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
 
   let resp = export_handler(State(state), ConnectInfo(test_peer()), headers).await;
   assert_eq!(resp.status(), StatusCode::OK);

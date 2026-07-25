@@ -520,3 +520,56 @@ async fn live_stream_emits_stats_traffic_and_ends_on_shutdown() {
     .expect("stream ends promptly");
   assert!(ended.is_none(), "stream closed on shutdown");
 }
+
+#[tokio::test]
+async fn override_refuses_a_hostname_outside_the_org_allowlist() {
+  let state = Arc::new(test_state());
+  // A fenced org, a client in it, and an admin session that has selected it.
+  let org_id = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.com".to_string()])
+    .unwrap()
+    .id;
+  insert_client(&state, "c1", |h| {
+    h.perms.org_id = Some(org_id.clone());
+  })
+  .await;
+  let token = seed_session(&state, Role::Admin, None, Some(org_id.clone())).await;
+  let headers = cookie_headers(&token);
+
+  // An overrule is the one bind with no token permission behind it, so the
+  // org fence has to hold here too.
+  let resp = client_override_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    override_req(Some("evil.example.com"), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(
+    state.clients.lock().await["c1"]
+      .override_hostname_bind
+      .is_none()
+  );
+
+  // Inside the fence it applies as before.
+  let resp = client_override_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    ConnectInfo(test_peer()),
+    headers,
+    override_req(Some("app.acme.com"), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    state.clients.lock().await["c1"]
+      .override_hostname_bind
+      .as_deref(),
+    Some("app.acme.com")
+  );
+}

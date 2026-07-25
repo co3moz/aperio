@@ -560,7 +560,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/api/export` | Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). | master super-admin |
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
-| `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `POST /aperio/api/orgs/select` | Organization management and switching, see [Organizations](organizations.md). | master super-admin |
+| `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `PUT /aperio/api/orgs/:id/hostnames`, `POST /aperio/api/orgs/select` | Organization management, hostname allowlist, and switching, see [Organizations](organizations.md). | master super-admin |
 
 ## Runnable examples
 

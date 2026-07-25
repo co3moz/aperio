@@ -689,6 +689,12 @@ pub(crate) struct ClientPerms {
   /// Organization this token (and therefore this client) belongs to
   /// (None = master).
   pub(crate) org_id: Option<String>,
+  /// Hostname allowlist of that organization, resolved once at connection
+  /// time (empty = unrestricted). It fences every bind this client can claim,
+  /// *outside* of what its token permits: a token minted before the org was
+  /// fenced, or one carrying `*`, still cannot bind beyond the org's own
+  /// hostnames.
+  pub(crate) org_hostnames: Vec<String>,
 }
 
 impl ClientPerms {
@@ -701,11 +707,23 @@ impl ClientPerms {
       token_id: None,
       allow_public: true,
       org_id: None,
+      org_hostnames: Vec::new(),
     }
   }
 
+  /// True when the organization's allowlist admits `host`. The master token
+  /// and the master organization are never fenced.
+  pub(crate) fn org_hostname_allowed(&self, host: &str) -> bool {
+    self.master || crate::store::orgs::hostname_in_org_allowlist(host, &self.org_hostnames)
+  }
+
   pub(crate) fn hostname_allowed(&self, host: &str) -> bool {
-    self.master || self.hostnames.is_empty() || self.hostnames.iter().any(|h| h == "*" || h == host)
+    // Both fences must admit the bind: the organization's allowlist first
+    // (which a token can never widen), then the token's own permissions.
+    self.org_hostname_allowed(host)
+      && (self.master
+        || self.hostnames.is_empty()
+        || self.hostnames.iter().any(|h| h == "*" || h == host))
   }
 
   pub(crate) fn path_allowed(&self, path: &str) -> bool {
@@ -713,12 +731,14 @@ impl ClientPerms {
   }
 
   /// Specific (non-wildcard) hostnames granted by the token; these are
-  /// auto-bound to the client on connect.
+  /// auto-bound to the client on connect. Filtered by the organization's
+  /// allowlist, so a token minted before the org was fenced cannot auto-bind
+  /// a hostname the org may no longer claim.
   pub(crate) fn granted_hostnames(&self) -> Vec<String> {
     self
       .hostnames
       .iter()
-      .filter(|h| *h != "*")
+      .filter(|h| *h != "*" && self.org_hostname_allowed(h))
       .cloned()
       .collect()
   }

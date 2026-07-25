@@ -72,6 +72,7 @@ pub(crate) async fn orgs_list_handler(
       "created_at": org.created_at,
       "users": c.0,
       "tokens": c.1,
+      "hostnames": org.hostnames,
     }));
   }
   Json(out).into_response()
@@ -81,6 +82,45 @@ pub(crate) async fn orgs_list_handler(
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct OrgCreateRequest {
   pub(crate) name: String,
+  /// Optional hostname allowlist fencing every bind made inside the org:
+  /// exact hostnames (`acme.com`) and/or subdomain wildcards (`*.acme.com`).
+  /// Absent or empty = unrestricted.
+  #[serde(default)]
+  pub(crate) hostnames: Vec<String>,
+}
+
+/// Body of the set-hostnames call: the full replacement allowlist (an empty
+/// list clears the fence).
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgHostnamesRequest {
+  #[serde(default)]
+  pub(crate) hostnames: Vec<String>,
+}
+
+/// Normalizes an allowlist payload, rejecting entries that are not an exact
+/// hostname or a `*.domain` wildcard. Duplicates collapse; a bare `*` (or an
+/// empty list) means unrestricted and normalizes to an empty list.
+fn normalize_allowlist(raw: &[String]) -> Result<Vec<String>, String> {
+  let mut out: Vec<String> = Vec::new();
+  for entry in raw {
+    if entry.trim().is_empty() {
+      continue;
+    }
+    let Some(pattern) = crate::store::orgs::normalize_org_hostname_pattern(entry) else {
+      return Err(format!(
+        "invalid hostname pattern: {} (use acme.com or *.acme.com)",
+        entry.trim()
+      ));
+    };
+    // An explicit `*` means no fence at all, so it subsumes every entry.
+    if pattern == "*" {
+      return Ok(Vec::new());
+    }
+    if !out.contains(&pattern) {
+      out.push(pattern);
+    }
+  }
+  Ok(out)
 }
 
 /// Body of the select-org call: the org to view (`master` or a child id;
@@ -153,7 +193,15 @@ pub(crate) async fn orgs_create_handler(
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
     return resp;
   }
-  let created = state.org_store.lock().await.create(&payload.name);
+  let hostnames = match normalize_allowlist(&payload.hostnames) {
+    Ok(v) => v,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+  let created = state
+    .org_store
+    .lock()
+    .await
+    .create(&payload.name, hostnames.clone());
   match created {
     Ok(org) => {
       let ip = actor_ip(&state, &headers, addr);
@@ -162,12 +210,73 @@ pub(crate) async fn orgs_create_handler(
           "org_created",
           &state.session_actor(&headers).await,
           &ip,
-          &format!("name={} id={}", org.name, org.id),
+          &format!("name={} id={} hostnames={:?}", org.name, org.id, hostnames),
         )
         .await;
-      Json(serde_json::json!({ "id": org.id, "name": org.name })).into_response()
+      Json(serde_json::json!({
+        "id": org.id,
+        "name": org.name,
+        "hostnames": org.hostnames,
+      }))
+      .into_response()
     }
     Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+  }
+}
+
+/// Replaces a child organization's hostname allowlist (master super-admin
+/// only). Existing tokens keep their records, but a hostname that falls
+/// outside the new fence stops being bindable immediately: the fence is
+/// re-checked on every client connect, not only at token creation.
+#[utoipa::path(put, path = "/aperio/api/orgs/{id}/hostnames", tag = "orgs",
+  description = "Replaces a child org's hostname allowlist (empty list = unrestricted).",
+  request_body = OrgHostnamesRequest,
+  responses((status = 200, description = "Updated org"), (status = 400, description = "Invalid pattern"), (status = 404, description = "Unknown org")))]
+pub(crate) async fn orgs_hostnames_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+  Json(payload): Json<OrgHostnamesRequest>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  if id == MASTER_ID {
+    return (
+      StatusCode::BAD_REQUEST,
+      "the master organization is never fenced to a hostname list",
+    )
+      .into_response();
+  }
+  let hostnames = match normalize_allowlist(&payload.hostnames) {
+    Ok(v) => v,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+  let updated = state
+    .org_store
+    .lock()
+    .await
+    .set_hostnames(&id, hostnames.clone());
+  match updated {
+    Some(org) => {
+      let ip = actor_ip(&state, &headers, addr);
+      state
+        .audit(
+          "org_hostnames_set",
+          &state.session_actor(&headers).await,
+          &ip,
+          &format!("id={} hostnames={:?}", id, hostnames),
+        )
+        .await;
+      Json(serde_json::json!({
+        "id": org.id,
+        "name": org.name,
+        "hostnames": org.hostnames,
+      }))
+      .into_response()
+    }
+    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
   }
 }
 
@@ -437,6 +546,7 @@ pub(crate) async fn orgs_usage_handler(
       "max_users": q.max_users,
       "max_bytes_month": q.max_bytes_month,
     })),
+    "hostnames": quota.as_ref().map(|q| q.hostnames.clone()).unwrap_or_default(),
   });
   // Billing signal: subscribers to `org_usage` receive the same figures.
   state

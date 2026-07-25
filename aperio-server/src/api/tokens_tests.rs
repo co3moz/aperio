@@ -210,7 +210,7 @@ async fn create_forbidden_when_org_quota_reached() {
     .org_store
     .lock()
     .await
-    .create("acme")
+    .create("acme", Vec::new())
     .unwrap()
     .id
     .clone();
@@ -607,4 +607,128 @@ async fn revoke_unknown_and_cross_org_are_404() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// organization hostname allowlist
+// ---------------------------------------------------------------------------
+
+/// A session whose effective org is a child org fenced to `hostnames`.
+async fn fenced_org_session(state: &Arc<AppState>, hostnames: &[&str]) -> HeaderMap {
+  let org_id = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", hostnames.iter().map(|s| s.to_string()).collect())
+    .unwrap()
+    .id;
+  let token = seed_session(state, Role::Admin, None, Some(org_id)).await;
+  cookie_headers(&token)
+}
+
+#[tokio::test]
+async fn create_refuses_a_hostname_outside_the_org_allowlist() {
+  let state = Arc::new(test_state());
+  let headers = fenced_org_session(&state, &["*.acme.com"]).await;
+
+  let mut req = create_req("outside");
+  req.hostnames = vec!["evil.example.com".into()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(state.token_store.lock().await.list().is_empty());
+
+  // A hostname inside the fence is accepted.
+  let mut req = create_req("inside");
+  req.hostnames = vec!["app.acme.com".into()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // A wildcard token stays legal: the fence narrows it at connect time.
+  let mut req = create_req("wildcard");
+  req.hostnames = vec!["*".into()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn create_in_an_unfenced_org_is_unaffected() {
+  let state = Arc::new(test_state());
+  let headers = fenced_org_session(&state, &[]).await;
+  let mut req = create_req("anything");
+  req.hostnames = vec!["whatever.example.com".into()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn update_cannot_widen_a_token_past_the_org_allowlist() {
+  let state = Arc::new(test_state());
+  let headers = fenced_org_session(&state, &["*.acme.com"]).await;
+
+  let mut req = create_req("scoped");
+  req.hostnames = vec!["app.acme.com".into()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let id = json_body(resp).await["id"].as_str().unwrap().to_string();
+
+  let mut update = empty_update();
+  update.hostnames = Some(vec!["evil.example.com".into()]);
+  let resp = tokens_update_handler(
+    State(state.clone()),
+    Path(id.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Json(update),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+  // The record kept its original scope.
+  assert_eq!(
+    state.token_store.lock().await.list()[0].hostnames,
+    vec!["app.acme.com".to_string()]
+  );
+
+  // An edit that stays inside the fence goes through.
+  let mut update = empty_update();
+  update.hostnames = Some(vec!["other.acme.com".into()]);
+  let resp = tokens_update_handler(
+    State(state.clone()),
+    Path(id),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(update),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
 }

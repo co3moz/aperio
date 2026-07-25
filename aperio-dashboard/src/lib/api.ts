@@ -328,6 +328,9 @@ export interface Organization {
   users: number
   /** Number of API tokens in this org. */
   tokens: number
+  /** Hostname patterns this org may claim (empty = unrestricted). Absent for
+   *  master, which is never fenced. */
+  hostnames?: string[]
 }
 
 export interface OrgQuota {
@@ -374,6 +377,8 @@ export interface OrgUsage {
     max_users: number | null
     max_bytes_month: number | null
   } | null
+  /** The org's hostname allowlist (empty = unrestricted). */
+  hostnames: string[]
 }
 
 export interface DashboardUser {
@@ -587,7 +592,16 @@ export const api = {
   setMaintenance: (hostname: string, enabled: boolean) =>
     mutate('/maintenance', json('POST', { hostname, enabled })),
   orgs: () => request<Organization[]>('/orgs'),
-  createOrg: (name: string) => request<{ id: string; name: string }>('/orgs', json('POST', { name })),
+  createOrg: (name: string, hostnames: string[] = []) =>
+    request<{ id: string; name: string; hostnames: string[] }>(
+      '/orgs',
+      json('POST', { name, hostnames }),
+    ),
+  setOrgHostnames: (id: string, hostnames: string[]) =>
+    request<{ id: string; name: string; hostnames: string[] }>(
+      `/orgs/${encodeURIComponent(id)}/hostnames`,
+      json('PUT', { hostnames }),
+    ),
   deleteOrg: (id: string) => mutate(`/orgs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setOrgQuota: (id: string, quota: OrgQuota) =>
     mutate(`/orgs/${encodeURIComponent(id)}/quota`, json('PUT', quota)),

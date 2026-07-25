@@ -1097,6 +1097,10 @@ async fn async_main() {
         axum::routing::put(crate::api::orgs::orgs_quota_handler),
       )
       .route(
+        "/api/orgs/:id/hostnames",
+        axum::routing::put(crate::api::orgs::orgs_hostnames_handler),
+      )
+      .route(
         "/api/orgs/:id/usage",
         get(crate::api::orgs::orgs_usage_handler),
       )

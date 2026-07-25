@@ -152,6 +152,23 @@ pub(crate) async fn tunnels_create_handler(
   // The ephemeral token belongs to the caller's effective org (master token
   // auth → master/None; a session → its selected/own org).
   let org = crate::auth::effective_org(&state, &headers).await;
+  // Organization fence: an explicitly requested hostname must be one the org
+  // may claim. A server-generated random subdomain is exempt, since the caller
+  // cannot influence it and it can never collide with another org's hostname.
+  if payload.hostname.is_some() {
+    let allowlist = state.org_store.lock().await.hostnames_of(org.as_deref());
+    if !crate::store::orgs::hostname_in_org_allowlist(&hostname, &allowlist) {
+      return (
+        StatusCode::FORBIDDEN,
+        format!(
+          "hostname {} is outside this organization's allowlist ({})",
+          hostname,
+          allowlist.join(", ")
+        ),
+      )
+        .into_response();
+    }
+  }
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
     store.create(

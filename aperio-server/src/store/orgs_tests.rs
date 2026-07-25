@@ -10,13 +10,13 @@ fn temp_dir() -> String {
 fn test_create_unique_and_reserved() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let a = store.create("Acme").unwrap();
+  let a = store.create("Acme", Vec::new()).unwrap();
   assert_eq!(store.list().len(), 1);
 
   // Case-insensitive uniqueness and the reserved name.
-  assert!(store.create("acme").is_err());
-  assert!(store.create("master").is_err());
-  assert!(store.create("  ").is_err());
+  assert!(store.create("acme", Vec::new()).is_err());
+  assert!(store.create("master", Vec::new()).is_err());
+  assert!(store.create("  ", Vec::new()).is_err());
 
   // Survives a reload.
   let reloaded = OrgStore::load(&dir);
@@ -34,7 +34,7 @@ fn test_create_unique_and_reserved() {
 fn test_set_quota_and_persist() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme").unwrap();
+  let org = store.create("Acme", Vec::new()).unwrap();
   assert!(org.max_tokens.is_none());
 
   // Set two quotas; leave the others untouched.
@@ -61,7 +61,7 @@ fn test_set_quota_and_persist() {
 fn test_set_quota_all_fields_and_users_bytes() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme").unwrap();
+  let org = store.create("Acme", Vec::new()).unwrap();
 
   // Exercise the max_users and max_bytes_month branches too.
   let updated = store
@@ -96,7 +96,7 @@ fn test_set_quota_all_fields_and_users_bytes() {
 fn test_import_replaces_and_persists() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  store.create("Existing").unwrap();
+  store.create("Existing", Vec::new()).unwrap();
 
   let now = crate::store::tokens::now_secs();
   let mk = |name: &str| Organization {
@@ -107,6 +107,7 @@ fn test_import_replaces_and_persists() {
     max_tokens: None,
     max_users: None,
     max_bytes_month: None,
+    hostnames: Vec::new(),
     oidc: None,
   };
   let count = store.import(vec![mk("One"), mk("Two"), mk("Three")]);
@@ -127,7 +128,7 @@ fn test_import_replaces_and_persists() {
 fn test_set_oidc_set_and_clear() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme").unwrap();
+  let org = store.create("Acme", Vec::new()).unwrap();
   assert!(org.oidc.is_none());
 
   let oidc = OrgOidc {
@@ -176,5 +177,88 @@ fn test_lookups_on_missing_org_are_none() {
   );
   assert!(store.set_oidc("does-not-exist", None).is_none());
   assert!(!store.delete("does-not-exist"));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_normalize_org_hostname_pattern() {
+  // Exact hostnames and subdomain wildcards, normalized to lowercase without
+  // a trailing dot or port.
+  assert_eq!(
+    normalize_org_hostname_pattern("Acme.COM."),
+    Some("acme.com".to_string())
+  );
+  assert_eq!(
+    normalize_org_hostname_pattern(" *.acme.com "),
+    Some("*.acme.com".to_string())
+  );
+  assert_eq!(
+    normalize_org_hostname_pattern("app.acme.com:8443"),
+    Some("app.acme.com".to_string())
+  );
+  // A bare `*` means "no fence".
+  assert_eq!(normalize_org_hostname_pattern("*"), Some("*".to_string()));
+  // A wildcard is only valid as the leading label, and needs a parent domain.
+  assert_eq!(normalize_org_hostname_pattern("*.com"), None);
+  assert_eq!(normalize_org_hostname_pattern("app.*.com"), None);
+  assert_eq!(normalize_org_hostname_pattern("ac*me.com"), None);
+  assert_eq!(normalize_org_hostname_pattern(""), None);
+  assert_eq!(normalize_org_hostname_pattern("   "), None);
+}
+
+#[test]
+fn test_hostname_in_org_allowlist() {
+  // An empty list fences nothing.
+  assert!(hostname_in_org_allowlist("anything.example.com", &[]));
+
+  let list = vec!["acme.com".to_string(), "*.acme.example.com".to_string()];
+  // Exact entry.
+  assert!(hostname_in_org_allowlist("acme.com", &list));
+  assert!(hostname_in_org_allowlist("ACME.com.", &list));
+  // Wildcard covers subdomains at any depth, but not the parent itself.
+  assert!(hostname_in_org_allowlist("app.acme.example.com", &list));
+  assert!(hostname_in_org_allowlist("a.b.acme.example.com", &list));
+  assert!(!hostname_in_org_allowlist("acme.example.com", &list));
+  // Neighbours that merely share a suffix string are not subdomains.
+  assert!(!hostname_in_org_allowlist("evilacme.example.com", &list));
+  assert!(!hostname_in_org_allowlist("acme.com.evil.net", &list));
+  assert!(!hostname_in_org_allowlist("other.com", &list));
+
+  // An explicit `*` entry is unrestricted.
+  assert!(hostname_in_org_allowlist("other.com", &["*".to_string()]));
+}
+
+#[test]
+fn test_set_hostnames_persists_and_scopes_lookup() {
+  let dir = temp_dir();
+  let mut store = OrgStore::load(&dir);
+  let org = store.create("Acme", vec!["acme.com".to_string()]).unwrap();
+  assert_eq!(org.hostnames, vec!["acme.com".to_string()]);
+
+  let updated = store
+    .set_hostnames(&org.id, vec!["*.acme.com".to_string()])
+    .unwrap();
+  assert_eq!(updated.hostnames, vec!["*.acme.com".to_string()]);
+
+  // Survives a reload, and the lookup helper resolves it by id.
+  let reloaded = OrgStore::load(&dir);
+  assert_eq!(
+    reloaded.hostnames_of(Some(&org.id)),
+    vec!["*.acme.com".to_string()]
+  );
+  // The master org (None) is never fenced, nor is an unknown id.
+  assert!(reloaded.hostnames_of(None).is_empty());
+  assert!(reloaded.hostnames_of(Some("nope")).is_empty());
+
+  // An empty list clears the fence.
+  let mut store = OrgStore::load(&dir);
+  assert!(
+    store
+      .set_hostnames(&org.id, Vec::new())
+      .unwrap()
+      .hostnames
+      .is_empty()
+  );
+  assert!(store.set_hostnames("does-not-exist", Vec::new()).is_none());
   let _ = std::fs::remove_dir_all(&dir);
 }

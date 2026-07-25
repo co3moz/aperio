@@ -302,7 +302,7 @@ async fn selected_org_scopes_the_view() {
     .org_store
     .lock()
     .await
-    .create("acme")
+    .create("acme", Vec::new())
     .unwrap()
     .id
     .clone();

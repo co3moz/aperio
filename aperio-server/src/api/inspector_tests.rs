@@ -290,7 +290,7 @@ async fn selected_org_replay_is_scoped() {
     .org_store
     .lock()
     .await
-    .create("acme")
+    .create("acme", Vec::new())
     .unwrap()
     .id
     .clone();

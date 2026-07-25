@@ -442,11 +442,16 @@ pub(crate) struct UserUpdateArgs {
 pub(crate) enum OrgCmd {
   /// List organizations
   List,
-  /// Create an organization
+  /// Create an organization; --hostname fences which hostnames it may claim
   Create {
     /// Organization name
     #[arg(long, value_name = "NAME")]
     name: String,
+  },
+  /// Replace an organization's hostname allowlist (no --hostname clears it)
+  Hostnames {
+    /// Organization id
+    id: String,
   },
   /// Delete an organization
   Delete {
@@ -986,9 +991,14 @@ fn build_call(
     }
 
     ApiCommand::Org(OrgCmd::List) => Call::get("/aperio/api/orgs"),
-    ApiCommand::Org(OrgCmd::Create { name }) => {
-      Call::post("/aperio/api/orgs", json!({ "name": name }))
-    }
+    ApiCommand::Org(OrgCmd::Create { name }) => Call::post(
+      "/aperio/api/orgs",
+      json!({ "name": name, "hostnames": scope.hostnames }),
+    ),
+    ApiCommand::Org(OrgCmd::Hostnames { id }) => Call::put(
+      format!("/aperio/api/orgs/{}/hostnames", id),
+      json!({ "hostnames": scope.hostnames }),
+    ),
     ApiCommand::Org(OrgCmd::Delete { id }) => Call::delete(format!("/aperio/api/orgs/{}", id)),
     ApiCommand::Org(OrgCmd::Quota(a)) => {
       let mut body = Map::new();

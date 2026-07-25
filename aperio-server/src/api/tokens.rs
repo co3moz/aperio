@@ -211,6 +211,11 @@ pub(crate) async fn tokens_create_handler(
 
   // New tokens belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
+  // Organization fence: a permission outside the org's hostname allowlist is
+  // refused outright, so the fence holds at mint time and not only at connect.
+  if let Err(resp) = check_org_hostname_fence(&state, org.as_deref(), &hostnames).await {
+    return resp;
+  }
   // Enforce the org token quota atomically with the create: hold the
   // token_store lock across the count and the insert so two concurrent creates
   // can't both pass the check and overshoot the cap (the cap value itself comes
@@ -290,6 +295,41 @@ pub(crate) async fn tokens_create_handler(
     .into_response()
 }
 
+/// Rejects token hostname permissions that fall outside the organization's
+/// allowlist, so a fenced tenant can never mint a token for a hostname it does
+/// not own. A wildcard (`*`, or an empty list) stays allowed: it then means
+/// "any hostname within the org's fence", which the connect-time check
+/// narrows.
+async fn check_org_hostname_fence(
+  state: &Arc<AppState>,
+  org: Option<&str>,
+  hostnames: &[String],
+) -> Result<(), Response> {
+  let allowlist = state.org_store.lock().await.hostnames_of(org);
+  if allowlist.is_empty() {
+    return Ok(());
+  }
+  for host in hostnames {
+    if host == "*" {
+      continue;
+    }
+    if !crate::store::orgs::hostname_in_org_allowlist(host, &allowlist) {
+      return Err(
+        (
+          StatusCode::FORBIDDEN,
+          format!(
+            "hostname {} is outside this organization's allowlist ({})",
+            host,
+            allowlist.join(", ")
+          ),
+        )
+          .into_response(),
+      );
+    }
+  }
+  Ok(())
+}
+
 /// Whether a token id exists and belongs to the caller's effective org. Used
 /// to gate by-id mutations so one org cannot touch another's tokens.
 async fn token_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: &str) -> bool {
@@ -352,6 +392,15 @@ pub(crate) async fn tokens_update_handler(
 
   if payload.max_rps.is_some_and(|v| !v.is_finite() || v < 0.0) {
     return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
+  }
+
+  // Organization fence, same rule as at creation: an edit can never widen a
+  // token beyond the hostnames its org may claim.
+  if payload.hostnames.is_some() {
+    let org = crate::auth::effective_org(&state, &headers).await;
+    if let Err(resp) = check_org_hostname_fence(&state, org.as_deref(), &hostnames).await {
+      return resp;
+    }
   }
 
   // Isolation: a caller may only edit tokens in their effective org. Unknown

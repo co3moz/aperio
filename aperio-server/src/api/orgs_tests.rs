@@ -8,7 +8,13 @@ use axum::http::HeaderValue;
 
 /// Creates a child org directly in the store and returns its id.
 async fn make_org(state: &Arc<AppState>, name: &str) -> String {
-  state.org_store.lock().await.create(name).unwrap().id
+  state
+    .org_store
+    .lock()
+    .await
+    .create(name, Vec::new())
+    .unwrap()
+    .id
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +211,7 @@ async fn create_requires_master_admin() {
     cookie_headers(&token),
     Json(OrgCreateRequest {
       name: "acme".into(),
+      hostnames: Vec::new(),
     }),
   )
   .await;
@@ -222,6 +229,7 @@ async fn create_success_and_duplicate() {
     headers.clone(),
     Json(OrgCreateRequest {
       name: "acme".into(),
+      hostnames: Vec::new(),
     }),
   )
   .await;
@@ -237,6 +245,7 @@ async fn create_success_and_duplicate() {
     headers,
     Json(OrgCreateRequest {
       name: "acme".into(),
+      hostnames: Vec::new(),
     }),
   )
   .await;
@@ -622,4 +631,202 @@ async fn usage_for_child_with_quota_and_members() {
   assert_eq!(body["clients"], 0);
   assert_eq!(body["quota"]["max_clients"], 3);
   assert_eq!(body["quota"]["max_tokens"], 7);
+}
+
+// ---------------------------------------------------------------------------
+// hostname allowlist
+// ---------------------------------------------------------------------------
+
+fn hostnames_req(hostnames: &[&str]) -> Json<OrgHostnamesRequest> {
+  Json(OrgHostnamesRequest {
+    hostnames: hostnames.iter().map(|s| s.to_string()).collect(),
+  })
+}
+
+#[tokio::test]
+async fn create_accepts_an_optional_hostname_allowlist() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+
+  let resp = orgs_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Json(OrgCreateRequest {
+      name: "acme".into(),
+      // Mixed case, a trailing dot and a duplicate all normalize away.
+      hostnames: vec![
+        "Acme.COM.".into(),
+        "*.acme.example.com".into(),
+        "acme.com".into(),
+      ],
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  assert_eq!(
+    body["hostnames"],
+    serde_json::json!(["acme.com", "*.acme.example.com"])
+  );
+
+  // An invalid pattern is refused before the org is created.
+  let resp = orgs_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(OrgCreateRequest {
+      name: "broken".into(),
+      hostnames: vec!["app.*.com".into()],
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  assert!(
+    !state
+      .org_store
+      .lock()
+      .await
+      .list()
+      .iter()
+      .any(|o| o.name == "broken")
+  );
+}
+
+#[tokio::test]
+async fn create_without_hostnames_leaves_the_org_unfenced() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = orgs_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(OrgCreateRequest {
+      name: "acme".into(),
+      hostnames: Vec::new(),
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(json_body(resp).await["hostnames"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn hostnames_set_replaces_and_clears() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let org_id = make_org(&state, "acme").await;
+
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(org_id.clone()),
+    hostnames_req(&["*.acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    json_body(resp).await["hostnames"],
+    serde_json::json!(["*.acme.com"])
+  );
+
+  // A bare `*` means "no fence" and collapses to an empty list.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(org_id.clone()),
+    hostnames_req(&["*"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(json_body(resp).await["hostnames"], serde_json::json!([]));
+
+  // Empty list clears it too.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(org_id.clone()),
+    hostnames_req(&[]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(
+    state
+      .org_store
+      .lock()
+      .await
+      .hostnames_of(Some(&org_id))
+      .is_empty()
+  );
+}
+
+#[tokio::test]
+async fn hostnames_rejects_master_unknown_and_invalid() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let org_id = make_org(&state, "acme").await;
+
+  // The master org is never fenced.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(MASTER_ID.to_string()),
+    hostnames_req(&["acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+  // Unknown org id.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path("nope".to_string()),
+    hostnames_req(&["acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+  // Invalid pattern.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(org_id.clone()),
+    hostnames_req(&["*.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn hostnames_requires_master_admin() {
+  let state = Arc::new(test_state());
+  let org_id = make_org(&state, "acme").await;
+  // No session → 401.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    HeaderMap::new(),
+    Path(org_id.clone()),
+    hostnames_req(&["acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+  // A viewer session → 403 (the role floor is checked before the org).
+  let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    Path(org_id),
+    hostnames_req(&["acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

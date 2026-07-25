@@ -361,7 +361,12 @@ async fn login_dashboard_password_env_grants_access() {
 #[tokio::test]
 async fn login_named_user_without_totp() {
   let state = test_state();
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   state
     .users
     .lock()
@@ -775,7 +780,12 @@ async fn caller_org_resolution() {
   assert_eq!(caller_org(&state, &cookie_headers(&master)).await, None);
 
   // Named user -> their own org.
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   state
     .users
     .lock()
@@ -831,7 +841,12 @@ async fn is_master_admin_cases() {
   assert!(!is_master_admin(&state, &cookie_headers(&viewer)).await);
 
   // Admin but pinned to a child org is not the master super-admin.
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   state
     .users
     .lock()
@@ -856,7 +871,12 @@ async fn effective_org_selection() {
   assert_eq!(effective_org(&state, &cookie_headers(&master)).await, None);
 
   // Named user is pinned to their org regardless of any selection.
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   state
     .users
     .lock()
@@ -970,7 +990,12 @@ async fn require_master_admin_gate() {
   assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
 
   // Non-master admin -> 403.
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   state
     .users
     .lock()
@@ -1437,6 +1462,11 @@ async fn resolve_org_oidc_cache_and_misses() {
   // Unknown org -> None.
   assert!(resolve_org_oidc(&state, "missing").await.is_none());
   // Existing org without an OIDC override -> None.
-  let org = state.org_store.lock().await.create("acme").unwrap();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
   assert!(resolve_org_oidc(&state, &org.id).await.is_none());
 }

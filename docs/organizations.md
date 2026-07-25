@@ -16,9 +16,10 @@ Child organizations are managed through the dashboard's **Organizations** page o
 # List organizations (master + children, with per-org user/token counts)
 curl -b cookies.txt https://tunnel.example.com/aperio/api/orgs
 
-# Create a child organization
+# Create a child organization (optionally fenced to its own hostnames)
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Acme"}' https://tunnel.example.com/aperio/api/orgs
+  --data '{"name":"Acme","hostnames":["acme.com","*.acme.example.com"]}' \
+  https://tunnel.example.com/aperio/api/orgs
 
 # Delete an (empty) child organization, refused while it still has users or tokens
 curl -b cookies.txt -X DELETE https://tunnel.example.com/aperio/api/orgs/<id>
@@ -71,6 +72,34 @@ A tunnel client belongs to the organization of the **token** it authenticates wi
 ## Per-organization quotas
 
 Each child organization can carry quotas, max concurrently-connected clients, dynamic tokens, dashboard users, and proxied bytes per calendar month, set from the dashboard (Organizations → the gauge icon) or `PUT /aperio/api/orgs/{id}/quota`. They are enforced at the point of creation (token/user create, client connect) and, for the monthly byte cap, on each proxied request against the org's current-month usage. `GET /aperio/api/orgs/{id}/usage` returns current-month usage against the quota and emits an `org_usage` webhook a billing system can consume.
+
+## Per-organization hostname allowlist
+
+An organization can be fenced to the hostnames it actually owns. Without a fence, a token carrying `*` (or no hostname permission at all) may bind **any** hostname on the server, so an org admin minting a wildcard token for their own tenant could claim a hostname belonging to another one. Give the organization a hostname allowlist and that becomes impossible:
+
+```bash
+# At creation, or later on an existing organization
+curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+  --data '{"hostnames":["acme.com","*.acme.example.com"]}' \
+  https://tunnel.example.com/aperio/api/orgs/<id>/hostnames
+
+# From the command line
+aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
+aperio-client api org hostnames <id> --hostname "*.acme.example.com"
+```
+
+Entries are either an exact hostname (`acme.com`) or a subdomain wildcard (`*.acme.example.com`, matching any depth of subdomain but **not** `acme.example.com` itself, so list both if you want both). An empty list, or a single `*`, means no restriction and is the default: existing deployments are unchanged.
+
+The fence is enforced everywhere a hostname can be claimed, not just once:
+
+- **Token creation and editing** refuse a hostname permission outside the allowlist (`403`). A wildcard permission (`*`) stays legal, it simply means "any hostname within this organization's fence".
+- **Client connect** re-checks every declared and token-granted bind, so a token minted *before* the fence existed cannot bind past it either. Rejected binds are logged and dropped, exactly like a bind the token never permitted.
+- **Ephemeral tunnels** (`POST /api/tunnels`) refuse an out-of-fence hostname.
+- **Dashboard bind overrides** refuse one too, the one place a bind is set with no token behind it.
+
+A server-assigned **random subdomain** is exempt: the tenant cannot influence which name it gets, so it can never collide with another organization's hostname. The master organization is never fenced.
+
+Set it from the dashboard in Organizations → the gauge icon → *Allowed hostnames*, or in the create dialog.
 
 ## Per-organization OIDC (SSO)
 

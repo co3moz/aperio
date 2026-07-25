@@ -38,10 +38,69 @@ pub struct Organization {
   /// (None = unlimited). Enforced against the month's per-org stats bucket.
   #[serde(default)]
   pub max_bytes_month: Option<u64>,
+  /// Hostname patterns this organization may claim (empty = unrestricted).
+  /// Every hostname bind created inside the org, whether as a token
+  /// permission or declared by a connecting client, must match one of these,
+  /// so a tenant can never claim a hostname it does not own. Entries are
+  /// either an exact hostname (`acme.com`) or a subdomain wildcard
+  /// (`*.acme.com`).
+  #[serde(default)]
+  pub hostnames: Vec<String>,
   /// Per-organization OIDC SSO override. When set, `/aperio/oidc/login?org=<id>`
   /// authenticates against this issuer and binds the session to the org.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub oidc: Option<OrgOidc>,
+}
+
+/// Normalizes one entry of an organization's hostname allowlist: an exact
+/// hostname (`acme.com`) or a subdomain wildcard (`*.acme.com`), lowercased
+/// and without a trailing dot or port. `*` on its own means "unrestricted"
+/// and normalizes to `*`. Returns None for anything else, including a
+/// wildcard anywhere but the leading label.
+pub fn normalize_org_hostname_pattern(raw: &str) -> Option<String> {
+  let trimmed = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+  if trimmed.is_empty() {
+    return None;
+  }
+  if trimmed == "*" {
+    return Some("*".to_string());
+  }
+  let (wildcard, host) = match trimmed.strip_prefix("*.") {
+    Some(rest) => (true, rest.to_string()),
+    None => (false, trimmed),
+  };
+  // The remainder must be a plain hostname: reuse the bind normalizer so the
+  // allowlist can never hold something a bind could not match anyway.
+  let normalized = crate::routing::normalize_hostname_bind(&host)?;
+  // A wildcard needs something to be a subdomain *of*, so a bare TLD is out.
+  if wildcard && !normalized.contains('.') {
+    return None;
+  }
+  Some(if wildcard {
+    format!("*.{normalized}")
+  } else {
+    normalized
+  })
+}
+
+/// True when `host` is covered by an organization's hostname allowlist. An
+/// empty list (or one containing `*`) is unrestricted. `*.acme.com` matches
+/// any subdomain of `acme.com` at any depth, but not `acme.com` itself, so an
+/// operator who wants both lists both.
+pub fn hostname_in_org_allowlist(host: &str, patterns: &[String]) -> bool {
+  if patterns.is_empty() {
+    return true;
+  }
+  let host = host.trim_end_matches('.').to_ascii_lowercase();
+  patterns.iter().any(|pattern| {
+    if pattern == "*" {
+      return true;
+    }
+    match pattern.strip_prefix("*.") {
+      Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(&format!(".{suffix}")),
+      None => host == *pattern,
+    }
+  })
 }
 
 /// Per-organization OIDC single sign-on configuration.
@@ -88,8 +147,10 @@ impl OrgStore {
   }
 
   /// Creates a child organization. Names are unique (case-insensitive);
-  /// `master` is reserved.
-  pub fn create(&mut self, name: &str) -> Result<Organization, String> {
+  /// `master` is reserved. `hostnames` is the optional allowlist fencing every
+  /// bind made inside the org (already normalized by the caller); empty means
+  /// unrestricted.
+  pub fn create(&mut self, name: &str, hostnames: Vec<String>) -> Result<Organization, String> {
     let name = name.trim();
     if name.is_empty() {
       return Err("organization name is required".into());
@@ -108,6 +169,7 @@ impl OrgStore {
       max_tokens: None,
       max_users: None,
       max_bytes_month: None,
+      hostnames,
       oidc: None,
     };
     self.orgs.push(org.clone());
@@ -161,6 +223,24 @@ impl OrgStore {
     let updated = org.clone();
     self.persist();
     Some(updated)
+  }
+
+  /// Replaces an org's hostname allowlist (empty = unrestricted). Entries are
+  /// expected to be normalized by the caller. Returns the updated record.
+  pub fn set_hostnames(&mut self, id: &str, hostnames: Vec<String>) -> Option<Organization> {
+    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
+    org.hostnames = hostnames;
+    let updated = org.clone();
+    self.persist();
+    Some(updated)
+  }
+
+  /// The hostname allowlist of an org (empty = unrestricted, and the master
+  /// org is always unrestricted).
+  pub fn hostnames_of(&self, id: Option<&str>) -> Vec<String> {
+    id.and_then(|id| self.find(id))
+      .map(|o| o.hostnames.clone())
+      .unwrap_or_default()
   }
 
   /// Sets or clears an org's OIDC override. Returns the updated record.

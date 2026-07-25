@@ -48,16 +48,26 @@ import { useI18n } from '@/i18n'
 import { api, ApiError, type Organization, type OrgUsage } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 
+/** Splits a comma/whitespace separated hostname list into pattern entries. */
+function parseHostnames(raw: string): string[] {
+  return raw
+    .split(/[,\s]+/)
+    .map((h) => h.trim())
+    .filter(Boolean)
+}
+
 function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
+  const [hostnames, setHostnames] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const openDialog = (next: boolean) => {
     if (next) {
       setName('')
+      setHostnames('')
       setError(null)
     }
     setOpen(next)
@@ -67,7 +77,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
     setBusy(true)
     setError(null)
     try {
-      await api.createOrg(name.trim())
+      await api.createOrg(name.trim(), parseHostnames(hostnames))
       setOpen(false)
       toast.success(t('Organization "{name}" created', { name: name.trim() }))
       onCreated()
@@ -103,6 +113,19 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
                 if (e.key === 'Enter' && name.trim() && !busy) void submit()
               }}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="org-hostnames">{t('Allowed hostnames (optional)')}</Label>
+            <Input
+              id="org-hostnames"
+              value={hostnames}
+              onChange={(e) => setHostnames(e.target.value)}
+              placeholder="acme.com, *.acme.example.com"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('Fences every bind made inside the organization: its tokens and clients can only claim these hostnames. Leave empty for no restriction.')}
+            </p>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
@@ -164,11 +187,13 @@ function QuotaDialog({ org }: { org: Organization }) {
   const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [form, setForm] = useState({ clients: '', tokens: '', users: '', bytesMb: '' })
+  const [hostnames, setHostnames] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = async () => {
     const u = await api.orgUsage(org.id)
     setUsage(u)
+    setHostnames((u.hostnames ?? []).join(', '))
     setForm({
       clients: u.quota?.max_clients != null ? String(u.quota.max_clients) : '',
       tokens: u.quota?.max_tokens != null ? String(u.quota.max_tokens) : '',
@@ -200,6 +225,9 @@ function QuotaDialog({ org }: { org: Organization }) {
         max_users: num(form.users),
         max_bytes_month: num(form.bytesMb) * 1024 * 1024,
       })
+      // The allowlist is a separate endpoint; save it in the same click so the
+      // dialog behaves as one form.
+      await api.setOrgHostnames(org.id, parseHostnames(hostnames))
       await load()
       toast.success(t('Quota updated'))
     } catch (e) {
@@ -269,6 +297,18 @@ function QuotaDialog({ org }: { org: Organization }) {
               inputMode="numeric"
             />
           </div>
+        </div>
+        <div className="space-y-1">
+          <Label>{t('Allowed hostnames')}</Label>
+          <Input
+            value={hostnames}
+            onChange={(e) => setHostnames(e.target.value)}
+            placeholder="acme.com, *.acme.example.com"
+            autoComplete="off"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('Only these hostnames may be bound by this organization. Empty = no restriction.')}
+          </p>
         </div>
         <OidcForm org={org} />
         <DialogFooter>
@@ -364,6 +404,7 @@ export function OrganizationsSection() {
           <TableHeader>
             <TableRow>
               <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Hostnames')}</TableHead>
               <TableHead>{t('Users')}</TableHead>
               <TableHead>{t('Tokens')}</TableHead>
               <TableHead>{t('Created')}</TableHead>
@@ -372,9 +413,9 @@ export function OrganizationsSection() {
           </TableHeader>
           <TableBody>
             {orgs === null ? (
-              <SkeletonRows rows={2} cols={5} />
+              <SkeletonRows rows={2} cols={6} />
             ) : orgs.length === 0 ? (
-              <EmptyRow colSpan={5} icon={<Building2Icon />}>
+              <EmptyRow colSpan={6} icon={<Building2Icon />}>
                 {t('No organizations yet')}
               </EmptyRow>
             ) : (
@@ -386,6 +427,13 @@ export function OrganizationsSection() {
                       {o.name}
                       {o.master && <TintBadge tint="lime">{t('master')}</TintBadge>}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {o.master || !o.hostnames?.length ? (
+                      <span title={t('No hostname restriction')}>{t('any')}</span>
+                    ) : (
+                      <span className="font-mono text-xs">{o.hostnames.join(', ')}</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center gap-1 text-muted-foreground">

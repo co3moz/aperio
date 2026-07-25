@@ -516,6 +516,23 @@ pub(crate) async fn client_override_handler(
   // A cross-org (or unknown) client is indistinguishable — both 404 — so a
   // client's existence never leaks across orgs.
   let org = crate::auth::effective_org(&state, &headers).await;
+  // Organization fence: an overrule is the one place a bind is set without a
+  // token permission behind it, so a fenced org must not be able to point one
+  // of its clients at a hostname it does not own.
+  if let Some(ref host) = new_hostname {
+    let allowlist = state.org_store.lock().await.hostnames_of(org.as_deref());
+    if !crate::store::orgs::hostname_in_org_allowlist(host, &allowlist) {
+      return (
+        StatusCode::FORBIDDEN,
+        format!(
+          "hostname {} is outside this organization's allowlist ({})",
+          host,
+          allowlist.join(", ")
+        ),
+      )
+        .into_response();
+    }
+  }
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {

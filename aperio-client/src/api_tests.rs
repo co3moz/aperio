@@ -295,6 +295,41 @@ fn test_org_quota_maps_only_the_given_limits() {
 }
 
 #[test]
+fn test_org_create_and_hostnames_carry_the_allowlist() {
+  let create = call_for(&[
+    "org",
+    "create",
+    "--name",
+    "acme",
+    "--hostname",
+    "acme.com,*.acme.example.com",
+  ])
+  .unwrap();
+  assert_eq!(create.path, "/aperio/api/orgs");
+  let body = create.body.unwrap();
+  assert_eq!(body["name"], "acme");
+  assert_eq!(
+    body["hostnames"],
+    serde_json::json!(["acme.com", "*.acme.example.com"])
+  );
+
+  // No --hostname: an unfenced org (and, on the update, a cleared fence).
+  let create = call_for(&["org", "create", "--name", "acme"]).unwrap();
+  assert_eq!(create.body.unwrap()["hostnames"], serde_json::json!([]));
+
+  let set = call_for(&["org", "hostnames", "o1", "--hostname", "*.acme.com"]).unwrap();
+  assert_eq!(set.method, reqwest::Method::PUT);
+  assert_eq!(set.path, "/aperio/api/orgs/o1/hostnames");
+  assert_eq!(
+    set.body.unwrap()["hostnames"],
+    serde_json::json!(["*.acme.com"])
+  );
+
+  let clear = call_for(&["org", "hostnames", "o1"]).unwrap();
+  assert_eq!(clear.body.unwrap()["hostnames"], serde_json::json!([]));
+}
+
+#[test]
 fn test_admin_key_create_maps_role_and_org() {
   let call = call_for(&[
     "admin-key",
