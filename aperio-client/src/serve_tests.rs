@@ -104,13 +104,17 @@ async fn serves_files_with_mime_and_handles_head() {
     .unwrap();
   assert_eq!(resp.headers()["content-type"], "application/octet-stream");
 
-  // HEAD yields the status/headers with an empty body.
+  // HEAD yields the status/headers with an empty body, and reports the size a
+  // GET would return without ever reading the file's contents.
   let resp = client
     .head(format!("{base}/assets/app.js"))
     .send()
     .await
     .unwrap();
   assert_eq!(resp.status(), 200);
+  assert_eq!(resp.headers()["content-length"], "2");
+  let ctype = resp.headers()["content-type"].to_str().unwrap().to_string();
+  assert!(ctype.contains("javascript"), "unexpected type {ctype}");
   assert_eq!(resp.text().await.unwrap(), "");
 
   std::fs::remove_dir_all(&root).unwrap();

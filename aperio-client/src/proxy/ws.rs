@@ -189,6 +189,31 @@ pub(crate) async fn handle_upgrade_request(
       }
   };
 
+  // Split the backend WebSocket
+  let (mut backend_sender, mut backend_receiver) = backend_ws.split();
+
+  // Channel to relay tunnel WsData → backend WS
+  let (relay_tx, mut relay_rx) = mpsc::channel::<Message>(64);
+  // Abort channel
+  let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
+
+  // Register the stream *before* announcing the 101. The server completes the
+  // visitor's handshake as soon as it sees that status and may forward the
+  // visitor's first frames right away; registering afterwards left a window in
+  // which those frames arrived for a stream this client did not yet know about
+  // and were dropped. The raw TCP path registers synchronously for exactly
+  // this reason.
+  {
+    let mut streams = active_streams.lock().await;
+    streams.insert(
+      stream_id.clone(),
+      WsStreamHandle {
+        tx: relay_tx,
+        abort_tx: abort_tx.clone(),
+      },
+    );
+  }
+
   // Send UpgradeResponse (101) to server
   let upgrade_resp = TunnelMessage::UpgradeResponse {
     id: stream_id.clone(),
@@ -203,27 +228,8 @@ pub(crate) async fn handle_upgrade_request(
     && tunnel_tx.send(Message::Text(json)).await.is_err()
   {
     error!("Failed to send UpgradeResponse for stream {}", stream_id);
+    active_streams.lock().await.remove(&stream_id);
     return;
-  }
-
-  // Split the backend WebSocket
-  let (mut backend_sender, mut backend_receiver) = backend_ws.split();
-
-  // Channel to relay tunnel WsData → backend WS
-  let (relay_tx, mut relay_rx) = mpsc::channel::<Message>(64);
-  // Abort channel
-  let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
-
-  // Register the stream
-  {
-    let mut streams = active_streams.lock().await;
-    streams.insert(
-      stream_id.clone(),
-      WsStreamHandle {
-        tx: relay_tx,
-        abort_tx: abort_tx.clone(),
-      },
-    );
   }
 
   let tunnel_tx_clone = tunnel_tx.clone();

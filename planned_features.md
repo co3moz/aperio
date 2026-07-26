@@ -383,3 +383,16 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   today's permissive behaviour with a clear note in the docs, plus consideration
   of whether the delivery log should show a tenant the raw status code at all.
   Decide the shape before implementing. (From the 2026-07 four-agent review.)
+
+- [ ] **#16 Stream static files instead of reading each one fully into memory.**
+  `serve.rs` answers every GET with `tokio::fs::read`, so the whole file is held
+  in memory for the life of the request and peak usage is file size times
+  concurrent requests. A HEAD no longer pays this cost (it reads the metadata
+  instead), but a large asset served to several visitors at once still does.
+  Fixing it means moving the handler off `Full<Bytes>` onto a streaming body
+  (`ReaderStream` over the open file, boxed), which changes the return type of
+  `handle`, `not_found` and `simple`, and pulls in `tokio-util`'s `io` feature.
+  Worth doing together with range-request support (`Accept-Ranges` / `206`),
+  since both need the file handle rather than its contents, and both matter for
+  the same case: serving large downloads out of a `serve:` directory.
+  (From the 2026-07 four-agent review.)

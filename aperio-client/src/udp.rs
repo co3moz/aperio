@@ -14,9 +14,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
-use tokio_tungstenite::{
-  connect_async,
-  tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message},
+use tokio_tungstenite::tungstenite::{
+  client::IntoClientRequest, http::HeaderValue, protocol::Message,
 };
 use tracing::{debug, error, info, warn};
 
@@ -217,7 +216,11 @@ async fn bridge_udp_session(
     }
     Err(_) => return,
   }
-  let (ws, _) = match connect_async(req).await {
+  // Dial through the shared module like the tunnel and TCP paths do, so this
+  // connection honours the configured `ip_family` and falls back across every
+  // resolved address; `connect_async` picks an address itself and does
+  // neither, which stranded UDP binds on hosts where only one family works.
+  let (ws, _) = match crate::dial::connect_ws(req, None).await {
     Ok(x) => x,
     Err(e) => {
       warn!("UDP bridge failed to reach server: {:?}", e);

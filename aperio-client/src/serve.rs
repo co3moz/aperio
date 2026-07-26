@@ -123,18 +123,34 @@ async fn handle(
   if req.method() != Method::GET && !head_only {
     return simple(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
   }
-  if let Some(path) = resolve(root, req.uri().path())
-    && let Ok(bytes) = tokio::fs::read(&path).await
-  {
-    let mime = mime_guess::from_path(&path)
-      .first_or_octet_stream()
-      .to_string();
-    let body = if head_only { Vec::new() } else { bytes };
-    return Response::builder()
-      .status(StatusCode::OK)
-      .header("content-type", mime)
-      .body(Full::new(Bytes::from(body)))
-      .unwrap_or_default();
+  if let Some(path) = resolve(root, req.uri().path()) {
+    let mime = || {
+      mime_guess::from_path(&path)
+        .first_or_octet_stream()
+        .to_string()
+    };
+    // A HEAD asks only about the file, so read its size rather than its
+    // contents: the bytes were previously loaded in full and then thrown away.
+    // Reporting the length also makes the answer match what a GET would say,
+    // which an empty body alone did not.
+    if head_only {
+      if let Ok(meta) = tokio::fs::metadata(&path).await
+        && meta.is_file()
+      {
+        return Response::builder()
+          .status(StatusCode::OK)
+          .header("content-type", mime())
+          .header("content-length", meta.len())
+          .body(Full::new(Bytes::new()))
+          .unwrap_or_default();
+      }
+    } else if let Ok(bytes) = tokio::fs::read(&path).await {
+      return Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", mime())
+        .body(Full::new(Bytes::from(bytes)))
+        .unwrap_or_default();
+    }
   }
   not_found(root, opts, req, head_only).await
 }

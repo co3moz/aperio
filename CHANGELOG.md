@@ -16,6 +16,14 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A visitor's first WebSocket frames are no longer dropped by the client.** The client registered the stream only after telling the server the backend had accepted the upgrade, but the server completes the visitor's handshake the moment it sees that answer and can forward frames straight away. Anything arriving in that gap belonged to a stream the client did not yet know about and was discarded, so a visitor that sends immediately on connect — which client libraries routinely do — could lose its opening message. Registration now happens before the acceptance is announced, matching what the raw TCP path already did.
+
+- **UDP tunnels honour `ip_family` and retry across every resolved server address.** The UDP bind path dialled the server directly instead of going through the shared connection logic used by the tunnel and TCP paths, so it ignored the configured address family and gave up after the first address it happened to pick. On a host where only one family reaches the server — a common IPv6-only or IPv4-only network — UDP binds failed while everything else connected normally.
+
+- **A `HEAD` request in static-file mode no longer reads the whole file.** Serving a directory answered `HEAD` by loading the file's entire contents into memory and then discarding them, which made a HEAD as expensive as a GET. It now reads only the file's metadata, and reports the `Content-Length` a GET would have returned instead of `0`.
+
+- **The published `aperio.yaml` schema described the wrong default for `connections`.** It documented a default of two parallel tunnel connections per service; the actual default has always been one. Editors and anyone reading the schema were told to expect redundancy that was not configured.
+
 - **Changing an organization's hostname allowlist now takes effect on connections that are already open.** The endpoint's documentation stated that a hostname falling outside a tightened fence stops being served at once, but each client copies the allowlist when it connects, so in practice the old list stayed in force until that client happened to reconnect — which for a stable tunnel can be days. A hostname an operator had just revoked therefore kept being served. The new list is now pushed onto that organization's live connections, and any connection serving a hostname the fence no longer permits is dropped, with the number dropped recorded in the audit entry.
 
 - **A webhook to an unresponsive receiver can no longer hang forever.** Webhook delivery builds its HTTP client with a ten-second timeout, but fell back to a default client if construction failed — and that default has no timeout at all, so a receiver that accepted the connection and then went silent would hold the delivery task open indefinitely. Construction failure is now reported as a failed delivery, matching how the OIDC and autoscaling call sites already handled it.
