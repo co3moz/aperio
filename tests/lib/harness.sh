@@ -296,6 +296,52 @@ PYEOF
   retry 10 curl -sf "http://127.0.0.1:$1/ping" || fail "ws backend :$1 did not come up"
 }
 
+start_ws_greeting_backend() { # <port>
+  # A backend that speaks first: it sends one frame immediately after the 101,
+  # before the visitor sends anything. Socket.IO, MQTT-over-WS and most chat
+  # protocols behave this way, and that opening frame is exactly what the
+  # server used to drop while the visitor-side handshake was still finishing.
+  "$PYTHON" - "$1" <<'PYEOF' >"$LOG_DIR/backend-ws-greeting.log" 2>&1 &
+import base64, hashlib, socket, sys, threading
+
+MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+def handle(c):
+    data = b""
+    while b"\r\n\r\n" not in data:
+        d = c.recv(4096)
+        if not d:
+            return
+        data += d
+    key = ""
+    for line in data.decode("latin1").split("\r\n"):
+        if line.lower().startswith("sec-websocket-key:"):
+            key = line.split(":", 1)[1].strip()
+    if not key:
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        c.close()
+        return
+    accept = base64.b64encode(hashlib.sha1((key + MAGIC).encode()).digest()).decode()
+    c.sendall(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+               "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())
+    greeting = b"greeting-first"
+    c.sendall(bytes([0x81, len(greeting)]) + greeting)
+    while c.recv(4096):
+        pass
+    c.close()
+
+srv = socket.socket()
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", int(sys.argv[1])))
+srv.listen(8)
+while True:
+    conn, _ = srv.accept()
+    threading.Thread(target=handle, args=(conn,), daemon=True).start()
+PYEOF
+  BACKEND_PIDS+=($!)
+  retry 10 curl -sf "http://127.0.0.1:$1/ping" || fail "ws greeting backend :$1 did not come up"
+}
+
 start_tcp_echo() { # <port>
   "$PYTHON" - "$1" <<'PYEOF' >"$LOG_DIR/backend-tcpecho.log" 2>&1 &
 import socket, sys, threading

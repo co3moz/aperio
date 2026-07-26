@@ -362,7 +362,27 @@ pub(crate) async fn handle_ws_proxy(
       .into_response();
   }
 
-  // Client confirmed upgrade. Now perform the public-side WebSocket upgrade.
+  // Client confirmed upgrade. Register the relay channel *before* the
+  // public-side handshake: the backend is live from this moment and many
+  // protocols speak first (a Socket.IO open packet, an MQTT CONNACK, most chat
+  // protocols' hello), so frames arrive while the visitor's handshake is still
+  // completing. Registering afterwards meant those frames found no stream and
+  // were dropped, costing such backends their opening message. Buffered here,
+  // they are waiting when the relay starts.
+  let (relay_tx, relay_rx) = mpsc::channel::<WsStreamMessage>(64);
+  // The tunnel read loop feeds a pump rather than this channel: a visitor that
+  // stops reading must not stall the other streams on that tunnel.
+  let relay_tx =
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
+  state.ws_streams.lock().await.insert(
+    stream_id.clone(),
+    crate::state::WsStreamHandle {
+      tx: relay_tx,
+      client_id: chosen_client_id.clone(),
+    },
+  );
+
+  // Now perform the public-side WebSocket upgrade.
   let (parts, body) = req.into_parts();
   let req = axum::extract::Request::from_parts(parts, body);
 
@@ -378,7 +398,6 @@ pub(crate) async fn handle_ws_proxy(
       let uri_clone = uri_str.clone();
       let start_time_clone = start_time;
 
-      let owner_client_id = chosen_client_id.clone();
       ws.on_upgrade(move |public_ws| async move {
         // Hold the WS slot for the whole life of the relay; it releases when
         // the connection closes and this future ends.
@@ -386,8 +405,8 @@ pub(crate) async fn handle_ws_proxy(
         relay_ws_stream(
           state_clone,
           stream_id_clone,
-          owner_client_id,
           public_ws,
+          relay_rx,
           client_tx_clone,
           method_clone,
           uri_clone,
@@ -427,34 +446,14 @@ pub(crate) async fn handle_ws_proxy(
 async fn relay_ws_stream(
   state: Arc<AppState>,
   stream_id: String,
-  owner_client_id: String,
   public_ws: WebSocket,
+  mut relay_rx: mpsc::Receiver<WsStreamMessage>,
   tunnel_tx: mpsc::Sender<Message>,
   method: String,
   uri: String,
   start_time: Instant,
 ) {
   let (mut ws_sender, mut ws_receiver) = public_ws.split();
-
-  // Channel for relaying frames from tunnel → public WS
-  let (relay_tx, mut relay_rx) = mpsc::channel::<WsStreamMessage>(64);
-  // The tunnel read loop feeds a pump rather than this channel: a visitor that
-  // stops reading must not stall the other streams on that tunnel.
-  let relay_tx =
-    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
-
-  // Register the relay channel so handle_socket can push WsData frames to us,
-  // tagged with the serving client's id for ownership verification.
-  {
-    let mut streams = state.ws_streams.lock().await;
-    streams.insert(
-      stream_id.clone(),
-      crate::state::WsStreamHandle {
-        tx: relay_tx,
-        client_id: owner_client_id,
-      },
-    );
-  }
 
   let stream_id_clone = stream_id.clone();
   let tunnel_tx_clone = tunnel_tx.clone();

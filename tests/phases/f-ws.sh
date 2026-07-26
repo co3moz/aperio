@@ -64,3 +64,55 @@ WS_OUT="$("$PYTHON" "$LOG_DIR/ws_probe.py" "$SERVER_PORT" ws.e2e.local)" \
 assert_contains "$WS_OUT" "echo:hello-ws" "WS frame echoed through the tunnel"
 
 stop_server
+
+# A backend that speaks first: the probe reads a frame WITHOUT sending one, so
+# it only succeeds if the greeting the backend emitted right after its 101
+# survived the window in which the visitor-side handshake was still completing.
+cat >"$LOG_DIR/ws_greeting_probe.py" <<'PYEOF'
+import base64, os, socket, sys
+
+port, host = int(sys.argv[1]), sys.argv[2]
+s = socket.create_connection(("127.0.0.1", port), timeout=15)
+key = base64.b64encode(os.urandom(16)).decode()
+s.sendall(("GET /ws-echo HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+           "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n" % (host, key)).encode())
+resp = b""
+while b"\r\n\r\n" not in resp:
+    d = s.recv(4096)
+    if not d:
+        print("no handshake response")
+        sys.exit(1)
+    resp += d
+if b" 101" not in resp.split(b"\r\n", 1)[0]:
+    print("handshake failed: %r" % resp[:200])
+    sys.exit(1)
+
+def recvn(n):
+    buf = b""
+    while len(buf) < n:
+        d = s.recv(n - len(buf))
+        if not d:
+            print("connection closed before the backend greeting arrived")
+            sys.exit(1)
+        buf += d
+    return buf
+
+hdr = recvn(2)
+data = recvn(hdr[1] & 0x7F)
+print(data.decode("latin1"))
+s.close()
+sys.exit(0 if data == b"greeting-first" else 1)
+PYEOF
+
+step "WebSocket greeting sent immediately after the backend 101"
+WS_GREET_PORT=18114
+start_server
+start_ws_greeting_backend "$WS_GREET_PORT"
+start_client wsgreet "$WS_GREET_PORT" APERIO_HOSTNAME=wsgreet.e2e.local
+wait_routable wsgreet.e2e.local "/ping"
+WS_GREET_OUT="$("$PYTHON" "$LOG_DIR/ws_greeting_probe.py" "$SERVER_PORT" wsgreet.e2e.local)" \
+  || fail "ws greeting probe failed: $WS_GREET_OUT"
+assert_contains "$WS_GREET_OUT" "greeting-first" \
+  "backend frame sent right after the 101 reaches the visitor"
+
+stop_server
