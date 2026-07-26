@@ -42,6 +42,7 @@ pub(crate) async fn handle_upgrade_request(
   tunnel_tx: mpsc::Sender<Message>,
   active_streams: Arc<Mutex<HashMap<String, WsStreamHandle>>>,
   client_timeout_secs: u64,
+  activity: crate::service::ActivityClock,
 ) {
   info!("Handling WebSocket upgrade for stream {}", stream_id);
 
@@ -236,10 +237,14 @@ pub(crate) async fn handle_upgrade_request(
   let stream_id_clone = stream_id.clone();
 
   // Task: read from backend WS → send WsData through tunnel
+  let activity_up = activity.clone();
   let backend_to_tunnel = tokio::spawn(async move {
     while let Some(result) = backend_receiver.next().await {
       match result {
         Ok(msg) => {
+          // Live traffic in either direction keeps `idle_timeout` at bay:
+          // a stream outliving the window must not be cut mid-session.
+          activity_up.stamp();
           let tunnel_msg = match msg {
             Message::Text(text) => TunnelMessage::WsData {
               stream_id: stream_id_clone.clone(),
@@ -305,6 +310,7 @@ pub(crate) async fn handle_upgrade_request(
           msg_opt = relay_rx.recv() => {
               match msg_opt {
                   Some(msg) => {
+                      activity.stamp();
                       if backend_sender.send(msg).await.is_err() {
                           break;
                       }

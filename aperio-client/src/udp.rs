@@ -50,6 +50,7 @@ pub(crate) struct UdpStreamHandle {
 /// Like the TCP path, the handle must already be registered in
 /// `active_streams` before this runs; `datagram_rx` buffers datagrams that
 /// arrive while the socket is still being set up.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_udp_open(
   stream_id: String,
   target_addr: String,
@@ -58,6 +59,7 @@ pub(crate) async fn handle_udp_open(
   mut datagram_rx: mpsc::Receiver<Vec<u8>>,
   mut abort_rx: mpsc::Receiver<()>,
   idle_timeout: Duration,
+  activity: crate::service::ActivityClock,
 ) {
   info!("Opening UDP relay {} to {}", stream_id, target_addr);
   let close_stream = |reason: &'static str| {
@@ -102,6 +104,8 @@ pub(crate) async fn handle_udp_open(
       }
       out = datagram_rx.recv() => match out {
         Some(bytes) => {
+          // Live traffic in either direction keeps `idle_timeout` at bay.
+          activity.stamp();
           // send() may fail transiently (e.g. ICMP unreachable); UDP is
           // lossy by contract, so log and carry on.
           if let Err(e) = socket.send(&bytes).await {
@@ -112,6 +116,7 @@ pub(crate) async fn handle_udp_open(
       },
       recv = socket.recv(&mut buf) => match recv {
         Ok(n) => {
+          activity.stamp();
           let msg = TunnelMessage::UdpDatagram {
             stream_id: stream_id.clone(),
             data: BASE64_STANDARD.encode(&buf[..n]),

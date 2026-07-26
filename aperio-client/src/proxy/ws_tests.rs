@@ -98,6 +98,8 @@ async fn test_ws_echo_text_and_binary() {
   let streams = new_streams();
 
   let streams_c = streams.clone();
+  let activity = crate::service::ActivityClock::default();
+  let activity_c = activity.clone();
   let handle = tokio::spawn(async move {
     handle_upgrade_request(
       "ws-1".to_string(),
@@ -110,6 +112,7 @@ async fn test_ws_echo_text_and_binary() {
       tunnel_tx,
       streams_c,
       10,
+      activity_c,
     )
     .await;
   });
@@ -155,6 +158,9 @@ async fn test_ws_echo_text_and_binary() {
     }
     other => panic!("expected binary WsData, got {:?}", other),
   }
+  // Relayed frames stamp the idle clock: a long-lived WebSocket whose only
+  // activity is data frames must not read as idle and be retired mid-session.
+  assert_ne!(activity.secs(), 0, "frame relay must stamp the idle clock");
 
   // Abort → writer sends Close to backend, backend echoes Close, relay ends.
   abort_tx.send(()).await.unwrap();
@@ -184,6 +190,7 @@ async fn test_ws_backend_closes_emits_wsclose() {
       tunnel_tx,
       streams_c,
       10,
+      crate::service::ActivityClock::default(),
     )
     .await;
   });
@@ -231,6 +238,7 @@ async fn test_ws_backend_handshake_timeout() {
     tunnel_tx,
     new_streams(),
     1,
+    crate::service::ActivityClock::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -253,6 +261,7 @@ async fn test_ws_unix_target_rejected() {
     tunnel_tx,
     new_streams(),
     10,
+    crate::service::ActivityClock::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -275,6 +284,7 @@ async fn test_ws_invalid_target_rejected() {
     tunnel_tx,
     new_streams(),
     10,
+    crate::service::ActivityClock::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -298,6 +308,7 @@ async fn test_ws_bad_incoming_uri_rejected() {
     tunnel_tx,
     new_streams(),
     10,
+    crate::service::ActivityClock::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -321,6 +332,7 @@ async fn test_ws_backend_unreachable() {
     tunnel_tx,
     new_streams(),
     10,
+    crate::service::ActivityClock::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -351,6 +363,7 @@ async fn test_ws_trim_bind_path() {
       tunnel_tx,
       streams_c,
       10,
+      crate::service::ActivityClock::default(),
     )
     .await;
   });

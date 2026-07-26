@@ -1012,4 +1012,24 @@ async fn mark_request_activity_stamps_the_idle_clock() {
     now.saturating_sub(stamped) <= 2,
     "stamped {stamped}, now {now}"
   );
+
+  // The relays stamp the same clock through the shared handle.
+  let clock = shared.activity_clock();
+  clock.stamp();
+  assert_eq!(clock.secs(), shared.last_request_at.load(Ordering::SeqCst));
+}
+
+#[test]
+fn should_retire_idle_covers_inflight_and_cold_start() {
+  // Never served anything: a freshly started client must not retire before
+  // it has had the chance to be used.
+  assert!(!should_retire_idle(0, 1_000, 300, 0));
+  // Quiet for the full window with nothing in flight: retire.
+  assert!(should_retire_idle(700, 1_000, 300, 0));
+  // Not quiet for long enough yet.
+  assert!(!should_retire_idle(800, 1_000, 300, 0));
+  // A stale clock with work still in flight is not idleness: a slow backend
+  // or a response streaming for longer than the window produces exactly this
+  // state, and retiring would cut it off at the drain deadline.
+  assert!(!should_retire_idle(700, 1_000, 300, 1));
 }

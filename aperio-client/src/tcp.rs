@@ -31,6 +31,7 @@ pub(crate) struct TcpStreamHandle {
 /// starts relaying consumer bytes right after TcpOpen, and TcpData for an
 /// unregistered stream would be dropped silently. `bytes_rx` buffers
 /// whatever arrives while the connect is still in flight.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_tcp_open(
   stream_id: String,
   target_addr: String,
@@ -39,6 +40,7 @@ pub(crate) async fn handle_tcp_open(
   mut bytes_rx: mpsc::Receiver<Vec<u8>>,
   mut abort_rx: mpsc::Receiver<()>,
   e2e: Option<crate::e2e::E2eParams>,
+  activity: crate::service::ActivityClock,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -119,12 +121,16 @@ pub(crate) async fn handle_tcp_open(
   // Backend -> tunnel
   let stream_id_up = stream_id.clone();
   let tunnel_tx_up = tunnel_tx.clone();
+  let activity_up = activity.clone();
   let up_task = tokio::spawn(async move {
     let mut buf = vec![0u8; 16 * 1024];
     loop {
       match read_half.read(&mut buf).await {
         Ok(0) | Err(_) => break,
         Ok(n) => {
+          // Live traffic in either direction keeps `idle_timeout` at bay:
+          // a stream outliving the window must not be cut mid-session.
+          activity_up.stamp();
           let payload = match &mut sealer {
             Some(s) => match s.seal(&buf[..n]) {
               Some(sealed) => sealed,
@@ -160,6 +166,7 @@ pub(crate) async fn handle_tcp_open(
         _ = abort_rx.recv() => break,
         chunk = bytes_rx.recv() => match chunk {
           Some(bytes) => {
+            activity.stamp();
             let plain = match &mut opener {
               Some(o) => match o.open(&bytes) {
                 Some(p) => p,

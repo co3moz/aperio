@@ -105,6 +105,7 @@ async fn test_handle_udp_open_relays_and_aborts() {
     .insert("s1".to_string(), handle(dg_tx.clone(), abort_tx.clone()));
 
   let active2 = active.clone();
+  let activity = crate::service::ActivityClock::default();
   let h = tokio::spawn(handle_udp_open(
     "s1".to_string(),
     backend_addr,
@@ -113,6 +114,7 @@ async fn test_handle_udp_open_relays_and_aborts() {
     dg_rx,
     abort_rx,
     Duration::from_secs(30),
+    activity.clone(),
   ));
 
   // tunnel -> backend
@@ -133,6 +135,13 @@ async fn test_handle_udp_open_relays_and_aborts() {
     }
     other => panic!("unexpected message: {:?}", other),
   }
+  // Relayed datagrams stamp the idle clock: a long-lived relay whose only
+  // activity is datagrams must not read as idle and be retired mid-session.
+  assert_ne!(
+    activity.secs(),
+    0,
+    "datagram relay must stamp the idle clock"
+  );
 
   // abort -> cleanup + UdpClose
   abort_tx.send(()).await.unwrap();
@@ -166,6 +175,7 @@ async fn test_handle_udp_open_target_unreachable() {
     dg_rx,
     abort_rx,
     Duration::from_secs(30),
+    crate::service::ActivityClock::default(),
   )
   .await;
 
@@ -200,6 +210,7 @@ async fn test_handle_udp_open_idle_expiry() {
     dg_rx,
     abort_rx,
     Duration::from_millis(20),
+    crate::service::ActivityClock::default(),
   )
   .await;
 
@@ -229,6 +240,7 @@ async fn test_handle_udp_open_datagram_sender_closed() {
     dg_rx,
     abort_rx,
     Duration::from_secs(30),
+    crate::service::ActivityClock::default(),
   ));
 
   // Dropping the only datagram sender closes datagram_rx -> None -> break.
@@ -262,6 +274,7 @@ async fn test_handle_udp_open_tunnel_closed_stops_relay() {
     dg_rx,
     abort_rx,
     Duration::from_secs(30),
+    crate::service::ActivityClock::default(),
   ));
 
   // Prime the connected socket so the backend learns the relay's address,
@@ -471,6 +484,7 @@ async fn test_handle_udp_open_send_recv_errors() {
     dg_rx,
     abort_rx,
     Duration::from_secs(2),
+    crate::service::ActivityClock::default(),
   ));
 
   for _ in 0..5 {

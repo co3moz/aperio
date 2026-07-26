@@ -234,6 +234,7 @@ async fn main() {
     let shutting_down = shared.shutting_down.clone();
     let shutdown_notify = shared.shutdown_notify.clone();
     let last_request_at = shared.last_request_at.clone();
+    let inflight_requests = shared.inflight_requests.clone();
     tokio::spawn(async move {
       loop {
         tokio::time::sleep(Duration::from_secs(idle_secs.clamp(1, 30))).await;
@@ -241,16 +242,15 @@ async fn main() {
           return;
         }
         let last = last_request_at.load(Ordering::SeqCst);
-        // Never served anything yet: a client that was just started must not
-        // retire before it has had the chance to be used.
-        if last == 0 {
-          continue;
-        }
+        let inflight = inflight_requests.load(Ordering::SeqCst);
         let now = std::time::SystemTime::now()
           .duration_since(std::time::UNIX_EPOCH)
           .unwrap_or_default()
           .as_secs();
-        if now.saturating_sub(last) >= idle_secs {
+        // `should_retire_idle` also holds retirement back while a request is
+        // still in flight (a slow backend, a response streaming for longer
+        // than the window) and before anything was ever served at all.
+        if service::should_retire_idle(last, now, idle_secs, inflight) {
           info!(
             "Idle for {}s (idle_timeout={}s): draining and exiting",
             now.saturating_sub(last),

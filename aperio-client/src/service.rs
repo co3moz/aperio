@@ -231,7 +231,27 @@ impl Shared {
   /// conclude it was idle and retire in the middle of live traffic, cutting
   /// long-running streams outright.
   pub(crate) fn mark_request_activity(&self) {
-    self.last_request_at.store(
+    self.activity_clock().stamp();
+  }
+
+  /// The idle clock as a handle the long-lived stream relays can stamp.
+  pub(crate) fn activity_clock(&self) -> ActivityClock {
+    ActivityClock(self.last_request_at.clone())
+  }
+}
+
+/// Handle to the idle clock (`Shared::last_request_at`), passed into the
+/// WebSocket/TCP/UDP relays so a long-lived stream keeps resetting it with
+/// every relayed frame, in both directions. Stamping only the frame that
+/// *opens* a stream let a session outlasting `idle_timeout` be retired in
+/// the middle of live traffic.
+#[derive(Clone, Default)]
+pub(crate) struct ActivityClock(Arc<AtomicU64>);
+
+impl ActivityClock {
+  /// Records proxied work happening right now.
+  pub(crate) fn stamp(&self) {
+    self.0.store(
       std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -239,6 +259,27 @@ impl Shared {
       Ordering::SeqCst,
     );
   }
+
+  /// Unix seconds of the last stamp; 0 when nothing was ever served.
+  #[cfg(test)]
+  pub(crate) fn secs(&self) -> u64 {
+    self.0.load(Ordering::SeqCst)
+  }
+}
+
+/// Whether the idle watcher should retire the process: only once it has
+/// served something, nothing is in flight any more, and the clock has then
+/// stayed quiet for the full window. The in-flight guard covers work that
+/// produces no tunnel frames for long stretches (a backend taking minutes to
+/// answer, a response streaming for longer than the window), which would
+/// otherwise read as idleness and get cut by the drain deadline.
+pub(crate) fn should_retire_idle(
+  last_secs: u64,
+  now_secs: u64,
+  idle_secs: u64,
+  inflight: usize,
+) -> bool {
+  last_secs != 0 && inflight == 0 && now_secs.saturating_sub(last_secs) >= idle_secs
 }
 
 /// Resolves once a shutdown has been requested, whether the request arrived
@@ -916,6 +957,7 @@ pub(crate) async fn run_service(
                                               let trim_bind_val = spec.trim_bind;
                                               let active_streams = active_ws_streams.clone();
                                               let client_timeout = spec.timeout_secs;
+                                              let activity = shared.activity_clock();
 
                                               tokio::spawn(async move {
                                                   handle_upgrade_request(
@@ -929,6 +971,7 @@ pub(crate) async fn run_service(
                                                       tx_resp,
                                                       active_streams,
                                                       client_timeout,
+                                                      activity,
                                                   )
                                                   .await;
                                               });
@@ -1008,9 +1051,10 @@ pub(crate) async fn run_service(
                                                       );
                                                       let tx = tx_write.clone();
                                                       let streams = active_tcp_streams.clone();
+                                                      let activity = shared.activity_clock();
                                                       tokio::spawn(async move {
                                                           let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e).await;
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity).await;
                                                       });
                                                   }
                                                   None => {
@@ -1046,8 +1090,9 @@ pub(crate) async fn run_service(
                                                       );
                                                       let tx = tx_write.clone();
                                                       let streams = active_udp_streams.clone();
+                                                      let activity = shared.activity_clock();
                                                       tokio::spawn(async move {
-                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout).await;
+                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout, activity).await;
                                                       });
                                                   }
                                                   None => {

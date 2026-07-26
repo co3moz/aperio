@@ -208,6 +208,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(64);
   active.lock().await.insert("t1".to_string(), dummy_handle());
 
+  let activity = crate::service::ActivityClock::default();
   let h = tokio::spawn(handle_tcp_open(
     "t1".to_string(),
     target,
@@ -216,6 +217,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
     bytes_rx,
     abort_rx,
     None,
+    activity.clone(),
   ));
 
   // tunnel -> backend -> echoed back -> relayed out as base64 TcpData.
@@ -227,6 +229,9 @@ async fn test_handle_tcp_open_relays_plaintext() {
     }
     other => panic!("unexpected: {:?}", other),
   }
+  // Relayed bytes stamp the idle clock: a long-lived stream whose only
+  // activity is data frames must not read as idle and be retired mid-session.
+  assert_ne!(activity.secs(), 0, "data relay must stamp the idle clock");
 
   // The backend closes after echoing: the backend->tunnel task sees EOF and
   // emits a TcpClose, then the stream is torn down and cleaned up. Keep
@@ -261,6 +266,7 @@ async fn test_handle_tcp_open_connect_fails() {
     bytes_rx,
     abort_rx,
     None,
+    crate::service::ActivityClock::default(),
   )
   .await;
 
@@ -291,6 +297,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
     bytes_rx,
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
+    crate::service::ActivityClock::default(),
   ));
 
   // Drive the initiator side of the handshake.
@@ -335,6 +342,7 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
     bytes_rx,
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
+    crate::service::ActivityClock::default(),
   ));
 
   // A bogus peer frame fails handshake completion -> TcpClose + cleanup,
@@ -676,6 +684,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
     bytes_rx,
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
+    crate::service::ActivityClock::default(),
   ));
 
   // Complete the handshake as the initiator.
@@ -718,6 +727,7 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     bytes_rx,
     abort_rx,
     None,
+    crate::service::ActivityClock::default(),
   ));
 
   bytes_tx.send(b"echo-me".to_vec()).await.unwrap();
