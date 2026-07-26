@@ -396,3 +396,19 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   since both need the file handle rather than its contents, and both matter for
   the same case: serving large downloads out of a `serve:` directory.
   (From the 2026-07 four-agent review.)
+
+- [ ] **#17 Tunable stream flow control and slow-read (Slowloris-style)
+  defenses.** The per-stream pause/resume flow control (protocol v3) hardcodes
+  its knobs in `aperio-server/src/state.rs`: `STREAM_PAUSE_BYTES` (2 MiB),
+  `STREAM_RESUME_BYTES` (512 KiB) and `STREAM_BACKLOG_LIMIT` (16 MiB). Three
+  follow-ups worth doing together: (1) expose the watermarks as settings (a
+  `stream:` block / `APERIO_STREAM_*`, live-editable like the other scalars);
+  (2) an opt-in minimum-throughput guard for streamed HTTP responses, dropping
+  a consumer that averages below N bytes/s over an M-second window, since a
+  deliberately slow reader can now hold a stream (and the client-side
+  `max_concurrent` slot it occupies) alive indefinitely at ~2 MiB server-side
+  cost each, where the old backlog cut used to kill it by accident. It must
+  not apply to WS/TCP relays, which are legitimately quiet for long stretches;
+  (3) a per-IP cap on concurrently open streamed responses, so saturating a
+  service's concurrency budget takes a botnet rather than one host. (From the
+  2026-07 flow-control fix discussion.)
