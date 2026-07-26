@@ -69,7 +69,10 @@ export function ClientConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      {/* The dialog's own `sm:max-w-md` needs the same breakpoint to be
+          overridden; a config document is wide, so it gets most of the
+          viewport. */}
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{t('Configuration of {label}', { label })}</DialogTitle>
           <DialogDescription>
@@ -83,17 +86,22 @@ export function ClientConfigDialog({
           </p>
         )}
         {view && (
-          <div className="flex flex-col gap-4">
-            <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
+          // min-w-0: a grid item sizes to its content by default, which would
+          // let a long line stretch the dialog instead of scrolling inside it.
+          <div className="flex min-w-0 flex-col gap-4">
+            <pre className="max-h-96 w-full overflow-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
               {parseYaml(view.yaml).map((line, i) => (
                 <div
                   key={i}
+                  // w-max min-w-full: a highlighted line keeps its background
+                  // across the whole line, not only the visible part of it.
                   className={
-                    line.adjusted
+                    'w-max min-w-full ' +
+                    (line.adjusted
                       ? 'rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-400'
                       : line.comment
                         ? 'text-muted-foreground'
-                        : undefined
+                        : '')
                   }
                 >
                   {line.text || ' '}
