@@ -12,8 +12,9 @@ max_concurrent: 16
 # clients, so heavy parallel traffic isn't serialized behind one WebSocket.
 connections: 4
 
-# Link capacity of this client's network: the server paces responses so the
-# uplink is never pushed faster than it can drain (`8mbit`, `500kbit`, `2MB`).
+# Link capacity of this client's network: the server never pushes it faster
+# than it can drain (`8mbit`, `500kbit`, `2MB`). It is a budget for the whole
+# client, so with the 4 connections above each one announces 2mbit.
 bandwidth: 8mbit
 
 # Per-request bounds (defaults: 30 s, 50 MB, 5 redirects).

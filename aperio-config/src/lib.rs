@@ -301,9 +301,11 @@ pub struct ServiceEntry {
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
-  /// Caps how fast the server streams responses so a slow uplink isn't
-  /// overwhelmed; bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes
-  /// (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
+  /// This service's share of the link: the server never pushes it faster than
+  /// this, and the share is split across its `connections`. Settled against the
+  /// top-level `bandwidth` budget when there is one. Bit suffixes
+  /// (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes (`kb`/`mb`/`gb`, or bare
+  /// `k`/`m`/`g`) as x1000.
   #[schemars(extend("examples" = ["8mbit", "500kbit", "2MB"]))]
   pub bandwidth: Option<String>,
   /// Seconds to wait for this backend to respond before failing the request.
@@ -467,9 +469,10 @@ pub struct FileConfig {
   /// Failover tier for this client (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
-  /// Caps how fast the server streams responses so a slow uplink isn't
-  /// overwhelmed; bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes
-  /// (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
+  /// Total link capacity of this client: a budget divided across every service
+  /// and every parallel connection, so the sum the server is allowed to push
+  /// never exceeds it. Bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte
+  /// suffixes (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
   #[schemars(extend("examples" = ["8mbit", "500kbit", "2MB"]))]
   pub bandwidth: Option<String>,
   /// How many backend redirects to follow transparently before passing one through.

@@ -516,6 +516,10 @@ fn build_specs(
       parsed
     })
   };
+  // The top-level value is a budget for the whole client process, not a
+  // per-service default: `allocate_bandwidth` divides it up once every spec
+  // is built.
+  let budget_bps = parse_bw(settings.bandwidth.as_deref());
 
   let tunnels = validate_tunnels(&settings.tunnels)?;
 
@@ -641,7 +645,7 @@ fn build_specs(
         );
       }
     };
-    return Ok(vec![ServiceSpec {
+    let mut specs = vec![ServiceSpec {
       name: None,
       client_id: client_id_base.to_string(),
       token,
@@ -665,7 +669,7 @@ fn build_specs(
       max_concurrent: settings.max_concurrent,
       connections: clamp_connections(settings.connections, "the service"),
       priority: settings.priority,
-      bandwidth_bps: parse_bw(settings.bandwidth.as_deref()),
+      bandwidth_bps: budget_bps,
       max_message_size: settings.max_message_size,
       max_redirects: settings.max_redirects,
       tcp_target: settings.tcp_target.clone(),
@@ -687,13 +691,15 @@ fn build_specs(
         settings.security_headers.as_ref(),
       ),
       cache: settings.cache,
-    }]);
+    }];
+    allocate_bandwidth(&mut specs, budget_bps);
+    return Ok(specs);
   }
 
   // Multi-service mode: one spec (and one tunnel connection) per entry.
   // Binds (hostname/path/tcp_target/target_health) are strictly per entry;
   // tuning knobs fall back to the top-level resolved values.
-  settings
+  let mut specs: Vec<ServiceSpec> = settings
     .services
     .iter()
     .enumerate()
@@ -758,7 +764,9 @@ fn build_specs(
           &format!("service '{}'", describe()),
         ),
         priority: entry.priority.unwrap_or(settings.priority),
-        bandwidth_bps: parse_bw(entry.bandwidth.as_deref().or(settings.bandwidth.as_deref())),
+        // Only what this entry asked for: the top-level value is the budget
+        // these requests are settled against, not a fallback default.
+        bandwidth_bps: parse_bw(entry.bandwidth.as_deref()),
         max_message_size: settings.max_message_size,
         max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
         tcp_target: entry
@@ -814,7 +822,71 @@ fn build_specs(
         cache: entry.cache.unwrap_or(settings.cache),
       })
     })
-    .collect()
+    .collect::<Result<_, String>>()?;
+  allocate_bandwidth(&mut specs, budget_bps);
+  Ok(specs)
+}
+
+/// Settles every service's bandwidth request against the client-wide budget
+/// and hands each parallel connection its own share.
+///
+/// The server shapes each tunnel connection with a token bucket of its own, so
+/// N connections all announcing B would let the client be pushed at N*B. On
+/// entry `bandwidth_bps` holds what a service asked for (`None` = it asked for
+/// nothing); on exit it holds the rate a single connection of that service
+/// announces, so the sum over the whole client never exceeds the budget.
+///
+/// With no top-level budget every service simply keeps what it asked for and
+/// the rest stay unlimited. With one:
+///
+/// - services that named a rate keep it, and whatever is left over is split
+///   equally among the services that did not,
+/// - if the named rates would leave the unspecified services nothing at all,
+///   every named rate is dropped (with a warning) and the budget is split
+///   equally, since a service configured to run cannot be given zero,
+/// - if every service named a rate and together they overshoot, the rates are
+///   scaled down proportionally (with a warning) so the shares keep their
+///   relative weight.
+fn allocate_bandwidth(specs: &mut [ServiceSpec], budget_bps: Option<u64>) {
+  if specs.is_empty() {
+    return;
+  }
+  if let Some(budget) = budget_bps {
+    let asked: u64 = specs.iter().filter_map(|s| s.bandwidth_bps).sum();
+    let unspecified = specs.iter().filter(|s| s.bandwidth_bps.is_none()).count();
+    if unspecified > 0 && asked >= budget {
+      warn!(
+        "The per-service bandwidth limits ({} bytes/s) leave nothing of the {} bytes/s budget for the {} service(s) without one; ignoring them and splitting the budget equally",
+        asked, budget, unspecified
+      );
+      let share = budget / specs.len() as u64;
+      for spec in specs.iter_mut() {
+        spec.bandwidth_bps = Some(share);
+      }
+    } else if unspecified == 0 && asked > budget {
+      warn!(
+        "The per-service bandwidth limits add up to {} bytes/s, over the {} bytes/s budget; scaling every limit down proportionally",
+        asked, budget
+      );
+      for spec in specs.iter_mut() {
+        let want = spec.bandwidth_bps.unwrap_or(0) as u128;
+        spec.bandwidth_bps = Some((want * budget as u128 / asked as u128) as u64);
+      }
+    } else if unspecified > 0 {
+      let share = (budget - asked) / unspecified as u64;
+      for spec in specs.iter_mut().filter(|s| s.bandwidth_bps.is_none()) {
+        spec.bandwidth_bps = Some(share);
+      }
+    }
+  }
+  // A service's share is split across its parallel connections, each of which
+  // is shaped separately by the server. Never announce 0: the server reads
+  // that as unlimited, which is the opposite of what a tiny share means.
+  for spec in specs.iter_mut() {
+    if let Some(bps) = spec.bandwidth_bps {
+      spec.bandwidth_bps = Some((bps / spec.connections as u64).max(1));
+    }
+  }
 }
 
 /// Validates the `tunnels:` list: only TCP is supported for now, targets
@@ -937,7 +1009,16 @@ fn log_spec(spec: &ServiceSpec) {
     );
   }
   if let Some(bw) = spec.bandwidth_bps {
-    info!("- Announced Bandwidth: {} bytes/s", bw);
+    if spec.connections > 1 {
+      info!(
+        "- Announced Bandwidth: {} bytes/s per connection ({} bytes/s across {} connections)",
+        bw,
+        bw * spec.connections as u64,
+        spec.connections
+      );
+    } else {
+      info!("- Announced Bandwidth: {} bytes/s", bw);
+    }
   }
   if spec.connections > 1 {
     info!(

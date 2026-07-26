@@ -559,6 +559,178 @@ fn test_build_specs_invalid_bandwidth_warns() {
   assert!(specs[0].bandwidth_bps.is_some());
 }
 
+/// A `services:` entry with just a target, an optional bandwidth request and
+/// an optional parallel-connection count.
+fn bw_service(name: &str, bandwidth: Option<&str>, connections: u32) -> ServiceEntry {
+  ServiceEntry {
+    name: Some(name.to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    bandwidth: bandwidth.map(|s| s.to_string()),
+    connections: Some(connections),
+    ..Default::default()
+  }
+}
+
+/// Maps service name to the rate a single connection of it announces.
+fn announced(settings: &ClientSettings) -> Vec<(String, Option<u64>)> {
+  build_specs(settings, "id", false)
+    .unwrap()
+    .into_iter()
+    .map(|s| (s.name.clone().unwrap_or_default(), s.bandwidth_bps))
+    .collect()
+}
+
+#[test]
+fn test_bandwidth_split_across_parallel_connections() {
+  init_tracing();
+  // Scenario A: a service's own limit is divided by its connections, since
+  // the server shapes each connection with a bucket of its own.
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", Some("10mbit"), 10)];
+  assert_eq!(announced(&settings), vec![("x".into(), Some(125_000))]);
+
+  // The same holds in single-service mode, where the top-level value is both
+  // the budget and the only service's request.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10mbit".to_string());
+  settings.connections = Some(4);
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].bandwidth_bps, Some(312_500));
+}
+
+#[test]
+fn test_bandwidth_without_budget_leaves_others_unlimited() {
+  init_tracing();
+  // Scenarios B and H: with no top-level budget there is nothing to settle
+  // requests against, so a service keeps what it asked for and a service that
+  // asked for nothing stays unlimited.
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", Some("1mbit"), 1), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(125_000)), ("y".into(), None)]
+  );
+
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", Some("3mbit"), 1), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(375_000)), ("y".into(), None)]
+  );
+}
+
+#[test]
+fn test_bandwidth_budget_split_equally_then_per_connection() {
+  init_tracing();
+  // Scenario C: no service named a rate, so the budget is split equally per
+  // service (not per connection), then divided within each service.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("2mbit".to_string());
+  settings.services = vec![bw_service("x", None, 2), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(62_500)), ("y".into(), Some(125_000))]
+  );
+}
+
+#[test]
+fn test_bandwidth_requests_starving_others_are_dropped() {
+  init_tracing();
+  // Scenario D: x claims the whole budget, leaving y nothing. Every named
+  // rate is dropped and the budget is split equally instead.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("2mbit".to_string());
+  settings.services = vec![bw_service("x", Some("2mbit"), 2), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(62_500)), ("y".into(), Some(125_000))]
+  );
+
+  // The same rule covers an overshoot with an unspecified service present.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("2mbit".to_string());
+  settings.services = vec![bw_service("x", Some("4mbit"), 1), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(125_000)), ("y".into(), Some(125_000))]
+  );
+}
+
+#[test]
+fn test_bandwidth_remainder_goes_to_unspecified_services() {
+  init_tracing();
+  // Scenario E: x keeps its 3mbit, y gets the remaining 7mbit.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10mbit".to_string());
+  settings.services = vec![bw_service("x", Some("3mbit"), 1), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(375_000)), ("y".into(), Some(875_000))]
+  );
+
+  // Scenario G: the remainder is shared equally among the services without a
+  // request of their own.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10mbit".to_string());
+  settings.services = vec![
+    bw_service("x", Some("3mbit"), 1),
+    bw_service("y", None, 1),
+    bw_service("z", None, 1),
+  ];
+  assert_eq!(
+    announced(&settings),
+    vec![
+      ("x".into(), Some(375_000)),
+      ("y".into(), Some(437_500)),
+      ("z".into(), Some(437_500)),
+    ]
+  );
+}
+
+#[test]
+fn test_bandwidth_over_budget_requests_scale_proportionally() {
+  init_tracing();
+  // Scenario F: every service named a rate and together they overshoot, so
+  // the rates keep their relative weight and are scaled to fit (3+7 over a
+  // 5mbit budget becomes 1.5 and 3.5).
+  let mut settings = base_settings();
+  settings.bandwidth = Some("5mbit".to_string());
+  settings.services = vec![
+    bw_service("x", Some("3mbit"), 1),
+    bw_service("y", Some("7mbit"), 1),
+  ];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(187_500)), ("y".into(), Some(437_500))]
+  );
+
+  // Under budget, named rates are left alone and the surplus stays unused.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10mbit".to_string());
+  settings.services = vec![
+    bw_service("x", Some("3mbit"), 1),
+    bw_service("y", Some("1mbit"), 1),
+  ];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(375_000)), ("y".into(), Some(125_000))]
+  );
+}
+
+#[test]
+fn test_bandwidth_share_never_rounds_to_unlimited() {
+  init_tracing();
+  // A share small enough to floor to 0 is clamped to 1 byte/s: the server
+  // reads an announced 0 as unlimited, the opposite of a tiny share.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10".to_string());
+  settings.services = vec![bw_service("x", None, 16), bw_service("y", None, 1)];
+  assert_eq!(
+    announced(&settings),
+    vec![("x".into(), Some(1)), ("y".into(), Some(5))]
+  );
+}
+
 #[test]
 fn test_build_specs_server_urls_failover() {
   init_tracing();
