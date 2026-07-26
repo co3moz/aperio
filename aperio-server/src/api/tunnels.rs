@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::api::tokens::validate_token_perms;
+use crate::api::tokens::{org_token_quota_reached, validate_token_perms};
 use crate::auth::{constant_time_eq_str, extract_token};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;
@@ -169,8 +169,17 @@ pub(crate) async fn tunnels_create_handler(
         .into_response();
     }
   }
+  // These are real credentials in the same store as dynamic tokens, so the
+  // organization's token quota applies here exactly as it does there.
+  let quota_max = state
+    .org_quota(org.as_deref())
+    .await
+    .and_then(|q| q.max_tokens);
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
+    if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
+      return resp;
+    }
     store.create(
       name,
       vec![hostname.clone()],

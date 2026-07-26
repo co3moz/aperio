@@ -319,3 +319,46 @@ async fn create_refuses_a_hostname_outside_the_org_allowlist() {
       .ends_with(".preview.example.com")
   );
 }
+
+#[tokio::test]
+async fn create_respects_the_org_token_quota() {
+  let mut config = test_config();
+  config.random_subdomain_suffix = Some("*.preview.example.com".to_string());
+  let state = Arc::new(test_state_with(config));
+  let org_id = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap()
+    .id;
+  state
+    .org_store
+    .lock()
+    .await
+    .set_quota(&org_id, None, Some(Some(1)), None, None);
+  let token = seed_session(&state, Role::Admin, None, Some(org_id)).await;
+  let headers = cookie_headers(&token);
+
+  let resp = tunnels_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req(None, None, Vec::new(), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // These are real credentials in the same store as dynamic tokens, so an org
+  // capped at one may not mint a second one here either. Before the check,
+  // this endpoint ignored the cap entirely.
+  let resp = tunnels_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req(None, None, Vec::new(), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert_eq!(state.token_store.lock().await.list().len(), 1);
+}

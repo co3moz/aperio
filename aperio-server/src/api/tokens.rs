@@ -117,6 +117,35 @@ pub(crate) struct TokenUpdateRequest {
 /// Normalized (hostnames, paths, allowed_ips) permission lists.
 type TokenPermLists = (Vec<String>, Vec<String>, Vec<String>);
 
+/// The 403 to return when the organization has already used up its
+/// `max_tokens` quota, or `None` when it may mint another one.
+///
+/// Every endpoint that mints a credential into the token store has to call
+/// this — the tunnel-provisioning endpoint mints real, if short-lived, tokens
+/// into the same store, so an organization that skipped it could hold any
+/// number of credentials regardless of its cap. Call it while holding the
+/// store lock the insert will use: counting before taking the lock lets two
+/// concurrent creates both pass the check and overshoot the cap.
+pub(crate) fn org_token_quota_reached(
+  store: &crate::store::tokens::TokenStore,
+  org: Option<&str>,
+  quota_max: Option<u64>,
+) -> Option<Response> {
+  let max = quota_max?;
+  let count = store
+    .list()
+    .iter()
+    .filter(|t| t.org_id.as_deref() == org)
+    .count() as u64;
+  (count >= max).then(|| {
+    (
+      StatusCode::FORBIDDEN,
+      format!("organization token quota reached ({max})"),
+    )
+      .into_response()
+  })
+}
+
 /// Validates and normalizes token permission lists. Returns an error message
 /// when an entry is invalid.
 pub(crate) fn validate_token_perms(
@@ -226,19 +255,8 @@ pub(crate) async fn tokens_create_handler(
     .and_then(|q| q.max_tokens);
   let (record, secret) = {
     let mut store = state.token_store.lock().await;
-    if let Some(max) = quota_max {
-      let count = store
-        .list()
-        .iter()
-        .filter(|t| t.org_id.as_deref() == org.as_deref())
-        .count() as u64;
-      if count >= max {
-        return (
-          StatusCode::FORBIDDEN,
-          format!("organization token quota reached ({max})"),
-        )
-          .into_response();
-      }
+    if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
+      return resp;
     }
     store.create(
       name,
