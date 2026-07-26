@@ -102,11 +102,44 @@ pub(crate) fn load() {
       eprintln!("aperio-server: {}: ignoring non-string key", path.display());
       continue;
     };
-    // Mapping values (and lists of mappings, e.g. `routes:`) are structured
-    // feature sections, read via `structured`.
-    if value.is_mapping()
-      || matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
-    {
+    // A mapping is either a grouped block of ordinary settings, which
+    // flattens into one environment variable per child, or a structured
+    // feature section (`headers`, `routes`, ...) read later via `structured`.
+    // Only the groups named in the shared table flatten: an allowlist, so a
+    // new structured section or a typo is never silently turned into
+    // environment variables.
+    if let serde_yaml::Value::Mapping(children) = value {
+      if let Some(group) = aperio_config::SERVER_GROUPS.iter().find(|g| g.key == key) {
+        for (child, cvalue) in children {
+          let Some(child) = child.as_str() else {
+            eprintln!(
+              "aperio-server: {}: ignoring non-string key under `{key}`",
+              path.display()
+            );
+            continue;
+          };
+          let Some(rendered) = env_value(cvalue) else {
+            eprintln!(
+              "aperio-server: {}: ignoring key `{key}.{child}` (value not representable as an environment variable)",
+              path.display()
+            );
+            continue;
+          };
+          // The child that stands for the group's own setting keeps the
+          // group's variable: `cache: { enabled: true }` is APERIO_CACHE.
+          let name = if group.self_key == Some(child) {
+            env_name(key)
+          } else {
+            env_name(&format!("{key}_{child}"))
+          };
+          // SAFETY: as below, single-threaded startup.
+          unsafe { std::env::set_var(&name, rendered) };
+          applied.push(name);
+        }
+      }
+      continue;
+    }
+    if matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping())) {
       continue;
     }
     let Some(rendered) = env_value(value) else {
@@ -187,6 +220,12 @@ pub(crate) fn structured_keys() -> Vec<String> {
   };
   for (key, value) in &doc {
     let Some(key) = key.as_str() else { continue };
+    // A grouped block is not a structured section: its children already
+    // appear among the environment variables, so listing it here would
+    // report the same settings twice under the wrong heading.
+    if aperio_config::SERVER_GROUPS.iter().any(|g| g.key == key) {
+      continue;
+    }
     if value.is_mapping()
       || matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
     {

@@ -1,5 +1,5 @@
 # The Aperio server to dial out to, and the token that authorizes this client.
-# The token must match `server_token` in aperio-server.yaml.
+# The token must match `server.token` in aperio-server.yaml.
 server:
   url: https://tunnel.example.com
   token: apr_simple_change_me

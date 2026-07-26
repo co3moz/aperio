@@ -1,4 +1,5 @@
-server_token: apr_preview_change_me
+server:
+  token: apr_preview_change_me
 port: 8080
 
 # Every connecting client gets `<random>-preview.example.com` in addition

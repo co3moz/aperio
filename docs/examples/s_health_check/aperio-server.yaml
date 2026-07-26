@@ -1,4 +1,5 @@
-server_token: apr_health_check_change_me
+server:
+  token: apr_health_check_change_me
 port: 8080
 
 # Optional: fire an `alert_triggered` webhook/audit event (kind `client_down`)

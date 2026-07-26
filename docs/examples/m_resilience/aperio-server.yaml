@@ -1,4 +1,5 @@
-server_token: apr_resilience_multi_change_me
+server:
+  token: apr_resilience_multi_change_me
 port: 8080
 
 cache: true

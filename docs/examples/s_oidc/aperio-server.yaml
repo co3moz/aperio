@@ -1,4 +1,5 @@
-server_token: apr_oidc_change_me
+server:
+  token: apr_oidc_change_me
 port: 8080
 
 # Setting the issuer enables SSO enforcement for everything proxied.

@@ -1,4 +1,5 @@
-server_token: apr_public_expose_change_me
+server:
+  token: apr_public_expose_change_me
 port: 8080
 
 # Raw public TCP ports relayed to declared client tunnels carrying the

@@ -1,4 +1,5 @@
-server_token: apr_headers_change_me
+server:
+  token: apr_headers_change_me
 port: 8080
 
 # Server-wide header rules, applied to every proxied request across all

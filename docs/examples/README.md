@@ -1,6 +1,6 @@
 # Configuration Examples
 
-Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder contains a client `aperio.yaml` and a server `aperio-server.yaml` that work **together**: the tunnel token in the client file matches the `server_token` in the server file, so you can copy a folder, replace the token and hostnames, and run both sides as-is.
+Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder contains a client `aperio.yaml` and a server `aperio-server.yaml` that work **together**: the tunnel token in the client file matches `server.token` in the server file, so you can copy a folder, replace the token and hostnames, and run both sides as-is.
 
 ## Naming conventions
 

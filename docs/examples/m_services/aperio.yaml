@@ -8,7 +8,8 @@ services:
   - name: web                       # label in client logs and the dashboard
     target: http://localhost:3000
     hostname: app.example.com
-    target_health: /health          # probe the backend, leave rotation when down
+    health:
+      endpoint: /health         # probe the backend, leave rotation when down
 
   - name: api
     target: http://localhost:4000

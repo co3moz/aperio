@@ -14,6 +14,34 @@ Every client setting is reachable through three surfaces, and the names map **me
 
 The rule: take the CLI flag, drop the dashes, uppercase it, prefix `APERIO_`, that is the environment variable. Lowercase it with underscores, that is the yaml key. New settings must follow this scheme on all three surfaces (a setting may deliberately skip a surface, e.g. tuning knobs without a CLI flag, but never rename across surfaces).
 
+### Grouped keys
+
+Settings that share a prefix are written as a block, so the yaml reads as a structure rather than a flat list of run-on names:
+
+```yaml
+# ./aperio.yaml (client)
+health:
+  endpoint: /healthz   # was target_health
+  interval: 10         # was health_interval
+  timeout: 5           # was health_timeout
+  threshold: 3         # was health_threshold
+  wait_for_backend: true
+```
+
+```yaml
+# ./aperio-server.yaml
+cache:
+  enabled: true        # was cache
+  max_bytes: 268435456 # was cache_max_bytes
+alert:
+  error_rate: 0.25     # was alert_error_rate
+  window: 60           # was alert_window
+```
+
+The environment variable is unchanged, since the environment has no nesting: `health.interval` is still `APERIO_HEALTH_INTERVAL`, `cache.max_bytes` is still `APERIO_CACHE_MAX_BYTES`. The rule is mechanical in both directions, `<group>.<child>` ⇄ `APERIO_<GROUP>_<CHILD>`, and for a group whose own key is also a setting the child carrying it is `enabled` (`cache.enabled` → `APERIO_CACHE`) or `mode` for `failover`.
+
+**The flat spelling still works.** Every `health_interval:` / `cache_max_bytes:` key is read exactly as before, so no existing file needs changing; the block wins per field when a file uses both. The client logs a one-line deprecation notice per flat key it finds, naming the block to move it to. Client blocks: `health` (also per `services:` entry) and the long-standing `server`. Server blocks: `alert`, `audit`, `cache`, `dashboard`, `edge`, `failover`, `gateway`, `ip_limit`, `login_lockout`, `metrics`, `oidc`, `otel`, `retention`, `scaling`, `server`.
+
 Each environment variable has exactly one canonical `APERIO_*` name, there are no scoping aliases (`APERIO_CLIENT_*`) or alternate spellings. A few surfaces still offer shorthand: the CLI flags `--server`, `--token`, `--host`, `--concurrency` are visible aliases of `--server-url`, `--server-token`, `--hostname`, `--max-concurrent`, and the flat yaml `server:` / `token:` keys are accepted as shorthand for `server.url` / `server.token`. New documentation and examples always use the canonical names.
 
 The server is configured through environment variables or an optional `aperio-server.yaml` file (no CLI flags beyond `--version`); most settings can also be edited live from the dashboard, where they become persisted overrides (`APERIO_DATA_DIR/settings.json`). Precedence, lowest to highest: **environment variables < `aperio-server.yaml` < dashboard overrides**, the same "local file beats environment" rule as the client's `./aperio.yaml`. Security- and startup-critical flags (proxy trust, cookies, OIDC, metrics, access log) never become dashboard overrides; the settings page lists them read-only with their current values.
@@ -107,11 +135,11 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `--bind-tunnels`. | random UUID per run |
 | `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `APERIO_TOKEN_PINNING`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
 | `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
-| `APERIO_TARGET_HEALTH` |  | `target_health` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. |  |
-| `APERIO_WAIT_FOR_BACKEND` |  | `wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `target_health`, which gates startup *and* tracks health continuously. Per `services:` entry via `wait_for_backend:`. | `0` |
-| `APERIO_HEALTH_INTERVAL` |  | `health_interval` | Seconds between backend health probes. | `10` |
-| `APERIO_HEALTH_TIMEOUT` |  | `health_timeout` | Per-probe timeout (seconds). | `5` |
-| `APERIO_HEALTH_THRESHOLD` |  | `health_threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
+| `APERIO_TARGET_HEALTH` |  | `health.endpoint` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. |  |
+| `APERIO_WAIT_FOR_BACKEND` |  | `health.wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `target_health`, which gates startup *and* tracks health continuously. Per `services:` entry via `wait_for_backend:`. | `0` |
+| `APERIO_HEALTH_INTERVAL` |  | `health.interval` | Seconds between backend health probes. | `10` |
+| `APERIO_HEALTH_TIMEOUT` |  | `health.timeout` | Per-probe timeout (seconds). | `5` |
+| `APERIO_HEALTH_THRESHOLD` |  | `health.threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
 | `APERIO_TIMEOUT` |  | `timeout` | Per-request backend timeout (seconds). | `30` |
 | `APERIO_RESPONSE_TIMEOUT` |  | `response_timeout` | Per-service override (seconds) of the server's gateway response timeout for requests dispatched to this service. Unset = the server's global `APERIO_GATEWAY_RESPONSE_TIMEOUT`. Per `services:` entry via `response_timeout:`. | server global |
 | `APERIO_MAX_REDIRECTS` |  | `max_redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. `0` disables following entirely. | `5` |
@@ -251,11 +279,12 @@ https://github.com/co3moz/aperio/releases/latest/download/aperio-server.schema.j
 
 `aperio-server.yaml` is the primary way to configure the server, a single, reviewable, schema-checked file (see [Editor autocompletion](#editor-autocompletion-json-schema) and `--print-schema`), with structured sections (`headers:`, `routes:`, `error_pages:`, …) that have no environment-variable equivalent. Environment variables remain fully supported as the fallback surface, convenient for container orchestration and secrets injection, and every scalar setting is expressible either way.
 
-Put the file next to the binary (or at the path in `APERIO_SERVER_CONFIG`; the name deliberately differs from the client's `aperio.yaml` so the two are never confused). Keys follow the naming standard, the environment variable without the `APERIO_` prefix, lowercase: `max_body_size` maps to `APERIO_MAX_BODY_SIZE`, and `host`, `port`, `log_level` map to their bare names. Booleans are written as `true`/`false`, and list-valued settings (e.g. `trusted_proxies`) may use YAML lists:
+Put the file next to the binary (or at the path in `APERIO_SERVER_CONFIG`; the name deliberately differs from the client's `aperio.yaml` so the two are never confused). Keys follow the naming standard, the environment variable without the `APERIO_` prefix, lowercase: `max_body_size` maps to `APERIO_MAX_BODY_SIZE`, and `host`, `port`, `log_level` map to their bare names. Settings that share a prefix are written as a block (see [Grouped keys](#grouped-keys)), so `cache_max_bytes` is `cache.max_bytes` and still reaches `APERIO_CACHE_MAX_BYTES`. Booleans are written as `true`/`false`, and list-valued settings (e.g. `trusted_proxies`) may use YAML lists:
 
 ```yaml
 # aperio-server.yaml
-server_token: change-me-to-a-long-random-string
+server:
+  token: change-me-to-a-long-random-string
 port: 8080
 trust_proxy: true
 trusted_proxies:

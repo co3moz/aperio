@@ -12,4 +12,5 @@ priority: 0
 
 # Recommended with priority tiers: probe the backend so a dead backend
 # (not just a dead tunnel) also promotes the standby.
-target_health: /health
+health:
+  endpoint: /health

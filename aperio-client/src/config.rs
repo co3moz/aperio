@@ -254,12 +254,25 @@ fn cli_to_args(cli: Cli) -> CliArgs {
 
 /// Loads `./aperio.yaml` (or an explicit `--config` path). A missing default
 /// file is fine; an unreadable/invalid explicit file is a fatal error.
+/// Folds a freshly parsed file's grouped blocks into the flat fields the
+/// resolver reads, and warns about any deprecated flat key it still uses so
+/// the operator can move the file over without reading a changelog.
+fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
+  for key in cfg.fold_groups() {
+    warn!(
+      "{}: `{}` is deprecated; write it as `{}` instead (the old key still works)",
+      path, key.old, key.new
+    );
+  }
+}
+
 pub(crate) fn load_file_config(explicit: Option<&str>) -> FileConfig {
   let path = explicit.unwrap_or("aperio.yaml");
   match std::fs::read_to_string(path) {
     Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
-      Ok(cfg) => {
+      Ok(mut cfg) => {
         info!("Loaded configuration from {}", path);
+        fold_and_warn(&mut cfg, path);
         cfg
       }
       Err(e) => {
@@ -293,8 +306,9 @@ pub(crate) fn load_home_config() -> FileConfig {
   };
   match std::fs::read_to_string(&path) {
     Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
-      Ok(cfg) => {
+      Ok(mut cfg) => {
         info!("Loaded user configuration from {:?}", path);
+        fold_and_warn(&mut cfg, &path.to_string_lossy());
         cfg
       }
       Err(e) => {

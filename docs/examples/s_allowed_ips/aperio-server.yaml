@@ -1,4 +1,5 @@
-server_token: apr_allowed_ips_change_me
+server:
+  token: apr_allowed_ips_change_me
 port: 8080
 
 # If this server sits behind a reverse proxy, resolve real visitor IPs,

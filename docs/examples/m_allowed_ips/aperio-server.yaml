@@ -1,4 +1,5 @@
-server_token: apr_allowed_ips_multi_change_me
+server:
+  token: apr_allowed_ips_multi_change_me
 port: 8080
 
 # Behind a reverse proxy, resolve real visitor IPs or the allowlist is

@@ -1,9 +1,9 @@
-server_token: apr_visitor_auth_change_me
+server:
+  token: apr_visitor_auth_change_me
+  # A visitor login form in front of all proxied traffic (clients may
+  # override or opt out per service, as permitted by their token).
+  auth: visitor:replace-with-a-strong-password
 port: 8080
-
-# A visitor login form in front of all proxied traffic (clients may
-# override or opt out per service, as permitted by their token).
-server_auth: visitor:replace-with-a-strong-password
 
 # Uncomment to veto all client-declared visitor passwords and keep sole
 # control of the visitor gate here.

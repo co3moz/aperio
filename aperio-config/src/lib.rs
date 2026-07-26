@@ -164,6 +164,46 @@ impl SecurityHeaders {
   }
 }
 
+/// Backend health probing for one service: the endpoint the client checks and
+/// how patient it is before pulling the backend out of routing.
+///
+/// The flat `target_health` / `health_interval` / `health_timeout` /
+/// `health_threshold` / `wait_for_backend` keys mean exactly the same thing
+/// and still work; this block is the form to write new configs in, and wins
+/// per field when both are present.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HealthConfig {
+  /// Endpoint to probe: a path like `/health` or a full URL. Unset = no probe,
+  /// and the service is routable as soon as the tunnel is up.
+  #[schemars(extend("examples" = ["/health"]))]
+  pub endpoint: Option<String>,
+  /// Seconds between probes.
+  #[schemars(extend("examples" = [10]))]
+  pub interval: Option<u64>,
+  /// Seconds to wait for each probe before counting it as failed.
+  #[schemars(extend("examples" = [5]))]
+  pub timeout: Option<u64>,
+  /// Failed probes in a row before the backend is reported unhealthy.
+  #[schemars(extend("examples" = [3]))]
+  pub threshold: Option<u32>,
+  /// Hold the service out of routing until the backend first accepts a
+  /// connection, avoiding connection-refused errors while it boots
+  /// (superseded by `endpoint` when that is set).
+  pub wait_for_backend: Option<bool>,
+}
+
+impl HealthConfig {
+  /// True when nothing in the block was set (an empty `health:` mapping).
+  pub fn is_empty(&self) -> bool {
+    self.endpoint.is_none()
+      && self.interval.is_none()
+      && self.timeout.is_none()
+      && self.threshold.is_none()
+      && self.wait_for_backend.is_none()
+  }
+}
+
 /// Autoscaling declaration: the URL the *server* calls when this service needs
 /// capacity it does not have. Aperio never starts or stops anything itself, it
 /// only signals a desired capacity to an endpoint the operator controls.
@@ -329,7 +369,12 @@ pub struct ServiceEntry {
   /// Raw TCP backend for this service instead of HTTP (experimental).
   #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
-  /// Backend health endpoint the client probes to pull itself from rotation when down.
+  /// Backend health probing for this service (`endpoint`, `interval`,
+  /// `timeout`, `threshold`, `wait_for_backend`). Preferred over the flat
+  /// `target_health` / `health_*` keys, which still work.
+  pub health: Option<HealthConfig>,
+  /// Backend health endpoint the client probes to pull itself from rotation
+  /// when down. Deprecated spelling of `health.endpoint`.
   #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
   /// Hold this service out of routing until the backend first accepts a
@@ -450,7 +495,12 @@ pub struct FileConfig {
   /// Raw TCP backend to expose instead of HTTP (experimental).
   #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
-  /// Backend health endpoint to probe; a failing backend leaves rotation without dropping the tunnel.
+  /// Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,
+  /// `wait_for_backend`). Preferred over the flat `target_health` / `health_*`
+  /// keys, which still work; `services:` entries may override it per service.
+  pub health: Option<HealthConfig>,
+  /// Backend health endpoint to probe; a failing backend leaves rotation
+  /// without dropping the tunnel. Deprecated spelling of `health.endpoint`.
   #[schemars(extend("examples" = ["/health"]))]
   pub target_health: Option<String>,
   /// Hold the service out of routing until the backend first accepts a
@@ -646,6 +696,480 @@ pub struct ErrorPageRule {
   pub page_503: Option<String>,
 }
 
+/// One deprecated flat key found in a config file, and the nested key that
+/// replaces it. Reported by the client at load time so an operator can move a
+/// file over without reading the changelog.
+pub struct DeprecatedKey {
+  /// The flat key as written, e.g. `health_interval`.
+  pub old: &'static str,
+  /// Where it lives now, e.g. `health.interval`.
+  pub new: &'static str,
+}
+
+/// Folds a nested `health:` block into the flat fields the client resolver
+/// already reads, so both spellings are supported by one code path. A value
+/// set in the block wins over the flat key of the same meaning: the block is
+/// the current form, so the more specific answer to "which did the operator
+/// mean" is the one they wrote in the new place.
+///
+/// Returns the deprecated flat keys that were in use, for the caller to warn
+/// about.
+macro_rules! fold_health {
+  ($self:ident) => {{
+    let mut deprecated: Vec<DeprecatedKey> = Vec::new();
+    for (present, old, new) in [
+      (
+        $self.target_health.is_some(),
+        "target_health",
+        "health.endpoint",
+      ),
+      (
+        $self.wait_for_backend.is_some(),
+        "wait_for_backend",
+        "health.wait_for_backend",
+      ),
+      (
+        $self.health_interval.is_some(),
+        "health_interval",
+        "health.interval",
+      ),
+      (
+        $self.health_timeout.is_some(),
+        "health_timeout",
+        "health.timeout",
+      ),
+      (
+        $self.health_threshold.is_some(),
+        "health_threshold",
+        "health.threshold",
+      ),
+    ] {
+      if present {
+        deprecated.push(DeprecatedKey { old, new });
+      }
+    }
+    if let Some(health) = $self.health.take() {
+      if let Some(v) = health.endpoint {
+        $self.target_health = Some(v);
+      }
+      if let Some(v) = health.wait_for_backend {
+        $self.wait_for_backend = Some(v);
+      }
+      if let Some(v) = health.interval {
+        $self.health_interval = Some(v);
+      }
+      if let Some(v) = health.timeout {
+        $self.health_timeout = Some(v);
+      }
+      if let Some(v) = health.threshold {
+        $self.health_threshold = Some(v);
+      }
+    }
+    deprecated
+  }};
+}
+
+impl ServiceEntry {
+  /// See [`FileConfig::fold_groups`]; this is the per-service half.
+  pub fn fold_groups(&mut self) -> Vec<DeprecatedKey> {
+    fold_health!(self)
+  }
+}
+
+impl FileConfig {
+  /// Rewrites every grouped block into the flat fields the resolver reads,
+  /// top level and per `services:` entry, and reports the deprecated flat
+  /// keys the file still uses. Call once per parse, before resolving.
+  pub fn fold_groups(&mut self) -> Vec<DeprecatedKey> {
+    let mut deprecated = fold_health!(self);
+    for entry in self.services.iter_mut().flat_map(|s| s.iter_mut()) {
+      deprecated.extend(entry.fold_groups());
+    }
+    deprecated
+  }
+}
+
+/// Alerting thresholds: when the server logs and emits an alert.
+///
+/// Written as a `alert:` block; the flat `alert_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AlertGroup {
+  /// Error-rate alert threshold, 0..1.
+  #[schemars(extend("examples" = [0.25]))]
+  pub error_rate: Option<f64>,
+  /// Alert sliding-window seconds.
+  pub window: Option<u64>,
+  /// Minimum requests in the window before the error-rate alert fires.
+  pub min_requests: Option<u64>,
+  /// Connected-client floor below which the client-down alert fires.
+  pub client_down: Option<u64>,
+}
+
+/// Audit-log file rotation.
+///
+/// Written as a `audit:` block; the flat `audit_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AuditGroup {
+  /// Audit log rotation size in bytes, 0 disables.
+  pub max_size: Option<u64>,
+  /// Rotated audit log files kept.
+  pub max_files: Option<u64>,
+}
+
+/// The server-side GET response cache.
+///
+/// Written as a `cache:` block; the flat `cache_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheGroup {
+  /// Enable the server-side GET response cache.
+  pub enabled: Option<bool>,
+  /// Response-cache budget in bytes.
+  pub max_bytes: Option<u64>,
+  /// Serve-stale window in seconds for resilient services.
+  pub max_stale: Option<u64>,
+}
+
+/// The built-in dashboard.
+///
+/// Written as a `dashboard:` block; the flat `dashboard_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DashboardGroup {
+  /// Serve the admin dashboard.
+  pub enabled: Option<bool>,
+  /// Dashboard password.
+  pub auth: Option<String>,
+}
+
+/// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server.
+///
+/// Written as a `edge:` block; the flat `edge_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeGroup {
+  /// Credential enabling the edge-integration endpoints, which publish the
+  /// live hostname inventory to a reverse proxy in front of this server
+  ///.
+  pub token: Option<String>,
+  /// URL the edge proxy forwards matched traffic to.
+  #[schemars(extend("examples" = ["http://aperio:8080"]))]
+  pub service_url: Option<String>,
+  /// Traefik entry points for the generated routers.
+  #[schemars(extend("examples" = ["websecure"]))]
+  pub entrypoints: Option<String>,
+  /// Traefik certificate resolver for the generated routers.
+  #[schemars(extend("examples" = ["letsencrypt"]))]
+  pub cert_resolver: Option<String>,
+  /// Also publish hostnames a token permits but no client serves yet
+  ///.
+  pub include_offline: Option<bool>,
+}
+
+/// In-flight failover: what happens to a request whose client disappears mid-flight.
+///
+/// Written as a `failover:` block; the flat `failover_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FailoverGroup {
+  /// In-flight failover mode.
+  #[schemars(extend("examples" = ["fail", "retry", "wait", "retry-wait"]))]
+  pub mode: Option<String>,
+  /// Maximum failover re-dispatches per request.
+  pub max_jumps: Option<u32>,
+  /// Failover window in seconds.
+  pub window: Option<u64>,
+  /// Allow failover for non-idempotent methods too.
+  pub all_methods: Option<bool>,
+}
+
+/// Gateway timeouts applied to a proxied request.
+///
+/// Written as a `gateway:` block; the flat `gateway_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayGroup {
+  /// Seconds to wait for a client connection.
+  pub timeout: Option<u64>,
+  /// Seconds to wait for a client response.
+  pub response_timeout: Option<u64>,
+}
+
+/// Per-visitor-IP rate limiting (token bucket).
+///
+/// Written as a `ip_limit:` block; the flat `ip_limit_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IpLimitGroup {
+  /// Per-IP rate-limit burst.
+  pub max: Option<u64>,
+  /// Per-IP rate-limit refill per second.
+  pub refill: Option<f64>,
+}
+
+/// Dashboard login lockout after repeated failures.
+///
+/// Written as a `login_lockout:` block; the flat `login_lockout_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LoginLockoutGroup {
+  /// Failed logins per IP before a lockout.
+  pub threshold: Option<u32>,
+  /// Base lockout seconds, doubled per repeat.
+  pub secs: Option<u64>,
+}
+
+/// The Prometheus metrics endpoint.
+///
+/// Written as a `metrics:` block; the flat `metrics_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsGroup {
+  /// Prometheus metrics endpoint toggle.
+  pub enabled: Option<bool>,
+  /// Bearer token gating the metrics endpoint.
+  pub token: Option<String>,
+}
+
+/// OIDC single sign-on for the dashboard.
+///
+/// Written as a `oidc:` block; the flat `oidc_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OidcGroup {
+  /// OIDC issuer URL.
+  pub issuer: Option<String>,
+  /// OIDC client id.
+  pub client_id: Option<String>,
+  /// Allowed OIDC login emails.
+  pub allowed_emails: Option<Vec<String>>,
+  /// OIDC scopes.
+  pub scopes: Option<Vec<String>>,
+  /// OIDC redirect URL override.
+  pub redirect_url: Option<String>,
+}
+
+/// OpenTelemetry trace export.
+///
+/// Written as a `otel:` block; the flat `otel_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OtelGroup {
+  /// Enable OpenTelemetry OTLP export.
+  pub enabled: Option<bool>,
+  /// OTLP endpoint.
+  #[schemars(extend("examples" = ["http://localhost:4317"]))]
+  pub endpoint: Option<String>,
+  /// OTLP service name.
+  pub service_name: Option<String>,
+}
+
+/// How long each kind of recorded data is kept, in days.
+///
+/// Written as a `retention:` block; the flat `retention_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetentionGroup {
+  /// Days to keep inspector captures and webhook inbox entries; 0/unset = forever.
+  pub captures: Option<u64>,
+  /// Days to keep access-log file lines; 0/unset = forever.
+  pub access_log: Option<u64>,
+  /// Days to keep audit events; 0/unset = forever.
+  pub audit: Option<u64>,
+  /// Days to keep day-granularity stats buckets; 0/unset = the built-in caps.
+  pub stats: Option<u64>,
+}
+
+/// Autoscaling: the server signalling desired capacity to an endpoint you control.
+///
+/// Written as a `scaling:` block; the flat `scaling_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScalingGroup {
+  /// Honor client `scaling:` declarations.
+  pub enabled: Option<bool>,
+  /// Allow a plain-http autoscaling endpoint.
+  pub allow_http: Option<bool>,
+  /// Seconds after which an unrefreshed autoscaling record is dropped
+  ///.
+  pub record_ttl: Option<u64>,
+}
+
+/// The server's own credentials.
+///
+/// Written as a `server:` block; the flat `server_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServerCredentials {
+  /// Master token; also the fallback dashboard password.
+  pub token: Option<String>,
+  /// Visitor auth `user:password` gate.
+  #[schemars(extend("examples" = ["admin:s3cret"]))]
+  pub auth: Option<String>,
+}
+
+/// `cache:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum CacheSetting {
+  /// `true` turns the cache on with the defaults.
+  Enabled(bool),
+  /// The full block.
+  Group(CacheGroup),
+}
+
+/// `dashboard:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum DashboardSetting {
+  /// `false` serves no dashboard at all.
+  Enabled(bool),
+  /// The full block.
+  Group(DashboardGroup),
+}
+
+/// `metrics:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum MetricsSetting {
+  /// `true` exposes the Prometheus endpoint.
+  Enabled(bool),
+  /// The full block.
+  Group(MetricsGroup),
+}
+
+/// `otel:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum OtelSetting {
+  /// `true` exports traces with the defaults.
+  Enabled(bool),
+  /// The full block.
+  Group(OtelGroup),
+}
+
+/// `scaling:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum ScalingSetting {
+  /// `true` honors the clients' scaling declarations.
+  Enabled(bool),
+  /// The full block.
+  Group(ScalingGroup),
+}
+
+/// `failover:` written either as the bare value it has always accepted, or as
+/// the block that carries its companion settings too.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum FailoverSetting {
+  /// The mode alone, e.g. `retry`.
+  Mode(String),
+  /// The full block.
+  Group(FailoverGroup),
+}
+
+/// One grouped block of `aperio-server.yaml`.
+///
+/// The server is environment-driven, so a block is not a separate parsing
+/// path: each child materializes into `APERIO_<GROUP>_<CHILD>`, exactly the
+/// variable the flat key of the same meaning maps to. The table is shared
+/// with the loader so the schema above and what the server actually reads
+/// cannot drift.
+pub struct ServerGroup {
+  /// The block's key, e.g. `alert`.
+  pub key: &'static str,
+  /// Child standing for the group's own variable rather than a
+  /// `GROUP_CHILD` one: `cache: { enabled: true }` is `APERIO_CACHE`.
+  pub self_key: Option<&'static str>,
+}
+
+/// Every grouped block of `aperio-server.yaml`, in schema order.
+pub const SERVER_GROUPS: &[ServerGroup] = &[
+  ServerGroup {
+    key: "alert",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "audit",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "cache",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
+    key: "dashboard",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
+    key: "edge",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "failover",
+    self_key: Some("mode"),
+  },
+  ServerGroup {
+    key: "gateway",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "ip_limit",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "login_lockout",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "metrics",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
+    key: "oidc",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "otel",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
+    key: "retention",
+    self_key: None,
+  },
+  ServerGroup {
+    key: "scaling",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
+    key: "server",
+    self_key: None,
+  },
+];
+
 /// The `aperio-server.yaml` configuration file. The server is environment-
 /// driven; every scalar key here is materialized into its `APERIO_*`
 /// environment variable at startup (the file takes precedence over the
@@ -653,8 +1177,54 @@ pub struct ErrorPageRule {
 /// directly. Unknown keys are allowed and passed through as env vars.
 #[derive(Deserialize, Default, JsonSchema)]
 pub struct ServerFileConfig {
+  // --- Grouped blocks (preferred over the flat keys below) ---
+  /// Alerting thresholds: when the server logs and emits an alert
+  #[serde(default)]
+  pub alert: Option<AlertGroup>,
+  /// Audit-log file rotation
+  #[serde(default)]
+  pub audit: Option<AuditGroup>,
+  /// The server-side GET response cache
+  #[serde(default)]
+  pub cache: Option<CacheSetting>,
+  /// The built-in dashboard
+  #[serde(default)]
+  pub dashboard: Option<DashboardSetting>,
+  /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server
+  #[serde(default)]
+  pub edge: Option<EdgeGroup>,
+  /// In-flight failover: what happens to a request whose client disappears mid-flight
+  #[serde(default)]
+  pub failover: Option<FailoverSetting>,
+  /// Gateway timeouts applied to a proxied request
+  #[serde(default)]
+  pub gateway: Option<GatewayGroup>,
+  /// Per-visitor-IP rate limiting (token bucket)
+  #[serde(default)]
+  pub ip_limit: Option<IpLimitGroup>,
+  /// Dashboard login lockout after repeated failures
+  #[serde(default)]
+  pub login_lockout: Option<LoginLockoutGroup>,
+  /// The Prometheus metrics endpoint
+  #[serde(default)]
+  pub metrics: Option<MetricsSetting>,
+  /// OIDC single sign-on for the dashboard
+  #[serde(default)]
+  pub oidc: Option<OidcGroup>,
+  /// OpenTelemetry trace export
+  #[serde(default)]
+  pub otel: Option<OtelSetting>,
+  /// How long each kind of recorded data is kept, in days
+  #[serde(default)]
+  pub retention: Option<RetentionGroup>,
+  /// Autoscaling: the server signalling desired capacity to an endpoint you control
+  #[serde(default)]
+  pub scaling: Option<ScalingSetting>,
+  /// The server's own credentials
+  #[serde(default)]
+  pub server: Option<ServerCredentials>,
   // --- Core ---
-  /// Master token; also the fallback dashboard password (env: APERIO_SERVER_TOKEN).
+  /// Deprecated spelling of `server.token` (env: APERIO_SERVER_TOKEN).
   pub server_token: Option<String>,
   /// Address to bind (bare env: HOST).
   #[schemars(extend("examples" = ["0.0.0.0"]))]
@@ -684,25 +1254,21 @@ pub struct ServerFileConfig {
   pub lb_strategy: Option<String>,
 
   // --- Failover ---
-  /// In-flight failover mode (env: APERIO_FAILOVER).
-  #[schemars(extend("examples" = ["fail", "retry", "wait", "retry-wait"]))]
-  pub failover: Option<String>,
-  /// Maximum failover re-dispatches per request (env: APERIO_FAILOVER_MAX_JUMPS).
+  /// Deprecated spelling of `failover.max_jumps` (env: APERIO_FAILOVER_MAX_JUMPS).
   pub failover_max_jumps: Option<u32>,
-  /// Failover window in seconds (env: APERIO_FAILOVER_WINDOW).
+  /// Deprecated spelling of `failover.window` (env: APERIO_FAILOVER_WINDOW).
   pub failover_window: Option<u64>,
-  /// Allow failover for non-idempotent methods too (env: APERIO_FAILOVER_ALL_METHODS).
+  /// Deprecated spelling of `failover.all_methods` (env: APERIO_FAILOVER_ALL_METHODS).
   pub failover_all_methods: Option<bool>,
 
   // --- Alerting ---
-  /// Error-rate alert threshold, 0..1 (env: APERIO_ALERT_ERROR_RATE).
-  #[schemars(extend("examples" = [0.25]))]
+  /// Deprecated spelling of `alert.error_rate` (env: APERIO_ALERT_ERROR_RATE).
   pub alert_error_rate: Option<f64>,
-  /// Alert sliding-window seconds (env: APERIO_ALERT_WINDOW).
+  /// Deprecated spelling of `alert.window` (env: APERIO_ALERT_WINDOW).
   pub alert_window: Option<u64>,
-  /// Minimum requests in the window before the error-rate alert fires (env: APERIO_ALERT_MIN_REQUESTS).
+  /// Deprecated spelling of `alert.min_requests` (env: APERIO_ALERT_MIN_REQUESTS).
   pub alert_min_requests: Option<u64>,
-  /// Connected-client floor below which the client-down alert fires (env: APERIO_ALERT_CLIENT_DOWN).
+  /// Deprecated spelling of `alert.client_down` (env: APERIO_ALERT_CLIENT_DOWN).
   pub alert_client_down: Option<u64>,
 
   // --- Capacity & limits ---
@@ -712,17 +1278,17 @@ pub struct ServerFileConfig {
   pub max_concurrent_requests: Option<u64>,
   /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
   pub max_tunnels: Option<u64>,
-  /// Per-IP rate-limit burst (env: APERIO_IP_LIMIT_MAX).
+  /// Deprecated spelling of `ip_limit.max` (env: APERIO_IP_LIMIT_MAX).
   pub ip_limit_max: Option<u64>,
-  /// Per-IP rate-limit refill per second (env: APERIO_IP_LIMIT_REFILL).
+  /// Deprecated spelling of `ip_limit.refill` (env: APERIO_IP_LIMIT_REFILL).
   pub ip_limit_refill: Option<f64>,
-  /// Failed logins per IP before a lockout (env: APERIO_LOGIN_LOCKOUT_THRESHOLD).
+  /// Deprecated spelling of `login_lockout.threshold` (env: APERIO_LOGIN_LOCKOUT_THRESHOLD).
   pub login_lockout_threshold: Option<u32>,
-  /// Base lockout seconds, doubled per repeat (env: APERIO_LOGIN_LOCKOUT_SECS).
+  /// Deprecated spelling of `login_lockout.secs` (env: APERIO_LOGIN_LOCKOUT_SECS).
   pub login_lockout_secs: Option<u64>,
-  /// Seconds to wait for a client connection (env: APERIO_GATEWAY_TIMEOUT).
+  /// Deprecated spelling of `gateway.timeout` (env: APERIO_GATEWAY_TIMEOUT).
   pub gateway_timeout: Option<u64>,
-  /// Seconds to wait for a client response (env: APERIO_GATEWAY_RESPONSE_TIMEOUT).
+  /// Deprecated spelling of `gateway.response_timeout` (env: APERIO_GATEWAY_RESPONSE_TIMEOUT).
   pub gateway_response_timeout: Option<u64>,
 
   // --- Proxy trust & cookies ---
@@ -742,11 +1308,9 @@ pub struct ServerFileConfig {
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).
   pub tunnel_compression: Option<bool>,
-  /// Enable the server-side GET response cache (env: APERIO_CACHE).
-  pub cache: Option<bool>,
-  /// Response-cache budget in bytes (env: APERIO_CACHE_MAX_BYTES).
+  /// Deprecated spelling of `cache.max_bytes` (env: APERIO_CACHE_MAX_BYTES).
   pub cache_max_bytes: Option<u64>,
-  /// Serve-stale window in seconds for resilient services (env: APERIO_CACHE_MAX_STALE).
+  /// Deprecated spelling of `cache.max_stale` (env: APERIO_CACHE_MAX_STALE).
   pub cache_max_stale: Option<u64>,
 
   // --- Pages ---
@@ -760,82 +1324,65 @@ pub struct ServerFileConfig {
   // --- Logging & telemetry ---
   /// Structured access log path (env: APERIO_ACCESS_LOG).
   pub access_log: Option<String>,
-  /// Days to keep inspector captures and webhook inbox entries; 0/unset = forever (env: APERIO_RETENTION_CAPTURES).
+  /// Deprecated spelling of `retention.captures` (env: APERIO_RETENTION_CAPTURES).
   pub retention_captures: Option<u64>,
-  /// Days to keep access-log file lines; 0/unset = forever (env: APERIO_RETENTION_ACCESS_LOG).
+  /// Deprecated spelling of `retention.access_log` (env: APERIO_RETENTION_ACCESS_LOG).
   pub retention_access_log: Option<u64>,
-  /// Days to keep audit events; 0/unset = forever (env: APERIO_RETENTION_AUDIT).
+  /// Deprecated spelling of `retention.audit` (env: APERIO_RETENTION_AUDIT).
   pub retention_audit: Option<u64>,
-  /// Days to keep day-granularity stats buckets; 0/unset = the built-in caps (env: APERIO_RETENTION_STATS).
+  /// Deprecated spelling of `retention.stats` (env: APERIO_RETENTION_STATS).
   pub retention_stats: Option<u64>,
   /// Cap on aperio.db (+WAL/SHM) in bytes; nearing it emits a warning, exceeding it auto-prunes low-priority data (env: APERIO_DB_MAX_BYTES).
   pub db_max_bytes: Option<u64>,
-  /// Audit log rotation size in bytes, 0 disables (env: APERIO_AUDIT_MAX_SIZE).
+  /// Deprecated spelling of `audit.max_size` (env: APERIO_AUDIT_MAX_SIZE).
   pub audit_max_size: Option<u64>,
-  /// Rotated audit log files kept (env: APERIO_AUDIT_MAX_FILES).
+  /// Deprecated spelling of `audit.max_files` (env: APERIO_AUDIT_MAX_FILES).
   pub audit_max_files: Option<u64>,
-  /// Enable OpenTelemetry OTLP export (env: APERIO_OTEL).
-  pub otel: Option<bool>,
-  /// OTLP endpoint (env: APERIO_OTEL_ENDPOINT).
-  #[schemars(extend("examples" = ["http://localhost:4317"]))]
+  /// Deprecated spelling of `otel.endpoint` (env: APERIO_OTEL_ENDPOINT).
   pub otel_endpoint: Option<String>,
-  /// OTLP service name (env: APERIO_OTEL_SERVICE_NAME).
+  /// Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).
   pub otel_service_name: Option<String>,
-  /// Prometheus metrics endpoint toggle (env: APERIO_METRICS).
-  pub metrics: Option<bool>,
-  /// Bearer token gating the metrics endpoint (env: APERIO_METRICS_TOKEN).
+  /// Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).
   pub metrics_token: Option<String>,
-  /// Honor client `scaling:` declarations (env: APERIO_SCALING).
-  pub scaling: Option<bool>,
-  /// Allow a plain-http autoscaling endpoint (env: APERIO_SCALING_ALLOW_HTTP).
+  /// Deprecated spelling of `scaling.allow_http` (env: APERIO_SCALING_ALLOW_HTTP).
   pub scaling_allow_http: Option<bool>,
-  /// Seconds after which an unrefreshed autoscaling record is dropped
-  /// (env: APERIO_SCALING_RECORD_TTL).
+  /// Deprecated spelling of `scaling.record_ttl` (env: APERIO_SCALING_RECORD_TTL).
   pub scaling_record_ttl: Option<u64>,
-  /// Credential enabling the edge-integration endpoints, which publish the
-  /// live hostname inventory to a reverse proxy in front of this server
-  /// (env: APERIO_EDGE_TOKEN).
+  /// Deprecated spelling of `edge.token` (env: APERIO_EDGE_TOKEN).
   pub edge_token: Option<String>,
-  /// URL the edge proxy forwards matched traffic to (env: APERIO_EDGE_SERVICE_URL).
-  #[schemars(extend("examples" = ["http://aperio:8080"]))]
+  /// Deprecated spelling of `edge.service_url` (env: APERIO_EDGE_SERVICE_URL).
   pub edge_service_url: Option<String>,
-  /// Traefik entry points for the generated routers (env: APERIO_EDGE_ENTRYPOINTS).
-  #[schemars(extend("examples" = ["websecure"]))]
+  /// Deprecated spelling of `edge.entrypoints` (env: APERIO_EDGE_ENTRYPOINTS).
   pub edge_entrypoints: Option<String>,
-  /// Traefik certificate resolver for the generated routers (env: APERIO_EDGE_CERT_RESOLVER).
-  #[schemars(extend("examples" = ["letsencrypt"]))]
+  /// Deprecated spelling of `edge.cert_resolver` (env: APERIO_EDGE_CERT_RESOLVER).
   pub edge_cert_resolver: Option<String>,
-  /// Also publish hostnames a token permits but no client serves yet
-  /// (env: APERIO_EDGE_INCLUDE_OFFLINE).
+  /// Deprecated spelling of `edge.include_offline` (env: APERIO_EDGE_INCLUDE_OFFLINE).
   pub edge_include_offline: Option<bool>,
 
   // --- Auth, dashboard & SSO ---
-  /// Visitor auth `user:password` gate (env: APERIO_SERVER_AUTH).
-  #[schemars(extend("examples" = ["admin:s3cret"]))]
+  /// Deprecated spelling of `server.auth` (env: APERIO_SERVER_AUTH).
   pub server_auth: Option<String>,
   /// Public dashboard URL enabling passkeys; its domain is the RP ID (env: APERIO_WEBAUTHN_ORIGIN).
   #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
   pub webauthn_origin: Option<String>,
   /// Ignore client-declared visitor passwords (env: APERIO_IGNORE_CLIENT_AUTH).
   pub ignore_client_auth: Option<bool>,
-  /// Serve the admin dashboard (env: APERIO_DASHBOARD).
-  pub dashboard: Option<bool>,
   /// Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).
   #[schemars(extend("examples" = ["en", "tr"]))]
   pub ui_language: Option<String>,
-  /// Dashboard password (env: APERIO_DASHBOARD_AUTH).
+  /// Deprecated spelling of `dashboard.auth` (env: APERIO_DASHBOARD_AUTH).
   pub dashboard_auth: Option<String>,
   /// Days before a token's expiry to start warning (env: APERIO_TOKEN_EXPIRY_WARNING).
   pub token_expiry_warning: Option<u64>,
-  /// OIDC issuer URL (env: APERIO_OIDC_ISSUER).
+  /// Deprecated spelling of `oidc.issuer` (env: APERIO_OIDC_ISSUER).
   pub oidc_issuer: Option<String>,
-  /// OIDC client id (env: APERIO_OIDC_CLIENT_ID).
+  /// Deprecated spelling of `oidc.client_id` (env: APERIO_OIDC_CLIENT_ID).
   pub oidc_client_id: Option<String>,
-  /// Allowed OIDC login emails (env: APERIO_OIDC_ALLOWED_EMAILS).
+  /// Deprecated spelling of `oidc.allowed_emails` (env: APERIO_OIDC_ALLOWED_EMAILS).
   pub oidc_allowed_emails: Option<Vec<String>>,
-  /// OIDC scopes (env: APERIO_OIDC_SCOPES).
+  /// Deprecated spelling of `oidc.scopes` (env: APERIO_OIDC_SCOPES).
   pub oidc_scopes: Option<Vec<String>>,
-  /// OIDC redirect URL override (env: APERIO_OIDC_REDIRECT_URL).
+  /// Deprecated spelling of `oidc.redirect_url` (env: APERIO_OIDC_REDIRECT_URL).
   pub oidc_redirect_url: Option<String>,
 
   // --- Structured sections (read directly, not env-mapped) ---

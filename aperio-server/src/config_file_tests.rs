@@ -150,6 +150,77 @@ fn load_materializes_scalars_and_keeps_structured_sections() {
 }
 
 #[test]
+fn load_flattens_grouped_blocks_into_env_vars() {
+  let _g = CfgGuard::lock();
+  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  for name in [
+    "APERIO_ALERT_ERROR_RATE",
+    "APERIO_ALERT_WINDOW",
+    "APERIO_CACHE",
+    "APERIO_CACHE_MAX_BYTES",
+    "APERIO_FAILOVER",
+    "APERIO_FAILOVER_WINDOW",
+    "APERIO_OIDC_SCOPES",
+    "APERIO_RETENTION_AUDIT",
+    "APERIO_SERVER_TOKEN",
+  ] {
+    unsafe { std::env::remove_var(name) };
+  }
+  std::fs::write(
+    &file,
+    concat!(
+      "alert:\n  error_rate: 0.25\n  window: 60\n",
+      // A group whose own key is also a setting: `enabled`/`mode` carry it.
+      "cache:\n  enabled: true\n  max_bytes: 1024\n",
+      "failover:\n  mode: retry\n  window: 30\n",
+      "oidc:\n  scopes: [openid, email]\n",
+      "retention:\n  audit: 90\n",
+      "server:\n  token: apr_grouped\n",
+      // Structured sections keep their meaning: still not env vars.
+      "headers:\n  request:\n    add:\n      X-A: b\n",
+    ),
+  )
+  .unwrap();
+  set_config_env(&file);
+  load();
+
+  assert_eq!(std::env::var("APERIO_ALERT_ERROR_RATE").unwrap(), "0.25");
+  assert_eq!(std::env::var("APERIO_ALERT_WINDOW").unwrap(), "60");
+  assert_eq!(
+    std::env::var("APERIO_CACHE").unwrap(),
+    "1",
+    "the group's own child keeps the group's own variable"
+  );
+  assert_eq!(std::env::var("APERIO_CACHE_MAX_BYTES").unwrap(), "1024");
+  assert_eq!(std::env::var("APERIO_FAILOVER").unwrap(), "retry");
+  assert_eq!(std::env::var("APERIO_FAILOVER_WINDOW").unwrap(), "30");
+  assert_eq!(std::env::var("APERIO_OIDC_SCOPES").unwrap(), "openid,email");
+  assert_eq!(std::env::var("APERIO_RETENTION_AUDIT").unwrap(), "90");
+  assert_eq!(std::env::var("APERIO_SERVER_TOKEN").unwrap(), "apr_grouped");
+  // A mapping that is not a known group is still a structured section.
+  assert!(std::env::var("APERIO_HEADERS").is_err());
+  assert!(structured("headers").is_some());
+
+  let _ = std::fs::remove_file(&file);
+}
+
+#[test]
+fn load_leaves_an_unknown_mapping_alone() {
+  let _g = CfgGuard::lock();
+  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  unsafe { std::env::remove_var("APERIO_MYSTERY_A") };
+  // Only the groups in the shared table flatten: anything else stays a
+  // structured section, so a new feature block (or a typo) is never turned
+  // into environment variables behind the operator's back.
+  std::fs::write(&file, "mystery:\n  a: 1\n").unwrap();
+  set_config_env(&file);
+  load();
+  assert!(std::env::var("APERIO_MYSTERY_A").is_err());
+  assert!(structured("mystery").is_some());
+  let _ = std::fs::remove_file(&file);
+}
+
+#[test]
 fn load_is_a_noop_when_the_default_file_is_absent() {
   let _g = CfgGuard::lock();
   clear_config_env();

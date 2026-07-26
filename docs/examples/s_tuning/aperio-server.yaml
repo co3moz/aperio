@@ -1,4 +1,5 @@
-server_token: apr_tuning_change_me
+server:
+  token: apr_tuning_change_me
 port: 8080
 
 # Global ceilings.
@@ -7,13 +8,15 @@ max_tunnels: 20                 # simultaneously connected tunnel clients
 max_body_size: 10485760         # request bodies up to 10 MB
 
 # Per-IP token bucket: 100-request burst, refilled at 5 requests/second.
-ip_limit_max: 100
-ip_limit_refill: 5
+ip_limit:
+  max: 100
+  refill: 5
 
 # How long to wait for a client to (re)connect / to answer a dispatched
 # request before failing (defaults shown).
-gateway_timeout: 10
-gateway_response_timeout: 30
+gateway:
+  timeout: 10
+  response_timeout: 30
 
 # zlib-compress tunnel frames, worthwhile for text-heavy traffic over slow
 # client uplinks; enabled per connection once the client acknowledges it.

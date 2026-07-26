@@ -1,4 +1,5 @@
-server_token: apr_behind_proxy_change_me
+server:
+  token: apr_behind_proxy_change_me
 
 # The proxy terminates TLS and forwards to this local port.
 host: 127.0.0.1

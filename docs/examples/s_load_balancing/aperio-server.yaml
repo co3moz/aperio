@@ -1,4 +1,5 @@
-server_token: apr_load_balancing_change_me
+server:
+  token: apr_load_balancing_change_me
 port: 8080
 
 # Route to the lowest announced priority tier only; standbys take over

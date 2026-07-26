@@ -1,4 +1,5 @@
-server_token: apr_sticky_change_me
+server:
+  token: apr_sticky_change_me
 port: 8080
 
 # Pin each visitor to the client that first served them via an

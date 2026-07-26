@@ -9,10 +9,12 @@ services:
     target: http://localhost:3000
     hostname: app.example.com
     priority: 0                 # machine B: 1
-    target_health: /health
+    health:
+      endpoint: /health
 
   - name: api
     target: http://localhost:4000
     hostname: api.example.com
     priority: 1                 # machine B: 0
-    target_health: /api/status
+    health:
+      endpoint: /api/status

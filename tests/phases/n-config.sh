@@ -4,9 +4,14 @@ PHASE="config"
 
 step "aperio-server.yaml hot-reload"
 CFG="$LOG_DIR/aperio-server.yaml"
+# The initial file uses the grouped form of both settings; the reloaded one
+# below uses the flat spelling, so this step covers each of them reaching the
+# running server.
 cat > "$CFG" <<YAML
-cache: false
-login_lockout_threshold: 5
+cache:
+  enabled: false
+login_lockout:
+  threshold: 5
 routes:
   - path: /reload-probe
     respond:
@@ -23,8 +28,8 @@ reload_setting() { # <json-key>
 }
 
 # Initial file values are in effect.
-[ "$(reload_setting cache_enabled)" = "False" ] || fail "initial cache_enabled should be false"
-[ "$(reload_setting login_lockout_threshold)" = "5" ] || fail "initial lockout threshold should be 5"
+[ "$(reload_setting cache_enabled)" = "False" ] || fail "a grouped cache.enabled reaches the server"
+[ "$(reload_setting login_lockout_threshold)" = "5" ] || fail "a grouped login_lockout.threshold reaches the server"
 BODY="$(curl -s -H "Host: probe.e2e.local" "$BASE/reload-probe")"
 assert_contains "$BODY" "v1" "the client-less route serves its initial body"
 
@@ -47,7 +52,7 @@ for _ in $(seq 1 10); do
 done
 [ -n "$APPLIED" ] || fail "the edited config was not hot-reloaded within 10s"
 echo "  ok: a live setting is re-applied on file change"
-[ "$(reload_setting login_lockout_threshold)" = "9" ] || fail "lockout threshold did not reload to 9"
+[ "$(reload_setting login_lockout_threshold)" = "9" ] || fail "the flat spelling still reloads to 9"
 BODY="$(curl -s -H "Host: probe.e2e.local" "$BASE/reload-probe")"
 assert_contains "$BODY" "v2-reloaded" "the structured route reloaded to its new body"
 # The port change is structural: the server stays on its original port.

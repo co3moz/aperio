@@ -185,10 +185,17 @@ esac
 
 step "~/.aperio.yaml user-level layer"
 HOME_DIR="$(mktemp -d)"
+# The grouped `health:` block rides along: the client must probe /health from
+# it exactly as it would from the flat target_health/health_* keys.
 cat >"$HOME_DIR/.aperio.yaml" <<YAML
 server:
   url: ${BASE}
   token: ${TOKEN}
+health:
+  endpoint: /health
+  interval: 1
+  timeout: 1
+  threshold: 2
 YAML
 env HOME="$HOME_DIR" USERPROFILE="$HOME_DIR" \
   APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=home.e2e.local \
@@ -197,6 +204,11 @@ CLIENT_PIDS+=($!)
 wait_routable home.e2e.local
 BODY="$(curl -s -H 'Host: home.e2e.local' "$BASE/hello")"
 assert_contains "$BODY" "backend ${BACKEND_PORT} " "server url/token came from ~/.aperio.yaml"
+# Routable at all means the probe from the grouped block passed: a client with
+# a health endpoint configured starts out of routing until one does.
+assert_contains "$(cat "$LOG_DIR/client-features-home.log")" \
+  "Backend health check: http://127.0.0.1:${BACKEND_PORT}/health (every 1s, timeout 1s, threshold 2)" \
+  "the grouped health: block configured the probe"
 
 step "Per-token rate limit"
 RL="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \

@@ -144,3 +144,73 @@ fn schema_json_outputs_are_valid_json() {
   // The two schemas are different documents (client vs server config).
   assert_ne!(client, server);
 }
+
+#[test]
+fn every_server_group_child_matches_a_flat_key() {
+  // The grouped and flat spellings must stay two ways of writing the same
+  // setting: `alert: { window: 60 }` has to land on APERIO_ALERT_WINDOW, the
+  // very variable `alert_window:` maps to. This walks the generated schema so
+  // a group child added without its flat counterpart (or renamed on one side
+  // only) fails here rather than silently reaching no env var.
+  let schema: serde_json::Value = serde_json::from_str(&server_schema_json()).unwrap();
+  let defs = &schema["$defs"];
+  let props = schema["properties"]
+    .as_object()
+    .expect("the server schema has properties");
+
+  /// Property names of a schema node, following a single `$ref` and the
+  /// `anyOf`/`oneOf` a nullable or untagged field generates.
+  fn properties(node: &serde_json::Value, defs: &serde_json::Value) -> Vec<String> {
+    if let Some(reference) = node["$ref"].as_str() {
+      let name = reference.rsplit('/').next().unwrap_or_default();
+      return properties(&defs[name], defs);
+    }
+    if let Some(obj) = node["properties"].as_object() {
+      return obj.keys().cloned().collect();
+    }
+    for key in ["anyOf", "oneOf"] {
+      if let Some(items) = node[key].as_array() {
+        let mut out: Vec<String> = Vec::new();
+        for item in items {
+          out.extend(properties(item, defs));
+        }
+        if !out.is_empty() {
+          return out;
+        }
+      }
+    }
+    Vec::new()
+  }
+
+  for group in SERVER_GROUPS {
+    let node = props
+      .get(group.key)
+      .unwrap_or_else(|| panic!("`{}` is in SERVER_GROUPS but not in the schema", group.key));
+    let children = properties(node, defs);
+    assert!(
+      !children.is_empty(),
+      "`{}` has no children in the schema",
+      group.key
+    );
+    for child in children {
+      if group.self_key == Some(child.as_str()) {
+        assert!(
+          props.contains_key(group.key),
+          "`{}.{}` stands for the group's own key",
+          group.key,
+          child
+        );
+        continue;
+      }
+      let flat = format!("{}_{}", group.key, child);
+      assert!(
+        props.contains_key(&flat),
+        "`{}.{}` has no flat counterpart `{}`: the block would reach APERIO_{} while nothing else does",
+        group.key,
+        child,
+        flat,
+        flat.to_uppercase()
+      );
+    }
+  }
+}

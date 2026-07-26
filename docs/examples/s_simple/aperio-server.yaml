@@ -1,6 +1,7 @@
 # Master token: authenticates tunnel clients and doubles as the dashboard
 # admin password (`aperio:<token>`). Must match `server.token` in aperio.yaml.
-server_token: apr_simple_change_me
+server:
+  token: apr_simple_change_me
 
 # Listen address and port (defaults shown).
 host: 0.0.0.0

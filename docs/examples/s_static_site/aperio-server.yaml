@@ -1,2 +1,3 @@
-server_token: apr_static_site_change_me
+server:
+  token: apr_static_site_change_me
 port: 8080

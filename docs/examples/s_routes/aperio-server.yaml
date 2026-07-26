@@ -1,4 +1,5 @@
-server_token: apr_routes_change_me
+server:
+  token: apr_routes_change_me
 port: 8080
 
 # Server-answered routes, no tunnel client involved. First match wins,

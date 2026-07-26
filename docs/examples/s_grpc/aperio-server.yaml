@@ -1,4 +1,5 @@
-server_token: apr_grpc_change_me
+server:
+  token: apr_grpc_change_me
 port: 8080
 
 # Nothing gRPC-specific to configure here, the server accepts h2c from the

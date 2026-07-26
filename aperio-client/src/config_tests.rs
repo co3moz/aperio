@@ -64,6 +64,63 @@ fn test_file_config_server_forms() {
 }
 
 #[test]
+fn test_health_group_folds_into_the_flat_fields() {
+  // The grouped form is what a new config writes.
+  let mut nested: FileConfig = serde_yaml::from_str(
+    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n  timeout: 3\n  threshold: 4\n  wait_for_backend: true\n",
+  )
+  .unwrap();
+  let deprecated = nested.fold_groups();
+  assert!(deprecated.is_empty(), "nothing deprecated in the new form");
+  assert_eq!(nested.target_health.as_deref(), Some("/healthz"));
+  assert_eq!(nested.health_interval, Some(7));
+  assert_eq!(nested.health_timeout, Some(3));
+  assert_eq!(nested.health_threshold, Some(4));
+  assert_eq!(nested.wait_for_backend, Some(true));
+
+  // The flat spelling still works, and is reported so the operator can move.
+  let mut flat: FileConfig = serde_yaml::from_str(
+    "target: http://localhost:3000\ntarget_health: /health\nhealth_interval: 9\n",
+  )
+  .unwrap();
+  let deprecated = flat.fold_groups();
+  assert_eq!(flat.target_health.as_deref(), Some("/health"));
+  assert_eq!(flat.health_interval, Some(9));
+  let old: Vec<&str> = deprecated.iter().map(|k| k.old).collect();
+  assert_eq!(old, vec!["target_health", "health_interval"]);
+  assert_eq!(deprecated[1].new, "health.interval");
+
+  // Both spellings at once: the block wins, field by field, and the flat key
+  // left over is still reported.
+  let mut mixed: FileConfig = serde_yaml::from_str(
+    "target: http://localhost:3000\nhealth_interval: 9\nhealth_timeout: 2\nhealth:\n  interval: 30\n",
+  )
+  .unwrap();
+  let deprecated = mixed.fold_groups();
+  assert_eq!(mixed.health_interval, Some(30), "the block wins");
+  assert_eq!(mixed.health_timeout, Some(2), "the flat key still applies");
+  assert_eq!(deprecated.len(), 2);
+}
+
+#[test]
+fn test_health_group_folds_per_service_entry() {
+  let mut cfg: FileConfig = serde_yaml::from_str(
+    "services:\n  - name: api\n    target: http://localhost:4000\n    health:\n      endpoint: /up\n      threshold: 5\n  - name: web\n    target: http://localhost:3000\n    health_timeout: 8\n",
+  )
+  .unwrap();
+  let deprecated = cfg.fold_groups();
+  let services = cfg.services.unwrap();
+  assert_eq!(services[0].target_health.as_deref(), Some("/up"));
+  assert_eq!(services[0].health_threshold, Some(5));
+  assert_eq!(services[1].health_timeout, Some(8));
+  assert_eq!(
+    deprecated.iter().map(|k| k.old).collect::<Vec<_>>(),
+    vec!["health_timeout"],
+    "only the entry using the old spelling is reported"
+  );
+}
+
+#[test]
 fn test_target_flag_accepted_by_subcommands() {
   // `check` (and every mode) accepts --target as an alternative to the
   // positional argument, with the same normalization.

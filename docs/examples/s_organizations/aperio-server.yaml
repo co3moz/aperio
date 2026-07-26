@@ -1,4 +1,5 @@
-server_token: apr_orgs_master_change_me
+server:
+  token: apr_orgs_master_change_me
 port: 8080
 
 # Organizations are runtime tenants: the built-in `aperio` super-admin (this

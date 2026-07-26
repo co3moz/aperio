@@ -1,4 +1,5 @@
-server_token: apr_resilience_change_me
+server:
+  token: apr_resilience_change_me
 port: 8080
 
 # The response cache is a prerequisite for serve-stale.
