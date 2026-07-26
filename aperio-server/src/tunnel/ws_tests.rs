@@ -1314,6 +1314,33 @@ async fn disconnect_drains_all_owned_state() {
   );
 }
 
+// --- tunnel slot accounting ------------------------------------------------
+
+#[tokio::test]
+async fn tunnel_slot_released_when_upgrade_never_runs() {
+  use std::sync::atomic::Ordering;
+  let state = Arc::new(test_state());
+  state.active_tunnel_count.store(1, Ordering::SeqCst);
+
+  // axum drops the on_upgrade callback uncalled when the handshake dies, so
+  // handle_socket never runs and the slot has to come back by itself.
+  drop(TunnelSlot {
+    state: state.clone(),
+    armed: true,
+  });
+  assert_eq!(state.active_tunnel_count.load(Ordering::SeqCst), 0);
+
+  // Once the callback runs, handle_socket owns the slot and the guard must
+  // keep its hands off it.
+  state.active_tunnel_count.store(1, Ordering::SeqCst);
+  TunnelSlot {
+    state: state.clone(),
+    armed: true,
+  }
+  .handed_off();
+  assert_eq!(state.active_tunnel_count.load(Ordering::SeqCst), 1);
+}
+
 // --- ws_handler rejection paths --------------------------------------------
 
 #[tokio::test]

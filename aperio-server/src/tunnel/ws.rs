@@ -160,6 +160,10 @@ pub(crate) async fn ws_handler(
       break;
     }
   }
+  let slot = TunnelSlot {
+    state: state.clone(),
+    armed: true,
+  };
 
   // Process-wide instance group (the client's raw `client_id` base): groups a
   // process's parallel connections in the dashboard and shares one random
@@ -174,6 +178,7 @@ pub(crate) async fn ws_handler(
   ws.max_message_size(state.config().max_body_size.saturating_mul(2))
     .max_frame_size(state.config().max_body_size)
     .on_upgrade(move |socket| {
+      slot.handed_off();
       handle_socket(
         socket,
         tunnel_client_ip.to_string(),
@@ -182,6 +187,37 @@ pub(crate) async fn ws_handler(
         instance_group,
       )
     })
+}
+
+/// Holds the `active_tunnel_count` slot reserved before the upgrade, and gives
+/// it back if the upgrade never happens.
+///
+/// Only `handle_socket` releases the slot, and axum drops the `on_upgrade`
+/// callback without ever calling it when the connection dies during the
+/// handshake. Each such failed handshake would otherwise raise the counter
+/// permanently, until it reaches `max_tunnels` and every new tunnel is refused
+/// with 503 for the rest of the server's life.
+struct TunnelSlot {
+  state: Arc<AppState>,
+  armed: bool,
+}
+
+impl TunnelSlot {
+  /// The upgrade callback ran: `handle_socket` owns the slot from here on.
+  fn handed_off(mut self) {
+    self.armed = false;
+  }
+}
+
+impl Drop for TunnelSlot {
+  fn drop(&mut self) {
+    if self.armed {
+      self
+        .state
+        .active_tunnel_count
+        .fetch_sub(1, Ordering::SeqCst);
+    }
+  }
 }
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
