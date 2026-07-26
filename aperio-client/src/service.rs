@@ -221,6 +221,66 @@ pub(crate) struct Shared {
   pub(crate) last_request_at: Arc<AtomicU64>,
 }
 
+/// Resolves once a shutdown has been requested, whether the request arrived
+/// before or after this call.
+///
+/// `Notify::notify_waiters` wakes only the tasks already waiting, so the flag
+/// is the source of truth and the notification is just what makes the wake-up
+/// prompt. Waiting on the notification alone loses every signal that lands
+/// while a service is elsewhere (sitting in its reconnect backoff, dialing),
+/// and the service would then wait forever for a notification that already
+/// happened.
+pub(crate) async fn shutdown_requested(shared: &Shared) {
+  let notified = shared.shutdown_notify.notified();
+  tokio::pin!(notified);
+  // Register as a waiter before reading the flag, so a signal landing between
+  // the two is still delivered instead of falling into the gap.
+  notified.as_mut().enable();
+  if shared.shutting_down.load(Ordering::SeqCst) {
+    return;
+  }
+  notified.await;
+}
+
+/// Waits for this process's in-flight requests to finish, bounded by a
+/// deadline.
+///
+/// Shared by both shutdown paths: whichever service notices the signal first
+/// must not tear the process down while a sibling service is still answering
+/// a visitor.
+async fn drain_inflight(shared: &Shared) {
+  let deadline = Instant::now() + Duration::from_secs(30);
+  loop {
+    let inflight = shared.inflight_requests.load(Ordering::SeqCst);
+    if inflight == 0 {
+      info!("Drain complete; exiting.");
+      return;
+    }
+    if Instant::now() >= deadline {
+      warn!(
+        "Drain timeout with {} request(s) still in flight; exiting anyway.",
+        inflight
+      );
+      return;
+    }
+    info!("Draining: {} request(s) in flight...", inflight);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+  }
+}
+
+/// Ends the process when a shutdown was requested while this service has no
+/// connection: there is no server to announce the drain to and nothing of its
+/// own left in flight, but a sibling service may still be answering, so it
+/// waits for the process-wide drain first.
+async fn exit_if_shutting_down(shared: &Shared) {
+  if !shared.shutting_down.load(Ordering::SeqCst) {
+    return;
+  }
+  info!("Shutdown requested while disconnected; exiting.");
+  drain_inflight(shared).await;
+  std::process::exit(0);
+}
+
 /// Per-service backend-health state, shared by every parallel connection of a
 /// service (`connections: N`) so the backend is probed once per service, not
 /// once per connection. Every connection reports `healthy`/`probed` in its
@@ -424,6 +484,7 @@ pub(crate) async fn run_service(
     if *cancel.borrow() {
       break;
     }
+    exit_if_shutting_down(&shared).await;
 
     let current_ws = spec
       .ws_urls
@@ -682,25 +743,12 @@ pub(crate) async fn run_service(
                       warn!("Liveness timeout triggered. Aborting socket loop.");
                       break;
                   }
-                  _ = shared.shutdown_notify.notified() => {
+                  _ = shutdown_requested(&shared) => {
                       // Announce drain, let in-flight requests finish, then exit.
                       if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
                           let _ = tx_write.send(Message::Text(json)).await;
                       }
-                      let drain_deadline = Instant::now() + Duration::from_secs(30);
-                      loop {
-                          let inflight = shared.inflight_requests.load(Ordering::SeqCst);
-                          if inflight == 0 {
-                              info!("Drain complete; exiting.");
-                              break;
-                          }
-                          if Instant::now() >= drain_deadline {
-                              warn!("Drain timeout with {} request(s) still in flight; exiting anyway.", inflight);
-                              break;
-                          }
-                          info!("Draining: {} request(s) in flight...", inflight);
-                          tokio::time::sleep(Duration::from_millis(500)).await;
-                      }
+                      drain_inflight(&shared).await;
                       // Give the Draining frame a moment to flush before closing.
                       tokio::time::sleep(Duration::from_millis(200)).await;
                       std::process::exit(0);
@@ -1130,11 +1178,7 @@ pub(crate) async fn run_service(
       }
     }
 
-    // A shutdown signal while disconnected exits immediately (nothing to drain).
-    if shared.shutting_down.load(Ordering::SeqCst) {
-      info!("Shutdown requested while disconnected; exiting.");
-      std::process::exit(0);
-    }
+    exit_if_shutting_down(&shared).await;
     if *cancel.borrow() {
       break 'outer;
     }
@@ -1170,6 +1214,8 @@ pub(crate) async fn run_service(
     tokio::select! {
       _ = tokio::time::sleep(delay) => {}
       _ = cancel.changed() => break 'outer,
+      // The loop head does the exiting; this arm only cuts the wait short.
+      _ = shutdown_requested(&shared) => {}
     }
   }
 

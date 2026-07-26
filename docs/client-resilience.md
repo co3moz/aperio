@@ -26,6 +26,8 @@ When a config file is present (`./aperio.yaml` or `--config`), edits are detecte
 
 On `SIGINT`/`SIGTERM` the client tells the server it is **draining**: the server immediately stops routing new requests to it, in-flight requests finish (up to 30 s), then the process exits. This plays well with `docker stop` and rolling deployments, combined with [failover](failover.md) or a standby client, restarts are invisible to visitors.
 
+A client that is *not* connected when the signal arrives, sitting in the reconnect backoff above because the server is unreachable, exits right away: there is nothing to announce and no connection to drain. It waits only for whatever a sibling service of the same process still has in flight, and it never opens a new connection on the way out.
+
 ## Flow control
 
 Two knobs keep a client from being overwhelmed:

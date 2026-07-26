@@ -100,6 +100,45 @@ fn test_shared() -> Shared {
   }
 }
 
+#[tokio::test]
+async fn shutdown_requested_resolves_for_a_signal_that_already_happened() {
+  let shared = test_shared();
+
+  // The common case: the service is already waiting when the signal lands.
+  let waiting = {
+    let shared = shared.clone();
+    tokio::spawn(async move { super::shutdown_requested(&shared).await })
+  };
+  tokio::task::yield_now().await;
+  shared.shutting_down.store(true, Ordering::SeqCst);
+  shared.shutdown_notify.notify_waiters();
+  tokio::time::timeout(Duration::from_secs(2), waiting)
+    .await
+    .expect("a waiting service is woken by the notification")
+    .unwrap();
+
+  // The case that hung the client: the signal fired while the service was
+  // elsewhere (in its reconnect backoff), so `notify_waiters` reached nobody.
+  // Waiting on the notification alone would block forever here.
+  tokio::time::timeout(Duration::from_secs(2), super::shutdown_requested(&shared))
+    .await
+    .expect("a service that arrives after the signal must not wait for it");
+}
+
+#[tokio::test]
+async fn shutdown_requested_keeps_waiting_until_the_flag_is_set() {
+  let shared = test_shared();
+  // No shutdown yet: the future must not resolve on its own.
+  assert!(
+    tokio::time::timeout(
+      Duration::from_millis(200),
+      super::shutdown_requested(&shared)
+    )
+    .await
+    .is_err()
+  );
+}
+
 /// Installs a process-wide TRACE subscriber once so `info!`/`warn!`/`error!`
 /// argument expressions are evaluated (and covered). Without a subscriber,
 /// tracing skips argument evaluation entirely.
