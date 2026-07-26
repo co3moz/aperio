@@ -3,6 +3,7 @@ import {
   formatBandwidth,
   formatBytes,
   formatExpiry,
+  formatRelativeTime,
   formatUptime,
   parseByteSize,
   splitList,
@@ -67,5 +68,22 @@ describe('splitList', () => {
     expect(splitList('a, b ,,c')).toEqual(['a', 'b', 'c'])
     expect(splitList('   ')).toEqual([])
     expect(splitList('single')).toEqual(['single'])
+  })
+})
+
+describe('formatRelativeTime', () => {
+  it('reads numeric input as unix seconds', () => {
+    const nowSecs = Math.floor(Date.now() / 1000)
+    expect(formatRelativeTime(nowSecs - 90)).toBe('1m ago')
+    expect(formatRelativeTime(nowSecs - 7200)).toBe('2h ago')
+  })
+
+  it('does not report an already-scaled timestamp as recent', () => {
+    // Passing milliseconds where seconds are expected scales the value by a
+    // thousand, landing tens of thousands of years in the future; the callers
+    // that did this rendered every row as "just now".
+    const anHourAgo = Math.floor(Date.now() / 1000) - 3600
+    expect(formatRelativeTime(anHourAgo)).toBe('1h ago')
+    expect(formatRelativeTime(anHourAgo * 1000)).toBe('just now')
   })
 })

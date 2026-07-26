@@ -76,10 +76,20 @@ export function InboxSection() {
       setDetail(null)
       return
     }
+    // Drop a reply that arrives after `openId` moved on, so a slow fetch for
+    // the previously opened entry cannot overwrite the one now on screen.
+    let cancelled = false
     fetch(`/aperio/api/inbox/${openId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: InboxDetail | null) => setDetail(d))
-      .catch(() => setDetail(null))
+      .then((d: InboxDetail | null) => {
+        if (!cancelled) setDetail(d)
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [openId])
 
   const refire = async (id: string) => {

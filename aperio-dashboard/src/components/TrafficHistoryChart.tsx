@@ -50,24 +50,32 @@ export function TrafficHistoryChart() {
   const [buckets, setBuckets] = useState<HistoryBucket[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setError(null)
-    try {
-      if (range === 'custom') {
-        if (!from || !to) return
-        setBuckets(await api.statsHistory({ from, to }))
-      } else {
-        const preset = RANGES.find((r) => r.key === range) ?? RANGES[1]
-        setBuckets(await api.statsHistory({ unit: preset.unit, count: preset.count }))
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+  const fetchBuckets = useCallback(async () => {
+    if (range === 'custom') {
+      if (!from || !to) return null
+      return await api.statsHistory({ from, to })
     }
+    const preset = RANGES.find((r) => r.key === range) ?? RANGES[1]
+    return await api.statsHistory({ unit: preset.unit, count: preset.count })
   }, [range, from, to])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    // Changing the range while a request is in flight leaves two running;
+    // without this the slower one lands last and the chart shows a range the
+    // selector is no longer on.
+    let cancelled = false
+    setError(null)
+    fetchBuckets()
+      .then((b) => {
+        if (!cancelled && b) setBuckets(b)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [fetchBuckets])
 
   const rangeLabels: Record<RangeKey, string> = useMemo(
     () => ({

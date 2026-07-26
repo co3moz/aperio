@@ -379,7 +379,7 @@ function SessionsCard() {
                     </span>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {s.created_at ? formatRelativeTime(s.created_at * 1000) : '-'}
+                    {s.created_at ? formatRelativeTime(s.created_at) : '-'}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end">

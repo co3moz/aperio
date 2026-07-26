@@ -121,10 +121,17 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
     setReplayResult(null)
     setCopied(false)
     if (!id) return
+    // Ignore a reply that arrives after `id` moved on: navigating between two
+    // ?inspect= permalinks leaves two fetches in flight, and the slower one
+    // would otherwise land last and show the wrong request's data.
+    let cancelled = false
     api
       .requestDetail(id)
-      .then(setDetail)
+      .then((d) => {
+        if (!cancelled) setDetail(d)
+      })
       .catch((e: unknown) => {
+        if (cancelled) return
         setError(
           e instanceof ApiError && e.status === 404
             ? t('Detail not available for this request (only recent requests are captured).')
@@ -133,6 +140,9 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               }),
         )
       })
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   const copyCurl = async () => {
