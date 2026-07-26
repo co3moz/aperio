@@ -221,6 +221,26 @@ pub(crate) struct Shared {
   pub(crate) last_request_at: Arc<AtomicU64>,
 }
 
+impl Shared {
+  /// Records that the server just handed this process work to do, which is
+  /// what `idle_timeout` measures the absence of.
+  ///
+  /// Every kind of inbound work counts, not only buffered HTTP requests:
+  /// streamed uploads, WebSocket upgrades and raw TCP/UDP sessions all mean
+  /// the client is in use. Marking only the buffered kind let a busy client
+  /// conclude it was idle and retire in the middle of live traffic, cutting
+  /// long-running streams outright.
+  pub(crate) fn mark_request_activity(&self) {
+    self.last_request_at.store(
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs(),
+      Ordering::SeqCst,
+    );
+  }
+}
+
 /// Resolves once a shutdown has been requested, whether the request arrived
 /// before or after this call.
 ///
@@ -789,13 +809,7 @@ pub(crate) async fn run_service(
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
-                                              shared.last_request_at.store(
-                                                std::time::SystemTime::now()
-                                                  .duration_since(std::time::UNIX_EPOCH)
-                                                  .unwrap_or_default()
-                                                  .as_secs(),
-                                                Ordering::SeqCst,
-                                              );
+                                              shared.mark_request_activity();
 
                                               // Handle incoming request concurrently
                                               tokio::spawn(async move {
@@ -829,6 +843,7 @@ pub(crate) async fn run_service(
                                               uri,
                                               headers,
                                           } => {
+                                              shared.mark_request_activity();
                                               // Streamed request body (protocol v2): the backend
                                               // request starts immediately and is fed chunk-by-chunk
                                               // as RequestChunk frames arrive.
@@ -894,6 +909,7 @@ pub(crate) async fn run_service(
                                               uri,
                                               headers,
                                           } => {
+                                              shared.mark_request_activity();
                                               let tx_resp = tx_write.clone();
                                               let target_url = spec.target.clone();
                                               let path_bind_val = spec.path.clone();
@@ -964,6 +980,7 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::TcpOpen { stream_id, target } => {
+                                              shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed — a named target must be
                                               // in the tunnels: list, no target means the legacy
@@ -1009,6 +1026,7 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::UdpOpen { stream_id, target } => {
+                                              shared.mark_request_activity();
                                               // SSRF guard: only declared protocol: udp targets
                                               // are ever dialed, mirroring TcpOpen.
                                               let resolved = spec

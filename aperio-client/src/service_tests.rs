@@ -989,3 +989,27 @@ fn test_backend_health_for_spec_initial_state() {
   assert!(!h.healthy.load(Ordering::SeqCst));
   assert!(!h.probed.load(Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn mark_request_activity_stamps_the_idle_clock() {
+  let shared = test_shared();
+  // Zero means "never served anything", which the idle watcher treats as
+  // "do not retire yet" rather than "idle forever".
+  assert_eq!(shared.last_request_at.load(Ordering::SeqCst), 0);
+
+  shared.mark_request_activity();
+
+  // Every inbound work item calls this — streamed uploads, WebSocket
+  // upgrades and raw TCP/UDP opens as well as buffered requests — so a client
+  // busy with any of them cannot decide it is idle and shut down mid-traffic.
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+  let stamped = shared.last_request_at.load(Ordering::SeqCst);
+  assert!(stamped > 0);
+  assert!(
+    now.saturating_sub(stamped) <= 2,
+    "stamped {stamped}, now {now}"
+  );
+}
