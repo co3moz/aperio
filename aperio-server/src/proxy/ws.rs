@@ -255,6 +255,29 @@ pub(crate) async fn handle_ws_proxy(
     );
   }
 
+  // Register the relay before the request even goes out, so it is in place no
+  // matter how quickly the client answers.
+  //
+  // The backend is live the instant it returns 101, and protocols that greet
+  // first (a Socket.IO open packet, MQTT over WebSocket, most chat protocols)
+  // send immediately. The tunnel read loop delivers that answer to this task
+  // and then carries straight on to the next frame, so registering here after
+  // awaiting the answer would still lose whatever arrived in between — this
+  // task may not have been scheduled yet. Registering up front removes the
+  // window entirely; every early return below unregisters it again.
+  let (relay_tx, relay_rx) = mpsc::channel::<WsStreamMessage>(64);
+  // The read loop feeds a pump rather than this channel, so a visitor that
+  // stops reading cannot stall the other streams on the same tunnel.
+  let relay_tx =
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
+  state.ws_streams.lock().await.insert(
+    stream_id.clone(),
+    crate::state::WsStreamHandle {
+      tx: relay_tx,
+      client_id: chosen_client_id.clone(),
+    },
+  );
+
   // Send UpgradeRequest to client via tunnel
   let upgrade_req = TunnelMessage::UpgradeRequest {
     id: stream_id.clone(),
@@ -267,6 +290,7 @@ pub(crate) async fn handle_ws_proxy(
     Ok(json) => json,
     Err(e) => {
       state.pending_upgrades.lock().await.remove(&stream_id);
+      state.ws_streams.lock().await.remove(&stream_id);
       log_request_failure(
         &state,
         &method_str,
@@ -283,6 +307,7 @@ pub(crate) async fn handle_ws_proxy(
 
   if client_tx.send(Message::Text(req_json)).await.is_err() {
     state.pending_upgrades.lock().await.remove(&stream_id);
+    state.ws_streams.lock().await.remove(&stream_id);
     log_request_failure(
       &state,
       &method_str,
@@ -312,6 +337,7 @@ pub(crate) async fn handle_ws_proxy(
   let client_response = tokio::select! {
       _ = &mut timeout_fut => {
           state.pending_upgrades.lock().await.remove(&stream_id);
+          state.ws_streams.lock().await.remove(&stream_id);
           log_request_failure(
               &state,
               &method_str,
@@ -328,6 +354,7 @@ pub(crate) async fn handle_ws_proxy(
           match res {
               Ok(r) => r,
               Err(_) => {
+                  state.ws_streams.lock().await.remove(&stream_id);
                   log_request_failure(
                       &state,
                       &method_str,
@@ -345,6 +372,7 @@ pub(crate) async fn handle_ws_proxy(
   };
 
   if client_response.status != 101 {
+    state.ws_streams.lock().await.remove(&stream_id);
     log_request_failure(
       &state,
       &method_str,
@@ -362,26 +390,8 @@ pub(crate) async fn handle_ws_proxy(
       .into_response();
   }
 
-  // Client confirmed upgrade. Register the relay channel *before* the
-  // public-side handshake: the backend is live from this moment and many
-  // protocols speak first (a Socket.IO open packet, an MQTT CONNACK, most chat
-  // protocols' hello), so frames arrive while the visitor's handshake is still
-  // completing. Registering afterwards meant those frames found no stream and
-  // were dropped, costing such backends their opening message. Buffered here,
-  // they are waiting when the relay starts.
-  let (relay_tx, relay_rx) = mpsc::channel::<WsStreamMessage>(64);
-  // The tunnel read loop feeds a pump rather than this channel: a visitor that
-  // stops reading must not stall the other streams on that tunnel.
-  let relay_tx =
-    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
-  state.ws_streams.lock().await.insert(
-    stream_id.clone(),
-    crate::state::WsStreamHandle {
-      tx: relay_tx,
-      client_id: chosen_client_id.clone(),
-    },
-  );
-
+  // Client confirmed the upgrade; the relay registered above has been
+  // collecting anything the backend sent in the meantime.
   // Now perform the public-side WebSocket upgrade.
   let (parts, body) = req.into_parts();
   let req = axum::extract::Request::from_parts(parts, body);
