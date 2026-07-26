@@ -52,7 +52,6 @@ import { PasskeysDialog } from './components/PasskeysDialog'
 import { TotpDialog } from './components/TotpDialog'
 import { cn } from '@/lib/utils'
 
-const POLL_INTERVAL_MS = 2000
 const HISTORY_LENGTH = 30
 const HISTORY_KEY = 'aperio-activity-history'
 // Restore the sparkline only if the saved sample is recent, so a tab reopened
@@ -139,15 +138,24 @@ export default function App() {
   // consecutive stats polls, persisted so a reload keeps recent history.
   const [history, setHistory] = useState<number[]>(loadHistory)
   const lastTotal = useRef<number | null>(null)
+  const lastSampleAt = useRef<number | null>(null)
   useEffect(() => {
     if (!stats) return
-    if (lastTotal.current === null) {
+    const now = Date.now()
+    if (lastTotal.current === null || lastSampleAt.current === null) {
       lastTotal.current = stats.total_requests
+      lastSampleAt.current = now
       return
     }
     const diff = stats.total_requests - lastTotal.current
+    // Time the samples rather than assuming a fixed cadence: snapshots arrive
+    // every two seconds over the live stream but every three while it is down
+    // and the dashboard is polling, and dividing by a hardcoded two overstated
+    // the rate by half whenever the fallback was in use.
+    const elapsedSecs = Math.max((now - lastSampleAt.current) / 1000, 0.001)
     lastTotal.current = stats.total_requests
-    setHistory((h) => [...h.slice(1), Math.max(diff / (POLL_INTERVAL_MS / 1000), 0)])
+    lastSampleAt.current = now
+    setHistory((h) => [...h.slice(1), Math.max(diff / elapsedSecs, 0)])
   }, [stats])
 
   useEffect(() => {

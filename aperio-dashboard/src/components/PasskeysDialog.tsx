@@ -84,6 +84,8 @@ export function PasskeysDialog({
     try {
       await api.passkeyDelete(p.id)
       toast.info(t('Passkey "{name}" deleted', { name: p.name }))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       void refresh()
     }

@@ -186,6 +186,8 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
     try {
       await api.deleteWebhook(hook.id)
       toast.info(t('Webhook "{name}" deleted', { name: hook.name }))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       onDone()
     }

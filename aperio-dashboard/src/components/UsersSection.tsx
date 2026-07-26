@@ -247,6 +247,8 @@ function DeleteUserButton({ user, onDone }: { user: DashboardUser; onDone: () =>
     try {
       await api.deleteUser(user.id)
       toast.info(t('User "{name}" deleted', { name: user.username }))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       onDone()
     }
@@ -283,6 +285,8 @@ function ResetTotpButton({ user, onDone }: { user: DashboardUser; onDone: () => 
     try {
       await api.totpAdminReset(user.id)
       toast.info(t('Two-factor auth reset for "{name}"', { name: user.username }))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       onDone()
     }
@@ -319,6 +323,8 @@ function SessionsCard() {
     try {
       await api.revokeSession(s.id)
       toast.info(t('Session ended'))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       refresh()
     }
@@ -328,6 +334,8 @@ function SessionsCard() {
     try {
       const res = await api.clearSessions()
       toast.info(t('{count} other session(s) ended', { count: String(res.ended) }))
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
     } finally {
       setBusy(false)
       refresh()

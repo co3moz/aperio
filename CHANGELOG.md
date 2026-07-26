@@ -16,6 +16,12 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Failed deletions in the dashboard now say so instead of appearing to succeed.** Deleting a webhook or a user, resetting someone's two-factor auth, removing a passkey, ending a session or lifting maintenance mode each reported success and refreshed the list without ever checking whether the server had accepted the request. A rejected or failed call therefore looked exactly like a successful one, and the item silently reappeared on the next refresh. All of them now surface the server's error, as the other actions in the same screens already did.
+
+- **Clearing a numeric field in Settings restores the default instead of saving zero.** Emptying the box was read as the number zero, so the setting was saved with an explicit `0` override — which for values like a timeout or a limit means something quite different from "unset". An empty field now removes the override and lets the server's own default apply.
+
+- **The requests-per-second chart no longer overstates the rate when the live stream is down.** The rate was worked out by dividing the request count between two snapshots by a fixed two seconds, but the fallback used while the live stream is unavailable delivers snapshots every three seconds, inflating the reading by half. The chart now measures the actual time between snapshots, so it reads correctly in both modes.
+
 - **A visitor's first WebSocket frames are no longer dropped by the client.** The client registered the stream only after telling the server the backend had accepted the upgrade, but the server completes the visitor's handshake the moment it sees that answer and can forward frames straight away. Anything arriving in that gap belonged to a stream the client did not yet know about and was discarded, so a visitor that sends immediately on connect — which client libraries routinely do — could lose its opening message. Registration now happens before the acceptance is announced, matching what the raw TCP path already did.
 
 - **UDP tunnels honour `ip_family` and retry across every resolved server address.** The UDP bind path dialled the server directly instead of going through the shared connection logic used by the tunnel and TCP paths, so it ignored the configured address family and gave up after the first address it happened to pick. On a host where only one family reaches the server — a common IPv6-only or IPv4-only network — UDP binds failed while everything else connected normally.

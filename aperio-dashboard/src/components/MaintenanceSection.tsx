@@ -47,6 +47,8 @@ export function MaintenanceSection() {
     try {
       await api.setMaintenance(host, false)
       toast.info(t('Maintenance ended for {host}', { host }))
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : String(err))
     } finally {
       refresh()
     }

@@ -374,7 +374,15 @@ export function SettingsSection() {
             type="number"
             value={String(value ?? '')}
             onChange={(e) => {
-              const n = Number(e.target.value)
+              // Clearing the box means "no override", not zero. `Number('')`
+              // is 0, so an emptied field used to save a real 0 for the
+              // setting instead of falling back to the server's default.
+              const raw = e.target.value.trim()
+              if (raw === '') {
+                resetField(f.key)
+                return
+              }
+              const n = Number(raw)
               if (Number.isFinite(n)) setField(f.key, n)
             }}
           />
