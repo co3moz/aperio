@@ -26,7 +26,7 @@ use crate::routing::{
 };
 use crate::state::{
   AppState, ClientHandle, ClientPerms, ResponseStreamHandle, TcpConsumerMsg, TunnelResponse,
-  WsStreamMessage,
+  WsStreamMessage, spawn_consumer_pump,
 };
 
 /// Bind context captured for the autoscaling upsert: the hostnames this
@@ -59,15 +59,12 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
   };
   if let Some(chunk_tx) = chunk_tx {
     let len = bytes.len() as u64;
-    // Bounded send with timeout: if the public consumer stalls for too
-    // long, drop the stream instead of blocking the tunnel read loop.
-    let send_res = tokio::time::timeout(
-      state.config().gateway_response_timeout,
-      chunk_tx.send(Ok(crate::state::BodyFrame::Data(bytes))),
-    )
-    .await;
+    // Never block here: this runs on the read loop the whole tunnel shares.
+    // The stream's pump task absorbs a stalling consumer, and only once its
+    // queue is full too does the chunk fail and the stream go away.
+    let send_res = chunk_tx.try_send(Ok(crate::state::BodyFrame::Data(bytes)));
     match send_res {
-      Ok(Ok(())) => {
+      Ok(()) => {
         let mut stats = state.stats.lock().await;
         stats.total_bytes_transferred += len;
         drop(stats);
@@ -527,6 +524,11 @@ pub(crate) async fn handle_socket(
                 // ResponseChunk can race past an unregistered stream.
                 let (chunk_tx, chunk_rx) =
                   mpsc::channel::<Result<crate::state::BodyFrame, std::io::Error>>(32);
+                // The read loop feeds the pump, never the visitor's channel
+                // directly, so a visitor that stops reading cannot stall the
+                // other streams sharing this tunnel.
+                let chunk_tx =
+                  spawn_consumer_pump(chunk_tx, state.config().gateway_response_timeout);
                 state.response_streams.lock().await.insert(
                   id.clone(),
                   ResponseStreamHandle {
@@ -580,8 +582,7 @@ pub(crate) async fn handle_socket(
                 } else if let Some(trailers) = trailers {
                   let _ = handle
                     .tx
-                    .send(Ok(crate::state::BodyFrame::Trailers(trailers)))
-                    .await;
+                    .try_send(Ok(crate::state::BodyFrame::Trailers(trailers)));
                 }
               }
             }
@@ -599,12 +600,9 @@ pub(crate) async fn handle_socket(
                   );
                   state.response_streams.lock().await.insert(id, handle);
                 } else {
-                  let _ = handle
-                    .tx
-                    .send(Err(std::io::Error::other(
-                      "response aborted by client (size limit or backend error)",
-                    )))
-                    .await;
+                  let _ = handle.tx.try_send(Err(std::io::Error::other(
+                    "response aborted by client (size limit or backend error)",
+                  )));
                 }
               }
             }
@@ -627,7 +625,13 @@ pub(crate) async fn handle_socket(
                 use base64::prelude::*;
                 match BASE64_STANDARD.decode(&data) {
                   Ok(bytes) => {
-                    if consumer_tx.send(TcpConsumerMsg::Data(bytes)).await.is_err() {
+                    // Non-blocking, like the HTTP chunk path: the stream's
+                    // pump waits on a slow consumer so this loop does not.
+                    if consumer_tx.try_send(TcpConsumerMsg::Data(bytes)).is_err() {
+                      debug!(
+                        "Dropping TCP stream {} (consumer gone or stalled)",
+                        stream_id
+                      );
                       state.tcp_streams.lock().await.remove(&stream_id);
                     }
                   }
@@ -641,7 +645,7 @@ pub(crate) async fn handle_socket(
               let removed = state.tcp_streams.lock().await.remove(&stream_id);
               if let Some(h) = removed {
                 if h.client_id == client_id {
-                  let _ = h.tx.send(TcpConsumerMsg::Close).await;
+                  let _ = h.tx.try_send(TcpConsumerMsg::Close);
                 } else {
                   state.tcp_streams.lock().await.insert(stream_id, h);
                 }
@@ -686,7 +690,7 @@ pub(crate) async fn handle_socket(
               let removed = state.udp_streams.lock().await.remove(&stream_id);
               if let Some(h) = removed {
                 if h.client_id == client_id {
-                  let _ = h.tx.send(TcpConsumerMsg::Close).await;
+                  let _ = h.tx.try_send(TcpConsumerMsg::Close);
                 } else {
                   state.udp_streams.lock().await.insert(stream_id, h);
                 }
@@ -1285,14 +1289,9 @@ pub(crate) async fn handle_socket(
                     }
                   }
                 };
-                // Bounded send: drop the stream if the public consumer stalls,
-                // mirroring deliver_response_chunk.
-                let send_res = tokio::time::timeout(
-                  state.config().gateway_response_timeout,
-                  chunk_tx.send(WsStreamMessage::Data(ws_msg)),
-                )
-                .await;
-                if !matches!(send_res, Ok(Ok(()))) {
+                // Non-blocking, mirroring deliver_response_chunk: the stream's
+                // pump waits on a stalling consumer so this loop does not.
+                if chunk_tx.try_send(WsStreamMessage::Data(ws_msg)).is_err() {
                   debug!(
                     "Dropping WS stream {} (consumer gone or stalled)",
                     stream_id
@@ -1314,11 +1313,7 @@ pub(crate) async fn handle_socket(
                 }
               };
               if let Some(chunk_tx) = chunk_tx {
-                let _ = tokio::time::timeout(
-                  state.config().gateway_response_timeout,
-                  chunk_tx.send(WsStreamMessage::Close),
-                )
-                .await;
+                let _ = chunk_tx.try_send(WsStreamMessage::Close);
               }
             }
             _ => {}

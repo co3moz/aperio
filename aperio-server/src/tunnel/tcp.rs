@@ -397,6 +397,10 @@ async fn relay_tcp_consumer(
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
+  // The tunnel read loop feeds a pump rather than this channel: a consumer
+  // that stops reading must not stall the other streams on that tunnel.
+  let relay_tx =
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
   state.tcp_streams.lock().await.insert(
     stream_id.clone(),
     TcpStreamHandle {

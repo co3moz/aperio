@@ -964,6 +964,43 @@ impl RequestTimeline {
   }
 }
 
+/// Puts a forwarding task between the tunnel read loop and one public
+/// consumer, and returns the sender the read loop should hold.
+///
+/// A tunnel connection has a single read loop, shared by every request,
+/// upgrade and raw stream on it, so it must never wait on one consumer. A
+/// visitor that stops reading its download fills that stream's channel, and
+/// waiting there stalls the other visitors' responses, the TCP data and even
+/// the Ping handling of that whole tunnel; a stall outlasting
+/// `client_down_threshold` drops the client from routing and 504s visitors
+/// with nothing to do with it. The read loop therefore only ever `try_send`s
+/// into the returned queue, and this task does the waiting on its behalf,
+/// giving up on a consumer stalled beyond `stall_timeout`.
+///
+/// Backpressure is preserved: the queue is as deep as the consumer's own
+/// channel, and once both fill the read loop's `try_send` fails and the stream
+/// is dropped, which is what the blocking send's timeout used to do.
+pub(crate) fn spawn_consumer_pump<T: Send + 'static>(
+  out: mpsc::Sender<T>,
+  stall_timeout: Duration,
+) -> mpsc::Sender<T> {
+  let (feed_tx, mut feed_rx) = mpsc::channel::<T>(out.max_capacity());
+  tokio::spawn(async move {
+    while let Some(item) = feed_rx.recv().await {
+      // A stalled or vanished consumer ends the pump; dropping `feed_rx`
+      // closes the queue, so the read loop's next `try_send` reports the
+      // stream as gone and removes it.
+      if !matches!(
+        tokio::time::timeout(stall_timeout, out.send(item)).await,
+        Ok(Ok(()))
+      ) {
+        break;
+      }
+    }
+  });
+  feed_tx
+}
+
 /// Sender half of an in-flight streamed response body, kept so the tunnel
 /// read loop can push chunks and so disconnect cleanup can drop it.
 pub(crate) struct ResponseStreamHandle {

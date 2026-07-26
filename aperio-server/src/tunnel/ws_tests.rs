@@ -264,6 +264,43 @@ async fn deliver_chunk_consumer_gone_drops_stream() {
   assert!(!state.response_streams.lock().await.contains_key("r1"));
 }
 
+#[tokio::test]
+async fn stalled_consumer_never_blocks_the_read_loop() {
+  let state = Arc::new(test_state());
+  state
+    .clients
+    .lock()
+    .await
+    .insert("owner".into(), mock_client(None, None, None, None));
+
+  // A visitor that has stopped reading: the consumer channel is never drained,
+  // so both it and the pump's queue fill up.
+  let (tx, _held_rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(2);
+  let tx = crate::state::spawn_consumer_pump(tx, Duration::from_secs(30));
+  state.response_streams.lock().await.insert(
+    "r1".into(),
+    ResponseStreamHandle {
+      tx,
+      client_id: "owner".into(),
+    },
+  );
+
+  // Every chunk must be handled promptly regardless. Before the pump, the
+  // read loop waited here for gateway_response_timeout once the channel
+  // filled, stalling every other stream on the same tunnel.
+  for _ in 0..10 {
+    tokio::time::timeout(
+      Duration::from_secs(5),
+      deliver_response_chunk(&state, "owner", "r1", vec![1, 2, 3]),
+    )
+    .await
+    .expect("a stalled visitor must not block the tunnel read loop");
+  }
+
+  // The overflowing stream is the only casualty: it gets dropped.
+  assert!(!state.response_streams.lock().await.contains_key("r1"));
+}
+
 // --- Response / ResponseStart / ResponseChunk / ResponseEnd -----------------
 
 #[tokio::test]

@@ -438,6 +438,10 @@ async fn relay_ws_stream(
 
   // Channel for relaying frames from tunnel → public WS
   let (relay_tx, mut relay_rx) = mpsc::channel::<WsStreamMessage>(64);
+  // The tunnel read loop feeds a pump rather than this channel: a visitor that
+  // stops reading must not stall the other streams on that tunnel.
+  let relay_tx =
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
 
   // Register the relay channel so handle_socket can push WsData frames to us,
   // tagged with the serving client's id for ownership verification.
