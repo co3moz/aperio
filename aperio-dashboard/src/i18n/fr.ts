@@ -163,7 +163,6 @@ export const fr: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     'En-tête consulté en premier pour l’IP du visiteur (derrière des chaînes CDN)',
   Hostname: 'Hostname',
-  'Hostname bind': 'Liaison hostname',
   'Hostname bind (optional)': 'Liaison hostname (facultatif)',
   Hostnames: 'Hostnames',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -477,8 +476,6 @@ export const fr: Record<string, string> = {
   'Switch to dark theme': 'Passer au thème sombre',
   'Switch to light theme': 'Passer au thème clair',
   System: 'Système',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'Liaisons temporaires pour cette connexion. Les champs vides retirent la surcharge ; rien ne persiste après reconnexion.',
   'Temporary override (not persisted)': 'Surcharge temporaire (non persistée)',
   'Temporary visitor access': 'Accès visiteur temporaire',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -682,4 +679,12 @@ export const fr: Record<string, string> = {
   'draining': 'en vidange',
   'cache off': 'cache désactivé',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Ce service a activé la mise en cache (cache: true) mais le cache de réponses du serveur est désactivé (APERIO_CACHE off), donc l’option est sans effet — activez le cache du serveur ou retirez le drapeau.',
+  'Add hostname': 'Ajouter un hostname',
+  'Hostname binds': 'Liaisons hostname',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    "Liaisons temporaires pour cette connexion : tant qu'elles sont définies, seuls ces hostnames y sont routés. Modifiez la ligne à déplacer et laissez les autres telles quelles ; les lignes vides sont ignorées, et toutes les vider supprime la surcharge. Rien n'est conservé après une reconnexion.",
+  'declared by the client': 'déclaré par le client',
+  'granted by the token': 'accordé par le token',
+  'random subdomain, assigned by the server': 'sous-domaine aléatoire, attribué par le serveur',
+  '{count} more hostname(s) routed here': '{count} hostname(s) de plus routés ici',
 }

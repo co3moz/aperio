@@ -161,7 +161,6 @@ export const ja: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     '訪問者IPの解決で最初に参照されるヘッダー（CDNチェーンの背後）',
   Hostname: 'ホスト名',
-  'Hostname bind': 'ホスト名バインド',
   'Hostname bind (optional)': 'ホスト名バインド（任意）',
   Hostnames: 'ホスト名',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -475,8 +474,6 @@ export const ja: Record<string, string> = {
   'Switch to dark theme': 'ダークテーマに切り替え',
   'Switch to light theme': 'ライトテーマに切り替え',
   System: 'システム',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'この接続の一時バインドです。空欄はオーバーライドを解除します。再接続後には何も残りません。',
   'Temporary override (not persisted)': '一時オーバーライド（永続化されません）',
   'Temporary visitor access': '一時的な訪問者アクセス',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -680,4 +677,12 @@ export const ja: Record<string, string> = {
   'draining': 'ドレイン中',
   'cache off': 'キャッシュ無効',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
+  'Add hostname': 'ホスト名を追加',
+  'Hostname binds': 'ホスト名バインド',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    'この接続の一時バインド。設定中はこれらのホスト名だけがここにルーティングされます。移したい行だけを編集し、ほかはそのままにしてください。空の行は破棄され、すべて空にするとオーバーライドが解除されます。再接続後は保持されません。',
+  'declared by the client': 'クライアントが宣言',
+  'granted by the token': 'トークンが付与',
+  'random subdomain, assigned by the server': 'ランダムなサブドメイン（サーバーが割り当て）',
+  '{count} more hostname(s) routed here': 'ほかに {count} 件のホスト名がここにルーティング',
 }

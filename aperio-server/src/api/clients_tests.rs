@@ -323,7 +323,17 @@ async fn history_rejects_bad_unit_and_range() {
 fn override_req(hostname: Option<&str>, path: Option<&str>) -> Json<ClientOverrideRequest> {
   Json(ClientOverrideRequest {
     hostname_bind: hostname.map(|s| s.to_string()),
+    hostname_binds: None,
     path_bind: path.map(|s| s.to_string()),
+  })
+}
+
+/// The list form of the payload, as the dashboard's overrule dialog sends it.
+fn override_list_req(hostnames: &[&str]) -> Json<ClientOverrideRequest> {
+  Json(ClientOverrideRequest {
+    hostname_bind: None,
+    hostname_binds: Some(hostnames.iter().map(|s| s.to_string()).collect()),
+    path_bind: None,
   })
 }
 
@@ -361,7 +371,10 @@ async fn override_set_then_clear() {
   {
     let clients = state.clients.lock().await;
     let h = clients.get("c1").unwrap();
-    assert_eq!(h.override_hostname_bind.as_deref(), Some("new.example.com"));
+    assert_eq!(
+      h.override_hostname_binds,
+      vec!["new.example.com".to_string()]
+    );
     assert_eq!(h.override_path_bind.as_deref(), Some("/api/v2"));
   }
 
@@ -378,9 +391,74 @@ async fn override_set_then_clear() {
   {
     let clients = state.clients.lock().await;
     let h = clients.get("c1").unwrap();
-    assert!(h.override_hostname_bind.is_none());
+    assert!(h.override_hostname_binds.is_empty());
     assert!(h.override_path_bind.is_none());
   }
+}
+
+#[tokio::test]
+async fn override_accepts_a_list_of_hostnames() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |_| {}).await;
+  let headers = admin_headers(&state).await;
+
+  // The dashboard sends one entry per bind row, so an operator can retarget
+  // the name the client declared while keeping the random subdomain. Entries
+  // are normalized, blanks dropped, and duplicates collapsed.
+  let resp = client_override_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    override_list_req(&[
+      "New.Example.com",
+      "",
+      "wild-fox.tunnel.example.com",
+      "new.example.com",
+    ]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    state.clients.lock().await["c1"].override_hostname_binds,
+    vec![
+      "new.example.com".to_string(),
+      "wild-fox.tunnel.example.com".to_string()
+    ]
+  );
+
+  // One invalid entry rejects the whole list, leaving the override untouched.
+  let resp = client_override_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    override_list_req(&["ok.example.com", "bad host"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  assert_eq!(
+    state.clients.lock().await["c1"]
+      .override_hostname_binds
+      .len(),
+    2
+  );
+
+  // An empty list clears it, the same as an empty string in the single form.
+  let resp = client_override_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    ConnectInfo(test_peer()),
+    headers,
+    override_list_req(&[]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(
+    state.clients.lock().await["c1"]
+      .override_hostname_binds
+      .is_empty()
+  );
 }
 
 #[tokio::test]
@@ -434,7 +512,13 @@ async fn override_cross_org_client_is_404() {
   );
   // The override must not have been applied.
   let clients = state.clients.lock().await;
-  assert!(clients.get("c1").unwrap().override_hostname_bind.is_none());
+  assert!(
+    clients
+      .get("c1")
+      .unwrap()
+      .override_hostname_binds
+      .is_empty()
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -593,8 +677,8 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   assert!(
     state.clients.lock().await["c1"]
-      .override_hostname_bind
-      .is_none()
+      .override_hostname_binds
+      .is_empty()
   );
 
   // Inside the fence it applies as before.
@@ -608,9 +692,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(
-    state.clients.lock().await["c1"]
-      .override_hostname_bind
-      .as_deref(),
-    Some("app.acme.com")
+    state.clients.lock().await["c1"].override_hostname_binds,
+    vec!["app.acme.com".to_string()]
   );
 }

@@ -159,7 +159,6 @@ export const zh: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     '优先用于解析访客 IP 的请求头（位于 CDN 链后）',
   Hostname: '主机名',
-  'Hostname bind': '主机名绑定',
   'Hostname bind (optional)': '主机名绑定（可选）',
   Hostnames: '主机名',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -463,8 +462,6 @@ export const zh: Record<string, string> = {
   'Switch to dark theme': '切换到深色主题',
   'Switch to light theme': '切换到浅色主题',
   System: '系统',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    '此连接的临时绑定。留空字段将清除覆盖；重连后不保留任何内容。',
   'Temporary override (not persisted)': '临时覆盖（不持久化）',
   'Temporary visitor access': '临时访客访问',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -663,4 +660,12 @@ export const zh: Record<string, string> = {
   'draining': '排空中',
   'cache off': '缓存关闭',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': '此服务启用了缓存（cache: true），但服务器响应缓存已禁用（APERIO_CACHE off），因此该选项无效——请启用服务器缓存或移除该标志。',
+  'Add hostname': '添加主机名',
+  'Hostname binds': '主机名绑定',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    '此连接的临时绑定：设置后，仅这些主机名会路由到这里。编辑要迁移的那一行，其余保持不变；空行会被丢弃，全部清空则移除覆盖。重连后不保留任何内容。',
+  'declared by the client': '由客户端声明',
+  'granted by the token': '由令牌授予',
+  'random subdomain, assigned by the server': '随机子域名，由服务器分配',
+  '{count} more hostname(s) routed here': '另有 {count} 个主机名路由到这里',
 }

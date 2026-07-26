@@ -243,7 +243,10 @@ pub(crate) fn mock_client(
     assigned_hostnames: Vec::new(),
     random_hostname: None,
     override_path_bind: override_path.map(|s| s.to_string()),
-    override_hostname_bind: override_hostname.map(|s| s.to_string()),
+    override_hostname_binds: override_hostname
+      .map(|s| s.to_string())
+      .into_iter()
+      .collect(),
     last_ping_at: None,
     perms: ClientPerms::master(),
     max_concurrent: None,

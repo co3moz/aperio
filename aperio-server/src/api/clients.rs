@@ -79,7 +79,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       token_name: handle.perms.token_name.clone(),
       org_id: handle.perms.org_id.clone(),
       override_path_bind: handle.override_path_bind.clone(),
-      override_hostname_bind: handle.override_hostname_bind.clone(),
+      override_hostname_binds: handle.override_hostname_binds.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: handle.max_concurrent,
       version: handle.client_version.clone(),
@@ -483,12 +483,18 @@ pub(crate) async fn live_stream_handler(
 }
 
 /// Request payload for the dashboard client override (overrule) endpoint.
-/// Each field fully replaces the corresponding override: a non-empty string
-/// sets it, an empty string or `null` clears it. Overrides are in-memory only
-/// and disappear when the client reconnects or the server restarts.
+/// Each field fully replaces the corresponding override: a non-empty value
+/// sets it, an empty string/list or `null` clears it. Overrides are in-memory
+/// only and disappear when the client reconnects or the server restarts.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct ClientOverrideRequest {
+  /// Single hostname to route this connection on, replacing every declared and
+  /// assigned name. Superseded by `hostname_binds` when both are present.
   pub(crate) hostname_bind: Option<String>,
+  /// Hostnames to route this connection on, replacing every declared and
+  /// assigned name. Lets an operator retarget one of a client's names while
+  /// keeping the others (blank entries are dropped).
+  pub(crate) hostname_binds: Option<Vec<String>>,
   pub(crate) path_bind: Option<String>,
 }
 
@@ -514,16 +520,26 @@ pub(crate) async fn client_override_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
-  // Validate before mutating: reject invalid values with 400.
-  let new_hostname = match payload.hostname_bind.as_deref() {
-    None | Some("") => None,
-    Some(raw) => match normalize_hostname_bind(raw) {
-      Some(h) => Some(h),
+  // Validate before mutating: reject invalid values with 400. `hostname_binds`
+  // wins when both forms are sent; the singular form stays accepted so older
+  // callers (and `aperio-client api client override`) keep working.
+  let raw_hostnames: Vec<String> = match payload.hostname_binds {
+    Some(ref list) => list.clone(),
+    None => payload.hostname_bind.clone().into_iter().collect(),
+  };
+  let mut new_hostnames: Vec<String> = Vec::new();
+  for raw in raw_hostnames.iter().filter(|r| !r.trim().is_empty()) {
+    match normalize_hostname_bind(raw) {
+      Some(h) => {
+        if !new_hostnames.contains(&h) {
+          new_hostnames.push(h);
+        }
+      }
       None => {
         return (StatusCode::BAD_REQUEST, "Invalid hostname_bind value").into_response();
       }
-    },
-  };
+    }
+  }
   let new_path = match payload.path_bind.as_deref() {
     None | Some("") => None,
     Some(raw) => match normalize_path_bind(raw) {
@@ -541,25 +557,27 @@ pub(crate) async fn client_override_handler(
   // Organization fence: an overrule is the one place a bind is set without a
   // token permission behind it, so a fenced org must not be able to point one
   // of its clients at a hostname it does not own.
-  if let Some(ref host) = new_hostname {
+  if !new_hostnames.is_empty() {
     let allowlist = state.org_store.lock().await.hostnames_of(org.as_deref());
-    if !crate::store::orgs::hostname_in_org_allowlist(host, &allowlist) {
-      return (
-        StatusCode::FORBIDDEN,
-        format!(
-          "hostname {} is outside this organization's allowlist ({})",
-          host,
-          allowlist.join(", ")
-        ),
-      )
-        .into_response();
+    for host in &new_hostnames {
+      if !crate::store::orgs::hostname_in_org_allowlist(host, &allowlist) {
+        return (
+          StatusCode::FORBIDDEN,
+          format!(
+            "hostname {} is outside this organization's allowlist ({})",
+            host,
+            allowlist.join(", ")
+          ),
+        )
+          .into_response();
+      }
     }
   }
   let found = {
     let mut clients = state.clients.lock().await;
     match clients.get_mut(&client_id) {
       Some(handle) if handle.perms.org_id == org => {
-        handle.override_hostname_bind = new_hostname.clone();
+        handle.override_hostname_binds = new_hostnames.clone();
         handle.override_path_bind = new_path.clone();
         true
       }
@@ -569,7 +587,7 @@ pub(crate) async fn client_override_handler(
   if found {
     info!(
       "Dashboard overrule applied to client {}: hostname_bind={:?} path_bind={:?}",
-      client_id, new_hostname, new_path
+      client_id, new_hostnames, new_path
     );
     state
       .audit_session(
@@ -578,7 +596,7 @@ pub(crate) async fn client_override_handler(
         &actor_ip,
         &format!(
           "client={} hostname={:?} path={:?}",
-          client_id, new_hostname, new_path
+          client_id, new_hostnames, new_path
         ),
       )
       .await;

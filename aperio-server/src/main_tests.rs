@@ -537,7 +537,7 @@ async fn test_proxy_handler_success() {
       assigned_hostnames: Vec::new(),
       random_hostname: None,
       override_path_bind: None,
-      override_hostname_bind: None,
+      override_hostname_binds: Vec::new(),
       last_ping_at: None,
       perms: ClientPerms::master(),
       max_concurrent: None,
@@ -837,7 +837,10 @@ fn mock_client(
     assigned_hostnames: Vec::new(),
     random_hostname: None,
     override_path_bind: override_path.map(|s| s.to_string()),
-    override_hostname_bind: override_hostname.map(|s| s.to_string()),
+    override_hostname_binds: override_hostname
+      .map(|s| s.to_string())
+      .into_iter()
+      .collect(),
     last_ping_at: None,
     perms: ClientPerms::master(),
     max_concurrent: None,

@@ -163,7 +163,6 @@ export const tr: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     "Ziyaretçi IP'si için önce bakılan başlık (CDN zincirleri arkasında)",
   Hostname: 'Alan Adı',
-  'Hostname bind': 'Alan adı bağlama',
   'Hostname bind (optional)': 'Alan adı bağlama (isteğe bağlı)',
   Hostnames: 'Alan Adları',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -477,8 +476,6 @@ export const tr: Record<string, string> = {
   'Switch to dark theme': 'Koyu temaya geç',
   'Switch to light theme': 'Açık temaya geç',
   System: 'Sistem',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'Bu bağlantı için geçici bağlamalar. Boş alanlar geçersiz kılmayı temizler; hiçbir şey yeniden bağlantılarda kalıcı olmaz.',
   'Temporary override (not persisted)': 'Geçici geçersiz kılma (kalıcı değil)',
   'Temporary visitor access': 'Geçici ziyaretçi erişimi',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -686,4 +683,12 @@ export const tr: Record<string, string> = {
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok — sunucu önbelleğini aç veya bayrağı kaldır.',
+  'Add hostname': 'Alan adı ekle',
+  'Hostname binds': 'Alan adı bağlamaları',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    'Bu bağlantı için geçici bağlamalar: ayarlıyken buraya yalnızca bu alan adları yönlenir. Taşımak istediğiniz satırı düzenleyin, diğerlerini olduğu gibi bırakın; boş satırlar atılır, hepsini boşaltmak geçersiz kılmayı temizler. Yeniden bağlantılarda hiçbir şey kalıcı olmaz.',
+  'declared by the client': 'istemcinin kendi tanımladığı',
+  'granted by the token': "token'ın verdiği",
+  'random subdomain, assigned by the server': 'rastgele alt alan adı, sunucunun atadığı',
+  '{count} more hostname(s) routed here': 'buraya yönlenen {count} alan adı daha',
 }

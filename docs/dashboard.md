@@ -19,7 +19,7 @@ The *Hostname* column shows one name, the one the client asked for itself, since
 - **Enable/Disable kill switch**, a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
 
 Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving, backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only, time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
-- **Overrule**, temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it.
+- **Overrule**, temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it. The dialog opens with one row per hostname the connection currently answers on, the ones the client declared first, then the random subdomain on its own row, each labeled with where it came from. Editing a single row moves only that name, so retargeting the hostname the client configured leaves the random subdomain routing as it was, and emptying every row clears the override.
 
 ## Live traffic table
 

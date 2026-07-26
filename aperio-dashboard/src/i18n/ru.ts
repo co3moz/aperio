@@ -163,7 +163,6 @@ export const ru: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     'Заголовок, проверяемый первым для IP посетителя (за цепочками CDN)',
   Hostname: 'Хост',
-  'Hostname bind': 'Привязка хоста',
   'Hostname bind (optional)': 'Привязка хоста (необязательно)',
   Hostnames: 'Хосты',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -477,8 +476,6 @@ export const ru: Record<string, string> = {
   'Switch to dark theme': 'Переключиться на тёмную тему',
   'Switch to light theme': 'Переключиться на светлую тему',
   System: 'Система',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'Временные привязки для этого подключения. Пустые поля снимают переопределение; ничего не сохраняется между переподключениями.',
   'Temporary override (not persisted)': 'Временное переопределение (не сохраняется)',
   'Temporary visitor access': 'Временный доступ посетителей',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -682,4 +679,12 @@ export const ru: Record<string, string> = {
   'draining': 'завершает работу',
   'cache off': 'кэш выкл',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует — включите кэш сервера или уберите флаг.',
+  'Add hostname': 'Добавить хост',
+  'Hostname binds': 'Привязки хостов',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    'Временные привязки для этого соединения: пока они заданы, сюда маршрутизируются только эти хосты. Измените нужную строку, остальные оставьте как есть; пустые строки отбрасываются, а очистка всех снимает переопределение. Ничего не сохраняется после переподключения.',
+  'declared by the client': 'объявлено клиентом',
+  'granted by the token': 'предоставлено токеном',
+  'random subdomain, assigned by the server': 'случайный поддомен, выданный сервером',
+  '{count} more hostname(s) routed here': 'ещё {count} хост(ов) маршрутизируется сюда',
 }

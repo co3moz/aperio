@@ -58,8 +58,10 @@ pub(crate) struct ClientDetail {
   pub(crate) org_id: Option<String>,
   /// Temporary server-side path bind override (dashboard overrule).
   pub(crate) override_path_bind: Option<String>,
-  /// Temporary server-side hostname bind override (dashboard overrule).
-  pub(crate) override_hostname_bind: Option<String>,
+  /// Temporary server-side hostname binds (dashboard overrule). Empty = none;
+  /// otherwise this list is what the connection is routed on, in place of
+  /// every declared and assigned name.
+  pub(crate) override_hostname_binds: Vec<String>,
   /// Seconds elapsed since the last heartbeat Ping was received.
   pub(crate) last_ping_seconds_ago: Option<u64>,
   /// Concurrency limit announced by the client (None = unlimited).
@@ -572,8 +574,12 @@ pub(crate) struct ClientHandle {
   /// Temporary path bind override set from the dashboard. Not persisted:
   /// lost when the client reconnects or the server restarts.
   pub(crate) override_path_bind: Option<String>,
-  /// Temporary hostname bind override set from the dashboard. Not persisted.
-  pub(crate) override_hostname_bind: Option<String>,
+  /// Temporary hostname binds set from the dashboard, replacing every declared
+  /// and assigned name while set. A list rather than a single name so an
+  /// operator can retarget the hostname the client declared without dropping
+  /// the random subdomain the server handed it (or the other way round). Not
+  /// persisted: lost when the client reconnects or the server restarts.
+  pub(crate) override_hostname_binds: Vec<String>,
   /// Instant of the last heartbeat Ping received from this client.
   pub(crate) last_ping_at: Option<Instant>,
   /// Permissions attached to the token this client authenticated with.
@@ -808,8 +814,8 @@ impl ClientHandle {
   /// Hostnames used for routing. A dashboard override replaces the whole
   /// set; otherwise the union of assigned and declared hostnames applies.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if let Some(o) = &self.override_hostname_bind {
-      return vec![o];
+    if !self.override_hostname_binds.is_empty() {
+      return self.override_hostname_binds.iter().collect();
     }
     let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
     if let Some(d) = &self.declared_hostname

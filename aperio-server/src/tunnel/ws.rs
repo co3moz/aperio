@@ -327,7 +327,7 @@ pub(crate) async fn handle_socket(
         assigned_hostnames,
         random_hostname: random_hostname.clone(),
         override_path_bind: None,
-        override_hostname_bind: None,
+        override_hostname_binds: Vec::new(),
         last_ping_at: None,
         perms: perms.clone(),
         max_concurrent: None,

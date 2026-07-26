@@ -163,7 +163,6 @@ export const de: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     'Header, der zuerst für die Besucher-IP herangezogen wird (hinter CDN-Ketten)',
   Hostname: 'Hostname',
-  'Hostname bind': 'Hostname-Binding',
   'Hostname bind (optional)': 'Hostname-Binding (optional)',
   Hostnames: 'Hostnames',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -479,8 +478,6 @@ export const de: Record<string, string> = {
   'Switch to dark theme': 'Zum dunklen Design wechseln',
   'Switch to light theme': 'Zum hellen Design wechseln',
   System: 'System',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'Temporäre Bindings für diese Verbindung. Leere Felder entfernen den Override; nichts überlebt eine Neuverbindung.',
   'Temporary override (not persisted)': 'Temporärer Override (nicht persistiert)',
   'Temporary visitor access': 'Befristeter Besucherzugriff',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -684,4 +681,12 @@ export const de: Record<string, string> = {
   'draining': 'wird geleert',
   'cache off': 'Cache aus',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
+  'Add hostname': 'Hostname hinzufügen',
+  'Hostname binds': 'Hostname-Bindings',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    'Temporäre Bindings für diese Verbindung: solange gesetzt, werden nur diese Hostnamen hierher geroutet. Bearbeiten Sie die Zeile, die Sie verschieben wollen, und lassen Sie die übrigen unverändert; leere Zeilen entfallen, das Leeren aller Zeilen hebt den Override auf. Nichts wird über Reconnects hinweg gespeichert.',
+  'declared by the client': 'vom Client deklariert',
+  'granted by the token': 'vom Token gewährt',
+  'random subdomain, assigned by the server': 'zufällige Subdomain, vom Server vergeben',
+  '{count} more hostname(s) routed here': '{count} weitere Hostname(s) hierher geroutet',
 }

@@ -163,7 +163,6 @@ export const es: Record<string, string> = {
   'Header consulted first for the visitor IP (behind CDN chains)':
     'Cabecera consultada primero para la IP del visitante (tras cadenas CDN)',
   Hostname: 'Hostname',
-  'Hostname bind': 'Vínculo de hostname',
   'Hostname bind (optional)': 'Vínculo de hostname (opcional)',
   Hostnames: 'Hostnames',
   'How many clients may connect, how much runs at once, and when a client counts as down.':
@@ -477,8 +476,6 @@ export const es: Record<string, string> = {
   'Switch to dark theme': 'Cambiar a tema oscuro',
   'Switch to light theme': 'Cambiar a tema claro',
   System: 'Sistema',
-  'Temporary binds for this connection. Empty fields clear the override; nothing is persisted across reconnects.':
-    'Vínculos temporales para esta conexión. Los campos vacíos eliminan el override; nada persiste entre reconexiones.',
   'Temporary override (not persisted)': 'Override temporal (no persistido)',
   'Temporary visitor access': 'Acceso temporal de visitantes',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
@@ -682,4 +679,12 @@ export const es: Record<string, string> = {
   'draining': 'drenando',
   'cache off': 'caché desactivada',
   'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Este servicio activó la caché (cache: true) pero la caché de respuestas del servidor está desactivada (APERIO_CACHE off), así que la opción no tiene efecto: habilita la caché del servidor o quita el flag.',
+  'Add hostname': 'Añadir hostname',
+  'Hostname binds': 'Vínculos de hostname',
+  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
+    'Vínculos temporales para esta conexión: mientras estén definidos, solo estos hostnames se enrutan aquí. Edite la fila que quiera mover y deje las demás como están; las filas vacías se descartan y vaciarlas todas borra el override. Nada se conserva entre reconexiones.',
+  'declared by the client': 'declarado por el cliente',
+  'granted by the token': 'concedido por el token',
+  'random subdomain, assigned by the server': 'subdominio aleatorio, asignado por el servidor',
+  '{count} more hostname(s) routed here': '{count} hostname(s) más enrutados aquí',
 }

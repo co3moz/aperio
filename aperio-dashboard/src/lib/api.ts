@@ -37,7 +37,9 @@ export interface ClientDetail {
   random_hostname: string | null
   token_name: string | null
   override_path_bind: string | null
-  override_hostname_bind: string | null
+  /** Temporary dashboard overrule: while non-empty these replace every
+   *  declared and assigned hostname for routing. */
+  override_hostname_binds: string[]
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
@@ -586,10 +588,10 @@ export const api = {
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),
-  overrideClient: (id: string, hostnameBind: string, pathBind: string) =>
+  overrideClient: (id: string, hostnameBinds: string[], pathBind: string) =>
     mutate(
       `/clients/${encodeURIComponent(id)}/override`,
-      json('POST', { hostname_bind: hostnameBind, path_bind: pathBind }),
+      json('POST', { hostname_binds: hostnameBinds, path_bind: pathBind }),
     ),
   setClientEnabled: (id: string, enabled: boolean) =>
     mutate(`/clients/${encodeURIComponent(id)}/enabled`, json('POST', { enabled })),

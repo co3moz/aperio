@@ -25,7 +25,7 @@ fn base_handle() -> ClientHandle {
     assigned_hostnames: Vec::new(),
     random_hostname: None,
     override_path_bind: None,
-    override_hostname_bind: None,
+    override_hostname_binds: Vec::new(),
     last_ping_at: None,
     perms: ClientPerms::master(),
     max_concurrent: None,
@@ -618,9 +618,16 @@ fn matches_host_uses_override_then_union() {
   assert!(!h.matches_host("c.example.com"));
 
   // An override replaces the whole set.
-  h.override_hostname_bind = Some("c.example.com".to_string());
+  h.override_hostname_binds = vec!["c.example.com".to_string()];
   assert!(h.matches_host("c.example.com"));
   assert!(!h.matches_host("a.example.com"));
+
+  // Several overridden names all route: an operator retargeting the hostname
+  // the client declared can keep the random subdomain alive alongside it.
+  h.override_hostname_binds = vec!["c.example.com".to_string(), "a.example.com".to_string()];
+  assert!(h.matches_host("c.example.com"));
+  assert!(h.matches_host("a.example.com"));
+  assert!(!h.matches_host("b.example.com"));
 }
 
 #[test]
