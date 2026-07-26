@@ -170,6 +170,7 @@ async fn main() {
   // directory seen before reuses its server, a new one gets a fresh server.
   let mut serve_started: std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)> =
     std::collections::HashMap::new();
+  // Nothing is running yet at startup, so there is nothing to retire.
   if let Err(e) = apply_serve_mode(&mut settings, &mut serve_started).await {
     error!("{}", e);
     std::process::exit(1);
@@ -318,13 +319,16 @@ async fn main() {
             continue;
           }
         };
-        if let Err(e) = apply_serve_mode(&mut s, &mut serve_started).await {
-          warn!(
-            "Config reload from {} produced an invalid configuration ({}); keeping previous",
-            config_path, e
-          );
-          continue;
-        }
+        let serve_needed = match apply_serve_mode(&mut s, &mut serve_started).await {
+          Ok(needed) => needed,
+          Err(e) => {
+            warn!(
+              "Config reload from {} produced an invalid configuration ({}); keeping previous",
+              config_path, e
+            );
+            continue;
+          }
+        };
         match build_specs(&s, &client_id, cli.target.is_some()) {
           Ok(new_specs) => {
             for (cancel_tx, _) in &running {
@@ -334,6 +338,9 @@ async fn main() {
               let _ = task.await;
             }
             specs = new_specs;
+            // The new configuration is adopted, so listeners it dropped are
+            // now genuinely unused.
+            retire_unused_serve_listeners(&serve_needed, &mut serve_started);
             info!(
               "Configuration reloaded from {} ({} service(s))",
               config_path,
@@ -402,10 +409,11 @@ fn spawn_services(
 async fn apply_serve_mode(
   settings: &mut ClientSettings,
   started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
-) -> Result<(), String> {
-  // Directories the (possibly reloaded) config still serves; any running
-  // listener not in this set is aborted at the end so a reload that drops a
-  // `serve:` directory does not leak its accept loop.
+) -> Result<std::collections::HashSet<String>, String> {
+  // Directories the (possibly reloaded) config serves. Returned rather than
+  // acted on here: listeners the new config drops may only be retired once
+  // that config has been fully validated and adopted, since until then the
+  // services still running are the old ones, pointing at these very ports.
   let mut needed: std::collections::HashSet<String> = std::collections::HashSet::new();
   if let Some(dir) = settings.serve.clone() {
     if settings.target.is_some() || settings.tcp_target.is_some() {
@@ -445,7 +453,20 @@ async fn apply_serve_mode(
     needed.insert(dir.clone());
     entry.target = Some(format!("http://127.0.0.1:{}", port));
   }
-  // Stop listeners for directories the new config no longer serves.
+  Ok(needed)
+}
+
+/// Stops the static-file listeners no longer named by the adopted config.
+///
+/// Only safe once the new configuration is live. Doing it as part of
+/// [`apply_serve_mode`] meant a reload that failed validation afterwards had
+/// already closed the loopback servers the still-running services point at, so
+/// the client kept the previous configuration in name only and answered every
+/// visitor request with a 502.
+fn retire_unused_serve_listeners(
+  needed: &std::collections::HashSet<String>,
+  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
+) {
   started.retain(|dir, (_, handle)| {
     if needed.contains(dir) {
       true
@@ -458,7 +479,6 @@ async fn apply_serve_mode(
       false
     }
   });
-  Ok(())
 }
 
 /// Returns the loopback port serving `dir`, starting the static server on

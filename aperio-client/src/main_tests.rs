@@ -349,6 +349,63 @@ async fn test_apply_serve_mode_per_service() {
 }
 
 #[tokio::test]
+async fn test_apply_serve_mode_defers_listener_teardown() {
+  let root = std::env::temp_dir().join(format!("aperio-serve-defer-{}", uuid::Uuid::new_v4()));
+  let dir_a = root.join("a");
+  let dir_b = root.join("b");
+  std::fs::create_dir_all(&dir_a).unwrap();
+  std::fs::create_dir_all(&dir_b).unwrap();
+  let (dir_a, dir_b) = (
+    dir_a.to_string_lossy().into_owned(),
+    dir_b.to_string_lossy().into_owned(),
+  );
+
+  let mut settings = base_settings();
+  settings.target = None;
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("a".to_string()),
+      serve: Some(dir_a.clone()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("b".to_string()),
+      serve: Some(dir_b.clone()),
+      ..Default::default()
+    },
+  ];
+  let mut started = std::collections::HashMap::new();
+  apply_serve_mode(&mut settings, &mut started).await.unwrap();
+  assert_eq!(started.len(), 2);
+
+  // A reload that drops directory b. apply_serve_mode must NOT close b's
+  // listener yet: the services still running were built from the previous
+  // config and are pointing at it, and this reload may still fail validation.
+  let mut reloaded = base_settings();
+  reloaded.target = None;
+  reloaded.services = vec![ServiceEntry {
+    name: Some("a".to_string()),
+    serve: Some(dir_a.clone()),
+    ..Default::default()
+  }];
+  let needed = apply_serve_mode(&mut reloaded, &mut started).await.unwrap();
+  assert_eq!(
+    started.len(),
+    2,
+    "listeners must survive until the new config is adopted"
+  );
+  assert!(needed.contains(&dir_a));
+  assert!(!needed.contains(&dir_b));
+
+  // Only once the caller adopts the new config is b's listener retired.
+  retire_unused_serve_listeners(&needed, &mut started);
+  assert_eq!(started.len(), 1);
+  assert!(started.contains_key(&dir_a));
+
+  let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn test_apply_serve_mode_conflicts() {
   // A services: entry cannot combine serve with a backend target.
   let mut settings = base_settings();
