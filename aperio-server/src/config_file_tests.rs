@@ -205,6 +205,89 @@ fn load_flattens_grouped_blocks_into_env_vars() {
 }
 
 #[test]
+fn load_gives_the_block_precedence_over_flat_keys() {
+  let _g = CfgGuard::lock();
+  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  for name in ["APERIO_CACHE_MAX_BYTES", "APERIO_FAILOVER_WINDOW"] {
+    unsafe { std::env::remove_var(name) };
+  }
+  // The same setting spelled both ways, with the flat key once before and
+  // once after its block: the block must win per field either way, as the
+  // documentation promises, not whichever spelling happens to come last.
+  std::fs::write(
+    &file,
+    concat!(
+      "cache:\n  max_bytes: 2048\n",
+      "cache_max_bytes: 1\n",
+      "failover_window: 99\n",
+      "failover:\n  window: 30\n",
+    ),
+  )
+  .unwrap();
+  set_config_env(&file);
+  load();
+
+  assert_eq!(std::env::var("APERIO_CACHE_MAX_BYTES").unwrap(), "2048");
+  assert_eq!(std::env::var("APERIO_FAILOVER_WINDOW").unwrap(), "30");
+
+  let _ = std::fs::remove_file(&file);
+}
+
+#[test]
+fn grouped_blocks_survive_into_the_hot_reload_layer() {
+  let _g = CfgGuard::lock();
+  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  // A document mixing flat keys, grouped blocks and a structured section:
+  // the hot-reload settings layer must see all of the live-editable values.
+  // Deserializing the raw document instead of the flattened one failed on
+  // the `cache:`/`failover:` blocks (typed as scalars in the settings
+  // struct) and silently dropped the whole file layer, so nothing in such a
+  // file could be hot-reloaded any more.
+  std::fs::write(
+    &file,
+    concat!(
+      "max_body_size: 4242\n",
+      "cache:\n  enabled: true\n  max_bytes: 1024\n  max_stale: 60\n",
+      "failover:\n  mode: retry\n  window: 30\n",
+      "login_lockout:\n  threshold: 9\n",
+      "server:\n  auth: \"u:p\"\n",
+      "headers:\n  request:\n    add:\n      X-A: b\n",
+    ),
+  )
+  .unwrap();
+  set_config_env(&file);
+  load();
+
+  let flat = flattened_document().unwrap();
+  let key = |k: &str| serde_yaml::Value::String(k.to_string());
+  assert_eq!(flat.get(key("cache")), Some(&serde_yaml::Value::Bool(true)));
+  assert!(flat.contains_key(key("cache_max_bytes")));
+  assert!(
+    !flat.contains_key(key("headers")),
+    "structured sections stay out of the flattened settings document"
+  );
+
+  let o = crate::settings::file_overrides();
+  assert_eq!(o.max_body_size, Some(4242));
+  assert_eq!(o.cache_enabled, Some(true));
+  assert_eq!(o.cache_max_bytes, Some(1024));
+  assert_eq!(o.cache_max_stale, Some(60));
+  assert_eq!(o.failover_mode.as_deref(), Some("retry"));
+  assert_eq!(o.failover_window_secs, Some(30));
+  assert_eq!(o.login_lockout_threshold, Some(9));
+  assert_eq!(o.auth_credentials.as_deref(), Some("u:p"));
+
+  // `--print-config` attributes block-derived variables to the file, not
+  // to the environment.
+  let names = materialized_env_names();
+  assert!(names.contains("APERIO_MAX_BODY_SIZE"));
+  assert!(names.contains("APERIO_CACHE_MAX_BYTES"));
+  assert!(names.contains("APERIO_CACHE"));
+
+  let _ = std::fs::remove_file(&file);
+}
+
+#[test]
 fn load_leaves_an_unknown_mapping_alone() {
   let _g = CfgGuard::lock();
   let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));

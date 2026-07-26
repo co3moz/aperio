@@ -20,8 +20,8 @@ mod udp;
 use aperio_config::format_bandwidth;
 use check::run_check;
 use config::{
-  CliMode, ClientSettings, FileConfig, build_ws_url, load_file_config, load_home_config,
-  parse_bandwidth, parse_cli, resolve_settings, resolve_sources,
+  CliMode, ClientSettings, build_ws_url, load_file_config, load_home_config, parse_bandwidth,
+  parse_cli, resolve_settings, resolve_sources,
 };
 use protocol::ConfigNote;
 
@@ -306,7 +306,7 @@ async fn main() {
     }
     let reloaded = std::fs::read_to_string(&config_path)
       .map_err(|e| e.to_string())
-      .and_then(|raw| serde_yaml::from_str::<FileConfig>(&raw).map_err(|e| e.to_string()));
+      .and_then(|raw| config::parse_reloaded_config(&raw, &config_path));
     match reloaded {
       Ok(new_file_cfg) => {
         let mut s = match resolve_settings(&cli, &load_home_config(), &new_file_cfg) {

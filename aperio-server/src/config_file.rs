@@ -102,41 +102,10 @@ pub(crate) fn load() {
       eprintln!("aperio-server: {}: ignoring non-string key", path.display());
       continue;
     };
-    // A mapping is either a grouped block of ordinary settings, which
-    // flattens into one environment variable per child, or a structured
-    // feature section (`headers`, `routes`, ...) read later via `structured`.
-    // Only the groups named in the shared table flatten: an allowlist, so a
-    // new structured section or a typo is never silently turned into
-    // environment variables.
-    if let serde_yaml::Value::Mapping(children) = value {
-      if let Some(group) = aperio_config::SERVER_GROUPS.iter().find(|g| g.key == key) {
-        for (child, cvalue) in children {
-          let Some(child) = child.as_str() else {
-            eprintln!(
-              "aperio-server: {}: ignoring non-string key under `{key}`",
-              path.display()
-            );
-            continue;
-          };
-          let Some(rendered) = env_value(cvalue) else {
-            eprintln!(
-              "aperio-server: {}: ignoring key `{key}.{child}` (value not representable as an environment variable)",
-              path.display()
-            );
-            continue;
-          };
-          // The child that stands for the group's own setting keeps the
-          // group's variable: `cache: { enabled: true }` is APERIO_CACHE.
-          let name = if group.self_key == Some(child) {
-            env_name(key)
-          } else {
-            env_name(&format!("{key}_{child}"))
-          };
-          // SAFETY: as below, single-threaded startup.
-          unsafe { std::env::set_var(&name, rendered) };
-          applied.push(name);
-        }
-      }
+    // A mapping is either a grouped block of ordinary settings (flattened in
+    // the second pass below) or a structured feature section (`headers`,
+    // `routes`, ...) read later via `structured`.
+    if value.is_mapping() {
       continue;
     }
     if matches!(value, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping())) {
@@ -154,6 +123,46 @@ pub(crate) fn load() {
     // is created, so no concurrent getenv can race this setenv.
     unsafe { std::env::set_var(&name, rendered) };
     applied.push(name);
+  }
+  // Grouped blocks flatten into one environment variable per child, in a
+  // second pass so that when a file spells the same setting both ways the
+  // block wins per field regardless of file order, as documented (and as the
+  // client's folding behaves). Only the groups named in the shared table
+  // flatten: an allowlist, so a new structured section or a typo is never
+  // silently turned into environment variables.
+  for (key, value) in &doc {
+    let (Some(key), serde_yaml::Value::Mapping(children)) = (key.as_str(), value) else {
+      continue;
+    };
+    let Some(group) = aperio_config::SERVER_GROUPS.iter().find(|g| g.key == key) else {
+      continue;
+    };
+    for (child, cvalue) in children {
+      let Some(child) = child.as_str() else {
+        eprintln!(
+          "aperio-server: {}: ignoring non-string key under `{key}`",
+          path.display()
+        );
+        continue;
+      };
+      let Some(rendered) = env_value(cvalue) else {
+        eprintln!(
+          "aperio-server: {}: ignoring key `{key}.{child}` (value not representable as an environment variable)",
+          path.display()
+        );
+        continue;
+      };
+      // The child that stands for the group's own setting keeps the
+      // group's variable: `cache: { enabled: true }` is APERIO_CACHE.
+      let name = if group.self_key == Some(child) {
+        env_name(key)
+      } else {
+        env_name(&format!("{key}_{child}"))
+      };
+      // SAFETY: as above, single-threaded startup.
+      unsafe { std::env::set_var(&name, rendered) };
+      applied.push(name);
+    }
   }
   *DOCUMENT.write().expect("config document lock poisoned") = Some(doc);
   if !applied.is_empty() {
@@ -187,15 +196,17 @@ pub(crate) fn document() -> Option<serde_yaml::Mapping> {
     .clone()
 }
 
-/// The set of environment-variable names that [`load`] materialized from the
-/// current document's scalar keys — i.e. the `APERIO_*` variables whose value
-/// originated from `aperio-server.yaml` rather than the real environment. Used
-/// by `--print-config` to attribute each variable to its source.
-pub(crate) fn materialized_env_names() -> std::collections::BTreeSet<String> {
-  let mut names = std::collections::BTreeSet::new();
-  let Some(doc) = document() else {
-    return names;
-  };
+/// The current document with its grouped blocks flattened into the flat key
+/// spellings (`cache: { max_bytes: … }` → `cache_max_bytes`, the `self_key`
+/// child keeping the group's own key), and every structured or unknown
+/// mapping section left out. This is the shape the hot-reload settings layer
+/// deserializes: reading the raw document there instead broke the *entire*
+/// file layer whenever a `cache:` or `failover:` block was present, because
+/// those keys are typed as scalars in the settings struct. Blocks win over a
+/// flat spelling of the same setting, matching startup env materialization.
+pub(crate) fn flattened_document() -> Option<serde_yaml::Mapping> {
+  let doc = document()?;
+  let mut flat = serde_yaml::Mapping::new();
   for (key, value) in &doc {
     let Some(key) = key.as_str() else { continue };
     if value.is_mapping()
@@ -203,6 +214,50 @@ pub(crate) fn materialized_env_names() -> std::collections::BTreeSet<String> {
     {
       continue;
     }
+    flat.insert(serde_yaml::Value::String(flat_key(key)), value.clone());
+  }
+  for (key, value) in &doc {
+    let (Some(key), serde_yaml::Value::Mapping(children)) = (key.as_str(), value) else {
+      continue;
+    };
+    let Some(group) = aperio_config::SERVER_GROUPS.iter().find(|g| g.key == key) else {
+      continue;
+    };
+    for (child, cvalue) in children {
+      let Some(child) = child.as_str() else {
+        continue;
+      };
+      let name = if group.self_key == Some(child) {
+        key.to_string()
+      } else {
+        format!("{key}_{child}")
+      };
+      flat.insert(serde_yaml::Value::String(flat_key(&name)), cvalue.clone());
+    }
+  }
+  Some(flat)
+}
+
+/// Normalizes a yaml key the way [`env_name`] does, minus the prefixing, so
+/// the flattened document uses the exact field names the settings layer
+/// expects.
+fn flat_key(key: &str) -> String {
+  key.trim().to_ascii_lowercase().replace('-', "_")
+}
+
+/// The set of environment-variable names that [`load`] materialized from the
+/// current document — scalar keys and grouped-block children alike — i.e. the
+/// `APERIO_*` variables whose value originated from `aperio-server.yaml`
+/// rather than the real environment. Used by `--print-config` to attribute
+/// each variable to its source; leaving the blocks out attributed
+/// `cache: { max_bytes: … }` to `[env]`.
+pub(crate) fn materialized_env_names() -> std::collections::BTreeSet<String> {
+  let mut names = std::collections::BTreeSet::new();
+  let Some(flat) = flattened_document() else {
+    return names;
+  };
+  for (key, value) in &flat {
+    let Some(key) = key.as_str() else { continue };
     if env_value(value).is_some() {
       names.insert(env_name(key));
     }

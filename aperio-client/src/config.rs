@@ -266,6 +266,17 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
   }
 }
 
+/// Parses a freshly re-read `aperio.yaml` for the hot-reload supervisor: the
+/// same folding-and-deprecation pass as the initial load, so a file written
+/// in the grouped form (`health:` blocks) keeps those settings on reload
+/// too. Parsing without folding silently dropped every grouped block, which
+/// turned health probing off on the first reload until a restart.
+pub(crate) fn parse_reloaded_config(raw: &str, path: &str) -> Result<FileConfig, String> {
+  let mut cfg = serde_yaml::from_str::<FileConfig>(raw).map_err(|e| e.to_string())?;
+  fold_and_warn(&mut cfg, path);
+  Ok(cfg)
+}
+
 pub(crate) fn load_file_config(explicit: Option<&str>) -> FileConfig {
   let path = explicit.unwrap_or("aperio.yaml");
   match std::fs::read_to_string(path) {

@@ -121,6 +121,24 @@ fn test_health_group_folds_per_service_entry() {
 }
 
 #[test]
+fn test_parse_reloaded_config_folds_groups() {
+  // The hot-reload supervisor must apply the same folding pass as the
+  // initial load: a file written in the grouped `health:` form used to lose
+  // the whole block on reload, silently turning health probing off.
+  let cfg = parse_reloaded_config(
+    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n",
+    "aperio.yaml",
+  )
+  .unwrap();
+  assert_eq!(cfg.target_health.as_deref(), Some("/healthz"));
+  assert_eq!(cfg.health_interval, Some(7));
+
+  // Unparseable input reports the error instead of panicking, so the
+  // supervisor keeps the previous configuration.
+  assert!(parse_reloaded_config(": not yaml", "aperio.yaml").is_err());
+}
+
+#[test]
 fn test_target_flag_accepted_by_subcommands() {
   // `check` (and every mode) accepts --target as an alternative to the
   // positional argument, with the same normalization.

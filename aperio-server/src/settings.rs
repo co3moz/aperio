@@ -303,11 +303,26 @@ struct FileSettings {
 /// environment defaults and beneath the dashboard overrides, so file edits
 /// take effect on hot-reload while dashboard edits still win.
 pub(crate) fn file_overrides() -> SettingsOverrides {
-  let Some(doc) = crate::config_file::document() else {
+  // The *flattened* document: grouped blocks (`cache: { max_bytes: … }`)
+  // folded into the flat spellings this struct is typed for. Deserializing
+  // the raw document made the whole layer fail on any grouped file, since
+  // `cache`/`failover` are scalars here, and the fallback silently dropped
+  // every file setting from hot-reload until a restart.
+  let Some(doc) = crate::config_file::flattened_document() else {
     return SettingsOverrides::default();
   };
-  let fs: FileSettings =
-    serde_yaml::from_value(serde_yaml::Value::Mapping(doc)).unwrap_or_default();
+  let fs: FileSettings = match serde_yaml::from_value(serde_yaml::Value::Mapping(doc)) {
+    Ok(fs) => fs,
+    Err(e) => {
+      // A value of the wrong shape must not silently discard the rest of
+      // the file layer without a trace.
+      tracing::warn!(
+        "aperio-server.yaml: live-editable settings not readable ({}); file layer skipped",
+        e
+      );
+      FileSettings::default()
+    }
+  };
   SettingsOverrides {
     gateway_timeout_secs: fs.gateway_timeout,
     gateway_response_timeout_secs: fs.gateway_response_timeout,
