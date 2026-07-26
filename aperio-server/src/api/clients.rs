@@ -778,7 +778,7 @@ fn client_config_view(
       let origin = if !handle.override_hostname_binds.is_empty() {
         "dashboard overrule"
       } else if declared_hostnames.contains(host) {
-        "requested by the client"
+        "declared by the client"
       } else if handle.random_hostname.as_deref() == Some(host.as_str()) {
         "random subdomain, assigned by the server"
       } else {
