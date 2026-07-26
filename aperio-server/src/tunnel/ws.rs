@@ -38,6 +38,27 @@ type ScalingBindCtx = (Vec<String>, Option<String>, Option<String>, Option<Strin
 #[path = "ws_tests.rs"]
 mod tests;
 
+/// Removes a stream from `map`, but only if `client_id` owns it — the check
+/// and the removal happen under a single lock.
+///
+/// The frame handlers used to remove first and put the handle back when the
+/// sender turned out not to own it. That left a window in which the genuine
+/// owner's frames looked up a stream that was momentarily absent and were
+/// dropped without a trace, so one client sending a bogus stream id could make
+/// another client's response lose data.
+async fn take_owned_stream<T>(
+  map: &tokio::sync::Mutex<std::collections::HashMap<String, T>>,
+  id: &str,
+  client_id: &str,
+  owner_of: impl Fn(&T) -> &str,
+) -> Option<T> {
+  let mut streams = map.lock().await;
+  match streams.get(id) {
+    Some(handle) if owner_of(handle) == client_id => streams.remove(id),
+    _ => None,
+  }
+}
+
 /// Delivers one streamed response chunk to the waiting public consumer,
 /// verifying stream ownership and accounting the bytes. Shared by the JSON
 /// (base64) and protocol v2 binary frame paths.
@@ -570,20 +591,20 @@ pub(crate) async fn handle_socket(
             TunnelMessage::ResponseEnd { id, trailers } => {
               // Dropping the sender ends the public body stream; trailers
               // (e.g. gRPC's grpc-status) are delivered as the final frame.
-              let removed = state.response_streams.lock().await.remove(&id);
-              if let Some(handle) = removed {
-                if handle.client_id != client_id {
-                  // Ownership violation: re-insert and ignore.
-                  warn!(
-                    "ResponseEnd for request ID {} rejected: not owned by client {}",
-                    id, client_id
-                  );
-                  state.response_streams.lock().await.insert(id, handle);
-                } else if let Some(trailers) = trailers {
-                  let _ = handle
-                    .tx
-                    .try_send(Ok(crate::state::BodyFrame::Trailers(trailers)));
+              let owned =
+                take_owned_stream(&state.response_streams, &id, &client_id, |h| &h.client_id).await;
+              match owned {
+                Some(handle) => {
+                  if let Some(trailers) = trailers {
+                    let _ = handle
+                      .tx
+                      .try_send(Ok(crate::state::BodyFrame::Trailers(trailers)));
+                  }
                 }
+                None => debug!(
+                  "ResponseEnd for request ID {} ignored: unknown or not owned by client {}",
+                  id, client_id
+                ),
               }
             }
             TunnelMessage::ResponseAbort { id } => {
@@ -591,19 +612,18 @@ pub(crate) async fn handle_socket(
               // response (size limit hit, or backend errored mid-stream) is not
               // delivered as a clean success. The error propagates through the
               // body, terminating the visitor connection abnormally.
-              let removed = state.response_streams.lock().await.remove(&id);
-              if let Some(handle) = removed {
-                if handle.client_id != client_id {
-                  warn!(
-                    "ResponseAbort for request ID {} rejected: not owned by client {}",
-                    id, client_id
-                  );
-                  state.response_streams.lock().await.insert(id, handle);
-                } else {
+              let owned =
+                take_owned_stream(&state.response_streams, &id, &client_id, |h| &h.client_id).await;
+              match owned {
+                Some(handle) => {
                   let _ = handle.tx.try_send(Err(std::io::Error::other(
                     "response aborted by client (size limit or backend error)",
                   )));
                 }
+                None => debug!(
+                  "ResponseAbort for request ID {} ignored: unknown or not owned by client {}",
+                  id, client_id
+                ),
               }
             }
             TunnelMessage::TcpData { stream_id, data } => {
@@ -642,13 +662,11 @@ pub(crate) async fn handle_socket(
               }
             }
             TunnelMessage::TcpClose { stream_id } => {
-              let removed = state.tcp_streams.lock().await.remove(&stream_id);
-              if let Some(h) = removed {
-                if h.client_id == client_id {
-                  let _ = h.tx.try_send(TcpConsumerMsg::Close);
-                } else {
-                  state.tcp_streams.lock().await.insert(stream_id, h);
-                }
+              if let Some(h) =
+                take_owned_stream(&state.tcp_streams, &stream_id, &client_id, |h| &h.client_id)
+                  .await
+              {
+                let _ = h.tx.try_send(TcpConsumerMsg::Close);
               }
             }
             TunnelMessage::UdpDatagram { stream_id, data } => {
@@ -687,13 +705,11 @@ pub(crate) async fn handle_socket(
               }
             }
             TunnelMessage::UdpClose { stream_id } => {
-              let removed = state.udp_streams.lock().await.remove(&stream_id);
-              if let Some(h) = removed {
-                if h.client_id == client_id {
-                  let _ = h.tx.try_send(TcpConsumerMsg::Close);
-                } else {
-                  state.udp_streams.lock().await.insert(stream_id, h);
-                }
+              if let Some(h) =
+                take_owned_stream(&state.udp_streams, &stream_id, &client_id, |h| &h.client_id)
+                  .await
+              {
+                let _ = h.tx.try_send(TcpConsumerMsg::Close);
               }
             }
             TunnelMessage::CompressionAck {} => {

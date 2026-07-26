@@ -367,3 +367,19 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   exist before the first client connects, but it lets a tenant provoke an ACME
   request for any hostname their token permits, so it should probably be
   opt-in), and which proxy is the primary target for the first cut.
+
+- [ ] **#15 Restrict where webhook and autoscaling callbacks may be sent.**
+  `POST /api/webhooks` and the `scaling.url` field accept any URL after a
+  schema check, and delivery attempts record the response status in the
+  delivery log. An Operator in a child organization can therefore use the
+  server as a blind SSRF probe: point a webhook at an internal address, fire an
+  event, and read back from the delivery log whether the port answered — which
+  maps the server's private network one port at a time. The reason this is not
+  simply fixed by blocking private addresses is that internal receivers are the
+  normal case: most deployments point webhooks at a service on the same
+  network, so blocking them by default would break working installations. Needs
+  a policy an operator chooses: an outbound allowlist (host/CIDR patterns the
+  server may call), and/or a `block_private_targets` switch, defaulting to
+  today's permissive behaviour with a clear note in the docs, plus consideration
+  of whether the delivery log should show a tenant the raw status code at all.
+  Decide the shape before implementing. (From the 2026-07 four-agent review.)

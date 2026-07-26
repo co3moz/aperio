@@ -1491,6 +1491,42 @@ impl AppState {
     self.token_seen_ips.lock().await.remove(token_id);
     dropped
   }
+
+  /// Applies a changed organization hostname allowlist to that org's live
+  /// tunnel connections: each one's cached copy is refreshed, and any
+  /// connection now serving a hostname outside the fence is dropped. Returns
+  /// how many were dropped.
+  ///
+  /// The allowlist is copied into `ClientPerms` at connect time so that later
+  /// bind checks stay a pure in-memory comparison. Without this, tightening
+  /// the fence only took effect the next time each client happened to
+  /// reconnect, while the endpoint's own documentation promised it applied at
+  /// once — so a hostname an operator had just revoked kept being served,
+  /// potentially for as long as the client stayed up.
+  pub(crate) async fn apply_org_hostnames(&self, org_id: &str, hostnames: &[String]) -> usize {
+    let mut dropped = 0usize;
+    let mut clients = self.clients.lock().await;
+    for handle in clients.values_mut() {
+      if handle.perms.org_id.as_deref() != Some(org_id) {
+        continue;
+      }
+      handle.perms.org_hostnames = hostnames.to_vec();
+      let serving: Vec<String> = handle
+        .assigned_hostnames
+        .iter()
+        .chain(handle.declared_hostnames.iter())
+        .cloned()
+        .collect();
+      if serving
+        .iter()
+        .any(|h| !crate::store::orgs::hostname_in_org_allowlist(h, hostnames))
+      {
+        handle.disconnect.notify_one();
+        dropped += 1;
+      }
+    }
+    dropped
+  }
 }
 
 impl AppState {

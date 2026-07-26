@@ -251,11 +251,22 @@ async fn relay_public_tcp(
     let _ = write_half.shutdown().await;
   });
 
-  let up_abort = up_task.abort_handle();
-  let down_abort = down_task.abort_handle();
+  let (mut up_task, mut down_task) = (up_task, down_task);
   tokio::select! {
-    _ = up_task => down_abort.abort(),
-    _ = down_task => up_abort.abort(),
+    _ = &mut up_task => {
+      // The visitor stopped sending, which for a TCP client usually means it
+      // finished its request and is now waiting for the answer — not that it
+      // is done with the connection. Aborting the download here discarded
+      // whatever the backend had already sent. Let it drain instead, bounded
+      // so a client that never closes its side cannot hold the stream open.
+      let _ = tokio::time::timeout(
+        state.config().gateway_response_timeout,
+        &mut down_task,
+      )
+      .await;
+      down_task.abort();
+    }
+    _ = &mut down_task => up_task.abort(),
   }
 
   state.tcp_streams.lock().await.remove(&stream_id);

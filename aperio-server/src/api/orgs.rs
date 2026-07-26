@@ -11,6 +11,7 @@ use axum::{
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tracing::info;
 
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
@@ -260,13 +261,25 @@ pub(crate) async fn orgs_hostnames_handler(
     .set_hostnames(&id, hostnames.clone());
   match updated {
     Some(org) => {
+      // Push the new fence onto the org's live connections so it really does
+      // apply at once, rather than at each client's next reconnect.
+      let dropped = state.apply_org_hostnames(&id, &hostnames).await;
+      if dropped > 0 {
+        info!(
+          "Dropped {} connection(s) of organization {} now serving a hostname outside its allowlist",
+          dropped, id
+        );
+      }
       let ip = actor_ip(&state, &headers, addr);
       state
         .audit(
           "org_hostnames_set",
           &state.session_actor(&headers).await,
           &ip,
-          &format!("id={} hostnames={:?}", id, hostnames),
+          &format!(
+            "id={} hostnames={:?} dropped_clients={}",
+            id, hostnames, dropped
+          ),
         )
         .await;
       Json(serde_json::json!({

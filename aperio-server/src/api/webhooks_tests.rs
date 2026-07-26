@@ -74,9 +74,22 @@ async fn audit_verify_reports_ok_chain() {
     .lock()
     .await
     .record("x", "a", "127.0.0.1", None, "d");
-  let resp = audit_verify_handler(State(state.clone())).await;
-  assert_eq!(resp.0["ok"], true);
-  assert_eq!(resp.0["broken"].as_array().unwrap().len(), 0);
+  let headers = admin_headers(&state).await;
+  let resp = audit_verify_handler(State(state.clone()), headers).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  assert_eq!(body["ok"], true);
+  assert_eq!(body["broken"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn audit_verify_is_master_admin_only() {
+  let state = Arc::new(test_state());
+  // The audit files cover every organization, so a tenant viewer must not be
+  // able to ask whether the server-wide log is intact.
+  let token = seed_session(&state, Role::Viewer, None, None).await;
+  let resp = audit_verify_handler(State(state.clone()), cookie_headers(&token)).await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 // --- webhook CRUD ---

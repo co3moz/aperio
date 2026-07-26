@@ -301,10 +301,13 @@ pub(crate) fn retry_schedule() -> &'static [std::time::Duration] {
 /// Sends one webhook payload once. `Ok(status)` for a completed request of
 /// any status; `Err(text)` when it never completed.
 async fn send_once(hook: &Webhook, body: &str) -> Result<u16, String> {
+  // Fail rather than fall back to a default client: the default has no
+  // timeout at all, so a receiver that accepts the connection and never
+  // answers would hang this delivery task forever.
   let client = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(10))
     .build()
-    .unwrap_or_default();
+    .map_err(|e| format!("cannot build the http client: {e}"))?;
   let mut req = client
     .post(&hook.url)
     .header("content-type", "application/json");

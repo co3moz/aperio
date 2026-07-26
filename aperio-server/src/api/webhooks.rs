@@ -41,11 +41,22 @@ pub(crate) async fn audit_handler(
 /// — the audit files are server-global, so this is an admin-only integrity
 /// check surfaced from the dashboard.
 #[utoipa::path(get, path = "/aperio/api/audit/verify", tag = "dashboard",
-  description = "Verifies the audit log hash chain across all files; reports any broken line.",
-  responses((status = 200, description = "Chain verification result", body = serde_json::Value)))]
+  description = "Verifies the audit log hash chain across all files; reports any broken line (master admin only).",
+  responses(
+    (status = 200, description = "Chain verification result", body = serde_json::Value),
+    (status = 403, description = "Not the master administrator")))]
 pub(crate) async fn audit_verify_handler(
   State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+  headers: HeaderMap,
+) -> Response {
+  // The audit files span every organization, so this answers for the whole
+  // server and cannot be scoped to a tenant. It is restricted to the master
+  // administrator, as its own description always claimed: any viewer, of any
+  // organization, could previously call it and learn whether the server-wide
+  // log had been tampered with.
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
   let broken = state.audit.lock().await.verify();
   let broken_json: Vec<serde_json::Value> = broken
     .into_iter()
@@ -55,6 +66,7 @@ pub(crate) async fn audit_verify_handler(
     "ok": broken_json.is_empty(),
     "broken": broken_json,
   }))
+  .into_response()
 }
 
 /// Payload for creating a webhook definition.

@@ -804,6 +804,45 @@ async fn hostnames_rejects_master_unknown_and_invalid() {
 }
 
 #[tokio::test]
+async fn hostnames_apply_to_live_connections() {
+  let state = Arc::new(test_state());
+  let org_id = make_org(&state, "acme").await;
+
+  // One connection serving a hostname the new fence keeps, one it excludes.
+  for (id, host) in [("keep", "ok.acme.com"), ("evict", "old.example.com")] {
+    let mut c = crate::test_support::mock_client(Some(host), None, None, None);
+    c.perms.org_id = Some(org_id.clone());
+    c.declared_hostnames = vec![host.to_string()];
+    c.assigned_hostnames = vec![host.to_string()];
+    state.clients.lock().await.insert(id.to_string(), c);
+  }
+
+  let headers = admin_headers(&state).await;
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(org_id.clone()),
+    hostnames_req(&["*.acme.com"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // The allowlist is cached per connection at connect time, so tightening it
+  // has to be pushed out; otherwise a just-revoked hostname kept being served
+  // until the client happened to reconnect.
+  let clients = state.clients.lock().await;
+  assert_eq!(
+    clients.get("keep").unwrap().perms.org_hostnames,
+    vec!["*.acme.com".to_string()]
+  );
+  assert_eq!(
+    clients.get("evict").unwrap().perms.org_hostnames,
+    vec!["*.acme.com".to_string()]
+  );
+}
+
+#[tokio::test]
 async fn hostnames_requires_master_admin() {
   let state = Arc::new(test_state());
   let org_id = make_org(&state, "acme").await;
