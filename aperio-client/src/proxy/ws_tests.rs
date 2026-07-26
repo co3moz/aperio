@@ -113,6 +113,7 @@ async fn test_ws_echo_text_and_binary() {
       streams_c,
       10,
       activity_c,
+      Default::default(),
     )
     .await;
   });
@@ -191,6 +192,7 @@ async fn test_ws_backend_closes_emits_wsclose() {
       streams_c,
       10,
       crate::service::ActivityClock::default(),
+      Default::default(),
     )
     .await;
   });
@@ -239,6 +241,7 @@ async fn test_ws_backend_handshake_timeout() {
     new_streams(),
     1,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -262,6 +265,7 @@ async fn test_ws_unix_target_rejected() {
     new_streams(),
     10,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -285,6 +289,7 @@ async fn test_ws_invalid_target_rejected() {
     new_streams(),
     10,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -309,6 +314,7 @@ async fn test_ws_bad_incoming_uri_rejected() {
     new_streams(),
     10,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -333,6 +339,7 @@ async fn test_ws_backend_unreachable() {
     new_streams(),
     10,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -364,6 +371,7 @@ async fn test_ws_trim_bind_path() {
       streams_c,
       10,
       crate::service::ActivityClock::default(),
+      Default::default(),
     )
     .await;
   });

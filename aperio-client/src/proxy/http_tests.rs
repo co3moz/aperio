@@ -15,6 +15,7 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
     h2_client: None,
     unix_socket: None,
     timeout_secs: 30,
+    stream_pauses: Default::default(),
     target: target.to_string(),
     pass_hostname: false,
     path_bind: None,

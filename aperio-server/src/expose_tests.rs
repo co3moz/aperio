@@ -247,8 +247,7 @@ async fn relay_end_to_end_pumps_bytes_both_directions() {
     let handle = streams.get(&stream_id).expect("stream registered");
     handle
       .tx
-      .send(crate::state::TcpConsumerMsg::Data(b"world".to_vec()))
-      .await
+      .push(crate::state::TcpConsumerMsg::Data(b"world".to_vec()))
       .unwrap();
   }
   let mut buf = [0u8; 5];
@@ -348,11 +347,7 @@ async fn relay_closes_when_tunnel_signals_close() {
   {
     let streams = state.tcp_streams.lock().await;
     let handle = streams.get(&stream_id).expect("stream registered");
-    handle
-      .tx
-      .send(crate::state::TcpConsumerMsg::Close)
-      .await
-      .unwrap();
+    handle.tx.push(crate::state::TcpConsumerMsg::Close).unwrap();
   }
   let _ = tokio::time::timeout(Duration::from_secs(2), relay).await;
   assert!(!state.tcp_streams.lock().await.contains_key(&stream_id));

@@ -267,9 +267,15 @@ pub(crate) async fn handle_ws_proxy(
   // window entirely; every early return below unregisters it again.
   let (relay_tx, relay_rx) = mpsc::channel::<WsStreamMessage>(64);
   // The read loop feeds a pump rather than this channel, so a visitor that
-  // stops reading cannot stall the other streams on the same tunnel.
+  // stops reading cannot stall the other streams on the same tunnel; past
+  // the byte watermark the client is asked to pause producing this stream.
+  let flow = crate::state::StreamFlow::new(
+    stream_id.clone(),
+    client_tx.clone(),
+    state.client_supports_pause(&chosen_client_id).await,
+  );
   let relay_tx =
-    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);
   state.ws_streams.lock().await.insert(
     stream_id.clone(),
     crate::state::WsStreamHandle {

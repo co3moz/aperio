@@ -10,7 +10,9 @@ use tracing::warn;
 /// aperio-server; bumped on breaking changes to `TunnelMessage`.
 /// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
 /// chunk frames instead of base64+JSON for body data.
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
+/// v3: per-stream flow control (StreamPause/StreamResume) — the server
+/// pauses a producer whose visitor reads slower than it sends.
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -348,6 +350,15 @@ pub(crate) enum TunnelMessage {
   /// Client → server: compression accepted; both sides may now send
   /// compressed binary frames.
   CompressionAck {},
+  /// Server → client (v3): too much of stream `id` is backed up server-side
+  /// because its visitor reads slower than this client produces. Producing
+  /// pauses (the backend read waits) until the matching `StreamResume`, so
+  /// ordinary TCP backpressure reaches the backend instead of the server
+  /// buffering or dropping the stream. `id` is a request id (streamed
+  /// response) or a stream id (WS/TCP relay).
+  StreamPause { id: String },
+  /// Server → client (v3): stream `id`'s backlog drained; resume producing.
+  StreamResume { id: String },
 }
 
 /// Compresses a tunnel text frame into a zlib binary frame.

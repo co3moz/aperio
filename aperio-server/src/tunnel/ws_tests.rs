@@ -197,7 +197,7 @@ async fn deliver_chunk_owned_attributes_bytes() {
   state.response_streams.lock().await.insert(
     "r1".into(),
     ResponseStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "owner".into(),
     },
   );
@@ -228,7 +228,7 @@ async fn deliver_chunk_not_owned_is_rejected() {
   state.response_streams.lock().await.insert(
     "r1".into(),
     ResponseStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "owner".into(),
     },
   );
@@ -250,17 +250,24 @@ async fn deliver_chunk_unknown_stream_is_noop() {
 async fn deliver_chunk_consumer_gone_drops_stream() {
   let state = Arc::new(test_state());
   let (tx, rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(1);
-  drop(rx); // consumer gone: send fails immediately.
+  drop(rx); // consumer gone: the pump ends as soon as it tries to forward.
   state.response_streams.lock().await.insert(
     "r1".into(),
     ResponseStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "owner".into(),
     },
   );
 
-  deliver_response_chunk(&state, "owner", "r1", vec![1]).await;
-
+  // The first chunk may still be accepted into the pump's queue before the
+  // pump notices the dead consumer; the stream must be gone shortly after.
+  for _ in 0..100 {
+    deliver_response_chunk(&state, "owner", "r1", vec![1]).await;
+    if !state.response_streams.lock().await.contains_key("r1") {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
   assert!(!state.response_streams.lock().await.contains_key("r1"));
 }
 
@@ -273,10 +280,14 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
     .await
     .insert("owner".into(), mock_client(None, None, None, None));
 
-  // A visitor that has stopped reading: the consumer channel is never drained,
-  // so both it and the pump's queue fill up.
+  // A visitor that has stopped reading: the consumer channel is never
+  // drained. A short stall timeout stands in for gateway_response_timeout.
   let (tx, _held_rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(2);
-  let tx = crate::state::spawn_consumer_pump(tx, Duration::from_secs(30));
+  let tx = crate::state::spawn_consumer_pump(
+    tx,
+    Duration::from_millis(100),
+    crate::state::StreamFlow::detached("r1"),
+  );
   state.response_streams.lock().await.insert(
     "r1".into(),
     ResponseStreamHandle {
@@ -287,7 +298,9 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
 
   // Every chunk must be handled promptly regardless. Before the pump, the
   // read loop waited here for gateway_response_timeout once the channel
-  // filled, stalling every other stream on the same tunnel.
+  // filled, stalling every other stream on the same tunnel. The chunks are
+  // buffered (well under the backlog cap), NOT dropped: a slow-but-alive
+  // visitor must not lose its stream just because the producer ran ahead.
   for _ in 0..10 {
     tokio::time::timeout(
       Duration::from_secs(5),
@@ -296,9 +309,111 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
     .await
     .expect("a stalled visitor must not block the tunnel read loop");
   }
+  assert!(
+    state.response_streams.lock().await.contains_key("r1"),
+    "buffered chunks under the cap must not kill the stream"
+  );
 
-  // The overflowing stream is the only casualty: it gets dropped.
+  // Only once the consumer has accepted nothing for the whole stall timeout
+  // does the pump give up; the next chunk then reports the stream gone and
+  // removes it, exactly as the old blocking send's timeout did.
+  tokio::time::sleep(Duration::from_millis(300)).await;
+  for _ in 0..100 {
+    deliver_response_chunk(&state, "owner", "r1", vec![1, 2, 3]).await;
+    if !state.response_streams.lock().await.contains_key("r1") {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
   assert!(!state.response_streams.lock().await.contains_key("r1"));
+}
+
+#[tokio::test]
+async fn backlog_cap_drops_a_producer_that_cannot_be_paused() {
+  let state = Arc::new(test_state());
+  state
+    .clients
+    .lock()
+    .await
+    .insert("owner".into(), mock_client(None, None, None, None));
+
+  // A stalled consumer and a pre-v3 producer (detached flow: pause cannot be
+  // delivered): the only guard left is the hard byte cap.
+  let (tx, _held_rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(2);
+  let tx = crate::state::spawn_consumer_pump(
+    tx,
+    Duration::from_secs(30),
+    crate::state::StreamFlow::detached("r1"),
+  );
+  state.response_streams.lock().await.insert(
+    "r1".into(),
+    ResponseStreamHandle {
+      tx,
+      client_id: "owner".into(),
+    },
+  );
+
+  // Push past STREAM_BACKLOG_LIMIT (16 MiB) in 4 MiB chunks; the read loop
+  // stays unblocked throughout and the stream is dropped at the cap.
+  for _ in 0..6 {
+    tokio::time::timeout(
+      Duration::from_secs(5),
+      deliver_response_chunk(&state, "owner", "r1", vec![0u8; 4 * 1024 * 1024]),
+    )
+    .await
+    .expect("the backlog cap must not block the read loop");
+  }
+  assert!(!state.response_streams.lock().await.contains_key("r1"));
+}
+
+#[tokio::test]
+async fn slow_consumer_pauses_and_resumes_a_v3_producer() {
+  use crate::state::{PumpCost, StreamFlow, spawn_consumer_pump};
+
+  // The producing client's tunnel writer, observed by the test.
+  let (client_tx, mut client_rx) = mpsc::channel::<Message>(8);
+  // A consumer that accepts two chunks and then sits on them.
+  let (out_tx, mut out_rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(2);
+  let pumped = spawn_consumer_pump(
+    out_tx,
+    Duration::from_secs(30),
+    StreamFlow::new("r1".into(), client_tx, true),
+  );
+
+  // 1 MiB chunks: two land in the consumer channel, the next two build up
+  // 2 MiB of backlog and cross STREAM_PAUSE_BYTES -> StreamPause goes out.
+  let chunk = || Ok(BodyFrame::Data(vec![0u8; 1024 * 1024]));
+  assert_eq!(chunk().cost(), 1024 * 1024);
+  for _ in 0..4 {
+    pumped.push(chunk()).unwrap();
+    // Give the pump a moment to move what it can into the consumer channel,
+    // so backlog only counts what is genuinely stuck.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+  let paused = tokio::time::timeout(Duration::from_secs(2), client_rx.recv())
+    .await
+    .expect("expected a StreamPause")
+    .expect("client channel open");
+  match paused {
+    Message::Text(json) => assert!(json.contains("StreamPause"), "got {json}"),
+    other => panic!("expected a text frame, got {other:?}"),
+  }
+
+  // The visitor drains everything: the backlog falls below the resume mark
+  // and the producer is released.
+  for _ in 0..4 {
+    let _ = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
+      .await
+      .expect("consumer must receive the buffered chunks");
+  }
+  let resumed = tokio::time::timeout(Duration::from_secs(2), client_rx.recv())
+    .await
+    .expect("expected a StreamResume")
+    .expect("client channel open");
+  match resumed {
+    Message::Text(json) => assert!(json.contains("StreamResume"), "got {json}"),
+    other => panic!("expected a text frame, got {other:?}"),
+  }
 }
 
 // --- Response / ResponseStart / ResponseChunk / ResponseEnd -----------------
@@ -542,7 +657,7 @@ async fn response_chunk_bad_base64_removes_stream() {
   state.response_streams.lock().await.insert(
     "s1".into(),
     ResponseStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: cid.clone(),
     },
   );
@@ -570,7 +685,7 @@ async fn response_end_not_owned_is_reinserted() {
   state.response_streams.lock().await.insert(
     "s1".into(),
     ResponseStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "foreign".into(),
     },
   );
@@ -636,7 +751,7 @@ async fn tcp_data_and_close_owned() {
   state.tcp_streams.lock().await.insert(
     "t1".into(),
     TcpStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: cid.clone(),
     },
   );
@@ -698,7 +813,7 @@ async fn tcp_data_and_close_not_owned() {
   state.tcp_streams.lock().await.insert(
     "t1".into(),
     TcpStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "foreign".into(),
     },
   );
@@ -734,7 +849,7 @@ async fn udp_datagram_and_close_owned() {
   let (tx, mut rx) = mpsc::channel::<TcpConsumerMsg>(8);
   state.udp_streams.lock().await.insert(
     "u1".into(),
-    TcpStreamHandle {
+    crate::state::UdpStreamHandle {
       tx,
       client_id: cid.clone(),
     },
@@ -795,7 +910,7 @@ async fn udp_not_owned_rejected() {
   let (tx, mut rx) = mpsc::channel::<TcpConsumerMsg>(8);
   state.udp_streams.lock().await.insert(
     "u1".into(),
-    TcpStreamHandle {
+    crate::state::UdpStreamHandle {
       tx,
       client_id: "foreign".into(),
     },
@@ -834,7 +949,7 @@ async fn ws_data_text_and_binary_and_close() {
   state.ws_streams.lock().await.insert(
     "w1".into(),
     WsStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: cid.clone(),
     },
   );
@@ -917,7 +1032,7 @@ async fn ws_data_not_owned_ignored() {
   state.ws_streams.lock().await.insert(
     "w1".into(),
     WsStreamHandle {
-      tx,
+      tx: crate::state::test_pump(tx),
       client_id: "foreign".into(),
     },
   );
@@ -1276,7 +1391,7 @@ async fn disconnect_drains_all_owned_state() {
   state.response_streams.lock().await.insert(
     "r1".into(),
     ResponseStreamHandle {
-      tx: rs_tx,
+      tx: crate::state::test_pump(rs_tx),
       client_id: cid.clone(),
     },
   );
@@ -1284,14 +1399,14 @@ async fn disconnect_drains_all_owned_state() {
   state.tcp_streams.lock().await.insert(
     "t1".into(),
     TcpStreamHandle {
-      tx: tcp_tx,
+      tx: crate::state::test_pump(tcp_tx),
       client_id: cid.clone(),
     },
   );
   let (udp_tx, mut udp_rx) = mpsc::channel::<TcpConsumerMsg>(4);
   state.udp_streams.lock().await.insert(
     "d1".into(),
-    TcpStreamHandle {
+    crate::state::UdpStreamHandle {
       tx: udp_tx,
       client_id: cid.clone(),
     },
@@ -1300,7 +1415,7 @@ async fn disconnect_drains_all_owned_state() {
   state.ws_streams.lock().await.insert(
     "w1".into(),
     WsStreamHandle {
-      tx: wss_tx,
+      tx: crate::state::test_pump(wss_tx),
       client_id: cid.clone(),
     },
   );
@@ -1309,7 +1424,7 @@ async fn disconnect_drains_all_owned_state() {
   state.tcp_streams.lock().await.insert(
     "keep".into(),
     TcpStreamHandle {
-      tx: foreign_tx,
+      tx: crate::state::test_pump(foreign_tx),
       client_id: "foreign".into(),
     },
   );

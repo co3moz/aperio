@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Notify, Semaphore, broadcast, mpsc, oneshot, watch};
 
@@ -13,6 +13,7 @@ use crate::store::stats::{self, StatsStore};
 use crate::store::tokens::TokenStore;
 use crate::store::webhooks::{self, WebhookStore};
 
+use crate::protocol::TunnelMessage;
 use crate::settings::{ServerConfig, SettingsOverrides};
 
 /// In-memory server-wide traffic statistics.
@@ -964,6 +965,200 @@ impl RequestTimeline {
   }
 }
 
+/// Backlog at which the producer of a pumped stream is asked to pause
+/// (`StreamPause`): enough to ride out short consumer hiccups without ever
+/// involving the client, small enough that a slow visitor costs little
+/// memory.
+pub(crate) const STREAM_PAUSE_BYTES: usize = 2 * 1024 * 1024;
+/// Backlog below which a paused producer is asked to resume. Well under the
+/// pause mark so the pair does not flap on every forwarded chunk.
+pub(crate) const STREAM_RESUME_BYTES: usize = 512 * 1024;
+/// Hard per-stream backlog cap: the stream is dropped beyond it. Only
+/// reachable when the producer cannot be paused (a pre-v3 client) or ignores
+/// the pause; a pausing client stops with at most its frames already on the
+/// wire outstanding, far below the gap between this and the pause mark.
+pub(crate) const STREAM_BACKLOG_LIMIT: usize = 16 * 1024 * 1024;
+
+/// What one queued item costs against a pumped stream's byte backlog.
+pub(crate) trait PumpCost {
+  fn cost(&self) -> usize;
+}
+impl PumpCost for Result<BodyFrame, std::io::Error> {
+  fn cost(&self) -> usize {
+    match self {
+      Ok(BodyFrame::Data(bytes)) => bytes.len(),
+      _ => 0,
+    }
+  }
+}
+impl PumpCost for TcpConsumerMsg {
+  fn cost(&self) -> usize {
+    match self {
+      TcpConsumerMsg::Data(bytes) => bytes.len(),
+      TcpConsumerMsg::Close => 0,
+    }
+  }
+}
+impl PumpCost for WsStreamMessage {
+  fn cost(&self) -> usize {
+    match self {
+      WsStreamMessage::Data(Message::Text(t)) => t.len(),
+      WsStreamMessage::Data(Message::Binary(b)) => b.len(),
+      _ => 0,
+    }
+  }
+}
+
+/// Producer-side flow control of one pumped stream: tracks the bytes queued
+/// between the tunnel read loop and the consumer, and asks the producing
+/// client to pause/resume around the watermarks (protocol v3). For older
+/// clients only the hard backlog cap applies.
+pub(crate) struct StreamFlow {
+  /// The stream's id on the wire (request id or stream id).
+  stream_id: String,
+  /// The producing client's tunnel writer, for pause/resume messages.
+  client_tx: mpsc::Sender<Message>,
+  /// Whether the client announced protocol v3+ when the stream started.
+  supports_pause: bool,
+  /// Bytes enqueued but not yet forwarded to the consumer.
+  backlog: std::sync::atomic::AtomicUsize,
+  /// True while a `StreamPause` is outstanding.
+  paused: AtomicBool,
+}
+
+impl StreamFlow {
+  pub(crate) fn new(
+    stream_id: String,
+    client_tx: mpsc::Sender<Message>,
+    supports_pause: bool,
+  ) -> Self {
+    StreamFlow {
+      stream_id,
+      client_tx,
+      supports_pause,
+      backlog: std::sync::atomic::AtomicUsize::new(0),
+      paused: AtomicBool::new(false),
+    }
+  }
+
+  /// Sends `msg` on the client's tunnel without blocking; used from contexts
+  /// (read loop, Drop) that must never wait on the writer.
+  fn try_notify(&self, msg: &TunnelMessage) -> bool {
+    match serde_json::to_string(msg) {
+      Ok(json) => self.client_tx.try_send(Message::Text(json)).is_ok(),
+      Err(_) => false,
+    }
+  }
+
+  /// Accounts newly enqueued bytes and pauses the producer past the high
+  /// watermark. Called on the tunnel read loop, so it never blocks.
+  fn on_enqueued(&self, cost: usize) {
+    let backlog = self.backlog.fetch_add(cost, Ordering::SeqCst) + cost;
+    if self.supports_pause
+      && backlog >= STREAM_PAUSE_BYTES
+      && !self.paused.swap(true, Ordering::SeqCst)
+    {
+      // A full writer channel just means the pause is retried on the next
+      // chunk; the flag is put back so that retry happens.
+      let sent = self.try_notify(&TunnelMessage::StreamPause {
+        id: self.stream_id.clone(),
+      });
+      if !sent {
+        self.paused.store(false, Ordering::SeqCst);
+      }
+    }
+  }
+
+  /// Accounts bytes handed to the consumer and resumes a paused producer
+  /// once the backlog has drained below the low watermark.
+  fn on_forwarded(&self, cost: usize) {
+    let backlog = self.backlog.fetch_sub(cost, Ordering::SeqCst) - cost;
+    if backlog <= STREAM_RESUME_BYTES
+      && self.paused.load(Ordering::SeqCst)
+      && self.try_notify(&TunnelMessage::StreamResume {
+        id: self.stream_id.clone(),
+      })
+    {
+      self.paused.store(false, Ordering::SeqCst);
+    }
+  }
+
+  fn over_limit(&self, cost: usize) -> bool {
+    self.backlog.load(Ordering::SeqCst) + cost > STREAM_BACKLOG_LIMIT
+  }
+}
+
+impl Drop for StreamFlow {
+  fn drop(&mut self) {
+    // A stream torn down while its producer is paused must not leave that
+    // producer waiting forever (the client also has its own resume-timeout
+    // safety net for the case where this best-effort send is lost).
+    if self.paused.load(Ordering::SeqCst) {
+      let _ = self.try_notify(&TunnelMessage::StreamResume {
+        id: self.stream_id.clone(),
+      });
+    }
+  }
+}
+
+/// Why a pumped stream refused a chunk; both end the stream.
+#[derive(Debug, PartialEq)]
+pub(crate) enum PumpPushError {
+  /// The pump ended: the consumer vanished or stalled beyond the timeout.
+  ConsumerGone,
+  /// The backlog cap was hit: the producer cannot be paused (or ignored it).
+  BacklogFull,
+}
+
+/// The read loop's handle to a pumped stream: a non-blocking enqueue with
+/// byte accounting and flow control.
+pub(crate) struct PumpedSender<T> {
+  feed: mpsc::UnboundedSender<T>,
+  flow: Arc<StreamFlow>,
+}
+
+impl<T> Clone for PumpedSender<T> {
+  fn clone(&self) -> Self {
+    PumpedSender {
+      feed: self.feed.clone(),
+      flow: self.flow.clone(),
+    }
+  }
+}
+
+impl<T: PumpCost> PumpedSender<T> {
+  /// Enqueues one item without ever blocking the tunnel read loop.
+  pub(crate) fn push(&self, item: T) -> Result<(), PumpPushError> {
+    let cost = item.cost();
+    if self.flow.over_limit(cost) {
+      return Err(PumpPushError::BacklogFull);
+    }
+    self
+      .feed
+      .send(item)
+      .map_err(|_| PumpPushError::ConsumerGone)?;
+    self.flow.on_enqueued(cost);
+    Ok(())
+  }
+}
+
+#[cfg(test)]
+impl StreamFlow {
+  /// A flow handle detached from any tunnel client, for tests: the dummy
+  /// writer channel means a pause can never be delivered, so only the
+  /// backlog cap and the stall timeout apply.
+  pub(crate) fn detached(stream_id: &str) -> Self {
+    Self::new(stream_id.to_string(), mpsc::channel(1).0, false)
+  }
+}
+
+/// Test convenience: a pumped stream with a detached flow and a long stall
+/// timeout, for tests that only need the sender type.
+#[cfg(test)]
+pub(crate) fn test_pump<T: PumpCost + Send + 'static>(out: mpsc::Sender<T>) -> PumpedSender<T> {
+  spawn_consumer_pump(out, Duration::from_secs(30), StreamFlow::detached("test"))
+}
+
 /// Puts a forwarding task between the tunnel read loop and one public
 /// consumer, and returns the sender the read loop should hold.
 ///
@@ -973,38 +1168,49 @@ impl RequestTimeline {
 /// waiting there stalls the other visitors' responses, the TCP data and even
 /// the Ping handling of that whole tunnel; a stall outlasting
 /// `client_down_threshold` drops the client from routing and 504s visitors
-/// with nothing to do with it. The read loop therefore only ever `try_send`s
+/// with nothing to do with it. The read loop therefore only ever pushes
 /// into the returned queue, and this task does the waiting on its behalf,
 /// giving up on a consumer stalled beyond `stall_timeout`.
 ///
-/// Backpressure is preserved: the queue is as deep as the consumer's own
-/// channel, and once both fill the read loop's `try_send` fails and the stream
-/// is dropped, which is what the blocking send's timeout used to do.
-pub(crate) fn spawn_consumer_pump<T: Send + 'static>(
+/// Backpressure reaches the producer instead of piling up here: past
+/// `STREAM_PAUSE_BYTES` of backlog the producing client is asked to stop
+/// reading the stream's source until the backlog drains (protocol v3). A
+/// producer that cannot be paused is cut off at `STREAM_BACKLOG_LIMIT`,
+/// and a consumer that accepts nothing for `stall_timeout` ends the stream
+/// exactly as the old blocking send's timeout did.
+pub(crate) fn spawn_consumer_pump<T: PumpCost + Send + 'static>(
   out: mpsc::Sender<T>,
   stall_timeout: Duration,
-) -> mpsc::Sender<T> {
-  let (feed_tx, mut feed_rx) = mpsc::channel::<T>(out.max_capacity());
+  flow: StreamFlow,
+) -> PumpedSender<T> {
+  let flow = Arc::new(flow);
+  let (feed_tx, mut feed_rx) = mpsc::unbounded_channel::<T>();
+  let pump_flow = flow.clone();
   tokio::spawn(async move {
     while let Some(item) = feed_rx.recv().await {
+      let cost = item.cost();
       // A stalled or vanished consumer ends the pump; dropping `feed_rx`
-      // closes the queue, so the read loop's next `try_send` reports the
-      // stream as gone and removes it.
+      // closes the queue, so the read loop's next push reports the stream
+      // as gone and removes it.
       if !matches!(
         tokio::time::timeout(stall_timeout, out.send(item)).await,
         Ok(Ok(()))
       ) {
         break;
       }
+      pump_flow.on_forwarded(cost);
     }
   });
-  feed_tx
+  PumpedSender {
+    feed: feed_tx,
+    flow,
+  }
 }
 
 /// Sender half of an in-flight streamed response body, kept so the tunnel
 /// read loop can push chunks and so disconnect cleanup can drop it.
 pub(crate) struct ResponseStreamHandle {
-  pub(crate) tx: mpsc::Sender<Result<BodyFrame, std::io::Error>>,
+  pub(crate) tx: PumpedSender<Result<BodyFrame, std::io::Error>>,
   pub(crate) client_id: String,
 }
 
@@ -1016,6 +1222,15 @@ pub(crate) enum TcpConsumerMsg {
 
 /// Handle to an active TCP tunnel stream (consumer side).
 pub(crate) struct TcpStreamHandle {
+  pub(crate) tx: PumpedSender<TcpConsumerMsg>,
+  pub(crate) client_id: String,
+}
+
+/// Handle to an active UDP relay stream (consumer side). Unlike the pumped
+/// TCP/WS/response streams, UDP is best-effort by contract: a congested
+/// consumer drops datagrams instead of buffering or pausing the producer,
+/// so the handle keeps a plain bounded sender.
+pub(crate) struct UdpStreamHandle {
   pub(crate) tx: mpsc::Sender<TcpConsumerMsg>,
   pub(crate) client_id: String,
 }
@@ -1032,7 +1247,7 @@ pub(crate) struct PendingRequest {
 /// tunnel frames to the public side, tagged with the serving client's id so a
 /// `WsData`/`WsClose` frame can be verified to come from the owning client.
 pub(crate) struct WsStreamHandle {
-  pub(crate) tx: mpsc::Sender<WsStreamMessage>,
+  pub(crate) tx: PumpedSender<WsStreamMessage>,
   pub(crate) client_id: String,
 }
 
@@ -1257,7 +1472,7 @@ pub(crate) struct AppState {
   /// Active UDP relay streams (declared `protocol: udp` tunnels):
   /// stream_id → consumer sender. Same handle shape as TCP; the payloads are
   /// whole datagrams instead of stream bytes.
-  pub(crate) udp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
+  pub(crate) udp_streams: Mutex<HashMap<String, UdpStreamHandle>>,
   /// Server-side GET response cache (APERIO_CACHE; see the cache module).
   pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
   /// Cacheable GET misses currently being fetched, keyed like the response
@@ -1309,6 +1524,21 @@ impl Drop for WsSlot {
 }
 
 impl AppState {
+  /// Whether `client_id` announced a protocol version with per-stream flow
+  /// control (v3+), i.e. it honors `StreamPause`/`StreamResume`. Read when a
+  /// stream starts; a client is only routable once its first Ping announced
+  /// the version, so the answer is stable by then.
+  pub(crate) async fn client_supports_pause(&self, client_id: &str) -> bool {
+    self
+      .clients
+      .lock()
+      .await
+      .get(client_id)
+      .and_then(|h| h.client_protocol)
+      .unwrap_or(0)
+      >= 3
+  }
+
   /// Rebuilds the live config from the layers (env defaults ->
   /// `aperio-server.yaml` live settings -> dashboard overrides) with the
   /// current structured `headers`/`routes`, and applies it. Called on file

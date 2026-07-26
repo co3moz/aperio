@@ -6,7 +6,9 @@ use tracing::warn;
 /// (in logs and on the dashboard) instead of failing in obscure ways.
 /// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
 /// chunk frames instead of base64+JSON for body data.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// v3: per-stream flow control (StreamPause/StreamResume) — the server
+/// pauses a producer whose visitor reads slower than it sends.
+pub const PROTOCOL_VERSION: u32 = 3;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -402,6 +404,16 @@ pub enum TunnelMessage {
   /// Client → server: compression accepted; both sides may now send
   /// compressed binary frames.
   CompressionAck {},
+  /// Server → client (v3): too much of stream `id` is backed up server-side
+  /// because its visitor reads slower than the client produces. The client
+  /// stops reading the stream's source (backend body, WebSocket, TCP socket)
+  /// until the matching `StreamResume`, letting ordinary TCP backpressure
+  /// reach the backend instead of the server buffering or dropping the
+  /// stream. `id` is a request id (streamed response) or a stream id (WS/TCP
+  /// relay); UDP stays best-effort. Older clients ignore the message.
+  StreamPause { id: String },
+  /// Server → client (v3): stream `id`'s backlog drained; resume producing.
+  StreamResume { id: String },
 }
 
 /// Compresses a tunnel text frame into a zlib binary frame.

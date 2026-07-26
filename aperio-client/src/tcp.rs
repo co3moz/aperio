@@ -41,6 +41,7 @@ pub(crate) async fn handle_tcp_open(
   mut abort_rx: mpsc::Receiver<()>,
   e2e: Option<crate::e2e::E2eParams>,
   activity: crate::service::ActivityClock,
+  pauses: crate::flow::PauseRegistry,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -122,9 +123,14 @@ pub(crate) async fn handle_tcp_open(
   let stream_id_up = stream_id.clone();
   let tunnel_tx_up = tunnel_tx.clone();
   let activity_up = activity.clone();
+  // Server flow control (protocol v3): a StreamPause for this stream halts
+  // the backend read below, so a visitor reading slower than the backend
+  // sends throttles the backend through ordinary TCP backpressure.
+  let pause_guard = pauses.register(&stream_id);
   let up_task = tokio::spawn(async move {
     let mut buf = vec![0u8; 16 * 1024];
     loop {
+      pause_guard.signal().wait_while_paused().await;
       match read_half.read(&mut buf).await {
         Ok(0) | Err(_) => break,
         Ok(n) => {

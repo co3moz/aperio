@@ -218,6 +218,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
     abort_rx,
     None,
     activity.clone(),
+    Default::default(),
   ));
 
   // tunnel -> backend -> echoed back -> relayed out as base64 TcpData.
@@ -267,6 +268,7 @@ async fn test_handle_tcp_open_connect_fails() {
     abort_rx,
     None,
     crate::service::ActivityClock::default(),
+    Default::default(),
   )
   .await;
 
@@ -298,6 +300,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
+    Default::default(),
   ));
 
   // Drive the initiator side of the handshake.
@@ -343,6 +346,7 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
+    Default::default(),
   ));
 
   // A bogus peer frame fails handshake completion -> TcpClose + cleanup,
@@ -685,6 +689,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
     abort_rx,
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
+    Default::default(),
   ));
 
   // Complete the handshake as the initiator.
@@ -728,6 +733,7 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     abort_rx,
     None,
     crate::service::ActivityClock::default(),
+    Default::default(),
   ));
 
   bytes_tx.send(b"echo-me".to_vec()).await.unwrap();

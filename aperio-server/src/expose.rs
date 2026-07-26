@@ -181,9 +181,15 @@ async fn relay_public_tcp(
   let stream_id = uuid::Uuid::new_v4().to_string();
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   // The tunnel read loop feeds a pump rather than this channel: a consumer
-  // that stops reading must not stall the other streams on that tunnel.
+  // that stops reading must not stall the other streams on that tunnel;
+  // past the byte watermark the client is asked to pause producing.
+  let flow = crate::state::StreamFlow::new(
+    stream_id.clone(),
+    client_tx.clone(),
+    state.client_supports_pause(&client_id).await,
+  );
   let relay_tx =
-    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout);
+    crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);
   state.tcp_streams.lock().await.insert(
     stream_id.clone(),
     TcpStreamHandle {

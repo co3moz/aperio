@@ -768,8 +768,14 @@ pub(crate) async fn run_service(
                 spec.target
               );
             }
+            // Pause switches for the streams this connection produces
+            // (server flow control, protocol v3). Per connection: stream ids
+            // do not survive a reconnect.
+            let stream_pauses = crate::flow::PauseRegistry::default();
+
             let forward_ctx = Arc::new(ForwardContext {
               client: reqwest_client.clone(),
+              stream_pauses: stream_pauses.clone(),
               h2_client: crate::proxy::h2::build_h2_client(&spec.target).map(Arc::new),
               unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
               timeout_secs: spec.timeout_secs,
@@ -958,6 +964,7 @@ pub(crate) async fn run_service(
                                               let active_streams = active_ws_streams.clone();
                                               let client_timeout = spec.timeout_secs;
                                               let activity = shared.activity_clock();
+                                              let pauses = stream_pauses.clone();
 
                                               tokio::spawn(async move {
                                                   handle_upgrade_request(
@@ -972,6 +979,7 @@ pub(crate) async fn run_service(
                                                       active_streams,
                                                       client_timeout,
                                                       activity,
+                                                      pauses,
                                                   )
                                                   .await;
                                               });
@@ -1052,9 +1060,10 @@ pub(crate) async fn run_service(
                                                       let tx = tx_write.clone();
                                                       let streams = active_tcp_streams.clone();
                                                       let activity = shared.activity_clock();
+                                                      let pauses = stream_pauses.clone();
                                                       tokio::spawn(async move {
                                                           let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity).await;
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses).await;
                                                       });
                                                   }
                                                   None => {
@@ -1148,6 +1157,15 @@ pub(crate) async fn run_service(
                                                   let _ = handle.abort_tx.send(()).await;
                                                   debug!("Closed TCP stream {}", stream_id);
                                               }
+                                          }
+                                          TunnelMessage::StreamPause { id } => {
+                                              // Server flow control (v3): the visitor of this
+                                              // stream reads slower than we produce. An unknown
+                                              // id (stream already finished) is a no-op.
+                                              stream_pauses.pause(&id);
+                                          }
+                                          TunnelMessage::StreamResume { id } => {
+                                              stream_pauses.resume(&id);
                                           }
                                           TunnelMessage::CompressionStart {} => {
                                               info!("Server offered tunnel compression; enabling zlib frames");

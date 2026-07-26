@@ -489,14 +489,23 @@ async fn recv_msg(rx: &mut mpsc::Receiver<Message>) -> Message {
     .expect("client channel closed")
 }
 
-async fn wait_for_stream(state: &AppState, udp: bool) -> mpsc::Sender<TcpConsumerMsg> {
+async fn wait_for_tcp_stream(state: &AppState) -> crate::state::PumpedSender<TcpConsumerMsg> {
   for _ in 0..200 {
     {
-      let map = if udp {
-        state.udp_streams.lock().await
-      } else {
-        state.tcp_streams.lock().await
-      };
+      let map = state.tcp_streams.lock().await;
+      if let Some(h) = map.values().next() {
+        return h.tx.clone();
+      }
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+  }
+  panic!("relay stream never registered");
+}
+
+async fn wait_for_udp_stream(state: &AppState) -> mpsc::Sender<TcpConsumerMsg> {
+  for _ in 0..200 {
+    {
+      let map = state.udp_streams.lock().await;
       if let Some(h) = map.values().next() {
         return h.tx.clone();
       }
@@ -553,11 +562,8 @@ async fn tcp_relay_full_roundtrip() {
   }
 
   // Tunnel -> consumer via the registered relay channel.
-  let relay_tx = wait_for_stream(&state, false).await;
-  relay_tx
-    .send(TcpConsumerMsg::Data(vec![1, 2, 3]))
-    .await
-    .unwrap();
+  let relay_tx = wait_for_tcp_stream(&state).await;
+  relay_tx.push(TcpConsumerMsg::Data(vec![1, 2, 3])).unwrap();
   let got = tokio::time::timeout(std::time::Duration::from_secs(2), consumer.next())
     .await
     .expect("consumer frame timeout")
@@ -566,7 +572,7 @@ async fn tcp_relay_full_roundtrip() {
   assert_eq!(got, TMessage::Binary(vec![1, 2, 3]));
 
   // Close from the tunnel side ends the relay and drops the stream.
-  relay_tx.send(TcpConsumerMsg::Close).await.unwrap();
+  relay_tx.push(TcpConsumerMsg::Close).unwrap();
   wait_streams_empty(&state, false).await;
 }
 
@@ -608,7 +614,7 @@ async fn udp_relay_full_roundtrip() {
     other => panic!("expected UdpDatagram, got {other:?}"),
   }
 
-  let relay_tx = wait_for_stream(&state, true).await;
+  let relay_tx = wait_for_udp_stream(&state).await;
   relay_tx
     .send(TcpConsumerMsg::Data(vec![9, 8]))
     .await

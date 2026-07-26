@@ -43,6 +43,7 @@ pub(crate) async fn handle_upgrade_request(
   active_streams: Arc<Mutex<HashMap<String, WsStreamHandle>>>,
   client_timeout_secs: u64,
   activity: crate::service::ActivityClock,
+  pauses: crate::flow::PauseRegistry,
 ) {
   info!("Handling WebSocket upgrade for stream {}", stream_id);
 
@@ -238,8 +239,16 @@ pub(crate) async fn handle_upgrade_request(
 
   // Task: read from backend WS → send WsData through tunnel
   let activity_up = activity.clone();
+  // Server flow control (protocol v3): a StreamPause for this stream halts
+  // the backend read below, so a visitor reading slower than the backend
+  // sends throttles the backend instead of piling up server-side.
+  let pause_guard = pauses.register(&stream_id);
   let backend_to_tunnel = tokio::spawn(async move {
-    while let Some(result) = backend_receiver.next().await {
+    loop {
+      pause_guard.signal().wait_while_paused().await;
+      let Some(result) = backend_receiver.next().await else {
+        break;
+      };
       match result {
         Ok(msg) => {
           // Live traffic in either direction keeps `idle_timeout` at bay:

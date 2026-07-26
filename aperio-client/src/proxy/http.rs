@@ -16,13 +16,17 @@ pub(crate) const STREAM_THRESHOLD: usize = 256 * 1024;
 pub(crate) const STREAM_CHUNK_SIZE: usize = 128 * 1024;
 
 /// Sends one streamed response chunk: a raw binary frame for v2 servers, or
-/// the legacy base64+JSON message otherwise.
+/// the legacy base64+JSON message otherwise. Honors the stream's pause
+/// switch first, so a `StreamPause` from the server stops the body read
+/// loop right here and TCP backpressure reaches the backend.
 pub(crate) async fn send_response_chunk(
   tunnel_tx: &mpsc::Sender<Message>,
   id: &str,
   part: &[u8],
   binary: bool,
+  pause: &crate::flow::PauseSignal,
 ) -> Result<(), ()> {
+  pause.wait_while_paused().await;
   if binary {
     tunnel_tx
       .send(Message::Binary(encode_binary_frame(
@@ -168,6 +172,9 @@ pub(crate) struct ForwardContext {
   /// Seconds to wait for the backend's response head on the HTTP/2 path
   /// (the reqwest path carries its timeout inside `client`).
   pub(crate) timeout_secs: u64,
+  /// Pause switches for the streams this connection produces (server flow
+  /// control, protocol v3); streamed response bodies register here.
+  pub(crate) stream_pauses: crate::flow::PauseRegistry,
 }
 
 /// Builds the backend URL for an incoming proxied request: maps the path
@@ -398,7 +405,7 @@ pub(crate) async fn handle_incoming_request(
       let threshold = STREAM_THRESHOLD.min(ctx.max_response_body_size);
       let mut stream = res.bytes_stream();
       let mut buf: Vec<u8> = Vec::new();
-      let mut streaming = false;
+      let mut pause_guard: Option<crate::flow::PauseGuard> = None;
       let mut aborted = false;
       let mut total: usize = 0;
 
@@ -406,48 +413,54 @@ pub(crate) async fn handle_incoming_request(
         match stream.next().await {
           Some(Ok(chunk)) => {
             total += chunk.len();
-            if !streaming {
-              buf.extend_from_slice(&chunk);
-              if buf.len() > threshold {
-                // Switch to streaming: send head + buffered data as chunks.
-                let start = TunnelMessage::ResponseStart {
-                  id: id.clone(),
-                  status,
-                  headers: res_headers.clone(),
-                };
-                if send_tunnel_msg(tunnel_tx, &start).await.is_err() {
-                  return None;
-                }
-                for part in buf.chunks(STREAM_CHUNK_SIZE) {
-                  if send_response_chunk(tunnel_tx, &id, part, binary_chunks)
-                    .await
-                    .is_err()
-                  {
+            match &pause_guard {
+              None => {
+                buf.extend_from_slice(&chunk);
+                if buf.len() > threshold {
+                  // Switch to streaming: send head + buffered data as chunks.
+                  // Registering for pause first, so the server can throttle
+                  // this stream from its very first chunk.
+                  let guard = ctx.stream_pauses.register(&id);
+                  let start = TunnelMessage::ResponseStart {
+                    id: id.clone(),
+                    status,
+                    headers: res_headers.clone(),
+                  };
+                  if send_tunnel_msg(tunnel_tx, &start).await.is_err() {
                     return None;
                   }
+                  for part in buf.chunks(STREAM_CHUNK_SIZE) {
+                    if send_response_chunk(tunnel_tx, &id, part, binary_chunks, guard.signal())
+                      .await
+                      .is_err()
+                    {
+                      return None;
+                    }
+                  }
+                  buf = Vec::new();
+                  pause_guard = Some(guard);
                 }
-                buf = Vec::new();
-                streaming = true;
               }
-            } else {
-              if total > ctx.max_response_body_size {
-                warn!(
-                  "Streamed response for request ID {} exceeded limit ({} bytes); aborting",
-                  id, ctx.max_response_body_size
-                );
-                aborted = true;
-                break;
-              }
-              if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks)
-                .await
-                .is_err()
-              {
-                return None;
+              Some(guard) => {
+                if total > ctx.max_response_body_size {
+                  warn!(
+                    "Streamed response for request ID {} exceeded limit ({} bytes); aborting",
+                    id, ctx.max_response_body_size
+                  );
+                  aborted = true;
+                  break;
+                }
+                if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks, guard.signal())
+                  .await
+                  .is_err()
+                {
+                  return None;
+                }
               }
             }
           }
           Some(Err(e)) => {
-            if streaming {
+            if pause_guard.is_some() {
               error!(
                 "Body stream error from backend for request ID {}: {:?}; aborting stream",
                 id, e
@@ -465,7 +478,7 @@ pub(crate) async fn handle_incoming_request(
         }
       }
 
-      if streaming {
+      if pause_guard.is_some() {
         if aborted {
           // Abnormal end: the visitor must see an aborted response, not a
           // silently truncated success.

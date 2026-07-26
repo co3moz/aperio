@@ -81,9 +81,10 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
   if let Some(chunk_tx) = chunk_tx {
     let len = bytes.len() as u64;
     // Never block here: this runs on the read loop the whole tunnel shares.
-    // The stream's pump task absorbs a stalling consumer, and only once its
-    // queue is full too does the chunk fail and the stream go away.
-    let send_res = chunk_tx.try_send(Ok(crate::state::BodyFrame::Data(bytes)));
+    // The stream's pump task absorbs a stalling consumer, its flow control
+    // pauses the producer past the byte watermark, and only a consumer gone
+    // for good (or a producer that cannot be paused) ends the stream.
+    let send_res = chunk_tx.push(Ok(crate::state::BodyFrame::Data(bytes)));
     match send_res {
       Ok(()) => {
         let mut stats = state.stats.lock().await;
@@ -106,9 +107,16 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
           .record_bytes_sent(len, org.as_deref());
         state.add_token_bytes(token_id.as_deref(), len).await;
       }
-      _ => {
+      Err(crate::state::PumpPushError::ConsumerGone) => {
         debug!(
           "Dropping streamed response {} (consumer gone or stalled)",
+          id
+        );
+        state.response_streams.lock().await.remove(id);
+      }
+      Err(crate::state::PumpPushError::BacklogFull) => {
+        warn!(
+          "Dropping streamed response {}: backlog cap hit and the producing client honors no pause",
           id
         );
         state.response_streams.lock().await.remove(id);
@@ -547,9 +555,15 @@ pub(crate) async fn handle_socket(
                   mpsc::channel::<Result<crate::state::BodyFrame, std::io::Error>>(32);
                 // The read loop feeds the pump, never the visitor's channel
                 // directly, so a visitor that stops reading cannot stall the
-                // other streams sharing this tunnel.
+                // other streams sharing this tunnel; past the byte watermark
+                // the client is asked to pause producing this stream.
+                let flow = crate::state::StreamFlow::new(
+                  id.clone(),
+                  tx_write.clone(),
+                  state.client_supports_pause(&client_id).await,
+                );
                 let chunk_tx =
-                  spawn_consumer_pump(chunk_tx, state.config().gateway_response_timeout);
+                  spawn_consumer_pump(chunk_tx, state.config().gateway_response_timeout, flow);
                 state.response_streams.lock().await.insert(
                   id.clone(),
                   ResponseStreamHandle {
@@ -598,7 +612,7 @@ pub(crate) async fn handle_socket(
                   if let Some(trailers) = trailers {
                     let _ = handle
                       .tx
-                      .try_send(Ok(crate::state::BodyFrame::Trailers(trailers)));
+                      .push(Ok(crate::state::BodyFrame::Trailers(trailers)));
                   }
                 }
                 None => debug!(
@@ -616,7 +630,7 @@ pub(crate) async fn handle_socket(
                 take_owned_stream(&state.response_streams, &id, &client_id, |h| &h.client_id).await;
               match owned {
                 Some(handle) => {
-                  let _ = handle.tx.try_send(Err(std::io::Error::other(
+                  let _ = handle.tx.push(Err(std::io::Error::other(
                     "response aborted by client (size limit or backend error)",
                   )));
                 }
@@ -646,12 +660,10 @@ pub(crate) async fn handle_socket(
                 match BASE64_STANDARD.decode(&data) {
                   Ok(bytes) => {
                     // Non-blocking, like the HTTP chunk path: the stream's
-                    // pump waits on a slow consumer so this loop does not.
-                    if consumer_tx.try_send(TcpConsumerMsg::Data(bytes)).is_err() {
-                      debug!(
-                        "Dropping TCP stream {} (consumer gone or stalled)",
-                        stream_id
-                      );
+                    // pump waits on a slow consumer so this loop does not,
+                    // and its flow control pauses the producer if need be.
+                    if let Err(e) = consumer_tx.push(TcpConsumerMsg::Data(bytes)) {
+                      debug!("Dropping TCP stream {} ({:?})", stream_id, e);
                       state.tcp_streams.lock().await.remove(&stream_id);
                     }
                   }
@@ -666,7 +678,7 @@ pub(crate) async fn handle_socket(
                 take_owned_stream(&state.tcp_streams, &stream_id, &client_id, |h| &h.client_id)
                   .await
               {
-                let _ = h.tx.try_send(TcpConsumerMsg::Close);
+                let _ = h.tx.push(TcpConsumerMsg::Close);
               }
             }
             TunnelMessage::UdpDatagram { stream_id, data } => {
@@ -1306,12 +1318,10 @@ pub(crate) async fn handle_socket(
                   }
                 };
                 // Non-blocking, mirroring deliver_response_chunk: the stream's
-                // pump waits on a stalling consumer so this loop does not.
-                if chunk_tx.try_send(WsStreamMessage::Data(ws_msg)).is_err() {
-                  debug!(
-                    "Dropping WS stream {} (consumer gone or stalled)",
-                    stream_id
-                  );
+                // pump waits on a stalling consumer so this loop does not,
+                // and its flow control pauses the producer if need be.
+                if let Err(e) = chunk_tx.push(WsStreamMessage::Data(ws_msg)) {
+                  debug!("Dropping WS stream {} ({:?})", stream_id, e);
                   state.ws_streams.lock().await.remove(&stream_id);
                 }
               }
@@ -1329,7 +1339,7 @@ pub(crate) async fn handle_socket(
                 }
               };
               if let Some(chunk_tx) = chunk_tx {
-                let _ = chunk_tx.try_send(WsStreamMessage::Close);
+                let _ = chunk_tx.push(WsStreamMessage::Close);
               }
             }
             _ => {}
@@ -1438,8 +1448,21 @@ pub(crate) async fn handle_socket(
   }
 
   // Close TCP and UDP tunnel streams owned by the disconnected client.
-  for map in [&state.tcp_streams, &state.udp_streams] {
-    let mut streams = map.lock().await;
+  {
+    let mut streams = state.tcp_streams.lock().await;
+    let closing: Vec<_> = streams
+      .iter()
+      .filter(|(_, h)| h.client_id == client_id)
+      .map(|(_, h)| h.tx.clone())
+      .collect();
+    streams.retain(|_, h| h.client_id != client_id);
+    drop(streams);
+    for tx in closing {
+      let _ = tx.push(TcpConsumerMsg::Close);
+    }
+  }
+  {
+    let mut streams = state.udp_streams.lock().await;
     let closing: Vec<_> = streams
       .iter()
       .filter(|(_, h)| h.client_id == client_id)
@@ -1465,7 +1488,7 @@ pub(crate) async fn handle_socket(
     streams.retain(|_, h| h.client_id != client_id);
     drop(streams);
     for tx in closing {
-      let _ = tx.send(WsStreamMessage::Close).await;
+      let _ = tx.push(WsStreamMessage::Close);
     }
   }
 }

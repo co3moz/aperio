@@ -10,6 +10,7 @@ mod check;
 mod config;
 mod dial;
 mod e2e;
+mod flow;
 mod protocol;
 mod proxy;
 mod serve;

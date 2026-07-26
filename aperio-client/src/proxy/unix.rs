@@ -207,6 +207,7 @@ pub(crate) async fn handle_incoming_request_unix(
   let mut body = res.into_body();
   let mut buf: Vec<u8> = Vec::new();
   let mut streaming = false;
+  let mut pause_guard: Option<crate::flow::PauseGuard> = None;
   let mut aborted = false;
   let mut total: usize = 0;
 
@@ -252,6 +253,8 @@ pub(crate) async fn handle_incoming_request_unix(
     if !streaming {
       buf.extend_from_slice(&chunk);
       if buf.len() > threshold {
+        // Register for server flow control before the first chunk goes out.
+        let guard = ctx.stream_pauses.register(&id);
         let start = TunnelMessage::ResponseStart {
           id: id.clone(),
           status,
@@ -261,7 +264,7 @@ pub(crate) async fn handle_incoming_request_unix(
           return None;
         }
         for part in buf.chunks(STREAM_CHUNK_SIZE) {
-          if send_response_chunk(tunnel_tx, &id, part, binary_chunks)
+          if send_response_chunk(tunnel_tx, &id, part, binary_chunks, guard.signal())
             .await
             .is_err()
           {
@@ -269,6 +272,7 @@ pub(crate) async fn handle_incoming_request_unix(
           }
         }
         buf = Vec::new();
+        pause_guard = Some(guard);
         streaming = true;
       }
     } else {
@@ -280,7 +284,10 @@ pub(crate) async fn handle_incoming_request_unix(
         aborted = true;
         break;
       }
-      if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks)
+      let pause = pause_guard
+        .as_ref()
+        .expect("streaming implies a pause guard");
+      if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks, pause.signal())
         .await
         .is_err()
       {
