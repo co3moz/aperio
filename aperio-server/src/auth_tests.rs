@@ -858,6 +858,40 @@ async fn is_master_admin_cases() {
 }
 
 #[tokio::test]
+async fn disabled_user_session_grants_nothing() {
+  let state = test_state();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap();
+  let user = state
+    .users
+    .lock()
+    .await
+    .create("cara", "password1", Role::Admin, Some(org.id.clone()))
+    .unwrap();
+  let token = seed_session(&state, Role::Admin, Some("cara"), None).await;
+  let headers = cookie_headers(&token);
+  assert!(!is_master_admin(&state, &headers).await);
+
+  // Disabling the account must revoke its live session outright. Before this
+  // guard the user's org lookup started failing, which read as "master org"
+  // and promoted the disabled sub-org admin to super-admin.
+  state
+    .users
+    .lock()
+    .await
+    .update(&user.id, None, Some(false), None)
+    .unwrap();
+  assert_eq!(dashboard_role(&state, &headers).await, None);
+  assert_eq!(dashboard_username(&state, &headers).await, None);
+  assert!(!validate_session(&state, &headers).await);
+  assert!(!is_master_admin(&state, &headers).await);
+}
+
+#[tokio::test]
 async fn effective_org_selection() {
   let state = test_state();
   // Master admin with a selected org sees that org.

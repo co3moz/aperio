@@ -252,6 +252,16 @@ impl UserStore {
       .find(|u| u.enabled && u.username.eq_ignore_ascii_case(username.trim()))
   }
 
+  /// True when a user row with this (case-insensitive) username exists and is
+  /// disabled. Used to strip authority from a disabled account's live sessions;
+  /// a username with no row at all is an OIDC identity, which is not affected.
+  pub fn is_disabled_username(&self, username: &str) -> bool {
+    self
+      .users
+      .iter()
+      .any(|u| !u.enabled && u.username.eq_ignore_ascii_case(username.trim()))
+  }
+
   /// Starts TOTP enrollment: stores a fresh pending secret (replacing any
   /// earlier unfinished one) and returns it. Enrollment only takes effect
   /// after [`totp_enable`] verifies a code against it.

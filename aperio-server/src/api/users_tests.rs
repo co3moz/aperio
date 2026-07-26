@@ -245,6 +245,27 @@ async fn update_succeeds() {
 }
 
 #[tokio::test]
+async fn disabling_a_user_drops_their_sessions() {
+  let state = Arc::new(test_state());
+  let id = make_user(&state, "bob", Role::Viewer, None).await;
+  let victim = seed_session(&state, Role::Viewer, Some("bob"), None).await;
+  let bystander = seed_session(&state, Role::Viewer, Some("carol"), None).await;
+  let headers = admin_headers(&state).await;
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(id),
+    update_req(None, Some(false), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let sessions = state.sessions.lock().await;
+  assert!(sessions.get(&victim).is_none());
+  assert!(sessions.get(&bystander).is_some());
+}
+
+#[tokio::test]
 async fn update_rejects_short_password() {
   let state = Arc::new(test_state());
   let id = make_user(&state, "bob", Role::Viewer, None).await;

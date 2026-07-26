@@ -192,6 +192,16 @@ pub(crate) async fn users_update_handler(
       .update(&id, role, payload.enabled, payload.password.as_deref());
   match updated {
     Ok(user) => {
+      // Disabling an account must end its live sessions, exactly as deleting
+      // one does: an account is disabled precisely when it is no longer
+      // trusted, so leaving a session valid for up to 24 hours defeats it.
+      if payload.enabled == Some(false) {
+        state
+          .sessions
+          .lock()
+          .await
+          .retain(|info| info.username.as_deref() != Some(user.username.as_str()));
+      }
       let ip = actor_ip(&state, &headers, addr);
       state
         .audit_session(

@@ -764,14 +764,42 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
   if uuid::Uuid::parse_str(token).is_err() {
     return None;
   }
-  let mut sessions = state.sessions.lock().await;
-  if let Some(info) = sessions.get(token) {
-    if info.expires_at > crate::store::sessions::now_secs() {
-      return Some(info.scope_host.clone());
+  let (scope, username) = {
+    let mut sessions = state.sessions.lock().await;
+    match sessions.get(token) {
+      Some(info) if info.expires_at > crate::store::sessions::now_secs() => {
+        (info.scope_host.clone(), info.username.clone())
+      }
+      Some(_) => {
+        sessions.remove(token);
+        return None;
+      }
+      None => return None,
     }
-    sessions.remove(token);
+  };
+  if !named_user_active(state, username.as_deref()).await {
+    return None;
   }
-  None
+  Some(scope)
+}
+
+/// True unless the session belongs to a dashboard user that is now disabled.
+///
+/// Disabling an account has to strip its live sessions of all authority.
+/// `caller_org` resolves a named session through `find_by_username`, which
+/// skips disabled rows and so reports "no organization" — which
+/// `is_master_admin` reads as the master org. Without this check a disabled
+/// sub-org admin would be *promoted* to master super-admin on their existing
+/// session.
+///
+/// A username with no user row is an OIDC identity, not a disabled account, so
+/// it stays valid. Never call this while holding the `sessions` lock: it takes
+/// `users`.
+async fn named_user_active(state: &AppState, username: Option<&str>) -> bool {
+  match username {
+    None => true,
+    Some(name) => !state.users.lock().await.is_disabled_username(name),
+  }
 }
 
 /// Validates the `aperio_session` cookie for full (global) access — the
@@ -890,12 +918,21 @@ pub(crate) async fn admin_key_identity(
 /// programmatic admin API key (Bearer). None when neither is valid.
 pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {
   if let Some(token) = session_cookie(headers) {
-    let sessions = state.sessions.lock().await;
-    if let Some(info) = sessions.get(token)
-      && info.expires_at > crate::store::sessions::now_secs()
-      && info.scope_host.is_none()
+    let identity = {
+      let sessions = state.sessions.lock().await;
+      sessions
+        .get(token)
+        .filter(|info| {
+          info.expires_at > crate::store::sessions::now_secs() && info.scope_host.is_none()
+        })
+        .map(|info| (info.role, info.username.clone()))
+    };
+    // A session whose named user was disabled or deleted grants no role; fall
+    // through so a Bearer admin key presented alongside it still works.
+    if let Some((role, username)) = identity
+      && named_user_active(state, username.as_deref()).await
     {
-      return Some(info.role);
+      return Some(role);
     }
   }
   // Fall back to a programmatic admin key.
@@ -908,12 +945,17 @@ pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Opt
 /// host-scoped session or the built-in admin (which has no user row).
 pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) -> Option<String> {
   let token = session_cookie(headers)?;
-  let sessions = state.sessions.lock().await;
-  let info = sessions.get(token)?;
-  if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
-    return None;
-  }
-  info.username.clone()
+  let username = {
+    let sessions = state.sessions.lock().await;
+    let info = sessions.get(token)?;
+    if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
+      return None;
+    }
+    info.username.clone()?
+  };
+  named_user_active(state, Some(&username))
+    .await
+    .then_some(username)
 }
 
 /// Validates the `aperio_session` cookie for a proxied request to `host`.
