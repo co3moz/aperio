@@ -46,6 +46,10 @@ import { useHasRole } from '@/lib/session'
 
 // Renders hostname binds; a temporary dashboard override replaces the whole
 // set and is shown highlighted with the client-reported values struck through.
+// Only the first bind is shown (the server lists the client's own declared
+// hostnames first, so that is the name the operator chose); the rest collapse
+// into a `+N` badge that lists them on hover, keeping the column readable for
+// a client bound to a handful of hostnames.
 function BindList({ binds, override }: { binds: string[]; override: string | null }) {
   const { t } = useI18n()
   if (override) {
@@ -64,13 +68,29 @@ function BindList({ binds, override }: { binds: string[]; override: string | nul
     )
   }
   if (binds.length === 0) return <span className="text-muted-foreground">—</span>
+  const [primary, ...rest] = binds
   return (
-    <div className="flex flex-wrap gap-1">
-      {binds.map((b) => (
-        <TintBadge key={b} tint="lime">
-          {b}
-        </TintBadge>
-      ))}
+    <div className="flex flex-wrap items-center gap-1">
+      <TintBadge tint="lime">{primary}</TintBadge>
+      {rest.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger render={<span />}>
+            <TintBadge tint="gray">+{rest.length}</TintBadge>
+          </TooltipTrigger>
+          <TooltipContent>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground">
+                {t('{count} more hostname(s) routed here', { count: rest.length })}
+              </span>
+              {rest.map((b) => (
+                <span key={b} className="font-mono text-xs">
+                  {b}
+                </span>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   )
 }

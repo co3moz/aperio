@@ -18,6 +18,23 @@ use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_
 use crate::state::{AppState, ClientDetail, EnhancedServerStats, RequestLog};
 use crate::store::stats::{self};
 
+/// Hostnames this client asked for itself, in declaration order and without
+/// duplicates. `declared_hostname` is the first entry of the client's own list,
+/// but a client that predates multi-hostname binds only sends that one.
+fn declared_hostnames_of(handle: &crate::state::ClientHandle) -> Vec<String> {
+  let mut out: Vec<String> = Vec::new();
+  for h in handle
+    .declared_hostname
+    .iter()
+    .chain(handle.declared_hostnames.iter())
+  {
+    if !out.contains(h) {
+      out.push(h.clone());
+    }
+  }
+  out
+}
+
 /// Computes the live statistics + active-connection snapshot shared by the
 /// `/api/stats` endpoint and the SSE live stream.
 pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
@@ -45,15 +62,20 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .declared_path
         .clone()
         .or_else(|| handle.assigned_path.clone()),
+      // Declared names first: the dashboard shows the head of this list as
+      // the client's hostname and folds the rest away, and a name the
+      // operator chose is the one worth showing.
       hostname_binds: {
-        let mut set = handle.assigned_hostnames.clone();
-        if let Some(d) = &handle.declared_hostname
-          && !set.contains(d)
-        {
-          set.push(d.clone());
+        let mut set = declared_hostnames_of(handle);
+        for h in &handle.assigned_hostnames {
+          if !set.contains(h) {
+            set.push(h.clone());
+          }
         }
         set
       },
+      declared_hostnames: declared_hostnames_of(handle),
+      random_hostname: handle.random_hostname.clone(),
       token_name: handle.perms.token_name.clone(),
       org_id: handle.perms.org_id.clone(),
       override_path_bind: handle.override_path_bind.clone(),

@@ -28,7 +28,13 @@ export interface ClientDetail {
   connected_for_seconds: number
   request_count: number
   path_bind: string | null
+  /** Every hostname routed to this connection, the client's own declared ones
+   *  first, then the token-granted and random-subdomain ones. */
   hostname_binds: string[]
+  /** The subset of `hostname_binds` the client asked for itself. */
+  declared_hostnames: string[]
+  /** The random subdomain the server assigned, if any. */
+  random_hostname: string | null
   token_name: string | null
   override_path_bind: string | null
   override_hostname_bind: string | null

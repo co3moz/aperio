@@ -106,6 +106,47 @@ async fn stats_snapshot_reports_active_clients_and_shared_instances() {
 }
 
 #[tokio::test]
+async fn stats_lists_declared_hostnames_before_assigned_ones() {
+  let state = Arc::new(test_state());
+
+  // A multi-hostname client with a server-assigned random subdomain: every
+  // declared name must be reported (not only the first), declared names lead
+  // the bind list, and the random one is called out separately.
+  insert_client(&state, "c1", |h| {
+    h.declared_hostname = Some("app.example.com".to_string());
+    h.declared_hostnames = vec!["app.example.com".to_string(), "www.example.com".to_string()];
+    h.assigned_hostnames = vec!["wild-fox.tunnel.example.com".to_string()];
+    h.random_hostname = Some("wild-fox.tunnel.example.com".to_string());
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = stats_handler(State(state.clone()), headers).await;
+  let body = serde_json::to_value(&resp.0).unwrap();
+  let c1 = body["active_clients"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|c| c["id"] == "c1")
+    .unwrap();
+
+  assert_eq!(
+    c1["hostname_binds"],
+    serde_json::json!([
+      "app.example.com",
+      "www.example.com",
+      "wild-fox.tunnel.example.com"
+    ]),
+    "declared names lead, the assigned one trails"
+  );
+  assert_eq!(
+    c1["declared_hostnames"],
+    serde_json::json!(["app.example.com", "www.example.com"])
+  );
+  assert_eq!(c1["random_hostname"], "wild-fox.tunnel.example.com");
+}
+
+#[tokio::test]
 async fn stats_filtered_and_scoped_by_org() {
   let state = Arc::new(test_state());
   // A client belonging to another org must not appear for the master admin

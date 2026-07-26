@@ -12,7 +12,9 @@ Connected clients, a request-rate chart, lifetime average response time, and tod
 
 ![Clients table: binds, health, version, and the uptime panel](images/dashboard-clients.png)
 
-Every connected client with its binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, announced concurrency limit, and a `BACKEND DOWN` badge when the client's own health probe is failing. Two controls act on live clients:
+Every connected client with its binds, health dot, last heartbeat, client version (with a warning badge on tunnel protocol mismatch), standby tier, announced concurrency limit, and a `BACKEND DOWN` badge when the client's own health probe is failing.
+
+The *Hostname* column shows one name, the one the client asked for itself, since a name the operator chose identifies the service better than a token-granted or randomly assigned one. Every other hostname routed to the connection collapses into a `+N` badge that lists them on hover. Two controls act on live clients:
 
 - **Enable/Disable kill switch**, a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
 

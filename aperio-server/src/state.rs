@@ -43,6 +43,15 @@ pub(crate) struct ClientDetail {
   pub(crate) path_bind: Option<String>,
   /// Hostnames in effect (declared, token-granted, and random-subdomain).
   pub(crate) hostname_binds: Vec<String>,
+  /// The subset of `hostname_binds` the client asked for itself, in the order
+  /// it declared them. The dashboard shows the first of these as the client's
+  /// primary hostname, since a name the operator chose identifies the service
+  /// better than one the server handed out.
+  pub(crate) declared_hostnames: Vec<String>,
+  /// The random subdomain the server assigned this client, if any. Listed
+  /// apart from the declared names because it is the server's name, not the
+  /// client's, and it changes whenever the subdomain pattern does.
+  pub(crate) random_hostname: Option<String>,
   /// Name of the dynamic token this client authenticated with (None = master).
   pub(crate) token_name: Option<String>,
   /// Organization this client belongs to, from its token (None = master).
