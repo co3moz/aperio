@@ -169,6 +169,31 @@ fn test_bind_tunnels_flag_parsing() {
 }
 
 #[test]
+fn test_resolve_settings_reports_invalid_idle_timeout() {
+  let cli = CliArgs {
+    mode: CliMode::Run,
+    target: None,
+    local_port: None,
+    opts: Default::default(),
+  };
+  let local: FileConfig = serde_yaml::from_str("idle_timeout: not-a-duration\n").unwrap();
+  // Must be reported, never fatal: this runs on hot-reload too, where a typo
+  // saved into aperio.yaml used to take down a client that was serving traffic.
+  let Err(err) = resolve_settings(&cli, &Default::default(), &local) else {
+    panic!("an unparsable idle_timeout must be reported as an error");
+  };
+  assert!(err.contains("idle_timeout"), "got: {err}");
+
+  // A valid value still resolves, and 0 means "no idle shutdown".
+  let local: FileConfig = serde_yaml::from_str("idle_timeout: 90s\n").unwrap();
+  let s = resolve_settings(&cli, &Default::default(), &local).unwrap();
+  assert_eq!(s.idle_timeout, Some(90));
+  let local: FileConfig = serde_yaml::from_str("idle_timeout: 0\n").unwrap();
+  let s = resolve_settings(&cli, &Default::default(), &local).unwrap();
+  assert_eq!(s.idle_timeout, None);
+}
+
+#[test]
 fn test_resolve_settings_layering() {
   // CLI beats the local file; the local file beats the home file.
   let cli = CliArgs {
@@ -188,7 +213,7 @@ fn test_resolve_settings_layering() {
     serde_yaml::from_str("server:\n  url: https://local.example.com\ntarget: http://localhost:1\n")
       .unwrap();
 
-  let s = resolve_settings(&cli, &home, &local);
+  let s = resolve_settings(&cli, &home, &local).unwrap();
   assert_eq!(s.token.as_deref(), Some("apr_cli")); // CLI wins
   assert_eq!(s.server.as_deref(), Some("https://local.example.com")); // local file beats home
   assert_eq!(s.target.as_deref(), Some("http://localhost:9999")); // positional beats local

@@ -98,7 +98,15 @@ async fn main() {
   // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
   let home_cfg = load_home_config();
   let file_cfg = load_file_config(cli.opts.config.as_deref());
-  let mut settings = resolve_settings(&cli, &home_cfg, &file_cfg);
+  // At startup an unusable setting is still fatal; only a hot-reload keeps the
+  // previous configuration and carries on.
+  let mut settings = match resolve_settings(&cli, &home_cfg, &file_cfg) {
+    Ok(s) => s,
+    Err(e) => {
+      error!("CRITICAL ERROR: {}", e);
+      std::process::exit(1);
+    }
+  };
 
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
@@ -300,7 +308,16 @@ async fn main() {
       .and_then(|raw| serde_yaml::from_str::<FileConfig>(&raw).map_err(|e| e.to_string()));
     match reloaded {
       Ok(new_file_cfg) => {
-        let mut s = resolve_settings(&cli, &load_home_config(), &new_file_cfg);
+        let mut s = match resolve_settings(&cli, &load_home_config(), &new_file_cfg) {
+          Ok(s) => s,
+          Err(e) => {
+            warn!(
+              "Config reload from {} produced an invalid configuration ({}); keeping previous",
+              config_path, e
+            );
+            continue;
+          }
+        };
         if let Err(e) = apply_serve_mode(&mut s, &mut serve_started).await {
           warn!(
             "Config reload from {} produced an invalid configuration ({}); keeping previous",

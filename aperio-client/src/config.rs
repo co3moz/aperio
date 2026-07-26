@@ -505,13 +505,30 @@ pub(crate) fn resolve_settings(
   cli: &CliArgs,
   home: &FileConfig,
   local: &FileConfig,
-) -> ClientSettings {
+) -> Result<ClientSettings, String> {
   let o = &cli.opts;
   let nonempty = |s: String| {
     let t = s.trim().to_string();
     if t.is_empty() { None } else { Some(t) }
   };
-  ClientSettings {
+  // Reported rather than fatal: this runs on hot-reload too, where the
+  // contract is to warn and keep the previous configuration. Exiting here
+  // meant a typo saved into aperio.yaml killed a client that was serving
+  // traffic, while every other invalid setting was merely rejected.
+  let idle_timeout = match layered(
+    None,
+    local.idle_timeout.clone(),
+    env_str("APERIO_IDLE_TIMEOUT"),
+    home.idle_timeout.clone(),
+  ) {
+    None => None,
+    Some(raw) => match crate::api::parse_duration(&raw) {
+      Ok(0) => None,
+      Ok(secs) => Some(secs),
+      Err(e) => return Err(format!("invalid idle_timeout: {e}")),
+    },
+  };
+  Ok(ClientSettings {
     token: layered(
       o.server_token.clone(),
       local.server_token(),
@@ -519,20 +536,7 @@ pub(crate) fn resolve_settings(
       home.server_token(),
     ),
     scaling: local.scaling.clone().or_else(|| home.scaling.clone()),
-    idle_timeout: layered(
-      None,
-      local.idle_timeout.clone(),
-      env_str("APERIO_IDLE_TIMEOUT"),
-      home.idle_timeout.clone(),
-    )
-    .and_then(|raw| match crate::api::parse_duration(&raw) {
-      Ok(0) => None,
-      Ok(secs) => Some(secs),
-      Err(e) => {
-        error!("CRITICAL ERROR: invalid idle_timeout: {}", e);
-        std::process::exit(1);
-      }
-    }),
+    idle_timeout,
     api_key: layered(
       o.api_key.clone(),
       local.server_api_key(),
@@ -755,7 +759,7 @@ pub(crate) fn resolve_settings(
     .and_then(nonempty),
     tunnels: local.tunnels.clone().unwrap_or_default(),
     bind_tunnels: local.bind_tunnels.clone().unwrap_or_default(),
-  }
+  })
 }
 
 /// Folds a `security_headers:` preset into a service's response header rules.

@@ -33,7 +33,7 @@ fn settings() -> ClientSettings {
     local_port: None,
     opts: Default::default(),
   };
-  crate::config::resolve_settings(&cli, &Default::default(), &Default::default())
+  crate::config::resolve_settings(&cli, &Default::default(), &Default::default()).unwrap()
 }
 
 #[test]
