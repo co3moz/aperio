@@ -94,13 +94,16 @@ function OperationRow({ method, path, op }: Operation) {
           className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
         />
         <MethodBadge method={upper} />
-        <code className="font-mono text-sm">{path}</code>
-        <span className="ml-auto hidden truncate pl-4 text-xs text-muted-foreground sm:inline">
+        {/* min-w-0 on both: a flex item's automatic minimum size is its
+            content, so without it `truncate` never shrinks and a long path or
+            summary widens the whole page instead of ellipsizing. */}
+        <code className="min-w-0 truncate font-mono text-sm">{path}</code>
+        <span className="ml-auto hidden min-w-0 flex-1 truncate pl-4 text-right text-xs text-muted-foreground sm:inline">
           {op.summary ?? op.description ?? ''}
         </span>
       </button>
       {open && (
-        <div className="space-y-3 border-t bg-muted/30 px-11 py-3">
+        <div className="min-w-0 space-y-3 border-t bg-muted/30 px-11 py-3">
           {op.description && <p className="text-sm text-muted-foreground">{op.description}</p>}
           {pathParams.map((p) => (
             <div key={p.name} className="flex items-center gap-2">
@@ -143,7 +146,7 @@ function OperationRow({ method, path, op }: Operation) {
             </span>
           </div>
           {result && (
-            <pre className="max-h-80 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
+            <pre className="max-h-80 w-full overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
               {result.body || t('(empty response body)')}
             </pre>
           )}
@@ -209,7 +212,7 @@ export function ApiExplorerSection() {
   }, [doc, filter])
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex min-w-0 flex-col gap-3">
       <SectionHeader title={t('API Explorer')}>
         <Button
           size="sm"
