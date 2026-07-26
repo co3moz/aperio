@@ -113,6 +113,9 @@ async fn test_rate_limiting() {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -265,6 +268,9 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -439,6 +445,9 @@ async fn test_proxy_handler_success() {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
   };
 
   let (client_connected_tx, _) = watch::channel(true);
@@ -1024,6 +1033,9 @@ fn test_apply_settings_overrides() {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
   };
 
   let overrides = SettingsOverrides {

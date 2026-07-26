@@ -377,7 +377,12 @@ async fn slow_consumer_pauses_and_resumes_a_v3_producer() {
   let pumped = spawn_consumer_pump(
     out_tx,
     Duration::from_secs(30),
-    StreamFlow::new("r1".into(), client_tx, true),
+    StreamFlow::new(
+      "r1".into(),
+      client_tx,
+      true,
+      crate::state::StreamLimits::default(),
+    ),
   );
 
   // 1 MiB chunks: two land in the consumer channel, the next two build up

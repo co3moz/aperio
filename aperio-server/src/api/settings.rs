@@ -186,6 +186,15 @@ pub(crate) async fn apply_overrides_validated(
       "cache_max_bytes must be positive (disable the cache with cache_enabled instead)".to_string(),
     );
   }
+  for (name, value) in [
+    ("stream_pause_bytes", payload.stream_pause_bytes),
+    ("stream_resume_bytes", payload.stream_resume_bytes),
+    ("stream_backlog_limit", payload.stream_backlog_limit),
+  ] {
+    if value == Some(0) {
+      return Err(format!("{name} must be positive"));
+    }
+  }
 
   // Layer the config: env defaults -> aperio-server.yaml live settings ->
   // dashboard overrides (dashboard wins). Then swap it in and push the

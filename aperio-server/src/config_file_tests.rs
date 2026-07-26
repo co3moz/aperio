@@ -251,6 +251,7 @@ fn grouped_blocks_survive_into_the_hot_reload_layer() {
       "failover:\n  mode: retry\n  window: 30\n",
       "login_lockout:\n  threshold: 9\n",
       "server:\n  auth: \"u:p\"\n",
+      "stream:\n  pause_bytes: 111\n  backlog_limit: 999\n",
       "headers:\n  request:\n    add:\n      X-A: b\n",
     ),
   )
@@ -276,6 +277,9 @@ fn grouped_blocks_survive_into_the_hot_reload_layer() {
   assert_eq!(o.failover_window_secs, Some(30));
   assert_eq!(o.login_lockout_threshold, Some(9));
   assert_eq!(o.auth_credentials.as_deref(), Some("u:p"));
+  assert_eq!(o.stream_pause_bytes, Some(111));
+  assert_eq!(o.stream_backlog_limit, Some(999));
+  assert_eq!(o.stream_resume_bytes, None);
 
   // `--print-config` attributes block-derived variables to the file, not
   // to the environment.

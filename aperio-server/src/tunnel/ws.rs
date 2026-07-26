@@ -561,6 +561,7 @@ pub(crate) async fn handle_socket(
                   id.clone(),
                   tx_write.clone(),
                   state.client_supports_pause(&client_id).await,
+                  state.stream_limits(),
                 );
                 let chunk_tx =
                   spawn_consumer_pump(chunk_tx, state.config().gateway_response_timeout, flow);

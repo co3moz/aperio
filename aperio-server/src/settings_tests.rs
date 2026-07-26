@@ -62,6 +62,9 @@ fn base_config() -> ServerConfig {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
   }
 }
 
@@ -180,6 +183,9 @@ fn apply_settings_overrides_covers_every_field() {
     cache_enabled: Some(true),
     cache_max_bytes: Some(128 * 1024 * 1024),
     cache_max_stale: Some(7200),
+    stream_pause_bytes: Some(4 * 1024 * 1024),
+    stream_resume_bytes: Some(1024 * 1024),
+    stream_backlog_limit: Some(32 * 1024 * 1024),
     max_concurrent_requests: Some(250),
     login_lockout_threshold: Some(11),
     login_lockout_secs: Some(120),
@@ -213,6 +219,9 @@ fn apply_settings_overrides_covers_every_field() {
   assert!(c.cache_enabled);
   assert_eq!(c.cache_max_bytes, 128 * 1024 * 1024);
   assert_eq!(c.cache_max_stale, 7200);
+  assert_eq!(c.stream_pause_bytes, 4 * 1024 * 1024);
+  assert_eq!(c.stream_resume_bytes, 1024 * 1024);
+  assert_eq!(c.stream_backlog_limit, 32 * 1024 * 1024);
   assert_eq!(c.max_concurrent_requests, 250);
   assert_eq!(c.login_lockout_threshold, 11);
   assert_eq!(c.login_lockout_secs, 120);

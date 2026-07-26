@@ -402,7 +402,10 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   its knobs in `aperio-server/src/state.rs`: `STREAM_PAUSE_BYTES` (2 MiB),
   `STREAM_RESUME_BYTES` (512 KiB) and `STREAM_BACKLOG_LIMIT` (16 MiB). Three
   follow-ups worth doing together: (1) expose the watermarks as settings (a
-  `stream:` block / `APERIO_STREAM_*`, live-editable like the other scalars);
+  `stream:` block / `APERIO_STREAM_*`, live-editable like the other scalars)
+  — shipped: `stream.pause_bytes` / `stream.resume_bytes` /
+  `stream.backlog_limit` with `StreamLimits::sanitized` repairing
+  inconsistent trios; (2) and (3) remain;
   (2) an opt-in minimum-throughput guard for streamed HTTP responses, dropping
   a consumer that averages below N bytes/s over an M-second window, since a
   deliberately slow reader can now hold a stream (and the client-side

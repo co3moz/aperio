@@ -772,3 +772,35 @@ fn request_timeline_assemble_anchors_client_offsets() {
   assert_eq!(t.client_received_us, None);
   assert_eq!(t.backend_sent_us, None);
 }
+
+#[test]
+fn stream_limits_sanitized_repairs_inconsistent_trios() {
+  use crate::state::{STREAM_BACKLOG_LIMIT, STREAM_PAUSE_BYTES, STREAM_RESUME_BYTES, StreamLimits};
+
+  // The defaults pass through untouched.
+  assert_eq!(
+    StreamLimits::sanitized(
+      STREAM_PAUSE_BYTES,
+      STREAM_RESUME_BYTES,
+      STREAM_BACKLOG_LIMIT
+    ),
+    StreamLimits::default()
+  );
+
+  // A resume mark at or above the pause mark would flap; it is pulled back.
+  let l = StreamLimits::sanitized(1024 * 1024, 2 * 1024 * 1024, 64 * 1024 * 1024);
+  assert_eq!(l.pause_bytes, 1024 * 1024);
+  assert_eq!(l.resume_bytes, 256 * 1024);
+
+  // A cap below the pause mark would cut every stream before it could be
+  // paused; it is raised to twice the pause mark.
+  let l = StreamLimits::sanitized(8 * 1024 * 1024, 1024, 1024);
+  assert_eq!(l.backlog_limit, 16 * 1024 * 1024);
+
+  // A pause mark of essentially zero would pause on the first chunk forever;
+  // it gets a sane floor.
+  let l = StreamLimits::sanitized(1, 0, 1);
+  assert_eq!(l.pause_bytes, 64 * 1024);
+  assert_eq!(l.resume_bytes, 0);
+  assert_eq!(l.backlog_limit, 128 * 1024);
+}

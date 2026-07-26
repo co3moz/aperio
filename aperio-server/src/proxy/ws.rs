@@ -273,6 +273,7 @@ pub(crate) async fn handle_ws_proxy(
     stream_id.clone(),
     client_tx.clone(),
     state.client_supports_pause(&chosen_client_id).await,
+    state.stream_limits(),
   );
   let relay_tx =
     crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);

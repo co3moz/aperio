@@ -151,6 +151,16 @@ pub(crate) struct ServerConfig {
   /// route has no healthy client (APERIO_CACHE_MAX_STALE, default 3600;
   /// 0 disables serve-stale entirely).
   pub(crate) cache_max_stale: u64,
+  /// Streamed-data backlog at which the producing client is asked to pause
+  /// a stream (APERIO_STREAM_PAUSE_BYTES, default 2 MiB). Protocol v3 flow
+  /// control; see `state::StreamLimits`.
+  pub(crate) stream_pause_bytes: usize,
+  /// Backlog under which a paused producer is asked to resume
+  /// (APERIO_STREAM_RESUME_BYTES, default 512 KiB).
+  pub(crate) stream_resume_bytes: usize,
+  /// Hard per-stream backlog cap in bytes (APERIO_STREAM_BACKLOG_LIMIT,
+  /// default 16 MiB); drops producers that cannot be paused.
+  pub(crate) stream_backlog_limit: usize,
   /// Concurrent proxied requests limit (APERIO_MAX_CONCURRENT_REQUESTS);
   /// requests beyond it are rejected with 429.
   pub(crate) max_concurrent_requests: usize,
@@ -254,6 +264,9 @@ pub(crate) struct SettingsOverrides {
   pub(crate) cache_enabled: Option<bool>,
   pub(crate) cache_max_bytes: Option<u64>,
   pub(crate) cache_max_stale: Option<u64>,
+  pub(crate) stream_pause_bytes: Option<u64>,
+  pub(crate) stream_resume_bytes: Option<u64>,
+  pub(crate) stream_backlog_limit: Option<u64>,
   pub(crate) max_concurrent_requests: Option<usize>,
   pub(crate) login_lockout_threshold: Option<u32>,
   pub(crate) login_lockout_secs: Option<u64>,
@@ -289,6 +302,9 @@ struct FileSettings {
   cache: Option<bool>,
   cache_max_bytes: Option<u64>,
   cache_max_stale: Option<u64>,
+  stream_pause_bytes: Option<u64>,
+  stream_resume_bytes: Option<u64>,
+  stream_backlog_limit: Option<u64>,
   max_concurrent_requests: Option<usize>,
   login_lockout_threshold: Option<u32>,
   login_lockout_secs: Option<u64>,
@@ -345,6 +361,9 @@ pub(crate) fn file_overrides() -> SettingsOverrides {
     cache_enabled: fs.cache,
     cache_max_bytes: fs.cache_max_bytes,
     cache_max_stale: fs.cache_max_stale,
+    stream_pause_bytes: fs.stream_pause_bytes,
+    stream_resume_bytes: fs.stream_resume_bytes,
+    stream_backlog_limit: fs.stream_backlog_limit,
     max_concurrent_requests: fs.max_concurrent_requests,
     login_lockout_threshold: fs.login_lockout_threshold,
     login_lockout_secs: fs.login_lockout_secs,
@@ -471,6 +490,24 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   if let Some(v) = o.cache_max_stale {
     c.cache_max_stale = v;
   }
+  // The stream watermarks are only sanity-gated here (positive); the trio's
+  // internal consistency is repaired at use by `StreamLimits::sanitized`,
+  // since each layer may override a different member.
+  if let Some(v) = o.stream_pause_bytes
+    && v > 0
+  {
+    c.stream_pause_bytes = v as usize;
+  }
+  if let Some(v) = o.stream_resume_bytes
+    && v > 0
+  {
+    c.stream_resume_bytes = v as usize;
+  }
+  if let Some(v) = o.stream_backlog_limit
+    && v > 0
+  {
+    c.stream_backlog_limit = v as usize;
+  }
   if let Some(v) = o.max_concurrent_requests {
     c.max_concurrent_requests = v.max(1);
   }
@@ -530,6 +567,9 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "cache_enabled": c.cache_enabled,
     "cache_max_bytes": c.cache_max_bytes,
     "cache_max_stale": c.cache_max_stale,
+    "stream_pause_bytes": c.stream_pause_bytes,
+    "stream_resume_bytes": c.stream_resume_bytes,
+    "stream_backlog_limit": c.stream_backlog_limit,
     "max_concurrent_requests": c.max_concurrent_requests,
     "login_lockout_threshold": c.login_lockout_threshold,
     "login_lockout_secs": c.login_lockout_secs,

@@ -554,6 +554,24 @@ async fn async_main() {
     );
   }
 
+  // Per-stream flow-control watermarks (protocol v3). Invalid combinations
+  // are repaired by StreamLimits::sanitized with a warning.
+  let stream_pause_bytes = std::env::var("APERIO_STREAM_PAUSE_BYTES")
+    .ok()
+    .and_then(|v| v.trim().parse::<usize>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(crate::state::STREAM_PAUSE_BYTES);
+  let stream_resume_bytes = std::env::var("APERIO_STREAM_RESUME_BYTES")
+    .ok()
+    .and_then(|v| v.trim().parse::<usize>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(crate::state::STREAM_RESUME_BYTES);
+  let stream_backlog_limit = std::env::var("APERIO_STREAM_BACKLOG_LIMIT")
+    .ok()
+    .and_then(|v| v.trim().parse::<usize>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(crate::state::STREAM_BACKLOG_LIMIT);
+
   // Tunnel frame compression (zlib). Offered to clients on connect; enabled
   // per connection once the client acknowledges support.
   let tunnel_compression = std::env::var("APERIO_TUNNEL_COMPRESSION")
@@ -826,6 +844,9 @@ async fn async_main() {
     cache_enabled,
     cache_max_bytes,
     cache_max_stale,
+    stream_pause_bytes,
+    stream_resume_bytes,
+    stream_backlog_limit,
     max_concurrent_requests,
     max_ws_connections,
     login_lockout_threshold: std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")

@@ -1025,6 +1025,21 @@ pub struct ServerCredentials {
   pub auth: Option<String>,
 }
 
+/// Per-stream flow control for streamed data (responses, WebSocket, TCP).
+///
+/// Written as a `stream:` block; the flat `stream_*` keys mean the same
+/// thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StreamGroup {
+  /// Backlog bytes at which the producing client is asked to pause a stream.
+  pub pause_bytes: Option<u64>,
+  /// Backlog bytes under which a paused producer is asked to resume.
+  pub resume_bytes: Option<u64>,
+  /// Hard per-stream backlog cap in bytes (drops producers that cannot pause).
+  pub backlog_limit: Option<u64>,
+}
+
 /// `cache:` written either as the bare value it has always accepted, or as
 /// the block that carries its companion settings too.
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
@@ -1168,6 +1183,10 @@ pub const SERVER_GROUPS: &[ServerGroup] = &[
     key: "server",
     self_key: None,
   },
+  ServerGroup {
+    key: "stream",
+    self_key: None,
+  },
 ];
 
 /// The `aperio-server.yaml` configuration file. The server is environment-
@@ -1223,6 +1242,9 @@ pub struct ServerFileConfig {
   /// The server's own credentials
   #[serde(default)]
   pub server: Option<ServerCredentials>,
+  /// Per-stream flow control for streamed data (responses, WebSocket, TCP)
+  #[serde(default)]
+  pub stream: Option<StreamGroup>,
   // --- Core ---
   /// Deprecated spelling of `server.token` (env: APERIO_SERVER_TOKEN).
   pub server_token: Option<String>,
@@ -1312,6 +1334,12 @@ pub struct ServerFileConfig {
   pub cache_max_bytes: Option<u64>,
   /// Deprecated spelling of `cache.max_stale` (env: APERIO_CACHE_MAX_STALE).
   pub cache_max_stale: Option<u64>,
+  /// Flat spelling of `stream.pause_bytes` (env: APERIO_STREAM_PAUSE_BYTES).
+  pub stream_pause_bytes: Option<u64>,
+  /// Flat spelling of `stream.resume_bytes` (env: APERIO_STREAM_RESUME_BYTES).
+  pub stream_resume_bytes: Option<u64>,
+  /// Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).
+  pub stream_backlog_limit: Option<u64>,
 
   // --- Pages ---
   /// Custom 504 error page path (env: APERIO_504_PAGE).

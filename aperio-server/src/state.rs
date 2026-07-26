@@ -965,19 +965,67 @@ impl RequestTimeline {
   }
 }
 
-/// Backlog at which the producer of a pumped stream is asked to pause
-/// (`StreamPause`): enough to ride out short consumer hiccups without ever
-/// involving the client, small enough that a slow visitor costs little
-/// memory.
+/// Default backlog at which the producer of a pumped stream is asked to
+/// pause (`StreamPause`, `APERIO_STREAM_PAUSE_BYTES`): enough to ride out
+/// short consumer hiccups without ever involving the client, small enough
+/// that a slow visitor costs little memory.
 pub(crate) const STREAM_PAUSE_BYTES: usize = 2 * 1024 * 1024;
-/// Backlog below which a paused producer is asked to resume. Well under the
-/// pause mark so the pair does not flap on every forwarded chunk.
+/// Default backlog below which a paused producer is asked to resume
+/// (`APERIO_STREAM_RESUME_BYTES`). Well under the pause mark so the pair
+/// does not flap on every forwarded chunk.
 pub(crate) const STREAM_RESUME_BYTES: usize = 512 * 1024;
-/// Hard per-stream backlog cap: the stream is dropped beyond it. Only
-/// reachable when the producer cannot be paused (a pre-v3 client) or ignores
-/// the pause; a pausing client stops with at most its frames already on the
-/// wire outstanding, far below the gap between this and the pause mark.
+/// Default hard per-stream backlog cap (`APERIO_STREAM_BACKLOG_LIMIT`): the
+/// stream is dropped beyond it. Only reachable when the producer cannot be
+/// paused (a pre-v3 client) or ignores the pause; a pausing client stops
+/// with at most its frames already on the wire outstanding, far below the
+/// gap between this and the pause mark.
 pub(crate) const STREAM_BACKLOG_LIMIT: usize = 16 * 1024 * 1024;
+
+/// The flow-control watermarks one pumped stream runs with, snapshotted from
+/// the live config when the stream starts (a later settings change applies
+/// to new streams only).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StreamLimits {
+  /// Backlog bytes at which the producer is asked to pause.
+  pub(crate) pause_bytes: usize,
+  /// Backlog bytes under which a paused producer is asked to resume.
+  pub(crate) resume_bytes: usize,
+  /// Hard per-stream backlog cap in bytes.
+  pub(crate) backlog_limit: usize,
+}
+
+impl Default for StreamLimits {
+  fn default() -> Self {
+    StreamLimits {
+      pause_bytes: STREAM_PAUSE_BYTES,
+      resume_bytes: STREAM_RESUME_BYTES,
+      backlog_limit: STREAM_BACKLOG_LIMIT,
+    }
+  }
+}
+
+impl StreamLimits {
+  /// Repairs an inconsistent trio so the mechanism cannot be configured into
+  /// nonsense: the resume mark must sit below the pause mark (else pausing
+  /// and resuming race on the same chunk) and the hard cap must sit above it
+  /// (else every stream is cut before it can be paused). Out-of-order values
+  /// are pulled back relative to `pause_bytes`, which is taken as the
+  /// operator's intent.
+  pub(crate) fn sanitized(pause_bytes: usize, resume_bytes: usize, backlog_limit: usize) -> Self {
+    let pause_bytes = pause_bytes.max(64 * 1024);
+    let resume_bytes = if resume_bytes >= pause_bytes {
+      pause_bytes / 4
+    } else {
+      resume_bytes
+    };
+    let backlog_limit = backlog_limit.max(pause_bytes.saturating_mul(2));
+    StreamLimits {
+      pause_bytes,
+      resume_bytes,
+      backlog_limit,
+    }
+  }
+}
 
 /// What one queued item costs against a pumped stream's byte backlog.
 pub(crate) trait PumpCost {
@@ -1020,6 +1068,8 @@ pub(crate) struct StreamFlow {
   client_tx: mpsc::Sender<Message>,
   /// Whether the client announced protocol v3+ when the stream started.
   supports_pause: bool,
+  /// The watermarks this stream runs with.
+  limits: StreamLimits,
   /// Bytes enqueued but not yet forwarded to the consumer.
   backlog: std::sync::atomic::AtomicUsize,
   /// True while a `StreamPause` is outstanding.
@@ -1031,11 +1081,13 @@ impl StreamFlow {
     stream_id: String,
     client_tx: mpsc::Sender<Message>,
     supports_pause: bool,
+    limits: StreamLimits,
   ) -> Self {
     StreamFlow {
       stream_id,
       client_tx,
       supports_pause,
+      limits,
       backlog: std::sync::atomic::AtomicUsize::new(0),
       paused: AtomicBool::new(false),
     }
@@ -1055,7 +1107,7 @@ impl StreamFlow {
   fn on_enqueued(&self, cost: usize) {
     let backlog = self.backlog.fetch_add(cost, Ordering::SeqCst) + cost;
     if self.supports_pause
-      && backlog >= STREAM_PAUSE_BYTES
+      && backlog >= self.limits.pause_bytes
       && !self.paused.swap(true, Ordering::SeqCst)
     {
       // A full writer channel just means the pause is retried on the next
@@ -1073,7 +1125,7 @@ impl StreamFlow {
   /// once the backlog has drained below the low watermark.
   fn on_forwarded(&self, cost: usize) {
     let backlog = self.backlog.fetch_sub(cost, Ordering::SeqCst) - cost;
-    if backlog <= STREAM_RESUME_BYTES
+    if backlog <= self.limits.resume_bytes
       && self.paused.load(Ordering::SeqCst)
       && self.try_notify(&TunnelMessage::StreamResume {
         id: self.stream_id.clone(),
@@ -1084,7 +1136,7 @@ impl StreamFlow {
   }
 
   fn over_limit(&self, cost: usize) -> bool {
-    self.backlog.load(Ordering::SeqCst) + cost > STREAM_BACKLOG_LIMIT
+    self.backlog.load(Ordering::SeqCst) + cost > self.limits.backlog_limit
   }
 }
 
@@ -1148,7 +1200,12 @@ impl StreamFlow {
   /// writer channel means a pause can never be delivered, so only the
   /// backlog cap and the stall timeout apply.
   pub(crate) fn detached(stream_id: &str) -> Self {
-    Self::new(stream_id.to_string(), mpsc::channel(1).0, false)
+    Self::new(
+      stream_id.to_string(),
+      mpsc::channel(1).0,
+      false,
+      StreamLimits::default(),
+    )
   }
 }
 
@@ -1537,6 +1594,18 @@ impl AppState {
       .and_then(|h| h.client_protocol)
       .unwrap_or(0)
       >= 3
+  }
+
+  /// The flow-control watermarks new streams start with: the live config's
+  /// values, repaired into a consistent trio. Snapshotted per stream, so a
+  /// settings change applies to streams started after it.
+  pub(crate) fn stream_limits(&self) -> StreamLimits {
+    let c = self.config();
+    StreamLimits::sanitized(
+      c.stream_pause_bytes,
+      c.stream_resume_bytes,
+      c.stream_backlog_limit,
+    )
   }
 
   /// Rebuilds the live config from the layers (env defaults ->
