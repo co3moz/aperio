@@ -1401,18 +1401,25 @@ async fn async_main() {
 
   // Edge integration. Registered outside the dashboard session middleware on
   // purpose: the edge proxy holds only APERIO_EDGE_TOKEN, and the endpoints
-  // must work with the dashboard disabled. Without the token they do not
-  // exist at all.
+  // must work with the dashboard disabled.
+  //
+  // The routes exist whether or not the feature is on, and the handlers answer
+  // 404 when it is off. Registering them conditionally instead left the paths
+  // unmatched, so they fell through to the visitor proxy and came back as a
+  // 504 "no client connected": a tunnel error for what is a configuration
+  // question, and never the documented 404. Reserving them also keeps a
+  // request for them from ever being forwarded to somebody's backend, and lets
+  // the token be enabled by config reload without a restart.
+  app = app
+    .route(
+      "/aperio/api/edge/ask",
+      get(crate::api::edge::edge_ask_handler),
+    )
+    .route(
+      "/aperio/api/edge/traefik",
+      get(crate::api::edge::edge_traefik_handler),
+    );
   if state.config().edge_token.is_some() {
-    app = app
-      .route(
-        "/aperio/api/edge/ask",
-        get(crate::api::edge::edge_ask_handler),
-      )
-      .route(
-        "/aperio/api/edge/traefik",
-        get(crate::api::edge::edge_traefik_handler),
-      );
     info!(
       "Edge integration enabled at /aperio/api/edge/ask and /aperio/api/edge/traefik{}",
       if state.config().edge_service_url.is_some() {

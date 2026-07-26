@@ -38,7 +38,7 @@ edge_service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, only for
 
 | Env variable | yaml key | Meaning |
 | --- | --- | --- |
-| `APERIO_EDGE_TOKEN` | `edge_token` | Credential the edge presents. Unset = the endpoints answer 404 and are not registered. |
+| `APERIO_EDGE_TOKEN` | `edge_token` | Credential the edge presents. Unset = the endpoints answer `404 edge integration is not enabled`. |
 | `APERIO_EDGE_SERVICE_URL` | `edge_service_url` | The URL the edge should forward matched traffic to, i.e. this server as the edge sees it. |
 | `APERIO_EDGE_ENTRYPOINTS` | `edge_entrypoints` | Comma-separated Traefik entry points for the generated routers (e.g. `websecure`). |
 | `APERIO_EDGE_CERT_RESOLVER` | `edge_cert_resolver` | Traefik certificate resolver named on the generated routers. |
@@ -126,7 +126,7 @@ Both endpoints report the hostnames of **connected** clients, including a client
 
 ## Security
 
-- The endpoints do not exist without `APERIO_EDGE_TOKEN`: no token, no route, `404`.
+- The endpoints do nothing without `APERIO_EDGE_TOKEN`: no token, `404 edge integration is not enabled`, no inventory in the answer. The two paths are reserved either way, so a request for them is never forwarded to a client's backend.
 - They expose the hostname inventory, so treat the token as a real credential and prefer a private network between the edge and Aperio.
 - They live outside the dashboard session middleware, so they keep working with the dashboard disabled, and they are never reachable with a dashboard session alone.
 - No mutation is possible through them: both are read-only.

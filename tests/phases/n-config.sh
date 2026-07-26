@@ -54,6 +54,18 @@ assert_contains "$BODY" "v2-reloaded" "the structured route reloaded to its new 
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
 assert_status 200 "$CODE" "a structural port change is ignored live (no restart)"
 
+step "Edge endpoints without an edge token"
+# This phase's server runs without APERIO_EDGE_TOKEN. The endpoints must still
+# own their paths and say the feature is off: when they were registered only
+# with the token, the request fell through to the visitor proxy and came back
+# as a 504 "no client connected", which reads as a tunnel fault.
+for EDGE_PATH in "edge/traefik" "edge/ask?domain=probe.e2e.local"; do
+  BODY="$(curl -s -w '\n%{http_code}' "$BASE/aperio/api/${EDGE_PATH}")"
+  assert_status 404 "$(echo "$BODY" | tail -1)" "${EDGE_PATH%%\?*} answers 404 while the feature is off"
+  assert_contains "$BODY" "edge integration is not enabled" \
+    "${EDGE_PATH%%\?*} says why, instead of a gateway error"
+done
+
 step "Per-hostname custom error pages (error_pages:)"
 ERR_PAGE="$LOG_DIR/custom-504.html"
 echo "<h1>custom err.e2e.local 504</h1>" > "$ERR_PAGE"
