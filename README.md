@@ -43,24 +43,42 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 
 Click a feature for the details.
 
-| Feature                                                        | In short                                             |
-| ----------------------------------------------------------------| ------------------------------------------------------|
-| [Routing & load balancing](docs/routing-and-load-balancing.md) | hostname/path binds, failover tiers, sticky sessions |
-| [Random subdomains](docs/routing-and-load-balancing.md)        | auto `a1b2c3.example.com` on a wildcard domain       |
-| [Access tokens](docs/tokens-and-auth.md)                       | scoped, revocable, rate-limited, IP-pinned           |
-| [Visitor auth & SSO](docs/tokens-and-auth.md)                  | OIDC or a password in front of a site                |
-| [Share links](docs/share-links.md)                             | temporary visitor access, no account                 |
-| [PR preview tunnels](docs/ephemeral-tunnels.md)                | one per pull request                                 |
-| [Emergency TCP tunnels](docs/emergency-tunnels.md)             | reach a DB or SSH in a pinch                         |
-| [Failover](docs/failover.md)                                   | survive a client dying mid-request                   |
-| [WebSocket, streaming, gRPC](docs/tunnel-protocol.md)          | pass-through, chunked bodies, h2c/h2                 |
-| [Response cache](docs/caching.md)                              | serve GETs without the tunnel                        |
-| [Multi-tenancy](docs/organizations.md)                         | isolated organizations on one server                 |
-| [Admin dashboard](docs/dashboard.md)                           | live traffic, inspector, replay, kill switch         |
-| [Admin API from the CLI](docs/cli-api.md)                      | script it all: `aperio-client api share \| token \| ...` |
-| [Observability](docs/observability.md)                         | Prometheus, OpenTelemetry, access log, webhooks      |
-| [Client resilience](docs/client-resilience.md)                 | reconnect, health probes, graceful drain             |
-| [Configuration](docs/configuration.md)                         | every setting: env, CLI, or yaml                     |
+**1. Getting started & configuration**
+
+- [Getting Started](docs/getting-started.md), server and client running in five minutes, Docker or CLI.
+- [Configuration](docs/configuration.md), every setting on both sides: env, CLI, or yaml.
+- [Client Resilience](docs/client-resilience.md), reconnect backoff, health probes, graceful drain.
+- [Behind a Dynamic Edge Proxy](docs/edge-proxy.md), let Traefik or Caddy learn the hostnames that only exist at runtime.
+
+**2. Traffic & routing**
+
+- [Routing & Load Balancing](docs/routing-and-load-balancing.md), hostname/path binds, priority tiers, sticky sessions.
+- [Random Subdomains](docs/routing-and-load-balancing.md#random-subdomains), an automatic `a1b2c3.example.com` on a wildcard domain.
+- [In-Flight Failover](docs/failover.md), survive a client dying mid-request without the visitor noticing.
+- [Response Caching](docs/caching.md), serve GETs without touching the tunnel.
+
+**3. Tunnels & protocols**
+
+- [Tunnel Protocol](docs/tunnel-protocol.md), WebSocket pass-through, chunked bodies, gRPC over h2c/h2.
+- [Emergency TCP Tunnels](docs/emergency-tunnels.md), reach a database or SSH through the same tunnel.
+- [PR Preview Tunnels](docs/ephemeral-tunnels.md), one ephemeral hostname per pull request, with a GitHub Action.
+
+**4. Security & access control**
+
+- [Visitor Auth & SSO](docs/tokens-and-auth.md#protecting-proxied-traffic), OIDC or a password in front of a proxied site.
+- [Access Tokens](docs/tokens-and-auth.md#dynamic-tokens), scoped, revocable, rate-limited, IP-pinned.
+- [Share Links](docs/share-links.md), temporary visitor access with no account.
+
+**5. Management & operations**
+
+- [Admin Dashboard](docs/dashboard.md), live traffic, request inspector and replay, kill switch.
+- [Admin API from the CLI](docs/cli-api.md), script it all: `aperio-client api share | token | ...`.
+- [Autoscaling](docs/autoscaling.md), cold start from zero on the first request, scale out when the pool saturates.
+- [Multi-tenancy](docs/organizations.md), isolated organizations on one server.
+
+**6. Observability**
+
+- [Metrics, traces & logs](docs/observability.md), Prometheus, OpenTelemetry, webhooks, access and audit logs.
 
 Full index: **[docs/](docs/README.md)**.
 
