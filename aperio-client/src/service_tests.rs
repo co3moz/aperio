@@ -68,6 +68,8 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     connections: 1,
     priority: 0,
     bandwidth_bps: None,
+    bandwidth_declared: None,
+    config_notes: Vec::new(),
     max_message_size: 4 * 1024 * 1024,
     max_redirects: 5,
     tcp_target: None,

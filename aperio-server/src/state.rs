@@ -596,6 +596,15 @@ pub(crate) struct ClientHandle {
   /// Dashboard kill switch: false = temporarily excluded from routing even
   /// though the connection and heartbeats remain healthy.
   pub(crate) admin_enabled: bool,
+  /// Parallel tunnel connections the client runs for this service
+  /// (`connections:`), announced via Ping. Display-only: the server treats
+  /// each connection as its own client regardless.
+  pub(crate) connections: Option<u32>,
+  /// Settings the client resolved to something other than its config asked
+  /// for (a bandwidth budget divided across connections, a clamped connection
+  /// count, …), announced via Ping. Display-only, surfaced in the dashboard's
+  /// per-connection config view.
+  pub(crate) config_notes: Vec<crate::protocol::ConfigNote>,
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
   /// Client build version announced via Ping (None until the first Ping,

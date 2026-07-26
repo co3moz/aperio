@@ -1023,6 +1023,10 @@ async fn async_main() {
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))
       .route(
+        "/api/clients/:id/config",
+        get(crate::api::clients::client_config_handler),
+      )
+      .route(
         "/api/clients/:id/override",
         axum::routing::post(client_override_handler),
       )

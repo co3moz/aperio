@@ -668,4 +668,13 @@ export const zh: Record<string, string> = {
   'granted by the token': '由令牌授予',
   'random subdomain, assigned by the server': '随机子域名，由服务器分配',
   '{count} more hostname(s) routed here': '另有 {count} 个主机名路由到这里',
+  'Configuration of {label}': '{label} 的配置',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    '此连接通过心跳上报的内容，加上服务器在其之上应用的内容。客户端从不上报的设置（目标、超时、请求头规则、健康探测）无法在此显示。',
+  'Loading…': '加载中…',
+  '{count} setting(s) differ from the configuration': '{count} 项设置与配置不同',
+  'not set': '未设置',
+  'resolved by the client': '由客户端解析',
+  'applied by the server': '由服务器应用',
+  "Show this connection's effective configuration": '显示此连接的生效配置',
 }

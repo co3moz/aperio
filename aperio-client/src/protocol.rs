@@ -81,6 +81,25 @@ pub struct ClientTimings {
   pub respond_us: u64,
 }
 
+/// A setting whose effective value differs from what the config asked for,
+/// announced in the Ping so the dashboard can show the difference next to the
+/// value instead of leaving the operator to find it in a startup log line.
+///
+/// Only the client knows both sides: by the time a value reaches the server it
+/// is already the resolved one (an announced `bandwidth`, for instance, is the
+/// per-connection share, with no trace of the budget it was cut from).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ConfigNote {
+  /// Config key the note is about (`bandwidth`, `connections`, …).
+  pub field: String,
+  /// What the config asked for, as the operator wrote it.
+  pub declared: String,
+  /// What the client resolved it to.
+  pub effective: String,
+  /// Why the two differ, one sentence.
+  pub reason: String,
+}
+
 /// Message structure exchanged over the WebSocket reverse tunnel.
 // The `Ping` variant is intentionally wide (it announces the client's full
 // per-service configuration); boxing its many small fields would only obscure
@@ -194,6 +213,15 @@ pub(crate) enum TunnelMessage {
     /// only when the token permits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scaling: Option<ScalingDecl>,
+    /// Parallel tunnel connections this service runs (`connections:`). Every
+    /// one of them announces the same count; the dashboard needs it to explain
+    /// per-connection values such as the bandwidth share.
+    #[serde(default)]
+    connections: Option<u32>,
+    /// Settings this client resolved to something other than the config asked
+    /// for. Additive; older peers omit it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    config_notes: Vec<ConfigNote>,
   },
   Pong {
     timestamp: u64,

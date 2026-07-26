@@ -328,6 +328,8 @@ pub(crate) async fn handle_socket(
         random_hostname: random_hostname.clone(),
         override_path_bind: None,
         override_hostname_binds: Vec::new(),
+        connections: None,
+        config_notes: Vec::new(),
         last_ping_at: None,
         perms: perms.clone(),
         max_concurrent: None,
@@ -713,6 +715,8 @@ pub(crate) async fn handle_socket(
               webhook_inbox,
               denied,
               scaling,
+              connections,
+              config_notes,
             } => {
               debug!("Heartbeat from client {}: {}", cid, timestamp);
               // Update client's reported binds and heartbeat time. Only the
@@ -842,6 +846,13 @@ pub(crate) async fn handle_socket(
                       );
                     }
                     handle.denied = denied;
+                  }
+                  // Parallel-connection count and the client's own record of
+                  // what it resolved differently: display-only, for the
+                  // dashboard's per-connection config view.
+                  handle.connections = connections;
+                  if handle.config_notes != config_notes {
+                    handle.config_notes = config_notes;
                   }
                   if handle.webhook_inbox != webhook_inbox {
                     handle.webhook_inbox = webhook_inbox;

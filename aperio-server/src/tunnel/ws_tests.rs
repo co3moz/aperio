@@ -160,6 +160,8 @@ fn base_ping() -> TunnelMessage {
     webhook_inbox: false,
     denied: None,
     scaling: None,
+    connections: None,
+    config_notes: Vec::new(),
   }
 }
 

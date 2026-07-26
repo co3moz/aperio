@@ -317,6 +317,123 @@ async fn history_rejects_bad_unit_and_range() {
 }
 
 // ---------------------------------------------------------------------------
+// client_config_handler
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.service_name = Some("api".to_string());
+    h.reported_instance_id = Some("my-box-0".to_string());
+    h.connections = Some(10);
+    h.declared_hostname = Some("app.example.com".to_string());
+    h.declared_hostnames = vec!["app.example.com".to_string()];
+    h.assigned_hostnames = vec![
+      "app.example.com".to_string(),
+      "wild-fox.example.com".to_string(),
+    ];
+    h.random_hostname = Some("wild-fox.example.com".to_string());
+    h.max_concurrent = Some(32);
+    h.bandwidth_bps.store(125_000, Ordering::Relaxed);
+    // Opted into caching while the test server has its cache disabled.
+    h.cache = true;
+    // What the client itself resolved differently before announcing it.
+    h.config_notes = vec![crate::protocol::ConfigNote {
+      field: "bandwidth".to_string(),
+      declared: "10mbit".to_string(),
+      effective: "1mbit".to_string(),
+      reason: "split across 10 parallel connections".to_string(),
+    }];
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+
+  assert!(yaml.contains("service: \"api\""), "got:\n{yaml}");
+  assert!(yaml.contains("connections: 10"), "got:\n{yaml}");
+  assert!(
+    yaml.contains("  - \"app.example.com\"  # declared by the client"),
+    "each hostname is labeled with where it came from:\n{yaml}"
+  );
+  assert!(
+    yaml.contains("  - \"wild-fox.example.com\"  # random subdomain, assigned by the server"),
+    "got:\n{yaml}"
+  );
+  // The client-reported difference rides along as a trailing comment.
+  assert!(
+    yaml.contains("bandwidth: \"1mbit\"  # declared 10mbit: split across 10 parallel connections"),
+    "got:\n{yaml}"
+  );
+  assert!(
+    yaml.contains("cache: true  # declared true: the server's response cache is disabled"),
+    "a server-side adjustment is annotated too:\n{yaml}"
+  );
+
+  let notes = body["notes"].as_array().unwrap();
+  assert_eq!(notes.len(), 2, "one from the client, one from the server");
+  let bw = notes.iter().find(|n| n["field"] == "bandwidth").unwrap();
+  assert_eq!(bw["declared"], "10mbit");
+  assert_eq!(bw["effective"], "1mbit");
+  assert_eq!(bw["source"], "client");
+  let cache = notes.iter().find(|n| n["field"] == "cache").unwrap();
+  assert_eq!(cache["effective"], "false");
+  assert_eq!(cache["source"], "server");
+}
+
+#[tokio::test]
+async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.declared_hostname = Some("app.example.com".to_string());
+    h.declared_hostnames = vec!["app.example.com".to_string()];
+    h.assigned_hostnames = vec!["app.example.com".to_string()];
+    h.override_hostname_binds = vec!["moved.example.com".to_string()];
+  })
+  .await;
+  insert_client(&state, "other", |h| {
+    h.perms.org_id = Some("acme".to_string());
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    headers.clone(),
+  )
+  .await;
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+  // Routing follows the overrule, so the document does too.
+  assert!(
+    yaml.contains("  - \"moved.example.com\"  # dashboard overrule"),
+    "got:\n{yaml}"
+  );
+  assert!(
+    !yaml.contains("  - \"app.example.com\""),
+    "the overruled name no longer routes:\n{yaml}"
+  );
+  let note = body["notes"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|n| n["field"] == "hostname")
+    .unwrap()
+    .clone();
+  assert_eq!(note["declared"], "app.example.com");
+  assert_eq!(note["effective"], "moved.example.com");
+
+  // A client of another organization is a 404, like everywhere else.
+  let resp = client_config_handler(State(state.clone()), Path("other".to_string()), headers).await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
 // client_override_handler
 // ---------------------------------------------------------------------------
 

@@ -850,6 +850,24 @@ pub struct ServerFileConfig {
   pub expose: Option<Vec<ExposeEntry>>,
 }
 
+/// Renders a bytes/second rate back into the shorthand `bandwidth:` accepts,
+/// so a value the client resolved (a budget share, say) can be shown the way
+/// an operator would have written it. Falls back to plain bytes/second when
+/// the rate is not a round number of bits.
+pub fn format_bandwidth(bps: u64) -> String {
+  let bits = bps.saturating_mul(8);
+  for (unit, scale) in [
+    ("gbit", 1_000_000_000u64),
+    ("mbit", 1_000_000),
+    ("kbit", 1_000),
+  ] {
+    if bits >= scale && bits.is_multiple_of(scale) {
+      return format!("{}{}", bits / scale, unit);
+    }
+  }
+  format!("{} bytes/s", bps)
+}
+
 /// The `aperio-server.yaml` JSON Schema as pretty JSON.
 pub fn server_schema_json() -> String {
   let schema = schemars::schema_for!(ServerFileConfig);

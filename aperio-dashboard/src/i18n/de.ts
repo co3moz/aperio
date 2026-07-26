@@ -689,4 +689,13 @@ export const de: Record<string, string> = {
   'granted by the token': 'vom Token gewährt',
   'random subdomain, assigned by the server': 'zufällige Subdomain, vom Server vergeben',
   '{count} more hostname(s) routed here': '{count} weitere Hostname(s) hierher geroutet',
+  'Configuration of {label}': 'Konfiguration von {label}',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    'Was diese Verbindung über ihren Heartbeat meldet, plus was der Server darauf anwendet. Einstellungen, die ein Client nie meldet (Target, Timeouts, Header-Regeln, Health-Probes), lassen sich hier nicht zeigen.',
+  'Loading…': 'Wird geladen…',
+  '{count} setting(s) differ from the configuration': '{count} Einstellung(en) weichen von der Konfiguration ab',
+  'not set': 'nicht gesetzt',
+  'resolved by the client': 'vom Client aufgelöst',
+  'applied by the server': 'vom Server angewendet',
+  "Show this connection's effective configuration": 'Effektive Konfiguration dieser Verbindung anzeigen',
 }

@@ -687,4 +687,13 @@ export const es: Record<string, string> = {
   'granted by the token': 'concedido por el token',
   'random subdomain, assigned by the server': 'subdominio aleatorio, asignado por el servidor',
   '{count} more hostname(s) routed here': '{count} hostname(s) más enrutados aquí',
+  'Configuration of {label}': 'Configuración de {label}',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    'Lo que esta conexión anuncia en su heartbeat, más lo que el servidor aplica encima. Los ajustes que un cliente nunca anuncia (su target, timeouts, reglas de cabeceras, sondas de salud) no pueden mostrarse aquí.',
+  'Loading…': 'Cargando…',
+  '{count} setting(s) differ from the configuration': '{count} ajuste(s) difieren de la configuración',
+  'not set': 'sin definir',
+  'resolved by the client': 'resuelto por el cliente',
+  'applied by the server': 'aplicado por el servidor',
+  "Show this connection's effective configuration": 'Mostrar la configuración efectiva de esta conexión',
 }

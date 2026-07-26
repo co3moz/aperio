@@ -2,6 +2,7 @@ import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon, SlidersHorizontalIcon 
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AddClientWizard } from './AddClientWizard'
+import { ClientConfigDialog } from './ClientConfigDialog'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 import { EmptyRow, SectionHeader, StatusDot } from './shared'
 import { TintBadge } from './badges'
@@ -416,6 +417,8 @@ export function ClientsSection({
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
   const [search, setSearch] = useState('')
+  // Which connection's config dialog is open (its id), if any.
+  const [configOf, setConfigOf] = useState<ClientDetail | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'connected', dir: -1 })
 
   const onSort = (key: SortKey) =>
@@ -503,7 +506,12 @@ export function ClientsSection({
               sorted.map((g) => {
                 const c = g.rep
                 return (
-                <TableRow key={g.key}>
+                <TableRow
+                  key={g.key}
+                  className="cursor-pointer"
+                  onClick={() => setConfigOf(c)}
+                  title={t('Show this connection\'s effective configuration')}
+                >
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
                       <div className="flex flex-wrap items-center gap-1">
@@ -642,7 +650,7 @@ export function ClientsSection({
                   </TableCell>
                   <TableCell>{formatUptime(c.connected_for_seconds)}</TableCell>
                   <TableCell className="tabular-nums">{g.requestCount}</TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
                       {canMutate ? (
                         <>
@@ -663,6 +671,16 @@ export function ClientsSection({
           </TableBody>
         </Table>
       </Card>
+      {configOf && (
+        <ClientConfigDialog
+          clientId={configOf.id}
+          label={configOf.service ?? configOf.hostname_binds[0] ?? configOf.id.slice(0, 8)}
+          open
+          onOpenChange={(next) => {
+            if (!next) setConfigOf(null)
+          }}
+        />
+      )}
     </section>
   )
 }

@@ -72,6 +72,24 @@ export interface ClientDetail {
   instance_group: string | null
 }
 
+/** One setting whose effective value differs from what was configured. */
+export interface ConfigNoteView {
+  field: string
+  /** What was configured, as written (empty = nothing was configured). */
+  declared: string
+  effective: string
+  reason: string
+  /** `client` = the client resolved it before announcing it; `server` = it was
+   *  announced as configured but the server is not honoring it. */
+  source: 'client' | 'server'
+}
+
+/** A connection's effective configuration, for the config dialog. */
+export interface ClientConfigView {
+  yaml: string
+  notes: ConfigNoteView[]
+}
+
 export interface ServerStats {
   total_requests: number
   successful_requests: number
@@ -588,6 +606,8 @@ export const api = {
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),
+  clientConfig: (id: string) =>
+    request<ClientConfigView>(`/clients/${encodeURIComponent(id)}/config`),
   overrideClient: (id: string, hostnameBinds: string[], pathBind: string) =>
     mutate(
       `/clients/${encodeURIComponent(id)}/override`,

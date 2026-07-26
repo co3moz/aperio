@@ -691,4 +691,13 @@ export const tr: Record<string, string> = {
   'granted by the token': "token'ın verdiği",
   'random subdomain, assigned by the server': 'rastgele alt alan adı, sunucunun atadığı',
   '{count} more hostname(s) routed here': 'buraya yönlenen {count} alan adı daha',
+  'Configuration of {label}': 'Yapılandırma: {label}',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    'Bu bağlantının kalp atışıyla bildirdikleri, artı sunucunun üzerine uyguladıkları. Bir istemcinin hiç bildirmediği ayarlar (hedefi, zaman aşımları, başlık kuralları, sağlık yoklamaları) burada gösterilemez.',
+  'Loading…': 'Yükleniyor…',
+  '{count} setting(s) differ from the configuration': '{count} ayar yapılandırmadan farklı',
+  'not set': 'ayarlanmamış',
+  'resolved by the client': 'istemcinin çözdüğü',
+  'applied by the server': 'sunucunun uyguladığı',
+  "Show this connection's effective configuration": 'Bu bağlantının geçerli yapılandırmasını göster',
 }

@@ -139,7 +139,16 @@ pub(crate) struct ServiceSpec {
   /// spawns one service task per connection, each with a derived client id.
   pub(crate) connections: u32,
   pub(crate) priority: u32,
+  /// Rate a single connection of this service announces, in bytes/second
+  /// (None = unlimited). Already settled against the client-wide budget and
+  /// divided across `connections` by `allocate_bandwidth`.
   pub(crate) bandwidth_bps: Option<u64>,
+  /// The `bandwidth:` value as written in the config, kept so the client can
+  /// report how it differs from what it ended up announcing.
+  pub(crate) bandwidth_declared: Option<String>,
+  /// Settings resolved to something other than the config asked for,
+  /// announced via Ping and surfaced in the dashboard's config view.
+  pub(crate) config_notes: Vec<crate::protocol::ConfigNote>,
   pub(crate) max_message_size: usize,
   pub(crate) max_redirects: usize,
   pub(crate) tcp_target: Option<String>,
@@ -541,6 +550,8 @@ pub(crate) async fn run_service(
             let client_key_ping = device_key();
             let webhook_inbox_ping = spec.webhook_inbox;
             let denied_ping = spec.denied.clone();
+            let connections_ping = spec.connections;
+            let config_notes_ping = spec.config_notes.clone();
             let scaling_ping = spec.scaling.clone();
 
             let ping_task = tokio::spawn(async move {
@@ -599,6 +610,8 @@ pub(crate) async fn run_service(
                   webhook_inbox: webhook_inbox_ping,
                   denied: denied_ping.clone(),
                   scaling: scaling_ping.clone(),
+                  connections: Some(connections_ping),
+                  config_notes: config_notes_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg)
                   && tx_ping.send(Message::Text(ping_str)).await.is_err()

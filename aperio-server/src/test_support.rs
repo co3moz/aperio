@@ -247,6 +247,8 @@ pub(crate) fn mock_client(
       .map(|s| s.to_string())
       .into_iter()
       .collect(),
+    connections: None,
+    config_notes: Vec::new(),
     last_ping_at: None,
     perms: ClientPerms::master(),
     max_concurrent: None,

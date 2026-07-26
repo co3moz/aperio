@@ -685,4 +685,13 @@ export const ja: Record<string, string> = {
   'granted by the token': 'トークンが付与',
   'random subdomain, assigned by the server': 'ランダムなサブドメイン（サーバーが割り当て）',
   '{count} more hostname(s) routed here': 'ほかに {count} 件のホスト名がここにルーティング',
+  'Configuration of {label}': '{label} の設定',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    'この接続がハートビートで通知する内容と、サーバーがその上に適用する内容です。クライアントが通知しない設定（ターゲット、タイムアウト、ヘッダールール、ヘルスプローブ）はここには表示できません。',
+  'Loading…': '読み込み中…',
+  '{count} setting(s) differ from the configuration': '{count} 件の設定が構成と異なります',
+  'not set': '未設定',
+  'resolved by the client': 'クライアントが解決',
+  'applied by the server': 'サーバーが適用',
+  "Show this connection's effective configuration": 'この接続の実効設定を表示',
 }

@@ -581,6 +581,73 @@ fn announced(settings: &ClientSettings) -> Vec<(String, Option<u64>)> {
 }
 
 #[test]
+fn test_config_notes_report_declared_versus_announced() {
+  init_tracing();
+  // A service whose budget share is divided across its connections announces
+  // a rate the operator never wrote, so it reports both sides for the
+  // dashboard's config view.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("10mbit".to_string());
+  settings.services = vec![bw_service("x", Some("10mbit"), 10)];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  let note = specs[0]
+    .config_notes
+    .iter()
+    .find(|n| n.field == "bandwidth")
+    .expect("a divided rate is reported");
+  assert_eq!(note.declared, "10mbit");
+  assert_eq!(note.effective, "1mbit");
+  assert!(
+    note.reason.contains("split across 10 parallel connections"),
+    "got: {}",
+    note.reason
+  );
+
+  // A service that asked for nothing and took a share of the budget reports
+  // it too, with an empty `declared` standing for "nothing was configured".
+  let mut settings = base_settings();
+  settings.bandwidth = Some("2mbit".to_string());
+  settings.services = vec![bw_service("x", None, 1), bw_service("y", None, 1)];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  let note = &specs[0].config_notes[0];
+  assert_eq!(note.declared, "");
+  assert_eq!(note.effective, "1mbit");
+
+  // A rate that fits the budget on its own is announced as written, so there
+  // is nothing to report.
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", Some("1mbit"), 1)];
+  assert!(
+    build_specs(&settings, "id", false).unwrap()[0]
+      .config_notes
+      .is_empty()
+  );
+}
+
+#[test]
+fn test_config_notes_report_invalid_and_clamped_values() {
+  init_tracing();
+  // An unparseable rate is ignored; the note says so rather than leaving the
+  // dashboard to show an unexplained "unlimited".
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", Some("very fast"), 1)];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  let note = &specs[0].config_notes[0];
+  assert_eq!(note.field, "bandwidth");
+  assert_eq!(note.declared, "very fast");
+  assert_eq!(note.effective, "unlimited");
+
+  // Over the connection ceiling: what was asked for, next to what runs.
+  let mut settings = base_settings();
+  settings.services = vec![bw_service("x", None, 50)];
+  let specs = build_specs(&settings, "id", false).unwrap();
+  let note = &specs[0].config_notes[0];
+  assert_eq!(note.field, "connections");
+  assert_eq!(note.declared, "50");
+  assert_eq!(note.effective, "16");
+}
+
+#[test]
 fn test_bandwidth_split_across_parallel_connections() {
   init_tracing();
   // Scenario A: a service's own limit is divided by its connections, since

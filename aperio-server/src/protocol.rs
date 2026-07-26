@@ -92,6 +92,26 @@ pub struct ScalingDecl {
   pub cooldown: Option<String>,
 }
 
+/// A setting whose effective value differs from what the client's config asked
+/// for, announced in its Ping so the dashboard can show the difference next to
+/// the value. Only the client knows both sides: what reaches the server is
+/// already resolved (an announced `bandwidth` is the per-connection share, with
+/// no trace of the budget it was cut from).
+///
+/// Mirrors the client-side type rather than importing it, for the same reason
+/// as `ScalingDecl` above.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ConfigNote {
+  /// Config key the note is about (`bandwidth`, `connections`, …).
+  pub field: String,
+  /// What the config asked for, as the operator wrote it.
+  pub declared: String,
+  /// What the client resolved it to.
+  pub effective: String,
+  /// Why the two differ, one sentence.
+  pub reason: String,
+}
+
 /// One tunnel declared by a client (`tunnels:` list in its aperio.yaml): a
 /// normally unexposed local service that a peer client may reach through
 /// the server with `--bind-tunnels` — same token, explicit client id.
@@ -246,6 +266,15 @@ pub enum TunnelMessage {
     /// only when the token permits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scaling: Option<ScalingDecl>,
+    /// Parallel tunnel connections this service runs (`connections:`). Every
+    /// one of them announces the same count; the dashboard needs it to explain
+    /// per-connection values such as the bandwidth share.
+    #[serde(default)]
+    connections: Option<u32>,
+    /// Settings the client resolved to something other than its config asked
+    /// for. Additive; older peers omit it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    config_notes: Vec<ConfigNote>,
   },
   Pong {
     timestamp: u64,

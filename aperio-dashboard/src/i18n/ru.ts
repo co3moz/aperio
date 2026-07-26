@@ -687,4 +687,13 @@ export const ru: Record<string, string> = {
   'granted by the token': 'предоставлено токеном',
   'random subdomain, assigned by the server': 'случайный поддомен, выданный сервером',
   '{count} more hostname(s) routed here': 'ещё {count} хост(ов) маршрутизируется сюда',
+  'Configuration of {label}': 'Конфигурация {label}',
+  'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
+    'То, что это соединение сообщает в heartbeat, плюс то, что сервер применяет поверх. Настройки, которые клиент никогда не сообщает (его target, таймауты, правила заголовков, проверки состояния), здесь показать нельзя.',
+  'Loading…': 'Загрузка…',
+  '{count} setting(s) differ from the configuration': 'Настроек, отличающихся от конфигурации: {count}',
+  'not set': 'не задано',
+  'resolved by the client': 'разрешено клиентом',
+  'applied by the server': 'применено сервером',
+  "Show this connection's effective configuration": 'Показать действующую конфигурацию этого соединения',
 }

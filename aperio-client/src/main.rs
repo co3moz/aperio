@@ -17,11 +17,13 @@ mod service;
 mod tcp;
 mod udp;
 
+use aperio_config::format_bandwidth;
 use check::run_check;
 use config::{
   CliMode, ClientSettings, FileConfig, build_ws_url, load_file_config, load_home_config,
   parse_bandwidth, parse_cli, resolve_settings, resolve_sources,
 };
+use protocol::ConfigNote;
 
 #[cfg(test)]
 #[path = "main_tests.rs"]
@@ -625,6 +627,20 @@ fn build_specs(
       n
     }
   };
+  // A clamped count is announced so the dashboard shows what the config asked
+  // for next to what the client is really running.
+  let connections_note = |raw: Option<u32>, effective: u32| -> Vec<ConfigNote> {
+    let asked = raw.unwrap_or(1).max(1);
+    (asked != effective)
+      .then(|| ConfigNote {
+        field: "connections".to_string(),
+        declared: asked.to_string(),
+        effective: effective.to_string(),
+        reason: "clamped to the maximum of 16 parallel connections".to_string(),
+      })
+      .into_iter()
+      .collect()
+  };
 
   if settings.services.is_empty() || cli_target_given {
     if cli_target_given && !settings.services.is_empty() {
@@ -645,6 +661,7 @@ fn build_specs(
         );
       }
     };
+    let connections = clamp_connections(settings.connections, "the service");
     let mut specs = vec![ServiceSpec {
       name: None,
       client_id: client_id_base.to_string(),
@@ -667,9 +684,11 @@ fn build_specs(
       response_timeout: settings.response_timeout,
       timeout_secs: settings.timeout_secs,
       max_concurrent: settings.max_concurrent,
-      connections: clamp_connections(settings.connections, "the service"),
+      connections,
       priority: settings.priority,
       bandwidth_bps: budget_bps,
+      bandwidth_declared: settings.bandwidth.clone(),
+      config_notes: connections_note(settings.connections, connections),
       max_message_size: settings.max_message_size,
       max_redirects: settings.max_redirects,
       tcp_target: settings.tcp_target.clone(),
@@ -721,6 +740,10 @@ fn build_specs(
           )
         })?;
       let path = entry.path.clone();
+      let connections = clamp_connections(
+        entry.connections.or(settings.connections),
+        &format!("service '{}'", describe()),
+      );
       Ok(ServiceSpec {
         name: entry.name.clone(),
         client_id: format!("{}-{}", client_id_base, i),
@@ -759,14 +782,13 @@ fn build_specs(
           .max_concurrent
           .or(settings.max_concurrent)
           .filter(|n| *n > 0),
-        connections: clamp_connections(
-          entry.connections.or(settings.connections),
-          &format!("service '{}'", describe()),
-        ),
+        connections,
         priority: entry.priority.unwrap_or(settings.priority),
         // Only what this entry asked for: the top-level value is the budget
         // these requests are settled against, not a fallback default.
         bandwidth_bps: parse_bw(entry.bandwidth.as_deref()),
+        bandwidth_declared: entry.bandwidth.clone(),
+        config_notes: connections_note(entry.connections.or(settings.connections), connections),
         max_message_size: settings.max_message_size,
         max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
         tcp_target: entry
@@ -847,10 +869,18 @@ fn build_specs(
 /// - if every service named a rate and together they overshoot, the rates are
 ///   scaled down proportionally (with a warning) so the shares keep their
 ///   relative weight.
+///
+/// Every difference it introduces is recorded as a `ConfigNote` on the spec, so
+/// the dashboard can show the announced rate together with the value the
+/// operator actually wrote.
 fn allocate_bandwidth(specs: &mut [ServiceSpec], budget_bps: Option<u64>) {
   if specs.is_empty() {
     return;
   }
+  // Why a service's rate is not simply what it asked for, filled in by the
+  // branch that settled it; the per-connection split appends its own reason.
+  let mut settled: Vec<Option<String>> = vec![None; specs.len()];
+
   if let Some(budget) = budget_bps {
     let asked: u64 = specs.iter().filter_map(|s| s.bandwidth_bps).sum();
     let unspecified = specs.iter().filter(|s| s.bandwidth_bps.is_none()).count();
@@ -860,7 +890,13 @@ fn allocate_bandwidth(specs: &mut [ServiceSpec], budget_bps: Option<u64>) {
         asked, budget, unspecified
       );
       let share = budget / specs.len() as u64;
-      for spec in specs.iter_mut() {
+      let reason = format!(
+        "the per-service limits left nothing of the {} budget for the {} service(s) without one, so the budget was split equally",
+        format_bandwidth(budget),
+        unspecified
+      );
+      for (i, spec) in specs.iter_mut().enumerate() {
+        settled[i] = Some(reason.clone());
         spec.bandwidth_bps = Some(share);
       }
     } else if unspecified == 0 && asked > budget {
@@ -868,24 +904,65 @@ fn allocate_bandwidth(specs: &mut [ServiceSpec], budget_bps: Option<u64>) {
         "The per-service bandwidth limits add up to {} bytes/s, over the {} bytes/s budget; scaling every limit down proportionally",
         asked, budget
       );
-      for spec in specs.iter_mut() {
+      let reason = format!(
+        "the per-service limits added up to {}, over the {} budget, so every limit was scaled down proportionally",
+        format_bandwidth(asked),
+        format_bandwidth(budget)
+      );
+      for (i, spec) in specs.iter_mut().enumerate() {
         let want = spec.bandwidth_bps.unwrap_or(0) as u128;
+        settled[i] = Some(reason.clone());
         spec.bandwidth_bps = Some((want * budget as u128 / asked as u128) as u64);
       }
     } else if unspecified > 0 {
       let share = (budget - asked) / unspecified as u64;
-      for spec in specs.iter_mut().filter(|s| s.bandwidth_bps.is_none()) {
-        spec.bandwidth_bps = Some(share);
+      let reason = format!(
+        "an equal share of what the {} budget leaves the services without a limit of their own",
+        format_bandwidth(budget)
+      );
+      for (i, spec) in specs.iter_mut().enumerate() {
+        if spec.bandwidth_bps.is_none() {
+          settled[i] = Some(reason.clone());
+          spec.bandwidth_bps = Some(share);
+        }
       }
     }
   }
+
   // A service's share is split across its parallel connections, each of which
   // is shaped separately by the server. Never announce 0: the server reads
   // that as unlimited, which is the opposite of what a tiny share means.
-  for spec in specs.iter_mut() {
-    if let Some(bps) = spec.bandwidth_bps {
+  for (i, spec) in specs.iter_mut().enumerate() {
+    let per_service = spec.bandwidth_bps;
+    if let Some(bps) = per_service {
       spec.bandwidth_bps = Some((bps / spec.connections as u64).max(1));
     }
+    let mut reasons: Vec<String> = settled[i].take().into_iter().collect();
+    if per_service.is_some() && spec.connections > 1 {
+      reasons.push(format!(
+        "split across {} parallel connections",
+        spec.connections
+      ));
+    }
+    let declared = spec.bandwidth_declared.clone();
+    let note = match (declared, spec.bandwidth_bps) {
+      // Unparseable: already warned at parse time, reported here as well so
+      // it shows up in the dashboard next to the value it failed to become.
+      (Some(raw), _) if parse_bandwidth(&raw).is_none() => Some(ConfigNote {
+        field: "bandwidth".to_string(),
+        declared: raw,
+        effective: "unlimited".to_string(),
+        reason: "not a valid rate, so it was ignored".to_string(),
+      }),
+      (declared, Some(effective)) if !reasons.is_empty() => Some(ConfigNote {
+        field: "bandwidth".to_string(),
+        declared: declared.unwrap_or_default(),
+        effective: format_bandwidth(effective),
+        reason: reasons.join("; "),
+      }),
+      _ => None,
+    };
+    spec.config_notes.extend(note);
   }
 }
 

@@ -739,9 +739,25 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content
 assert_status 200 "$CODE" "a path override can be applied"
 STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
 assert_contains "$STATS" '"override_path_bind":"/ov"' "stats reflect the applied override"
+# The list form moves one bind at a time (the dashboard's overrule dialog).
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
-  --data '{"path_bind":"","hostname_bind":""}' "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
+  --data '{"hostname_binds":["moved.example.com","kept.example.com"]}' \
+  "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
+assert_status 200 "$CODE" "a list of hostname overrides can be applied"
+STATS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/stats")"
+assert_contains "$STATS" '"override_hostname_binds":["moved.example.com","kept.example.com"]' \
+  "stats reflect every overridden hostname"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"path_bind":"","hostname_bind":"","hostname_binds":[]}' "$BASE/aperio/api/clients/${CLIENT_ID}/override")"
 assert_status 200 "$CODE" "the override can be cleared"
+
+step "Per-connection configuration view"
+CONFIG="$(curl -s -b "$COOKIES" "$BASE/aperio/api/clients/${CLIENT_ID}/config")"
+assert_contains "$CONFIG" '"yaml"' "the config view returns a yaml document"
+assert_contains "$CONFIG" 'Effective configuration of connection' "the document carries its header"
+assert_contains "$CONFIG" "$HOSTNAME_BIND" "the document lists the connection's hostname bind"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/clients/no-such-client/config")"
+assert_status 404 "$CODE" "the config view of an unknown client returns 404"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"enabled":false}' "$BASE/aperio/api/clients/${CLIENT_ID}/enabled")"
 assert_status 200 "$CODE" "the client can be disabled (kill switch)"

@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::info;
 
+use aperio_config::format_bandwidth;
+
 use crate::protocol::PROTOCOL_VERSION;
 use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_bind};
 use crate::state::{AppState, ClientDetail, EnhancedServerStats, RequestLog};
@@ -603,6 +605,288 @@ pub(crate) async fn client_override_handler(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
   } else {
     (StatusCode::NOT_FOUND, "Client not found").into_response()
+  }
+}
+
+/// One setting whose effective value differs from what was configured.
+#[derive(serde::Serialize, utoipa::ToSchema, Clone)]
+pub(crate) struct ConfigNoteView {
+  /// Config key the note is about (`bandwidth`, `connections`, `cache`, …).
+  pub(crate) field: String,
+  /// What was configured, as written (empty = nothing was configured).
+  pub(crate) declared: String,
+  /// What is actually in effect.
+  pub(crate) effective: String,
+  /// Why the two differ, one sentence.
+  pub(crate) reason: String,
+  /// `client` = the client resolved it before announcing it (only the client
+  /// knows both sides, so it reports these itself); `server` = it was
+  /// announced as configured but the server is not honoring it.
+  pub(crate) source: String,
+}
+
+/// A connection's effective configuration for the dashboard's config view.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct ClientConfigView {
+  /// The effective configuration as a YAML document, with each adjusted
+  /// setting carrying its note as a trailing comment.
+  pub(crate) yaml: String,
+  /// Every setting whose effective value differs from what was configured.
+  pub(crate) notes: Vec<ConfigNoteView>,
+}
+
+/// Quotes a value as a YAML double-quoted scalar.
+fn yaml_str(v: &str) -> String {
+  format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Appends `key: value`, with the note for that key (when there is one) as a
+/// trailing comment, so the document still explains itself once copied out.
+fn push_line(out: &mut String, notes: &[ConfigNoteView], key: &str, value: &str) {
+  out.push_str(key);
+  out.push_str(": ");
+  out.push_str(value);
+  if let Some(note) = notes.iter().find(|n| n.field == key) {
+    let declared = if note.declared.is_empty() {
+      "not set".to_string()
+    } else {
+      note.declared.clone()
+    };
+    out.push_str(&format!("  # declared {}: {}", declared, note.reason));
+  }
+  out.push('\n');
+}
+
+/// Builds the effective configuration of one connection: what the client
+/// announced over its heartbeat, plus what the server applies on top.
+///
+/// This is deliberately not the client's `aperio.yaml`. Settings the client
+/// never announces (its target, request timeouts, header rules, health probe)
+/// are not knowable here and are left out rather than guessed at, which the
+/// document's own header says.
+fn client_config_view(
+  id: &str,
+  handle: &crate::state::ClientHandle,
+  cache_enabled: bool,
+) -> ClientConfigView {
+  // What the client resolved differently before announcing it: only it knows
+  // both sides, so it reports these in its Ping.
+  let mut notes: Vec<ConfigNoteView> = handle
+    .config_notes
+    .iter()
+    .map(|n| ConfigNoteView {
+      field: n.field.clone(),
+      declared: n.declared.clone(),
+      effective: n.effective.clone(),
+      reason: n.reason.clone(),
+      source: "client".to_string(),
+    })
+    .collect();
+
+  // What the server is not honoring, though the client announced it as
+  // configured. Each of these already logs a warning server-side; the point
+  // here is that an operator should not have to find that line.
+  let mut server_note = |field: &str, declared: &str, effective: &str, reason: &str| {
+    notes.push(ConfigNoteView {
+      field: field.to_string(),
+      declared: declared.to_string(),
+      effective: effective.to_string(),
+      reason: reason.to_string(),
+      source: "server".to_string(),
+    })
+  };
+  if handle.cache && !cache_enabled {
+    server_note(
+      "cache",
+      "true",
+      "false",
+      "the server's response cache is disabled (APERIO_CACHE off), so the opt-in does nothing",
+    );
+  }
+  if handle.public_denied_warned {
+    server_note(
+      "public",
+      "true",
+      "false",
+      "this client's token does not permit publishing public services, so the visitor auth gate stays on",
+    );
+  }
+  if handle.visitor_auth_denied_warned {
+    server_note(
+      "auth",
+      "set",
+      "ignored",
+      "the token does not permit controlling the visitor gate, the value was not user:password, or the server sets APERIO_IGNORE_CLIENT_AUTH",
+    );
+  }
+  let declared_hostnames = declared_hostnames_of(handle);
+  if !handle.override_hostname_binds.is_empty() {
+    let mut before = declared_hostnames.clone();
+    for h in &handle.assigned_hostnames {
+      if !before.contains(h) {
+        before.push(h.clone());
+      }
+    }
+    server_note(
+      "hostname",
+      &before.join(", "),
+      &handle.override_hostname_binds.join(", "),
+      "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
+    );
+  }
+  if let Some(path) = &handle.override_path_bind {
+    server_note(
+      "path",
+      handle
+        .declared_path
+        .as_deref()
+        .or(handle.assigned_path.as_deref())
+        .unwrap_or(""),
+      path,
+      "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
+    );
+  }
+
+  let mut y = String::new();
+  y.push_str(&format!(
+    "# Effective configuration of connection {}, as the server sees it: what\n\
+     # the client announces over its heartbeat plus what the server applies on\n\
+     # top. Settings a client never announces (target, timeouts, header rules,\n\
+     # health probes) cannot be shown here. Lines with a `# declared` comment\n\
+     # are not what the config asked for.\n",
+    id
+  ));
+  if let Some(name) = &handle.service_name {
+    push_line(&mut y, &notes, "service", &yaml_str(name));
+  }
+  if let Some(iid) = &handle.reported_instance_id {
+    push_line(&mut y, &notes, "client_id", &yaml_str(iid));
+  }
+  if let Some(n) = handle.connections {
+    push_line(&mut y, &notes, "connections", &n.to_string());
+  }
+
+  // Hostnames, each labeled with where it came from; an active overrule
+  // replaces the set, exactly as routing does.
+  let effective_hosts: Vec<String> = handle.effective_hostnames().into_iter().cloned().collect();
+  if effective_hosts.is_empty() {
+    push_line(&mut y, &notes, "hostname", "[]");
+  } else {
+    push_line(&mut y, &notes, "hostname", "");
+    // `hostname:` above ends with the note comment, so the list follows it.
+    for host in &effective_hosts {
+      let origin = if !handle.override_hostname_binds.is_empty() {
+        "dashboard overrule"
+      } else if declared_hostnames.contains(host) {
+        "declared by the client"
+      } else if handle.random_hostname.as_deref() == Some(host.as_str()) {
+        "random subdomain, assigned by the server"
+      } else {
+        "granted by the token"
+      };
+      y.push_str(&format!("  - {}  # {}\n", yaml_str(host), origin));
+    }
+  }
+  if let Some(path) = handle.effective_path_bind() {
+    push_line(&mut y, &notes, "path", &yaml_str(path));
+  }
+  if let Some(n) = handle.max_concurrent {
+    push_line(&mut y, &notes, "max_concurrent", &n.to_string());
+  }
+  match handle.bandwidth_bps.load(Ordering::Relaxed) {
+    0 => {}
+    bps => push_line(
+      &mut y,
+      &notes,
+      "bandwidth",
+      &yaml_str(&format_bandwidth(bps)),
+    ),
+  }
+  if handle.priority > 0 {
+    push_line(&mut y, &notes, "priority", &handle.priority.to_string());
+  }
+  if handle.public {
+    push_line(&mut y, &notes, "public", "true");
+  }
+  if handle.visitor_auth.is_some() {
+    // The credentials themselves never leave the server.
+    y.push_str("auth: \"<set by the client>\"\n");
+  }
+  if !handle.allowed_ips.is_empty() {
+    push_line(
+      &mut y,
+      &notes,
+      "allowed_ips",
+      &format!(
+        "[{}]",
+        handle
+          .allowed_ips
+          .iter()
+          .map(|ip| yaml_str(ip))
+          .collect::<Vec<_>>()
+          .join(", ")
+      ),
+    );
+  }
+  if let Some(denied) = &handle.denied {
+    push_line(&mut y, &notes, "denied", &yaml_str(denied));
+  }
+  if handle.cache {
+    push_line(&mut y, &notes, "cache", "true");
+  }
+  if handle.resilience {
+    push_line(&mut y, &notes, "resilience", "true");
+  }
+  if handle.webhook_inbox {
+    push_line(&mut y, &notes, "webhook_inbox", "true");
+  }
+  if let Some(n) = handle.max_request_body {
+    push_line(&mut y, &notes, "max_request_body", &n.to_string());
+  }
+  if let Some(n) = handle.response_timeout {
+    push_line(&mut y, &notes, "response_timeout", &n.to_string());
+  }
+  if handle.tcp_enabled {
+    y.push_str("tcp_target: \"<set by the client>\"\n");
+  }
+  if !handle.tunnels.is_empty() {
+    y.push_str("tunnels:\n");
+    for t in &handle.tunnels {
+      y.push_str(&format!(
+        "  - target: {}\n    protocol: {}\n",
+        yaml_str(&t.target),
+        yaml_str(&t.protocol)
+      ));
+      if t.encrypt {
+        y.push_str("    encrypt: true\n");
+      }
+    }
+  }
+
+  ClientConfigView { yaml: y, notes }
+}
+
+/// Returns the effective configuration of one connected client.
+#[utoipa::path(get, path = "/aperio/api/clients/{id}/config", tag = "dashboard",
+  description = "Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, an active overrule).",
+  params(("id" = String, Path, description = "Client connection id")),
+  responses((status = 200, description = "Effective configuration", body = ClientConfigView),
+    (status = 404, description = "No such client")))]
+pub(crate) async fn client_config_handler(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(client_id): axum::extract::Path<String>,
+  headers: HeaderMap,
+) -> Response {
+  // Org isolation, as everywhere else: a cross-org client is a 404, so its
+  // existence never leaks.
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let cache_enabled = state.config().cache_enabled;
+  let clients = state.clients.lock().await;
+  match clients.get(&client_id) {
+    Some(handle) if handle.perms.org_id == org => {
+      Json(client_config_view(&client_id, handle, cache_enabled)).into_response()
+    }
+    _ => (StatusCode::NOT_FOUND, "Client not found").into_response(),
   }
 }
 
