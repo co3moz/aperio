@@ -478,6 +478,40 @@ pub(crate) async fn pick_proxy_client(
   }
 }
 
+/// True when some client currently serves this host/path, without choosing
+/// one of them.
+///
+/// [`pick_proxy_client`] advances the route group's round-robin cursor as a
+/// side effect, so asking it merely whether a route exists costs a rotation
+/// step. The cold-start probe did exactly that on every request, spending two
+/// steps per request instead of one: a pool of two clients then always landed
+/// on the same member and the other never saw traffic, and every pool with an
+/// even number of members skewed the same way.
+pub(crate) async fn route_exists(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+  visitor_ip: Option<IpAddr>,
+) -> bool {
+  let clients = state.clients.lock().await;
+  let Some((pool, _)) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  ) else {
+    return false;
+  };
+  let pool = match filter_pool_by_ip(pool, &clients, visitor_ip) {
+    IpFilterOutcome::Allowed(pool) => pool,
+    // A route this visitor is not allowed on still exists; starting capacity
+    // for them would not change the answer they get.
+    IpFilterOutcome::Denied(_) => return true,
+  };
+  !apply_lb_strategy(pool, &clients, state.config().lb_strategy).is_empty()
+}
+
 /// True when the route for this host/path is served exclusively by clients
 /// that declared themselves public (with a token permitting it): the visitor
 /// auth gate is skipped. An empty or mixed pool keeps the gate — a request

@@ -842,19 +842,16 @@ async fn proxy_http_request(
   // for the record's budget instead of answering 504. The request was never
   // dispatched, so holding it is safe for any method, unlike a failover
   // re-dispatch.
+  // This only asks whether anything serves the route, so it must not go
+  // through `pick_proxy_client`, which rotates the group's round-robin cursor.
   if state.config().scaling_enabled
-    && matches!(
-      pick_proxy_client(
-        &state,
-        &uri_path_owned,
-        request_host.as_deref(),
-        None,
-        None,
-        Some(caller_ip),
-      )
-      .await,
-      PickOutcome::NoRoute
+    && !crate::routing::route_exists(
+      &state,
+      &uri_path_owned,
+      request_host.as_deref(),
+      Some(caller_ip),
     )
+    .await
   {
     // Release the global slot first: the hold can last tens of seconds.
     drop(permit.take());

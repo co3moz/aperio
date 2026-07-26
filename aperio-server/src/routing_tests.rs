@@ -793,3 +793,60 @@ fn test_random_subdomain_hostname_seeded_is_deterministic_and_distinct() {
   assert_eq!(label.len(), 10);
   assert!(label.chars().all(|c| c.is_ascii_hexdigit()));
 }
+
+// --- pick_proxy_client / route_exists ---------------------------------------
+
+/// Registers two healthy clients bound to the same hostname and returns the
+/// state serving that route.
+async fn two_client_pool() -> std::sync::Arc<AppState> {
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  for id in ["a", "b"] {
+    let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
+    c.reported_instance_id = Some(id.to_string());
+    state.clients.lock().await.insert(id.to_string(), c);
+  }
+  state
+}
+
+async fn pick_one(state: &AppState) -> String {
+  match pick_proxy_client(state, "/", Some("app.example.com"), None, None, None).await {
+    PickOutcome::Selected(c) => c.id,
+    other => panic!(
+      "expected a selection, got {:?}",
+      std::mem::discriminant(&other)
+    ),
+  }
+}
+
+#[tokio::test]
+async fn round_robin_alternates_across_the_pool() {
+  let state = two_client_pool().await;
+  let first = pick_one(&state).await;
+  let second = pick_one(&state).await;
+  assert_ne!(
+    first, second,
+    "consecutive requests must go to different pool members"
+  );
+}
+
+#[tokio::test]
+async fn route_exists_does_not_rotate_the_pool() {
+  let state = two_client_pool().await;
+  // The cold-start probe runs before every pick when autoscaling is on. Doing
+  // it with pick_proxy_client burned a rotation step, so each request consumed
+  // two and a two-client pool always landed on the same member.
+  let mut chosen = Vec::new();
+  for _ in 0..4 {
+    assert!(route_exists(&state, "/", Some("app.example.com"), None).await);
+    chosen.push(pick_one(&state).await);
+  }
+  assert_eq!(chosen[0], chosen[2]);
+  assert_eq!(chosen[1], chosen[3]);
+  assert_ne!(chosen[0], chosen[1], "the pool must still alternate");
+}
+
+#[tokio::test]
+async fn route_exists_is_false_without_a_serving_client() {
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  assert!(!route_exists(&state, "/", Some("app.example.com"), None).await);
+}
