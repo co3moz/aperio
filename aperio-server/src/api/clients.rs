@@ -749,15 +749,12 @@ fn client_config_view(
 
   let mut y = String::new();
   y.push_str(&format!(
-    "# Effective configuration of connection {}, as the server sees it: what\n\
-     # the client announces over its heartbeat plus what the server applies on\n\
-     # top. Settings a client never announces (target, timeouts, header rules,\n\
-     # health probes) cannot be shown here. Lines with a `# declared` comment\n\
-     # are not what the config asked for.\n",
+    "# Effective configuration of connection {}. Settings a client never\n\
+     # announces (target, timeouts, header rules, health probes) are not shown.\n",
     id
   ));
   if let Some(name) = &handle.service_name {
-    push_line(&mut y, &notes, "service", &yaml_str(name));
+    push_line(&mut y, &notes, "name", &yaml_str(name));
   }
   if let Some(iid) = &handle.reported_instance_id {
     push_line(&mut y, &notes, "client_id", &yaml_str(iid));
@@ -778,7 +775,7 @@ fn client_config_view(
       let origin = if !handle.override_hostname_binds.is_empty() {
         "dashboard overrule"
       } else if declared_hostnames.contains(host) {
-        "declared by the client"
+        "requested by the client"
       } else if handle.random_hostname.as_deref() == Some(host.as_str()) {
         "random subdomain, assigned by the server"
       } else {

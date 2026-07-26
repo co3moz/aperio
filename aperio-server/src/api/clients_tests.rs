@@ -354,10 +354,10 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
 
-  assert!(yaml.contains("service: \"api\""), "got:\n{yaml}");
+  assert!(yaml.contains("name: \"api\""), "got:\n{yaml}");
   assert!(yaml.contains("connections: 10"), "got:\n{yaml}");
   assert!(
-    yaml.contains("  - \"app.example.com\"  # declared by the client"),
+    yaml.contains("  - \"app.example.com\"  # requested by the client"),
     "each hostname is labeled with where it came from:\n{yaml}"
   );
   assert!(
@@ -383,6 +383,28 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   let cache = notes.iter().find(|n| n["field"] == "cache").unwrap();
   assert_eq!(cache["effective"], "false");
   assert_eq!(cache["source"], "server");
+}
+
+#[tokio::test]
+async fn client_config_renders_an_empty_hostname_list() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.declared_hostname = None;
+    h.declared_hostnames = Vec::new();
+    h.assigned_hostnames = Vec::new();
+    h.random_hostname = None;
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+
+  // Serving no hostname is a state worth stating outright; omitting the key
+  // would read as "not rendered yet" rather than "this connection has none".
+  assert!(yaml.contains("hostname: []"), "got:\n{yaml}");
 }
 
 #[tokio::test]
