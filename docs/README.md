@@ -2,6 +2,8 @@
 
 Short, focused articles on each part of the product. For the project overview and quick start, see the [main README](../README.md).
 
+Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file LaTeX book covering everything below in one narrative, plus generated reference tables for every setting, endpoint and protocol message. Build it with `pdflatex aperio.tex` (twice, so the table of contents resolves).
+
 ## Getting Started
 
 - [Getting Started](getting-started.md), expose your first local service in five minutes, with Docker or the CLI.
