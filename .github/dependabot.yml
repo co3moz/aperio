@@ -1,0 +1,67 @@
+version: 2
+
+# Dependency version updates for everything except the dashboard.
+#
+# `aperio-dashboard/package.json` is deliberately absent: the dashboard is
+# served from the Aperio server to authenticated operators, its dependencies
+# ship as a bundle rather than executing on a public surface, and the constant
+# churn of the npm tree would cost more CI time than the risk it retires.
+#
+# Note this file governs *version* updates only. Dependabot security updates
+# are a repository setting and are not scoped by directory, so an npm advisory
+# can still open a PR here; that switch lives in Settings, not in this file.
+#
+# Every PR opened here runs the full CI matrix, so the schedule is weekly and
+# updates are grouped: a Rust workspace this size would otherwise open a dozen
+# single-crate PRs a week, each paying for its own build.
+updates:
+  # The Cargo workspace: aperio-server, aperio-client, aperio-config and the
+  # test helpers all resolve through the root manifest and lockfile.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      # One PR for the compatible-by-semver churn, which is most of it.
+      cargo-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+      # Majors stay separate: each one needs reading, not batching.
+      cargo-major:
+        update-types:
+          - major
+
+  # Workflow actions. These run with repository credentials, so a stale or
+  # compromised action is the highest-leverage supply-chain risk in the repo.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Base images for the published containers. Mostly quiet, since the
+  # Dockerfiles track floating tags (`alpine:latest`, `rust:alpine`) that
+  # Dependabot cannot pin a version to; this catches the ones that are pinned.
+  - package-ecosystem: docker
+    directories:
+      - /aperio-server
+      - /aperio-client
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(docker)
+    groups:
+      images:
+        patterns:
+          - "*"
