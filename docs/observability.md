@@ -72,7 +72,14 @@ Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). 
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
 ```
 
-Available events: `client_connected`, `client_disconnected`, `client_draining`, `token_created`, `token_revoked`, `token_expiring`, `tunnel_created`, `tunnel_deleted`, `share_created`, `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `alert_triggered`, `alert_resolved`.
+Available events, grouped by what they are about:
+
+- **Clients**: `client_connected`, `client_disconnected`, `client_draining`.
+- **Tokens**: `token_created`, `token_revoked`, `token_rotated`, `token_expiring`, `token_new_ip`, `token_pin_mismatch`, `canary_tripped`.
+- **Tunnels and shares**: `tunnel_created`, `tunnel_deleted`, `share_created`.
+- **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`.
+- **Capacity and alerting**: `alert_triggered`, `alert_resolved`, `scaling_requested`, `org_usage`, `disk_usage_warning`.
+- **Housekeeping**: `db_backup`, `disk_pruned`.
 
 ### Delivery reliability & the delivery log
 
