@@ -107,50 +107,70 @@ fn endpoint_host_port(endpoint: &str) -> Option<(String, u16)> {
   }
 }
 
-/// Best-effort startup reachability check for the OTLP endpoint. Spans are
-/// exported asynchronously and a broken endpoint (wrong host/port, DNS,
-/// collector down) is otherwise silent — every span is just dropped. A single
-/// short TCP connect turns that into one clear log line. Runs synchronously
-/// with blocking IO so it is independent of any Tokio runtime (`init` may be
-/// called before/without one); callers run it on a detached thread so startup
-/// never blocks. Only the collector's TCP liveness is checked, not the full
-/// path.
+/// The OTLP/gRPC port. Aperio exports over OTLP/**HTTP**, so an endpoint
+/// pointing here is the one misconfiguration worth naming outright: a
+/// collector really is listening, the TCP connection really does succeed, and
+/// every span is still dropped because the other side speaks gRPC.
+const OTLP_GRPC_PORT: u16 = 4317;
+
+/// Best-effort startup check of the OTLP endpoint. Spans are exported
+/// asynchronously and a broken endpoint (wrong host/port, wrong protocol, DNS,
+/// collector down) is otherwise silent — every span is just dropped.
+///
+/// The check is a real OTLP/HTTP export of *zero* spans: an empty body is a
+/// valid, empty `ExportTraceServiceRequest`, so a working collector accepts it
+/// and records nothing. That matters because the previous version only opened
+/// a TCP socket, which cannot tell a collector apart from anything else
+/// listening on that port — pointed at the gRPC port it reported "reachable"
+/// while every real export failed.
+///
+/// Runs synchronously with blocking IO so it is independent of any Tokio
+/// runtime (`init` may be called before/without one); callers run it on a
+/// detached thread so startup never blocks.
 fn probe_endpoint(endpoint: String) {
-  use std::net::ToSocketAddrs;
-  let Some((host, port)) = endpoint_host_port(&endpoint) else {
-    return;
+  let port = endpoint_host_port(&endpoint).map(|(_, port)| port);
+  let grpc_hint = if port == Some(OTLP_GRPC_PORT) {
+    concat!(
+      " — port 4317 is the OTLP/gRPC port and this build exports over ",
+      "OTLP/HTTP; use the HTTP port (4318 by default) instead"
+    )
+  } else {
+    ""
   };
-  let addrs = match (host.as_str(), port).to_socket_addrs() {
-    Ok(a) => a,
+
+  let client = match reqwest_otlp::blocking::Client::builder()
+    .timeout(std::time::Duration::from_secs(5))
+    .build()
+  {
+    Ok(client) => client,
     Err(e) => {
-      tracing::warn!(
-        "OTLP endpoint {} could not be resolved ({}) — trace spans will be dropped",
-        endpoint,
-        e
-      );
+      tracing::warn!("OTLP endpoint {} could not be probed ({})", endpoint, e);
       return;
     }
   };
-  let timeout = std::time::Duration::from_secs(5);
-  let mut last_err = None;
-  for addr in addrs {
-    match std::net::TcpStream::connect_timeout(&addr, timeout) {
-      Ok(_) => {
-        tracing::info!("OTLP endpoint {} is reachable", endpoint);
-        return;
-      }
-      Err(e) => last_err = Some(e),
+  match client
+    .post(&endpoint)
+    .header("content-type", "application/x-protobuf")
+    .body(Vec::new())
+    .send()
+  {
+    Ok(res) if res.status().is_success() => {
+      tracing::info!("OTLP endpoint {} accepted a test export", endpoint);
     }
-  }
-  match last_err {
-    Some(e) => tracing::warn!(
-      "OTLP endpoint {} is unreachable ({}) — trace spans will be dropped",
+    // An HTTP answer of any status proves the other side speaks HTTP, so the
+    // transport is right and something else (path, auth, collector config) is
+    // not. Worth a warning, but a different one.
+    Ok(res) => tracing::warn!(
+      "OTLP endpoint {} answered {} to a test export — traces may be dropped{}",
       endpoint,
-      e
+      res.status(),
+      grpc_hint
     ),
-    None => tracing::warn!(
-      "OTLP endpoint {} resolved to no addresses — trace spans will be dropped",
-      endpoint
+    Err(e) => tracing::warn!(
+      "OTLP endpoint {} did not accept a test export ({}) — trace spans will be dropped{}",
+      endpoint,
+      e,
+      grpc_hint
     ),
   }
 }

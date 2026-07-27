@@ -556,7 +556,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `APERIO_BACKUP_KEEP` | How many timestamped backup snapshots to retain; older ones are pruned. | `7` |
 | `APERIO_WEBHOOK_RETRY_SCHEDULE` | Comma-separated backoff seconds between webhook redelivery attempts after a transport error / 5xx / 429 (attempt count = schedule length + 1). Empty = no retries. See [Observability](observability.md#delivery-reliability--the-delivery-log). | `1,5,25,60` |
 | `APERIO_OTEL` | `1` = export one OTLP span per proxied request to an OpenTelemetry collector (adopts inbound W3C `traceparent`, propagates its own context to the backend). | `0` |
-| `APERIO_OTEL_ENDPOINT` | OTLP/HTTP collector base URL (`/v1/traces` is appended if absent). Falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`. | `http://localhost:4318` |
+| `APERIO_OTEL_ENDPOINT` | OTLP/HTTP collector base URL (`/v1/traces` is appended if absent). Falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`. Aperio exports over **OTLP/HTTP**, so this is the collector's HTTP port (4318 by convention), not the gRPC one (4317) — pointing it at 4317 connects but every span is dropped, and the startup probe says so. | `http://localhost:4318` |
 | `APERIO_OTEL_SERVICE_NAME` | `service.name` reported on exported spans. Falls back to `OTEL_SERVICE_NAME`. | `aperio-server` |
 
 ### Authentication & dashboard

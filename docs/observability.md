@@ -33,6 +33,7 @@ Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/proto
 # aperio-server.yaml
 otel: true                                  # env: APERIO_OTEL=1
 otel_endpoint: http://otel-collector:4318   # env: APERIO_OTEL_ENDPOINT, base URL, /v1/traces is appended
+                                           # OTLP/HTTP: the 4318 port, not gRPC's 4317
 otel_service_name: aperio-server            # env: APERIO_OTEL_SERVICE_NAME, optional
 ```
 

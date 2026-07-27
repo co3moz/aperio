@@ -61,9 +61,11 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "http-proto",
   "reqwest-blocking-client",
 ] }
-# Feature-unification-only dependency: forces the reqwest 0.13 that
-# opentelemetry-otlp pulls onto `rustls-no-provider` (ring, not aws-lc-rs) and
-# the blocking client. Not referenced from code — opentelemetry-otlp owns it.
+# Forces the reqwest 0.13 that opentelemetry-otlp pulls onto
+# `rustls-no-provider` (ring, not aws-lc-rs) and the blocking client. Also used
+# directly by the startup OTLP probe, which posts an empty export to check the
+# collector really speaks OTLP/HTTP — reusing the exporter's own client is what
+# makes the probe test the path the exporter will actually take.
 reqwest_otlp = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider", "blocking"] }
 tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"

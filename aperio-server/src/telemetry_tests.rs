@@ -438,3 +438,49 @@ fn init_installs_subscriber_across_all_branches() {
 
   std::panic::set_hook(prev_hook);
 }
+
+// ---------------------------------------------------------------------------
+// probe_endpoint (does the collector actually speak OTLP/HTTP?)
+// ---------------------------------------------------------------------------
+
+/// A one-shot TCP listener that answers the given raw HTTP response, or hangs
+/// up without answering at all when `response` is None (which is how a gRPC
+/// port behaves when an HTTP request arrives).
+fn one_shot_http(response: Option<&'static str>) -> u16 {
+  use std::io::{Read, Write};
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let port = listener.local_addr().unwrap().port();
+  std::thread::spawn(move || {
+    if let Ok((mut sock, _)) = listener.accept() {
+      let mut buf = [0u8; 1024];
+      let _ = sock.read(&mut buf);
+      if let Some(body) = response {
+        let _ = sock.write_all(body.as_bytes());
+      }
+      // Dropping without writing is the "speaks something else" case.
+    }
+  });
+  port
+}
+
+#[test]
+fn probe_accepts_a_collector_that_answers_the_export() {
+  let port = one_shot_http(Some("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
+  // No assertion on the log line itself; what matters is that a collector
+  // answering the POST is the success path and the probe returns promptly.
+  probe_endpoint(format!("http://127.0.0.1:{port}/v1/traces"));
+}
+
+#[test]
+fn probe_reports_a_port_that_accepts_tcp_but_does_not_speak_http() {
+  // This is the case the old TCP-connect probe called "reachable": something
+  // is listening, the connection succeeds, and no export will ever land.
+  let port = one_shot_http(None);
+  probe_endpoint(format!("http://127.0.0.1:{port}/v1/traces"));
+}
+
+#[test]
+fn probe_does_not_panic_on_an_unusable_endpoint() {
+  probe_endpoint("http://127.0.0.1:1/v1/traces".to_string());
+  probe_endpoint("not a url".to_string());
+}
