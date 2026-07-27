@@ -786,4 +786,5 @@ export const zh: Record<string, string> = {
   'not measurable': '无法度量',
   'scale to zero': '缩容到零',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{capacity} 个并发槽位中已使用 {inflight} 个；超过 {target}% 时扩容。',
+  'Must be at least {min}': '至少需要 {min}',
 }

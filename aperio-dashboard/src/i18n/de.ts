@@ -807,4 +807,5 @@ export const de: Record<string, string> = {
   'not measurable': 'nicht messbar',
   'scale to zero': 'auf null skalieren',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{inflight} von {capacity} gleichzeitigen Slots belegt; skaliert oberhalb von {target}% hoch.',
+  'Must be at least {min}': 'Mindestens {min}',
 }

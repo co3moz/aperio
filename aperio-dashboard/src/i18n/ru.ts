@@ -805,4 +805,5 @@ export const ru: Record<string, string> = {
   'not measurable': 'не измеряется',
   'scale to zero': 'масштабирование до нуля',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': 'Занято {inflight} из {capacity} одновременных слотов; масштабируется выше {target}%.',
+  'Must be at least {min}': 'Не менее {min}',
 }

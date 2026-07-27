@@ -50,6 +50,9 @@ interface FieldSpec {
   kind: FieldKind
   options?: string[]
   hint?: string
+  /** Smallest accepted value; the server rejects anything below it, so the
+   *  field says so rather than letting the save come back a 400. */
+  min?: number
 }
 
 interface GroupSpec {
@@ -113,6 +116,17 @@ const GROUPS: GroupSpec[] = [
     fields: [
       { key: 'cache_enabled', label: 'Response cache', kind: 'boolean', hint: 'Cache-Control-driven GET cache; disabling clears stored entries' },
       { key: 'cache_max_bytes', label: 'Cache budget', kind: 'bytes', hint: 'Total memory for cached responses; entries closest to expiry are evicted first' },
+      { key: 'cache_max_stale', label: 'Serve-stale window (s)', kind: 'number', hint: 'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off' },
+    ],
+  },
+  {
+    title: 'Stream Flow Control',
+    description:
+      'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.',
+    fields: [
+      { key: 'stream_pause_bytes', min: 1, label: 'Pause above', kind: 'bytes', hint: 'Backlog at which the producing client is told to stop reading that stream’s source' },
+      { key: 'stream_resume_bytes', min: 1, label: 'Resume below', kind: 'bytes', hint: 'Backlog at which a paused producer carries on; kept well under the pause mark so the pair cannot flap' },
+      { key: 'stream_backlog_limit', min: 1, label: 'Hard backlog cap', kind: 'bytes', hint: 'A stream whose producer cannot be paused (an older client) is dropped past this' },
     ],
   },
   {
@@ -154,7 +168,15 @@ function bytesToInput(bytes: number): string {
  * Byte-size input: accepts "10mb", "1.5 GB", "512K" or plain bytes, shows the
  * parsed size underneath, and only propagates valid values.
  */
-function BytesInput({ value, onChange }: { value: number; onChange: (bytes: number) => void }) {
+function BytesInput({
+  value,
+  onChange,
+  min,
+}: {
+  value: number
+  onChange: (bytes: number) => void
+  min?: number
+}) {
   const { t } = useI18n()
   const [text, setText] = useState(() => bytesToInput(value))
   const [lastValue, setLastValue] = useState(value)
@@ -165,7 +187,11 @@ function BytesInput({ value, onChange }: { value: number; onChange: (bytes: numb
     if (parseByteSize(text) !== value) setText(bytesToInput(value))
   }
   const parsed = parseByteSize(text)
-  const invalid = text.trim() !== '' && parsed === null
+  // Below the server's floor is as invalid as unparseable: the three stream
+  // watermarks reject 0, while `audit_max_size: 0` legitimately means "never
+  // rotate", so the floor is per field rather than global.
+  const tooSmall = min !== undefined && parsed !== null && parsed < min
+  const invalid = text.trim() !== '' && (parsed === null || tooSmall)
   return (
     <div className="flex flex-col gap-1">
       <Input
@@ -175,16 +201,18 @@ function BytesInput({ value, onChange }: { value: number; onChange: (bytes: numb
         onChange={(e) => {
           setText(e.target.value)
           const bytes = parseByteSize(e.target.value)
-          if (bytes !== null) {
+          if (bytes !== null && !(min !== undefined && bytes < min)) {
             setLastValue(bytes)
             onChange(bytes)
           }
         }}
       />
       <span className="text-xs text-muted-foreground">
-        {invalid
-          ? t('Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes')
-          : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
+        {tooSmall
+          ? t('Must be at least {min}', { min: formatBytes(min ?? 0) })
+          : invalid
+            ? t('Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes')
+            : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
       </span>
     </div>
   )
@@ -388,7 +416,13 @@ export function SettingsSection() {
           />
         )
       case 'bytes':
-        return <BytesInput value={Number(value ?? 0)} onChange={(bytes) => setField(f.key, bytes)} />
+        return (
+          <BytesInput
+            value={Number(value ?? 0)}
+            min={f.min}
+            onChange={(bytes) => setField(f.key, bytes)}
+          />
+        )
 
       case 'text':
         return (

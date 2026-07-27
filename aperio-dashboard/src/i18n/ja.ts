@@ -803,4 +803,5 @@ export const ja: Record<string, string> = {
   'not measurable': '測定不可',
   'scale to zero': 'ゼロまで縮小',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '同時実行枠 {capacity} のうち {inflight} を使用中。{target}% を超えるとスケールアウトします。',
+  'Must be at least {min}': '{min} 以上である必要があります',
 }
