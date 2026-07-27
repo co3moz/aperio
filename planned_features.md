@@ -405,8 +405,15 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   the same case: serving large downloads out of a `serve:` directory.
   (From the 2026-07 four-agent review.)
 
-- [ ] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
-  field.** Entries currently apply on the version range alone, so a config that
+- [x] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
+  field.** shipped: entries carry `applies: WhenSet | Always`, `check_upgrade`
+  takes the file's `ConfigKeys`, and a test refuses a `Security` entry that is
+  not `WhenSet`. `dashboard_auth` is now `Security` as it should always have
+  been. The `REMOVED_SETTINGS` check stays for the two cases the version
+  mechanism cannot see: a file with no `version:`, and an env-only deployment.
+  Original note below.
+
+  Original: Entries currently apply on the version range alone, so a config that
   never set the changed key still gets the report on upgrade. That is tolerable
   for a warning and wrong for a refusal: a `Security` entry would stop a server
   whose file is entirely unaffected, which is the outage-generator failure mode

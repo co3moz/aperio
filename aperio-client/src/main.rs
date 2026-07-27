@@ -117,7 +117,11 @@ async fn main() {
   // and report every recorded config-format change in between. A change with
   // security consequences stops the client here rather than letting it run
   // under a configuration whose meaning shifted.
-  report_config_upgrade(settings.config_version.as_deref(), api_mode);
+  report_config_upgrade(
+    settings.config_version.as_deref(),
+    api_mode,
+    &config::config_keys(cli.opts.config.as_deref()),
+  );
 
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
@@ -508,7 +512,11 @@ fn retire_unused_serve_listeners(
 /// Quiet by design: an upgrade that cannot affect the file says nothing at
 /// all, so the one time it does speak is worth reading. `quiet` suppresses
 /// the informational nudge in `api` mode, whose output is piped.
-fn report_config_upgrade(declared: Option<&str>, quiet: bool) {
+fn report_config_upgrade(
+  declared: Option<&str>,
+  quiet: bool,
+  keys: &aperio_config::compat::ConfigKeys,
+) {
   use aperio_config::compat::{CONFIG_CHANGES, ConfigSurface, check_upgrade, report_lines};
 
   let report = match check_upgrade(
@@ -516,6 +524,7 @@ fn report_config_upgrade(declared: Option<&str>, quiet: bool) {
     env!("CARGO_PKG_VERSION"),
     ConfigSurface::Client,
     CONFIG_CHANGES,
+    keys,
   ) {
     Ok(report) => report,
     Err(e) => {

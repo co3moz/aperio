@@ -207,6 +207,11 @@ fn install_panic_logger() {
 /// nobody finds out until someone tries to sign in. Refusing to start turns a
 /// silent authentication change into an obvious one, at the only moment the
 /// operator is watching.
+///
+/// [`CONFIG_CHANGES`] covers the same ground for a file that declares a
+/// `version:`, and does it with a fuller explanation. This check is what
+/// catches the two cases that has no answer for: a file with no `version:`,
+/// and an environment-only deployment with no file at all.
 const REMOVED_SETTINGS: &[(&str, &str)] = &[(
   "APERIO_DASHBOARD_AUTH",
   "the separate dashboard password was removed. Sign in as `aperio:<APERIO_SERVER_TOKEN>`, \
@@ -236,6 +241,17 @@ fn refuse_removed_settings() {
   }
 }
 
+/// The keys `aperio-server.yaml` actually writes, so a change that only
+/// reaches files using a particular key is not reported to files that do not.
+/// An environment-only deployment has no document and therefore no keys, which
+/// is correct: such a change cannot be about a key it never wrote.
+pub(crate) fn declared_config_keys() -> aperio_config::compat::ConfigKeys {
+  match crate::config_file::document() {
+    Some(doc) => aperio_config::compat::ConfigKeys::from_mapping(&doc),
+    None => aperio_config::compat::ConfigKeys::default(),
+  }
+}
+
 /// The Aperio version the configuration declares (`version:` in
 /// `aperio-server.yaml`, or `APERIO_VERSION`), if any.
 fn declared_config_version() -> Option<String> {
@@ -256,11 +272,13 @@ fn report_config_upgrade() {
   use aperio_config::compat::{CONFIG_CHANGES, ConfigSurface, check_upgrade, report_lines};
 
   let declared = declared_config_version();
+
   let report = match check_upgrade(
     declared.as_deref(),
     env!("CARGO_PKG_VERSION"),
     ConfigSurface::Server,
     CONFIG_CHANGES,
+    &declared_config_keys(),
   ) {
     Ok(report) => report,
     Err(e) => {

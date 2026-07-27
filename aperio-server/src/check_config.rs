@@ -150,6 +150,7 @@ pub(crate) fn run() -> i32 {
     env!("CARGO_PKG_VERSION"),
     aperio_config::compat::ConfigSurface::Server,
     aperio_config::compat::CONFIG_CHANGES,
+    &crate::declared_config_keys(),
   ) {
     Err(e) => r.fail(&format!("version: {e}")),
     Ok(report) if report.declared.is_none() => r.warn(

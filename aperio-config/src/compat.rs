@@ -118,6 +118,58 @@ impl ChangeSeverity {
   }
 }
 
+/// Who a change reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Applies {
+  /// Only a file that actually writes one of `fields`. A key that was removed
+  /// or given a new meaning harms exactly the people who set it; reporting it
+  /// to everyone else is noise, and refusing their start is an outage for a
+  /// change that cannot touch them.
+  WhenSet,
+  /// Every file in the range, whether or not it mentions the fields. This is
+  /// the case for a changed *default*: the people affected are precisely the
+  /// ones who left the key alone, so presence tells us nothing.
+  Always,
+}
+
+/// The keys a configuration file actually writes, flattened so a block child
+/// is addressable as `dashboard.auth` alongside the flat `dashboard_auth`.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigKeys(std::collections::BTreeSet<String>);
+
+impl ConfigKeys {
+  /// Collects the keys of a parsed yaml mapping, one level of nesting deep,
+  /// which is as far as the config format goes for scalars.
+  pub fn from_mapping(doc: &serde_yaml::Mapping) -> Self {
+    let mut out = std::collections::BTreeSet::new();
+    for (key, value) in doc {
+      let Some(key) = key.as_str() else { continue };
+      out.insert(key.to_string());
+      if let serde_yaml::Value::Mapping(children) = value {
+        for child in children.keys() {
+          if let Some(child) = child.as_str() {
+            out.insert(format!("{key}.{child}"));
+          }
+        }
+      }
+    }
+    ConfigKeys(out)
+  }
+
+  /// Builds the set from an iterator of already-flattened key names.
+  pub fn from_names<I: IntoIterator<Item = String>>(names: I) -> Self {
+    ConfigKeys(names.into_iter().collect())
+  }
+
+  pub fn contains(&self, key: &str) -> bool {
+    self.0.contains(key)
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+}
+
 /// One recorded change to the configuration format.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigChange {
@@ -126,6 +178,9 @@ pub struct ConfigChange {
   pub version: &'static str,
   pub surface: ConfigSurface,
   pub severity: ChangeSeverity,
+  /// Whether the change reaches every file in the range or only those that
+  /// write one of `fields`.
+  pub applies: Applies,
   /// The config keys involved, as an operator would write them.
   pub fields: &'static [&'static str],
   /// What changed, in one sentence.
@@ -143,7 +198,11 @@ pub struct ConfigChange {
 pub const CONFIG_CHANGES: &[ConfigChange] = &[ConfigChange {
   version: "0.6.0",
   surface: ConfigSurface::Server,
-  severity: ChangeSeverity::Breaking,
+  // The file claims the dashboard is behind its own password. It is not any
+  // more, and an operator who believes otherwise has published an admin
+  // surface they think is gated — which is precisely what `Security` is for.
+  severity: ChangeSeverity::Security,
+  applies: Applies::WhenSet,
   fields: &["dashboard_auth", "dashboard.auth"],
   summary: "The separate dashboard password is gone; the dashboard is entered as aperio:<master token>, or as a named user.",
   action: "Remove the key. Anyone who signed in with it needs a dashboard user (Users page), or their own organization.",
@@ -203,6 +262,7 @@ pub fn check_upgrade(
   current: &str,
   surface: ConfigSurface,
   changes: &'static [ConfigChange],
+  keys: &ConfigKeys,
 ) -> Result<UpgradeReport, String> {
   let current = Version::parse(current)?;
   let Some(raw) = declared.map(str::trim).filter(|s| !s.is_empty()) else {
@@ -226,6 +286,14 @@ pub fn check_upgrade(
       // A malformed entry in our own table must not be swallowed; treating
       // it as relevant surfaces it in testing rather than in production.
       Err(_) => true,
+    })
+    // A `WhenSet` change cannot reach a file that never writes the key, so it
+    // is not reported to one. Without this the severity ladder is unusable:
+    // `Security` refuses the start, and refusing every file in the version
+    // range would turn a change that harms a few into an outage for everyone.
+    .filter(|c| match c.applies {
+      Applies::Always => true,
+      Applies::WhenSet => c.fields.iter().any(|f| keys.contains(f)),
     })
     .collect();
 

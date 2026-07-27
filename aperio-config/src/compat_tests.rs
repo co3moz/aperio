@@ -7,6 +7,7 @@ static CHANGES: &[ConfigChange] = &[
     version: "0.6.0",
     surface: ConfigSurface::Server,
     severity: ChangeSeverity::Migration,
+    applies: Applies::Always,
     fields: &["cache_max_bytes"],
     summary: "Moved into the cache: block.",
     action: "Rewrite it as cache.max_bytes.",
@@ -15,6 +16,7 @@ static CHANGES: &[ConfigChange] = &[
     version: "0.7.0",
     surface: ConfigSurface::Client,
     severity: ChangeSeverity::Breaking,
+    applies: Applies::Always,
     fields: &["allowed_ips"],
     summary: "No longer accepts a bare string.",
     action: "Write it as a list.",
@@ -23,11 +25,33 @@ static CHANGES: &[ConfigChange] = &[
     version: "0.7.0",
     surface: ConfigSurface::Both,
     severity: ChangeSeverity::Security,
+    applies: Applies::Always,
     fields: &["public"],
     summary: "Now defaults to off.",
     action: "Set it explicitly if you relied on the old default.",
   },
 ];
+
+/// A change that can only reach a file writing the key it names.
+static WHEN_SET: &[ConfigChange] = &[ConfigChange {
+  version: "0.6.0",
+  surface: ConfigSurface::Server,
+  severity: ChangeSeverity::Security,
+  applies: Applies::WhenSet,
+  fields: &["dashboard_auth", "dashboard.auth"],
+  summary: "The separate dashboard password is gone.",
+  action: "Remove the key and use a named user.",
+}];
+
+/// Keys a file writes, for the `WhenSet` cases.
+fn keys(names: &[&str]) -> ConfigKeys {
+  ConfigKeys::from_names(names.iter().map(|s| s.to_string()))
+}
+
+/// No document at all — an environment-only server, say.
+fn no_keys() -> ConfigKeys {
+  ConfigKeys::default()
+}
 
 #[test]
 fn version_parsing_accepts_the_shapes_people_write() {
@@ -64,7 +88,14 @@ fn versions_order_by_component() {
 #[test]
 fn a_config_safe_upgrade_says_nothing() {
   // Nothing landed between 0.5.0 and 0.5.9, so the operator hears nothing.
-  let r = check_upgrade(Some("0.5.0"), "0.5.9", ConfigSurface::Server, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.5.9",
+    ConfigSurface::Server,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert!(r.is_quiet());
   assert!(!r.must_refuse());
   assert!(report_lines(&r).is_empty());
@@ -72,7 +103,14 @@ fn a_config_safe_upgrade_says_nothing() {
 
 #[test]
 fn a_change_in_the_range_is_reported_with_its_fields() {
-  let r = check_upgrade(Some("0.5.0"), "0.6.0", ConfigSurface::Server, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.6.0",
+    ConfigSurface::Server,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert_eq!(r.changes.len(), 1);
   assert_eq!(r.affected_fields(), vec!["cache_max_bytes"]);
   assert!(!r.must_refuse(), "a migration is a warning, not a refusal");
@@ -86,17 +124,38 @@ fn a_change_in_the_range_is_reported_with_its_fields() {
 #[test]
 fn the_boundaries_are_exclusive_below_and_inclusive_above() {
   // A file already declaring the version a change shipped in is not affected.
-  let r = check_upgrade(Some("0.6.0"), "0.6.5", ConfigSurface::Server, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.6.0"),
+    "0.6.5",
+    ConfigSurface::Server,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert!(r.changes.is_empty());
   // A change that ships in a version *newer* than this build is not yet real
   // for it, so it stays quiet until the binary is actually upgraded.
-  let r = check_upgrade(Some("0.5.0"), "0.6.9", ConfigSurface::Client, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.6.9",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert!(r.changes.is_empty(), "0.7.0 has not been reached yet");
 }
 
 #[test]
 fn a_security_change_refuses_the_start() {
-  let r = check_upgrade(Some("0.5.0"), "0.7.0", ConfigSurface::Client, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   // The client-side breaking change and the both-sides security one; the
   // server-only migration is filtered out.
   assert_eq!(r.changes.len(), 2);
@@ -112,32 +171,67 @@ fn a_security_change_refuses_the_start() {
 fn changes_are_filtered_by_which_file_is_being_checked() {
   // The client-only entry must not fire for the server file, but the
   // both-sides one must fire for either.
-  let server = check_upgrade(Some("0.6.0"), "0.7.0", ConfigSurface::Server, CHANGES).unwrap();
+  let server = check_upgrade(
+    Some("0.6.0"),
+    "0.7.0",
+    ConfigSurface::Server,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert_eq!(server.changes.len(), 1);
   assert_eq!(server.changes[0].severity, ChangeSeverity::Security);
 
-  let client = check_upgrade(Some("0.6.0"), "0.7.0", ConfigSurface::Client, CHANGES).unwrap();
+  let client = check_upgrade(
+    Some("0.6.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert_eq!(client.changes.len(), 2);
 }
 
 #[test]
 fn an_undeclared_version_checks_nothing_and_a_typo_is_an_error() {
   // Nothing to compare against: no report, no noise, no refusal.
-  let r = check_upgrade(None, "0.7.0", ConfigSurface::Client, CHANGES).unwrap();
+  let r = check_upgrade(None, "0.7.0", ConfigSurface::Client, CHANGES, &no_keys()).unwrap();
   assert!(r.is_quiet());
   assert!(r.declared.is_none());
-  let r = check_upgrade(Some("   "), "0.7.0", ConfigSurface::Client, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("   "),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert!(r.is_quiet());
 
   // A misspelled version must not silently disable the safety net.
-  let err = check_upgrade(Some("0.5.x"), "0.7.0", ConfigSurface::Client, CHANGES).unwrap_err();
+  let err = check_upgrade(
+    Some("0.5.x"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap_err();
   assert!(err.contains("version:"), "{err}");
 }
 
 #[test]
 fn a_config_from_a_newer_aperio_is_called_out() {
   // The rollback case: the binary went back, the config did not.
-  let r = check_upgrade(Some("0.9.0"), "0.7.0", ConfigSurface::Client, CHANGES).unwrap();
+  let r = check_upgrade(
+    Some("0.9.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
   assert!(r.from_the_future);
   assert!(!r.is_quiet());
   assert!(
@@ -165,5 +259,88 @@ fn the_shipped_table_is_well_formed() {
       "CONFIG_CHANGES entry '{}' tells the operator nothing to do",
       change.summary
     );
+    // A Security entry refuses the start, so it must be the kind of change
+    // that can only reach the files it names. `Always` + `Security` would
+    // stop every server in the version range, affected or not.
+    assert!(
+      change.severity != ChangeSeverity::Security || change.applies == Applies::WhenSet,
+      "CONFIG_CHANGES entry '{}' refuses the start for every file in range; \
+       a Security entry must be WhenSet, or its severity is wrong",
+      change.summary
+    );
   }
+}
+
+#[test]
+fn a_when_set_change_reaches_only_the_files_that_use_the_key() {
+  // The point of the distinction: removing a credential harms exactly the
+  // operators who configured it. Reporting it to everyone else is noise, and
+  // since this one is Security, refusing their start would be an outage for a
+  // change that cannot touch them.
+  let used = check_upgrade(
+    Some("0.5.0"),
+    "0.6.0",
+    ConfigSurface::Server,
+    WHEN_SET,
+    &keys(&["server_token", "dashboard_auth"]),
+  )
+  .unwrap();
+  assert_eq!(used.changes.len(), 1);
+  assert!(used.must_refuse());
+
+  let unaffected = check_upgrade(
+    Some("0.5.0"),
+    "0.6.0",
+    ConfigSurface::Server,
+    WHEN_SET,
+    &keys(&["server_token", "max_body_size"]),
+  )
+  .unwrap();
+  assert!(unaffected.is_quiet(), "an unaffected file hears nothing");
+  assert!(!unaffected.must_refuse(), "and is certainly not refused");
+}
+
+#[test]
+fn the_block_spelling_of_a_key_counts_as_using_it() {
+  // `dashboard: { auth: … }` is the same setting as `dashboard_auth:`, and an
+  // entry naming both must fire for either spelling.
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.6.0",
+    ConfigSurface::Server,
+    WHEN_SET,
+    &keys(&["dashboard", "dashboard.auth"]),
+  )
+  .unwrap();
+  assert_eq!(r.changes.len(), 1);
+  assert!(r.must_refuse());
+}
+
+#[test]
+fn a_default_that_changed_reaches_everyone_in_range() {
+  // The mirror case, and the reason `Always` exists: when a *default* moves,
+  // the people affected are the ones who never wrote the key, so presence
+  // proves nothing and filtering on it would silence the report entirely.
+  let r = check_upgrade(
+    Some("0.5.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CHANGES,
+    &no_keys(),
+  )
+  .unwrap();
+  assert_eq!(r.changes.len(), 2);
+}
+
+#[test]
+fn config_keys_flattens_one_level_of_blocks() {
+  let doc: serde_yaml::Mapping =
+    serde_yaml::from_str("server_token: x\ndashboard:\n  auth: y\n  enabled: true\n").unwrap();
+  let k = ConfigKeys::from_mapping(&doc);
+  assert!(k.contains("server_token"));
+  assert!(k.contains("dashboard"));
+  assert!(k.contains("dashboard.auth"));
+  assert!(k.contains("dashboard.enabled"));
+  assert!(!k.contains("auth"), "a child is not addressable on its own");
+  assert!(ConfigKeys::default().is_empty());
 }
