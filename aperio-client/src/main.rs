@@ -55,13 +55,17 @@ async fn main() {
   // stay quiet (warnings and above) and go to stderr: a piped `api` call must
   // emit nothing but the response document.
   let api_mode = matches!(cli.mode, CliMode::Api(_));
+  // Logging has to be up before the config files are loaded (their own load
+  // messages go through it), so the two logging keys are read from the files
+  // separately and cheaply here. `RUST_LOG` still wins over everything.
+  let log_cfg = config::log_settings(cli.opts.config.as_deref());
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let default = if api_mode { "warn" } else { "info" };
-    let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| default.to_string());
+    let level = log_cfg.level.unwrap_or_else(|| default.to_string());
     tracing_subscriber::EnvFilter::new(level)
   });
 
-  let json_logs = match std::env::var("APERIO_LOG_FORMAT").ok().as_deref() {
+  let json_logs = match log_cfg.format.as_deref() {
     Some("json") => true,
     Some("pretty") | Some("text") => false,
     _ => {
@@ -165,6 +169,13 @@ async fn main() {
     },
     None => uuid::Uuid::new_v4().to_string(),
   };
+
+  // The device key is a process identity: resolved from the full layering
+  // once, before any connection announces it.
+  service::set_device_key_sources(
+    settings.device_key.clone(),
+    settings.device_key_file.clone(),
+  );
 
   // Static file mode: start one loopback server per served directory and
   // point the target(s) at them. Listeners survive config reloads — a
@@ -416,6 +427,9 @@ async fn apply_serve_mode(
   // that config has been fully validated and adopted, since until then the
   // services still running are the old ones, pointing at these very ports.
   let mut needed: std::collections::HashSet<String> = std::collections::HashSet::new();
+  // Resolved once per (re)load and shared by every served directory: the two
+  // options are process-wide, not per service.
+  let serve_opts = serve::options(settings.serve_spa, settings.serve_404.as_deref());
   if let Some(dir) = settings.serve.clone() {
     if settings.target.is_some() || settings.tcp_target.is_some() {
       return Err(
@@ -427,7 +441,7 @@ async fn apply_serve_mode(
         "CRITICAL ERROR: the top-level serve drives single-service mode; move it into the services: entry that should serve the directory".to_string(),
       );
     }
-    let port = serve_port(&dir, started).await?;
+    let port = serve_port(&dir, &serve_opts, started).await?;
     needed.insert(dir.clone());
     settings.target = Some(format!("http://127.0.0.1:{}", port));
   }
@@ -450,7 +464,7 @@ async fn apply_serve_mode(
           .unwrap_or_else(|| format!("services[{}]", i))
       ));
     }
-    let port = serve_port(&dir, started).await?;
+    let port = serve_port(&dir, &serve_opts, started).await?;
     needed.insert(dir.clone());
     entry.target = Some(format!("http://127.0.0.1:{}", port));
   }
@@ -487,12 +501,13 @@ fn retire_unused_serve_listeners(
 /// with the same value reuses the running server.
 async fn serve_port(
   dir: &str,
+  opts: &serve::ServeOptions,
   started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
 ) -> Result<u16, String> {
   if let Some((port, _)) = started.get(dir) {
     return Ok(*port);
   }
-  let (port, handle) = serve::start(dir, serve::options_from_env()).await?;
+  let (port, handle) = serve::start(dir, opts.clone()).await?;
   started.insert(dir.to_string(), (port, handle));
   Ok(port)
 }
@@ -527,17 +542,15 @@ fn build_specs(
   // comma-separated). The primary (server_addr) is always the first candidate;
   // the reconnect loop rotates to the next after a failed connection.
   let mut ws_urls = vec![ws_url.clone()];
-  if let Ok(raw) = std::env::var("APERIO_SERVER_URLS") {
-    for extra in raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-      match build_ws_url(extra) {
-        Ok(u) if !ws_urls.contains(&u) => ws_urls.push(u),
-        Ok(_) => {}
-        Err(e) => tracing::warn!(
-          "Ignoring invalid server URL '{}' in APERIO_SERVER_URLS: {}",
-          extra,
-          e
-        ),
-      }
+  for extra in &settings.server_urls {
+    match build_ws_url(extra) {
+      Ok(u) if !ws_urls.contains(&u) => ws_urls.push(u),
+      Ok(_) => {}
+      Err(e) => tracing::warn!(
+        "Ignoring invalid entry '{}' in server.urls / APERIO_SERVER_URLS: {}",
+        extra,
+        e
+      ),
     }
   }
   if ws_urls.len() > 1 {

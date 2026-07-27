@@ -212,28 +212,23 @@ fn test_label_variants() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_resolve_device_key_env_and_file() {
-  // Serialize env mutation within this test; no other test reads these vars.
-  // SAFETY: single-threaded within this test; the vars are unique to it.
-  unsafe {
-    std::env::remove_var("APERIO_DEVICE_KEY");
-    std::env::remove_var("APERIO_DEVICE_KEY_FILE");
-  }
-  // Neither set: nothing announced.
-  assert_eq!(resolve_device_key(), None);
+fn test_resolve_device_key_value_and_file() {
+  // Nothing configured: nothing announced.
+  assert_eq!(resolve_device_key(None, None), None);
 
-  // Explicit value wins and is trimmed.
-  unsafe { std::env::set_var("APERIO_DEVICE_KEY", "  explicit-key  ") };
-  assert_eq!(resolve_device_key().as_deref(), Some("explicit-key"));
+  // An explicit value wins and is trimmed.
+  assert_eq!(
+    resolve_device_key(Some("  explicit-key  ".into()), None).as_deref(),
+    Some("explicit-key")
+  );
 
-  // An empty explicit value falls through to the file path.
-  unsafe { std::env::set_var("APERIO_DEVICE_KEY", "   ") };
+  // A blank explicit value falls through to the file.
   let path = std::env::temp_dir().join(format!("aperio-devkey-{}", uuid::Uuid::new_v4()));
   let path_str = path.to_string_lossy().into_owned();
-  unsafe { std::env::set_var("APERIO_DEVICE_KEY_FILE", &path_str) };
   // First call: the file does not exist, so a fresh key is generated and
   // persisted.
-  let generated = resolve_device_key().expect("a key is generated");
+  let generated =
+    resolve_device_key(Some("   ".into()), Some(path_str.clone())).expect("a key is generated");
   assert!(!generated.is_empty());
   assert_eq!(
     std::fs::read_to_string(&path).unwrap().trim(),
@@ -241,14 +236,16 @@ fn test_resolve_device_key_env_and_file() {
     "the generated key is persisted"
   );
   // Second call: the existing file's contents are reused verbatim.
-  assert_eq!(resolve_device_key().as_deref(), Some(generated.as_str()));
+  assert_eq!(
+    resolve_device_key(None, Some(path_str.clone())).as_deref(),
+    Some(generated.as_str())
+  );
+  // A blank path is treated as unset.
+  assert_eq!(resolve_device_key(None, Some("  ".into())), None);
 
   let _ = std::fs::remove_file(&path);
-  unsafe {
-    std::env::remove_var("APERIO_DEVICE_KEY");
-    std::env::remove_var("APERIO_DEVICE_KEY_FILE");
-  }
-  // device_key() memoizes resolve_device_key() and returns a stable value.
+
+  // device_key() memoizes and returns a stable value.
   let a = device_key();
   let b = device_key();
   assert_eq!(a, b);

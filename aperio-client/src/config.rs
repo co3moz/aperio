@@ -346,6 +346,8 @@ pub(crate) struct ClientSettings {
   /// Admin API key used by the `api` subcommand (never by the tunnel).
   pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
+  /// Additional server URLs to fail over to, tried in order after `server`.
+  pub(crate) server_urls: Vec<String>,
   pub(crate) target: Option<String>,
   /// Static directory to serve instead of a backend (single-service mode;
   /// mutually exclusive with `target`).
@@ -416,6 +418,17 @@ pub(crate) struct ClientSettings {
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// `bind-tunnels:` entries (local config file only).
   pub(crate) bind_tunnels: HashMap<String, BindTunnelEntry>,
+  /// Static-file mode: SPA history fallback (process-wide).
+  pub(crate) serve_spa: bool,
+  /// Static-file mode: custom 404 page path (process-wide).
+  pub(crate) serve_404: Option<String>,
+  /// Trust-on-first-use device key announced with the token.
+  pub(crate) device_key: Option<String>,
+  /// File the device key is read from (and generated into on first run).
+  pub(crate) device_key_file: Option<String>,
+  // `log_level` / `log_format` are deliberately absent: the subscriber has to
+  // be installed before the config files are loaded, so they are resolved by
+  // `log_settings` instead (same layering, just earlier).
 }
 
 /// Which configuration layer supplied a value (used by `check` to explain
@@ -510,6 +523,140 @@ fn layered<T>(cli: Option<T>, local: Option<T>, env: Option<T>, home: Option<T>)
   cli.or(local).or(env).or(home)
 }
 
+/// The two logging settings, resolved before the subscriber is installed.
+pub(crate) struct LogSettings {
+  pub(crate) level: Option<String>,
+  pub(crate) format: Option<String>,
+}
+
+/// Resolves `log_level` / `log_format` ahead of everything else.
+///
+/// Logging has to be initialized before the configuration files are loaded,
+/// since loading them logs; so these two keys are read from the files here,
+/// silently, and the ordinary layered resolution happens later as usual. A
+/// file that does not parse is ignored rather than reported: the real load a
+/// moment later reports it properly, through the logger this call configures.
+pub(crate) fn log_settings(explicit_config: Option<&str>) -> LogSettings {
+  let read = |path: &str| -> Option<FileConfig> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_yaml::from_str::<FileConfig>(&raw).ok()
+  };
+  let local = read(explicit_config.unwrap_or("aperio.yaml"));
+  let home = home_config_path().and_then(|p| read(&p.to_string_lossy()));
+  let pick = |f: fn(&FileConfig) -> Option<String>, env: &str| {
+    layered(
+      None,
+      local.as_ref().and_then(f),
+      env_str(env),
+      home.as_ref().and_then(f),
+    )
+  };
+  LogSettings {
+    level: pick(|c| c.log_level.clone(), "LOG_LEVEL"),
+    format: pick(|c| c.log_format.clone(), "APERIO_LOG_FORMAT"),
+  }
+}
+
+/// Splits a comma-separated environment value into trimmed, non-empty items.
+fn split_csv(raw: &str) -> Vec<String> {
+  raw
+    .split(',')
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+    .collect()
+}
+
+/// Builds the autoscaling declaration, layering the yaml block against the
+/// `APERIO_SCALING_*` variables field by field rather than all-or-nothing, so
+/// a deployment can keep the shape in the file and inject only the secret (or
+/// the URL) from the environment. Without a URL there is nothing to call, so
+/// the whole declaration stays `None`.
+fn resolve_scaling(local: &FileConfig, home: &FileConfig) -> Option<aperio_config::ScalingDecl> {
+  let l = local.scaling.as_ref();
+  let h = home.scaling.as_ref();
+  let url = layered(
+    None,
+    l.map(|s| s.url.clone()).filter(|u| !u.trim().is_empty()),
+    env_str("APERIO_SCALING_URL"),
+    h.map(|s| s.url.clone()).filter(|u| !u.trim().is_empty()),
+  )?;
+  Some(aperio_config::ScalingDecl {
+    url,
+    secret: layered(
+      None,
+      l.and_then(|s| s.secret.clone()),
+      env_str("APERIO_SCALING_SECRET"),
+      h.and_then(|s| s.secret.clone()),
+    ),
+    // min/max are plain numbers rather than options in the yaml struct, so a
+    // block that set them is taken as authoritative and the environment only
+    // fills in for a block that is absent entirely.
+    min: layered(
+      None,
+      l.map(|s| s.min),
+      env_parse("APERIO_SCALING_MIN"),
+      h.map(|s| s.min),
+    )
+    .unwrap_or(0),
+    max: layered(
+      None,
+      l.map(|s| s.max),
+      env_parse("APERIO_SCALING_MAX"),
+      h.map(|s| s.max),
+    )
+    .unwrap_or(0),
+    cold_start: layered(
+      None,
+      l.and_then(|s| s.cold_start.clone()),
+      env_str("APERIO_SCALING_COLD_START"),
+      h.and_then(|s| s.cold_start.clone()),
+    ),
+    target_utilization: layered(
+      None,
+      l.and_then(|s| s.target_utilization),
+      env_parse("APERIO_SCALING_TARGET_UTILIZATION"),
+      h.and_then(|s| s.target_utilization),
+    ),
+    window: layered(
+      None,
+      l.and_then(|s| s.window.clone()),
+      env_str("APERIO_SCALING_WINDOW"),
+      h.and_then(|s| s.window.clone()),
+    ),
+    cooldown: layered(
+      None,
+      l.and_then(|s| s.cooldown.clone()),
+      env_str("APERIO_SCALING_COOLDOWN"),
+      h.and_then(|s| s.cooldown.clone()),
+    ),
+  })
+}
+
+/// Builds a security-header selection from the environment:
+/// `APERIO_SECURITY_HEADERS` alone enables (or disables) the preset, and the
+/// granular `APERIO_SECURITY_HEADERS_*` variables pick headers individually,
+/// mirroring the two yaml forms. `None` when nothing is set.
+fn security_headers_from_env() -> Option<SecurityHeaders> {
+  let options = aperio_config::SecurityHeaderOptions {
+    hsts: env_bool("APERIO_SECURITY_HEADERS_HSTS"),
+    hsts_max_age: env_parse("APERIO_SECURITY_HEADERS_HSTS_MAX_AGE"),
+    frame_options: env_str("APERIO_SECURITY_HEADERS_FRAME_OPTIONS"),
+    nosniff: env_bool("APERIO_SECURITY_HEADERS_NOSNIFF"),
+    referrer_policy: env_str("APERIO_SECURITY_HEADERS_REFERRER_POLICY"),
+    csp: env_str("APERIO_SECURITY_HEADERS_CSP"),
+  };
+  let any_granular = options.hsts.is_some()
+    || options.hsts_max_age.is_some()
+    || options.frame_options.is_some()
+    || options.nosniff.is_some()
+    || options.referrer_policy.is_some()
+    || options.csp.is_some();
+  if any_granular {
+    return Some(SecurityHeaders::Detailed(options));
+  }
+  env_bool("APERIO_SECURITY_HEADERS").map(SecurityHeaders::Flag)
+}
+
 /// Resolves every client setting from the four layers. Called at startup and
 /// again on config hot-reload (with the freshly parsed files).
 pub(crate) fn resolve_settings(
@@ -546,8 +693,40 @@ pub(crate) fn resolve_settings(
       env_str("APERIO_SERVER_TOKEN"),
       home.server_token(),
     ),
-    scaling: local.scaling.clone().or_else(|| home.scaling.clone()),
+    scaling: resolve_scaling(local, home),
     idle_timeout,
+    server_urls: layered(
+      None,
+      local.server_urls(),
+      env_str("APERIO_SERVER_URLS").map(|raw| split_csv(&raw)),
+      home.server_urls(),
+    )
+    .unwrap_or_default(),
+    serve_spa: layered(
+      None,
+      local.serve_spa,
+      env_bool("APERIO_SERVE_SPA"),
+      home.serve_spa,
+    )
+    .unwrap_or(false),
+    serve_404: layered(
+      None,
+      local.serve_404.clone(),
+      env_str("APERIO_SERVE_404"),
+      home.serve_404.clone(),
+    ),
+    device_key: layered(
+      None,
+      local.device_key.clone(),
+      env_str("APERIO_DEVICE_KEY"),
+      home.device_key.clone(),
+    ),
+    device_key_file: layered(
+      None,
+      local.device_key_file.clone(),
+      env_str("APERIO_DEVICE_KEY_FILE"),
+      home.device_key_file.clone(),
+    ),
     api_key: layered(
       o.api_key.clone(),
       local.server_api_key(),
@@ -727,6 +906,7 @@ pub(crate) fn resolve_settings(
     security_headers: local
       .security_headers
       .clone()
+      .or_else(security_headers_from_env)
       .or_else(|| home.security_headers.clone()),
     cache: layered(None, local.cache, env_bool("APERIO_CACHE"), home.cache).unwrap_or(false),
     resilience: o.resilience

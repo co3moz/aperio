@@ -272,6 +272,10 @@ pub enum ServerValue {
     /// tunnel itself).
     #[schemars(extend("examples" = ["apk_xxxxxxxxxxxxxxxx"]))]
     api_key: Option<String>,
+    /// Additional server URLs to fail over to, tried in order when `url` is
+    /// unreachable, for a redundant control plane.
+    #[schemars(extend("examples" = [["https://tunnel-b.example.com"]]))]
+    urls: Option<Vec<String>>,
   },
 }
 
@@ -590,6 +594,34 @@ pub struct FileConfig {
   /// slow cold start cannot make it exit before it is ever used.
   #[schemars(extend("examples" = ["5m"]))]
   pub idle_timeout: Option<String>,
+  /// Static-file mode: answer a navigation (`Accept: text/html`) that matches
+  /// no file with the root `index.html` and status 200, so a client-side
+  /// router owns its routes. A missing asset still 404s
+  /// (env: APERIO_SERVE_SPA). Process-wide: it applies to every served
+  /// directory of this client.
+  pub serve_spa: Option<bool>,
+  /// Static-file mode: HTML file served with status 404 for misses the SPA
+  /// fallback does not cover (env: APERIO_SERVE_404). Process-wide, like
+  /// `serve_spa`.
+  #[schemars(extend("examples" = ["./dist/404.html"]))]
+  pub serve_404: Option<String>,
+  /// Trust-on-first-use device key announced with the tunnel token, so a
+  /// server with token pinning on can bind that token to this machine
+  /// (env: APERIO_DEVICE_KEY).
+  pub device_key: Option<String>,
+  /// File holding the device key; a random one is generated and persisted
+  /// there on first run. Ignored when `device_key` is set directly
+  /// (env: APERIO_DEVICE_KEY_FILE).
+  #[schemars(extend("examples" = ["/var/lib/aperio/device.key"]))]
+  pub device_key_file: Option<String>,
+  /// Log verbosity of this client (env: LOG_LEVEL; `RUST_LOG` overrides both).
+  #[schemars(extend("examples" = ["info", "debug"]))]
+  pub log_level: Option<String>,
+  /// Log output format: `json`, or `pretty`/`text` for the human-readable
+  /// form. Unset auto-detects, a TTY gets `pretty` and a pipe gets `json`
+  /// (env: APERIO_LOG_FORMAT).
+  #[schemars(extend("examples" = ["json", "pretty"]))]
+  pub log_format: Option<String>,
 }
 
 impl FileConfig {
@@ -618,6 +650,14 @@ impl FileConfig {
       _ => None,
     }
   }
+
+  /// Additional server URLs to fail over to, from the nested section.
+  pub fn server_urls(&self) -> Option<Vec<String>> {
+    match &self.server {
+      Some(ServerValue::Section { urls, .. }) => urls.clone(),
+      _ => None,
+    }
+  }
 }
 
 /// Renders the `aperio.yaml` JSON Schema as pretty-printed JSON. Used by the
@@ -640,6 +680,75 @@ pub struct ExposeEntry {
   /// Shared secret a client's tunnel declaration must present (`expose: <key>`).
   #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
   pub key: String,
+}
+
+/// One `rate_limits:` entry: an aggregate requests-per-second ceiling for a
+/// hostname and/or path prefix, independent of the per-visitor IP limit.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RateLimitRule {
+  /// Hostname the rule applies to (omit for any host).
+  #[schemars(extend("examples" = ["api.example.com"]))]
+  pub hostname: Option<String>,
+  /// Path prefix the rule applies to (omit for any path).
+  #[schemars(extend("examples" = ["/api"]))]
+  pub path: Option<String>,
+  /// Sustained requests per second allowed to the route.
+  #[schemars(extend("examples" = [50.0]))]
+  pub rps: f64,
+  /// Burst capacity; defaults to one second's worth of `rps`.
+  #[schemars(extend("examples" = [100.0]))]
+  pub burst: Option<f64>,
+}
+
+/// One `fallbacks:` entry: where to send visitors of a hostname no client
+/// currently serves, instead of answering with a gateway error.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FallbackRule {
+  /// Hostname to catch, or `*` for every unserved hostname.
+  #[schemars(extend("examples" = ["app.example.com", "*"]))]
+  pub hostname: String,
+  /// URL visitors are redirected to.
+  #[schemars(extend("examples" = ["https://status.example.com"]))]
+  pub url: String,
+  /// Answer `308` instead of `307`, i.e. let clients cache the redirect.
+  #[serde(default)]
+  pub permanent: bool,
+  /// Append the requested path to the target URL.
+  #[serde(default)]
+  pub preserve_path: bool,
+}
+
+/// A header match inside a `waf:` rule.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WafHeaderMatch {
+  /// Header name to inspect (case-insensitive).
+  #[schemars(extend("examples" = ["user-agent"]))]
+  pub name: String,
+  /// Regular expression the header value must match for the rule to fire.
+  #[schemars(extend("examples" = ["(?i)sqlmap|nikto"]))]
+  pub regex: String,
+}
+
+/// One `waf:` entry: a request is denied with `403` when every set condition
+/// matches, or answered `413` when `max_body` is exceeded.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WafRule {
+  /// Regular expression matched against the request path.
+  #[schemars(extend("examples" = ["^/wp-admin"]))]
+  pub path: Option<String>,
+  /// HTTP methods the rule applies to (omit for any).
+  #[schemars(extend("examples" = [["POST", "PUT"]]))]
+  pub methods: Option<Vec<String>>,
+  /// Header condition the request must match.
+  pub header: Option<WafHeaderMatch>,
+  /// Body-size ceiling in bytes for the matched route; makes this a `413`
+  /// size rule rather than a `403` deny rule.
+  #[schemars(extend("examples" = [1048576]))]
+  pub max_body: Option<usize>,
 }
 
 /// The fixed response of a client-less `respond` route.
@@ -833,6 +942,9 @@ pub struct CacheGroup {
   pub max_bytes: Option<u64>,
   /// Serve-stale window in seconds for resilient services.
   pub max_stale: Option<u64>,
+  /// Seconds to briefly cache error / negative responses (e.g. `404`), so a
+  /// hot missing URL cannot hammer the backend. `0` = disabled.
+  pub negative_ttl: Option<u64>,
 }
 
 /// The built-in dashboard.
@@ -954,6 +1066,8 @@ pub struct OidcGroup {
   pub issuer: Option<String>,
   /// OIDC client id.
   pub client_id: Option<String>,
+  /// OIDC client secret.
+  pub client_secret: Option<String>,
   /// Allowed OIDC login emails.
   pub allowed_emails: Option<Vec<String>>,
   /// OIDC scopes.
@@ -1006,6 +1120,9 @@ pub struct ScalingGroup {
   pub enabled: Option<bool>,
   /// Allow a plain-http autoscaling endpoint.
   pub allow_http: Option<bool>,
+  /// Allow an autoscaling endpoint on a private or loopback address, for a
+  /// provider API that genuinely lives on the internal network.
+  pub allow_private: Option<bool>,
   /// Seconds after which an unrefreshed autoscaling record is dropped
   ///.
   pub record_ttl: Option<u64>,
@@ -1040,6 +1157,23 @@ pub struct OutboundGroup {
   /// With no allowlist: refuse destinations resolving to internal addresses
   /// (loopback, RFC 1918, link-local/metadata, CGNAT, unique-local).
   pub block_private: Option<bool>,
+}
+
+/// Scheduled snapshots of the SQLite store.
+///
+/// Written as a `backup:` block; the flat `backup_*` keys mean the same thing
+/// and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BackupGroup {
+  /// Seconds between snapshots; unset or `0` disables scheduled backups.
+  #[schemars(extend("examples" = [86400]))]
+  pub interval: Option<u64>,
+  /// Directory the snapshots are written to (default `<data_dir>/backups`).
+  #[schemars(extend("examples" = ["/var/backups/aperio"]))]
+  pub dir: Option<String>,
+  /// Snapshots to keep; older ones are pruned.
+  pub keep: Option<u64>,
 }
 
 /// Per-stream flow control for streamed data (responses, WebSocket, TCP).
@@ -1149,6 +1283,10 @@ pub const SERVER_GROUPS: &[ServerGroup] = &[
     self_key: None,
   },
   ServerGroup {
+    key: "backup",
+    self_key: None,
+  },
+  ServerGroup {
     key: "cache",
     self_key: Some("enabled"),
   },
@@ -1224,6 +1362,9 @@ pub struct ServerFileConfig {
   /// Audit-log file rotation
   #[serde(default)]
   pub audit: Option<AuditGroup>,
+  /// Scheduled snapshots of the SQLite store
+  #[serde(default)]
+  pub backup: Option<BackupGroup>,
   /// The server-side GET response cache
   #[serde(default)]
   pub cache: Option<CacheSetting>,
@@ -1298,6 +1439,18 @@ pub struct ServerFileConfig {
   /// Load-balancing strategy (env: APERIO_LB_STRATEGY).
   #[schemars(extend("examples" = ["round-robin", "primary-standby", "sticky"]))]
   pub lb_strategy: Option<String>,
+  /// Passive outlier ejection: temporarily drop a client from the pool when it
+  /// returns too many errors in a window (env: APERIO_OUTLIER_EJECTION).
+  pub outlier_ejection: Option<bool>,
+  /// Failures inside the window before a client is ejected
+  /// (env: APERIO_OUTLIER_MAX_FAILURES).
+  pub outlier_max_failures: Option<u32>,
+  /// Sliding window in seconds the failures are counted over
+  /// (env: APERIO_OUTLIER_WINDOW).
+  pub outlier_window: Option<u64>,
+  /// Seconds an ejected client stays out before re-admission
+  /// (env: APERIO_OUTLIER_EJECT_SECS).
+  pub outlier_eject_secs: Option<u64>,
 
   // --- Failover ---
   /// Deprecated spelling of `failover.max_jumps` (env: APERIO_FAILOVER_MAX_JUMPS).
@@ -1306,6 +1459,13 @@ pub struct ServerFileConfig {
   pub failover_window: Option<u64>,
   /// Deprecated spelling of `failover.all_methods` (env: APERIO_FAILOVER_ALL_METHODS).
   pub failover_all_methods: Option<bool>,
+  /// Re-dispatch a buffered response whose status is a retryable server error
+  /// to another client instead of returning it (env: APERIO_RETRY_ON_5XX).
+  pub retry_on_5xx: Option<bool>,
+  /// Status codes that trigger that retry; empty = every 5xx
+  /// (env: APERIO_RETRY_STATUSES).
+  #[schemars(extend("examples" = [[502, 503]]))]
+  pub retry_statuses: Option<Vec<u16>>,
 
   // --- Alerting ---
   /// Deprecated spelling of `alert.error_rate` (env: APERIO_ALERT_ERROR_RATE).
@@ -1324,6 +1484,10 @@ pub struct ServerFileConfig {
   pub max_concurrent_requests: Option<u64>,
   /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
   pub max_tunnels: Option<u64>,
+  /// Maximum concurrently-live proxied public WebSockets; they are long-lived,
+  /// so they get their own ceiling separate from `max_concurrent_requests`.
+  /// `0` = uncapped (env: APERIO_MAX_WS_CONNECTIONS).
+  pub max_ws_connections: Option<u64>,
   /// Deprecated spelling of `ip_limit.max` (env: APERIO_IP_LIMIT_MAX).
   pub ip_limit_max: Option<u64>,
   /// Deprecated spelling of `ip_limit.refill` (env: APERIO_IP_LIMIT_REFILL).
@@ -1350,6 +1514,12 @@ pub struct ServerFileConfig {
   pub trust_cf_header: Option<bool>,
   /// Mark session cookies `Secure` (env: APERIO_SECURE_COOKIES).
   pub secure_cookies: Option<bool>,
+  /// Source IPs/CIDRs allowed to reach the authenticated admin surface (the
+  /// dashboard and `/aperio/api/*`); empty = no restriction. An invalid entry
+  /// refuses startup rather than applying a partial allowlist
+  /// (env: APERIO_ADMIN_ALLOWED_IPS).
+  #[schemars(extend("examples" = [["10.0.0.0/8"]]))]
+  pub admin_allowed_ips: Option<Vec<String>>,
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).
@@ -1368,6 +1538,24 @@ pub struct ServerFileConfig {
   pub stream_resume_bytes: Option<u64>,
   /// Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).
   pub stream_backlog_limit: Option<u64>,
+  /// Flat spelling of `cache.negative_ttl` (env: APERIO_CACHE_NEGATIVE_TTL).
+  pub cache_negative_ttl: Option<u64>,
+  /// Flat spelling of `scaling.allow_private` (env: APERIO_SCALING_ALLOW_PRIVATE).
+  pub scaling_allow_private: Option<bool>,
+  /// Flat spelling of `backup.interval` (env: APERIO_BACKUP_INTERVAL).
+  pub backup_interval: Option<u64>,
+  /// Flat spelling of `backup.dir` (env: APERIO_BACKUP_DIR).
+  pub backup_dir: Option<String>,
+  /// Flat spelling of `backup.keep` (env: APERIO_BACKUP_KEEP).
+  pub backup_keep: Option<u64>,
+
+  // --- Process & startup ---
+  /// Watch the config file and apply live-editable changes without a restart.
+  /// On by default (env: APERIO_CONFIG_HOT_RELOAD).
+  pub config_hot_reload: Option<bool>,
+  /// Bind the listener with SO_REUSEPORT, so a second process can take over
+  /// the port for a zero-downtime handover (env: APERIO_REUSEPORT).
+  pub reuseport: Option<bool>,
 
   // --- Pages ---
   /// Custom 504 error page path (env: APERIO_504_PAGE).
@@ -1380,6 +1568,17 @@ pub struct ServerFileConfig {
   // --- Logging & telemetry ---
   /// Structured access log path (env: APERIO_ACCESS_LOG).
   pub access_log: Option<String>,
+  /// Mask credential headers and secret-looking body fields in the request
+  /// inspector, the cURL copy and the HAR export. On by default
+  /// (env: APERIO_INSPECTOR_REDACT).
+  pub inspector_redact: Option<bool>,
+  /// Seconds between webhook delivery retries; empty = no retries
+  /// (env: APERIO_WEBHOOK_RETRY_SCHEDULE).
+  #[schemars(extend("examples" = [[1, 5, 25, 60]]))]
+  pub webhook_retry_schedule: Option<Vec<u64>>,
+  /// Seconds between availability-history ticks for the dashboard's Uptime
+  /// panel, minimum 1 (env: APERIO_UPTIME_TICK_SECS).
+  pub uptime_tick_secs: Option<u64>,
   /// Deprecated spelling of `retention.captures` (env: APERIO_RETENTION_CAPTURES).
   pub retention_captures: Option<u64>,
   /// Deprecated spelling of `retention.access_log` (env: APERIO_RETENTION_ACCESS_LOG).
@@ -1421,6 +1620,14 @@ pub struct ServerFileConfig {
   /// Public dashboard URL enabling passkeys; its domain is the RP ID (env: APERIO_WEBAUTHN_ORIGIN).
   #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
   pub webauthn_origin: Option<String>,
+  /// Passkey relying-party ID, when it must differ from the origin's domain
+  /// (env: APERIO_WEBAUTHN_RP_ID).
+  #[schemars(extend("examples" = ["example.com"]))]
+  pub webauthn_rp_id: Option<String>,
+  /// Pin a dynamic token to the first device key that presents it; a later
+  /// connection with a different (or missing) key is rejected
+  /// (env: APERIO_TOKEN_PINNING).
+  pub token_pinning: Option<bool>,
   /// Ignore client-declared visitor passwords (env: APERIO_IGNORE_CLIENT_AUTH).
   pub ignore_client_auth: Option<bool>,
   /// Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).
@@ -1440,6 +1647,8 @@ pub struct ServerFileConfig {
   pub oidc_scopes: Option<Vec<String>>,
   /// Deprecated spelling of `oidc.redirect_url` (env: APERIO_OIDC_REDIRECT_URL).
   pub oidc_redirect_url: Option<String>,
+  /// Deprecated spelling of `oidc.client_secret` (env: APERIO_OIDC_CLIENT_SECRET).
+  pub oidc_client_secret: Option<String>,
 
   // --- Structured sections (read directly, not env-mapped) ---
   /// Server-wide request/response header rewrite rules applied to all traffic.
@@ -1451,6 +1660,12 @@ pub struct ServerFileConfig {
   pub error_pages: Option<Vec<ErrorPageRule>>,
   /// Experimental public TCP expose ports.
   pub expose: Option<Vec<ExposeEntry>>,
+  /// Per-route request rate limits, capping aggregate rps to a host+path.
+  pub rate_limits: Option<Vec<RateLimitRule>>,
+  /// Per-hostname fallback URLs answered when no client serves the route.
+  pub fallbacks: Option<Vec<FallbackRule>>,
+  /// WAF-lite deny/size rules evaluated before a request is proxied.
+  pub waf: Option<Vec<WafRule>>,
 }
 
 /// Renders a bytes/second rate back into the shorthand `bandwidth:` accepts,

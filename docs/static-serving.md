@@ -62,10 +62,10 @@ If a [cached](caching.md) entry covers the URL, the server answers the range at 
 
 ## Missing files
 
-Two options refine what a miss looks like. Both are environment-only, with no yaml or CLI spelling, and both are **process-wide**: a client serving several directories applies the same SPA and 404 behavior to all of them. If one site is a router SPA and another must not be, run them from separate clients.
+Two options refine what a miss looks like. Both are **process-wide** rather than per service: a client serving several directories applies the same SPA and 404 behavior to all of them. If one site is a router SPA and another must not be, run them from separate clients.
 
-- **`APERIO_SERVE_SPA=1`** answers a *navigation* that resolves to no file with the root `index.html` and status `200`, which is what a client-side router (React Router, Vue Router) needs to own its routes.
-- **`APERIO_SERVE_404=/path/to/404.html`** serves a custom page with status `404` for whatever the SPA fallback does not cover. The file is read once at startup; an unreadable path logs a warning and is ignored rather than being fatal.
+- **`serve_spa: true`** (env `APERIO_SERVE_SPA=1`) answers a *navigation* that resolves to no file with the root `index.html` and status `200`, which is what a client-side router (React Router, Vue Router) needs to own its routes.
+- **`serve_404: ./dist/404.html`** (env `APERIO_SERVE_404`) serves a custom page with status `404` for whatever the SPA fallback does not cover. The file is read once at startup; an unreadable path logs a warning and is ignored rather than being fatal.
 
 Without either, a miss is a plain-text `404`.
 

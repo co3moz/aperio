@@ -214,3 +214,222 @@ fn every_server_group_child_matches_a_flat_key() {
     }
   }
 }
+
+/// Environment variables whose name predates the naming standard: each does
+/// have a yaml key, it simply is not the one the mechanical mapping would
+/// produce. Renaming them would break existing deployments for no functional
+/// gain, so they are recorded here instead, with the key they belong to.
+const ENV_ALIASES: &[(&str, &str)] = &[
+  // yaml `auth`; the APERIO_AUTH spelling was avoided because it reads as a
+  // sibling of the server's APERIO_SERVER_AUTH, which is a different setting.
+  ("APERIO_VISITOR_AUTH", "auth"),
+  // yaml `server.api_key`; predates the `server:` block, when it was a
+  // top-level key.
+  ("APERIO_API_KEY", "server.api_key"),
+];
+
+/// Environment variables the rule deliberately exempts, with the reason.
+/// Everything else read from the environment must have a yaml key.
+const ENV_EXEMPT: &[(&str, &str)] = &[
+  // Bootstrap: selects the yaml file itself, so it cannot live inside it.
+  ("APERIO_SERVER_CONFIG", "names the config file"),
+  // Third-party spellings the OpenTelemetry spec defines; `env_name` would
+  // prefix any yaml key with APERIO_, so these are unreachable by construction
+  // and exist only as fallbacks behind APERIO_OTEL_*, which do have keys.
+  ("OTEL_EXPORTER_OTLP_ENDPOINT", "OpenTelemetry spec fallback"),
+  ("OTEL_SERVICE_NAME", "OpenTelemetry spec fallback"),
+  // Standard tracing override, not a setting of ours.
+  ("RUST_LOG", "tracing's own override"),
+  // Not settings: process/toolchain environment.
+  ("HOME", "home directory lookup"),
+  ("USERPROFILE", "home directory lookup"),
+  ("CARGO_PKG_VERSION", "build metadata"),
+  ("CARGO_MANIFEST_DIR", "build metadata"),
+];
+
+/// Collects the `APERIO_*`-style variables a crate reads, by scanning its
+/// sources for `env::var("…")`. Test-only files are skipped: a harness may
+/// legitimately invent variables that are not settings.
+fn env_vars_read(crate_dir: &str) -> std::collections::BTreeSet<String> {
+  fn walk(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+      return;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        walk(&path, out);
+        continue;
+      }
+      let name = path.file_name().unwrap_or_default().to_string_lossy();
+      if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "test_support.rs" {
+        continue;
+      }
+      let Ok(src) = std::fs::read_to_string(&path) else {
+        continue;
+      };
+      // Direct reads, plus the client's `env_str`/`env_parse`/`env_bool`
+      // helpers — scanning only for `env::var` would find the helper's own
+      // parameter and silently pass the whole client crate.
+      for pattern in ["env::var(\"", "env_str(\"", "env_parse(\"", "env_bool(\""] {
+        for (i, _) in src.match_indices(pattern) {
+          let rest = &src[i + pattern.len()..];
+          if let Some(end) = rest.find('"') {
+            out.insert(rest[..end].to_string());
+          }
+        }
+      }
+    }
+  }
+  let mut out = std::collections::BTreeSet::new();
+  walk(std::path::Path::new(crate_dir), &mut out);
+  out
+}
+
+/// Every key a schema exposes, including the children of grouped blocks,
+/// rendered as the environment variable each one maps to.
+fn schema_env_names(schema_json: &str, groups: &[&str]) -> std::collections::BTreeSet<String> {
+  let schema: serde_json::Value = serde_json::from_str(schema_json).unwrap();
+  let defs = &schema["$defs"];
+  let mut out = std::collections::BTreeSet::new();
+  let Some(props) = schema["properties"].as_object() else {
+    return out;
+  };
+  for (key, node) in props {
+    // `host`/`port`/`log_level` map to bare names; everything else is
+    // prefixed. Both spellings are recorded so either satisfies a read.
+    out.insert(key.to_ascii_uppercase());
+    out.insert(format!("APERIO_{}", key.to_ascii_uppercase()));
+    if !groups.contains(&key.as_str()) {
+      continue;
+    }
+    for child in group_children(node, defs) {
+      out.insert(format!(
+        "APERIO_{}_{}",
+        key.to_ascii_uppercase(),
+        child.to_ascii_uppercase()
+      ));
+    }
+  }
+  out
+}
+
+/// Property names of a grouped block, following `$ref` and the `anyOf` a
+/// nullable or untagged field generates.
+fn group_children(node: &serde_json::Value, defs: &serde_json::Value) -> Vec<String> {
+  if let Some(reference) = node["$ref"].as_str() {
+    let name = reference.rsplit('/').next().unwrap_or_default();
+    return group_children(&defs[name], defs);
+  }
+  if let Some(obj) = node["properties"].as_object() {
+    return obj.keys().cloned().collect();
+  }
+  for key in ["anyOf", "oneOf"] {
+    if let Some(items) = node[key].as_array() {
+      let mut out = Vec::new();
+      for item in items {
+        out.extend(group_children(item, defs));
+      }
+      if !out.is_empty() {
+        return out;
+      }
+    }
+  }
+  Vec::new()
+}
+
+#[test]
+fn every_environment_variable_has_a_yaml_key() {
+  // Project rule: yaml is the primary configuration surface and every setting
+  // must be reachable from it. A setting that exists only in the environment
+  // is invisible to the JSON Schema, so editors neither complete nor validate
+  // it and an operator reading the config file cannot see it at all. This
+  // scans both binaries for what they actually read and fails on anything the
+  // schemas do not declare, so the gap cannot reopen silently.
+  let exempt: std::collections::BTreeSet<&str> = ENV_EXEMPT
+    .iter()
+    .map(|(k, _)| *k)
+    .chain(ENV_ALIASES.iter().map(|(k, _)| *k))
+    .collect();
+  let server_groups: Vec<&str> = SERVER_GROUPS.iter().map(|g| g.key).collect();
+
+  let mut missing: Vec<String> = Vec::new();
+  for (crate_dir, schema, groups) in [
+    (
+      "../aperio-server/src",
+      server_schema_json(),
+      server_groups.clone(),
+    ),
+    (
+      "../aperio-client/src",
+      schema_json(),
+      // The client's nested blocks: their children map to
+      // APERIO_<BLOCK>_<CHILD> exactly as the server's groups do.
+      vec!["health", "server", "scaling", "security_headers"],
+    ),
+  ] {
+    let declared = schema_env_names(&schema, &groups);
+    let read = env_vars_read(crate_dir);
+    // A scan that finds nothing would pass vacuously; both crates read dozens
+    // of variables, so anything near zero means the scanner broke, not that
+    // the code got clean.
+    assert!(
+      read.len() > 20,
+      "only {} environment reads found in {crate_dir} — the scanner is broken",
+      read.len()
+    );
+    for var in read {
+      if exempt.contains(var.as_str()) || declared.contains(&var) {
+        continue;
+      }
+      missing.push(format!("{crate_dir}: {var}"));
+    }
+  }
+  assert!(
+    missing.is_empty(),
+    "environment variables with no yaml key (add the field, or exempt it with a reason in ENV_EXEMPT):\n  {}",
+    missing.join("\n  ")
+  );
+
+  // An alias claims "this variable does have a yaml key, just under another
+  // name". Verify that key exists, so the table cannot become a place to hide
+  // a genuine gap.
+  let client: serde_json::Value = serde_json::from_str(&schema_json()).unwrap();
+  let defs = client["$defs"].clone();
+
+  /// Resolves a schema node to a named child, following `$ref` and the
+  /// `anyOf` a nullable or untagged field generates.
+  fn child(
+    node: &serde_json::Value,
+    defs: &serde_json::Value,
+    name: &str,
+  ) -> Option<serde_json::Value> {
+    if let Some(reference) = node["$ref"].as_str() {
+      let target = reference.rsplit('/').next().unwrap_or_default();
+      return child(&defs[target], defs, name);
+    }
+    if let Some(props) = node["properties"].as_object()
+      && let Some(found) = props.get(name)
+    {
+      return Some(found.clone());
+    }
+    for key in ["anyOf", "oneOf"] {
+      if let Some(items) = node[key].as_array() {
+        for item in items {
+          if let Some(found) = child(item, defs, name) {
+            return Some(found);
+          }
+        }
+      }
+    }
+    None
+  }
+
+  for (var, key) in ENV_ALIASES {
+    let mut node = client.clone();
+    for part in key.split('.') {
+      node = child(&node, &defs, part)
+        .unwrap_or_else(|| panic!("{var}: the client schema has no '{key}'"));
+    }
+  }
+}

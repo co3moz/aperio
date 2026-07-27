@@ -31,20 +31,19 @@ use crate::tcp::{TcpStreamHandle, handle_tcp_open};
 use crate::udp::{UdpStreamHandle, handle_udp_open};
 
 /// Resolves this client's trust-on-first-use device key for token pinning,
-/// announced in the Ping. Opt-in and resolved once per process:
-/// `APERIO_DEVICE_KEY` supplies an explicit value; otherwise, if
-/// `APERIO_DEVICE_KEY_FILE` names a path, its contents are used — generating
-/// and persisting a fresh random key there on first run. `None` (nothing
-/// announced) when neither is set.
-fn resolve_device_key() -> Option<String> {
-  if let Ok(v) = std::env::var("APERIO_DEVICE_KEY") {
+/// announced in the Ping. Opt-in: an explicit `key` is used as given;
+/// otherwise `file` names a path whose contents are used, generating and
+/// persisting a fresh random key there on first run. `None` (nothing
+/// announced) when neither is set. Both come from the layered configuration
+/// (yaml `device_key` / `device_key_file`, or their `APERIO_*` spellings).
+fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<String> {
+  if let Some(v) = key {
     let v = v.trim().to_string();
     if !v.is_empty() {
       return Some(v);
     }
   }
-  let path = std::env::var("APERIO_DEVICE_KEY_FILE")
-    .ok()
+  let path = file
     .map(|p| p.trim().to_string())
     .filter(|p| !p.is_empty())?;
   match std::fs::read_to_string(&path) {
@@ -88,10 +87,28 @@ fn resolve_device_key() -> Option<String> {
   }
 }
 
+/// Where the device key comes from, resolved from the full configuration
+/// layering (yaml `device_key`/`device_key_file`, or `APERIO_DEVICE_KEY` /
+/// `APERIO_DEVICE_KEY_FILE`) and installed once at startup.
+static DEVICE_KEY_SOURCES: std::sync::OnceLock<(Option<String>, Option<String>)> =
+  std::sync::OnceLock::new();
+
+/// Installs the device-key sources. Called once from `main` before any
+/// service connects; a later call is ignored, so a config reload cannot swap
+/// the identity of a running process out from under the server's pin.
+pub(crate) fn set_device_key_sources(key: Option<String>, file: Option<String>) {
+  let _ = DEVICE_KEY_SOURCES.set((key, file));
+}
+
 /// The process-wide device key, resolved once.
 fn device_key() -> Option<String> {
   static KEY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-  KEY.get_or_init(resolve_device_key).clone()
+  KEY
+    .get_or_init(|| {
+      let (key, file) = DEVICE_KEY_SOURCES.get().cloned().unwrap_or_default();
+      resolve_device_key(key, file)
+    })
+    .clone()
 }
 
 /// Everything a service needs to run, fully resolved. Built by `main` from

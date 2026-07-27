@@ -1,6 +1,4 @@
-use super::{
-  RangeOutcome, ServeOptions, options_from_env, parse_range, percent_decode, resolve, start,
-};
+use super::{RangeOutcome, ServeOptions, options, parse_range, percent_decode, resolve, start};
 
 fn setup() -> std::path::PathBuf {
   let root = std::env::temp_dir().join(format!("aperio-serve-test-{}", uuid::Uuid::new_v4()));
@@ -261,47 +259,33 @@ async fn start_rejects_missing_dir_and_non_directory() {
 }
 
 #[test]
-fn options_from_env_reads_spa_and_custom_404() {
-  // These env vars are touched only by this test; run its cases sequentially.
-  let key_spa = "APERIO_SERVE_SPA";
-  let key_404 = "APERIO_SERVE_404";
-  let clear = || unsafe {
-    std::env::remove_var(key_spa);
-    std::env::remove_var(key_404);
-  };
-
-  clear();
-  let o = options_from_env();
+fn options_loads_the_custom_404_page() {
+  // The values themselves come from the layered configuration (yaml
+  // serve_spa / serve_404 or their env spellings); this only covers turning
+  // them into ServeOptions.
+  let o = options(false, None);
   assert!(!o.spa);
   assert!(o.not_found_html.is_none());
+  assert!(options(true, None).spa);
 
-  // SPA accepts "1" and "true" (case-insensitive).
-  unsafe { std::env::set_var(key_spa, "true") };
-  assert!(options_from_env().spa);
-  unsafe { std::env::set_var(key_spa, "1") };
-  assert!(options_from_env().spa);
-  unsafe { std::env::set_var(key_spa, "no") };
-  assert!(!options_from_env().spa);
-
-  // A readable custom-404 file is loaded into memory.
+  // A readable page is loaded into memory once.
   let page = std::env::temp_dir().join(format!("aperio-404-{}.html", uuid::Uuid::new_v4()));
   std::fs::write(&page, "<x/>").unwrap();
-  unsafe { std::env::set_var(key_404, page.to_str().unwrap()) };
   assert_eq!(
-    options_from_env().not_found_html.as_deref(),
+    options(false, page.to_str()).not_found_html.as_deref(),
     Some(&b"<x/>"[..])
   );
 
-  // An empty value is treated as unset.
-  unsafe { std::env::set_var(key_404, "  ") };
-  assert!(options_from_env().not_found_html.is_none());
-
-  // An unreadable path logs and is ignored.
-  unsafe { std::env::set_var(key_404, "/no/such/aperio/404.html") };
-  assert!(options_from_env().not_found_html.is_none());
+  // A blank value is treated as unset, and an unreadable path is ignored
+  // rather than being fatal.
+  assert!(options(false, Some("  ")).not_found_html.is_none());
+  assert!(
+    options(false, Some("/no/such/aperio/404.html"))
+      .not_found_html
+      .is_none()
+  );
 
   std::fs::remove_file(&page).unwrap();
-  clear();
 }
 
 #[test]

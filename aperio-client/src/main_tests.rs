@@ -6,6 +6,11 @@ fn base_settings() -> ClientSettings {
     token: Some("apr_test".to_string()),
     api_key: None,
     scaling: None,
+    server_urls: Vec::new(),
+    serve_spa: false,
+    serve_404: None,
+    device_key: None,
+    device_key_file: None,
     idle_timeout: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
@@ -858,17 +863,15 @@ fn test_bandwidth_share_never_rounds_to_unlimited() {
 #[test]
 fn test_build_specs_server_urls_failover() {
   init_tracing();
-  // APERIO_SERVER_URLS adds failover candidates; duplicates and invalid
-  // entries are skipped/warned.
-  // SAFETY: the var is set and cleared within this test.
-  unsafe {
-    std::env::set_var(
-      "APERIO_SERVER_URLS",
-      "https://backup.example.com, https://tunnel.example.com, ::not a url",
-    );
-  }
-  let specs = build_specs(&base_settings(), "id", false).unwrap();
-  unsafe { std::env::remove_var("APERIO_SERVER_URLS") };
+  // server.urls / APERIO_SERVER_URLS add failover candidates; duplicates and
+  // invalid entries are skipped (with a warning).
+  let mut settings = base_settings();
+  settings.server_urls = vec![
+    "https://backup.example.com".to_string(),
+    "https://tunnel.example.com".to_string(),
+    "::not a url".to_string(),
+  ];
+  let specs = build_specs(&settings, "id", false).unwrap();
   // Primary + the one new valid backup (duplicate primary and the invalid
   // entry are dropped).
   assert!(specs[0].ws_urls.len() >= 2, "urls: {:?}", specs[0].ws_urls);

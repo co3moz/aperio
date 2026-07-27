@@ -49,14 +49,11 @@ pub(crate) struct ServeOptions {
   pub(crate) not_found_html: Option<Vec<u8>>,
 }
 
-/// Reads serve options from the environment (`APERIO_SERVE_SPA`,
-/// `APERIO_SERVE_404`). A missing/unreadable 404 file logs and is ignored.
-pub(crate) fn options_from_env() -> ServeOptions {
-  let spa = std::env::var("APERIO_SERVE_SPA")
-    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-    .unwrap_or(false);
-  let not_found_html = std::env::var("APERIO_SERVE_404")
-    .ok()
+/// Builds the serve options from the resolved configuration (yaml
+/// `serve_spa` / `serve_404`, or `APERIO_SERVE_SPA` / `APERIO_SERVE_404`).
+/// A missing/unreadable 404 file logs and is ignored.
+pub(crate) fn options(spa: bool, not_found_page: Option<&str>) -> ServeOptions {
+  let not_found_html = not_found_page
     .map(|p| p.trim().to_string())
     .filter(|p| !p.is_empty())
     .and_then(|p| match std::fs::read(&p) {
