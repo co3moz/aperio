@@ -68,7 +68,7 @@ nothing is stored, no matter the flags.
   honoring `If-Range`, without re-traversing the tunnel. Ranges are answered
   here only while a cached entry covers the URL; otherwise they reach the
   backend, or the client's own file server in [static-file
-  mode](configuration.md), which answers them too but serves the full `200` for
+  mode](static-serving.md), which answers them too but serves the full `200` for
   an `If-Range` request rather than comparing validators it never issued.
 - **Purge**: `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`
   and/or `path_prefix` (empty body = the whole cache) for immediate

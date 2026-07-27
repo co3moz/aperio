@@ -17,6 +17,7 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file
 - [Tokens & Authentication](tokens-and-auth.md), the master token, scoped dynamic tokens with rate limits and quotas, visitor passwords, and OIDC/SSO.
 - [Organizations (Multi-Tenancy)](organizations.md), isolate one server into separate tenants: per-org clients, tokens, users, traffic, and stats, with a super-admin who can switch between them.
 - [Share Links](share-links.md), hand out temporary access to a protected site without creating accounts.
+- [Static File Serving](static-serving.md), publish a directory with no backend at all: SPA fallback, custom 404, streamed files, `Range` requests, and the path-safety rules.
 - [Ephemeral Tunnels](ephemeral-tunnels.md), per-PR preview environments via the API and the GitHub Action.
 - [Emergency Tunnels](emergency-tunnels.md), declare unexposed TCP services and bind them from a peer client with `--bind-tunnels` when everything else is down.
 

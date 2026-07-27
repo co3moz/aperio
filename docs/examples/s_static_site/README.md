@@ -1,6 +1,6 @@
 # Static Site
 
-> **Concept:** [Configuration](../../configuration.md).
+> **Concept:** [Static File Serving](../../static-serving.md).
 
 
 Publish a local directory of static files without any backend process: `serve:` replaces `target:` and the client answers requests from the directory itself (directories serve their `index.html`).

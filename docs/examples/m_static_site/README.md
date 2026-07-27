@@ -1,6 +1,6 @@
 # Static Sites (multi-service)
 
-> **Concept:** [Configuration](../../configuration.md).
+> **Concept:** [Static File Serving](../../static-serving.md).
 
 
 One client publishing **two static directories on two hostnames**, the work of two clients in a single process:
