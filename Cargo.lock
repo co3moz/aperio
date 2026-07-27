@@ -145,6 +145,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-tungstenite 0.23.1",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",

@@ -9,13 +9,33 @@
 //! process, and every regular tunnel feature (binds, auth, cache, header
 //! rules) applies unchanged because the tunnel just sees an HTTP target.
 
-use http_body_util::Full;
-use hyper::body::Bytes;
+use http_body_util::{BodyExt, Full, StreamBody, combinators::BoxBody};
+use hyper::body::{Bytes, Frame};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{info, warn};
+
+/// Response body of the static server: files stream from disk instead of
+/// being read whole into memory, so peak usage no longer scales with file
+/// size times concurrent requests; small generated pages stay buffered.
+type ServeBody = BoxBody<Bytes, std::io::Error>;
+
+/// A fully buffered body (generated pages, HEAD answers).
+fn buffered(bytes: Bytes) -> ServeBody {
+  Full::new(bytes).map_err(|never| match never {}).boxed()
+}
+
+/// A body streaming from an open file, bounded to `len` bytes.
+fn file_stream(file: tokio::fs::File, len: u64) -> ServeBody {
+  let reader = tokio_util::io::ReaderStream::new(file.take(len));
+  StreamBody::new(futures_util::StreamExt::map(reader, |chunk| {
+    chunk.map(Frame::data)
+  }))
+  .boxed()
+}
 
 /// Options for static serving: SPA history fallback and a custom 404 page.
 #[derive(Clone, Default)]
@@ -118,7 +138,7 @@ async fn handle(
   root: &Path,
   opts: &ServeOptions,
   req: &Request<hyper::body::Incoming>,
-) -> Response<Full<Bytes>> {
+) -> Response<ServeBody> {
   let head_only = req.method() == Method::HEAD;
   if req.method() != Method::GET && !head_only {
     return simple(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
@@ -130,9 +150,8 @@ async fn handle(
         .to_string()
     };
     // A HEAD asks only about the file, so read its size rather than its
-    // contents: the bytes were previously loaded in full and then thrown away.
-    // Reporting the length also makes the answer match what a GET would say,
-    // which an empty body alone did not.
+    // contents. Reporting the length also makes the answer match what a GET
+    // would say, which an empty body alone did not.
     if head_only {
       if let Ok(meta) = tokio::fs::metadata(&path).await
         && meta.is_file()
@@ -141,18 +160,125 @@ async fn handle(
           .status(StatusCode::OK)
           .header("content-type", mime())
           .header("content-length", meta.len())
-          .body(Full::new(Bytes::new()))
+          .header("accept-ranges", "bytes")
+          .body(buffered(Bytes::new()))
           .unwrap_or_default();
       }
-    } else if let Ok(bytes) = tokio::fs::read(&path).await {
-      return Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", mime())
-        .body(Full::new(Bytes::from(bytes)))
-        .unwrap_or_default();
+    } else if let Ok(file) = tokio::fs::File::open(&path).await
+      && let Ok(meta) = file.metadata().await
+      && meta.is_file()
+    {
+      return serve_file(file, meta.len(), &mime(), req).await;
     }
   }
   not_found(root, opts, req, head_only).await
+}
+
+/// Streams an opened file, honoring a single-range `Range` header (video
+/// scrubbing, resumable downloads): `206 Partial Content` with a
+/// `Content-Range`, or `416` when the range is unsatisfiable. Multi-range
+/// requests, malformed values, and requests carrying `If-Range` (this server
+/// emits no validators to match it against) fall back to the full `200`.
+async fn serve_file(
+  mut file: tokio::fs::File,
+  len: u64,
+  mime: &str,
+  req: &Request<hyper::body::Incoming>,
+) -> Response<ServeBody> {
+  let range_header = req
+    .headers()
+    .get("range")
+    .and_then(|v| v.to_str().ok())
+    .filter(|_| !req.headers().contains_key("if-range"));
+  if let Some(raw) = range_header {
+    match parse_range(raw, len) {
+      RangeOutcome::Satisfiable(start, end) => {
+        if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+          return simple(StatusCode::INTERNAL_SERVER_ERROR, "seek failed");
+        }
+        let span = end - start + 1;
+        return Response::builder()
+          .status(StatusCode::PARTIAL_CONTENT)
+          .header("content-type", mime)
+          .header("content-length", span)
+          .header("content-range", format!("bytes {}-{}/{}", start, end, len))
+          .header("accept-ranges", "bytes")
+          .body(file_stream(file, span))
+          .unwrap_or_default();
+      }
+      RangeOutcome::Unsatisfiable => {
+        return Response::builder()
+          .status(StatusCode::RANGE_NOT_SATISFIABLE)
+          .header("content-range", format!("bytes */{}", len))
+          .body(buffered(Bytes::new()))
+          .unwrap_or_default();
+      }
+      RangeOutcome::Ignore => {}
+    }
+  }
+  Response::builder()
+    .status(StatusCode::OK)
+    .header("content-type", mime)
+    .header("content-length", len)
+    .header("accept-ranges", "bytes")
+    .body(file_stream(file, len))
+    .unwrap_or_default()
+}
+
+/// What to do with a `Range` header value against a body of `len` bytes.
+#[derive(Debug, PartialEq)]
+enum RangeOutcome {
+  /// Serve `206` for the inclusive byte span.
+  Satisfiable(u64, u64),
+  /// Serve `416`: the request is well-formed but lies beyond the body.
+  Unsatisfiable,
+  /// Not a single well-formed byte range: serve the full `200` instead,
+  /// which RFC 9110 permits for any Range a server chooses not to honor.
+  Ignore,
+}
+
+/// Parses a single-range `Range` value (`bytes=0-99`, `bytes=100-`,
+/// `bytes=-100`). Multi-range and malformed values yield `Ignore`.
+fn parse_range(raw: &str, len: u64) -> RangeOutcome {
+  let Some(spec) = raw.trim().strip_prefix("bytes=") else {
+    return RangeOutcome::Ignore;
+  };
+  if spec.contains(',') {
+    return RangeOutcome::Ignore;
+  }
+  let Some((start_s, end_s)) = spec.trim().split_once('-') else {
+    return RangeOutcome::Ignore;
+  };
+  let (start_s, end_s) = (start_s.trim(), end_s.trim());
+  match (start_s.is_empty(), end_s.is_empty()) {
+    // bytes=-N : the final N bytes.
+    (true, false) => match end_s.parse::<u64>() {
+      Ok(0) => RangeOutcome::Unsatisfiable,
+      Ok(suffix) if len == 0 => {
+        let _ = suffix;
+        RangeOutcome::Unsatisfiable
+      }
+      Ok(suffix) => {
+        let start = len.saturating_sub(suffix);
+        RangeOutcome::Satisfiable(start, len - 1)
+      }
+      Err(_) => RangeOutcome::Ignore,
+    },
+    // bytes=N- : from N to the end.
+    (false, true) => match start_s.parse::<u64>() {
+      Ok(start) if start < len => RangeOutcome::Satisfiable(start, len - 1),
+      Ok(_) => RangeOutcome::Unsatisfiable,
+      Err(_) => RangeOutcome::Ignore,
+    },
+    // bytes=N-M inclusive.
+    (false, false) => match (start_s.parse::<u64>(), end_s.parse::<u64>()) {
+      (Ok(start), Ok(end)) if start > end => RangeOutcome::Ignore,
+      (Ok(start), Ok(_)) if start >= len => RangeOutcome::Unsatisfiable,
+      (Ok(start), Ok(end)) => RangeOutcome::Satisfiable(start, end.min(len - 1)),
+      _ => RangeOutcome::Ignore,
+    },
+    (true, true) => RangeOutcome::Ignore,
+  }
 }
 
 /// Handles a request that resolved to no file: SPA history fallback (serve the
@@ -163,7 +289,7 @@ async fn not_found(
   opts: &ServeOptions,
   req: &Request<hyper::body::Incoming>,
   head_only: bool,
-) -> Response<Full<Bytes>> {
+) -> Response<ServeBody> {
   if opts.spa && wants_html(req) {
     let index = root.join("index.html");
     if index.is_file()
@@ -173,7 +299,7 @@ async fn not_found(
       return Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")
-        .body(Full::new(Bytes::from(body)))
+        .body(buffered(Bytes::from(body)))
         .unwrap_or_default();
     }
   }
@@ -182,7 +308,7 @@ async fn not_found(
     return Response::builder()
       .status(StatusCode::NOT_FOUND)
       .header("content-type", "text/html; charset=utf-8")
-      .body(Full::new(Bytes::from(body)))
+      .body(buffered(Bytes::from(body)))
       .unwrap_or_default();
   }
   simple(StatusCode::NOT_FOUND, "not found")
@@ -201,11 +327,11 @@ fn wants_html(req: &Request<hyper::body::Incoming>) -> bool {
 }
 
 /// Plain-text response helper.
-fn simple(status: StatusCode, msg: &str) -> Response<Full<Bytes>> {
+fn simple(status: StatusCode, msg: &str) -> Response<ServeBody> {
   Response::builder()
     .status(status)
     .header("content-type", "text/plain; charset=utf-8")
-    .body(Full::new(Bytes::from(msg.to_string())))
+    .body(buffered(Bytes::from(msg.to_string())))
     .unwrap_or_default()
 }
 

@@ -1,4 +1,6 @@
-use super::{ServeOptions, options_from_env, percent_decode, resolve, start};
+use super::{
+  RangeOutcome, ServeOptions, options_from_env, parse_range, percent_decode, resolve, start,
+};
 
 fn setup() -> std::path::PathBuf {
   let root = std::env::temp_dir().join(format!("aperio-serve-test-{}", uuid::Uuid::new_v4()));
@@ -300,4 +302,102 @@ fn options_from_env_reads_spa_and_custom_404() {
 
   std::fs::remove_file(&page).unwrap();
   clear();
+}
+
+#[test]
+fn parse_range_covers_the_forms_and_the_edges() {
+  use RangeOutcome::*;
+  // The three well-formed single-range shapes.
+  assert_eq!(parse_range("bytes=0-4", 10), Satisfiable(0, 4));
+  assert_eq!(parse_range("bytes=5-", 10), Satisfiable(5, 9));
+  assert_eq!(parse_range("bytes=-3", 10), Satisfiable(7, 9));
+  // An end past the body is clamped, per RFC 9110.
+  assert_eq!(parse_range("bytes=8-99", 10), Satisfiable(8, 9));
+  // A suffix longer than the body means the whole body.
+  assert_eq!(parse_range("bytes=-99", 10), Satisfiable(0, 9));
+  // Beyond the body: well-formed but unsatisfiable -> 416.
+  assert_eq!(parse_range("bytes=10-", 10), Unsatisfiable);
+  assert_eq!(parse_range("bytes=10-12", 10), Unsatisfiable);
+  assert_eq!(parse_range("bytes=-0", 10), Unsatisfiable);
+  assert_eq!(parse_range("bytes=-5", 0), Unsatisfiable);
+  // Anything else is ignored and served as a full 200: multi-range, inverted
+  // bounds, non-byte units, garbage.
+  assert_eq!(parse_range("bytes=0-1,3-4", 10), Ignore);
+  assert_eq!(parse_range("bytes=4-2", 10), Ignore);
+  assert_eq!(parse_range("items=0-4", 10), Ignore);
+  assert_eq!(parse_range("bytes=-", 10), Ignore);
+  assert_eq!(parse_range("bytes=a-b", 10), Ignore);
+}
+
+#[tokio::test]
+async fn range_requests_get_partial_content() {
+  let (base, root) = spawn(ServeOptions::default()).await;
+  std::fs::write(root.join("video.bin"), "0123456789").unwrap();
+  let client = reqwest::Client::new();
+
+  // A middle slice comes back 206 with the exact bytes and a Content-Range.
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .header("range", "bytes=2-5")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 206);
+  assert_eq!(resp.headers()["content-range"], "bytes 2-5/10");
+  assert_eq!(resp.headers()["content-length"], "4");
+  assert_eq!(resp.headers()["accept-ranges"], "bytes");
+  assert_eq!(resp.text().await.unwrap(), "2345");
+
+  // An open-ended tail and a suffix range both resolve correctly.
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .header("range", "bytes=7-")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 206);
+  assert_eq!(resp.text().await.unwrap(), "789");
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .header("range", "bytes=-2")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 206);
+  assert_eq!(resp.headers()["content-range"], "bytes 8-9/10");
+  assert_eq!(resp.text().await.unwrap(), "89");
+
+  // A range beyond the file answers 416 with the total size.
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .header("range", "bytes=99-")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 416);
+  assert_eq!(resp.headers()["content-range"], "bytes */10");
+
+  // A multi-range request is served as the full 200 instead.
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .header("range", "bytes=0-1,4-5")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 200);
+  assert_eq!(resp.text().await.unwrap(), "0123456789");
+
+  // A plain GET advertises range support and carries its length while the
+  // body now streams from disk instead of being read whole into memory.
+  let resp = client
+    .get(format!("{base}/video.bin"))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 200);
+  assert_eq!(resp.headers()["accept-ranges"], "bytes");
+  assert_eq!(resp.headers()["content-length"], "10");
+  assert_eq!(resp.text().await.unwrap(), "0123456789");
+
+  std::fs::remove_dir_all(&root).unwrap();
 }

@@ -384,7 +384,10 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   of whether the delivery log should show a tenant the raw status code at all.
   Decide the shape before implementing. (From the 2026-07 four-agent review.)
 
-- [ ] **#16 Stream static files instead of reading each one fully into memory.**
+- [x] **#16 Stream static files instead of reading each one fully into memory.**
+  shipped: `serve.rs` moved onto a boxed `ReaderStream` body with
+  `Accept-Ranges`/`206`/`416` single-range support; multi-range and
+  `If-Range` fall back to the full `200`.
   `serve.rs` answers every GET with `tokio::fs::read`, so the whole file is held
   in memory for the life of the request and peak usage is file size times
   concurrent requests. A HEAD no longer pays this cost (it reads the metadata
