@@ -11,9 +11,17 @@
 //
 // The script audits every dictionary in src/i18n:
 //
-//   - duplicate keys within a dictionary file    (FATAL — silent overwrite)
-//   - stale keys whose English string is gone     (FATAL — dead translation)
-//   - key-set parity across languages             (info — silent fallback risk)
+//   - untranslated `t('...')` strings             (FATAL — ships English)
+//   - duplicate keys within a dictionary file      (FATAL — silent overwrite)
+//   - stale keys whose English string is gone      (FATAL — dead translation)
+//   - key-set parity across languages              (info — dynamic keys only)
+//
+// The first check is the one that catches a forgotten translation. Parity
+// alone cannot: when *every* language misses a new string they agree with each
+// other perfectly and the dashboard quietly ships English. So the literal
+// arguments of `t(...)` are extracted separately and every language must carry
+// them. Runs as part of `npm run build`, so an untranslated string fails the
+// build rather than reaching a release.
 //
 // Exits non-zero when any FATAL problem is found, so CI catches drift.
 
@@ -76,6 +84,42 @@ function referenceKeys() {
 }
 
 /**
+ * Strings the source explicitly asks to translate: the first argument of every
+ * `t('...')` call, when it is a plain literal. Unlike [`referenceKeys`] this is
+ * a *requirement* — a key here that a dictionary lacks renders as English.
+ *
+ * Dynamic calls (`t(field.label)`) cannot be resolved statically and are not
+ * required; they are still covered by the parity check, which reports when one
+ * language has a key the others do not.
+ */
+function requiredKeys() {
+  const keys = new Set()
+  for (const file of sourceFiles(SRC)) {
+    if (isDictFile(file)) continue
+    const sf = parse(file, readFileSync(file, 'utf8'))
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 't' &&
+        node.arguments.length > 0
+      ) {
+        const first = node.arguments[0]
+        if (
+          ts.isStringLiteral(first) ||
+          ts.isNoSubstitutionTemplateLiteral(first)
+        ) {
+          keys.add(first.text)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+  }
+  return keys
+}
+
+/**
  * The keys of one language dictionary, in order, plus the set of duplicates.
  * Reads string-literal property names from every object literal in the file
  * (the dictionaries are a single exported object of `'key': 'value'` pairs).
@@ -86,7 +130,15 @@ function dictKeys(lang) {
   const seen = new Set()
   const duplicates = new Set()
   const visit = (node) => {
-    if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name)) {
+    // Keys that need no quotes are written without them (`Cancel: '…'`), so
+    // reading only string literals would miss them — and then report a key the
+    // file already has as untranslated, which is how a duplicate gets added.
+    if (
+      ts.isPropertyAssignment(node) &&
+      (ts.isStringLiteral(node.name) ||
+        ts.isIdentifier(node.name) ||
+        ts.isNoSubstitutionTemplateLiteral(node.name))
+    ) {
       const key = node.name.text
       if (seen.has(key)) duplicates.add(key)
       seen.add(key)
@@ -99,7 +151,10 @@ function dictKeys(lang) {
 
 function main() {
   const reference = referenceKeys()
-  console.log(`Reference: ${reference.size} string literals in source`)
+  const required = requiredKeys()
+  console.log(
+    `Reference: ${reference.size} string literals in source, ${required.size} of them translated via t()`,
+  )
 
   const parsed = LANGS.map((lang) => ({ lang, ...dictKeys(lang) }))
   // Union of every dictionary's keys: the set each language should cover so no
@@ -110,9 +165,26 @@ function main() {
   let fatal = 0
   for (const { lang, keys, duplicates } of parsed) {
     const stale = [...keys].filter((k) => !reference.has(k)).sort()
-    const missing = [...union].filter((k) => !keys.has(k)).sort()
+    const untranslated = [...required].filter((k) => !keys.has(k)).sort()
+    // Parity covers what `required` cannot see: keys reached dynamically.
+    const missing = [...union]
+      .filter((k) => !keys.has(k) && !required.has(k))
+      .sort()
 
     const problems = []
+    if (untranslated.length) {
+      fatal += untranslated.length
+      const shown = untranslated.slice(0, 10)
+      const more =
+        untranslated.length > shown.length
+          ? ` … and ${untranslated.length - shown.length} more`
+          : ''
+      problems.push(
+        `  FAIL  ${untranslated.length} untranslated string(s): ${shown
+          .map((k) => JSON.stringify(k))
+          .join(', ')}${more}`,
+      )
+    }
     if (duplicates.size) {
       fatal += duplicates.size
       problems.push(`  FAIL  ${duplicates.size} duplicate key(s): ${[...duplicates].join(' | ')}`)
@@ -135,7 +207,9 @@ function main() {
 
   console.log()
   if (fatal > 0) {
-    console.log(`i18n check FAILED: ${fatal} fatal problem(s) (duplicate or stale keys)`)
+    console.log(
+      `i18n check FAILED: ${fatal} problem(s) (untranslated, duplicate, or stale keys)`,
+    )
     process.exit(1)
   }
   console.log('i18n check OK')
