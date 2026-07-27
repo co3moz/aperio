@@ -185,6 +185,7 @@ fn base_settings() -> ClientSettings {
     device_key: None,
     device_key_file: None,
     idle_timeout: None,
+    config_version: None,
     server: None,
     target: None,
     serve: None,

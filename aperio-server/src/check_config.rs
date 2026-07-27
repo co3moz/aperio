@@ -144,6 +144,36 @@ pub(crate) fn run() -> i32 {
     None => println!("Checking configuration (no aperio-server.yaml — environment only)"),
   }
 
+  // --- Upgrade safety ---
+  match aperio_config::compat::check_upgrade(
+    crate::declared_config_version().as_deref(),
+    env!("CARGO_PKG_VERSION"),
+    aperio_config::compat::ConfigSurface::Server,
+    aperio_config::compat::CONFIG_CHANGES,
+  ) {
+    Err(e) => r.fail(&format!("version: {e}")),
+    Ok(report) if report.declared.is_none() => r.warn(
+      "no `version:` declared, so an upgrade that changes how this file is read cannot warn you",
+    ),
+    Ok(report) if report.must_refuse() => {
+      for line in aperio_config::compat::report_lines(&report) {
+        r.fail(&line);
+      }
+    }
+    Ok(report) if !report.is_quiet() => {
+      for line in aperio_config::compat::report_lines(&report) {
+        r.warn(&line);
+      }
+    }
+    Ok(report) => r.ok(&format!(
+      "version: {} matches this build's configuration format",
+      report
+        .declared
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| report.current.to_string())
+    )),
+  }
+
   // --- Core requirements ---
   match env("APERIO_SERVER_TOKEN") {
     Some(t) if t.trim().len() >= 16 => r.ok("APERIO_SERVER_TOKEN is set"),

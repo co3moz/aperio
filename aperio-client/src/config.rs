@@ -343,6 +343,9 @@ pub(crate) struct ClientSettings {
   /// Retire this client after it has served nothing for this long, in
   /// seconds (config files / env only; None = never).
   pub(crate) idle_timeout: Option<u64>,
+  /// The Aperio version this config declares it was written for; drives the
+  /// upgrade-safety check at startup. None = the file says nothing.
+  pub(crate) config_version: Option<String>,
   /// Admin API key used by the `api` subcommand (never by the tunnel).
   pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
@@ -695,6 +698,13 @@ pub(crate) fn resolve_settings(
     ),
     scaling: resolve_scaling(local, home),
     idle_timeout,
+    config_version: layered(
+      None,
+      local.version.clone(),
+      env_str("APERIO_VERSION"),
+      home.version.clone(),
+    )
+    .and_then(nonempty),
     server_urls: layered(
       None,
       local.server_urls(),

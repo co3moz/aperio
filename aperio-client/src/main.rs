@@ -113,6 +113,12 @@ async fn main() {
     }
   };
 
+  // Upgrade safety: compare the version the file declares against this build
+  // and report every recorded config-format change in between. A change with
+  // security consequences stops the client here rather than letting it run
+  // under a configuration whose meaning shifted.
+  report_config_upgrade(settings.config_version.as_deref(), api_mode);
+
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
   dial::set_ip_family(settings.ip_family);
@@ -494,6 +500,51 @@ fn retire_unused_serve_listeners(
       false
     }
   });
+}
+
+/// Compares the declared config version against this build and reports what
+/// changed in between, exiting when a change has security consequences.
+///
+/// Quiet by design: an upgrade that cannot affect the file says nothing at
+/// all, so the one time it does speak is worth reading. `quiet` suppresses
+/// the informational nudge in `api` mode, whose output is piped.
+fn report_config_upgrade(declared: Option<&str>, quiet: bool) {
+  use aperio_config::compat::{CONFIG_CHANGES, ConfigSurface, check_upgrade, report_lines};
+
+  let report = match check_upgrade(
+    declared,
+    env!("CARGO_PKG_VERSION"),
+    ConfigSurface::Client,
+    CONFIG_CHANGES,
+  ) {
+    Ok(report) => report,
+    Err(e) => {
+      error!("CRITICAL ERROR: {e}");
+      std::process::exit(1);
+    }
+  };
+  if report.declared.is_none() {
+    if !quiet {
+      info!(
+        "No `version:` in the configuration, so upgrade checks are off. Add `version: {}` to be warned when a future upgrade changes how this file is read.",
+        report.current
+      );
+    }
+    return;
+  }
+  if report.must_refuse() {
+    for line in report_lines(&report) {
+      error!("{line}");
+    }
+    error!(
+      "CRITICAL ERROR: refusing to start under a configuration whose security-relevant settings changed meaning. Review the above, then set `version: {}` to acknowledge them.",
+      report.current
+    );
+    std::process::exit(1);
+  }
+  for line in report_lines(&report) {
+    warn!("{line}");
+  }
 }
 
 /// Returns the loopback port serving `dir`, starting the static server on

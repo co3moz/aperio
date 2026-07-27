@@ -142,3 +142,45 @@ if LINT_BAD="$(env APERIO_SERVER_CONFIG="$LINT_CFG" "$SERVER_BIN" --check-config
 fi
 assert_contains "$LINT_BAD" "FAIL" "invalid values are reported as failures"
 assert_contains "$LINT_BAD" "Configuration check FAILED" "the lint summarizes the errors"
+
+step "Config version declaration (upgrade safety)"
+VER_CFG="$LOG_DIR/version.yaml"
+CURRENT_VERSION="$("$SERVER_BIN" --version | awk '{print $NF}')"
+# A file declaring this build's own version is, by definition, current: the
+# lint says so and nothing is warned about.
+cat > "$VER_CFG" <<YAML
+version: $CURRENT_VERSION
+server_token: e2e-version-token-long-enough
+YAML
+VER_OUT="$(env APERIO_SERVER_CONFIG="$VER_CFG" "$SERVER_BIN" --check-config)" \
+  || fail "--check-config rejected a config declaring the current version: $VER_OUT"
+assert_contains "$VER_OUT" "matches this build" "a current version: is reported as up to date"
+
+# An old declaration is accepted too: no config-format change is recorded yet,
+# so the upgrade is silent rather than noisy. This is the guarantee that a
+# clean upgrade stays quiet.
+cat > "$VER_CFG" <<YAML
+version: 0.1.0
+server_token: e2e-version-token-long-enough
+YAML
+VER_OLD="$(env APERIO_SERVER_CONFIG="$VER_CFG" "$SERVER_BIN" --check-config)" \
+  || fail "--check-config rejected an older version declaration: $VER_OLD"
+
+# A misspelled version is an error, not a silent skip: a typo must never look
+# like a clean upgrade.
+cat > "$VER_CFG" <<YAML
+version: not-a-version
+server_token: e2e-version-token-long-enough
+YAML
+if VER_BAD="$(env APERIO_SERVER_CONFIG="$VER_CFG" "$SERVER_BIN" --check-config 2>&1)"; then
+  fail "--check-config should reject an unparseable version:"
+fi
+assert_contains "$VER_BAD" "not a version" "a malformed version: is reported"
+
+# Omitting it keeps the old behaviour, with a note that the check is off.
+cat > "$VER_CFG" <<YAML
+server_token: e2e-version-token-long-enough
+YAML
+VER_NONE="$(env APERIO_SERVER_CONFIG="$VER_CFG" "$SERVER_BIN" --check-config)" \
+  || fail "--check-config rejected a config without version:: $VER_NONE"
+assert_contains "$VER_NONE" "no \`version:\` declared" "an absent version: is noted, not fatal"

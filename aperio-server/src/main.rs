@@ -128,6 +128,13 @@ fn main() {
   // variables, which is only sound while no other thread can read them.
   config_file::load();
 
+  // Upgrade safety: compare the version the file declares against this build
+  // and report every recorded config-format change in between. Runs before
+  // the diagnostic subcommands so they inherit the same verdict, and before
+  // anything binds a port, since a security-relevant change must stop the
+  // start rather than be noticed afterwards.
+  report_config_upgrade();
+
   // `aperio-server --check-config` lints the layered configuration (file +
   // environment) and exits without starting the server.
   if std::env::args().nth(1).as_deref() == Some("--check-config") {
@@ -190,6 +197,57 @@ fn install_panic_logger() {
       "panic caught — the task/connection is unwound; the process continues"
     );
   }));
+}
+
+/// The Aperio version the configuration declares (`version:` in
+/// `aperio-server.yaml`, or `APERIO_VERSION`), if any.
+fn declared_config_version() -> Option<String> {
+  std::env::var("APERIO_VERSION")
+    .ok()
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty())
+}
+
+/// Compares the declared config version against this build and reports what
+/// changed in between, refusing the start when a change has security
+/// consequences.
+///
+/// Runs before the runtime exists, so it prints rather than logs: tracing is
+/// not initialized yet, and an operator watching a container start must see
+/// the reason it refused.
+fn report_config_upgrade() {
+  use aperio_config::compat::{CONFIG_CHANGES, ConfigSurface, check_upgrade, report_lines};
+
+  let declared = declared_config_version();
+  let report = match check_upgrade(
+    declared.as_deref(),
+    env!("CARGO_PKG_VERSION"),
+    ConfigSurface::Server,
+    CONFIG_CHANGES,
+  ) {
+    Ok(report) => report,
+    Err(e) => {
+      eprintln!("aperio-server: {e}");
+      std::process::exit(1);
+    }
+  };
+  if report.declared.is_none() {
+    eprintln!(
+      "aperio-server: no `version:` in the configuration, so upgrade checks are off. Add `version: {}` to be warned when a future upgrade changes how this file is read.",
+      report.current
+    );
+    return;
+  }
+  for line in report_lines(&report) {
+    eprintln!("aperio-server: {line}");
+  }
+  if report.must_refuse() {
+    eprintln!(
+      "aperio-server: refusing to start under a configuration whose security-relevant settings changed meaning. Review the above, then set `version: {}` to acknowledge them.",
+      report.current
+    );
+    std::process::exit(1);
+  }
 }
 
 /// `aperio-server --verify-audit`: verifies the tamper-evident hash chain of

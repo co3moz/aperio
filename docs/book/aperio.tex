@@ -553,6 +553,34 @@ A third, \code{--print-schema}, emits the machine-readable catalogue of
 every setting with its default, which is what the reference appendices of
 this book are checked against.
 
+\section{Declaring the version a file targets}
+\label{sec:config-version}
+
+Both files take a \code{version:} key naming the Aperio release they were
+written against:
+
+\begin{lstlisting}[language=aperioyaml]
+version: 0.5.0
+\end{lstlisting}
+
+On startup the binary compares it against its own build and looks up every
+recorded change to the configuration \emph{format} that landed in between.
+The behaviour is deliberately quiet. Nothing in that range means the upgrade
+cannot affect this file, and nothing is printed, so silence itself is the
+signal. Something in the range prints each change, the keys it touched and
+what to do, then asks for \code{version:} to be bumped once reviewed. A
+change with security consequences, a default that opens something previously
+closed or an enforcement that quietly stopped applying, makes the binary
+refuse to start: continuing silently is worse than an outage you can see. A
+file declaring a version newer than the binary is called out as well, since a
+rollback nobody rolled the config back for may use settings this build has
+never heard of.
+
+Leaving the key out keeps the old behaviour exactly, with one line noting the
+check is off. The recorded history starts at the release that introduced the
+mechanism; entries for older versions could only be guesses, so none are
+claimed.
+
 \section{Hot reload}
 
 \code{aperio-server.yaml} is watched. Edits apply live for the
@@ -2082,6 +2110,8 @@ overrides win over both. Generated from the reference tables in
 \code{APERIO\_STREAM\_RESUME\_BYTES} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair cannot flap; a value at or above it is repaired to a quarter of it. & \code{524288} (512 KB) \\
 \addlinespace[2pt]
 \code{APERIO\_STREAM\_BACKLOG\_LIMIT} & Hard per-stream backlog cap: a stream whose producer cannot be paused (a pre-v3 client, or one ignoring the pause) is dropped past this many buffered bytes. A value below the pause mark is repaired to twice it. & \code{16777216} (16 MB) \\
+\addlinespace[2pt]
+\code{APERIO\_VERSION} & The Aperio version this configuration was written for, e.g. \code{0.5.0} (yaml \code{version:}). Reports every recorded configuration-format change between it and this build, and refuses to start on a security-relevant one (Section~\ref{sec:config-version}). Unset disables the check. &  \\
 \addlinespace[2pt]
 \code{APERIO\_OUTBOUND\_ALLOWLIST} & Optional policy over where the server may send outbound callbacks, webhook deliveries and autoscaling hooks (Section~\ref{sec:outbound-policy}): comma-separated host/CIDR patterns (\code{hooks.example.com}, \code{*.corp.example}, \code{10.1.0.0/16}). When set, anything else is refused, at webhook creation and again at every delivery; a matching entry is trusted even if private. An invalid entry refuses startup rather than applying a partial allowlist. &  \\
 \addlinespace[2pt]
