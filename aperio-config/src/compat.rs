@@ -222,6 +222,33 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     summary: "The separate dashboard password is gone; the dashboard is entered as aperio:<master token>, or as a named user.",
     action: "Remove the key. Anyone who signed in with it needs a dashboard user (Users page), or their own organization.",
   },
+  ConfigChange {
+    version: "0.6.0",
+    surface: ConfigSurface::Client,
+    // The key still parses and still shapes the tunnel, but the number now
+    // means something else: it used to be announced per connection and per
+    // service, so the effective ceiling was the value times both counts. A
+    // file tuned against the old arithmetic now allows a fraction of what its
+    // author measured, which is a break even though nothing errors.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["bandwidth"],
+    summary: "`bandwidth` is now a total budget divided across a service's connections, and at the top level across the services: entries, instead of being announced in full by each of them.",
+    action: "Recheck the number against what you intend in total. A file that relied on the old multiplication needs it raised by roughly connections x services. Applies to a `bandwidth:` inside a services: entry too.",
+  },
+  ConfigChange {
+    version: "0.6.0",
+    surface: ConfigSurface::Client,
+    // Nothing the operator wrote stopped working; something that never worked
+    // started. That is not `Breaking`, but it is worth a look, because a list
+    // left in the home file from an old experiment now actually exposes
+    // whatever it names.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["services", "tunnels", "bind-tunnels"],
+    summary: "`services:`, `tunnels:` and `bind-tunnels:` written in ~/.aperio.yaml are honored now; they were read from the project file only and silently ignored in the home one.",
+    action: "Only affects a home config that declares them. Check ~/.aperio.yaml still describes what you want exposed, since a project file that does not mention a section now inherits it.",
+  },
 ];
 
 /// What the version check concluded.
