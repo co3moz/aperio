@@ -142,3 +142,55 @@ describe('byte units', () => {
     expect(toBytes(1, 'furlongs')).toBeUndefined()
   })
 })
+
+describe('deprecated keys', () => {
+  const withDeprecated: JsonSchema = {
+    type: 'object',
+    properties: {
+      cache_max_bytes: {
+        anyOf: [{ type: 'integer' }, { type: 'null' }],
+        description: 'Deprecated spelling of `cache.max_bytes` (env: APERIO_CACHE_MAX_BYTES).',
+      },
+      target: { type: 'string', description: 'Backend URL' },
+    },
+  }
+
+  it('marks a key the schema documents as a deprecated spelling', () => {
+    const fields = fieldsOf(withDeprecated, withDeprecated)
+    expect(fields.find((f) => f.key === 'cache_max_bytes')?.deprecated).toBe(true)
+    expect(fields.find((f) => f.key === 'target')?.deprecated).toBe(false)
+  })
+})
+
+describe('map-valued fields', () => {
+  const withMap: JsonSchema = {
+    type: 'object',
+    properties: {
+      'bind-tunnels': {
+        type: ['object', 'null'],
+        additionalProperties: { $ref: '#/$defs/BindTunnelEntry' },
+        description: 'Peer clients whose tunnels this process binds.',
+      },
+      opaque: { type: 'object' },
+    },
+    $defs: {
+      BindTunnelEntry: {
+        type: 'object',
+        properties: { token: { type: 'string' }, psk: { type: 'string' } },
+      },
+    },
+  }
+
+  it('describes a name → object map by the shape of one entry', () => {
+    // Without this the field would be "unsupported" and bind-tunnels would be
+    // the one thing the builder could not configure.
+    const field = fieldsOf(withMap, withMap).find((f) => f.key === 'bind-tunnels')
+    expect(field?.kind).toBe('objectMap')
+    expect(field?.children?.map((c) => c.key)).toEqual(['token', 'psk'])
+  })
+
+  it('still gives up on an object with no described shape', () => {
+    const field = fieldsOf(withMap, withMap).find((f) => f.key === 'opaque')
+    expect(field?.kind).toBe('unsupported')
+  })
+})

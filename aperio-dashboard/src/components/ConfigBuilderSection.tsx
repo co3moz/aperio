@@ -2,6 +2,7 @@ import {
   DownloadIcon,
   FileUpIcon,
   FilePlusIcon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
 } from 'lucide-react'
@@ -9,6 +10,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parse, stringify } from 'yaml'
 import { SectionHeader } from './shared'
 import { CopyButton } from './shared'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -49,16 +57,77 @@ import {
   type Field,
   type JsonSchema,
 } from '@/lib/configSchema'
+import {
+  CLIENT_GROUPS,
+  MULTI_ONLY_KEYS,
+  SERVER_GROUPS,
+  SINGLE_ONLY_KEYS,
+  type GroupSpec,
+} from '@/lib/configGroups'
 import { useI18n } from '@/i18n'
 import { toast } from 'sonner'
 
 type Kind = 'client' | 'server'
+/** Single-service mode is the CLI shorthand; a file being written by hand is
+ *  almost always the multi-service shape, so that is the default here. */
+type ClientMode = 'multi' | 'single'
 type Doc = Record<string, unknown>
 
-/** Fields worth showing first; everything else keeps schema order below them. */
-const LEAD_KEYS: Record<Kind, string[]> = {
-  client: ['server', 'target', 'serve', 'hostname', 'path'],
-  server: ['server', 'host', 'port', 'data_dir', 'log_level'],
+/** How many of a section's fields the document actually sets, so a collapsed
+ *  section still says whether anything inside it is configured. */
+function countSet(fields: Field[], doc: Doc): number {
+  return fields.filter((f) => getAt(doc, f.path) !== undefined).length
+}
+
+/** One rendered section: its spec plus the fields that survived filtering. */
+interface Section {
+  spec: GroupSpec
+  fields: Field[]
+}
+
+/**
+ * Arranges the schema's fields into the ordered sections, dropping the ones
+ * this mode cannot use and the deprecated spellings the document does not
+ * already contain. Keys no group claims land in a final catch-all, so a
+ * setting added to the schema still reaches the form.
+ */
+function sectionsFor(
+  fields: Field[],
+  groups: GroupSpec[],
+  hidden: Set<string>,
+  doc: Doc,
+): Section[] {
+  const byKey = new Map(fields.map((f) => [f.key, f]))
+  const claimed = new Set<string>()
+  const usable = (f: Field) =>
+    !hidden.has(f.key) &&
+    // A deprecated spelling is only shown when the imported file uses it —
+    // otherwise the form would invite writing the key we want retired.
+    (!f.deprecated || getAt(doc, f.path) !== undefined)
+
+  const out: Section[] = []
+  for (const spec of groups) {
+    const picked: Field[] = []
+    for (const key of spec.keys) {
+      const field = byKey.get(key)
+      if (!field) continue
+      claimed.add(key)
+      if (usable(field)) picked.push(field)
+    }
+    if (picked.length) out.push({ spec, fields: picked })
+  }
+  const rest = fields.filter((f) => !claimed.has(f.key) && usable(f))
+  if (rest.length) {
+    out.push({
+      spec: {
+        title: 'Other settings',
+        description: 'Everything not filed under a section above.',
+        keys: [],
+      },
+      fields: rest,
+    })
+  }
+  return out
 }
 
 /**
@@ -75,6 +144,7 @@ const LEAD_KEYS: Record<Kind, string[]> = {
 export function ConfigBuilderSection() {
   const { t } = useI18n()
   const [kind, setKind] = useState<Kind>('client')
+  const [clientMode, setClientMode] = useState<ClientMode>('multi')
   const [schemas, setSchemas] = useState<Partial<Record<Kind, JsonSchema>>>({})
   const [docs, setDocs] = useState<Record<Kind, Doc>>({ client: {}, server: {} })
   const [error, setError] = useState<string | null>(null)
@@ -100,19 +170,22 @@ export function ConfigBuilderSection() {
     }
   }, [kind, schemas])
 
-  const fields = useMemo(() => {
+  const sections = useMemo(() => {
     if (!schema) return []
-    const all = fieldsOf(schema, schema)
-    const lead = LEAD_KEYS[kind]
-    return [...all].sort((a, b) => {
-      const ai = lead.indexOf(a.key)
-      const bi = lead.indexOf(b.key)
-      if (ai === -1 && bi === -1) return 0
-      if (ai === -1) return 1
-      if (bi === -1) return -1
-      return ai - bi
-    })
-  }, [schema, kind])
+    const hidden = new Set<string>(
+      kind === 'client'
+        ? clientMode === 'multi'
+          ? SINGLE_ONLY_KEYS
+          : MULTI_ONLY_KEYS
+        : [],
+    )
+    return sectionsFor(
+      fieldsOf(schema, schema),
+      kind === 'client' ? CLIENT_GROUPS : SERVER_GROUPS,
+      hidden,
+      doc,
+    )
+  }, [schema, kind, clientMode, doc])
 
   const update = useCallback(
     (path: string, value: unknown) =>
@@ -163,20 +236,50 @@ export function ConfigBuilderSection() {
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <ToggleGroup
-            variant="outline"
-            spacing={0}
-            value={[kind]}
-            multiple={false}
-            onValueChange={(v: string[]) => {
-              const next = v[0]
-              if (next === 'client' || next === 'server') setKind(next)
-            }}
-          >
-            <ToggleGroupItem value="client">aperio.yaml</ToggleGroupItem>
-            <ToggleGroupItem value="server">aperio-server.yaml</ToggleGroupItem>
-          </ToggleGroup>
+        <CardContent className="flex flex-wrap items-end gap-6">
+          <div className="flex flex-col gap-2">
+            <Label>{t('File')}</Label>
+            <ToggleGroup
+              variant="outline"
+              spacing={0}
+              value={[kind]}
+              multiple={false}
+              onValueChange={(v: string[]) => {
+                const next = v[0]
+                if (next === 'client' || next === 'server') setKind(next)
+              }}
+            >
+              <ToggleGroupItem value="client">aperio.yaml</ToggleGroupItem>
+              <ToggleGroupItem value="server">aperio-server.yaml</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          {kind === 'client' && (
+            <div className="flex flex-col gap-2">
+              <Label>{t('Shape')}</Label>
+              <ToggleGroup
+                variant="outline"
+                spacing={0}
+                value={[clientMode]}
+                multiple={false}
+                onValueChange={(v: string[]) => {
+                  const next = v[0]
+                  if (next === 'multi' || next === 'single') setClientMode(next)
+                }}
+              >
+                <ToggleGroupItem value="multi">{t('Services list')}</ToggleGroupItem>
+                <ToggleGroupItem value="single">{t('Single service')}</ToggleGroupItem>
+              </ToggleGroup>
+              <p className="max-w-md text-xs text-muted-foreground">
+                {clientMode === 'multi'
+                  ? t(
+                      'One entry per exposed backend. This is the shape to write by hand; the two are mutually exclusive, so the single-service keys are hidden.',
+                    )
+                  : t(
+                      'The CLI shorthand: one backend configured at the top level, with no services: list.',
+                    )}
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -188,33 +291,65 @@ export function ConfigBuilderSection() {
       )}
 
       {schema && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{filename}</CardTitle>
-            <CardDescription>
-              {t(
-                'Empty fields are left out of the file entirely, so the server keeps its own default.',
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {fields.map((field) => (
-              <FieldRow
-                key={field.path}
-                field={field}
-                doc={doc}
-                onChange={update}
-              />
-            ))}
-          </CardContent>
-        </Card>
-      )}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+          <div className="min-w-0">
+            <Accordion className="w-full">
+              {sections.map((section, i) => (
+                <AccordionItem key={section.spec.title} value={String(i)}>
+                  <AccordionTrigger>
+                    <span className="flex flex-1 items-center justify-between gap-3 pr-2">
+                      <span className="text-left">{t(section.spec.title)}</span>
+                      <Badge variant="secondary">
+                        {countSet(section.fields, doc)}/{section.fields.length}
+                      </Badge>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <p className="mb-4 text-xs text-muted-foreground">
+                      {t(section.spec.description)}
+                    </p>
+                    <div className="space-y-5">
+                      {section.fields.map((field) => (
+                        <FieldRow
+                          key={field.path}
+                          field={field}
+                          doc={doc}
+                          onChange={update}
+                        />
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
 
-      {schema && (
-        <div className="flex justify-end">
-          <Button onClick={() => setExportOpen(true)}>
-            <DownloadIcon /> {t('Export YAML')}
-          </Button>
+          {/* The document as it stands, beside the form rather than behind a
+              button: seeing a key appear as it is filled in is what makes the
+              mapping from field to file obvious. */}
+          <div className="min-w-0">
+            <Card className="lg:sticky lg:top-4">
+              <CardHeader>
+                <CardTitle className="font-mono text-sm">{filename}</CardTitle>
+                <CardDescription>
+                  {t(
+                    'Empty fields are left out of the file entirely, so the server keeps its own default.',
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <pre className="max-h-[60vh] w-full overflow-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
+                  {yamlText || t('Nothing is set yet, so the file would be empty.')}
+                </pre>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <CopyButton value={yamlText} label={t('Copy')} />
+                  <Button onClick={() => setExportOpen(true)} disabled={!yamlText}>
+                    <DownloadIcon /> {t('Export YAML')}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -269,6 +404,10 @@ function FieldRow({
 
   if (field.kind === 'objectList') {
     return <ObjectListField field={field} doc={doc} onChange={onChange} />
+  }
+
+  if (field.kind === 'objectMap') {
+    return <ObjectMapField field={field} doc={doc} onChange={onChange} />
   }
 
   if (field.kind === 'unsupported') {
@@ -522,6 +661,117 @@ function ObjectListField({
         </Button>
       </div>
     </fieldset>
+  )
+}
+
+/**
+ * A map of name → object, the shape `bind-tunnels:` uses. Editing it inline
+ * would swamp the column, so the summary stays in the form and the entries are
+ * edited in a dialog. Nothing here is left unconfigurable: the point of the
+ * builder is that every key the schema knows can be reached.
+ */
+function ObjectMapField({
+  field,
+  doc,
+  onChange,
+}: {
+  field: Field
+  doc: Doc
+  onChange: (path: string, value: unknown) => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [newKey, setNewKey] = useState('')
+  const raw = getAt(doc, field.path)
+  const entries: [string, Doc][] =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? Object.entries(raw as Record<string, Doc>)
+      : []
+
+  const write = (next: [string, Doc][]) =>
+    onChange(field.path, next.length ? Object.fromEntries(next) : undefined)
+
+  return (
+    <div className="grid gap-1.5">
+      <Label className="font-mono text-xs">{field.key}</Label>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">
+          {entries.length
+            ? t('{n} entry(s) configured', { n: entries.length })
+            : t('none configured')}
+        </span>
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <PencilIcon /> {t('Edit')}
+        </Button>
+      </div>
+      {field.description && (
+        <p className="text-xs text-muted-foreground">{field.description}</p>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono">{field.key}</DialogTitle>
+            <DialogDescription>{field.description}</DialogDescription>
+          </DialogHeader>
+          <div className="grid max-h-[60vh] min-w-0 gap-4 overflow-y-auto">
+            {entries.map(([name, entry], i) => (
+              <div key={name} className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-medium">{name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={t('Remove entry')}
+                    onClick={() => write(entries.filter((_, j) => j !== i))}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+                <div className="space-y-4">
+                  {field.children?.map((child) => (
+                    <FieldRow
+                      key={child.path}
+                      field={{ ...child, path: child.key }}
+                      doc={entry}
+                      onChange={(path, value) =>
+                        write(
+                          entries.map((e, j) =>
+                            j === i ? [e[0], setAt(e[1], path, value)] : e,
+                          ),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Input
+                value={newKey}
+                placeholder={t('New entry name')}
+                onChange={(e) => setNewKey(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                disabled={
+                  !newKey.trim() || entries.some(([k]) => k === newKey.trim())
+                }
+                onClick={() => {
+                  write([...entries, [newKey.trim(), {}]])
+                  setNewKey('')
+                }}
+              >
+                <PlusIcon /> {t('Add')}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setOpen(false)}>{t('Done')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 

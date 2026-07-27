@@ -25,6 +25,7 @@ export interface JsonSchema {
   anyOf?: JsonSchema[]
   oneOf?: JsonSchema[]
   required?: string[]
+  additionalProperties?: JsonSchema | boolean
 }
 
 /** How a field is edited. */
@@ -37,6 +38,8 @@ export type FieldKind =
   | 'select'
   | 'stringList'
   | 'objectList'
+  /** A map of name → object, e.g. `bind-tunnels:`. Edited in a dialog. */
+  | 'objectMap'
   | 'object'
   | 'unsupported'
 
@@ -55,6 +58,11 @@ export interface Field {
   children?: Field[]
   /** Keys an entry of an `objectList` must carry. */
   required?: string[]
+  /** True for a key the schema documents as a deprecated spelling of another.
+   *  Hidden unless an imported file actually uses it: offering both spellings
+   *  in a blank form would invite writing the one we want people to stop
+   *  writing. */
+  deprecated?: boolean
 }
 
 /** Resolves `$ref` against the document's `$defs`, once. */
@@ -134,6 +142,8 @@ export function fieldsOf(
     const example =
       examples?.[0] !== undefined ? String(examples[0]) : undefined
     const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
+    // The schema documents superseded keys as "Deprecated spelling of `x`".
+    const deprecated = /^deprecated spelling of/i.test(description ?? '')
 
     if (type === 'array') {
       const item = collapse(schema.items ?? {}, root)
@@ -146,12 +156,13 @@ export function fieldsOf(
           description,
           children: fieldsOf(item, root, '', depth + 1),
           required: item.required,
+          deprecated,
         })
       } else if (itemType === 'object') {
         // A map-valued list we cannot describe; the raw yaml still round-trips.
-        out.push({ key, path, kind: 'unsupported', description })
+        out.push({ key, path, kind: 'unsupported', description, deprecated })
       } else {
-        out.push({ key, path, kind: 'stringList', description, example })
+        out.push({ key, path, kind: 'stringList', description, example, deprecated })
       }
       continue
     }
@@ -160,7 +171,7 @@ export function fieldsOf(
       // Nested blocks are worth one level of inlining; deeper ones (a map of
       // objects, say) are left to the yaml view rather than guessed at.
       if (depth >= 2) {
-        out.push({ key, path, kind: 'unsupported', description })
+        out.push({ key, path, kind: 'unsupported', description, deprecated })
         continue
       }
       out.push({
@@ -169,12 +180,31 @@ export function fieldsOf(
         kind: 'object',
         description,
         children: fieldsOf(schema, root, path, depth + 1),
+        deprecated,
       })
       continue
     }
 
     if (type === 'object') {
-      out.push({ key, path, kind: 'unsupported', description })
+      // A map whose values are objects (`bind-tunnels:`): schemars describes
+      // the value shape under additionalProperties, which is enough to edit
+      // each entry in a dialog rather than declaring it off-limits.
+      const values = collapse(
+        (schema as { additionalProperties?: JsonSchema }).additionalProperties ?? {},
+        root,
+      )
+      if (values.properties) {
+        out.push({
+          key,
+          path,
+          kind: 'objectMap',
+          description,
+          children: fieldsOf(values, root, '', depth + 1),
+          deprecated,
+        })
+        continue
+      }
+      out.push({ key, path, kind: 'unsupported', description, deprecated })
       continue
     }
 
@@ -185,6 +215,7 @@ export function fieldsOf(
       description,
       example,
       options: schema.enum?.map(String),
+      deprecated,
     })
   }
   return out
