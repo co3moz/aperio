@@ -804,4 +804,7 @@ export const ja: Record<string, string> = {
   'scale to zero': 'ゼロまで縮小',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '同時実行枠 {capacity} のうち {inflight} を使用中。{target}% を超えるとスケールアウトします。',
   'Must be at least {min}': '{min} 以上である必要があります',
+  'Need more than this? ': 'もっと細かく設定しますか？ ',
+  'Open the config builder': '設定ビルダーを開く',
+  ' to set every option, add services and tunnels, and export the file.': ' すべての項目を設定し、サービスやトンネルを追加してファイルを書き出せます。',
 }

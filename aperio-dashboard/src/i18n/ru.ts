@@ -806,4 +806,7 @@ export const ru: Record<string, string> = {
   'scale to zero': 'масштабирование до нуля',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': 'Занято {inflight} из {capacity} одновременных слотов; масштабируется выше {target}%.',
   'Must be at least {min}': 'Не менее {min}',
+  'Need more than this? ': 'Нужно больше? ',
+  'Open the config builder': 'Открыть конструктор конфигурации',
+  ' to set every option, add services and tunnels, and export the file.': ' — задайте все параметры, добавьте сервисы и туннели и выгрузите файл.',
 }

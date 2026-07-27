@@ -235,6 +235,18 @@ export function AddClientWizard() {
             </TabsContent>
             <TabsContent value="yaml">
               <CommandBlock content={yamlConfig(serverUrl, token, state)} />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t('Need more than this? ')}
+                <a
+                  href="?tab=config-builder"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  {t('Open the config builder')}
+                </a>
+                {t(' to set every option, add services and tunnels, and export the file.')}
+              </p>
             </TabsContent>
           </Tabs>
         </div>

@@ -787,4 +787,7 @@ export const zh: Record<string, string> = {
   'scale to zero': '缩容到零',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{capacity} 个并发槽位中已使用 {inflight} 个；超过 {target}% 时扩容。',
   'Must be at least {min}': '至少需要 {min}',
+  'Need more than this? ': '需要更多设置？',
+  'Open the config builder': '打开配置生成器',
+  ' to set every option, add services and tunnels, and export the file.': '，可设置全部选项、添加服务与隧道并导出文件。',
 }

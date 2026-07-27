@@ -810,4 +810,7 @@ export const tr: Record<string, string> = {
   'scale to zero': 'sıfıra ölçekle',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{capacity} eşzamanlı yuvadan {inflight} tanesi kullanımda; %{target} üzerinde ölçeklenir.',
   'Must be at least {min}': 'En az {min} olmalı',
+  'Need more than this? ': 'Daha fazlası mı gerekiyor? ',
+  'Open the config builder': 'Yapılandırma oluşturucuyu aç',
+  ' to set every option, add services and tunnels, and export the file.': ' — tüm seçenekleri ayarlayın, servis ve tünel ekleyin, dosyayı dışa aktarın.',
 }

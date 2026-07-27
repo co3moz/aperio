@@ -806,4 +806,7 @@ export const es: Record<string, string> = {
   'scale to zero': 'escalar a cero',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{inflight} de {capacity} espacios concurrentes en uso; escala por encima del {target}%.',
   'Must be at least {min}': 'Debe ser al menos {min}',
+  'Need more than this? ': '¿Necesita más? ',
+  'Open the config builder': 'Abrir el constructor de configuración',
+  ' to set every option, add services and tunnels, and export the file.': ' para ajustar todas las opciones, añadir servicios y túneles, y exportar el archivo.',
 }
