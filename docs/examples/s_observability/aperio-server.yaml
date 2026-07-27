@@ -14,6 +14,7 @@ access_log: ./data/access.jsonl
 otel:
   enabled: true
   endpoint: http://localhost:4318
+  protocol: http                 # http (4318) or grpc (4317); unset follows the port
   service_name: aperio-server
 
 # --- Alerting (webhook/audit `alert_triggered` events) ---

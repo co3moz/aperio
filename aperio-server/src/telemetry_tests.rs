@@ -19,6 +19,9 @@ const KEYS: &[&str] = &[
   "APERIO_OTEL",
   "APERIO_OTEL_ENDPOINT",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "APERIO_OTEL_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_PROTOCOL",
   "APERIO_OTEL_SERVICE_NAME",
   "OTEL_SERVICE_NAME",
 ];
@@ -92,7 +95,7 @@ fn env_flag_recognizes_truthy_and_falsy_values() {
 fn resolve_endpoint_defaults_when_unset() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
-  assert_eq!(resolve_endpoint(), "http://localhost:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://localhost:4318/v1/traces");
 }
 
 #[test]
@@ -100,7 +103,7 @@ fn resolve_endpoint_appends_signal_path_to_base_url() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
   set("APERIO_OTEL_ENDPOINT", "http://collector:4318");
-  assert_eq!(resolve_endpoint(), "http://collector:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
@@ -108,7 +111,7 @@ fn resolve_endpoint_strips_trailing_slash_before_appending() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
   set("APERIO_OTEL_ENDPOINT", "http://collector:4318/");
-  assert_eq!(resolve_endpoint(), "http://collector:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
@@ -116,7 +119,7 @@ fn resolve_endpoint_keeps_existing_signal_path() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
   set("APERIO_OTEL_ENDPOINT", "http://collector:4318/v1/traces");
-  assert_eq!(resolve_endpoint(), "http://collector:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
@@ -125,7 +128,7 @@ fn resolve_endpoint_trims_and_falls_back_to_conventional_when_aperio_unset() {
   let _env = EnvSnapshot::take();
   // Aperio var unset -> conventional var wins; surrounding whitespace trimmed.
   set("OTEL_EXPORTER_OTLP_ENDPOINT", "  http://conv:4318  ");
-  assert_eq!(resolve_endpoint(), "http://conv:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://conv:4318/v1/traces");
 }
 
 #[test]
@@ -134,7 +137,7 @@ fn resolve_endpoint_blank_value_falls_through_to_default() {
   let _env = EnvSnapshot::take();
   // A present-but-blank value trims to empty -> filtered out -> default.
   set("APERIO_OTEL_ENDPOINT", "   ");
-  assert_eq!(resolve_endpoint(), "http://localhost:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://localhost:4318/v1/traces");
 }
 
 #[test]
@@ -143,7 +146,150 @@ fn resolve_endpoint_prefers_aperio_var_over_conventional() {
   let _env = EnvSnapshot::take();
   set("APERIO_OTEL_ENDPOINT", "http://aperio:4318");
   set("OTEL_EXPORTER_OTLP_ENDPOINT", "http://conv:4318");
-  assert_eq!(resolve_endpoint(), "http://aperio:4318/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://aperio:4318/v1/traces");
+}
+
+// --------------------------------------------------------------------------
+// resolve_target (transport selection)
+// --------------------------------------------------------------------------
+
+#[test]
+fn resolve_target_defaults_to_http() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  let target = resolve_target();
+  assert_eq!(target.protocol, OtlpProtocol::Http);
+  assert_eq!(target.note, None);
+}
+
+#[test]
+fn resolve_target_infers_grpc_from_the_grpc_port() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  let target = resolve_target();
+  assert_eq!(target.protocol, OtlpProtocol::Grpc);
+  // gRPC takes the bare base URL, never the HTTP signal path.
+  assert_eq!(target.endpoint, "http://collector:4317");
+  // Inference agreeing with the port is the expected case, not a surprise.
+  assert_eq!(target.note, None);
+}
+
+#[test]
+fn resolve_target_defaults_the_endpoint_to_the_chosen_transports_port() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  set("APERIO_OTEL_PROTOCOL", "grpc");
+  let target = resolve_target();
+  assert_eq!(target.protocol, OtlpProtocol::Grpc);
+  assert_eq!(target.endpoint, "http://localhost:4317");
+}
+
+#[test]
+fn resolve_target_strips_the_signal_path_for_grpc() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  set("APERIO_OTEL_PROTOCOL", "grpc");
+  set("APERIO_OTEL_ENDPOINT", "http://collector:4317/v1/traces");
+  assert_eq!(resolve_target().endpoint, "http://collector:4317");
+}
+
+#[test]
+fn resolve_target_accepts_the_spec_spelling_and_prefers_the_aperio_var() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  set("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
+  assert_eq!(resolve_target().protocol, OtlpProtocol::Http);
+
+  set("APERIO_OTEL_PROTOCOL", "grpc");
+  assert_eq!(resolve_target().protocol, OtlpProtocol::Grpc);
+}
+
+#[test]
+fn resolve_target_notes_a_protocol_pinned_against_the_port() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  // Explicit wins over inference, but the mismatch is worth saying out loud:
+  // the failure mode it usually precedes is every span silently dropped.
+  set("APERIO_OTEL_PROTOCOL", "http");
+  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  let target = resolve_target();
+  assert_eq!(target.protocol, OtlpProtocol::Http);
+  assert_eq!(target.endpoint, "http://collector:4317/v1/traces");
+  assert!(
+    target.note.as_deref().unwrap_or_default().contains("4317"),
+    "unexpected note: {:?}",
+    target.note
+  );
+}
+
+#[test]
+fn resolve_target_falls_back_and_explains_an_unsupported_protocol() {
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _env = EnvSnapshot::take();
+  // `http/json` is a real OTLP encoding, just not one this build carries — it
+  // must not be quietly treated as protobuf.
+  set("APERIO_OTEL_PROTOCOL", "http/json");
+  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  let target = resolve_target();
+  assert_eq!(
+    target.protocol,
+    OtlpProtocol::Grpc,
+    "an unreadable setting falls back to the port, not to the default"
+  );
+  assert!(
+    target
+      .note
+      .as_deref()
+      .unwrap_or_default()
+      .contains("http/json"),
+    "unexpected note: {:?}",
+    target.note
+  );
+}
+
+// --------------------------------------------------------------------------
+// speaks_http2 (gRPC startup probe)
+// --------------------------------------------------------------------------
+
+/// Serves one connection: reads a little, then writes `reply`.
+fn serve_once(reply: &'static [u8]) -> u16 {
+  use std::io::{Read, Write};
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+  let port = listener.local_addr().expect("addr").port();
+  std::thread::spawn(move || {
+    if let Ok((mut sock, _)) = listener.accept() {
+      let mut buf = [0u8; 64];
+      let _ = sock.read(&mut buf);
+      let _ = sock.write_all(reply);
+    }
+  });
+  port
+}
+
+#[test]
+fn speaks_http2_accepts_a_settings_frame() {
+  // An empty SETTINGS frame, which is what a real HTTP/2 server answers with.
+  let port = serve_once(&[0, 0, 0, 4, 0, 0, 0, 0, 0]);
+  assert!(speaks_http2("127.0.0.1", port).expect("probe runs"));
+}
+
+#[test]
+fn speaks_http2_rejects_an_http1_answer() {
+  // What an OTLP/HTTP listener says when spoken to like this: HTTP/1, whose
+  // first bytes are not a valid frame header.
+  let port = serve_once(b"HTTP/1.1 400 Bad Request\r\n\r\n");
+  assert!(!speaks_http2("127.0.0.1", port).expect("probe runs"));
+}
+
+#[test]
+fn speaks_http2_errors_when_nothing_answers() {
+  // Bind and drop, so the port is (almost certainly) closed.
+  let port = {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    listener.local_addr().expect("addr").port()
+  };
+  assert!(speaks_http2("127.0.0.1", port).is_err());
 }
 
 // --------------------------------------------------------------------------
@@ -233,7 +379,8 @@ fn resolve_service_name_blank_value_falls_through_to_default() {
 fn build_provider_succeeds_with_default_endpoint() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
-  let provider = build_provider().expect("provider should build without a live collector");
+  let provider =
+    build_provider(&resolve_target()).expect("provider should build without a live collector");
   // Shutting the freshly-built provider down should not error.
   let _ = provider.shutdown();
 }
@@ -247,9 +394,9 @@ fn build_provider_errors_on_unparseable_endpoint() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
   set("APERIO_OTEL_ENDPOINT", BAD_ENDPOINT);
-  let err = build_provider().expect_err("invalid endpoint must fail to build");
+  let err = build_provider(&resolve_target()).expect_err("invalid endpoint must fail to build");
   assert!(
-    err.contains("OTLP span exporter build failed"),
+    err.contains("OTLP/HTTP span exporter build failed"),
     "unexpected error: {err}"
   );
 }
@@ -317,7 +464,7 @@ fn request_span_and_trace_headers_round_trip_with_propagator() {
 
   // A scoped subscriber carrying the OTLP layer makes span<->OTel context
   // wiring deterministic regardless of whatever global subscriber is installed.
-  let provider = build_provider().expect("provider builds");
+  let provider = build_provider(&resolve_target()).expect("provider builds");
   let otel_layer =
     tracing_opentelemetry::layer().with_tracer(provider.tracer("aperio-server-test"));
   let subscriber = tracing_subscriber::registry().with(otel_layer);
@@ -390,7 +537,7 @@ fn otel_guard_shutdown_is_a_noop_when_disabled() {
 fn otel_guard_shutdown_flushes_a_provider() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
-  let provider = build_provider().expect("provider builds");
+  let provider = build_provider(&resolve_target()).expect("provider builds");
   OtelGuard(Some(provider)).shutdown();
 }
 
@@ -468,7 +615,10 @@ fn probe_accepts_a_collector_that_answers_the_export() {
   let port = one_shot_http(Some("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
   // No assertion on the log line itself; what matters is that a collector
   // answering the POST is the success path and the probe returns promptly.
-  probe_endpoint(format!("http://127.0.0.1:{port}/v1/traces"));
+  probe_target(
+    OtlpProtocol::Http,
+    format!("http://127.0.0.1:{port}/v1/traces"),
+  );
 }
 
 #[test]
@@ -476,11 +626,24 @@ fn probe_reports_a_port_that_accepts_tcp_but_does_not_speak_http() {
   // This is the case the old TCP-connect probe called "reachable": something
   // is listening, the connection succeeds, and no export will ever land.
   let port = one_shot_http(None);
-  probe_endpoint(format!("http://127.0.0.1:{port}/v1/traces"));
+  probe_target(
+    OtlpProtocol::Http,
+    format!("http://127.0.0.1:{port}/v1/traces"),
+  );
 }
 
 #[test]
 fn probe_does_not_panic_on_an_unusable_endpoint() {
-  probe_endpoint("http://127.0.0.1:1/v1/traces".to_string());
-  probe_endpoint("not a url".to_string());
+  probe_target(
+    OtlpProtocol::Http,
+    "http://127.0.0.1:1/v1/traces".to_string(),
+  );
+  probe_target(OtlpProtocol::Http, "not a url".to_string());
+  probe_target(OtlpProtocol::Grpc, "http://127.0.0.1:1".to_string());
+  probe_target(OtlpProtocol::Grpc, "not a url".to_string());
+  // TLS endpoints are reported, not probed.
+  probe_target(
+    OtlpProtocol::Grpc,
+    "https://collector.invalid:4317".to_string(),
+  );
 }

@@ -27,21 +27,24 @@ For quota and billing dashboards, per-tenant counters are exposed with `token` a
 
 ## Distributed tracing (OpenTelemetry)
 
-Set `APERIO_OTEL=1` to export one span per proxied request over OTLP (HTTP/protobuf) to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
+Set `APERIO_OTEL=1` to export one span per proxied request over OTLP to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
 
 ```yaml
 # aperio-server.yaml
-otel: true                                  # env: APERIO_OTEL=1
-otel_endpoint: http://otel-collector:4318   # env: APERIO_OTEL_ENDPOINT, base URL, /v1/traces is appended
-                                           # OTLP/HTTP: the 4318 port, not gRPC's 4317
-otel_service_name: aperio-server            # env: APERIO_OTEL_SERVICE_NAME, optional
+otel:
+  enabled: true                       # env: APERIO_OTEL=1
+  endpoint: http://otel-collector:4318 # env: APERIO_OTEL_ENDPOINT, base URL
+  protocol: http                      # env: APERIO_OTEL_PROTOCOL, http | grpc
+  service_name: aperio-server         # env: APERIO_OTEL_SERVICE_NAME, optional
 ```
 
-The standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
+Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and appends the `/v1/traces` signal path to the endpoint; `protocol: grpc` sends gRPC to the bare base URL. Left unset, the endpoint's port decides — 4317 is the conventional gRPC port, and anything else is treated as HTTP — so the common collector layouts work without saying anything. Pin it explicitly when the collector listens on a non-standard port: a collector answering the other protocol accepts the connection and drops every span, which is exactly the failure that looks like "tracing is enabled and nothing shows up". The startup probe tests the transport that was actually chosen and warns when the port contradicts it.
+
+The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
 
 **Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace, the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
 
-> **Note:** enabling the OTLP exporter compiles `aws-lc-sys`/rustls into the build, which needs a C toolchain (and CMake) at build time. Prebuilt release binaries already include it.
+> **Note:** the exporter is compiled into every build (both transports), so enabling it is a configuration change, not a rebuild. It reuses the server's own rustls/ring TLS stack — no second crypto backend and no C toolchain are involved.
 
 ## Alerting
 

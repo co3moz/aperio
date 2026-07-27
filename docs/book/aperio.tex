@@ -1502,9 +1502,18 @@ possible.
 
 \begin{lstlisting}[language=aperioyaml]
 # aperio-server.yaml
-otel: true                                  # env: APERIO_OTEL
-otel_endpoint: http://otel-collector:4318   # env: APERIO_OTEL_ENDPOINT
+otel:
+  enabled: true                       # env: APERIO_OTEL
+  endpoint: http://otel-collector:4318 # env: APERIO_OTEL_ENDPOINT
+  protocol: http                      # env: APERIO_OTEL_PROTOCOL, http | grpc
 \end{lstlisting}
+
+Both OTLP transports are built in. \code{http} sends protobuf over HTTP
+and appends the \code{/v1/traces} signal path; \code{grpc} sends gRPC to
+the bare base URL. Unset, the endpoint's port decides: 4317 is gRPC,
+anything else HTTP. Pin it when the collector listens on a non-standard
+port, because a collector answering the other protocol accepts the
+connection and then drops every span.
 
 Each proxied request becomes a \code{proxy.request} span with three
 \emph{measured} children that follow the real path: \code{queue \&

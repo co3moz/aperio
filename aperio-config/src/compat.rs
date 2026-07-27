@@ -195,18 +195,34 @@ pub struct ConfigChange {
 /// after the fact would mean guessing at which past releases moved which
 /// keys. From now on, a change that can alter how an existing file behaves is
 /// recorded here in the same commit that makes it (see CLAUDE.md).
-pub const CONFIG_CHANGES: &[ConfigChange] = &[ConfigChange {
-  version: "0.6.0",
-  surface: ConfigSurface::Server,
-  // The file claims the dashboard is behind its own password. It is not any
-  // more, and an operator who believes otherwise has published an admin
-  // surface they think is gated — which is precisely what `Security` is for.
-  severity: ChangeSeverity::Security,
-  applies: Applies::WhenSet,
-  fields: &["dashboard_auth", "dashboard.auth"],
-  summary: "The separate dashboard password is gone; the dashboard is entered as aperio:<master token>, or as a named user.",
-  action: "Remove the key. Anyone who signed in with it needs a dashboard user (Users page), or their own organization.",
-}];
+pub const CONFIG_CHANGES: &[ConfigChange] = &[
+  ConfigChange {
+    version: "0.6.0",
+    surface: ConfigSurface::Server,
+    // Nothing is ignored and nothing is renamed: the endpoint is read the way
+    // it always was, and its port now also picks the transport. On the two
+    // conventional ports that changes nothing, and on 4317 it replaces a
+    // configuration that silently dropped every span. Only an HTTP collector
+    // deliberately placed on 4317 needs to act, which is what the action says.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["otel.endpoint", "otel_endpoint"],
+    summary: "Traces can now be exported over OTLP/gRPC, and with `otel.protocol` unset the endpoint's port picks the transport: 4317 is gRPC, anything else HTTP.",
+    action: "Nothing to do for a collector on a conventional port. Set `otel.protocol: http` if an OTLP/HTTP collector listens on 4317.",
+  },
+  ConfigChange {
+    version: "0.6.0",
+    surface: ConfigSurface::Server,
+    // The file claims the dashboard is behind its own password. It is not any
+    // more, and an operator who believes otherwise has published an admin
+    // surface they think is gated — which is precisely what `Security` is for.
+    severity: ChangeSeverity::Security,
+    applies: Applies::WhenSet,
+    fields: &["dashboard_auth", "dashboard.auth"],
+    summary: "The separate dashboard password is gone; the dashboard is entered as aperio:<master token>, or as a named user.",
+    action: "Remove the key. Anyone who signed in with it needs a dashboard user (Users page), or their own organization.",
+  },
+];
 
 /// What the version check concluded.
 #[derive(Debug, Clone)]

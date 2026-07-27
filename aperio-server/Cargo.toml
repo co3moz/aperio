@@ -40,8 +40,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 url = "2.5"
 flate2 = "1"
-# OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Uses the HTTP/protobuf
-# exporter over reqwest+rustls to reuse the existing TLS stack (no tonic/openssl).
+# OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Both transports the
+# OTLP spec defines are built in and picked by `otel.protocol`: HTTP/protobuf
+# over reqwest+rustls (the default), and gRPC over tonic for collectors that
+# only listen on 4317.
 # NOTE 1: we use otlp's `reqwest-blocking-client`, NOT `reqwest-client` (async).
 # The batch span processor drives the exporter from its own dedicated OS thread
 # with no Tokio runtime; the async reqwest client panics there ("there is no
@@ -54,12 +56,18 @@ flate2 = "1"
 # `reqwest_otlp` edge below pins reqwest's `rustls-no-provider`, which reuses the
 # process-wide ring CryptoProvider we install at startup (see main.rs) and the
 # same rustls-platform-verifier roots — no second crypto backend gets compiled.
+# NOTE 3: the gRPC side is `tls-ring` + `tls-roots`, never `tls-aws-lc`, for the
+# same reason as NOTE 2 — tonic then builds its rustls client on the ring
+# provider the process already installed, and reads the platform's root store.
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "trace",
   "http-proto",
   "reqwest-blocking-client",
+  "grpc-tonic",
+  "tls-ring",
+  "tls-roots",
 ] }
 # Forces the reqwest 0.13 that opentelemetry-otlp pulls onto
 # `rustls-no-provider` (ring, not aws-lc-rs) and the blocking client. Also used

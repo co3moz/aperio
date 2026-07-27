@@ -1097,9 +1097,16 @@ pub struct OidcGroup {
 pub struct OtelGroup {
   /// Enable OpenTelemetry OTLP export.
   pub enabled: Option<bool>,
-  /// OTLP endpoint.
-  #[schemars(extend("examples" = ["http://localhost:4317"]))]
+  /// OTLP endpoint. The conventional ports are 4318 for OTLP/HTTP and 4317
+  /// for OTLP/gRPC; `protocol` follows from the port unless it is set.
+  #[schemars(extend("examples" = ["http://localhost:4318", "http://localhost:4317"]))]
   pub endpoint: Option<String>,
+  /// OTLP transport: `http` (protobuf over HTTP) or `grpc`. Unset picks `grpc`
+  /// for an endpoint on port 4317 and `http` everywhere else — a collector
+  /// answering the wrong protocol drops every span silently, so pin this when
+  /// the endpoint runs on a non-standard port.
+  #[schemars(extend("examples" = ["http", "grpc"]))]
+  pub protocol: Option<String>,
   /// OTLP service name.
   pub service_name: Option<String>,
 }
@@ -1614,6 +1621,8 @@ pub struct ServerFileConfig {
   pub audit_max_files: Option<u64>,
   /// Deprecated spelling of `otel.endpoint` (env: APERIO_OTEL_ENDPOINT).
   pub otel_endpoint: Option<String>,
+  /// Deprecated spelling of `otel.protocol` (env: APERIO_OTEL_PROTOCOL).
+  pub otel_protocol: Option<String>,
   /// Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).
   pub otel_service_name: Option<String>,
   /// Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).

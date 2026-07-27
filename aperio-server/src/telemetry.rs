@@ -1,10 +1,12 @@
 //! OpenTelemetry (OTLP) trace export, opt-in via `APERIO_OTEL`.
 //!
 //! When enabled, every proxied request becomes a `proxy.request` span exported
-//! over OTLP/HTTP (protobuf) to a collector. The incoming W3C `traceparent`
-//! header (if present) is adopted as the span's parent, and the span's own
-//! context is injected back into the headers forwarded through the tunnel, so a
-//! visitor → aperio → backend request shows up as one distributed trace.
+//! to a collector over OTLP — protobuf over HTTP by default, or gRPC when
+//! `otel.protocol` says so or the endpoint sits on the gRPC port. The incoming
+//! W3C `traceparent` header (if present) is adopted as the span's parent, and
+//! the span's own context is injected back into the headers forwarded through
+//! the tunnel, so a visitor → aperio → backend request shows up as one
+//! distributed trace.
 //!
 //! Disabled by default: [`init`] then installs only the JSON stdout subscriber
 //! and the propagation helpers become cheap no-ops (the global propagator stays
@@ -55,21 +57,136 @@ fn env_flag(key: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// Resolves the OTLP traces endpoint, appending the standard `/v1/traces`
-/// signal path when only a base URL is given. Honors `APERIO_OTEL_ENDPOINT`
-/// first, then the conventional `OTEL_EXPORTER_OTLP_ENDPOINT`.
-fn resolve_endpoint() -> String {
+/// The OTLP transport carrying the spans. Both are the same protobuf payload;
+/// they differ in framing, in the port collectors listen on, and in whether the
+/// `/v1/traces` signal path belongs in the URL.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum OtlpProtocol {
+  /// Protobuf over HTTP, port 4318 by convention. The endpoint carries the
+  /// `/v1/traces` path.
+  Http,
+  /// gRPC, port 4317 by convention. The endpoint is the bare base URL.
+  Grpc,
+}
+
+impl OtlpProtocol {
+  fn as_str(self) -> &'static str {
+    match self {
+      Self::Http => "http",
+      Self::Grpc => "grpc",
+    }
+  }
+}
+
+/// Where and how spans are shipped, resolved once from the environment.
+struct OtlpTarget {
+  protocol: OtlpProtocol,
+  endpoint: String,
+  /// Why the protocol ended up as it did, when that is worth saying out loud:
+  /// an unreadable setting, or a port that contradicts the chosen transport.
+  /// Logged by `init` after the subscriber exists — resolution happens before
+  /// it, so a `warn!` raised here would go nowhere.
+  note: Option<String>,
+}
+
+/// The conventional OTLP ports. A collector answering the wrong protocol drops
+/// every span without a word, so when nothing is configured the port is the
+/// best evidence available about which transport the other side speaks.
+const OTLP_GRPC_PORT: u16 = 4317;
+const OTLP_HTTP_PORT: u16 = 4318;
+
+/// Reads the explicitly configured transport: `APERIO_OTEL_PROTOCOL` first,
+/// then the conventional `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` /
+/// `OTEL_EXPORTER_OTLP_PROTOCOL`. Returns the parse failure as an
+/// `Err(message)` so the caller can fall back *and* say why.
+fn configured_protocol() -> Result<Option<OtlpProtocol>, String> {
+  let Some(raw) = [
+    "APERIO_OTEL_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+  ]
+  .iter()
+  .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+  .map(|v| v.trim().to_ascii_lowercase()) else {
+    return Ok(None);
+  };
+  match raw.as_str() {
+    "grpc" => Ok(Some(OtlpProtocol::Grpc)),
+    // `http/protobuf` is the spec spelling; `http` is the short one operators
+    // reach for. `http/json` is a distinct encoding this build does not carry,
+    // so it is a failure rather than a silent downgrade to protobuf.
+    "http" | "http/protobuf" => Ok(Some(OtlpProtocol::Http)),
+    other => Err(format!(
+      "OTLP protocol \"{other}\" is not supported (use \"http\" or \"grpc\")"
+    )),
+  }
+}
+
+/// Resolves the endpoint and the transport together, because neither is
+/// meaningful alone: the default endpoint depends on the protocol, and the
+/// default protocol depends on the endpoint's port.
+///
+/// Honors `APERIO_OTEL_ENDPOINT` first, then the conventional
+/// `OTEL_EXPORTER_OTLP_ENDPOINT`. With no protocol configured, port 4317 means
+/// gRPC and anything else means HTTP.
+fn resolve_target() -> OtlpTarget {
+  let (explicit, mut note) = match configured_protocol() {
+    Ok(protocol) => (protocol, None),
+    Err(message) => (None, Some(format!("{message}; falling back to the port"))),
+  };
   let raw = std::env::var("APERIO_OTEL_ENDPOINT")
     .ok()
     .or_else(|| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok())
     .map(|v| v.trim().to_string())
-    .filter(|v| !v.is_empty())
-    .unwrap_or_else(|| "http://localhost:4318".to_string());
-  let trimmed = raw.trim_end_matches('/');
-  if trimmed.ends_with("/v1/traces") {
-    trimmed.to_string()
-  } else {
-    format!("{trimmed}/v1/traces")
+    .filter(|v| !v.is_empty());
+  let port = raw
+    .as_deref()
+    .and_then(endpoint_host_port)
+    .map(|(_, port)| port);
+  let protocol = explicit.unwrap_or(match port {
+    Some(OTLP_GRPC_PORT) => OtlpProtocol::Grpc,
+    _ => OtlpProtocol::Http,
+  });
+
+  // An explicit protocol on the other transport's conventional port is the one
+  // combination worth flagging: it is legal (collectors can listen anywhere)
+  // but it is far more often a typo, and the symptom is silence.
+  if explicit.is_some() {
+    let contradicts = match protocol {
+      OtlpProtocol::Http => port == Some(OTLP_GRPC_PORT),
+      OtlpProtocol::Grpc => port == Some(OTLP_HTTP_PORT),
+    };
+    if contradicts && note.is_none() {
+      note = Some(format!(
+        "protocol is pinned to {} but the endpoint uses port {}, the conventional port of the other transport",
+        protocol.as_str(),
+        port.unwrap_or_default()
+      ));
+    }
+  }
+
+  let endpoint = match (raw, protocol) {
+    (None, OtlpProtocol::Http) => format!("http://localhost:{OTLP_HTTP_PORT}/v1/traces"),
+    (None, OtlpProtocol::Grpc) => format!("http://localhost:{OTLP_GRPC_PORT}"),
+    (Some(raw), protocol) => {
+      let trimmed = raw.trim_end_matches('/');
+      match protocol {
+        // The signal path belongs to the HTTP transport only.
+        OtlpProtocol::Http if trimmed.ends_with("/v1/traces") => trimmed.to_string(),
+        OtlpProtocol::Http => format!("{trimmed}/v1/traces"),
+        // Tolerate a URL carried over from the HTTP transport rather than
+        // sending gRPC to a path no collector routes.
+        OtlpProtocol::Grpc => trimmed
+          .strip_suffix("/v1/traces")
+          .unwrap_or(trimmed)
+          .to_string(),
+      }
+    }
+  };
+  OtlpTarget {
+    protocol,
+    endpoint,
+    note,
   }
 }
 
@@ -107,39 +224,45 @@ fn endpoint_host_port(endpoint: &str) -> Option<(String, u16)> {
   }
 }
 
-/// The OTLP/gRPC port. Aperio exports over OTLP/**HTTP**, so an endpoint
-/// pointing here is the one misconfiguration worth naming outright: a
-/// collector really is listening, the TCP connection really does succeed, and
-/// every span is still dropped because the other side speaks gRPC.
-const OTLP_GRPC_PORT: u16 = 4317;
+/// How long the startup probe waits for the collector, in total.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Best-effort startup check of the OTLP endpoint. Spans are exported
 /// asynchronously and a broken endpoint (wrong host/port, wrong protocol, DNS,
 /// collector down) is otherwise silent — every span is just dropped.
 ///
-/// The check is a real OTLP/HTTP export of *zero* spans: an empty body is a
-/// valid, empty `ExportTraceServiceRequest`, so a working collector accepts it
-/// and records nothing. That matters because the previous version only opened
-/// a TCP socket, which cannot tell a collector apart from anything else
-/// listening on that port — pointed at the gRPC port it reported "reachable"
+/// Each transport is probed the way it is actually spoken, because a check
+/// that is merely *near* the real path is what produced the bug this replaced:
+/// a plain TCP connect cannot tell a collector apart from anything else
+/// listening on that port, so pointed at the gRPC port it reported "reachable"
 /// while every real export failed.
 ///
 /// Runs synchronously with blocking IO so it is independent of any Tokio
 /// runtime (`init` may be called before/without one); callers run it on a
 /// detached thread so startup never blocks.
-fn probe_endpoint(endpoint: String) {
+fn probe_target(protocol: OtlpProtocol, endpoint: String) {
+  match protocol {
+    OtlpProtocol::Http => probe_http(endpoint),
+    OtlpProtocol::Grpc => probe_grpc(endpoint),
+  }
+}
+
+/// Probes the HTTP transport with a real OTLP export of *zero* spans: an empty
+/// body is a valid, empty `ExportTraceServiceRequest`, so a working collector
+/// accepts it and records nothing.
+fn probe_http(endpoint: String) {
   let port = endpoint_host_port(&endpoint).map(|(_, port)| port);
-  let grpc_hint = if port == Some(OTLP_GRPC_PORT) {
+  let hint = if port == Some(OTLP_GRPC_PORT) {
     concat!(
-      " — port 4317 is the OTLP/gRPC port and this build exports over ",
-      "OTLP/HTTP; use the HTTP port (4318 by default) instead"
+      " — port 4317 is the OTLP/gRPC port and this endpoint is being spoken to ",
+      "over OTLP/HTTP; set `otel.protocol: grpc`, or use the HTTP port 4318"
     )
   } else {
     ""
   };
 
   let client = match reqwest_otlp::blocking::Client::builder()
-    .timeout(std::time::Duration::from_secs(5))
+    .timeout(PROBE_TIMEOUT)
     .build()
   {
     Ok(client) => client,
@@ -164,15 +287,101 @@ fn probe_endpoint(endpoint: String) {
       "OTLP endpoint {} answered {} to a test export — traces may be dropped{}",
       endpoint,
       res.status(),
-      grpc_hint
+      hint
     ),
     Err(e) => tracing::warn!(
       "OTLP endpoint {} did not accept a test export ({}) — trace spans will be dropped{}",
       endpoint,
       e,
-      grpc_hint
+      hint
     ),
   }
+}
+
+/// Probes the gRPC transport by completing the HTTP/2 connection preface.
+///
+/// gRPC has no request that is safe to send blind and free of side effects the
+/// way an empty OTLP/HTTP body is, so the probe stops one layer lower: it
+/// checks that the endpoint speaks HTTP/2, which gRPC is defined on top of and
+/// which an OTLP/HTTP or plain HTTP/1 listener does not. That is genuinely
+/// weaker evidence than the HTTP probe's end-to-end export, and the log says
+/// so rather than claiming an export succeeded.
+///
+/// TLS endpoints are left alone: verifying them means an ALPN handshake, and a
+/// probe that quietly downgraded to a bare TCP connect would be the lie this
+/// whole design exists to avoid.
+fn probe_grpc(endpoint: String) {
+  let Some((host, port)) = endpoint_host_port(&endpoint) else {
+    tracing::warn!("OTLP endpoint {} could not be parsed to probe it", endpoint);
+    return;
+  };
+  if endpoint
+    .split("://")
+    .next()
+    .unwrap_or("")
+    .eq_ignore_ascii_case("https")
+  {
+    tracing::info!(
+      "OpenTelemetry OTLP/gRPC export targets {} (TLS endpoint, not probed at startup)",
+      endpoint
+    );
+    return;
+  }
+  let hint = if port == OTLP_HTTP_PORT {
+    concat!(
+      " — port 4318 is the OTLP/HTTP port and this endpoint is being spoken to ",
+      "over OTLP/gRPC; set `otel.protocol: http`, or use the gRPC port 4317"
+    )
+  } else {
+    ""
+  };
+  match speaks_http2(&host, port) {
+    Ok(true) => tracing::info!(
+      "OTLP endpoint {} completed an HTTP/2 handshake, the transport OTLP/gRPC runs on",
+      endpoint
+    ),
+    Ok(false) => tracing::warn!(
+      "OTLP endpoint {} answered without HTTP/2 — trace spans will be dropped{}",
+      endpoint,
+      hint
+    ),
+    Err(e) => tracing::warn!(
+      "OTLP endpoint {} did not complete an HTTP/2 handshake ({}) — trace spans will be dropped{}",
+      endpoint,
+      e,
+      hint
+    ),
+  }
+}
+
+/// Opens the HTTP/2 connection preface against a cleartext endpoint and waits
+/// for the peer's mandatory SETTINGS frame. `Ok(false)` means the peer answered
+/// with something that is not an HTTP/2 frame.
+fn speaks_http2(host: &str, port: u16) -> std::io::Result<bool> {
+  use std::io::{Read, Write};
+  use std::net::{TcpStream, ToSocketAddrs};
+
+  /// RFC 9113 §3.4 client connection preface.
+  const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+  /// An empty SETTINGS frame: 3-byte length, type 0x4, no flags, stream 0.
+  const EMPTY_SETTINGS: [u8; 9] = [0, 0, 0, 4, 0, 0, 0, 0, 0];
+  /// Frame type of SETTINGS, at byte 3 of a frame header.
+  const FRAME_TYPE_SETTINGS: u8 = 4;
+
+  let addr = (host, port)
+    .to_socket_addrs()?
+    .next()
+    .ok_or_else(|| std::io::Error::other(format!("no address for {host}:{port}")))?;
+  let mut stream = TcpStream::connect_timeout(&addr, PROBE_TIMEOUT)?;
+  stream.set_read_timeout(Some(PROBE_TIMEOUT))?;
+  stream.set_write_timeout(Some(PROBE_TIMEOUT))?;
+  stream.write_all(PREFACE)?;
+  stream.write_all(&EMPTY_SETTINGS)?;
+  stream.flush()?;
+  // A server must answer the preface with its own SETTINGS frame first.
+  let mut header = [0u8; 9];
+  stream.read_exact(&mut header)?;
+  Ok(header[3] == FRAME_TYPE_SETTINGS)
 }
 
 /// Service name reported on every span (`APERIO_OTEL_SERVICE_NAME`, then
@@ -186,31 +395,45 @@ fn resolve_service_name() -> String {
     .unwrap_or_else(|| "aperio-server".to_string())
 }
 
-/// Builds the OTLP/HTTP batch exporter and tracer provider.
-fn build_provider() -> Result<SdkTracerProvider, String> {
-  // The OTLP HTTP exporter builds a reqwest Client on the `rustls-no-provider`
-  // stack, which requires a process-wide crypto provider to already be
-  // installed. `main()` installs ring at startup, but guarantee it here too so
-  // the exporter never depends on call ordering (and so unit tests that build a
-  // provider directly work without a full server boot). Idempotent: a no-op
-  // once a default is set.
+/// Builds the batch exporter for the resolved transport and the tracer
+/// provider around it.
+///
+/// Must be called from within a Tokio runtime when the transport is gRPC:
+/// tonic's channel spawns the task that drives the connection onto the runtime
+/// that is current at build time, and the batch processor's own thread then
+/// only waits on it. `init` runs inside the server runtime, so this holds.
+fn build_provider(target: &OtlpTarget) -> Result<SdkTracerProvider, String> {
+  // Both exporters build a rustls client on a `no-provider` stack, which
+  // requires a process-wide crypto provider to already be installed. `main()`
+  // installs ring at startup, but guarantee it here too so the exporter never
+  // depends on call ordering (and so unit tests that build a provider directly
+  // work without a full server boot). Idempotent: a no-op once a default is set.
   let _ = rustls::crypto::ring::default_provider().install_default();
-  let endpoint = resolve_endpoint();
-  let exporter = SpanExporter::builder()
-    .with_http()
-    .with_endpoint(&endpoint)
-    .with_protocol(Protocol::HttpBinary)
-    .build()
-    .map_err(|e| format!("OTLP span exporter build failed: {e}"))?;
   let resource = Resource::builder()
     .with_service_name(resolve_service_name())
     .build();
-  Ok(
-    SdkTracerProvider::builder()
-      .with_batch_exporter(exporter)
-      .with_resource(resource)
-      .build(),
-  )
+  let builder = SdkTracerProvider::builder().with_resource(resource);
+  // The two exporters are distinct types and `SpanExporter` is not dyn-safe
+  // (its `export` returns an opaque future), so the branch has to wrap the
+  // whole `with_batch_exporter` call rather than just the exporter.
+  let builder = match target.protocol {
+    OtlpProtocol::Http => builder.with_batch_exporter(
+      SpanExporter::builder()
+        .with_http()
+        .with_endpoint(&target.endpoint)
+        .with_protocol(Protocol::HttpBinary)
+        .build()
+        .map_err(|e| format!("OTLP/HTTP span exporter build failed: {e}"))?,
+    ),
+    OtlpProtocol::Grpc => builder.with_batch_exporter(
+      SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(&target.endpoint)
+        .build()
+        .map_err(|e| format!("OTLP/gRPC span exporter build failed: {e}"))?,
+    ),
+  };
+  Ok(builder.build())
 }
 
 /// Installs the tracing subscriber: the JSON stdout layer always, plus the
@@ -231,7 +454,8 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
     return OtelGuard(None);
   }
 
-  match build_provider() {
+  let target = resolve_target();
+  match build_provider(&target) {
     Ok(provider) => {
       global::set_text_map_propagator(TraceContextPropagator::new());
       let tracer = provider.tracer("aperio-server");
@@ -242,15 +466,21 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
         .with(otel_layer)
         .init();
       tracing::info!(
-        "OpenTelemetry OTLP trace export enabled (endpoint: {})",
-        resolve_endpoint()
+        "OpenTelemetry OTLP trace export enabled (protocol: {}, endpoint: {})",
+        target.protocol.as_str(),
+        target.endpoint
       );
+      // Resolution happens before the subscriber exists, so anything odd about
+      // it is reported here instead.
+      if let Some(note) = &target.note {
+        tracing::warn!("OTLP configuration: {}", note);
+      }
       OTEL_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
       // Surface an unreachable collector immediately instead of silently
       // dropping every span. Detached thread with blocking IO — advisory only,
       // never blocks startup and needs no Tokio runtime (export still runs).
-      let probe_endpoint_url = resolve_endpoint();
-      std::thread::spawn(move || probe_endpoint(probe_endpoint_url));
+      let (protocol, endpoint) = (target.protocol, target.endpoint.clone());
+      std::thread::spawn(move || probe_target(protocol, endpoint));
       OtelGuard(Some(provider))
     }
     Err(e) => {
