@@ -556,6 +556,19 @@ fn init_installs_subscriber_across_all_branches() {
   set("APERIO_OTEL", "1");
   set("APERIO_OTEL_ENDPOINT", "http://localhost:4318");
   let guard = init(EnvFilter::new("info"));
+
+  // The global tracer provider must be the real one. `emit_phase_spans` builds
+  // every phase child through `global::tracer`, and the default global provider
+  // is a noop that drops them without a word — the symptom is a trace that
+  // arrives with only its root `proxy.request` span and no breakdown at all.
+  // A noop span carries the invalid (all-zero) span context; a real one does not.
+  let probe_span = global::tracer("test").start("global-provider-probe");
+  assert!(
+    probe_span.span_context().is_valid(),
+    "global tracer provider is still the noop: phase spans would be discarded"
+  );
+  drop(probe_span);
+
   guard.shutdown();
 
   // Silence the deliberate double-init panics below.

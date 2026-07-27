@@ -458,6 +458,13 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
   match build_provider(&target) {
     Ok(provider) => {
       global::set_text_map_propagator(TraceContextPropagator::new());
+      // The tracing layer holds its own tracer, but `emit_phase_spans` builds
+      // the per-request phase children through `global::tracer`, and the global
+      // provider defaults to a noop that silently discards everything handed to
+      // it. Without this line a trace arrives at the collector as a single
+      // `proxy.request` span with none of its breakdown, and nothing anywhere
+      // reports an error.
+      global::set_tracer_provider(provider.clone());
       let tracer = provider.tracer("aperio-server");
       let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
       tracing_subscriber::registry()
