@@ -353,3 +353,40 @@ fn test_merge_security_headers() {
   assert!(!resp.add.contains_key("Referrer-Policy"));
   assert!(resp.add.contains_key("Strict-Transport-Security"));
 }
+
+#[test]
+fn test_home_config_supplies_the_list_sections() {
+  // `services:`, `tunnels:` and `bind-tunnels:` used to be read from the
+  // local file only, so declaring them in ~/.aperio.yaml did nothing at all
+  // while every neighbouring key layered normally.
+  let cli = CliArgs {
+    mode: CliMode::Run,
+    target: None,
+    local_port: None,
+    opts: CommonOpts::default(),
+  };
+  let home: FileConfig = serde_yaml::from_str(
+    "server:\n  url: https://home.example.com\n  token: apr_home\n\
+     services:\n  - name: web\n    target: http://localhost:3000\n\
+     tunnels:\n  - target: 127.0.0.1:27017\n",
+  )
+  .unwrap();
+
+  // Home alone: its sections are used.
+  let s = resolve_settings(&cli, &home, &FileConfig::default()).unwrap();
+  assert_eq!(s.services.len(), 1);
+  assert_eq!(s.services[0].name.as_deref(), Some("web"));
+  assert_eq!(s.tunnels.len(), 1);
+
+  // A local file that declares its own replaces the home one wholesale,
+  // rather than merging entry by entry.
+  let local: FileConfig = serde_yaml::from_str(
+    "services:\n  - name: api\n    target: http://localhost:4000\n  - name: docs\n    target: http://localhost:5000\n",
+  )
+  .unwrap();
+  let s = resolve_settings(&cli, &home, &local).unwrap();
+  assert_eq!(s.services.len(), 2);
+  assert_eq!(s.services[0].name.as_deref(), Some("api"));
+  // A section the local file does not mention still comes from home.
+  assert_eq!(s.tunnels.len(), 1);
+}

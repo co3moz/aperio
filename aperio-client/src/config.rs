@@ -940,7 +940,16 @@ pub(crate) fn resolve_settings(
       )
       .as_deref(),
     ),
-    services: local.services.clone().unwrap_or_default(),
+    // The three list/map sections layer like every other key: a local file
+    // that declares one replaces the home file's, and a home file alone is
+    // used as written. They used to be read from the local file only, so a
+    // `services:` (or `tunnels:`/`bind-tunnels:`) block in ~/.aperio.yaml was
+    // silently ignored while every neighbouring key was honoured.
+    services: local
+      .services
+      .clone()
+      .or_else(|| home.services.clone())
+      .unwrap_or_default(),
     client_id: layered(
       o.client_id.clone(),
       local.client_id.clone(),
@@ -948,8 +957,16 @@ pub(crate) fn resolve_settings(
       home.client_id.clone(),
     )
     .and_then(nonempty),
-    tunnels: local.tunnels.clone().unwrap_or_default(),
-    bind_tunnels: local.bind_tunnels.clone().unwrap_or_default(),
+    tunnels: local
+      .tunnels
+      .clone()
+      .or_else(|| home.tunnels.clone())
+      .unwrap_or_default(),
+    bind_tunnels: local
+      .bind_tunnels
+      .clone()
+      .or_else(|| home.bind_tunnels.clone())
+      .unwrap_or_default(),
   })
 }
 
