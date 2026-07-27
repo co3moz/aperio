@@ -1,5 +1,5 @@
 # Dashboard Build Stage
-FROM node:22-alpine AS dashboard
+FROM node:26-alpine AS dashboard
 WORKDIR /usr/src/aperio/aperio-dashboard
 COPY aperio-dashboard/package.json aperio-dashboard/package-lock.json ./
 RUN npm ci
