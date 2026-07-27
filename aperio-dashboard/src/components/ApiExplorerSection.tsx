@@ -104,7 +104,14 @@ function OperationRow({ method, path, op }: Operation) {
       </button>
       {open && (
         <div className="min-w-0 space-y-3 border-t bg-muted/30 px-11 py-3">
-          {op.description && <p className="text-sm text-muted-foreground">{op.description}</p>}
+          {op.description && (
+            // Descriptions come from the server's own OpenAPI document and can
+            // be long; bound them to the viewport so a wordy operation cannot
+            // push the whole page sideways.
+            <p className="max-w-[40vw] text-sm text-muted-foreground">
+              {op.description}
+            </p>
+          )}
           {pathParams.map((p) => (
             <div key={p.name} className="flex items-center gap-2">
               <code className="w-40 shrink-0 font-mono text-xs">{`{${p.name}}`}</code>
@@ -233,7 +240,9 @@ export function ApiExplorerSection() {
       </SectionHeader>
 
       {doc?.info?.description && (
-        <p className="max-w-3xl text-sm text-muted-foreground">{doc.info.description}</p>
+        <p className="max-w-[min(40vw,48rem)] text-sm text-muted-foreground">
+          {doc.info.description}
+        </p>
       )}
 
       {error ? (
@@ -253,7 +262,9 @@ export function ApiExplorerSection() {
           <div key={group.tag} className="flex flex-col gap-1.5">
             <h3 className="mt-2 text-sm font-semibold capitalize">{group.tag}</h3>
             {group.description && (
-              <p className="text-xs text-muted-foreground">{group.description}</p>
+              <p className="max-w-[40vw] text-xs text-muted-foreground">
+                {group.description}
+              </p>
             )}
             <Card className="overflow-hidden py-0">
               {group.ops.map((o) => (
