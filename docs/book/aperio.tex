@@ -2180,8 +2180,6 @@ overrides win over both. Generated from the reference tables in
 \addlinespace[2pt]
 \code{APERIO\_UI\_LANGUAGE} & Default dashboard/login UI language (\code{en}, \code{de}, \code{es}, \code{fr}, \code{tr}, \code{ru}, \code{zh}, \code{ja}) used when the visitor's browser language is unsupported; also dashboard-editable. & \code{en} \\
 \addlinespace[2pt]
-\code{APERIO\_DASHBOARD\_AUTH} & Separate dashboard-only password (username \code{aperio}), so the master token doesn't have to be shared with dashboard users. &  \\
-\addlinespace[2pt]
 \code{APERIO\_TOKEN\_EXPIRY\_WARNING} & Seconds before a dynamic token's expiry at which a \code{token\_expiring} webhook/audit event fires (once per token per expiry window; \code{0} = off). The dashboard tokens table shows an "expiring soon" badge in the last 24 h regardless. & \code{86400} (24 h) \\
 \addlinespace[2pt]
 \code{APERIO\_TOKEN\_PINNING} & \code{1} = trust-on-first-use device pinning: the first client device key seen for a dynamic token is pinned, and a later connection presenting a different (or missing) key for that token is rejected, so a leaked token replayed from another machine cannot serve. See \emph{Tokens \& Authentication}. & \code{0} \\

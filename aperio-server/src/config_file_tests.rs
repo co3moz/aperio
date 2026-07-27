@@ -368,3 +368,29 @@ fn reload_handles_valid_null_and_error_documents() {
   let err = reload().unwrap_err();
   assert!(err.contains("cannot read"));
 }
+
+#[test]
+fn a_removed_setting_is_still_materialized_so_the_guard_can_see_it() {
+  let _g = CfgGuard::lock();
+  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  unsafe { std::env::remove_var("APERIO_DASHBOARD_AUTH") };
+  // `dashboard_auth` and `dashboard.auth` were both removed from the schema,
+  // but the loader is generic: an unknown scalar key still becomes its
+  // environment variable. That is what lets the startup guard notice a config
+  // that still sets it, in either spelling, rather than ignoring it silently.
+  std::fs::write(&file, "dashboard:\n  auth: leftover\n").unwrap();
+  set_config_env(&file);
+  load();
+  assert_eq!(std::env::var("APERIO_DASHBOARD_AUTH").unwrap(), "leftover");
+
+  unsafe { std::env::remove_var("APERIO_DASHBOARD_AUTH") };
+  std::fs::write(&file, "dashboard_auth: flat-leftover\n").unwrap();
+  load();
+  assert_eq!(
+    std::env::var("APERIO_DASHBOARD_AUTH").unwrap(),
+    "flat-leftover"
+  );
+  unsafe { std::env::remove_var("APERIO_DASHBOARD_AUTH") };
+
+  let _ = std::fs::remove_file(&file);
+}

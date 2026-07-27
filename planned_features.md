@@ -405,6 +405,20 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   the same case: serving large downloads out of a `serve:` directory.
   (From the 2026-07 four-agent review.)
 
+- [ ] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
+  field.** Entries currently apply on the version range alone, so a config that
+  never set the changed key still gets the report on upgrade. That is tolerable
+  for a warning and wrong for a refusal: a `Security` entry would stop a server
+  whose file is entirely unaffected, which is the outage-generator failure mode
+  CLAUDE.md rule 18 warns about. The removal of `dashboard_auth` worked around
+  it with a dedicated presence check in `main.rs` (`REMOVED_SETTINGS`) plus a
+  `Breaking` entry, which is precise but does not generalize. Fix: pass the
+  parsed document into `check_upgrade` and filter entries to those whose
+  `fields` appear in it, keeping the range check as the outer gate. Then
+  `Security` becomes safe to use, the per-change presence checks can go, and
+  the report stops mentioning keys the operator does not have.
+  (From the 2026-07 dashboard_auth removal.)
+
 - [ ] **#17 Tunable stream flow control and slow-read (Slowloris-style)
   defenses.** The per-stream pause/resume flow control (protocol v3) hardcodes
   its knobs in `aperio-server/src/state.rs`: `STREAM_PAUSE_BYTES` (2 MiB),

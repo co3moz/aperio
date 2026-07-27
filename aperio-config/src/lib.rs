@@ -970,8 +970,6 @@ pub struct CacheGroup {
 pub struct DashboardGroup {
   /// Serve the admin dashboard.
   pub enabled: Option<bool>,
-  /// Dashboard password.
-  pub auth: Option<String>,
 }
 
 /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server.
@@ -1654,8 +1652,6 @@ pub struct ServerFileConfig {
   /// Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).
   #[schemars(extend("examples" = ["en", "tr"]))]
   pub ui_language: Option<String>,
-  /// Deprecated spelling of `dashboard.auth` (env: APERIO_DASHBOARD_AUTH).
-  pub dashboard_auth: Option<String>,
   /// Days before a token's expiry to start warning (env: APERIO_TOKEN_EXPIRY_WARNING).
   pub token_expiry_warning: Option<u64>,
   /// Deprecated spelling of `oidc.issuer` (env: APERIO_OIDC_ISSUER).

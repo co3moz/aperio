@@ -140,7 +140,14 @@ pub struct ConfigChange {
 /// after the fact would mean guessing at which past releases moved which
 /// keys. From now on, a change that can alter how an existing file behaves is
 /// recorded here in the same commit that makes it (see CLAUDE.md).
-pub const CONFIG_CHANGES: &[ConfigChange] = &[];
+pub const CONFIG_CHANGES: &[ConfigChange] = &[ConfigChange {
+  version: "0.6.0",
+  surface: ConfigSurface::Server,
+  severity: ChangeSeverity::Breaking,
+  fields: &["dashboard_auth", "dashboard.auth"],
+  summary: "The separate dashboard password is gone; the dashboard is entered as aperio:<master token>, or as a named user.",
+  action: "Remove the key. Anyone who signed in with it needs a dashboard user (Users page), or their own organization.",
+}];
 
 /// What the version check concluded.
 #[derive(Debug, Clone)]

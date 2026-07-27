@@ -2,7 +2,7 @@
 
 Aperio has several independent auth layers. They answer different questions, *who may open a tunnel*, *who may visit the proxied site*, and *who may administer the server*, and you enable only the ones you need.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SERVER_AUTH` → `server_auth`, `APERIO_DASHBOARD_AUTH` → `dashboard_auth`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SERVER_AUTH` → `server_auth`, `APERIO_MAX_TUNNELS` → `max_tunnels`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## The master token
 
@@ -80,7 +80,7 @@ To let specific people through a protected site *without* an account, use [Share
 
 ## Dashboard access
 
-By default the dashboard password is the master token. Set `APERIO_DASHBOARD_AUTH` to give dashboard users a separate password without handing them root, or `APERIO_DASHBOARD=0` to disable the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
+The dashboard password is the master token. To let someone in without handing them root, create a named dashboard user (Users page) or give them their own [organization](organizations.md) rather than sharing a second server-wide password; `APERIO_DASHBOARD=0` disables the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
 
 Named dashboard users are created on the *Users* page and carry a role (viewer / operator / admin). The built-in `aperio` admin, the master token, dashboard password, and OIDC logins, is the super-admin.
 

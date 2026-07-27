@@ -339,7 +339,10 @@ async fn login_master_token_creates_global_session() {
 }
 
 #[tokio::test]
-async fn login_dashboard_password_env_grants_access() {
+async fn login_rejects_the_removed_dashboard_password() {
+  // APERIO_DASHBOARD_AUTH was a second dashboard credential; it is gone, and
+  // the server refuses to start while it is set. Should that guard ever be
+  // bypassed, the value must not authenticate anything on its own.
   let state = Arc::new(test_state());
   unsafe {
     std::env::set_var("APERIO_DASHBOARD_AUTH", "dashsecret");
@@ -353,9 +356,7 @@ async fn login_dashboard_password_env_grants_access() {
   unsafe {
     std::env::remove_var("APERIO_DASHBOARD_AUTH");
   }
-  let res = res.unwrap();
-  assert_eq!(res.status(), StatusCode::OK);
-  assert!(res.headers().get("set-cookie").is_some());
+  assert_eq!(res.unwrap_err(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

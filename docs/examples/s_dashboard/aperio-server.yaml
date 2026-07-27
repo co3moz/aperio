@@ -2,10 +2,10 @@ server:
   token: apr_dashboard_change_me
 port: 8080
 
-# The dashboard is built in at /aperio. By default you sign in as user "aperio"
-# with the master token above. Give it a separate password so the master token
-# need not be shared with dashboard users (username stays "aperio"):
-dashboard_auth: a-dashboard-password
+# The dashboard is built in at /aperio. You sign in as user "aperio" with the
+# master token above. To let anyone else in without sharing it, create a named
+# dashboard user (Users page) or give them their own organization — there is no
+# second server-wide password.
 
 # Fence the admin surface (the dashboard + /aperio/api/*) to your operator
 # network. The login page and visitor-auth endpoints stay reachable so proxied

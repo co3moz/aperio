@@ -134,6 +134,7 @@ fn main() {
   // anything binds a port, since a security-relevant change must stop the
   // start rather than be noticed afterwards.
   report_config_upgrade();
+  refuse_removed_settings();
 
   // `aperio-server --check-config` lints the layered configuration (file +
   // environment) and exits without starting the server.
@@ -197,6 +198,42 @@ fn install_panic_logger() {
       "panic caught — the task/connection is unwound; the process continues"
     );
   }));
+}
+
+/// Settings that no longer exist, and what to do instead.
+///
+/// A removed key that is merely ignored is the worst outcome: the file still
+/// says the dashboard has its own password, the server no longer agrees, and
+/// nobody finds out until someone tries to sign in. Refusing to start turns a
+/// silent authentication change into an obvious one, at the only moment the
+/// operator is watching.
+const REMOVED_SETTINGS: &[(&str, &str)] = &[(
+  "APERIO_DASHBOARD_AUTH",
+  "the separate dashboard password was removed. Sign in as `aperio:<APERIO_SERVER_TOKEN>`, \
+   or create a dashboard user (Users page) or an organization for anyone who used it. \
+   Remove `dashboard_auth:` / `dashboard.auth:` from the configuration to start.",
+)];
+
+/// Refuses to start when the configuration still sets a removed key.
+///
+/// Runs before the runtime exists, so it prints rather than logs, like the
+/// upgrade check beside it. Every spelling is covered by checking the
+/// environment variable: the file loader materializes both the flat key and
+/// the block child into it.
+fn refuse_removed_settings() {
+  let mut refused = false;
+  for (var, guidance) in REMOVED_SETTINGS {
+    let set = std::env::var(var)
+      .map(|v| !v.trim().is_empty())
+      .unwrap_or(false);
+    if set {
+      eprintln!("aperio-server: {var} is set, but {guidance}");
+      refused = true;
+    }
+  }
+  if refused {
+    std::process::exit(1);
+  }
 }
 
 /// The Aperio version the configuration declares (`version:` in
@@ -1125,14 +1162,6 @@ async fn async_main() {
   let mut app = Router::new().fallback(any(proxy_handler));
 
   if dashboard_enabled {
-    let dashboard_auth = std::env::var("APERIO_DASHBOARD_AUTH").ok();
-    if dashboard_auth.is_none() || dashboard_auth.as_ref().unwrap().trim().is_empty() {
-      warn!(
-        "APERIO_DASHBOARD is enabled but APERIO_DASHBOARD_AUTH is not set! \
-           The dashboard can still be accessed using aperio:<APERIO_SERVER_TOKEN>."
-      );
-    }
-
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
       .route("/api/stats", get(stats_handler))

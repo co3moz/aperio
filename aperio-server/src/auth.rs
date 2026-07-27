@@ -207,14 +207,6 @@ pub(crate) async fn auth_login_handler(
       if constant_time_eq_str(&decoded_str, &format!("aperio:{}", cfg.token)) {
         scope = Some(None);
       }
-      // Dashboard password (aperio:<pass>) grants full access.
-      if scope.is_none()
-        && let Ok(dash_pass) = std::env::var("APERIO_DASHBOARD_AUTH")
-        && !dash_pass.trim().is_empty()
-        && constant_time_eq_str(&decoded_str, &format!("aperio:{}", dash_pass))
-      {
-        scope = Some(None);
-      }
       // Dashboard users (username:password) -> full session with their role.
       // A user with TOTP enabled must additionally present a valid code (or
       // an unused recovery code) in the X-Aperio-Totp header.

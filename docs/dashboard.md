@@ -1,6 +1,6 @@
 # The Dashboard
 
-The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a separate `APERIO_DASHBOARD_AUTH` (yaml `dashboard_auth`) password). It is a Vite + React app embedded into the server binary, no extra deployment.
+The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a named dashboard user). It is a Vite + React app embedded into the server binary, no extra deployment.
 
 ## Live overview
 

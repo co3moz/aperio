@@ -37,7 +37,7 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
       and automation. Scope each to the hostnames/paths it needs, set a TTL, and
       add per-token rate limits and daily byte quotas where relevant. See
       [Tokens & Authentication](tokens-and-auth.md).
-- [ ] **Give the dashboard its own password (`APERIO_DASHBOARD_AUTH`) or OIDC**,
+- [ ] **Give each operator their own dashboard user, or OIDC**,
       and create per-person accounts with the least role that works
       (viewer/operator/admin) instead of sharing the master login.
 - [ ] **Turn on a second factor** (TOTP or a passkey) for dashboard admins.
