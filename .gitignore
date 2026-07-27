@@ -1,6 +1,10 @@
 # Rust build artifacts
 /target/
 
+# Node dependencies and tool caches. The dashboard ignores its own, but a
+# tool run from the repo root (vitest, npx) creates one here too.
+node_modules/
+
 # Generated JSON Schemas (emitted by the aperio-client build script)
 /schemas/
 
