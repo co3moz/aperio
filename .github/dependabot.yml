@@ -1,0 +1,76 @@
+version: 2
+
+# Dependency surfaces Dependabot should watch, with pull requests switched off.
+#
+# `open-pull-requests-limit: 0` disables version-update PRs for an ecosystem
+# while keeping it declared, so what gets watched is written down and turning
+# the flow back on is a one-line change per entry rather than a rediscovery of
+# which directories matter. Findings are read from the Security tab instead.
+#
+# The rest of each entry (schedule, grouping) is therefore inert today and
+# exists to describe what should happen when the limit is raised: weekly PRs,
+# batched, because every Dependabot PR runs the full CI matrix and a Rust
+# workspace this size would otherwise open a dozen single-crate builds a week.
+#
+# `aperio-dashboard/package.json` is deliberately absent: the dashboard ships
+# as a bundle behind an authenticated surface, and the churn of the npm tree
+# would cost more CI time than the risk it retires.
+#
+# Note this file governs *version* updates only. Dependabot security updates
+# open PRs regardless of what is written here and cannot be scoped by
+# directory; that switch is in Settings -> Code security. Dependabot *alerts*,
+# which populate the Security tab, are a separate switch and are the one to
+# leave on.
+updates:
+  # The Cargo workspace: aperio-server, aperio-client, aperio-config and the
+  # test helpers all resolve through the root manifest and lockfile.
+  - package-ecosystem: cargo
+    directory: /
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      # One PR for the compatible-by-semver churn, which is most of it.
+      cargo-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+      # Majors stay separate: each one needs reading, not batching.
+      cargo-major:
+        update-types:
+          - major
+
+  # Workflow actions. These run with repository credentials, so a stale or
+  # compromised action is the highest-leverage supply-chain risk in the repo.
+  - package-ecosystem: github-actions
+    directory: /
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Base images for the published containers. Mostly quiet, since the
+  # Dockerfiles track floating tags (`alpine:latest`, `rust:alpine`) that
+  # Dependabot cannot pin a version to; this catches the ones that are pinned.
+  - package-ecosystem: docker
+    directories:
+      - /aperio-server
+      - /aperio-client
+    open-pull-requests-limit: 0
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(docker)
+    groups:
+      images:
+        patterns:
+          - "*"
