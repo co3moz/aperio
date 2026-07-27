@@ -1201,6 +1201,10 @@ async fn async_main() {
         get(crate::api::openapi::openapi_handler),
       )
       .route(
+        "/api/config/schema/:kind",
+        get(crate::api::config_schema::config_schema_handler),
+      )
+      .route(
         "/api/stage-stats",
         get(crate::api::metrics::stage_stats_handler),
       )

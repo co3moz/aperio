@@ -18,6 +18,7 @@ import {
   WebhookIcon,
   WaypointsIcon,
   Building2Icon,
+  FileCog2Icon,
 } from 'lucide-react'
 import { UsersIcon } from 'lucide-react'
 import { OrgSwitcher } from './OrgSwitcher'
@@ -54,6 +55,7 @@ export type Page =
   | 'users'
   | 'organizations'
   | 'api'
+  | 'config-builder'
 
 export interface PageSpec {
   id: Page
@@ -101,6 +103,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
       { id: 'api', label: 'API Explorer', icon: BracesIcon, hint: 'Browse & try the admin API' },
+      { id: 'config-builder', label: 'Config Builder', icon: FileCog2Icon, hint: 'Build an aperio.yaml or aperio-server.yaml' },
     ],
   },
 ]

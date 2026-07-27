@@ -19,6 +19,7 @@ import { StageStatsSection } from './components/StageStatsSection'
 import { CacheStatsSection } from './components/CacheStatsSection'
 import { SelfHealthSection } from './components/SelfHealthSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
+import { ConfigBuilderSection } from './components/ConfigBuilderSection'
 import { InboxSection } from './components/InboxSection'
 import { BandwidthSection } from './components/BandwidthSection'
 import { RouteTrendsSection } from './components/RouteTrendsSection'
@@ -398,6 +399,7 @@ export default function App() {
               {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}
               {page === 'api' && <ApiExplorerSection />}
+              {page === 'config-builder' && <ConfigBuilderSection />}
             </>
           )}
         </main>

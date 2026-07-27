@@ -1,3 +1,4 @@
+import type { JsonSchema } from './configSchema'
 // Typed client for the aperio-server dashboard API. Shapes mirror the
 // Serialize structs in aperio-server (main.rs, stats.rs, tokens.rs, ...).
 
@@ -608,6 +609,9 @@ export const api = {
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),
   clientConfig: (id: string) =>
     request<ClientConfigView>(`/clients/${encodeURIComponent(id)}/config`),
+  /** JSON Schema of a configuration file, driving the config builder. */
+  configSchema: (kind: 'client' | 'server') =>
+    request<JsonSchema>(`/config/schema/${kind}`),
   overrideClient: (id: string, hostnameBinds: string[], pathBind: string) =>
     mutate(
       `/clients/${encodeURIComponent(id)}/override`,

@@ -100,6 +100,15 @@ Almost every runtime setting, timeouts, limits, load-balancing strategy, failove
 
 The *API Explorer* page (System group) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded, no external Swagger assets are loaded.
 
+
+
+## Config builder
+
+The *Config Builder* page (System group) writes an `aperio.yaml` or an `aperio-server.yaml` for you. Pick which of the two at the top, then either start from **New** or press **Import YAML** and paste a document (or open a file) to edit one you already have. **Export YAML** at the bottom shows the finished document to copy, or saves it as a file named after the side you chose.
+
+The form is generated from the JSON Schema this server serves (`GET /aperio/api/config/schema/{client|server}`), which is derived from the very Rust types that parse these files. That is the point of building it this way: the page offers exactly the settings the running binary understands, so it cannot drift ahead of an older server or lag behind a newer one, and each field carries the setting's own documentation.
+
+Where the schema knows the shape, the form helps: a setting with fixed values becomes a select, a byte size is entered as an amount plus a unit rather than a raw count, a list of scalars takes a comma-separated line, and `services:`, `tunnels:` and the other lists of objects get add/remove entry cards. Fields left empty are omitted from the file entirely rather than written as blanks, so the binary keeps its own default. A section too structured to render as a form is marked as such and preserved exactly as imported, so opening an existing file here never loses anything.
 ## The admin API
 
 Everything the dashboard does goes through a REST API under `/aperio/api/`, and the whole surface is described by a generated OpenAPI 3.1 document at `GET /aperio/api/openapi.json`, point Swagger UI, Postman, or a client generator at it to script the server (mint tokens, read stats, toggle maintenance) with the same authentication as the dashboard. The endpoint list also lives in the [Configuration Reference](configuration.md), and `aperio-client api ...` wraps the same surface as a command line, see [Admin API from the CLI](cli-api.md).

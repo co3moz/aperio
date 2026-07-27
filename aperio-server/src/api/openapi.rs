@@ -23,6 +23,7 @@ use utoipa::OpenApi;
   paths(
     crate::api::health_handler,
     crate::api::metrics::metrics_handler,
+    crate::api::config_schema::config_schema_handler,
     crate::api::edge::edge_ask_handler,
     crate::api::edge::edge_traefik_handler,
     crate::api::metrics::stage_stats_handler,
