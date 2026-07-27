@@ -726,7 +726,6 @@ export const tr: Record<string, string> = {
   'on': 'açık',
   'unset (server default)': 'ayarlanmamış (sunucu varsayılanı)',
   'unit': 'birim',
-  'is too structured to edit here; it is preserved exactly as imported.': 'burada düzenlenemeyecek kadar yapılandırılmış; içe aktarıldığı gibi korunur.',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Bu hostname için gelen istek, servis başlarken hata vermek yerine en fazla {secs} sn bekletilir.',
   'A scoped, revocable Bearer credential for automation — no master token needed.': 'Otomasyon için kapsamlı ve iptal edilebilir bir Bearer kimlik bilgisi — ana token gerekmez.',
   'Admin key "{name}" created': '"{name}" yönetici anahtarı oluşturuldu',
@@ -824,4 +823,10 @@ export const tr: Record<string, string> = {
   'The CLI shorthand: one backend configured at the top level, with no services: list.': 'CLI kısayolu: en üst düzeyde tek bir arka uç, services: listesi olmadan.',
   'Other settings': 'Diğer ayarlar',
   'Everything not filed under a section above.': 'Yukarıdaki bölümlere girmeyen her şey.',
+  'More settings': 'Daha fazla ayar',
+  'Edit as YAML': 'YAML olarak düzenle',
+  'configured': 'yapılandırıldı',
+  'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'Bu bölümün sabit bir şekli yok, bu yüzden YAML olarak düzenlenir. Kaldırmak için boş bırakın.',
+  'Configures a tunnel client and the backends it exposes.': 'Bir tünel istemcisini ve yayınladığı arka uçları yapılandırır.',
+  'Configures the Aperio server itself.': 'Aperio sunucusunun kendisini yapılandırır.',
 }

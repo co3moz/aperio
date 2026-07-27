@@ -62,6 +62,8 @@ import {
   MULTI_ONLY_KEYS,
   SERVER_GROUPS,
   SINGLE_ONLY_KEYS,
+  essentialRank,
+  isEssential,
   type GroupSpec,
 } from '@/lib/configGroups'
 import { useI18n } from '@/i18n'
@@ -79,10 +81,20 @@ function countSet(fields: Field[], doc: Doc): number {
   return fields.filter((f) => getAt(doc, f.path) !== undefined).length
 }
 
-/** One rendered section: its spec plus the fields that survived filtering. */
+/** One rendered section: the fields to decide first, and the rest. */
 interface Section {
   spec: GroupSpec
-  fields: Field[]
+  /** Shown inline when the section is open. */
+  essential: Field[]
+  /** Behind a nested accordion, so a long section stays readable. */
+  rest: Field[]
+  /** Both tiers, for counting. */
+  all: Field[]
+}
+
+/** Orders fields so the ones you decide first lead. */
+function orderFields(fields: Field[]): Field[] {
+  return [...fields].sort((a, b) => essentialRank(a.key) - essentialRank(b.key))
 }
 
 /**
@@ -105,6 +117,13 @@ function sectionsFor(
     // otherwise the form would invite writing the key we want retired.
     (!f.deprecated || getAt(doc, f.path) !== undefined)
 
+  const split = (spec: GroupSpec, picked: Field[]): Section => ({
+    spec,
+    essential: picked.filter((f) => isEssential(f.key)),
+    rest: picked.filter((f) => !isEssential(f.key)),
+    all: picked,
+  })
+
   const out: Section[] = []
   for (const spec of groups) {
     const picked: Field[] = []
@@ -114,18 +133,20 @@ function sectionsFor(
       claimed.add(key)
       if (usable(field)) picked.push(field)
     }
-    if (picked.length) out.push({ spec, fields: picked })
+    if (picked.length) out.push(split(spec, picked))
   }
-  const rest = fields.filter((f) => !claimed.has(f.key) && usable(f))
-  if (rest.length) {
-    out.push({
-      spec: {
-        title: 'Other settings',
-        description: 'Everything not filed under a section above.',
-        keys: [],
-      },
-      fields: rest,
-    })
+  const leftovers = fields.filter((f) => !claimed.has(f.key) && usable(f))
+  if (leftovers.length) {
+    out.push(
+      split(
+        {
+          title: 'Other settings',
+          description: 'Everything not filed under a section above.',
+          keys: [],
+        },
+        orderFields(leftovers),
+      ),
+    )
   }
   return out
 }
@@ -236,7 +257,7 @@ export function ConfigBuilderSection() {
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-6">
+        <CardContent className="flex flex-wrap items-start gap-6">
           <div className="flex flex-col gap-2">
             <Label>{t('File')}</Label>
             <ToggleGroup
@@ -252,6 +273,13 @@ export function ConfigBuilderSection() {
               <ToggleGroupItem value="client">aperio.yaml</ToggleGroupItem>
               <ToggleGroupItem value="server">aperio-server.yaml</ToggleGroupItem>
             </ToggleGroup>
+            {/* Keeps this column the same height as the one beside it, which
+                carries a hint under its buttons. */}
+            <p className="max-w-md text-xs text-muted-foreground">
+              {kind === 'client'
+                ? t('Configures a tunnel client and the backends it exposes.')
+                : t('Configures the Aperio server itself.')}
+            </p>
           </div>
           {kind === 'client' && (
             <div className="flex flex-col gap-2">
@@ -300,7 +328,7 @@ export function ConfigBuilderSection() {
                     <span className="flex flex-1 items-center justify-between gap-3 pr-2">
                       <span className="text-left">{t(section.spec.title)}</span>
                       <Badge variant="secondary">
-                        {countSet(section.fields, doc)}/{section.fields.length}
+                        {countSet(section.all, doc)}/{section.all.length}
                       </Badge>
                     </span>
                   </AccordionTrigger>
@@ -309,7 +337,7 @@ export function ConfigBuilderSection() {
                       {t(section.spec.description)}
                     </p>
                     <div className="space-y-5">
-                      {section.fields.map((field) => (
+                      {section.essential.map((field) => (
                         <FieldRow
                           key={field.path}
                           field={field}
@@ -317,6 +345,35 @@ export function ConfigBuilderSection() {
                           onChange={update}
                         />
                       ))}
+                      {section.rest.length > 0 && (
+                        // The long tail of a section, one level deeper: the
+                        // keys you decide first stay visible, the rest are one
+                        // click away instead of thirty rows of scrolling.
+                        <Accordion className="w-full border-t pt-1">
+                          <AccordionItem value="rest">
+                            <AccordionTrigger>
+                              <span className="flex flex-1 items-center justify-between gap-3 pr-2 text-sm font-normal">
+                                <span>{t('More settings')}</span>
+                                <Badge variant="outline">
+                                  {countSet(section.rest, doc)}/{section.rest.length}
+                                </Badge>
+                              </span>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-5">
+                                {section.rest.map((field) => (
+                                  <FieldRow
+                                    key={field.path}
+                                    field={field}
+                                    doc={doc}
+                                    onChange={update}
+                                  />
+                                ))}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        </Accordion>
+                      )}
                     </div>
                   </AccordionContent>
                 </AccordionItem>
@@ -379,8 +436,6 @@ function FieldRow({
   doc: Doc
   onChange: (path: string, value: unknown) => void
 }) {
-  const { t } = useI18n()
-
   if (field.kind === 'object') {
     return (
       <fieldset className="rounded-md border p-3">
@@ -389,7 +444,7 @@ function FieldRow({
           <p className="mb-3 text-xs text-muted-foreground">{field.description}</p>
         )}
         <div className="space-y-4">
-          {field.children?.map((child) => (
+          {orderFields(field.children ?? []).map((child) => (
             <FieldRow
               key={child.path}
               field={child}
@@ -411,14 +466,7 @@ function FieldRow({
   }
 
   if (field.kind === 'unsupported') {
-    return (
-      <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        <span className="font-mono">{field.key}</span>{' '}
-        {t(
-          'is too structured to edit here; it is preserved exactly as imported.',
-        )}
-      </div>
-    )
+    return <RawYamlField field={field} doc={doc} onChange={onChange} />
   }
 
   return (
@@ -635,7 +683,7 @@ function ObjectListField({
               </Button>
             </div>
             <div className="space-y-4">
-              {field.children?.map((child) => (
+              {orderFields(field.children ?? []).map((child) => (
                 <FieldRow
                   key={child.path}
                   field={{ ...child, path: child.key }}
@@ -661,6 +709,97 @@ function ObjectListField({
         </Button>
       </div>
     </fieldset>
+  )
+}
+
+/**
+ * The escape hatch for a shape the schema does not describe well enough to
+ * build a form from — `headers.request`, say, whose value is an open map of
+ * rules. Rather than telling the operator it cannot be edited here, the
+ * subtree is opened as YAML in a dialog: still editable, still validated on
+ * the way back in, and untouched if they change nothing.
+ */
+function RawYamlField({
+  field,
+  doc,
+  onChange,
+}: {
+  field: Field
+  doc: Doc
+  onChange: (path: string, value: unknown) => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const value = getAt(doc, field.path)
+  const isSet = value !== undefined
+
+  const start = () => {
+    setText(isSet ? stringify(value, { lineWidth: 0 }) : '')
+    setProblem(null)
+    setOpen(true)
+  }
+
+  const accept = () => {
+    if (!text.trim()) {
+      onChange(field.path, undefined)
+      setOpen(false)
+      return
+    }
+    try {
+      const parsed: unknown = parse(text)
+      onChange(field.path, parsed ?? undefined)
+      setOpen(false)
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <Label className="font-mono text-xs">{field.key}</Label>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">
+          {isSet ? t('configured') : t('none configured')}
+        </span>
+        <Button variant="outline" size="sm" onClick={start}>
+          <PencilIcon /> {t('Edit as YAML')}
+        </Button>
+      </div>
+      {field.description && (
+        <p className="text-xs text-muted-foreground">{field.description}</p>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono">{field.key}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid min-w-0 gap-3">
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={12}
+              spellCheck={false}
+              className="font-mono text-xs"
+            />
+            {problem && <p className="text-sm text-destructive">{problem}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button onClick={accept}>{t('OK')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 
@@ -729,7 +868,7 @@ function ObjectMapField({
                   </Button>
                 </div>
                 <div className="space-y-4">
-                  {field.children?.map((child) => (
+                  {orderFields(field.children ?? []).map((child) => (
                     <FieldRow
                       key={child.path}
                       field={{ ...child, path: child.key }}

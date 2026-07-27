@@ -20,6 +20,11 @@ export interface GroupSpec {
 /** `aperio.yaml`, most consequential first. */
 export const CLIENT_GROUPS: GroupSpec[] = [
   {
+    title: 'Server connection',
+    description: 'Which Aperio server this client dials, and how it identifies itself.',
+    keys: ['server', 'token', 'version', 'client_id', 'ip_family', 'device_key', 'device_key_file'],
+  },
+  {
     title: 'Services',
     description: 'Each entry is one exposed backend with its own bind and tuning.',
     keys: ['services'],
@@ -46,11 +51,6 @@ export const CLIENT_GROUPS: GroupSpec[] = [
     ],
   },
   {
-    title: 'Server connection',
-    description: 'Which Aperio server this client dials, and how it identifies itself.',
-    keys: ['server', 'version', 'client_id', 'ip_family', 'device_key', 'device_key_file'],
-  },
-  {
     title: 'Access control',
     description: 'Who may reach the exposed service.',
     keys: ['public', 'auth', 'allowed_ips', 'denied'],
@@ -73,8 +73,16 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   },
   {
     title: 'Backend health',
-    description: 'Probing the backend so an unhealthy one leaves the routing pool.',
-    keys: ['health'],
+    description:
+      'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.',
+    keys: [
+      'health',
+      'target_health',
+      'health_interval',
+      'health_timeout',
+      'health_threshold',
+      'wait_for_backend',
+    ],
   },
   {
     title: 'Autoscaling',
@@ -242,3 +250,60 @@ export const SINGLE_ONLY_KEYS = [
 
 /** The one key that only makes sense with several services. */
 export const MULTI_ONLY_KEYS = ['services']
+
+/**
+ * How early a key has to be decided when describing a deployment.
+ *
+ * This is not about risk. It is the order someone actually thinks in: you
+ * cannot say anything useful about a service before you have said *what* it is
+ * and *where* it answers, so `target` and `hostname` come before the timeout
+ * that shapes them. Tier 0 is rendered inline under its section; everything
+ * else goes behind a nested "More settings" accordion, which is what keeps a
+ * section with thirty keys readable.
+ *
+ * Applies at any depth — the same table orders the fields of a `services:`
+ * entry, where schema order is alphabetical and therefore useless.
+ */
+export const ESSENTIAL_KEYS: string[] = [
+  // Identity of the thing being configured.
+  'name',
+  'server',
+  'url',
+  'token',
+  'version',
+  // What it is.
+  'target',
+  'serve',
+  'services',
+  'tunnels',
+  'protocol',
+  // Where it answers.
+  'hostname',
+  'path',
+  'port',
+  'host',
+  // The server's own irreducible minimum.
+  'server_token',
+  'data_dir',
+  // Block-level switches: without these the rest of the block is inert.
+  'enabled',
+  'mode',
+  'endpoint',
+  'issuer',
+  'client_id',
+  'client_secret',
+  'key',
+]
+
+/** Rank within tier 0; lower sorts first. Unlisted keys keep group order. */
+const ESSENTIAL_ORDER = new Map(ESSENTIAL_KEYS.map((k, i) => [k, i]))
+
+/** True when a key is one of the first things to decide. */
+export function isEssential(key: string): boolean {
+  return ESSENTIAL_ORDER.has(key)
+}
+
+/** Sort key for a field, so essentials lead in a sensible order. */
+export function essentialRank(key: string): number {
+  return ESSENTIAL_ORDER.get(key) ?? Number.MAX_SAFE_INTEGER
+}

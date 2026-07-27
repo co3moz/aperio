@@ -194,3 +194,22 @@ describe('map-valued fields', () => {
     expect(field?.kind).toBe('unsupported')
   })
 })
+
+describe('ordering and deprecation in practice', () => {
+  it('detects a deprecated note that follows a sentence of its own', () => {
+    // `target_health` documents what it does first and only then says it is a
+    // deprecated spelling, so anchoring the match to the start missed it and
+    // the retired key kept appearing in blank files.
+    const s: JsonSchema = {
+      type: 'object',
+      properties: {
+        target_health: {
+          type: 'string',
+          description:
+            'Backend health endpoint to probe; a failing backend leaves rotation without dropping the tunnel. Deprecated spelling of `health.endpoint`.',
+        },
+      },
+    }
+    expect(fieldsOf(s, s)[0].deprecated).toBe(true)
+  })
+})

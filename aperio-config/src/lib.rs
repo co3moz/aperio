@@ -187,6 +187,7 @@ pub struct HealthConfig {
   #[schemars(extend("examples" = [5]))]
   pub timeout: Option<u64>,
   /// Failed probes in a row before the backend is reported unhealthy.
+  /// Deprecated spelling of `health.threshold`.
   #[schemars(extend("examples" = [3]))]
   pub threshold: Option<u32>,
   /// Hold the service out of routing until the backend first accepts a
@@ -387,10 +388,12 @@ pub struct ServiceEntry {
   /// connection, avoiding connection-refused errors while it boots
   /// (superseded by `target_health` when that is set).
   pub wait_for_backend: Option<bool>,
-  /// Seconds between backend health probes.
+  /// Seconds between backend health probes. Deprecated spelling of
+  /// `health.interval`.
   #[schemars(extend("examples" = [10]))]
   pub health_interval: Option<u64>,
   /// Seconds to wait for each health probe before counting it as failed.
+  /// Deprecated spelling of `health.timeout`.
   #[schemars(extend("examples" = [5]))]
   pub health_timeout: Option<u64>,
   /// Failed probes in a row before the backend is reported unhealthy.
@@ -449,7 +452,8 @@ pub struct BindTunnelEntry {
 pub struct FileConfig {
   /// The Aperio server to reach and the token to authenticate the tunnel with.
   pub server: Option<ServerValue>,
-  /// Tunnel token, for when it isn't nested under `server.token`.
+  /// Deprecated spelling of `server.token`, kept so a token written at the
+  /// top level still authenticates rather than being silently ignored.
   #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
   /// Local backend to expose (single-service mode; use `services` for
@@ -511,7 +515,8 @@ pub struct FileConfig {
   pub target_health: Option<String>,
   /// Hold the service out of routing until the backend first accepts a
   /// connection, avoiding connection-refused errors while it boots
-  /// (superseded by `target_health` when that is set).
+  /// (superseded by `target_health` when that is set). Deprecated spelling of
+  /// `health.wait_for_backend`.
   pub wait_for_backend: Option<bool>,
   /// Seconds between backend health probes.
   #[schemars(extend("examples" = [10]))]

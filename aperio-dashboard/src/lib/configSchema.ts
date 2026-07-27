@@ -142,8 +142,10 @@ export function fieldsOf(
     const example =
       examples?.[0] !== undefined ? String(examples[0]) : undefined
     const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
-    // The schema documents superseded keys as "Deprecated spelling of `x`".
-    const deprecated = /^deprecated spelling of/i.test(description ?? '')
+    // The schema documents superseded keys as "Deprecated spelling of `x`",
+    // sometimes after a sentence of their own, so the phrase is matched
+    // anywhere rather than only at the start.
+    const deprecated = /deprecated spelling of/i.test(description ?? '')
 
     if (type === 'array') {
       const item = collapse(schema.items ?? {}, root)

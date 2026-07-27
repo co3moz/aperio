@@ -703,7 +703,6 @@ export const zh: Record<string, string> = {
   'on': '开',
   'unset (server default)': '未设置（服务器默认）',
   'unit': '单位',
-  'is too structured to edit here; it is preserved exactly as imported.': '结构过于复杂，无法在此编辑；将完全按导入时的样子保留。',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': '对该主机名的请求会在服务启动期间最多保留 {secs} 秒，而不是直接失败。',
   'A scoped, revocable Bearer credential for automation — no master token needed.': '用于自动化的受限、可吊销 Bearer 凭据，无需主令牌。',
   'Admin key "{name}" created': '已创建管理密钥“{name}”',
@@ -801,4 +800,10 @@ export const zh: Record<string, string> = {
   'The CLI shorthand: one backend configured at the top level, with no services: list.': 'CLI 简写形式：在顶层配置一个后端，不使用 services: 列表。',
   'Other settings': '其他设置',
   'Everything not filed under a section above.': '未归入以上分组的全部设置。',
+  'More settings': '更多设置',
+  'Edit as YAML': '以 YAML 编辑',
+  'configured': '已配置',
+  'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': '该部分没有固定结构，因此以 YAML 编辑。留空即可移除。',
+  'Configures a tunnel client and the backends it exposes.': '配置隧道客户端及其对外发布的后端。',
+  'Configures the Aperio server itself.': '配置 Aperio 服务器本身。',
 }

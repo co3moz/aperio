@@ -724,7 +724,6 @@ export const de: Record<string, string> = {
   'on': 'an',
   'unset (server default)': 'nicht gesetzt (Server-Standard)',
   'unit': 'Einheit',
-  'is too structured to edit here; it is preserved exactly as imported.': 'ist zu strukturiert, um hier bearbeitet zu werden; es bleibt genau so erhalten, wie es importiert wurde.',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Eine Anfrage an diesen Hostnamen wird bis zu {secs}s gehalten, während der Dienst startet, statt fehlzuschlagen.',
   'A scoped, revocable Bearer credential for automation — no master token needed.': 'Ein eingegrenztes, widerrufbares Bearer-Credential für Automatisierung — ohne Master-Token.',
   'Admin key "{name}" created': 'Admin-Schlüssel „{name}“ erstellt',
@@ -822,4 +821,10 @@ export const de: Record<string, string> = {
   'The CLI shorthand: one backend configured at the top level, with no services: list.': 'Die CLI-Kurzform: ein Backend auf oberster Ebene, ohne services:-Liste.',
   'Other settings': 'Weitere Einstellungen',
   'Everything not filed under a section above.': 'Alles, was in keinen Abschnitt oben fällt.',
+  'More settings': 'Weitere Einstellungen',
+  'Edit as YAML': 'Als YAML bearbeiten',
+  'configured': 'konfiguriert',
+  'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'Dieser Abschnitt hat keine feste Form und wird daher als YAML bearbeitet. Leer lassen, um ihn zu entfernen.',
+  'Configures a tunnel client and the backends it exposes.': 'Konfiguriert einen Tunnel-Client und die Backends, die er veröffentlicht.',
+  'Configures the Aperio server itself.': 'Konfiguriert den Aperio-Server selbst.',
 }

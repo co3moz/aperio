@@ -720,7 +720,6 @@ export const ja: Record<string, string> = {
   'on': 'オン',
   'unset (server default)': '未設定（サーバー既定）',
   'unit': '単位',
-  'is too structured to edit here; it is preserved exactly as imported.': '構造が複雑すぎてここでは編集できません。インポートしたままの形で保持されます。',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'このホスト名へのリクエストは、失敗させる代わりにサービス起動中は最大 {secs} 秒保留されます。',
   'A scoped, revocable Bearer credential for automation — no master token needed.': '自動化向けの、範囲を限定した取り消し可能な Bearer 認証情報です。マスタートークンは不要です。',
   'Admin key "{name}" created': '管理キー「{name}」を作成しました',
@@ -818,4 +817,10 @@ export const ja: Record<string, string> = {
   'The CLI shorthand: one backend configured at the top level, with no services: list.': 'CLI のショートハンド。トップレベルにバックエンドを 1 つ置き、services: 一覧は使いません。',
   'Other settings': 'その他の設定',
   'Everything not filed under a section above.': '上のいずれのセクションにも属さない設定。',
+  'More settings': 'その他の設定',
+  'Edit as YAML': 'YAML として編集',
+  'configured': '設定済み',
+  'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'このセクションは形が定まっていないため YAML として編集します。空にすると削除されます。',
+  'Configures a tunnel client and the backends it exposes.': 'トンネルクライアントと、それが公開するバックエンドを設定します。',
+  'Configures the Aperio server itself.': 'Aperio サーバー自体を設定します。',
 }

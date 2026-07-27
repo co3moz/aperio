@@ -722,7 +722,6 @@ export const ru: Record<string, string> = {
   'on': 'вкл',
   'unset (server default)': 'не задано (значение сервера)',
   'unit': 'единица',
-  'is too structured to edit here; it is preserved exactly as imported.': 'слишком структурирован для редактирования здесь; сохраняется точно так, как был импортирован.',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Запрос к этому хосту удерживается до {secs} с, пока сервис запускается, вместо ошибки.',
   'A scoped, revocable Bearer credential for automation — no master token needed.': 'Ограниченный и отзываемый Bearer-ключ для автоматизации — мастер-токен не нужен.',
   'Admin key "{name}" created': 'Админ-ключ «{name}» создан',
@@ -820,4 +819,10 @@ export const ru: Record<string, string> = {
   'The CLI shorthand: one backend configured at the top level, with no services: list.': 'Сокращение для CLI: один бэкенд на верхнем уровне, без списка services:.',
   'Other settings': 'Прочие настройки',
   'Everything not filed under a section above.': 'Всё, что не попало в разделы выше.',
+  'More settings': 'Больше настроек',
+  'Edit as YAML': 'Редактировать как YAML',
+  'configured': 'настроено',
+  'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'У этого раздела нет фиксированной структуры, поэтому он правится как YAML. Оставьте пустым, чтобы удалить.',
+  'Configures a tunnel client and the backends it exposes.': 'Настраивает туннельный клиент и публикуемые им бэкенды.',
+  'Configures the Aperio server itself.': 'Настраивает сам сервер Aperio.',
 }
