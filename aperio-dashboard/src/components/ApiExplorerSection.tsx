@@ -88,7 +88,7 @@ function OperationRow({ method, path, op }: Operation) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted/50"
+        className="flex w-full min-w-0 items-center gap-3 px-4 py-2.5 text-left hover:bg-muted/50"
       >
         <ChevronRightIcon
           className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
@@ -98,7 +98,11 @@ function OperationRow({ method, path, op }: Operation) {
             content, so without it `truncate` never shrinks and a long path or
             summary widens the whole page instead of ellipsizing. */}
         <code className="min-w-0 truncate font-mono text-sm">{path}</code>
-        <span className="ml-auto hidden min-w-0 flex-1 truncate pl-4 text-right text-xs text-muted-foreground sm:inline">
+        {/* A summary is a phrase, but `description` is a paragraph and this
+            falls back to it, so the width is capped outright rather than left
+            to `flex-1`: with no bound the row grows the card, the card grows
+            the section, and the whole page scrolls sideways. */}
+        <span className="ml-auto hidden min-w-0 max-w-[40vw] flex-1 truncate pl-4 text-right text-xs text-muted-foreground sm:inline">
           {op.summary ?? op.description ?? ''}
         </span>
       </button>
@@ -259,7 +263,7 @@ export function ApiExplorerSection() {
         </Card>
       ) : (
         groups.map((group) => (
-          <div key={group.tag} className="flex flex-col gap-1.5">
+          <div key={group.tag} className="flex min-w-0 flex-col gap-1.5">
             <h3 className="mt-2 text-sm font-semibold capitalize">{group.tag}</h3>
             {group.description && (
               <p className="max-w-[40vw] text-xs text-muted-foreground">
