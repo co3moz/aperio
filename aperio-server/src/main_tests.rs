@@ -116,6 +116,7 @@ async fn test_rate_limiting() {
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -271,6 +272,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
   };
 
   let (client_connected_tx, _) = watch::channel(false);
@@ -448,6 +450,7 @@ async fn test_proxy_handler_success() {
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
   };
 
   let (client_connected_tx, _) = watch::channel(true);
@@ -1036,6 +1039,7 @@ fn test_apply_settings_overrides() {
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
   };
 
   let overrides = SettingsOverrides {

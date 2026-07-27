@@ -5,7 +5,8 @@ use super::*;
 use crate::store::users::Role;
 use crate::store::webhooks::{Delivery, WebhookFormat};
 use crate::test_support::{
-  admin_headers, cookie_headers, json_body, seed_session, test_peer, test_state,
+  admin_headers, cookie_headers, json_body, seed_session, test_config, test_peer, test_state,
+  test_state_with,
 };
 use axum::extract::{ConnectInfo, Path, Query, State};
 
@@ -366,4 +367,37 @@ async fn selected_org_deliveries_scoped() {
   .await;
   assert_eq!(resp.0.len(), 1);
   assert_eq!(resp.0[0].id, "mine");
+}
+
+#[tokio::test]
+async fn create_refuses_a_destination_the_outbound_policy_blocks() {
+  // An outbound policy is optional; when set, a webhook aimed at a
+  // destination the server would refuse to deliver to is rejected at
+  // creation time with the reason, instead of failing silently later.
+  let mut config = test_config();
+  config.outbound_policy = crate::outbound::OutboundPolicy {
+    allowlist: crate::outbound::parse_patterns("hooks.example.com").unwrap(),
+    block_private: false,
+  };
+  let state = Arc::new(test_state_with(config));
+  let headers = admin_headers(&state).await;
+
+  let resp = webhooks_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    create_req("bad", "https://evil.example.net/hook", vec![], None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+  // An allowlisted destination is accepted unchanged.
+  let resp = webhooks_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    create_req("ok", "https://hooks.example.com/hook", vec![], None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
 }

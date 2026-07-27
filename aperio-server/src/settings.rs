@@ -161,6 +161,10 @@ pub(crate) struct ServerConfig {
   /// Hard per-stream backlog cap in bytes (APERIO_STREAM_BACKLOG_LIMIT,
   /// default 16 MiB); drops producers that cannot be paused.
   pub(crate) stream_backlog_limit: usize,
+  /// Optional policy over outbound callbacks, i.e. where webhook deliveries
+  /// and autoscaling hooks may be sent (`APERIO_OUTBOUND_ALLOWLIST`,
+  /// `APERIO_OUTBOUND_BLOCK_PRIVATE`). Default: unrestricted.
+  pub(crate) outbound_policy: crate::outbound::OutboundPolicy,
   /// Concurrent proxied requests limit (APERIO_MAX_CONCURRENT_REQUESTS);
   /// requests beyond it are rejected with 429.
   pub(crate) max_concurrent_requests: usize,

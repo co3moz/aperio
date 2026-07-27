@@ -24,6 +24,8 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+
+use crate::outbound::is_internal;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -277,31 +279,6 @@ async fn destination_allowed(
   Ok(())
 }
 
-/// True for addresses that are never a legitimate autoscaling endpoint.
-fn is_internal(ip: IpAddr) -> bool {
-  match ip {
-    IpAddr::V4(v4) => {
-      v4.is_loopback()
-        || v4.is_private()
-        || v4.is_link_local()
-        || v4.is_broadcast()
-        || v4.is_documentation()
-        || v4.is_unspecified()
-        // 100.64.0.0/10, carrier-grade NAT and the usual cloud metadata mesh.
-        || (v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1]))
-    }
-    IpAddr::V6(v6) => {
-      v6.is_loopback()
-        || v6.is_unspecified()
-        // Unique local (fc00::/7) and link local (fe80::/10).
-        || (v6.segments()[0] & 0xfe00) == 0xfc00
-        || (v6.segments()[0] & 0xffc0) == 0xfe80
-        // IPv4-mapped addresses must be judged by the address they carry.
-        || v6.to_ipv4_mapped().is_some_and(|v4| is_internal(IpAddr::V4(v4)))
-    }
-  }
-}
-
 /// Performs one call to the record's endpoint. Returns Ok for a 2xx.
 ///
 /// Nothing about the response is used beyond its status: the body is never
@@ -322,6 +299,13 @@ pub(crate) async fn call_endpoint(
     state.config().scaling_allow_private,
   )
   .await?;
+  // The operator's outbound policy (allowlist / block_private) applies on
+  // top of the scaling-specific rules; empty policy = no extra restriction.
+  state
+    .config()
+    .outbound_policy
+    .check(record.url.as_str())
+    .await?;
 
   let payload = serde_json::json!({
     "reason": reason.as_str(),

@@ -1025,6 +1025,23 @@ pub struct ServerCredentials {
   pub auth: Option<String>,
 }
 
+/// Where the server may send outbound callbacks (webhook deliveries,
+/// autoscaling hooks). Optional: empty/off keeps the permissive default.
+///
+/// Written as an `outbound:` block; the flat `outbound_*` keys mean the
+/// same thing and still work, with the block winning per field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutboundGroup {
+  /// Host/CIDR patterns the server may call (exact host, `*.suffix`, IP, or
+  /// CIDR). When set, any other destination is refused; a matching entry is
+  /// trusted even if private.
+  pub allowlist: Option<Vec<String>>,
+  /// With no allowlist: refuse destinations resolving to internal addresses
+  /// (loopback, RFC 1918, link-local/metadata, CGNAT, unique-local).
+  pub block_private: Option<bool>,
+}
+
 /// Per-stream flow control for streamed data (responses, WebSocket, TCP).
 ///
 /// Written as a `stream:` block; the flat `stream_*` keys mean the same
@@ -1172,6 +1189,10 @@ pub const SERVER_GROUPS: &[ServerGroup] = &[
     self_key: Some("enabled"),
   },
   ServerGroup {
+    key: "outbound",
+    self_key: None,
+  },
+  ServerGroup {
     key: "retention",
     self_key: None,
   },
@@ -1233,6 +1254,9 @@ pub struct ServerFileConfig {
   /// OpenTelemetry trace export
   #[serde(default)]
   pub otel: Option<OtelSetting>,
+  /// Where the server may send outbound callbacks (webhooks, autoscaling hooks)
+  #[serde(default)]
+  pub outbound: Option<OutboundGroup>,
   /// How long each kind of recorded data is kept, in days
   #[serde(default)]
   pub retention: Option<RetentionGroup>,
@@ -1334,6 +1358,10 @@ pub struct ServerFileConfig {
   pub cache_max_bytes: Option<u64>,
   /// Deprecated spelling of `cache.max_stale` (env: APERIO_CACHE_MAX_STALE).
   pub cache_max_stale: Option<u64>,
+  /// Flat spelling of `outbound.allowlist` (env: APERIO_OUTBOUND_ALLOWLIST).
+  pub outbound_allowlist: Option<Vec<String>>,
+  /// Flat spelling of `outbound.block_private` (env: APERIO_OUTBOUND_BLOCK_PRIVATE).
+  pub outbound_block_private: Option<bool>,
   /// Flat spelling of `stream.pause_bytes` (env: APERIO_STREAM_PAUSE_BYTES).
   pub stream_pause_bytes: Option<u64>,
   /// Flat spelling of `stream.resume_bytes` (env: APERIO_STREAM_RESUME_BYTES).

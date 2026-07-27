@@ -340,38 +340,51 @@ pub(crate) async fn deliver_with_retries(
   event: String,
   body: String,
   log: std::sync::Arc<tokio::sync::Mutex<DeliveryLog>>,
+  policy: crate::outbound::OutboundPolicy,
 ) {
   let started = std::time::Instant::now();
   let timestamp = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
   let created_at = crate::store::tokens::now_secs();
   let mut attempts: u32 = 0;
   let mut outcome = Err("not attempted".to_string());
-  for (i, delay) in std::iter::once(&std::time::Duration::ZERO)
-    .chain(retry_schedule().iter())
-    .enumerate()
-  {
-    if i > 0 {
-      tokio::time::sleep(*delay).await;
-    }
-    attempts += 1;
-    outcome = send_once(&hook, &body).await;
-    match &outcome {
-      Ok(status) if (200..300).contains(&(*status as u32)) => {
-        debug!(
-          "Webhook '{}' delivered event {} (attempt {})",
-          hook.name, event, attempts
-        );
-        break;
+  // The outbound policy is enforced when the call is made, not only when
+  // the URL was stored, so a policy added later also covers webhooks
+  // created before it. A refusal is recorded like any failed delivery
+  // (without ever contacting the destination) and is not retried.
+  if let Err(reason) = policy.check(&hook.url).await {
+    warn!(
+      "Webhook '{}' delivery of event {} refused by the outbound policy: {}",
+      hook.name, event, reason
+    );
+    outcome = Err(reason);
+  } else {
+    for (i, delay) in std::iter::once(&std::time::Duration::ZERO)
+      .chain(retry_schedule().iter())
+      .enumerate()
+    {
+      if i > 0 {
+        tokio::time::sleep(*delay).await;
       }
-      _ if !retryable(&outcome) => break,
-      Ok(status) => warn!(
-        "Webhook '{}' returned {} for event {} (attempt {}); will retry",
-        hook.name, status, event, attempts
-      ),
-      Err(e) => warn!(
-        "Webhook '{}' delivery failed for event {} (attempt {}): {}; will retry",
-        hook.name, event, attempts, e
-      ),
+      attempts += 1;
+      outcome = send_once(&hook, &body).await;
+      match &outcome {
+        Ok(status) if (200..300).contains(&(*status as u32)) => {
+          debug!(
+            "Webhook '{}' delivered event {} (attempt {})",
+            hook.name, event, attempts
+          );
+          break;
+        }
+        _ if !retryable(&outcome) => break,
+        Ok(status) => warn!(
+          "Webhook '{}' returned {} for event {} (attempt {}); will retry",
+          hook.name, status, event, attempts
+        ),
+        Err(e) => warn!(
+          "Webhook '{}' delivery failed for event {} (attempt {}): {}; will retry",
+          hook.name, event, attempts, e
+        ),
+      }
     }
   }
   let success = matches!(&outcome, Ok(status) if (200..300).contains(&(*status as u32)));
@@ -550,6 +563,7 @@ pub fn dispatch(
   event: &str,
   data: serde_json::Value,
   log: std::sync::Arc<tokio::sync::Mutex<DeliveryLog>>,
+  policy: crate::outbound::OutboundPolicy,
 ) {
   if subscribers.is_empty() {
     return;
@@ -559,8 +573,9 @@ pub fn dispatch(
     let body = render_payload(hook.format, event, &timestamp, &data);
     let event = event.to_string();
     let log = log.clone();
+    let policy = policy.clone();
     tokio::spawn(async move {
-      deliver_with_retries(hook, event, body, log).await;
+      deliver_with_retries(hook, event, body, log, policy).await;
     });
   }
 }

@@ -368,7 +368,12 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   request for any hostname their token permits, so it should probably be
   opt-in), and which proxy is the primary target for the first cut.
 
-- [ ] **#15 Restrict where webhook and autoscaling callbacks may be sent.**
+- [x] **#15 Restrict where webhook and autoscaling callbacks may be sent.**
+  shipped: optional `outbound:` block / `APERIO_OUTBOUND_ALLOWLIST` +
+  `APERIO_OUTBOUND_BLOCK_PRIVATE`, enforced at webhook creation and at every
+  delivery, and layered on top of the scaling hook's own policy; defaults
+  keep the permissive behaviour. Whether the delivery log should hide the
+  raw status code from tenants was left unchanged (open question).
   `POST /api/webhooks` and the `scaling.url` field accept any URL after a
   schema check, and delivery attempts record the response status in the
   delivery log. An Operator in a child organization can therefore use the

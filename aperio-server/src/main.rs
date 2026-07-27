@@ -27,6 +27,7 @@ mod expose;
 mod fallbacks;
 mod headers;
 mod oidc;
+mod outbound;
 mod print_config;
 mod protocol;
 mod proxy;
@@ -554,6 +555,45 @@ async fn async_main() {
     );
   }
 
+  // Optional outbound-callback policy (webhooks, autoscaling hooks): an
+  // allowlist of host/CIDR patterns and/or a block on private destinations.
+  // Empty/off keeps today's permissive behaviour. An invalid entry refuses
+  // startup rather than applying a partial allowlist.
+  let outbound_policy = {
+    let allowlist = match std::env::var("APERIO_OUTBOUND_ALLOWLIST") {
+      Ok(raw) => match crate::outbound::parse_patterns(&raw) {
+        Ok(list) => list,
+        Err(e) => {
+          error!(
+            "APERIO_OUTBOUND_ALLOWLIST is invalid ({e}); refusing to start with a partial allowlist"
+          );
+          return;
+        }
+      },
+      Err(_) => Vec::new(),
+    };
+    let block_private = std::env::var("APERIO_OUTBOUND_BLOCK_PRIVATE")
+      .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+      .unwrap_or(false);
+    let policy = crate::outbound::OutboundPolicy {
+      allowlist,
+      block_private,
+    };
+    if policy.restricted() {
+      info!(
+        "Outbound callback policy active: {} allowlist entr{}, block_private={}",
+        policy.allowlist.len(),
+        if policy.allowlist.len() == 1 {
+          "y"
+        } else {
+          "ies"
+        },
+        policy.block_private
+      );
+    }
+    policy
+  };
+
   // Per-stream flow-control watermarks (protocol v3). Invalid combinations
   // are repaired by StreamLimits::sanitized with a warning.
   let stream_pause_bytes = std::env::var("APERIO_STREAM_PAUSE_BYTES")
@@ -847,6 +887,7 @@ async fn async_main() {
     stream_pause_bytes,
     stream_resume_bytes,
     stream_backlog_limit,
+    outbound_policy,
     max_concurrent_requests,
     max_ws_connections,
     login_lockout_threshold: std::env::var("APERIO_LOGIN_LOCKOUT_THRESHOLD")

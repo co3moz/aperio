@@ -1766,7 +1766,13 @@ impl AppState {
       .into_iter()
       .filter(|w| w.org_id == org)
       .collect();
-    webhooks::dispatch(subs, event, data, self.webhook_deliveries.clone());
+    webhooks::dispatch(
+      subs,
+      event,
+      data,
+      self.webhook_deliveries.clone(),
+      self.config().outbound_policy.clone(),
+    );
   }
 
   /// Force-disconnects every live tunnel connection authenticated with the

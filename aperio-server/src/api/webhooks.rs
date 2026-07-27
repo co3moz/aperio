@@ -148,6 +148,17 @@ pub(crate) async fn webhooks_create_handler(
   if !(url.starts_with("http://") || url.starts_with("https://")) {
     return (StatusCode::BAD_REQUEST, "Webhook URL must be http(s)").into_response();
   }
+  // Optional outbound policy: refuse a destination the server would decline
+  // to deliver to anyway, so the operator hears it here instead of finding
+  // refused entries in the delivery log. Deliveries re-check at send time,
+  // covering webhooks stored before the policy existed.
+  if let Err(reason) = state.config().outbound_policy.check(&url).await {
+    return (
+      StatusCode::BAD_REQUEST,
+      format!("Webhook URL refused: {reason}"),
+    )
+      .into_response();
+  }
   let events: Vec<String> = payload
     .events
     .iter()
@@ -339,8 +350,10 @@ pub(crate) async fn webhook_redeliver_handler(
     delivery.event, hook.name
   );
   let log = state.webhook_deliveries.clone();
+  let policy = state.config().outbound_policy.clone();
   tokio::spawn(async move {
-    crate::store::webhooks::deliver_with_retries(hook, delivery.event, delivery.body, log).await;
+    crate::store::webhooks::deliver_with_retries(hook, delivery.event, delivery.body, log, policy)
+      .await;
   });
   (
     StatusCode::ACCEPTED,

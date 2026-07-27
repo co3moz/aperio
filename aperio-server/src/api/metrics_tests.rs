@@ -76,6 +76,7 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
   }
 }
 
