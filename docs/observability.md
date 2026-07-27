@@ -66,7 +66,7 @@ Administrative and security events, logins (password and OIDC), token create/upd
 
 ## Webhooks
 
-Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
+Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). Where an [outbound policy](threat-model.md) is configured, a URL it does not permit is rejected at creation with the reason rather than failing quietly later. A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
 
 ```json
 { "event": "client_connected", "timestamp": "2026-07-06T15:16:37+03:00", "data": { "client_id": "…", "ip": "…", "token": "tenant-a" } }
@@ -76,7 +76,7 @@ Available events: `client_connected`, `client_disconnected`, `client_draining`, 
 
 ### Delivery reliability & the delivery log
 
-A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried.
+A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried. A delivery refused by the outbound policy is not retried either, and the destination is never contacted at all: the refusal is recorded in the log with its reason, so a policy introduced after a webhook was created is visible rather than silent. Redeliveries are re-checked the same way.
 
 Every final outcome (success or failure, with the HTTP status or error, the attempt count, and the exact payload sent) lands in the **delivery log**: the *Recent deliveries* table on the dashboard's Webhooks page, or `GET /aperio/api/webhooks/deliveries` (`?webhook_id=` to filter). The last 500 outcomes are kept in `aperio.db`. Any logged delivery can be **redelivered**, the same payload is re-sent to the webhook's current URL with a fresh signature and the normal retry policy (`POST /aperio/api/webhooks/deliveries/{id}/redeliver`, or the *Redeliver* button), and the outcome is logged as a new row.
 

@@ -462,6 +462,33 @@ and no alternate spellings; where a shorthand exists (\code{--server},
 \code{--token}, \code{--host}) it is a visible alias of the canonical
 flag, not a second setting.
 
+Settings that share a prefix are written as a \emph{block} in yaml, since
+a flat list of run-on names reads badly when they are one subject:
+
+\begin{lstlisting}[language=aperioyaml]
+# aperio-server.yaml
+cache:
+  enabled: true
+  max_bytes: 268435456
+\end{lstlisting}
+
+The environment has no nesting, so the mapping stays mechanical in both
+directions: \code{<group>.<child>} is \code{APERIO\_<GROUP>\_<CHILD>}, and
+\code{cache.max\_bytes} is still \code{APERIO\_CACHE\_MAX\_BYTES}. Where
+the group's own key is also a setting, the child carrying it is
+\code{enabled} (or \code{mode} for \code{failover}), and the bare scalar
+(\code{cache: true}) is still accepted. The client has \code{health:} (at
+the top level and per \code{services:} entry) and the long-standing
+\code{server:}; the server has \code{alert}, \code{audit}, \code{cache},
+\code{dashboard}, \code{edge}, \code{failover}, \code{gateway},
+\code{ip\_limit}, \code{login\_lockout}, \code{metrics}, \code{oidc},
+\code{otel}, \code{outbound}, \code{retention}, \code{scaling},
+\code{server} and \code{stream}.
+
+Every flat key still works exactly as it did, so no existing file needs
+changing; a file may mix both spellings, with the block winning per field,
+and the client names the block to move each flat key to.
+
 \section{Precedence}
 
 The two sides layer differently, and both are worth memorising.
@@ -530,15 +557,19 @@ this book are checked against.
 
 \code{aperio-server.yaml} is watched. Edits apply live for the
 \emph{live-editable} surface, the same set the dashboard can change:
-cache, failover, rate limits, lockout, body and concurrency limits, audit
-rotation, \code{require\_hostname\_bind}, tunnel compression, UI
-language, preview noindex, visitor auth, plus the structured
-\code{headers:}, \code{routes:} and \code{error\_pages:} sections.
+cache, failover, rate limits, lockout, body and concurrency limits, the
+stream flow-control watermarks, audit rotation,
+\code{require\_hostname\_bind}, tunnel compression, UI language, preview
+noindex, visitor auth, plus the structured \code{headers:},
+\code{routes:} and \code{error\_pages:} sections. Grouped and flat
+spellings are folded identically on reload, so a file written with blocks
+reloads exactly like one written flat.
 
 Structural keys are deliberately \emph{not} hot-reloaded and need a
 restart: host and port, the data directory, proxy-trust flags, OIDC, the
-random-subdomain pattern, the custom error-page file paths, and
-\code{expose:} ports. Reloads are audit-logged as \code{config\_reloaded}.
+random-subdomain pattern, the custom error-page file paths, the outbound
+callback policy, and \code{expose:} ports. Reloads are audit-logged as
+\code{config\_reloaded}.
 
 \section{Editor support}
 
@@ -570,7 +601,9 @@ A client exposes exactly one of three things per service:
   \item[A directory] \code{serve: ./dist} starts a built-in static file
         server. Directories serve their \code{index.html};
         \code{APERIO\_SERVE\_SPA=1} makes navigations fall back to the
-        root index, which is what a client-side router needs.
+        root index, which is what a client-side router needs. Files are
+        streamed rather than read into memory, and \code{Range} requests
+        are answered, so a large download or a video behaves properly.
   \item[A raw TCP port] \code{tcp\_target:} and the \code{tunnels:} list,
         covered in Chapter~\ref{ch:emergency}.
 \end{description}
@@ -982,6 +1015,9 @@ Appendix~\ref{app:protocol}; the shapes that matter here are:
   \item WebSocket pass-through, where the visitor's upgrade is relayed and
         frames flow in both directions.
   \item Raw TCP and UDP relays for emergency tunnels.
+  \item Per-stream flow control (\code{StreamPause}/\code{StreamResume}),
+        which lets the server throttle one producer without touching
+        anything else on the connection.
 \end{itemize}
 
 \section{HTTP/2 and gRPC}
@@ -1007,6 +1043,45 @@ Protocol v2 moves chunk payloads to binary WebSocket frames with a compact
 The parser for those frames is the primary untrusted-input surface in the
 system, which is why it is fuzzed continuously
 (Chapter~\ref{ch:troubleshooting} covers running the fuzzers).
+
+\section{Flow control}
+\label{sec:flow-control}
+
+The current protocol version is 3, and what it adds is flow control for
+everything that streams.
+
+The awkward case is a visitor who reads more slowly than the backend
+produces. One connection's read loop is shared by every request and stream
+on it, so the server must never block waiting on a single consumer; but it
+cannot buffer without bound either, and cutting the stream would kill a
+download that is perfectly healthy, merely slow. So the server pushes back
+on the producer instead. It counts the bytes queued for each stream, and
+past \code{APERIO\_STREAM\_PAUSE\_BYTES} (2\,MB by default) it sends
+\code{StreamPause} for that stream id. The client stops reading that one
+stream's source, the backend response body, the backend WebSocket or the
+TCP socket, so ordinary TCP backpressure reaches the backend, which is
+where it belongs. When the backlog falls below
+\code{APERIO\_STREAM\_RESUME\_BYTES} (512\,KB) a \code{StreamResume}
+follows. The two marks sit far apart on purpose, so the pair cannot flap
+chunk by chunk.
+
+Everything else on the tunnel keeps flowing while one stream is paused:
+other visitors' responses, other streams, the heartbeat. UDP relays are
+deliberately excluded and keep their drop-when-congested contract.
+
+Two bounds keep the mechanism honest. A producer that cannot be paused,
+an older client, or one that ignores the pause, is cut off at
+\code{APERIO\_STREAM\_BACKLOG\_LIMIT} (16\,MB) of buffered bytes; and a
+consumer that accepts nothing at all for the whole response timeout still
+ends its own stream, exactly as before. On the client side a stream that
+has been paused for more than thirty seconds resumes by itself, so a
+resume lost along with a torn-down stream cannot wedge a producer.
+
+The watermarks are server settings. An inconsistent trio is repaired
+rather than obeyed: the resume mark is kept below the pause mark and the
+hard cap above it, so the feature cannot be configured into dropping every
+stream. Each stream snapshots the values when it starts, so a change
+applies to streams opened after it.
 
 % =====================================================================
 \part{Security}
@@ -1446,6 +1521,45 @@ One \code{alert\_triggered} fires per episode and one
 \code{alert\_resolved} when it clears. The error rate resolves at 80\% of
 the threshold, so a value hovering at the limit cannot flap.
 
+\section{Where callbacks may be sent}
+\label{sec:outbound-policy}
+
+A webhook URL is supplied by an Operator and an autoscaling URL by a
+client, and in both cases the \emph{server} makes the call and records how
+the destination answered. That combination is a blind SSRF probe: point a
+webhook at an internal address, fire an event, and read the delivery log
+to learn whether the port answered.
+
+The reason this is not simply forbidden is that internal receivers are the
+normal case. Most deployments point webhooks at a service on the same
+network, so refusing private addresses by default would break working
+installations. It is therefore a policy the operator opts into, and there
+are two shapes of it:
+
+\begin{lstlisting}[language=aperioyaml]
+# aperio-server.yaml
+outbound:
+  allowlist: [hooks.example.com, "*.corp.example", 10.1.0.0/16]
+  block_private: false
+\end{lstlisting}
+
+An allowlist is the stronger form and, once set, is the whole policy: a
+destination matches an entry, by exact host, by \code{*.suffix}, or by
+IP/CIDR, or it is refused. An entry that names a private range is trusted
+precisely because the operator named it. \code{block\_private} is the
+weaker form for deployments that cannot enumerate their receivers: with no
+allowlist, it refuses destinations that are, or resolve to, loopback,
+RFC 1918, link-local (including the metadata services), CGNAT or
+unique-local addresses.
+
+Both default to off, so an existing deployment behaves exactly as before.
+The check runs when a webhook is created, so the operator hears about a
+refusal immediately, and again at every delivery, so a policy introduced
+later also covers webhooks stored before it. A refused delivery is
+recorded with its reason and the destination is never contacted. An
+unparseable allowlist entry refuses startup rather than quietly applying a
+partial policy.
+
 \section{Retention and erasure}
 
 Retention policies bound captures, the access log, audit generations and
@@ -1558,6 +1672,11 @@ metadata address) and their IPv6 forms, no redirects followed, response
 body never read, secret never logged.
 \code{APERIO\_SCALING\_ALLOW\_PRIVATE} exists for a provider API that
 genuinely lives on the internal network.
+
+On top of those scaling-specific rules sits the operator's outbound
+policy, which covers webhook deliveries as well
+(Section~\ref{sec:outbound-policy}). Both apply: a destination has to pass
+the scaling fence \emph{and} the policy.
 
 \chapter{Behind a dynamic edge proxy}
 \label{ch:edge}
@@ -1705,6 +1824,14 @@ protocol version; a mismatched protocol logs a warning on both sides and
 falls back to the older behaviour where it can. \code{aperio-client
 check} reports the comparison explicitly, which makes it the first thing
 to run after an upgrade.
+
+The fallbacks are per feature, which is why skew is survivable rather than
+fatal. A pre-v2 peer gets buffered bodies and base64 frames instead of
+streamed ones; a pre-v3 peer is simply never asked to pause, and the
+server protects itself by letting such a stream buffer up to the hard
+backlog cap before dropping it (Section~\ref{sec:flow-control}). The cost
+of running an old client is therefore worse behaviour under load, not a
+broken connection.
 
 \section{A symptom-first runbook}
 
@@ -1950,6 +2077,16 @@ overrides win over both. Generated from the reference tables in
 \addlinespace[2pt]
 \code{APERIO\_CACHE\_NEGATIVE\_TTL} & Seconds to briefly cache error / negative responses (e.g. \code{404}) so a hot missing URL cannot hammer the backend with repeated misses. \code{0} = disabled. Needs \code{APERIO\_CACHE}. & \code{0} \\
 \addlinespace[2pt]
+\code{APERIO\_STREAM\_PAUSE\_BYTES} & Per-stream flow control (Section~\ref{sec:flow-control}): server-side backlog of one streamed response, WebSocket or TCP relay at which the producing client is asked to pause that stream, so a slow visitor throttles the backend through ordinary TCP backpressure instead of piling data up here. & \code{2097152} (2 MB) \\
+\addlinespace[2pt]
+\code{APERIO\_STREAM\_RESUME\_BYTES} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair cannot flap; a value at or above it is repaired to a quarter of it. & \code{524288} (512 KB) \\
+\addlinespace[2pt]
+\code{APERIO\_STREAM\_BACKLOG\_LIMIT} & Hard per-stream backlog cap: a stream whose producer cannot be paused (a pre-v3 client, or one ignoring the pause) is dropped past this many buffered bytes. A value below the pause mark is repaired to twice it. & \code{16777216} (16 MB) \\
+\addlinespace[2pt]
+\code{APERIO\_OUTBOUND\_ALLOWLIST} & Optional policy over where the server may send outbound callbacks, webhook deliveries and autoscaling hooks (Section~\ref{sec:outbound-policy}): comma-separated host/CIDR patterns (\code{hooks.example.com}, \code{*.corp.example}, \code{10.1.0.0/16}). When set, anything else is refused, at webhook creation and again at every delivery; a matching entry is trusted even if private. An invalid entry refuses startup rather than applying a partial allowlist. &  \\
+\addlinespace[2pt]
+\code{APERIO\_OUTBOUND\_BLOCK\_PRIVATE} & With no allowlist: \code{1} = refuse callback destinations that are, or resolve to, internal addresses (loopback, RFC 1918, link-local and the cloud metadata services, CGNAT, unique-local). Off by default because internal receivers are the normal webhook deployment; turn it on where tenants you do not fully trust may create webhooks. & \code{0} \\
+\addlinespace[2pt]
 \code{APERIO\_504\_PAGE} & Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. &  \\
 \addlinespace[2pt]
 \code{APERIO\_503\_PAGE} & Path to an HTML file served while a hostname is in maintenance mode instead of the plain-text default. &  \\
@@ -2119,7 +2256,11 @@ settings are required: the token, the server URL, and the target.
 \addlinespace[2pt]
 \code{APERIO\_TARGET} & positional / \code{--target} & \code{target} & \textbf{Required.} Local backend to forward to. \code{http(s)://} (a bare port or hostname is normalized to it), or \code{h2c://} / \code{h2://} for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), \code{te: trailers} is forwarded, and response trailers (\code{grpc-status}) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). \code{unix:///var/run/app.sock} forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). \\
 \addlinespace[2pt]
-\code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. \\
+\code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. Files stream from disk, so memory does not scale with file size, and single-range \code{Range} requests are answered \code{206} with \code{Accept-Ranges}/\code{Content-Range} (\code{416} past the end), which is what video scrubbing and resumable downloads need. \\
+\addlinespace[2pt]
+\code{APERIO\_SERVE\_SPA} &  &  & \code{1} = a navigation (\code{Accept: text/html}) that resolves to no file falls back to the root \code{index.html} with status \code{200}, the single-page-app deployment. A missing hashed asset still \code{404}s. \\
+\addlinespace[2pt]
+\code{APERIO\_SERVE\_404} &  &  & Path to an HTML file served (status \code{404}) for misses the SPA fallback does not cover. \\
 \addlinespace[2pt]
 \code{APERIO\_TCP\_TARGET} &  & \code{tcp\_target} & Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's \code{/aperio/tcp} endpoint. \\
 \addlinespace[2pt]
@@ -2153,7 +2294,7 @@ settings are required: the token, the server URL, and the target.
 \addlinespace[2pt]
 \code{APERIO\_WEBHOOK\_INBOX} &  & \code{webhook\_inbox} & Persist every inbound \textbf{POST} to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per \code{services:} entry via \code{webhook\_inbox:}. \\
 \addlinespace[2pt]
-\code{APERIO\_IDLE\_TIMEOUT} & \code{--} & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see \emph{Autoscaling}. The shutdown is graceful, and the clock only starts after the first request. \\
+\code{APERIO\_IDLE\_TIMEOUT} & \code{--} & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see \emph{Autoscaling}. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement waits while any request is still in flight, so a long-lived session is never cut mid-traffic. \\
 \addlinespace[2pt]
 \code{APERIO\_CLIENT\_ID} & \code{--client-id} & \code{client\_id} & Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover \code{wait} mode and \code{--bind-tunnels}. \\
 \addlinespace[2pt]
@@ -2263,7 +2404,9 @@ always matches the running build.
 One WebSocket carries every kind of traffic for a service, multiplexed by
 request id. Messages are JSON objects tagged with \code{type}; protocol
 v2 additionally moves chunk payloads onto binary frames with a compact
-\code{[tag][id\_len][id][payload]} header instead of base64.
+\code{[tag][id\_len][id][payload]} header instead of base64, and protocol
+v3, the current version, adds the per-stream pause/resume pair
+(Section~\ref{sec:flow-control}).
 
 \begin{longtable}{@{}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
 \toprule
@@ -2319,6 +2462,11 @@ best-effort datagram equivalent, with an idle timeout. \\
 \addlinespace[2pt]
 \code{CompressionStart} / \code{CompressionAck} & both & Negotiates zlib
 compression of tunnel frames at connect time. \\
+\addlinespace[2pt]
+\code{StreamPause} / \code{StreamResume} & server & Per-stream flow
+control (v3): the producing client stops reading that one stream's source
+while its server-side backlog is too large, and carries on once it
+drains. \\
 \bottomrule
 \end{longtable}
 

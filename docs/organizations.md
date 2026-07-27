@@ -51,7 +51,7 @@ Per **effective organization**, a named user's own org, or the org the super-adm
 - **Traffic**, the recent-requests log, the live SSE stream, and the request inspector / replay.
 - **Statistics**, the counters, "today", the activity and history charts, and the per-token / per-hostname breakdown all reflect the org's own traffic.
 - **Uptime / SLA** and **per-stage latency**, only the org's own services.
-- **Webhooks**, definitions, the delivery log, and redelivery; a webhook fires **only** for events in its own organization.
+- **Webhooks**, definitions, the delivery log, and redelivery; a webhook fires **only** for events in its own organization. Note that the *destination* is not org-scoped: an org operator's webhook URL is called by the server, from the server's network. Where tenants are not fully trusted, fence that with the server-wide [outbound policy](threat-model.md).
 - **Maintenance mode**, a hostname can be put into maintenance only by the organization whose clients serve it, and each flag is visible and clearable only within that org.
 - **Share links**, can only be minted for a hostname the caller's own organization serves.
 - **Audit log**, each event records the organization it belongs to; the log shows only the caller's org's events.

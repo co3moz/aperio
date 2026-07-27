@@ -65,7 +65,11 @@ nothing is stored, no matter the flags.
 - **`Range` requests**: single-range requests (video scrubbing, resumable
   downloads) are sliced from the stored full body at the edge, `206 Partial
   Content` with `Accept-Ranges`/`Content-Range`, `416` when out of range,
-  honoring `If-Range`, without re-traversing the tunnel.
+  honoring `If-Range`, without re-traversing the tunnel. Ranges are answered
+  here only while a cached entry covers the URL; otherwise they reach the
+  backend, or the client's own file server in [static-file
+  mode](configuration.md), which answers them too but serves the full `200` for
+  an `If-Range` request rather than comparing validators it never issued.
 - **Purge**: `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`
   and/or `path_prefix` (empty body = the whole cache) for immediate
   invalidation after a deploy.

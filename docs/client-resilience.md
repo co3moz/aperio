@@ -34,6 +34,13 @@ Two knobs keep a client from being overwhelmed:
 
 - `APERIO_MAX_CONCURRENT`, announced to the server, which queues the excess instead of flooding the backend; also enforced locally.
 - `APERIO_BANDWIDTH`, declare the link capacity (`8mbit`, `500kbit`, `2MB`, or plain bytes/second) and the server paces outgoing tunnel frames with a token bucket (1 s burst) so the client is never pushed faster than its network can drain.
+- **Per-stream pause/resume** (tunnel protocol v3), which needs no configuration on the client at all. When a visitor reads more slowly than the backend produces, the server asks this client to pause that one stream, and the client stops reading its source, the backend response body, the backend WebSocket, or the TCP socket, so ordinary TCP backpressure reaches the backend. It resumes when the server says so, and after 30 s on its own if that message is ever lost. See [Tunnel Protocol](tunnel-protocol.md).
+
+## Idle retirement
+
+With `idle_timeout` set, a client that has stopped being used retires itself and exits after the usual graceful drain, which is the scale-in half of [autoscaling](autoscaling.md): the server never kills a client, it only ever asks for more capacity.
+
+What counts as being used is deliberately broad. Any inbound work starts the clock, buffered requests, streamed uploads, WebSocket upgrades and raw TCP or UDP sessions alike, and every relayed frame of a long-lived session keeps re-stamping it in both directions, so a database tunnel or a chat backend that outlives the window is not cut mid-traffic. Retirement also waits while any request is still in flight, which covers a backend that takes minutes to answer or a response that streams for longer than the window. The clock only starts after the first piece of work, so a client that was just cold-started cannot retire before it has had the chance to be used.
 
 ## Backend redirects
 

@@ -82,12 +82,44 @@ The narrowest boundary. The client forwards proxied requests to exactly the
 local address it was configured with; the backend is assumed trusted and is
 never exposed to the internet directly.
 
+### 5. Server → Callback destinations
+
+The one boundary where the *server* makes the outbound call. A webhook URL is
+supplied by an Operator and an autoscaling URL by a client, both lower-trust
+credentials than the operator running the server, and the delivery log then
+reports how the destination answered. Left open, that is a blind SSRF probe:
+aim a webhook at an internal address, fire an event, and read back whether the
+port answered.
+
+It is not simply forbidden because internal receivers are the normal case, most
+deployments point webhooks at a service on the same network. Controls:
+
+- Autoscaling URLs are fenced on their own terms: https unless
+  `APERIO_SCALING_ALLOW_HTTP`, every resolved address checked against loopback,
+  private, link-local (including the metadata address) and their IPv6 forms
+  unless `APERIO_SCALING_ALLOW_PRIVATE`, no redirects followed, response body
+  never read.
+- `APERIO_OUTBOUND_ALLOWLIST` names the host/CIDR patterns the server may call
+  at all, for webhooks *and* scaling hooks. Once set it is the whole policy:
+  anything unmatched is refused, at webhook creation and again at every
+  delivery, so a policy introduced later also covers existing webhooks.
+- `APERIO_OUTBOUND_BLOCK_PRIVATE` is the weaker form for deployments that
+  cannot enumerate their receivers: refuse destinations that are, or resolve
+  to, internal addresses.
+
+Both default to off, so this boundary is only as tight as the operator makes
+it. Tighten it wherever webhook creators are not fully trusted, which in
+practice means any multi-tenant deployment.
+
 ## What Aperio does *not* defend against
 
 - A compromised **backend** or **client host**: if the machine running the
   client is owned, the attacker already has what the tunnel would reach.
 - The **master token** leaking: it is unrestricted by design. Rotate it, keep it
   out of clients (use scoped tokens), and fence the admin surface.
+- **Outbound callbacks to your internal network, unless you configure the
+  policy above**: the default is permissive, because refusing private
+  destinations would break the ordinary webhook deployment.
 - **Application-layer bugs in the backend**: Aperio proxies requests; it is not
   a substitute for securing the service behind it.
 - **Denial of service at the network layer**: absorb volumetric floods at the

@@ -8,11 +8,27 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
-Bodies over 256 KB are streamed through the tunnel in chunks with backpressure **in both directions**, responses since protocol v1, and request bodies (uploads) with protocol v2, so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`) (default 50 MB).
+Bodies over 256 KB are streamed through the tunnel in chunks, responses since protocol v1, and request bodies (uploads) with protocol v2, so memory usage stays bounded on both sides regardless of size. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`) (default 50 MB).
 
 Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64-in-JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames.
 
 One trade-off: streamed uploads cannot fail over or be replayed from the request inspector, because the body is consumed as it is forwarded.
+
+## Per-stream flow control
+
+The current `PROTOCOL_VERSION` is **3**, which adds flow control to everything that streams: response bodies, proxied WebSockets and raw TCP relays.
+
+The problem it solves is a visitor who reads slower than the backend produces. A tunnel connection has a single read loop shared by every request and stream on it, so the server must never block on one consumer — but it also cannot buffer without bound, and dropping the stream would cut a perfectly healthy download. So the server pushes back on the *producer* instead:
+
+- Each stream's server-side backlog is measured in bytes. Past `APERIO_STREAM_PAUSE_BYTES` (default 2 MB) the server sends `StreamPause { id }`, and the client stops reading that one stream's source — the backend response body, the backend WebSocket, or the TCP socket. Ordinary TCP backpressure then reaches the backend, which is exactly where it belongs.
+- Once the backlog drains below `APERIO_STREAM_RESUME_BYTES` (default 512 KB) the server sends `StreamResume { id }` and the client carries on. The two marks are deliberately far apart so the pair cannot flap on every chunk.
+- Nothing else on the tunnel is affected: other visitors' responses, other streams and the heartbeat keep flowing while one stream is paused.
+
+`id` is a request id for a streamed response and a stream id for a WebSocket or TCP relay. UDP relays are excluded on purpose: they keep their best-effort, drop-when-congested contract.
+
+Two safety nets bound the mechanism. A client that cannot be paused — a pre-v3 client, or one ignoring the pause — is cut off at `APERIO_STREAM_BACKLOG_LIMIT` (default 16 MB) of buffered bytes, and a consumer that accepts nothing at all for the whole `APERIO_GATEWAY_RESPONSE_TIMEOUT` still ends its own stream as it always did. On the client side, a producer that has been paused for more than 30 seconds resumes on its own, so a `StreamResume` lost with a torn-down stream cannot wedge it.
+
+The watermarks are server settings ([Configuration](configuration.md)); an inconsistent trio is repaired rather than obeyed, so the mechanism cannot be configured into dropping every stream.
 
 ## Tunnel compression
 

@@ -14,9 +14,14 @@ log a warning when they differ. The protocol is designed to tolerate skew:
   from the newer feature. Every per-service flag (cache, resilience, response
   timeout, device key, …) was added this way.
 - **A protocol-version bump signals a breaking frame change.** When the major
-  tunnel behavior changes (e.g. the v1→v2 streamed-body frames), both sides log
-  the mismatch. Traffic still flows for the shared subset, but you should update
-  the older side to avoid subtle incompatibilities.
+  tunnel behavior changes (the v1→v2 streamed-body frames, the v2→v3 per-stream
+  flow control), both sides log the mismatch. Traffic still flows for the shared
+  subset, but you should update the older side to avoid subtle
+  incompatibilities. The fallbacks are per feature: a pre-v2 peer gets buffered
+  bodies and base64 frames, and a pre-v3 client is never asked to pause, so the
+  server lets its streams buffer up to `APERIO_STREAM_BACKLOG_LIMIT` (16 MB)
+  before dropping them. Running an old client therefore costs worse behavior
+  under load, not a broken connection.
 
 Rule of thumb: **upgrade the server first, then the clients.** The server stays
 backward-compatible with older clients, so a fleet can be rolled forward
@@ -24,7 +29,7 @@ gradually with no coordinated cutover.
 
 | Situation | Behavior |
 | --- | --- |
-| Newer server, older client | Works; client misses newer per-service features. |
+| Newer server, older client | Works; client misses newer per-service features. A pre-v3 client cannot be flow-controlled, so a download to a visitor slower than the backend is cut at `APERIO_STREAM_BACKLOG_LIMIT` instead of the producer being paused. |
 | Older server, newer client | Works; newer client's new flags are ignored by the server. |
 | Protocol-version mismatch | Logged on both sides + shown on the dashboard; shared subset works. |
 

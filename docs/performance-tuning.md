@@ -26,8 +26,33 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
 - **`APERIO_IP_LIMIT_MAX` / `_REFILL`.** Per-visitor token bucket. The burst
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
 - **`APERIO_MAX_BODY_SIZE`.** Upload ceiling. Bodies over ~256 KiB stream
-  (protocol v2) instead of buffering, so a large limit does not cost memory per
-  request, but it does bound how big a single upload can be.
+  (protocol v2 and later) instead of buffering, so a large limit does not cost
+  memory per request, but it does bound how big a single upload can be.
+
+## Slow visitors and stream backpressure
+
+A visitor who downloads more slowly than the backend produces used to be the
+awkward case: the server cannot block its shared read loop on one consumer, and
+buffering without limit is not an option either. Since tunnel protocol v3 it
+pushes back on the producer instead, and three watermarks control that.
+
+- **`APERIO_STREAM_PAUSE_BYTES`** (2 MB). Per-stream backlog at which the
+  producing client is told to stop reading that stream's source. This is the
+  knob that costs memory: budget roughly `pause_bytes` × concurrently-slow
+  streams. Raise it for high bandwidth-delay-product links or large media, where
+  a bigger in-flight window keeps throughput up; lower it to bound memory on a
+  server with many slow consumers.
+- **`APERIO_STREAM_RESUME_BYTES`** (512 KB). Where a paused producer restarts.
+  Keep it well under the pause mark, the gap is what stops the pair from
+  flapping chunk by chunk. Too small and a fast producer stalls waiting for the
+  queue to drain almost empty.
+- **`APERIO_STREAM_BACKLOG_LIMIT`** (16 MB). Only bites for a producer that
+  cannot be paused, i.e. a pre-v3 client. Upgrading clients matters more here
+  than tuning the number.
+
+Note that this is the *server's* side of a slow link. The client-side
+`bandwidth` cap below is the complement: it paces what the server sends toward a
+client that knows its own link capacity.
 
 ## The response cache
 
@@ -58,7 +83,8 @@ acknowledges. It trades CPU for bandwidth: a clear win on a bandwidth-constraine
 or metered client link, a slight loss on a fast LAN where the CPU cost outweighs
 the saving. Body data over the streamed threshold uses raw binary frames
 regardless. A client on a slow link can also announce a `bandwidth` cap so the
-server paces frames to it instead of overrunning the buffer.
+server paces frames to it instead of overrunning the buffer, and per-stream flow
+control handles the other direction, a slow *visitor* behind a fast client.
 
 ## Failover vs. latency
 

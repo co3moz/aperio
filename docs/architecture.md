@@ -18,9 +18,9 @@ connections.
 ## The tunnel protocol
 
 The wire protocol is a tagged JSON message enum (`TunnelMessage`) with a small
-set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION` is
-bumped on breaking changes so version skew surfaces in logs and on the
-dashboard rather than failing obscurely.
+set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION`
+(currently 3) is bumped on breaking changes so version skew surfaces in logs
+and on the dashboard rather than failing obscurely.
 
 Key messages:
 
@@ -37,6 +37,13 @@ Key messages:
   binary chunk frames (`[tag][id_len][id][payload]`) carry large bodies without
   the base64+JSON overhead. The tag byte never collides with a zlib-compressed
   JSON frame (which starts `0x78`), so the reader can tell them apart.
+- **Per-stream flow control (protocol v3)**, `StreamPause` / `StreamResume`
+  (server to client, keyed by request id or stream id). When one stream's
+  server-side backlog crosses a byte watermark, the producing client stops
+  reading that stream's source, so backpressure reaches the backend instead of
+  the server buffering or dropping a slow visitor's download. Nothing else on
+  the connection is affected; UDP relays keep their best-effort contract. See
+  [Tunnel Protocol](tunnel-protocol.md).
 - **Compression**, when both sides agree, JSON frames are zlib-compressed;
   inflation is output-bounded to prevent a decompression bomb.
 

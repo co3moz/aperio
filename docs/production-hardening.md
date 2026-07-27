@@ -72,6 +72,13 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
       someone. See [Observability](observability.md).
 - [ ] **Enable threshold alerting** (`APERIO_ALERT_ERROR_RATE` /
       `APERIO_ALERT_CLIENT_DOWN`).
+- [ ] **Fence outbound callbacks** where webhook creators are not fully
+      trusted. `APERIO_OUTBOUND_ALLOWLIST` names the destinations the server
+      may call for webhook deliveries and autoscaling hooks; failing that,
+      `APERIO_OUTBOUND_BLOCK_PRIVATE=1` at least keeps them off the internal
+      network. Both are off by default, and without one of them the delivery
+      log lets a tenant probe your private network one port at a time. See
+      [Threat Model](threat-model.md).
 - [ ] **Ship the audit log** off-box and verify it periodically. The audit log
       is a tamper-evident hash chain; `aperio-server --verify-audit` (or
       `GET /aperio/api/audit/verify`) reports any broken line.

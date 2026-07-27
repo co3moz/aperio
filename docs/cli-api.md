@@ -133,7 +133,11 @@ aperio-client api webhook create --name ops --url https://hooks.example.com/x \
 aperio-client api webhook delete <id>
 aperio-client api webhook deliveries [--webhook-id <id>] [--limit 50]
 aperio-client api webhook redeliver <delivery-id>
+```
 
+Where the server has an [outbound policy](threat-model.md) configured, `webhook create` refuses a URL the policy does not permit and reports why.
+
+```bash
 aperio-client api inbox list
 aperio-client api inbox show <id>
 aperio-client api inbox refire <id>

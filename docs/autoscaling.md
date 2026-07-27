@@ -121,6 +121,7 @@ The declaration comes from a client, which is a lower-trust credential than an o
 - **Every resolved address is checked**: loopback, private ranges, link-local (including `169.254.169.254`, the cloud metadata address), carrier-grade NAT, and their IPv6 equivalents are refused. A hostname that resolves to one of them is refused too.
 - **Redirects are never followed**, since a redirect is a way to reach an address the pre-flight check just refused.
 - The secret is write-only: never returned by the API, never logged.
+- **The operator's outbound policy applies on top of all of that.** `APERIO_OUTBOUND_ALLOWLIST` / `APERIO_OUTBOUND_BLOCK_PRIVATE` cover webhook deliveries and scaling hooks alike; a destination has to pass both the fence above and the policy. See [Threat Model](threat-model.md).
 
 Records are scoped to the organization of the token that armed them, and a record disappears when the last token that armed it is revoked or expires. `APERIO_SCALING_RECORD_TTL` (default 30 days) additionally drops records nothing has re-announced.
 
@@ -130,6 +131,8 @@ Records are scoped to the organization of the token that armed them, and a recor
 | --- | --- | --- | --- |
 | `APERIO_SCALING` | `scaling` | Honor client `scaling:` declarations. | `0` |
 | `APERIO_SCALING_ALLOW_HTTP` | `scaling_allow_http` | Permit a plain-http endpoint. | `0` |
+| `APERIO_OUTBOUND_ALLOWLIST` | `outbound.allowlist` | Host/CIDR patterns the server may call for scaling hooks and webhooks; everything else refused. Empty = no restriction. | |
+| `APERIO_OUTBOUND_BLOCK_PRIVATE` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
 | `APERIO_SCALING_RECORD_TTL` | `scaling_record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
 
 Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also `APERIO_IDLE_TIMEOUT`), and `max_concurrent`, which is what makes utilization measurable.

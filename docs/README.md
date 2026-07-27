@@ -32,13 +32,13 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file
 
 ## Security
 
-- [Production Hardening Checklist](production-hardening.md), a pre-flight checklist for going live: TLS, token hygiene, admin IP fencing, lockout, retention, backups, and alerting.
+- [Production Hardening Checklist](production-hardening.md), a pre-flight checklist for going live: TLS, token hygiene, admin IP fencing, lockout, retention, backups, alerting, and fencing outbound callbacks.
 - [Threat Model](threat-model.md), the trust boundaries (visitor ↔ server ↔ client ↔ backend), what each side is trusted to do, and the controls that defend each boundary.
 
 ## Under the Hood
 
 - [Architecture Deep-Dive](architecture.md), the tunnel protocol, the request lifecycle, the concurrency model, and where state lives.
-- [Tunnel Protocol & Advanced Features](tunnel-protocol.md), WebSocket pass-through, chunked body streaming, binary frames, compression, the response cache, custom error pages.
+- [Tunnel Protocol & Advanced Features](tunnel-protocol.md), WebSocket pass-through, chunked body streaming, binary frames, per-stream flow control, compression, the response cache, custom error pages.
 - [Performance Tuning](performance-tuning.md), the throughput/latency knobs and their trade-offs: parallelism, limits, caching, compression, failover.
 - [Upgrade Guide & Compatibility](upgrade-guide.md), safe upgrades and what client ↔ server version skew means.
 - [Development & Releases](development.md), building from source, tests & coverage, benchmarks & fuzzing, the release process, project conventions.
