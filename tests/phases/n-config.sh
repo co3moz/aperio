@@ -184,3 +184,21 @@ YAML
 VER_NONE="$(env APERIO_SERVER_CONFIG="$VER_CFG" "$SERVER_BIN" --check-config)" \
   || fail "--check-config rejected a config without version:: $VER_NONE"
 assert_contains "$VER_NONE" "no \`version:\` declared" "an absent version: is noted, not fatal"
+
+step "Removed settings refuse the start"
+GONE_CFG="$LOG_DIR/removed.yaml"
+# A key that no longer exists must stop the server rather than be ignored: the
+# file would otherwise keep claiming an authentication path the server dropped.
+for SPELLING in "dashboard_auth: leftover" "dashboard:\n  auth: leftover"; do
+  printf "server_token: e2e-removed-token-long-enough\n$SPELLING\n" > "$GONE_CFG"
+  if GONE_OUT="$(env APERIO_SERVER_CONFIG="$GONE_CFG" "$SERVER_BIN" --check-config 2>&1)"; then
+    fail "a removed setting ($SPELLING) should refuse the start"
+  fi
+  assert_contains "$GONE_OUT" "was removed" "the removed key is named ($SPELLING)"
+done
+# The same file without it starts fine, so the guard is specific.
+cat > "$GONE_CFG" <<YAML
+server_token: e2e-removed-token-long-enough
+YAML
+env APERIO_SERVER_CONFIG="$GONE_CFG" "$SERVER_BIN" --check-config > /dev/null \
+  || fail "the guard must not fire for a config that does not set the removed key"
