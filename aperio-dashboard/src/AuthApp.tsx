@@ -120,8 +120,16 @@ export function AuthApp() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
+    <div className="relative flex min-h-svh items-center justify-center overflow-hidden bg-background p-4">
+      {/* Decorative watermark. `currentColor` at a low alpha means one element
+          for both themes, and it is sized off the viewport's short side so it
+          fills the page without ever widening it. `overflow-hidden` on the
+          wrapper is what keeps the bleed from producing a scrollbar. */}
+      <AperioMark
+        aria-hidden
+        className="pointer-events-none absolute size-[min(115vmin,1000px)] text-foreground/[0.045] select-none"
+      />
+      <Card className="relative w-full max-w-sm">
         <CardHeader>
           {/* Mark and wordmark on one line: they are one lockup, and stacking
               them made the card open with two headings above the description. */}
