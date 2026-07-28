@@ -12,7 +12,9 @@ import {
   Link2Icon,
   LogOutIcon,
   ScrollTextIcon,
+  ChevronsUpDownIcon,
   ServerIcon,
+  UserRoundIcon,
   Settings2Icon,
   FingerprintIcon,
   ShieldCheckIcon,
@@ -24,6 +26,13 @@ import {
 import { UsersIcon } from 'lucide-react'
 import { AperioMark } from './AperioMark'
 import { AperioWordmark } from './AperioWordmark'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { OrgSwitcher } from './OrgSwitcher'
 import {
   Sidebar,
@@ -36,6 +45,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
 } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
 import type { Role } from '@/lib/api'
@@ -128,6 +138,7 @@ export function pagesForRole(role: Role, masterAdmin = false): PageSpec[] {
 export function AppSidebar({
   page,
   onNavigate,
+  username,
   sessionSeconds,
   version,
   role,
@@ -139,6 +150,8 @@ export function AppSidebar({
 }: {
   page: Page
   onNavigate: (page: Page) => void
+  /** Signed-in identity, shown in the footer entry. */
+  username: string
   sessionSeconds: number | null
   version: string | null
   role: Role
@@ -209,37 +222,66 @@ export function AppSidebar({
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip={t('Two-factor authentication')} onClick={onOpenTotp}>
-              <ShieldCheckIcon />
-              <span className="flex-1">{t('Two-factor auth')}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip={t('Passkeys')} onClick={onOpenPasskeys}>
-              <FingerprintIcon />
-              <span className="flex-1">{t('Passkeys')}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              tooltip={
-                sessionSeconds != null
-                  ? t('Session expires in {duration}', { duration: formatUptime(sessionSeconds) })
-                  : t('Sign out')
-              }
-              onClick={onSignOut}
-            >
-              <LogOutIcon />
-              <span className="flex-1">{t('Sign out')}</span>
-              {sessionSeconds != null && (
-                <span className="text-xs text-muted-foreground">
-                  {formatUptime(sessionSeconds)}
-                </span>
-              )}
-            </SidebarMenuButton>
+            {/* The footer is where the signed-in identity lives, with its
+                actions behind it: three flat buttons competed with the
+                navigation above them for the same visual weight, when none of
+                them is a place you go. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="lg"
+                    tooltip={username}
+                    className="data-[state=open]:bg-sidebar-accent"
+                  />
+                }
+              >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
+                  <UserRoundIcon className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left leading-tight">
+                  <span className="truncate text-sm font-medium">{username}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {role === 'admin'
+                      ? t('Admin')
+                      : role === 'operator'
+                        ? t('Operator')
+                        : t('Viewer')}
+                  </span>
+                </div>
+                <ChevronsUpDownIcon className="ml-auto size-4 opacity-60" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="min-w-56">
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  {sessionSeconds != null
+                    ? t('Session expires in {duration}', {
+                        duration: formatUptime(sessionSeconds),
+                      })
+                    : username}
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onOpenTotp}>
+                  <ShieldCheckIcon className="size-4 opacity-70" />
+                  <span className="flex-1">{t('Two-factor auth')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onOpenPasskeys}>
+                  <FingerprintIcon className="size-4 opacity-70" />
+                  <span className="flex-1">{t('Passkeys')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onSignOut}>
+                  <LogOutIcon className="size-4 opacity-70" />
+                  <span className="flex-1">{t('Sign out')}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      {/* The edge rail: a click target along the whole border for collapsing
+          the sidebar, so the toggle is not only the one button in the page
+          header. */}
+      <SidebarRail />
     </Sidebar>
   )
 }

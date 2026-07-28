@@ -251,6 +251,7 @@ export default function App() {
       />
       <PasskeysDialog open={passkeysOpen} onOpenChange={setPasskeysOpen} />
       <AppSidebar
+        username={session?.username ?? 'aperio'}
         onOpenTotp={() => setTotpOpen(true)}
         onOpenPasskeys={() => setPasskeysOpen(true)}
         page={page}
