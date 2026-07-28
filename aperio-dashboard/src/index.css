@@ -14,11 +14,11 @@
 
 /* The glass recipe, in one place because every floating surface shares it:
    the login card, dialogs, the command palette, dropdown menus and select
-   panels. No fill and a 5px blur, so the surface is the blur and nothing
+   panels. No fill and a 15px blur, so the surface is the blur and nothing
    else. Where `backdrop-filter` is unsupported these surfaces have no
    background at all, which is the accepted cost of a transparent panel. */
 @utility glass-surface {
-  @apply bg-transparent backdrop-blur-[5px];
+  @apply bg-transparent backdrop-blur-[15px];
 }
 
 @custom-variant dark (&:is(.dark *));
