@@ -1,7 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/noto-sans";
+/* Body face, self-hosted for the same reason as the wordmark below. Roboto
+   covers every script the UI ships translations for except Chinese and
+   Japanese, which the previous face did not carry either: those fall through
+   to the system sans, as they always have. */
+@import "@fontsource-variable/roboto";
 /* The wordmark face. Self-hosted like the body font rather than fetched from
    Google: the dashboard is served from the server binary under a
    `default-src 'self'` policy, so an external font request would be blocked
@@ -15,7 +19,7 @@
     /* Brand wordmark only, never body text: Michroma has one weight, no
        italic, and wide letterforms that stop being readable below a heading. */
     --font-wordmark: 'Michroma', var(--font-sans);
-    --font-sans: 'Noto Sans Variable', sans-serif;
+    --font-sans: 'Roboto Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
