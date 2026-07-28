@@ -8,6 +8,7 @@ import { WebhooksSection } from './WebhooksSection'
 import { PaneDialog, type PaneSpec } from './PaneDialog'
 import { useI18n } from '@/i18n'
 import type { Role } from '@/lib/api'
+import type { PaneFocus } from '@/lib/paneFocus'
 import type { Page } from './AppSidebar'
 
 /**
@@ -39,7 +40,7 @@ export function isSettingsPage(page: Page): page is SettingsPage {
  * the sidebar now has a single entry for all of them, so it no longer knows
  * who may see which.
  */
-const PANES: PaneSpec<SettingsPage>[] = [
+export const SETTINGS_PANES: PaneSpec<SettingsPage>[] = [
   { id: 'settings', label: 'Server Settings', icon: Settings2Icon, minRole: 'admin', masterOnly: true },
   { id: 'organizations', label: 'Organizations', icon: Building2Icon, minRole: 'admin', masterOnly: true },
   { id: 'users', label: 'Users', icon: UsersIcon, minRole: 'admin' },
@@ -51,6 +52,7 @@ export function SettingsDialog({
   page,
   role,
   masterAdmin,
+  focus,
   onNavigate,
   onClose,
 }: {
@@ -58,6 +60,7 @@ export function SettingsDialog({
   role: Role
   /** The built-in super-admin, the only one who sees the master-only panes. */
   masterAdmin: boolean
+  focus?: PaneFocus | null
   onNavigate: (page: SettingsPage) => void
   onClose: () => void
 }) {
@@ -65,9 +68,10 @@ export function SettingsDialog({
   return (
     <PaneDialog
       page={page}
-      panes={PANES}
+      panes={SETTINGS_PANES}
       role={role}
       masterAdmin={masterAdmin}
+      focus={focus}
       title={t('Settings')}
       description={t('Configure this server, its organizations and who may sign in.')}
       onNavigate={onNavigate}

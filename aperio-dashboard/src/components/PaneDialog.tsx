@@ -24,6 +24,7 @@ import {
 import { useI18n } from '@/i18n'
 import type { Role } from '@/lib/api'
 import { UnsavedContext } from '@/lib/unsaved'
+import { PaneFocusContext, type PaneFocus } from '@/lib/paneFocus'
 import { ROLE_ORDER } from './AppSidebar'
 import { cn } from '@/lib/utils'
 
@@ -56,6 +57,7 @@ export function PaneDialog<Id extends string>({
   panes,
   role,
   masterAdmin,
+  focus,
   title,
   description,
   className,
@@ -67,6 +69,8 @@ export function PaneDialog<Id extends string>({
   panes: PaneSpec<Id>[]
   role: Role
   masterAdmin: boolean
+  /** Something finer than a pane to reveal on open — see `PaneFocus`. */
+  focus?: PaneFocus | null
   /** Names the dialog for screen readers; the panes carry the visible titles. */
   title: string
   description: string
@@ -162,7 +166,9 @@ export function PaneDialog<Id extends string>({
             <h2 className="mb-4 font-heading text-base font-medium md:hidden">
               {current && t(current.label)}
             </h2>
-            <UnsavedContext.Provider value={setDirty}>{children(page)}</UnsavedContext.Provider>
+            <PaneFocusContext.Provider value={focus ?? null}>
+              <UnsavedContext.Provider value={setDirty}>{children(page)}</UnsavedContext.Provider>
+            </PaneFocusContext.Provider>
           </main>
         </SidebarProvider>
       </DialogContent>

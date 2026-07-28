@@ -876,4 +876,5 @@ export const fr: Record<string, string> = {
   'Tools': 'Outils',
   'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Diagnostiquer, inspecter et générer — ce vers quoi on se tourne quand quelque chose doit être élucidé.',
   'Audit log, API explorer and config builder': 'Journal d’audit, explorateur d’API et générateur de configuration',
+  'Settings & Tools': 'Paramètres et outils',
 }

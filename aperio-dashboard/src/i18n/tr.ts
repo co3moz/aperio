@@ -880,4 +880,5 @@ export const tr: Record<string, string> = {
   'Tools': 'Araçlar',
   'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Teşhis, inceleme ve üretme — bir şeyin çözülmesi gerektiğinde başvurduğunuz şeyler.',
   'Audit log, API explorer and config builder': 'Denetim kaydı, API gezgini ve yapılandırma oluşturucu',
+  'Settings & Tools': 'Ayarlar ve Araçlar',
 }

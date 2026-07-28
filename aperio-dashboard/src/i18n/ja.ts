@@ -874,4 +874,5 @@ export const ja: Record<string, string> = {
   'Tools': 'ツール',
   'Diagnose, inspect and generate — the things you reach for when something needs working out.': '診断・確認・生成 — 何かを解き明かす必要があるときに手に取るもの。',
   'Audit log, API explorer and config builder': '監査ログ、API エクスプローラー、設定ビルダー',
+  'Settings & Tools': '設定とツール',
 }

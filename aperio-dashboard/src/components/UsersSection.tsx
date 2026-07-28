@@ -9,7 +9,7 @@ import {
   PlusIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   RecordEmpty,
@@ -55,6 +55,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
+import { usePaneFocus } from '@/lib/paneFocus'
 import { api, ApiError, type DashboardUser, type Role, type LiveSession } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 import { useOrgName, useSession } from '@/lib/session'
@@ -103,6 +104,14 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const [role, setRole] = useState<Role>('viewer')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // The command palette can ask for this form by name, which is the whole
+  // point of the shortcut: one step from anywhere to the thing that does it.
+  const focus = usePaneFocus()
+  useEffect(() => {
+    if (focus?.target === 'new-user') openDialog(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
 
   const openDialog = (next: boolean) => {
     if (next) {

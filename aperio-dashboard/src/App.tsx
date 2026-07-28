@@ -1,9 +1,25 @@
-import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
+import {
+  Building2Icon,
+  MoonIcon,
+  SearchIcon,
+  Settings2Icon,
+  SunIcon,
+  TriangleAlertIcon,
+  UserPlusIcon,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
+import { AppSidebar, PAGES, ROLE_ORDER, pagesForRole, type Page } from './components/AppSidebar'
 import { AppearanceControls } from './components/AppearanceControls'
-import { SettingsDialog, isSettingsPage, type SettingsPage } from './components/SettingsDialog'
-import { ToolsDialog, isToolsPage, type ToolsPage } from './components/ToolsDialog'
+import {
+  SETTINGS_PANES,
+  SettingsDialog,
+  isSettingsPage,
+  type SettingsPage,
+} from './components/SettingsDialog'
+import { TOOLS_PANES, ToolsDialog, isToolsPage, type ToolsPage } from './components/ToolsDialog'
+import { SETTING_FIELDS, type FieldSpec } from '@/lib/settingsCatalog'
+import type { PaneFocus } from '@/lib/paneFocus'
+import type { SettingsPayload } from './lib/api'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { ClientsSection } from './components/ClientsSection'
@@ -32,8 +48,8 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
-import { api, logout } from './lib/api'
-import { formatUptime } from './lib/format'
+import { api, logout, type Role } from './lib/api'
+import { formatBytes, formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { useI18n } from '@/i18n'
@@ -86,6 +102,51 @@ function paneFromUrl(): OverlayPage | null {
   return isOverlayPage(tab) ? tab : null
 }
 
+/**
+ * Things the palette can do rather than places it can go: one step from
+ * anywhere to the form that does it.
+ */
+const ACTIONS: {
+  target: string
+  pane: OverlayPage
+  label: string
+  icon: typeof Settings2Icon
+  minRole: Role
+  masterOnly?: boolean
+}[] = [
+  { target: 'new-user', pane: 'users', label: 'Add User', icon: UserPlusIcon, minRole: 'admin' },
+  {
+    target: 'new-org',
+    pane: 'organizations',
+    label: 'New Organization',
+    icon: Building2Icon,
+    minRole: 'admin',
+    masterOnly: true,
+  },
+]
+
+/**
+ * What a setting is set to right now, as one short string.
+ *
+ * An override is what the server is actually running; the env default is what
+ * it falls back to. Both are worth showing and they are not the same claim,
+ * so an overridden value says so.
+ */
+function describeSetting(payload: SettingsPayload, field: FieldSpec): string {
+  const override = payload.overrides[field.key]
+  const value = override ?? payload.defaults[field.key]
+  if (value === undefined || value === null || value === '') return '—'
+  const text =
+    typeof value === 'boolean'
+      ? value
+        ? 'on'
+        : 'off'
+      : field.kind === 'bytes'
+        ? formatBytes(Number(value))
+        : String(value)
+  return override !== undefined && override !== null ? `${text} *` : text
+}
+
 function loadHistory(): number[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY)
@@ -119,6 +180,10 @@ export default function App() {
   const [inspectId, setInspectId] = useState<string | null>(() => readParams().get('inspect'))
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [overlay, setOverlay] = useState<OverlayPage | null>(paneFromUrl)
+  // What the pane should reveal on arrival, and a counter so asking for the
+  // same thing twice still counts as asking.
+  const [focus, setFocus] = useState<PaneFocus | null>(null)
+  const focusSeq = useRef(0)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
   const { t } = useI18n()
@@ -136,6 +201,13 @@ export default function App() {
     const params = readParams()
     params.set('tab', next)
     writeParams(params, true)
+  }, [])
+
+  /** Opens a dialog pane, optionally on something particular inside it. */
+  const openPane = useCallback((pane: OverlayPage, target?: string) => {
+    setOverlay(pane)
+    focusSeq.current += 1
+    setFocus(target ? { target, seq: focusSeq.current } : null)
   }, [])
 
   // Drop a legacy `?tab=<pane>` once it has been honoured, so the dialog it
@@ -234,6 +306,28 @@ export default function App() {
   const masterAdmin = session?.master_admin ?? false
   const selectedOrg = session?.selected_org ?? 'master'
   const allowedPages = useMemo(() => pagesForRole(role, masterAdmin), [role, masterAdmin])
+  // The dialog panes this session may open, in the order the dialogs list them.
+  const panes = useMemo(
+    () =>
+      [...SETTINGS_PANES, ...TOOLS_PANES].filter(
+        (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
+      ),
+    [role, masterAdmin],
+  )
+  // Only the super-admin may read the settings, so only they get them in the
+  // palette; for anyone else the request is a guaranteed 403.
+  const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null)
+  useEffect(() => {
+    if (!masterAdmin || role !== 'admin') return
+    let live = true
+    api
+      .settings()
+      .then((p) => live && setSettingsPayload(p))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [masterAdmin, role])
 
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
@@ -243,6 +337,7 @@ export default function App() {
 
   const commands = useMemo<Command[]>(
     () => [
+      // Full-screen destinations first: the sidebar's own list, in its order.
       ...allowedPages.map((p) => ({
         id: `nav-${p.id}`,
         label: t('Go to {page}', { page: t(p.label) }),
@@ -258,8 +353,57 @@ export default function App() {
         run: toggle,
       },
       { id: 'sign-out', label: t('Sign out'), hint: t('Session'), run: () => void signOut() },
+
+      // The dialog panes. They have no sidebar row of their own any more, so
+      // without these the only way to Organizations is to open Settings and
+      // know it is in there.
+      ...panes.map((p) => ({
+        id: `pane-${p.id}`,
+        label: t('Go to {page}', { page: t(p.label) }),
+        icon: p.icon,
+        group: t('Settings & Tools'),
+        run: () => openPane(p.id),
+      })),
+      ...ACTIONS.filter((a) => ROLE_ORDER[role] >= ROLE_ORDER[a.minRole] && (!a.masterOnly || masterAdmin)).map(
+        (a) => ({
+          id: `do-${a.target}`,
+          label: t(a.label),
+          icon: a.icon,
+          group: t('Settings & Tools'),
+          run: () => openPane(a.pane, a.target),
+        }),
+      ),
+
+      // Every server setting by name, with what it is set to right now. The
+      // value is the point: half the reason to look a setting up is to check
+      // it, and that should not cost opening a dialog and a group to read one
+      // number.
+      ...(settingsPayload
+        ? SETTING_FIELDS.map(({ field, group }) => ({
+            id: `setting-${field.key}`,
+            label: t(field.label),
+            hint: t(group.title),
+            detail: describeSetting(settingsPayload, field),
+            keywords: `${field.key} ${group.title}`,
+            icon: Settings2Icon,
+            group: t('Server Settings'),
+            run: () => openPane('settings', `setting:${field.key}`),
+          }))
+        : []),
     ],
-    [allowedPages, appearance, toggle, goto, signOut, t],
+    [
+      allowedPages,
+      appearance,
+      toggle,
+      goto,
+      openPane,
+      panes,
+      role,
+      masterAdmin,
+      settingsPayload,
+      signOut,
+      t,
+    ],
   )
 
   const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
@@ -286,7 +430,8 @@ export default function App() {
           page={overlay}
           role={role}
           masterAdmin={masterAdmin}
-          onNavigate={setOverlay}
+          focus={focus}
+          onNavigate={openPane}
           onClose={() => setOverlay(null)}
         />
       )}
@@ -295,7 +440,8 @@ export default function App() {
           page={overlay}
           role={role}
           masterAdmin={masterAdmin}
-          onNavigate={setOverlay}
+          focus={focus}
+          onNavigate={openPane}
           onClose={() => setOverlay(null)}
         />
       )}

@@ -5,6 +5,7 @@ import { ConfigBuilderSection } from './ConfigBuilderSection'
 import { PaneDialog, type PaneSpec } from './PaneDialog'
 import { useI18n } from '@/i18n'
 import type { Role } from '@/lib/api'
+import type { PaneFocus } from '@/lib/paneFocus'
 import type { Page } from './AppSidebar'
 
 /**
@@ -25,7 +26,7 @@ export function isToolsPage(page: Page): page is ToolsPage {
   return (TOOLS_PAGES as readonly string[]).includes(page)
 }
 
-const PANES: PaneSpec<ToolsPage>[] = [
+export const TOOLS_PANES: PaneSpec<ToolsPage>[] = [
   { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, minRole: 'viewer' },
   { id: 'api', label: 'API Explorer', icon: BracesIcon, minRole: 'viewer' },
   { id: 'config-builder', label: 'Config Builder', icon: FileCog2Icon, minRole: 'viewer' },
@@ -35,12 +36,14 @@ export function ToolsDialog({
   page,
   role,
   masterAdmin,
+  focus,
   onNavigate,
   onClose,
 }: {
   page: ToolsPage
   role: Role
   masterAdmin: boolean
+  focus?: PaneFocus | null
   onNavigate: (page: ToolsPage) => void
   onClose: () => void
 }) {
@@ -48,9 +51,10 @@ export function ToolsDialog({
   return (
     <PaneDialog
       page={page}
-      panes={PANES}
+      panes={TOOLS_PANES}
       role={role}
       masterAdmin={masterAdmin}
+      focus={focus}
       title={t('Tools')}
       description={t('Diagnose, inspect and generate — the things you reach for when something needs working out.')}
       // Wider than Settings, which holds forms: a request/response pair, a

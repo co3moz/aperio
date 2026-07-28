@@ -857,4 +857,5 @@ export const zh: Record<string, string> = {
   'Tools': '工具',
   'Diagnose, inspect and generate — the things you reach for when something needs working out.': '诊断、检查与生成——需要弄清楚某件事时会用到的东西。',
   'Audit log, API explorer and config builder': '审计日志、API 浏览器和配置生成器',
+  'Settings & Tools': '设置与工具',
 }

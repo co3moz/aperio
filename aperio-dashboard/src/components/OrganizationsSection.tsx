@@ -7,7 +7,7 @@ import {
   Trash2Icon,
   UsersIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   RecordEmpty,
@@ -45,6 +45,7 @@ import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
+import { usePaneFocus } from '@/lib/paneFocus'
 import { api, ApiError, type Organization, type OrgUsage } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 
@@ -130,6 +131,14 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const [quota, setQuota] = useState<QuotaForm>(EMPTY_QUOTA)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // The command palette can ask for this form by name, which is the whole
+  // point of the shortcut: one step from anywhere to the thing that does it.
+  const focus = usePaneFocus()
+  useEffect(() => {
+    if (focus?.target === 'new-org') openDialog(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
 
   const openDialog = (next: boolean) => {
     if (next) {
