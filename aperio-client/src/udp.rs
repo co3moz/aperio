@@ -146,11 +146,20 @@ pub(crate) async fn handle_udp_open(
 /// endpoint (one WebSocket per peer, one binary frame per datagram), so
 /// responses find their way back to the right peer. Sessions expire after
 /// `idle_timeout` without traffic.
-pub(crate) async fn run_udp_bind(port: u16, ws_url: String, token: String, idle_timeout: Duration) {
-  let socket = match tokio::net::UdpSocket::bind(("127.0.0.1", port)).await {
+pub(crate) async fn run_udp_bind(
+  address: String,
+  port: u16,
+  ws_url: String,
+  token: String,
+  idle_timeout: Duration,
+) {
+  let socket = match tokio::net::UdpSocket::bind((address.as_str(), port)).await {
     Ok(s) => Arc::new(s),
     Err(e) => {
-      error!("Failed to bind UDP 127.0.0.1:{}: {} — not binding", port, e);
+      error!(
+        "Failed to bind UDP {}:{}: {} — not binding",
+        address, port, e
+      );
       return;
     }
   };

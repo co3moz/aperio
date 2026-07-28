@@ -555,6 +555,7 @@ pub(crate) async fn authorize_tunnel_token(
         token_name: Some(token.name.clone()),
         token_id: Some(token.id.clone()),
         allow_public: token.allow_public,
+        allow_bind: token.allow_bind,
         org_id: token.org_id.clone(),
         // Filled in below: the org store must not be locked while the token
         // store lock is held.

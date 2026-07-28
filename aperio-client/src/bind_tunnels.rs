@@ -1,13 +1,22 @@
-//! `aperio-client --bind-tunnels`: local listeners for the tunnels a peer
-//! client declared in its `tunnels:` list.
+//! `aperio-client --bind-tunnels`: local listeners for tunnels declared
+//! elsewhere.
 //!
-//! This is an emergency fallback path, not a load-bearing proxy: a normally
-//! unexposed service (say a database) declared as a tunnel by a running
-//! client can be reached by starting another client with the SAME token and
-//! that client's id. Each declared tunnel becomes a local 127.0.0.1
-//! listener (port = the declared target's port, overridable per target);
-//! every accepted connection is relayed through the server to the declaring
-//! client, which dials its local target.
+//! A normally unexposed service (a database, an internal admin port, an SSH
+//! daemon) is declared as a tunnel by the client running next to it. Any
+//! client permitted to bind it can turn it into a local listener: every
+//! accepted connection is relayed through the server to the declaring client,
+//! which dials its local target.
+//!
+//! Tunnels are addressed by **name**. The server-side connection id is a
+//! fresh UUID per connection and the client suffixes its own id per service,
+//! so neither is something a configuration file can name and keep naming
+//! across a restart. Addressing a peer by client id still works and binds
+//! every tunnel that peer declares.
+//!
+//! What can be bound is discovered rather than assumed: the server lists the
+//! tunnels the presented token may reach, so a name that cannot be bound is
+//! reported at startup, next to the names that can, instead of failing later
+//! as a dropped packet.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -17,178 +26,125 @@ use crate::config::{ClientSettings, build_http_url, build_ws_url_with_path};
 use crate::protocol::TunnelDecl;
 use crate::tcp::bridge_connection;
 
-/// How to reach (and locally map) the tunnels of one peer client.
+/// Seconds between discovery retries while nothing is bindable yet.
+const DISCOVERY_RETRY_SECS: u64 = 15;
+
+/// Range the derived local port is drawn from when the declared one cannot be
+/// reused. Above the privileged range and below the ephemeral range most
+/// systems allocate from, so a derived port collides with neither.
+const DERIVED_PORT_BASE: u16 = 20000;
+const DERIVED_PORT_SPAN: u16 = 10000;
+
+/// One tunnel as the server reports it (`GET /aperio/tunnels`).
+#[derive(serde::Deserialize, Clone, Debug)]
+pub(crate) struct TunnelView {
+  pub(crate) name: String,
+  pub(crate) protocol: String,
+  pub(crate) target: String,
+  #[serde(default)]
+  pub(crate) client_id: Option<String>,
+  #[serde(default)]
+  pub(crate) available: bool,
+  #[serde(default)]
+  pub(crate) encrypt: bool,
+  #[serde(default)]
+  pub(crate) idle_timeout: Option<u64>,
+  /// The token this view was discovered with, so a binding uses the
+  /// credential that could actually see it. Client-side only.
+  #[serde(skip)]
+  pub(crate) discovered_with: Option<String>,
+}
+
+/// One resolved binding: a tunnel, where it will listen, and what it needs.
 #[derive(Debug)]
-struct BindSpec {
-  client_id: String,
+struct Binding {
+  /// Name the server relays by. Every binding resolves to one, including an
+  /// entry keyed by a peer's client id: discovery turns that peer's
+  /// declarations into names first, so there is a single address form on the
+  /// wire. The server still accepts `?client=&target=` for older binders.
+  name: String,
+  /// Declaration, for protocol, encryption and the UDP idle timeout.
+  decl: TunnelDecl,
+  /// What this binding is called in logs.
+  label: String,
+  address: String,
+  port: u16,
   token: String,
-  /// Declared target → local port override.
-  overrides: HashMap<String, u16>,
-  /// Pre-shared key for this peer's end-to-end encrypted tunnels.
   psk: Option<String>,
 }
 
-/// Seconds between discovery retries for peers that are not connected yet.
-const DISCOVERY_RETRY_SECS: u64 = 15;
-
-/// Runs bind-tunnels mode until the process is stopped. `cli_id` is the
-/// value of `--bind-tunnels` (empty = bind every entry of the local
-/// `bind-tunnels:` yaml section).
+/// Runs bind-tunnels mode until the process is stopped. `cli_id` is the value
+/// of `--bind-tunnels`: a tunnel name, a peer's client id, or empty (bind
+/// what the `bind-tunnels:` section names, or everything visible when it has
+/// nothing to say).
 pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cli_id: &str) -> ! {
   crate::tcp::spawn_shutdown_watcher();
-  let specs = build_bind_specs(settings, cli_id).unwrap_or_else(|e| {
-    error!("{}", e);
-    std::process::exit(1);
-  });
 
-  info!(
-    "Bind-tunnels mode: {} peer client(s) configured on {}",
-    specs.len(),
-    server
-  );
+  let fallback_token = settings
+    .token
+    .clone()
+    .map(|t| t.trim().to_string())
+    .filter(|t| !t.is_empty());
 
-  // Discover each peer's declared tunnels. A peer that is not connected yet
-  // is retried in the background so the binder can be started first.
-  let (ready_tx, mut ready_rx) = tokio::sync::mpsc::channel::<(BindSpec, Vec<TunnelDecl>)>(16);
-  for spec in specs {
-    let server = server.to_string();
-    let ready_tx = ready_tx.clone();
-    tokio::spawn(async move {
-      let tunnels = discover_with_retry(&server, &spec).await;
-      let _ = ready_tx.send((spec, tunnels)).await;
-    });
+  // Discovery is the startup check: it answers what exists, what a token may
+  // bind, and whether a client is there to serve it, in one call. A binding
+  // that cannot be resolved is reported now rather than accepting connections
+  // that will never be relayed.
+  //
+  // Every configured credential is asked, because an entry may carry its own
+  // `token:` and be the only one that can see its tunnel. That is the older
+  // spelling's shape, where the file has no server token at all.
+  let mut tokens: Vec<String> = Vec::new();
+  for candidate in std::iter::once(fallback_token.clone()).chain(
+    settings
+      .bind_tunnels
+      .values()
+      .map(|value| value.entry().token.clone()),
+  ) {
+    let Some(token) = candidate
+      .map(|t| t.trim().to_string())
+      .filter(|t| !t.is_empty())
+    else {
+      continue;
+    };
+    if !tokens.contains(&token) {
+      tokens.push(token);
+    }
   }
-  drop(ready_tx);
+  if tokens.is_empty() {
+    error!(
+      "CRITICAL SECURITY ERROR: a token is required (--server-token, APERIO_SERVER_TOKEN, yaml: server.token, or a bind-tunnels entry's token)"
+    );
+    std::process::exit(1);
+  }
+  let visible = discover(server, &tokens).await;
 
-  // Local ports already claimed, for cross-client conflict detection:
-  // (protocol, port) → (client id, declared target). TCP and UDP live in
-  // separate port spaces, so the protocol is part of the key.
-  let mut claimed: HashMap<(String, u16), (String, String)> = HashMap::new();
+  let bindings = match plan(settings, cli_id, &visible, &fallback_token) {
+    Ok(bindings) => bindings,
+    Err(e) => {
+      error!("{}", e);
+      std::process::exit(1);
+    }
+  };
+  if bindings.is_empty() {
+    error!("Nothing to bind. {}", visible_hint(&visible));
+    std::process::exit(1);
+  }
+
+  let mut claimed: HashMap<(String, u16), String> = HashMap::new();
   let mut listeners = 0usize;
-
-  while let Some((spec, tunnels)) = ready_rx.recv().await {
-    if tunnels.is_empty() {
-      warn!(
-        "Peer client {} declares no tunnels; nothing to bind",
-        spec.client_id
+  for binding in bindings {
+    let claim = (binding.decl.protocol.clone(), binding.port);
+    if let Some(other) = claimed.get(&claim) {
+      error!(
+        "Local {} port {} is already used by {}; give {} its own `port:` — not binding",
+        binding.decl.protocol, binding.port, other, binding.label
       );
       continue;
     }
-    let server = server.to_string();
-    for decl in tunnels {
-      let Some(port) = local_port_for(&spec, &decl) else {
-        error!(
-          "Cannot derive a local port for tunnel {} of client {}; add an override rule",
-          decl.target, spec.client_id
-        );
-        continue;
-      };
-      let claim_key = (decl.protocol.clone(), port);
-      if let Some((other_client, other_target)) = claimed.get(&claim_key) {
-        error!(
-          "Local {} port {} conflicts: client {} target {} and client {} target {} — define an override rule (bind-tunnels: {}: override: '{}': <port>); not binding",
-          decl.protocol,
-          port,
-          other_client,
-          other_target,
-          spec.client_id,
-          decl.target,
-          spec.client_id,
-          decl.target
-        );
-        continue;
-      }
-
-      if decl.encrypt && decl.protocol != "tcp" {
-        error!(
-          "Tunnel {} of client {} declares encrypt with protocol {}; only tcp tunnels support end-to-end encryption — not binding",
-          decl.target, spec.client_id, decl.protocol
-        );
-        continue;
-      }
-
-      if decl.protocol == "udp" {
-        let idle_timeout = crate::udp::effective_idle_timeout(decl.idle_timeout);
-        let ws_url = match tunnel_ws_url(&server, "/aperio/udp", &spec.client_id, &decl.target) {
-          Ok(u) => u,
-          Err(e) => {
-            error!("Failed to build tunnel URL: {}", e);
-            continue;
-          }
-        };
-        claimed.insert(claim_key, (spec.client_id.clone(), decl.target.clone()));
-        listeners += 1;
-        info!(
-          "Tunnel bound: 127.0.0.1:{} -> client {} -> {} (udp)",
-          port, spec.client_id, decl.target
-        );
-        let token = spec.token.clone();
-        tokio::spawn(async move {
-          crate::udp::run_udp_bind(port, ws_url, token, idle_timeout).await;
-        });
-        continue;
-      }
-
-      let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
-        Ok(l) => l,
-        Err(e) => {
-          error!(
-            "Failed to bind 127.0.0.1:{} for tunnel {} of client {}: {} — not binding",
-            port, decl.target, spec.client_id, e
-          );
-          continue;
-        }
-      };
-      claimed.insert(claim_key, (spec.client_id.clone(), decl.target.clone()));
+    if spawn_listener(server, &binding).await {
+      claimed.insert(claim, binding.label.clone());
       listeners += 1;
-      info!(
-        "Tunnel bound: 127.0.0.1:{} -> client {} -> {} ({})",
-        port, spec.client_id, decl.target, decl.protocol
-      );
-
-      let ws_url = match tunnel_ws_url(&server, "/aperio/tcp", &spec.client_id, &decl.target) {
-        Ok(u) => u,
-        Err(e) => {
-          error!("Failed to build tunnel URL: {}", e);
-          continue;
-        }
-      };
-      let token = spec.token.clone();
-      let (encrypt, psk) = (decl.encrypt, spec.psk.clone());
-      if encrypt {
-        info!(
-          "Tunnel {} of client {} is end-to-end encrypted{}",
-          decl.target,
-          spec.client_id,
-          if psk.is_some() {
-            " (with PSK)"
-          } else {
-            " (no PSK — an actively hostile server could MITM; configure a psk on both sides)"
-          }
-        );
-      } else if psk.is_some() {
-        warn!(
-          "A psk is configured for client {} but tunnel {} is not declared encrypted; the psk is unused for it",
-          spec.client_id, decl.target
-        );
-      }
-      tokio::spawn(async move {
-        loop {
-          match listener.accept().await {
-            Ok((sock, peer)) => {
-              info!("Tunnel connection from {} -> {}", peer, ws_url);
-              let (ws_url, token, psk) = (ws_url.clone(), token.clone(), psk.clone());
-              tokio::spawn(async move {
-                bridge_connection(sock, &ws_url, &token, encrypt, psk).await;
-              });
-            }
-            Err(e) => {
-              error!("Tunnel accept error: {}", e);
-              tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-          }
-        }
-      });
     }
   }
 
@@ -204,112 +160,286 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
   std::future::pending().await
 }
 
-/// Resolves the configured peers: an explicit `--bind-tunnels <id>` selects
-/// one (its yaml entry supplies token/overrides when present, the layered
-/// token otherwise); without a value every `bind-tunnels:` yaml entry runs.
-fn build_bind_specs(settings: &ClientSettings, cli_id: &str) -> Result<Vec<BindSpec>, String> {
-  let trimmed_entry = |overrides: &HashMap<String, u16>| -> HashMap<String, u16> {
-    overrides
-      .iter()
-      .map(|(k, v)| (k.trim().to_string(), *v))
-      .collect()
-  };
+/// Names the tunnels this token can reach, for an error that tells the reader
+/// what to write instead of only what failed.
+fn visible_hint(visible: &[TunnelView]) -> String {
+  if visible.is_empty() {
+    return "This token can bind no tunnel on this server: nothing is declared, or the declaring clients are in another organization and the token lacks allow_bind.".to_string();
+  }
+  let names: Vec<&str> = visible.iter().map(|v| v.name.as_str()).collect();
+  format!("This token can bind: {}.", names.join(", "))
+}
 
+/// Turns the configuration into concrete bindings, resolving every key
+/// against what the server says is bindable.
+fn plan(
+  settings: &ClientSettings,
+  cli_id: &str,
+  visible: &[TunnelView],
+  fallback_token: &Option<String>,
+) -> Result<Vec<Binding>, String> {
+  let entries = &settings.bind_tunnels;
+  let mut planned: Vec<Binding> = Vec::new();
+
+  // An explicit `--bind-tunnels <value>` selects one thing; its yaml entry,
+  // when there is one, supplies the port and the rest.
   if !cli_id.is_empty() {
-    let entry = settings.bind_tunnels.get(cli_id);
-    let token = entry
-      .and_then(|e| e.token.clone())
-      .or_else(|| settings.token.clone())
-      .filter(|t| !t.trim().is_empty())
-      .ok_or(
-        "CRITICAL SECURITY ERROR: a tunnel token is required (--server-token, APERIO_SERVER_TOKEN, or the bind-tunnels entry's token) — it must be the SAME token the peer client connected with!",
-      )?;
-    return Ok(vec![BindSpec {
-      client_id: cli_id.to_string(),
-      token,
-      overrides: entry
-        .map(|e| trimmed_entry(&e.overrides))
-        .unwrap_or_default(),
-      psk: entry.and_then(|e| e.psk.clone()),
-    }]);
+    let entry = entries.get(cli_id).map(|v| v.entry()).unwrap_or_default();
+    return resolve_key(cli_id, &entry, visible, fallback_token, &mut planned)
+      .map(|()| planned)
+      .map_err(|e| format!("{e} {}", visible_hint(visible)));
   }
 
-  if settings.bind_tunnels.is_empty() {
-    return Err(
-      "CRITICAL ERROR: --bind-tunnels without a client id needs a bind-tunnels: section in aperio.yaml".to_string(),
+  // No value: the yaml section drives it.
+  if entries.is_empty() {
+    // Nothing configured either, so bind what this token can reach. This is
+    // the "I just want in" case, and it is only reasonable because the server
+    // decides what is on the list.
+    for view in visible {
+      planned.push(binding_for_view(view, &Default::default(), fallback_token)?);
+    }
+    return Ok(planned);
+  }
+
+  let mut failures: Vec<String> = Vec::new();
+  for (key, value) in entries {
+    let entry = value.entry();
+    if let Err(e) = resolve_key(key, &entry, visible, fallback_token, &mut planned) {
+      failures.push(e);
+    }
+  }
+  // One unresolvable entry must not take down the bindings that did resolve:
+  // this is a break-glass tool, and getting three of four tunnels up during
+  // an incident beats getting none.
+  for failure in &failures {
+    error!("{} {}", failure, visible_hint(visible));
+  }
+  Ok(planned)
+}
+
+/// Resolves one `bind-tunnels:` key: a tunnel name, or a peer's client id
+/// (which binds every tunnel that peer declares).
+fn resolve_key(
+  key: &str,
+  entry: &aperio_config::BindTunnelEntry,
+  visible: &[TunnelView],
+  fallback_token: &Option<String>,
+  out: &mut Vec<Binding>,
+) -> Result<(), String> {
+  let key = key.trim();
+  if let Some(view) = visible.iter().find(|v| v.name == key) {
+    out.push(binding_for_view(view, entry, fallback_token)?);
+    return Ok(());
+  }
+  // Not a name this token can bind. A client id binds everything that peer
+  // declares, which is the older spelling.
+  let peer: Vec<&TunnelView> = visible
+    .iter()
+    .filter(|v| v.client_id.as_deref() == Some(key))
+    .collect();
+  if peer.is_empty() {
+    return Err(format!(
+      "`{key}` is neither a tunnel this token may bind nor a connected client's id."
+    ));
+  }
+  for view in peer {
+    let mut per_tunnel = entry.clone();
+    // The old spelling maps a declared target to a local port; a named entry
+    // uses `port:`, which cannot apply to a whole peer.
+    per_tunnel.port = entry.overrides.get(view.target.trim()).copied();
+    out.push(binding_for_view(view, &per_tunnel, fallback_token)?);
+  }
+  Ok(())
+}
+
+/// Builds the binding for one discovered tunnel.
+fn binding_for_view(
+  view: &TunnelView,
+  entry: &aperio_config::BindTunnelEntry,
+  fallback_token: &Option<String>,
+) -> Result<Binding, String> {
+  let token = entry
+    .token
+    .clone()
+    .or_else(|| view.discovered_with.clone())
+    .or_else(|| fallback_token.clone())
+    .map(|t| t.trim().to_string())
+    .filter(|t| !t.is_empty())
+    .ok_or_else(|| format!("tunnel `{}` has no token to bind with", view.name))?;
+  let address = entry
+    .address
+    .clone()
+    .map(|a| a.trim().to_string())
+    .filter(|a| !a.is_empty())
+    .unwrap_or_else(|| "127.0.0.1".to_string());
+  if address != "127.0.0.1" && address != "::1" && address != "localhost" {
+    warn!(
+      "Tunnel {} listens on {}, not loopback: a service deliberately kept off the network is now reachable from it",
+      view.name, address
     );
   }
-  settings
-    .bind_tunnels
-    .iter()
-    .map(|(id, entry)| {
-      let token = entry
-        .token
-        .clone()
-        .or_else(|| settings.token.clone())
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| {
-          format!(
-            "CRITICAL SECURITY ERROR: bind-tunnels entry '{}' has no token and no layered token is configured",
-            id
-          )
-        })?;
-      Ok(BindSpec {
-        client_id: id.trim().to_string(),
-        token,
-        overrides: trimmed_entry(&entry.overrides),
-        psk: entry.psk.clone(),
-      })
-    })
-    .collect()
+  if !view.available {
+    warn!(
+      "Tunnel {} is declared but no client can serve it right now; binding anyway, connections will fail until one is back",
+      view.name
+    );
+  }
+  Ok(Binding {
+    name: view.name.clone(),
+    decl: TunnelDecl {
+      name: Some(view.name.clone()),
+      target: view.target.clone(),
+      protocol: view.protocol.clone(),
+      encrypt: view.encrypt,
+      psk: None,
+      idle_timeout: view.idle_timeout,
+      expose: None,
+    },
+    port: local_port(view, entry.port),
+    label: format!("tunnel {}", view.name),
+    address,
+    token,
+    psk: entry.psk.clone(),
+  })
 }
 
-/// Local listener port for one declared tunnel: the override for that target
-/// wins, otherwise the port of the declared target itself.
-fn local_port_for(spec: &BindSpec, decl: &TunnelDecl) -> Option<u16> {
-  if let Some(p) = spec.overrides.get(decl.target.trim()) {
-    return Some(*p);
+/// Local port for a tunnel: what the configuration asked for, else the
+/// declared target's port when that is usable, else a port derived from the
+/// name so it is the same on every run.
+///
+/// The declared port stays the default because binders in the field depend on
+/// it; only the cases that used to fail outright (a privileged port, or none
+/// to parse) fall through to a derived one.
+fn local_port(view: &TunnelView, configured: Option<u16>) -> u16 {
+  if let Some(port) = configured.filter(|p| *p > 0) {
+    return port;
   }
-  decl
+  let declared = view
     .target
+    .trim()
     .rsplit_once(':')
     .and_then(|(_, port)| port.parse::<u16>().ok())
+    .filter(|p| *p >= 1024);
+  declared.unwrap_or_else(|| derived_port(&view.name))
 }
 
-/// WebSocket URL selecting a specific peer client and declared target on the
-/// server's stream endpoint (`/aperio/tcp` or `/aperio/udp`).
-fn tunnel_ws_url(
-  server: &str,
-  path: &str,
-  client_id: &str,
-  target: &str,
-) -> Result<String, String> {
-  let base = build_ws_url_with_path(server, path)?;
-  let mut parsed = url::Url::parse(&base).map_err(|e| e.to_string())?;
-  parsed
-    .query_pairs_mut()
-    .append_pair("client", client_id)
-    .append_pair("target", target);
-  Ok(parsed.to_string())
+/// A stable local port for a tunnel name (FNV-1a, folded into the range).
+fn derived_port(name: &str) -> u16 {
+  let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+  for byte in name.as_bytes() {
+    hash ^= *byte as u64;
+    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+  }
+  DERIVED_PORT_BASE + (hash % DERIVED_PORT_SPAN as u64) as u16
 }
 
-#[cfg(test)]
-#[path = "bind_tunnels_tests.rs"]
-mod tests;
-
-/// Fetches the peer's declared tunnels from the server, retrying while the
-/// peer is not connected (yet). An auth error or a bad URL for this peer skips
-/// just this binding (returns no tunnels) — it must not tear down the whole
-/// process, which may be binding other healthy peers.
-async fn discover_with_retry(server: &str, spec: &BindSpec) -> Vec<TunnelDecl> {
-  let url = match build_http_url(server, &format!("/aperio/tunnels/{}", spec.client_id)) {
+/// Opens the local listener for one binding. Returns false when it could not
+/// be opened, which is reported but never fatal for the other bindings.
+async fn spawn_listener(server: &str, binding: &Binding) -> bool {
+  let path = if binding.decl.protocol == "udp" {
+    "/aperio/udp"
+  } else {
+    "/aperio/tcp"
+  };
+  let ws_url = match tunnel_ws_url(server, path, &binding.name) {
     Ok(u) => u,
     Err(e) => {
       error!(
-        "Failed to build discovery URL for client {}: {}; skipping this binding",
-        spec.client_id, e
+        "Failed to build the tunnel URL for {}: {}",
+        binding.label, e
       );
-      return Vec::new();
+      return false;
+    }
+  };
+
+  if binding.decl.protocol == "udp" {
+    let idle_timeout = crate::udp::effective_idle_timeout(binding.decl.idle_timeout);
+    info!(
+      "Tunnel bound: {}:{} -> {} -> {} (udp)",
+      binding.address, binding.port, binding.label, binding.decl.target
+    );
+    let (address, port, token) = (binding.address.clone(), binding.port, binding.token.clone());
+    tokio::spawn(async move {
+      crate::udp::run_udp_bind(address, port, ws_url, token, idle_timeout).await;
+    });
+    return true;
+  }
+
+  if binding.decl.encrypt {
+    info!(
+      "{} is end-to-end encrypted{}",
+      binding.label,
+      if binding.psk.is_some() {
+        " (with PSK)"
+      } else {
+        " (no PSK — an actively hostile server could MITM; configure a psk on both sides)"
+      }
+    );
+  } else if binding.psk.is_some() {
+    warn!(
+      "A psk is configured for {} but it is not declared encrypted; the psk is unused",
+      binding.label
+    );
+  }
+
+  let listener = match tokio::net::TcpListener::bind((binding.address.as_str(), binding.port)).await
+  {
+    Ok(l) => l,
+    Err(e) => {
+      error!(
+        "Failed to bind {}:{} for {}: {} — not binding",
+        binding.address, binding.port, binding.label, e
+      );
+      return false;
+    }
+  };
+  info!(
+    "Tunnel bound: {}:{} -> {} -> {} (tcp)",
+    binding.address, binding.port, binding.label, binding.decl.target
+  );
+
+  let (token, encrypt, psk) = (
+    binding.token.clone(),
+    binding.decl.encrypt,
+    binding.psk.clone(),
+  );
+  tokio::spawn(async move {
+    loop {
+      match listener.accept().await {
+        Ok((sock, peer)) => {
+          info!("Tunnel connection from {} -> {}", peer, ws_url);
+          let (ws_url, token, psk) = (ws_url.clone(), token.clone(), psk.clone());
+          tokio::spawn(async move {
+            bridge_connection(sock, &ws_url, &token, encrypt, psk).await;
+          });
+        }
+        Err(e) => {
+          error!("Tunnel accept error: {}", e);
+          tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+      }
+    }
+  });
+  true
+}
+
+/// WebSocket URL for one binding's stream endpoint.
+fn tunnel_ws_url(server: &str, path: &str, name: &str) -> Result<String, String> {
+  let base = build_ws_url_with_path(server, path)?;
+  let mut parsed = url::Url::parse(&base).map_err(|e| e.to_string())?;
+  parsed.query_pairs_mut().append_pair("tunnel", name);
+  Ok(parsed.to_string())
+}
+
+/// Lists everything the configured credentials may bind, retrying while the
+/// answer is empty: a binder may legitimately start before the clients it
+/// binds, so nothing visible yet is a wait rather than a failure.
+async fn discover(server: &str, tokens: &[String]) -> Vec<TunnelView> {
+  let url = match build_http_url(server, "/aperio/tunnels") {
+    Ok(u) => u,
+    Err(e) => {
+      error!("Failed to build the discovery URL: {}", e);
+      std::process::exit(1);
     }
   };
   let http = reqwest::Client::builder()
@@ -318,49 +448,60 @@ async fn discover_with_retry(server: &str, spec: &BindSpec) -> Vec<TunnelDecl> {
     .unwrap_or_default();
 
   loop {
-    match http.get(&url).bearer_auth(&spec.token).send().await {
-      Ok(resp) if resp.status().is_success() => match resp.json::<Vec<TunnelDecl>>().await {
-        Ok(tunnels) => {
-          info!(
-            "Client {} declares {} tunnel(s)",
-            spec.client_id,
-            tunnels.len()
-          );
-          return tunnels;
+    let mut seen: Vec<TunnelView> = Vec::new();
+    for token in tokens {
+      for mut view in list_for(&http, &url, token).await {
+        if seen.iter().any(|v| v.name == view.name) {
+          continue;
         }
-        Err(e) => error!("Failed to parse tunnel list for {}: {}", spec.client_id, e),
-      },
-      Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
-        error!(
-          "Server rejected the token for client {} (401); skipping this binding. --bind-tunnels requires the SAME token that client connected with.",
-          spec.client_id
-        );
-        return Vec::new();
+        view.discovered_with = Some(token.clone());
+        seen.push(view);
       }
-      Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
-        error!(
-          "Token mismatch for client {} (403); skipping this binding. --bind-tunnels requires the SAME token that client connected with.",
-          spec.client_id
-        );
-        return Vec::new();
-      }
-      Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
-        warn!(
-          "Client {} is not connected (yet); retrying in {}s",
-          spec.client_id, DISCOVERY_RETRY_SECS
-        );
-      }
-      Ok(resp) => warn!(
-        "Tunnel discovery for {} returned HTTP {}; retrying in {}s",
-        spec.client_id,
-        resp.status(),
-        DISCOVERY_RETRY_SECS
-      ),
-      Err(e) => warn!(
-        "Tunnel discovery for {} failed: {}; retrying in {}s",
-        spec.client_id, e, DISCOVERY_RETRY_SECS
-      ),
     }
+    if !seen.is_empty() {
+      info!("{} tunnel(s) bindable with this configuration", seen.len());
+      return seen;
+    }
+    warn!(
+      "No tunnel is bindable yet; retrying in {}s",
+      DISCOVERY_RETRY_SECS
+    );
     tokio::time::sleep(Duration::from_secs(DISCOVERY_RETRY_SECS)).await;
   }
 }
+
+/// One discovery call. An empty answer and a failed one are both "nothing
+/// from this token"; the caller decides whether to wait.
+async fn list_for(http: &reqwest::Client, url: &str, token: &str) -> Vec<TunnelView> {
+  match http.get(url).bearer_auth(token).send().await {
+    Ok(resp) if resp.status().is_success() => match resp.json::<Vec<TunnelView>>().await {
+      Ok(tunnels) => tunnels,
+      Err(e) => {
+        error!("Failed to parse the tunnel list: {}", e);
+        Vec::new()
+      }
+    },
+    Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
+      error!("The server rejected a configured token (401).");
+      Vec::new()
+    }
+    Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+      error!(
+        "This server does not support tunnel discovery (404); it predates named tunnels. Upgrade it, or bind against the older server with an older client."
+      );
+      std::process::exit(1);
+    }
+    Ok(resp) => {
+      warn!("Tunnel discovery returned HTTP {}", resp.status());
+      Vec::new()
+    }
+    Err(e) => {
+      warn!("Tunnel discovery failed: {}", e);
+      Vec::new()
+    }
+  }
+}
+
+#[cfg(test)]
+#[path = "bind_tunnels_tests.rs"]
+mod tests;

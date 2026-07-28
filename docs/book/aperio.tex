@@ -1774,33 +1774,64 @@ tenant provoke an ACME request for any hostname its token covers.
 \section{Emergency TCP tunnels}
 
 A client can declare local services it does \emph{not} expose to the web,
-which a peer client may reach through the server:
+which another client may reach through the server. Each one carries a
+\textbf{name}, and that name is the handle everything else uses:
 
 \begin{lstlisting}[language=aperioyaml]
 # ./aperio.yaml (client), on the machine next to the private service
 tunnels:
-  - target: 127.0.0.1:27017     # MongoDB
+  - name: mongo
+    target: 127.0.0.1:27017     # MongoDB
     protocol: tcp
-  - target: 127.0.0.1:5432
+  - name: pg-main
+    target: 127.0.0.1:5432
     encrypt: true
     psk: a-long-random-string   # never sent anywhere
 \end{lstlisting}
 
 \begin{lstlisting}[language=aperiosh]
-# from any machine, with the SAME token that client connected with
-aperio-client --bind-tunnels <client-id> \
+# from any machine, with a token permitted to bind it
+aperio-client --bind-tunnels mongo \
   --server-url https://tunnel.example.com \
   --server-token apr_...
 \end{lstlisting}
 
-Each declared tunnel becomes a local \code{127.0.0.1} listener, by default
-on the same port as the remote target, so existing tools connect without
-knowing a tunnel is involved.
+Naming matters because the alternatives do not survive: the server-side
+connection id is a fresh UUID per connection, and a client suffixes its own
+id per service, so neither can be written in a file and still mean the same
+thing tomorrow.
+
+Three ways to be permitted: the master token, the very same token the
+declaring client used, or a token in the same organization carrying
+\code{allow\_bind}. The last defaults to off and is the one that separates
+\emph{reaching} a database from \emph{publishing} services as that client.
+\code{GET /aperio/tunnels} lists what a token may bind, which is also what
+the dashboard's Tunnels page shows.
+
+Each bound tunnel becomes a local \code{127.0.0.1} listener, by default on
+the same port as the remote target, so existing tools connect without
+knowing a tunnel is involved. A privileged or unparseable port falls back to
+one derived from the name, stable across restarts.
 
 \code{encrypt: true} is the escape hatch from the semi-trusted server: the
 two clients establish X25519 + ChaCha20-Poly1305 and the server relays
 ciphertext only. A pre-shared key mixed into the derivation protects
 against an actively hostile server.
+
+An \code{expose:} entry in \code{aperio-server.yaml} opens a public TCP
+port straight into a tunnel, with no binder peer, naming the tunnel and the
+token whose client may claim it:
+
+\begin{lstlisting}[language=aperioyaml]
+# aperio-server.yaml
+expose:
+  - port: 2222
+    tunnel: ssh
+    token: bastion-host
+\end{lstlisting}
+
+Revoking that token closes the port's source. The older shared-secret form
+(\code{key:} on both sides) still works but names no owner.
 
 \section{PR preview tunnels}
 
@@ -2388,7 +2419,8 @@ always matches the running build.
 \addlinespace[2pt]
 \code{GET /aperio/ws} & Tunnel endpoint for clients. & master or dynamic token (Bearer / \code{x-auth-token}) \\
 \addlinespace[2pt]
-\code{GET /aperio/tunnels/:client\_id} & Declared-tunnels discovery for \code{--bind-tunnels} (see \emph{Emergency Tunnels}). & the same token the client connected with (or master) \\
+\code{GET /aperio/tunnels} & Lists the tunnels the presented token may bind. & a tunnel token \\
+\code{GET /aperio/tunnels/:client\_id} & Per-client tunnel discovery for \code{--bind-tunnels}. & master, the client's own token, or one in its organization with \code{allow\_bind} \\
 \addlinespace[2pt]
 \code{GET /aperio} & Admin dashboard. & dashboard session \\
 \addlinespace[2pt]

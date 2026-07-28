@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::protocol::TunnelDecl;
-use crate::state::ClientHandle;
+use crate::state::{ClientHandle, ClientPerms};
 use crate::test_support::*;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
@@ -17,29 +17,31 @@ fn dynamic_perms(token_id: &str) -> ClientPerms {
     token_name: Some(format!("token-{token_id}")),
     token_id: Some(token_id.to_string()),
     allow_public: false,
+    allow_bind: false,
     org_id: None,
     org_hostnames: Vec::new(),
   }
 }
 
 #[test]
-fn test_same_token() {
+fn test_may_bind_same_token() {
+  use crate::tunnel::registry::may_bind;
   let master = ClientPerms::master();
   let a = dynamic_perms("a");
   let a2 = dynamic_perms("a");
   let b = dynamic_perms("b");
 
   // The master token may bind any client's tunnels.
-  assert!(same_token(&master, &a));
-  assert!(same_token(&master, &master));
+  assert!(may_bind(&master, &a));
+  assert!(may_bind(&master, &master));
 
-  // A dynamic token only matches clients using the very same token.
-  assert!(same_token(&a, &a2));
-  assert!(!same_token(&a, &b));
+  // A dynamic token matches clients using the very same token.
+  assert!(may_bind(&a, &a2));
+  assert!(!may_bind(&a, &b));
 
   // A dynamic token never matches a master-token client, and a
   // master-token OWNER is only bindable by the master token itself.
-  assert!(!same_token(&a, &master));
+  assert!(!may_bind(&a, &master));
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,7 @@ async fn make_token(state: &AppState) -> String {
     None,
     false,
     false,
+    false,
     None,
   );
   secret
@@ -139,6 +142,7 @@ async fn make_token(state: &AppState) -> String {
 
 fn tcp_tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    name: None,
     target: target.into(),
     protocol: "tcp".into(),
     encrypt: false,
@@ -149,6 +153,7 @@ fn tcp_tunnel(target: &str) -> TunnelDecl {
 
 fn udp_tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    name: None,
     target: target.into(),
     protocol: "udp".into(),
     encrypt: false,

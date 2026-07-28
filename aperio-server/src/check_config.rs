@@ -350,11 +350,24 @@ pub(crate) fn run() -> i32 {
           rule.protocol
         ));
       }
-      if rule.key.trim().len() < 8 {
-        r.fail(&format!(
-          "`expose:` entry #{}: the key must be at least 8 characters",
+      match (&rule.tunnel, &rule.key) {
+        (Some(name), _) => {
+          if let Err(e) = aperio_config::validate_tunnel_name(name) {
+            r.fail(&format!("`expose:` entry #{}: {e}", i + 1));
+          }
+        }
+        (None, None) => r.fail(&format!(
+          "`expose:` entry #{}: needs a `tunnel:` naming what the port relays into",
           i + 1
-        ));
+        )),
+        (None, Some(key)) => {
+          if key.trim().len() < 8 {
+            r.fail(&format!(
+              "`expose:` entry #{}: the key must be at least 8 characters",
+              i + 1
+            ));
+          }
+        }
       }
       if !ports.insert(rule.port) {
         r.fail(&format!(

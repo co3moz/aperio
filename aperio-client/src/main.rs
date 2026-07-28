@@ -1084,6 +1084,7 @@ fn validate_tunnels(
   raw: &[crate::protocol::TunnelDecl],
 ) -> Result<Vec<crate::protocol::TunnelDecl>, String> {
   let mut seen = std::collections::HashSet::new();
+  let mut names = std::collections::HashSet::new();
   let mut out = Vec::with_capacity(raw.len());
   for decl in raw {
     let target = decl.target.trim().to_string();
@@ -1153,14 +1154,28 @@ fn validate_tunnels(
         ));
       }
     }
-    out.push(crate::protocol::TunnelDecl {
+    // The name is the handle a binder and an `expose:` entry address, so it is
+    // settled here and announced, rather than being re-derived by whoever
+    // needs it. An explicit name is validated; a derived one cannot fail.
+    if let Some(name) = decl.name.as_deref() {
+      aperio_config::validate_tunnel_name(name).map_err(|e| format!("CRITICAL ERROR: {e}"))?;
+    }
+    let normalized = crate::protocol::TunnelDecl {
+      name: decl.name.as_ref().map(|n| n.trim().to_string()),
       target,
       protocol,
       encrypt: decl.encrypt,
       psk: decl.psk.clone(),
       idle_timeout: decl.idle_timeout,
       expose: decl.expose.clone(),
-    });
+    };
+    let name = aperio_config::tunnel_name(&normalized);
+    if !names.insert(name.clone()) {
+      return Err(format!(
+        "CRITICAL ERROR: two tunnels resolve to the name '{name}'; give one of them a distinct `name:`"
+      ));
+    }
+    out.push(normalized);
   }
   Ok(out)
 }

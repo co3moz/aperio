@@ -30,7 +30,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [m_resilience](m_resilience/) | Per-service serve-stale: the static site survives outages, the API fails honestly. |
 | [s_emergency_tunnels](s_emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `bind-tunnels:`). |
 | [s_emergency_tunnels_2](s_emergency_tunnels_2/) | End-to-end encrypted tunnels with a pre-shared key. |
-| [s_public_expose](s_public_expose/) | Expose a declared tunnel on a raw public server port (experimental). |
+| [s_public_expose](s_public_expose/) | Expose a declared tunnel on a raw public server port, owned by a named token. |
 | [s_routes](s_routes/) | Client-less routes: redirects and fixed responses served by the server alone. |
 | [m_visitor_auth](m_visitor_auth/) | Visitor login gates: server-wide password, client-set override, and `public:`. |
 | [s_allowed_ips](s_allowed_ips/) | Restrict a service to specific visitor IPs/CIDRs. |

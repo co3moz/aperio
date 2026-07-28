@@ -2,10 +2,12 @@ server:
   token: apr_public_expose_change_me
 port: 8080
 
-# Raw public TCP ports relayed to declared client tunnels carrying the
-# matching `expose: <key>`. Anyone who can reach the port talks straight
-# to the backend, keep real authentication on the backend itself.
+# Raw public TCP ports relayed into declared client tunnels. An entry names
+# the tunnel and the token whose client may claim it, so the port has an
+# owner and revoking that token closes its source. Anyone who can reach the
+# port talks straight to the backend: keep real authentication there.
 expose:
-  - protocol: tcp        # only tcp while experimental
+  - protocol: tcp        # tcp only; a public udp port is an amplification surface
     port: 2222
-    key: replace-with-a-long-random-shared-secret
+    tunnel: ssh
+    token: expose-bastion

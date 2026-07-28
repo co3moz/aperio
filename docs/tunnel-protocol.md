@@ -36,7 +36,7 @@ With `APERIO_TUNNEL_COMPRESSION=1` (yaml `tunnel_compression`) the server offers
 
 ## Emergency tunnels
 
-A raw TCP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel, bound locally by a peer client running `--bind-tunnels` with the same token and the declaring client's id. See [Emergency Tunnels](emergency-tunnels.md).
+A raw TCP or UDP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel, bound locally by another client running `--bind-tunnels` with that tunnel's name. See [Tunnels](emergency-tunnels.md).
 
 ## Server-side response cache
 

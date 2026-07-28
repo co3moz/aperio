@@ -4,6 +4,7 @@ import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSide
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
+import { TunnelsSection } from './components/TunnelsSection'
 import { UptimeSection } from './components/UptimeSection'
 import { CommandPalette, type Command } from './components/CommandPalette'
 import { InspectorDialog } from './components/InspectorDialog'
@@ -370,6 +371,7 @@ export default function App() {
                   <UptimeSection />
                 </>
               )}
+              {page === 'tunnels' && <TunnelsSection />}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
               {page === 'inbox' && <InboxSection />}
               {page === 'breakdown' && (

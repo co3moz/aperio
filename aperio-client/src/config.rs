@@ -22,9 +22,7 @@ use tracing::{error, info, warn};
 use crate::protocol::TunnelDecl;
 // The `aperio.yaml` structs live in the shared `aperio-config` crate so the
 // build script can derive a JSON Schema from the exact types parsed here.
-pub(crate) use aperio_config::{
-  BindTunnelEntry, FileConfig, HeaderRules, SecurityHeaders, ServiceEntry,
-};
+pub(crate) use aperio_config::{FileConfig, HeaderRules, SecurityHeaders, ServiceEntry};
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -420,7 +418,7 @@ pub(crate) struct ClientSettings {
   /// Tunnels declared by this client (local config file only).
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// `bind-tunnels:` entries (local config file only).
-  pub(crate) bind_tunnels: HashMap<String, BindTunnelEntry>,
+  pub(crate) bind_tunnels: HashMap<String, aperio_config::BindTunnelValue>,
   /// Static-file mode: SPA history fallback (process-wide).
   pub(crate) serve_spa: bool,
   /// Static-file mode: custom 404 page path (process-wide).

@@ -70,7 +70,7 @@ When a config file is present, the client **hot-reloads** it: edits to `aperio.y
 aperio-client                          Run from config files / environment (Docker mode)
 aperio-client 3000                     Expose http://localhost:3000
 aperio-client example.com              Expose http://example.com
-aperio-client --bind-tunnels <id>      Bind the declared tunnels of a peer client locally
+aperio-client --bind-tunnels <name>    Bind a declared tunnel locally (a client id binds all of that peer's)
 aperio-client check                    Diagnose configuration and connectivity
 aperio-client api <group> <action>     Call the server's admin API (see below)
 aperio-client --version
@@ -98,7 +98,7 @@ The positional target is optional, a bare port number expands to `http://localho
 | `--visitor-auth USER:PASSWORD` | Gate this service behind a client-set visitor login, overriding the server's own visitor password for it (needs the same token permission as `--public`) |
 | `--allowed-ips IPS` | Comma-separated visitor IPs/CIDRs allowed to reach this service (everyone when unset); enforced per candidate by the server, a fully rejected visitor gets the `denied:` redirect or a stealth answer |
 | `--client-id UUID` | Persistent client instance id (default: a random UUID per run) |
-| `--bind-tunnels [CLIENT_ID]` | Bind a peer client's declared tunnels locally (see [Emergency Tunnels](emergency-tunnels.md)) |
+| `--bind-tunnels [NAME]` | Bind a declared tunnel locally by name; a client id binds every tunnel that peer declares, and no value binds the `bind-tunnels:` section (see [Tunnels](emergency-tunnels.md)) |
 | `--api-key KEY` | Admin API key used by the `api` subcommand (never by the tunnel) |
 | `--config FILE` | Config file path (default: `./aperio.yaml`) |
 
@@ -150,7 +150,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `LOG_LEVEL` |  |, | Log verbosity. | `info` |
 | `APERIO_LOG_FORMAT` |  |, | `json` or `pretty`. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). | auto |
 
-Yaml-only sections: `services:` (multiple exposed targets, below), `tunnels:` and `bind-tunnels:` (see [Emergency Tunnels](emergency-tunnels.md)).
+Yaml-only sections: `services:` (multiple exposed targets, below), `tunnels:` and `bind-tunnels:` (see [Tunnels](emergency-tunnels.md)).
 
 ### aperio.yaml & ~/.aperio.yaml
 
@@ -408,7 +408,7 @@ headers:
 
 #### Public TCP expose (`expose:`, experimental)
 
-A structured `expose:` list opens raw public TCP ports that relay to declared client tunnels carrying the matching `expose: <key>`, see [Emergency Tunnels](emergency-tunnels.md#public-expose-experimental) for the full story and security notes.
+A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the token whose client may claim it (`tunnel:` + `token:`); the older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
 
 ```yaml
 # aperio-server.yaml
@@ -619,7 +619,8 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | --- | --- | --- |
 | `/*` (fallback) | Proxied to tunnel clients. | visitor password / OIDC if configured |
 | `GET /aperio/ws` | Tunnel endpoint for clients. | master or dynamic token (Bearer / `x-auth-token`) |
-| `GET /aperio/tunnels/:client_id` | Declared-tunnels discovery for `--bind-tunnels` (see [Emergency Tunnels](emergency-tunnels.md)). | the same token the client connected with (or master) |
+| `GET /aperio/tunnels` | Lists the tunnels the presented token may bind (see [Tunnels](emergency-tunnels.md)). | a tunnel token |
+| `GET /aperio/tunnels/:client_id` | Per-client tunnel discovery for `--bind-tunnels`. | master, the client's own token, or one in its organization with `allow_bind` |
 | `GET /aperio` | Admin dashboard. | dashboard session |
 | `GET /aperio/api/stats`, `/api/logs`, `/api/audit` | Live stats, request log, audit events. | dashboard session |
 | `GET/POST /aperio/api/tokens`, `PUT/DELETE /aperio/api/tokens/:id` | Dynamic token management. | dashboard session |

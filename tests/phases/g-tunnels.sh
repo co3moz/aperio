@@ -5,6 +5,7 @@ PHASE="tunnels"
 ECHO_PORT=18105
 BIND_PORT=18106
 BRIDGE_PORT=18107
+NAMED_PORT=18121
 
 # Raw TCP echo backend: echoes every received chunk prefixed with "echo:".
 
@@ -41,7 +42,8 @@ target: http://127.0.0.1:${BACKEND_PORT}
 hostname: decl.e2e.local
 tcp_target: 127.0.0.1:${ECHO_PORT}
 tunnels:
-  - target: 127.0.0.1:${ECHO_PORT}
+  - name: echo-main
+    target: 127.0.0.1:${ECHO_PORT}
     protocol: tcp
 YAML
 "$CLIENT_BIN" --config "$DECL_CFG" >"$LOG_DIR/client-tunnels-decl.log" 2>&1 &
@@ -66,7 +68,32 @@ OTHER="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
 OTHER_TOKEN="$(echo "$OTHER" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 [ -n "$OTHER_TOKEN" ] || fail "could not parse the token response: $OTHER"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${OTHER_TOKEN}" "$BASE/aperio/tunnels/${DECL_ID}")"
-assert_status 403 "$CODE" "a different valid token is rejected (same-token rule)"
+assert_status 403 "$CODE" "a different token without allow_bind is rejected"
+
+step "Tunnel listing and the allow_bind capability"
+LISTED="$(curl -s -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/tunnels")"
+assert_contains "$LISTED" '"name":"echo-main"' "the listing names the tunnel"
+assert_contains "$LISTED" '"available":true' "the listing says whether it can be served"
+# A token without the capability sees nothing, rather than being told what it
+# cannot have.
+EMPTY="$(curl -s -H "Authorization: Bearer ${OTHER_TOKEN}" "$BASE/aperio/tunnels")"
+assert_contains "$EMPTY" "[]" "a token without allow_bind lists nothing"
+# Granting it opens both the listing and the per-client endpoint, without ever
+# handing over the declaring client's own token.
+BIND_TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"binder-token","allow_bind":true}' "$BASE/aperio/api/tokens")" \
+  || fail "allow_bind token creation failed"
+BIND_TOKEN="$(echo "$BIND_TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$BIND_TOKEN" ] || fail "could not parse the allow_bind token response: $BIND_TOK"
+LISTED2="$(curl -s -H "Authorization: Bearer ${BIND_TOKEN}" "$BASE/aperio/tunnels")"
+assert_contains "$LISTED2" '"name":"echo-main"' "allow_bind sees its organization's tunnels"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${BIND_TOKEN}" "$BASE/aperio/tunnels/${DECL_ID}")"
+assert_status 200 "$CODE" "allow_bind may read a peer's declarations"
+# The raw client_id from the config file resolves, not just the suffixed form.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/tunnels")"
+assert_status 200 "$CODE" "the dashboard lists declared tunnels"
+DASH="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tunnels")"
+assert_contains "$DASH" '"name":"echo-main"' "the dashboard listing names the tunnel"
 
 step "Binding tunnels with --bind-tunnels (port override)"
 BT_CFG="$LOG_DIR/binder.yaml"
@@ -86,6 +113,25 @@ OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$BIND_PORT" ping-123)"
 assert_contains "$OUT" "echo:ping-123" "bytes relayed through the bound tunnel"
 assert_contains "$(cat "$LOG_DIR/client-tunnels-binder.log")" "Tunnel bound: 127.0.0.1:${BIND_PORT}" \
   "binder honored the port override"
+
+step "Binding by name, with a token that only carries allow_bind"
+NAMED_CFG="$LOG_DIR/binder-named.yaml"
+cat >"$NAMED_CFG" <<YAML
+server:
+  url: ${BASE}
+  token: ${BIND_TOKEN}
+bind-tunnels:
+  echo-main: ${NAMED_PORT}
+YAML
+"$CLIENT_BIN" --bind-tunnels --config "$NAMED_CFG" \
+  >"$LOG_DIR/client-tunnels-named.log" 2>&1 &
+CLIENT_PIDS+=($!)
+retry 30 sh -c "\"$PYTHON\" '$LOG_DIR/tcp_probe.py' $NAMED_PORT ping | grep -q 'echo:ping'" \
+  || fail "the name-bound tunnel did not become usable in time"
+OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$NAMED_PORT" ping-named)"
+assert_contains "$OUT" "echo:ping-named" "bytes relayed through a tunnel bound by name"
+assert_contains "$(cat "$LOG_DIR/client-tunnels-named.log")" "tunnel echo-main" \
+  "the binder logs the tunnel by name"
 
 step "Legacy tcp bridge"
 "$CLIENT_BIN" tcp "$BRIDGE_PORT" --server-url "$BASE" --server-token "$TOKEN" \

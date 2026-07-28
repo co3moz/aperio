@@ -2,10 +2,13 @@
 #   aperio-client --bind-tunnels --config aperio-binder.yaml
 server:
   url: https://tunnel.example.com
+  # Any token in the declaring client's organization that carries allow_bind,
+  # or that client's own token. It never needs to publish anything.
+  token: apr_binder_change_me
 
-# Peers whose declared tunnels this process binds locally, keyed by client id.
+# What to bind and where. A bare number is the local port; `aperio-client
+# --bind-tunnels` with no section at all binds everything the token may reach.
 bind-tunnels:
-  '018f3c1e-6a2b-7c3d-8e4f-5a6b7c8d9e0f':
-    token: apr_emergency_change_me     # must be the token the peer connected with
-    override:
-      '127.0.0.1:27017': 15000         # listen on 127.0.0.1:15000 instead of 27017
+  mongo: 15000                  # listen on 127.0.0.1:15000 instead of 27017
+  ssh: 2022
+  dns: 5300                     # 53 is privileged, so name a port you can bind

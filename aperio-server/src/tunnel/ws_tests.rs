@@ -178,6 +178,7 @@ async fn make_dynamic_token(state: &AppState, allow_public: bool) -> (String, St
     None,
     allow_public,
     false,
+    false,
     None,
   );
   (secret, rec.id)
@@ -1189,6 +1190,7 @@ async fn ping_master_applies_all_binds() {
     *visitor_auth = Some("user:pass".into());
     *allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
     *tunnels = vec![TunnelDecl {
+      name: None,
       target: "127.0.0.1:9".into(),
       protocol: "tcp".into(),
       encrypt: false,

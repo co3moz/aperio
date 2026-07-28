@@ -1091,6 +1091,7 @@ async fn authorize_tunnel_store_token_ip_and_alerts() {
     None,
     false,
     false,
+    false,
     Some("org-7".to_string()),
   );
   let mut h = HeaderMap::new();
@@ -1135,6 +1136,7 @@ async fn authorize_tunnel_canary_trips_alert() {
     None,
     None,
     None,
+    false,
     false,
     true, // canary
     None,

@@ -51,6 +51,23 @@ async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
     .is_some_and(|role| role >= crate::store::users::Role::Operator)
 }
 
+/// Lists the tunnels declared by the clients of the caller's organization,
+/// the dashboard's view of what `--bind-tunnels` can reach.
+///
+/// Read-only and organization-scoped, so a Viewer may see what exists without
+/// being able to bind anything: binding needs a tunnel token, which is a
+/// separate credential with its own capability.
+#[utoipa::path(get, path = "/aperio/api/tunnels", tag = "tunnels",
+  description = "Lists the tunnels declared by this organization's connected clients.",
+  responses((status = 200, description = "Declared tunnels", body = serde_json::Value)))]
+pub(crate) async fn tunnels_declared_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Json<Vec<crate::tunnel::registry::TunnelView>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
+  Json(crate::tunnel::registry::visible_in_org(&state, org.as_deref()).await)
+}
+
 /// Provisions an ephemeral tunnel: mints a short-lived, hostname-scoped
 /// dynamic token and returns it together with the hostname (once — the
 /// secret is never shown again). Designed for automation such as per-PR
@@ -188,6 +205,9 @@ pub(crate) async fn tunnels_create_handler(
       Some(ttl),
       None,
       None,
+      false,
+      // An ephemeral tunnel token serves one hostname; it has no business
+      // reaching into other clients' tunnels.
       false,
       false,
       org,

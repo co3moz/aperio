@@ -19,10 +19,85 @@ fn default_tcp() -> String {
   "tcp".to_string()
 }
 
+/// True when a string is shaped like the UUID a client id is.
+///
+/// Tunnel names and client ids share one key space in `bind-tunnels:`, where a
+/// key is read as a tunnel name and falls back to a peer's client id. Keeping
+/// the two shapes disjoint is what makes that fallback unambiguous rather than
+/// a guess, so a name that could be a client id is refused at the source.
+pub fn looks_like_client_id(raw: &str) -> bool {
+  let s = raw.trim();
+  // 8-4-4-4-12 hex with hyphens, the only form the client emits.
+  s.len() == 36
+    && s.chars().enumerate().all(|(i, c)| match i {
+      8 | 13 | 18 | 23 => c == '-',
+      _ => c.is_ascii_hexdigit(),
+    })
+}
+
+/// The name a tunnel is addressed by: what it declared, or one derived from
+/// its target and protocol so an unnamed tunnel still has a stable handle
+/// (`127.0.0.1:5432` tcp becomes `127-0-0-1-5432-tcp`).
+///
+/// Derivation lives here rather than in the client so the server, the client
+/// and the config builder all spell the same tunnel the same way.
+pub fn tunnel_name(decl: &TunnelDecl) -> String {
+  if let Some(name) = decl
+    .name
+    .as_ref()
+    .map(|n| n.trim())
+    .filter(|n| !n.is_empty())
+  {
+    return name.to_string();
+  }
+  let slug: String = decl
+    .target
+    .trim()
+    .chars()
+    .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+    .collect();
+  format!(
+    "{}-{}",
+    slug.trim_matches('-'),
+    decl.protocol.trim().to_ascii_lowercase()
+  )
+}
+
+/// Rejects a tunnel name that cannot be used as a handle. `Ok(())` when the
+/// name is usable (including when none was given).
+pub fn validate_tunnel_name(name: &str) -> Result<(), String> {
+  let trimmed = name.trim();
+  if trimmed.is_empty() {
+    return Err("a tunnel name cannot be empty".to_string());
+  }
+  if looks_like_client_id(trimmed) {
+    return Err(format!(
+      "tunnel name '{trimmed}' is shaped like a client id, which `bind-tunnels:` keys also accept"
+    ));
+  }
+  if !trimmed
+    .chars()
+    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+  {
+    return Err(format!(
+      "tunnel name '{trimmed}' may only contain letters, digits, '-', '_' and '.'"
+    ));
+  }
+  Ok(())
+}
+
 /// A private local service (e.g. a database or SSH) this client makes reachable
 /// to a peer running `--bind-tunnels`, without ever exposing it to the public web.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 pub struct TunnelDecl {
+  /// Handle this tunnel is bound and exposed by, unique within the
+  /// organization. Binders name it instead of naming a client id, so the
+  /// handle survives reconnects, parallel connections and a `services:` list.
+  /// Unset derives one from the target, and a name shaped like a UUID is
+  /// rejected so names can never collide with client ids.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["pg-main", "ssh-bastion"]))]
+  pub name: Option<String>,
   /// Local address this client dials when a peer binds the tunnel.
   #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
   pub target: String,
@@ -44,9 +119,10 @@ pub struct TunnelDecl {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [300]))]
   pub idle_timeout: Option<u64>,
-  /// Expose this tunnel on a public server port (experimental, TCP only):
-  /// the value must equal the `key` of an `expose:` entry in the server's
-  /// aperio-server.yaml; the server then relays that port here directly.
+  /// Deprecated spelling of the public-port claim (TCP only): the value must
+  /// equal the `key` of an `expose:` entry in the server's aperio-server.yaml.
+  /// Prefer naming the tunnel and letting the server's `expose:` entry point
+  /// at it by `tunnel:` + `token:`, which is revocable and names an owner.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
   pub expose: Option<String>,
@@ -431,13 +507,56 @@ pub struct ServiceEntry {
   pub denied: Option<String>,
 }
 
-/// A peer client whose declared tunnels this process binds to local ports.
-#[derive(Deserialize, Default, Clone, JsonSchema)]
+/// One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older
+/// spelling, by a peer client's id).
+///
+/// A bare port number is the short form of `{ port: <n> }`, since naming the
+/// local port is the only thing most entries do.
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum BindTunnelValue {
+  /// `pg-main: 15432` — the local port, everything else defaulted.
+  Port(u16),
+  /// The full entry.
+  Entry(BindTunnelEntry),
+}
+
+impl BindTunnelValue {
+  /// The entry form, so callers do not branch on the spelling.
+  pub fn entry(&self) -> BindTunnelEntry {
+    match self {
+      BindTunnelValue::Port(port) => BindTunnelEntry {
+        port: Some(*port),
+        ..BindTunnelEntry::default()
+      },
+      BindTunnelValue::Entry(entry) => entry.clone(),
+    }
+  }
+}
+
+/// What to bind, and where to bind it: one named tunnel (or, in the older
+/// spelling, every tunnel of one peer client).
+#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BindTunnelEntry {
-  /// Token the peer connected with; falls back to this client's server token when unset.
+  /// Local port for this tunnel. Unset reuses the declared target's port when
+  /// it is free and unprivileged, and otherwise picks a stable port derived
+  /// from the tunnel's name (logged at startup).
+  #[schemars(extend("examples" = [15432]))]
+  pub port: Option<u16>,
+  /// Local address the listener binds. Defaults to `127.0.0.1`; anything else
+  /// puts a deliberately unexposed service on the network and is warned about.
+  #[schemars(extend("examples" = ["127.0.0.1"]))]
+  pub address: Option<String>,
+  /// Token to authenticate the binding with; falls back to this client's
+  /// server token. Only needed when the tunnel is reached with a different
+  /// credential than the one this client connects with.
   #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// Map a declared tunnel target to a specific local port instead of reusing the target's.
+  /// Map a declared tunnel target to a specific local port instead of reusing
+  /// the target's. Only meaningful for an entry keyed by a peer's client id,
+  /// which binds every tunnel that peer declares; a name-keyed entry is one
+  /// tunnel and uses `port`.
   #[serde(default, rename = "override")]
   pub overrides: HashMap<String, u16>,
   /// Pre-shared key for this peer's end-to-end encrypted tunnels; must match
@@ -592,10 +711,11 @@ pub struct FileConfig {
   /// Private local services a peer client may reach via `--bind-tunnels`; never
   /// exposed to the public web.
   pub tunnels: Option<Vec<TunnelDecl>>,
-  /// Peer clients whose declared tunnels this process binds to local ports,
-  /// keyed by the peer's client id.
+  /// Tunnels this process binds to local ports, keyed by the tunnel's name.
+  /// A key naming a peer's client id instead binds every tunnel that peer
+  /// declares, which is the older spelling and still works.
   #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
-  pub bind_tunnels: Option<HashMap<String, BindTunnelEntry>>,
+  pub bind_tunnels: Option<HashMap<String, BindTunnelValue>>,
   /// Autoscaling: the endpoint the server calls when this client's services
   /// need capacity. Applies to every service this client exposes; each
   /// hostname bind gets its own record on the server.
@@ -681,19 +801,37 @@ pub fn schema_json() -> String {
   serde_json::to_string_pretty(&schema).unwrap_or_default()
 }
 
-/// One `expose:` entry of `aperio-server.yaml` (experimental public TCP port).
+/// One `expose:` entry of `aperio-server.yaml`: a raw public TCP port the
+/// server relays into a client's declared tunnel, with no binder peer.
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExposeEntry {
-  /// Transport of the exposed port; only `tcp` is supported while experimental.
+  /// Transport of the exposed port; only `tcp` is supported. A public UDP
+  /// port is an amplification surface and is a separate decision.
   #[serde(default = "default_tcp")]
   #[schemars(extend("examples" = ["tcp"]))]
   pub protocol: String,
   /// Public port the server listens on.
   #[schemars(extend("examples" = [2222]))]
   pub port: u16,
-  /// Shared secret a client's tunnel declaration must present (`expose: <key>`).
+  /// Name of the tunnel this port is relayed into. Preferred over `key`:
+  /// the claim is settled by identity (which token declared the tunnel)
+  /// rather than by a secret copied into two files.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["ssh-bastion"]))]
+  pub tunnel: Option<String>,
+  /// Name of the token whose client may claim this port. Unset accepts only
+  /// tunnels declared with the master token, so a named token is what lets an
+  /// organization own an exposed port; revoking it closes the port's source.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["bastion-host"]))]
+  pub token: Option<String>,
+  /// Deprecated spelling: a shared secret the client's tunnel declaration
+  /// repeats as `expose: <key>`. Still honored, but it names no owner, cannot
+  /// be revoked, and lives in plaintext in two files; prefer `tunnel` + `token`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
-  pub key: String,
+  pub key: Option<String>,
 }
 
 /// One `rate_limits:` entry: an aggregate requests-per-second ceiling for a

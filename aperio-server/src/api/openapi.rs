@@ -92,6 +92,7 @@ use utoipa::OpenApi;
     crate::api::inbox::inbox_detail_handler,
     crate::api::inbox::inbox_delete_handler,
     crate::api::inbox::inbox_refire_handler,
+    crate::api::tunnels::tunnels_declared_handler,
     crate::api::tunnels::tunnels_create_handler,
     crate::api::tunnels::tunnels_delete_handler,
     crate::api::webhooks::audit_handler,

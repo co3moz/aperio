@@ -251,6 +251,7 @@ async fn delete_is_org_scoped() {
     None,
     false,
     false,
+    false,
     Some("other".to_string()),
   );
   // A master-admin session (master org) cannot see the foreign token.

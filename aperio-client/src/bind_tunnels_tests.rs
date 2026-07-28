@@ -1,9 +1,11 @@
 use super::*;
-use crate::config::BindTunnelEntry;
+use aperio_config::{BindTunnelEntry, BindTunnelValue};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn settings_with(
   token: Option<&str>,
-  bind_tunnels: HashMap<String, BindTunnelEntry>,
+  bind_tunnels: HashMap<String, BindTunnelValue>,
 ) -> ClientSettings {
   ClientSettings {
     token: token.map(|t| t.to_string()),
@@ -56,143 +58,222 @@ fn settings_with(
   }
 }
 
-fn entry(token: Option<&str>, overrides: &[(&str, u16)]) -> BindTunnelEntry {
-  BindTunnelEntry {
-    token: token.map(|t| t.to_string()),
-    overrides: overrides.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-    psk: None,
+/// One tunnel as discovery would report it.
+fn view(name: &str, target: &str, protocol: &str) -> TunnelView {
+  TunnelView {
+    name: name.to_string(),
+    protocol: protocol.to_string(),
+    target: target.to_string(),
+    client_id: Some("peer-1".to_string()),
+    available: true,
+    encrypt: false,
+    idle_timeout: None,
+    discovered_with: None,
   }
 }
 
-#[test]
-fn test_build_bind_specs_explicit_id() {
-  // An explicit id with no yaml entry falls back to the layered token.
-  let specs = build_bind_specs(&settings_with(Some("apr_x"), HashMap::new()), "client-1").unwrap();
-  assert_eq!(specs.len(), 1);
-  assert_eq!(specs[0].client_id, "client-1");
-  assert_eq!(specs[0].token, "apr_x");
-  assert!(specs[0].overrides.is_empty());
+fn entry_with(port: Option<u16>) -> BindTunnelValue {
+  BindTunnelValue::Entry(BindTunnelEntry {
+    port,
+    ..BindTunnelEntry::default()
+  })
+}
 
-  // A yaml entry for that id supplies token and overrides (keys trimmed).
+// ---------------------------------------------------------------------------
+// plan: turning configuration into bindings
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_name_resolves_against_what_the_server_lists() {
+  let mut map = HashMap::new();
+  map.insert("pg-main".to_string(), entry_with(Some(15432)));
+  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap();
+  assert_eq!(planned.len(), 1);
+  assert_eq!(planned[0].port, 15432);
+  assert_eq!(planned[0].name, "pg-main");
+}
+
+#[test]
+fn a_short_form_entry_is_just_the_local_port() {
+  let mut map = HashMap::new();
+  map.insert("dns".to_string(), BindTunnelValue::Port(5300));
+  let visible = vec![view("dns", "192.168.3.100:53", "udp")];
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap();
+  assert_eq!(planned[0].port, 5300);
+}
+
+#[test]
+fn a_client_id_key_binds_every_tunnel_that_peer_declares() {
+  // The older spelling. It still works, and its `override:` map still names
+  // local ports per declared target.
   let mut map = HashMap::new();
   map.insert(
-    "client-1".to_string(),
-    entry(Some("apr_entry"), &[(" 127.0.0.1:27017 ", 15000)]),
+    "peer-1".to_string(),
+    BindTunnelValue::Entry(BindTunnelEntry {
+      overrides: [("127.0.0.1:5432".to_string(), 15432u16)]
+        .into_iter()
+        .collect(),
+      ..BindTunnelEntry::default()
+    }),
   );
-  let specs = build_bind_specs(&settings_with(Some("apr_x"), map), "client-1").unwrap();
-  assert_eq!(specs[0].token, "apr_entry");
-  assert_eq!(specs[0].overrides.get("127.0.0.1:27017"), Some(&15000));
-}
-
-#[test]
-fn test_build_bind_specs_yaml_entries() {
-  // Without an id every yaml entry runs; per-entry tokens fall back to the
-  // layered token.
-  let mut map = HashMap::new();
-  map.insert("a".to_string(), entry(Some("apr_a"), &[]));
-  map.insert("b".to_string(), entry(None, &[]));
-  let specs = build_bind_specs(&settings_with(Some("apr_shared"), map), "").unwrap();
-  assert_eq!(specs.len(), 2);
-  let token_of = |id: &str| {
-    specs
-      .iter()
-      .find(|s| s.client_id == id)
-      .map(|s| s.token.clone())
-      .unwrap()
-  };
-  assert_eq!(token_of("a"), "apr_a");
-  assert_eq!(token_of("b"), "apr_shared");
-}
-
-#[test]
-fn test_build_bind_specs_errors() {
-  // No id and no yaml section.
-  let err = build_bind_specs(&settings_with(Some("apr_x"), HashMap::new()), "").unwrap_err();
-  assert!(err.contains("bind-tunnels"), "got: {err}");
-
-  // Explicit id with no token anywhere.
-  let err = build_bind_specs(&settings_with(None, HashMap::new()), "client-1").unwrap_err();
-  assert!(err.contains("token is required"), "got: {err}");
-
-  // A yaml entry with no token and no layered fallback.
-  let mut map = HashMap::new();
-  map.insert("a".to_string(), entry(None, &[]));
-  let err = build_bind_specs(&settings_with(None, map), "").unwrap_err();
-  assert!(err.contains("'a'"), "got: {err}");
-}
-
-#[test]
-fn test_local_port_for() {
-  let decl = |target: &str| TunnelDecl {
-    target: target.to_string(),
-    protocol: "tcp".to_string(),
-    encrypt: false,
-    psk: None,
-    idle_timeout: None,
-    expose: None,
-  };
-  let spec = BindSpec {
-    client_id: "c".to_string(),
-    token: "t".to_string(),
-    overrides: [("127.0.0.1:27017".to_string(), 15000u16)]
-      .into_iter()
-      .collect(),
-    psk: None,
-  };
-  // The override wins over the declared port.
-  assert_eq!(local_port_for(&spec, &decl("127.0.0.1:27017")), Some(15000));
-  // Without an override the declared target's port is used.
-  assert_eq!(local_port_for(&spec, &decl("127.0.0.1:5432")), Some(5432));
-  // No parseable port and no override → None.
-  assert_eq!(local_port_for(&spec, &decl("no-port-here")), None);
-}
-
-#[test]
-fn test_tunnel_ws_url() {
-  let url = tunnel_ws_url(
-    "https://tunnel.example.com",
-    "/aperio/tcp",
-    "client-1",
-    "127.0.0.1:27017",
+  let visible = vec![
+    view("pg-main", "127.0.0.1:5432", "tcp"),
+    view("redis", "127.0.0.1:6379", "tcp"),
+  ];
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
   )
   .unwrap();
+  assert_eq!(planned.len(), 2);
+  let pg = planned
+    .iter()
+    .find(|b| b.label.contains("pg-main"))
+    .unwrap();
+  assert_eq!(pg.port, 15432, "the override applies to its target");
+  let redis = planned.iter().find(|b| b.label.contains("redis")).unwrap();
+  assert_eq!(redis.port, 6379, "no override: the declared port is reused");
+}
+
+#[test]
+fn an_empty_section_binds_everything_the_token_may_reach() {
+  let visible = vec![
+    view("pg-main", "127.0.0.1:5432", "tcp"),
+    view("dns", "192.168.3.100:53", "udp"),
+  ];
+  let planned = plan(
+    &settings_with(Some("apr_t"), HashMap::new()),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap();
+  assert_eq!(planned.len(), 2);
+}
+
+#[test]
+fn an_unresolvable_entry_does_not_take_down_the_others() {
+  // A break-glass tool: three of four tunnels up during an incident beats
+  // none, so an unknown name is reported and skipped, not fatal.
+  let mut map = HashMap::new();
+  map.insert("pg-main".to_string(), entry_with(None));
+  map.insert("does-not-exist".to_string(), entry_with(None));
+  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap();
+  assert_eq!(planned.len(), 1);
+  assert!(planned[0].label.contains("pg-main"));
+}
+
+#[test]
+fn an_explicit_selection_that_cannot_resolve_is_an_error() {
+  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let err = plan(
+    &settings_with(Some("apr_t"), HashMap::new()),
+    "nope",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap_err();
+  assert!(err.contains("nope"), "got: {err}");
+  // The error names what *can* be bound, which is the thing the operator
+  // needs and could not otherwise find out.
+  assert!(err.contains("pg-main"), "got: {err}");
+}
+
+#[test]
+fn a_binding_without_any_token_is_an_error() {
+  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let err = plan(
+    &settings_with(None, HashMap::new()),
+    "pg-main",
+    &visible,
+    &None,
+  )
+  .unwrap_err();
+  assert!(err.contains("token"), "got: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// local port policy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_configured_port_wins() {
+  assert_eq!(local_port(&view("t", "10.0.0.1:5432", "tcp"), Some(1)), 1);
+}
+
+#[test]
+fn the_declared_port_is_the_default() {
+  // Unchanged from before named tunnels: binders in the field depend on it.
+  assert_eq!(local_port(&view("t", "10.0.0.1:5432", "tcp"), None), 5432);
+}
+
+#[test]
+fn a_privileged_or_missing_port_falls_back_to_a_derived_one() {
+  // Port 53 cannot be bound without privileges, and a target with no port at
+  // all used to be skipped outright.
+  let dns = local_port(&view("dns", "192.168.3.100:53", "udp"), None);
+  assert!((DERIVED_PORT_BASE..DERIVED_PORT_BASE + DERIVED_PORT_SPAN).contains(&dns));
+  let portless = local_port(&view("odd", "no-port-here", "tcp"), None);
+  assert!((DERIVED_PORT_BASE..DERIVED_PORT_BASE + DERIVED_PORT_SPAN).contains(&portless));
+}
+
+#[test]
+fn a_derived_port_is_stable_and_name_dependent() {
+  // Stability is the point: the port must survive a restart, or whatever
+  // connects to it needs reconfiguring every time.
+  assert_eq!(derived_port("pg-main"), derived_port("pg-main"));
+  assert_ne!(derived_port("pg-main"), derived_port("redis"));
+}
+
+// ---------------------------------------------------------------------------
+// URL building
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_binding_addresses_the_tunnel_by_name() {
+  // Every binding resolves to a name, including one keyed by a client id, so
+  // there is a single address form on the wire.
+  let url = tunnel_ws_url("https://tunnel.example.com", "/aperio/tcp", "pg-main").unwrap();
   assert!(
     url.starts_with("wss://tunnel.example.com/aperio/tcp?"),
-    "got: {url}"
+    "{url}"
   );
-  assert!(url.contains("client=client-1"), "got: {url}");
-  // The target is percent-encoded into the query.
-  assert!(url.contains("target=127.0.0.1%3A27017"), "got: {url}");
-  // The UDP endpoint uses the same query shape.
-  let udp = tunnel_ws_url(
-    "https://tunnel.example.com",
-    "/aperio/udp",
-    "client-1",
-    "127.0.0.1:5353",
-  )
-  .unwrap();
-  assert!(
-    udp.starts_with("wss://tunnel.example.com/aperio/udp?"),
-    "got: {udp}"
-  );
+  assert!(url.contains("tunnel=pg-main"), "{url}");
+  assert!(!url.contains("client="), "{url}");
 }
 
 #[test]
-fn test_tunnel_ws_url_invalid_server() {
-  // An unsupported scheme propagates the build error.
-  assert!(tunnel_ws_url("ftp://host", "/aperio/tcp", "c", "127.0.0.1:1").is_err());
+fn an_unusable_server_url_is_reported() {
+  let err = tunnel_ws_url("not a url", "/aperio/tcp", "x");
+  assert!(err.is_err());
 }
 
 // ---------------------------------------------------------------------------
-// Mock HTTP server + integration tests for discovery and binding.
+// discovery
 // ---------------------------------------------------------------------------
 
-use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-/// Installs a process-wide TRACE subscriber once, so `info!`/`warn!`/`error!`
-/// argument expressions are actually evaluated (and thus covered) during
-/// tests. Without a subscriber, tracing skips argument evaluation entirely.
 fn init_tracing() {
   use std::sync::Once;
   static ONCE: Once = Once::new();
@@ -242,200 +323,187 @@ where
   format!("http://127.0.0.1:{port}")
 }
 
-fn tcp_decl(target: &str, encrypt: bool) -> TunnelDecl {
-  TunnelDecl {
-    target: target.to_string(),
-    protocol: "tcp".to_string(),
-    encrypt,
-    psk: None,
-    idle_timeout: None,
-    expose: None,
-  }
-}
-
-fn udp_decl(target: &str, encrypt: bool) -> TunnelDecl {
-  TunnelDecl {
-    target: target.to_string(),
-    protocol: "udp".to_string(),
-    encrypt,
-    psk: None,
-    idle_timeout: None,
-    expose: None,
-  }
-}
-
-fn spec_for(client_id: &str, psk: Option<&str>) -> BindSpec {
-  BindSpec {
-    client_id: client_id.to_string(),
-    token: "apr_test".to_string(),
-    overrides: HashMap::new(),
-    psk: psk.map(|p| p.to_string()),
-  }
-}
-
 #[tokio::test]
-async fn test_discover_with_retry_success() {
+async fn discovery_reads_the_listing() {
   init_tracing();
-  let tunnels = vec![
-    tcp_decl("127.0.0.1:5432", false),
-    udp_decl("127.0.0.1:53", false),
-  ];
-  let body = serde_json::to_string(&tunnels).unwrap();
+  let body = serde_json::json!([
+    {
+      "name": "pg-main",
+      "protocol": "tcp",
+      "target": "127.0.0.1:5432",
+      "client_id": "peer-1",
+      "paths": 2,
+      "available": true,
+      "encrypt": false,
+      "idle_timeout": null,
+      "token_name": "ops"
+    }
+  ])
+  .to_string();
   let server = spawn_http(move |path| {
-    assert!(path.contains("/aperio/tunnels/peer-1"));
+    assert_eq!(path, "/aperio/tunnels", "the listing endpoint is called");
     (200, body.clone())
   })
   .await;
-  let got = discover_with_retry(&server, &spec_for("peer-1", None)).await;
-  assert_eq!(got.len(), 2);
-  assert_eq!(got[0].target, "127.0.0.1:5432");
+  let got = discover(&server, &["apr_test".to_string()]).await;
+  assert_eq!(got.len(), 1);
+  assert_eq!(got[0].name, "pg-main");
+  assert!(got[0].available);
 }
 
 #[tokio::test]
-async fn test_discover_with_retry_transient_arms() {
+async fn discovery_retries_while_the_listing_is_empty() {
   init_tracing();
-  // Each of these arms logs and then sleeps for the (long) retry interval;
-  // a short timeout lets one iteration run without waiting it out.
-  // 404 → "not connected yet".
-  let s404 = spawn_http(|_| (404, String::new())).await;
-  assert!(
-    tokio::time::timeout(
-      Duration::from_millis(300),
-      discover_with_retry(&s404, &spec_for("peer-1", None))
-    )
-    .await
-    .is_err()
-  );
-  // 500 → generic retry.
-  let s500 = spawn_http(|_| (500, String::new())).await;
-  assert!(
-    tokio::time::timeout(
-      Duration::from_millis(300),
-      discover_with_retry(&s500, &spec_for("peer-1", None))
-    )
-    .await
-    .is_err()
-  );
-  // 200 with a body that is not a tunnel list → parse error, then retry.
-  let sbad = spawn_http(|_| (200, "not json".to_string())).await;
-  assert!(
-    tokio::time::timeout(
-      Duration::from_millis(300),
-      discover_with_retry(&sbad, &spec_for("peer-1", None))
-    )
-    .await
-    .is_err()
-  );
-  // Connection error (nothing listening) → retry.
-  let free = {
-    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let p = l.local_addr().unwrap().port();
-    drop(l);
-    p
-  };
-  assert!(
-    tokio::time::timeout(
-      Duration::from_millis(300),
-      discover_with_retry(
-        &format!("http://127.0.0.1:{free}"),
-        &spec_for("peer-1", None)
-      )
-    )
-    .await
-    .is_err()
-  );
-}
-
-#[tokio::test]
-async fn test_run_bind_tunnels_binds_everything() {
-  init_tracing();
-  // Pre-bind a port so one declared tunnel hits the bind-error branch.
-  let blocked = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let blocked_port = blocked.local_addr().unwrap().port();
-
-  // A rich tunnel list for peerA (psk set) exercising: a plain tcp listener
-  // (+ "psk unused" warning), a duplicate (port conflict), a portless target
-  // (no local port), a udp relay, a udp-with-encrypt error, an already-bound
-  // port (bind error), and an encrypted tcp tunnel (encrypt info with PSK).
-  let a_tunnels = vec![
-    tcp_decl("127.0.0.1:39110", false),
-    tcp_decl("127.0.0.1:39110", false), // duplicate → conflict
-    tcp_decl("no-port-here", false),    // no derivable local port
-    udp_decl("127.0.0.1:39111", false),
-    udp_decl("127.0.0.1:39112", true), // encrypt on udp → error
-    tcp_decl(&format!("127.0.0.1:{blocked_port}"), false), // bind error
-    tcp_decl("127.0.0.1:39113", true), // encrypted tcp (psk present)
-  ];
-  // peerB declares nothing → "no tunnels to bind" warning.
-  let a_body = serde_json::to_string(&a_tunnels).unwrap();
-  let b_body = serde_json::to_string(&Vec::<TunnelDecl>::new()).unwrap();
-  let server = spawn_http(move |path| {
-    if path.contains("peerB") {
-      (200, b_body.clone())
-    } else {
-      (200, a_body.clone())
-    }
-  })
+  // A binder may legitimately start before the clients it binds, so an empty
+  // listing is a wait rather than a failure. Cut the wait short by timing out.
+  let server = spawn_http(|_| (200, "[]".to_string())).await;
+  let waited = tokio::time::timeout(
+    Duration::from_millis(300),
+    discover(&server, &["t".to_string()]),
+  )
   .await;
+  assert!(waited.is_err(), "an empty listing must keep retrying");
+}
+
+// ---------------------------------------------------------------------------
+// end to end
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn binding_opens_listeners_for_the_discovered_tunnels() {
+  init_tracing();
+  let body = serde_json::json!([
+    {
+      "name": "pg-main",
+      "protocol": "tcp",
+      "target": "127.0.0.1:5432",
+      "client_id": "peer-1",
+      "paths": 1,
+      "available": true,
+      "encrypt": false,
+      "idle_timeout": null,
+      "token_name": null
+    },
+    {
+      "name": "dns",
+      "protocol": "udp",
+      "target": "192.168.3.100:53",
+      "client_id": "peer-1",
+      "paths": 1,
+      "available": false,
+      "encrypt": false,
+      "idle_timeout": 30,
+      "token_name": null
+    },
+    {
+      "name": "vault",
+      "protocol": "tcp",
+      "target": "127.0.0.1:8200",
+      "client_id": "peer-1",
+      "paths": 1,
+      "available": true,
+      "encrypt": true,
+      "idle_timeout": null,
+      "token_name": null
+    }
+  ])
+  .to_string();
+  let server = spawn_http(move |_| (200, body.clone())).await;
 
   let mut map = HashMap::new();
-  map.insert(
-    "peerA".to_string(),
-    BindTunnelEntry {
-      token: Some("apr_test".to_string()),
-      overrides: HashMap::new(),
-      psk: Some("shared-secret".to_string()),
-    },
-  );
-  map.insert(
-    "peerB".to_string(),
-    BindTunnelEntry {
-      token: Some("apr_test".to_string()),
-      overrides: HashMap::new(),
-      psk: None,
-    },
-  );
+  map.insert("pg-main".to_string(), BindTunnelValue::Port(39210));
+  map.insert("dns".to_string(), BindTunnelValue::Port(39211));
+  // An encrypted tunnel with no psk: warns, still binds.
+  map.insert("vault".to_string(), BindTunnelValue::Port(39212));
   let settings = settings_with(Some("apr_test"), map);
 
-  // run_bind_tunnels never returns (it ends in a pending future); run it as a
-  // background task, drive one accepted connection, then let the test end.
+  // run_bind_tunnels never returns, so run it in the background and then
+  // connect to one of the listeners it opened.
   let server2 = server.clone();
   tokio::spawn(async move {
     run_bind_tunnels(&settings, &server2, "").await;
   });
-  // Give discovery + binding time to establish the 127.0.0.1:39110 listener.
   tokio::time::sleep(Duration::from_millis(500)).await;
-  // Connect to the bound listener so the accept loop runs (and spawns a
-  // bridge_connection that then fails to reach the fake server).
-  if let Ok(mut c) = tokio::net::TcpStream::connect("127.0.0.1:39110").await {
+  let connected = tokio::net::TcpStream::connect("127.0.0.1:39210").await;
+  assert!(
+    connected.is_ok(),
+    "the tcp tunnel should be listening locally"
+  );
+  if let Ok(mut c) = connected {
     let _ = c.write_all(b"hello").await;
     tokio::time::sleep(Duration::from_millis(200)).await;
   }
-  drop(blocked);
 }
 
 #[tokio::test]
-async fn test_run_bind_tunnels_encrypted_no_psk() {
+async fn discovery_asks_every_configured_credential() {
   init_tracing();
-  // An encrypted tcp tunnel with no configured psk hits the "no PSK" warning.
-  let tunnels = vec![tcp_decl("127.0.0.1:39120", true)];
-  let body = serde_json::to_string(&tunnels).unwrap();
-  let server = spawn_http(move |_| (200, body.clone())).await;
+  // The older spelling puts the token on the entry and has no server token at
+  // all, so asking only the layered one would find nothing and the binder
+  // would exit before binding anything.
+  let body = serde_json::json!([
+    {
+      "name": "pg-main",
+      "protocol": "tcp",
+      "target": "127.0.0.1:5432",
+      "client_id": "peer-1",
+      "paths": 1,
+      "available": true,
+      "encrypt": false,
+      "idle_timeout": null,
+      "token_name": null
+    }
+  ])
+  .to_string();
+  let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+  let recorded = seen.clone();
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut sock, _)) = listener.accept().await else {
+        return;
+      };
+      let (body, recorded) = (body.clone(), recorded.clone());
+      tokio::spawn(async move {
+        let mut buf = vec![0u8; 2048];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+        let bearer = req
+          .lines()
+          .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
+          .and_then(|l| l.split_whitespace().last())
+          .unwrap_or("")
+          .to_string();
+        recorded.lock().unwrap().push(bearer.clone());
+        // Only the entry's own token may see anything.
+        let payload = if bearer == "apr_entry" {
+          body
+        } else {
+          "[]".to_string()
+        };
+        let resp = format!(
+          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+          payload.len()
+        );
+        let _ = sock.write_all(resp.as_bytes()).await;
+        let _ = sock.flush().await;
+      });
+    }
+  });
 
-  let mut map = HashMap::new();
-  map.insert(
-    "peerC".to_string(),
-    BindTunnelEntry {
-      token: Some("apr_test".to_string()),
-      overrides: HashMap::new(),
-      psk: None,
-    },
-  );
-  let settings = settings_with(Some("apr_test"), map);
-  let server2 = server.clone();
-  let _ = tokio::time::timeout(
-    Duration::from_millis(800),
-    run_bind_tunnels(&settings, &server2, "peerC"),
+  let found = discover(
+    &format!("http://127.0.0.1:{port}"),
+    &["apr_layered".to_string(), "apr_entry".to_string()],
   )
   .await;
+  assert_eq!(found.len(), 1);
+  assert_eq!(
+    found[0].discovered_with.as_deref(),
+    Some("apr_entry"),
+    "a binding must use the credential that could actually see it"
+  );
+  let asked = seen.lock().unwrap().clone();
+  assert!(asked.contains(&"apr_layered".to_string()));
+  assert!(asked.contains(&"apr_entry".to_string()));
 }

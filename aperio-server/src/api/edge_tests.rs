@@ -200,6 +200,7 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
     None,
     false,
     false,
+    false,
     None,
   );
 
@@ -221,6 +222,7 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
     None,
     None,
     None,
+    false,
     false,
     false,
     None,

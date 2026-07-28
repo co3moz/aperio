@@ -1,18 +1,22 @@
-//! Experimental public TCP expose (the `expose:` section of
-//! `aperio-server.yaml`).
+//! Public TCP expose (the `expose:` section of `aperio-server.yaml`).
 //!
 //! An expose entry opens a raw public TCP port on the server and relays every
-//! accepted connection to the declared tunnel of a connected client whose
-//! `tunnels:` entry carries the matching `expose: <key>` — the built-in
+//! accepted connection into a client's declared tunnel: the built-in
 //! equivalent of a `--bind-tunnels` peer, with the server itself as the
-//! binder. The key is a shared secret between the server file and the client
-//! config; it travels only inside the (TLS-protected) tunnel handshake and is
-//! never re-serialized to binders.
+//! binder.
 //!
-//! Experimental semantics, on purpose: exactly one serving client per
-//! connection (the first healthy declarer wins — like client-id binding),
-//! no load balancing, TCP only, and end-to-end encrypted tunnels are
-//! excluded (a raw public socket cannot run the client-side handshake).
+//! Two ways to say which tunnel. `tunnel:` names it and `token:` says whose
+//! it is, so the claim is settled by identity: revoking the token closes the
+//! port's source, the audit log names an owner, and another client in the
+//! same organization cannot take the name first and receive the traffic. The
+//! older `key:` is a shared secret repeated in the client's declaration; it
+//! still works, but it names no owner and cannot be revoked.
+//!
+//! Deliberate limits: exactly one serving client per connection (the first
+//! healthy declarer wins), no load balancing, TCP only (a public UDP port is
+//! an amplification surface and a separate decision), and end-to-end
+//! encrypted tunnels are excluded, since a raw public socket cannot run the
+//! client-side handshake.
 
 use serde::Deserialize;
 use std::sync::Arc;
@@ -26,15 +30,33 @@ use crate::state::{AppState, TcpConsumerMsg, TcpStreamHandle};
 /// One public expose port from aperio-server.yaml.
 #[derive(Deserialize, Clone, Debug)]
 pub(crate) struct ExposeRule {
-  /// Transport of the exposed port; only `tcp` is supported while
-  /// experimental.
+  /// Transport of the exposed port; only `tcp` is supported.
   #[serde(default = "default_tcp")]
   pub(crate) protocol: String,
   /// Public port the server listens on.
   pub(crate) port: u16,
-  /// Shared secret a client's tunnel declaration must present
+  /// Name of the tunnel this port relays into.
+  #[serde(default)]
+  pub(crate) tunnel: Option<String>,
+  /// Name of the token whose client may claim the port. `None` accepts only
+  /// tunnels declared with the master token.
+  #[serde(default)]
+  pub(crate) token: Option<String>,
+  /// Deprecated shared secret a client's tunnel declaration must repeat
   /// (`tunnels: [{target: ..., expose: <key>}]`).
-  pub(crate) key: String,
+  #[serde(default)]
+  pub(crate) key: Option<String>,
+}
+
+impl ExposeRule {
+  /// How this rule is written in logs and audit entries.
+  pub(crate) fn label(&self) -> String {
+    match (&self.tunnel, &self.key) {
+      (Some(name), _) => format!("tunnel {name}"),
+      (None, Some(_)) => "a key-matched tunnel".to_string(),
+      (None, None) => "nothing".to_string(),
+    }
+  }
 }
 
 fn default_tcp() -> String {
@@ -58,18 +80,37 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
   for (i, rule) in rules.iter().enumerate() {
     if rule.protocol != "tcp" {
       error!(
-        "expose entry #{}: protocol `{}` is not supported (experimental public expose is TCP only)",
+        "expose entry #{}: protocol `{}` is not supported (public expose is TCP only)",
         i + 1,
         rule.protocol
       );
       std::process::exit(1);
     }
-    if rule.key.trim().len() < 8 {
-      error!(
-        "expose entry #{}: the key must be at least 8 characters (it is the only thing gating the port)",
-        i + 1
-      );
-      std::process::exit(1);
+    match (&rule.tunnel, &rule.key) {
+      (Some(name), _) => {
+        if let Err(e) = aperio_config::validate_tunnel_name(name) {
+          error!("expose entry #{}: {e}", i + 1);
+          std::process::exit(1);
+        }
+      }
+      // A port with neither is a listener nothing can ever answer, which is
+      // worse than an error: it accepts connections and hangs.
+      (None, None) => {
+        error!(
+          "expose entry #{}: needs a `tunnel:` (with `token:` unless the declaring client uses the master token)",
+          i + 1
+        );
+        std::process::exit(1);
+      }
+      (None, Some(key)) => {
+        if key.trim().len() < 8 {
+          error!(
+            "expose entry #{}: the key must be at least 8 characters (it is the only thing gating the port)",
+            i + 1
+          );
+          std::process::exit(1);
+        }
+      }
     }
     if !ports.insert(rule.port) {
       error!(
@@ -107,14 +148,17 @@ pub(crate) fn spawn_listeners(state: Arc<AppState>, host: &str, rules: Vec<Expos
           return;
         }
       };
-      info!("public expose (experimental): listening on {addr} (tcp)");
+      info!(
+        "public expose: listening on {addr} (tcp) for {}",
+        rule.label()
+      );
       loop {
         match listener.accept().await {
           Ok((socket, peer)) => {
             let state = state.clone();
-            let key = rule.key.clone();
+            let rule = rule.clone();
             tokio::spawn(async move {
-              relay_public_tcp(state, socket, peer, &key).await;
+              relay_public_tcp(state, socket, peer, &rule).await;
             });
           }
           Err(err) => {
@@ -132,18 +176,32 @@ pub(crate) fn spawn_listeners(state: Arc<AppState>, host: &str, rules: Vec<Expos
 /// this key. Returns (client id, sender, declared target).
 async fn find_declarer(
   state: &Arc<AppState>,
-  key: &str,
+  rule: &ExposeRule,
 ) -> Option<(String, mpsc::Sender<axum::extract::ws::Message>, String)> {
   let clients = state.clients.lock().await;
   for (cid, c) in clients.iter() {
     if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
       continue;
     }
-    if let Some(decl) = c
-      .tunnels
-      .iter()
-      .find(|d| d.protocol == "tcp" && !d.encrypt && d.expose.as_deref() == Some(key))
-    {
+    // A public socket cannot run the client-side encryption handshake, so an
+    // encrypted tunnel is never eligible however it is addressed.
+    let matched = c.tunnels.iter().find(|d| {
+      if d.protocol != "tcp" || d.encrypt {
+        return false;
+      }
+      match &rule.tunnel {
+        // Identity: the right name, declared by a client holding the named
+        // token. Without a `token:` only the master token qualifies, so an
+        // organization's port always names the token that owns it.
+        Some(name) => {
+          crate::tunnel::registry::name_of(d) == name.trim()
+            && c.perms.token_name.as_deref() == rule.token.as_deref().map(str::trim)
+        }
+        // The deprecated shared secret.
+        None => d.expose.as_deref() == rule.key.as_deref(),
+      }
+    });
+    if let Some(decl) = matched {
       return Some((cid.clone(), c.tx.clone(), decl.target.clone()));
     }
   }
@@ -156,7 +214,7 @@ async fn relay_public_tcp(
   state: Arc<AppState>,
   socket: tokio::net::TcpStream,
   peer: std::net::SocketAddr,
-  key: &str,
+  rule: &ExposeRule,
 ) {
   use axum::extract::ws::Message;
   use base64::prelude::*;
@@ -164,8 +222,12 @@ async fn relay_public_tcp(
   if !state.check_rate_limit(peer.ip()).await {
     return;
   }
-  let Some((client_id, client_tx, target)) = find_declarer(&state, key).await else {
-    debug!("public expose: no connected client declares this key; dropping {peer}");
+  let Some((client_id, client_tx, target)) = find_declarer(&state, rule).await else {
+    debug!(
+      "public expose on port {}: no connected client serves {}; dropping {peer}",
+      rule.port,
+      rule.label()
+    );
     return;
   };
 

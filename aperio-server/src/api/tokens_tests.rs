@@ -24,6 +24,7 @@ fn create_req(name: &str) -> TokenCreateRequest {
     max_rps: None,
     daily_max_bytes: None,
     allow_public: false,
+    allow_bind: false,
     canary: false,
   }
 }
@@ -38,6 +39,7 @@ fn empty_update() -> TokenUpdateRequest {
     max_rps: None,
     daily_max_bytes: None,
     allow_public: None,
+    allow_bind: None,
     canary: None,
   }
 }
@@ -52,6 +54,7 @@ async fn seed_token(state: &AppState, name: &str, org: Option<String>) -> String
     None,
     None,
     None,
+    false,
     false,
     false,
     org,
@@ -313,6 +316,7 @@ async fn update_ttl_zero_clears_expiry() {
     None,
     false,
     false,
+    false,
     None,
   );
   let mut req = empty_update();
@@ -498,6 +502,7 @@ async fn refresh_success_slides_expiry() {
     Some(3600),
     None,
     None,
+    false,
     false,
     false,
     None,

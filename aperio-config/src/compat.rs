@@ -237,6 +237,22 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     action: "Recheck the number against what you intend in total. A file that relied on the old multiplication needs it raised by roughly connections x services. Applies to a `bandwidth:` inside a services: entry too.",
   },
   ConfigChange {
+    version: "0.7.0",
+    surface: ConfigSurface::Client,
+    // The keys still parse and still bind. What changed is what a *key* means:
+    // it is read as a tunnel name first and only then as a peer's client id.
+    // Tunnel names shaped like a UUID are refused precisely so the two spaces
+    // cannot collide, which is what keeps every existing file resolving the
+    // way it did. Worth a look because the local ports may move: a privileged
+    // or unparseable declared port now falls back to a derived one instead of
+    // failing to bind at all.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["bind-tunnels", "bind_tunnels"],
+    summary: "`bind-tunnels:` keys are read as tunnel names first, falling back to a peer's client id; a bare port is the short form, and a tunnel whose declared port is privileged now binds a derived local port instead of failing.",
+    action: "Nothing to do for an entry keyed by a client id. Check the startup log for the local ports chosen, and prefer naming tunnels (`name:` on the declaration) over addressing peers by id.",
+  },
+  ConfigChange {
     version: "0.6.0",
     surface: ConfigSurface::Client,
     // Nothing the operator wrote stopped working; something that never worked

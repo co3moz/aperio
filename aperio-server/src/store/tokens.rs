@@ -45,6 +45,14 @@ pub struct ApiToken {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub allow_public: bool,
+  /// May this token bind the tunnels of *other* clients in the same
+  /// organization? Defaults to false. Without it a binder needs the very
+  /// credential the declaring client connected with, which is also the
+  /// credential that publishes services as that client — so reaching a
+  /// database for ten minutes meant handing over the ability to serve as
+  /// them. This is the capability that separates the two.
+  #[serde(default)]
+  pub allow_bind: bool,
   /// Marks this token as a canary/decoy: it is never meant to be used, so any
   /// successful authentication with it is a strong breach signal. Presenting a
   /// canary token emits a `canary_tripped` webhook + audit event.
@@ -151,6 +159,7 @@ impl TokenStore {
     max_rps: Option<f64>,
     daily_max_bytes: Option<u64>,
     allow_public: bool,
+    allow_bind: bool,
     canary: bool,
     org_id: Option<String>,
   ) -> (ApiToken, String) {
@@ -173,6 +182,7 @@ impl TokenStore {
       max_rps,
       daily_max_bytes,
       allow_public,
+      allow_bind,
       canary,
       org_id,
       prev_token_hash: None,
@@ -198,6 +208,7 @@ impl TokenStore {
     max_rps: Option<Option<f64>>,
     daily_max_bytes: Option<Option<u64>>,
     allow_public: Option<bool>,
+    allow_bind: Option<bool>,
     canary: Option<bool>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
@@ -225,6 +236,9 @@ impl TokenStore {
     }
     if let Some(p) = allow_public {
       token.allow_public = p;
+    }
+    if let Some(b) = allow_bind {
+      token.allow_bind = b;
     }
     if let Some(c) = canary {
       token.canary = c;
@@ -389,6 +403,7 @@ mod tests {
       None,
       false,
       false,
+      false,
       None,
     );
     assert!(secret.starts_with("apr_"));
@@ -450,6 +465,7 @@ mod tests {
       None,
       false,
       false,
+      false,
       None,
     );
     let first_expiry = record.expires_at.unwrap();
@@ -473,6 +489,7 @@ mod tests {
       None,
       false,
       false,
+      false,
       None,
     );
     assert!(store.refresh(&forever).is_none());
@@ -486,6 +503,7 @@ mod tests {
       Some(0),
       None,
       None,
+      false,
       false,
       false,
       None,
@@ -507,6 +525,7 @@ mod tests {
       None,
       None,
       None,
+      false,
       false,
       false,
       None,
@@ -550,6 +569,7 @@ mod tests {
       None,
       None,
       false,
+      false,
       true,
       None,
     );
@@ -564,6 +584,7 @@ mod tests {
     let updated = store3
       .update(
         &record.id,
+        None,
         None,
         None,
         None,
@@ -592,6 +613,7 @@ mod tests {
       None,
       None,
       None,
+      false,
       false,
       false,
       None,
@@ -632,6 +654,7 @@ mod tests {
       Some(0),
       None,
       None,
+      false,
       false,
       false,
       None,

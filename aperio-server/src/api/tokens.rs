@@ -28,6 +28,7 @@ pub(crate) struct TokenView {
   pub(crate) max_rps: Option<f64>,
   pub(crate) daily_max_bytes: Option<u64>,
   pub(crate) allow_public: bool,
+  pub(crate) allow_bind: bool,
   pub(crate) canary: bool,
 }
 
@@ -58,6 +59,7 @@ pub(crate) async fn tokens_list_handler(
       max_rps: t.max_rps,
       daily_max_bytes: t.daily_max_bytes,
       allow_public: t.allow_public,
+      allow_bind: t.allow_bind,
       canary: t.canary,
     })
     .collect();
@@ -88,6 +90,10 @@ pub(crate) struct TokenCreateRequest {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub(crate) allow_public: bool,
+  /// May clients using this token bind another client's tunnels within the
+  /// same organization? Defaults to false.
+  #[serde(default)]
+  pub(crate) allow_bind: bool,
   /// Mark this token as a canary/decoy: any successful auth with it fires a
   /// `canary_tripped` alert. Defaults to false.
   #[serde(default)]
@@ -110,6 +116,9 @@ pub(crate) struct TokenUpdateRequest {
   pub(crate) daily_max_bytes: Option<u64>,
   /// Absent = keep; true/false sets whether public publishing is permitted.
   pub(crate) allow_public: Option<bool>,
+  /// Absent = keep; true/false sets whether this token may bind other
+  /// clients' tunnels in its organization.
+  pub(crate) allow_bind: Option<bool>,
   /// Absent = keep; true/false toggles the canary/decoy flag.
   pub(crate) canary: Option<bool>,
 }
@@ -267,6 +276,7 @@ pub(crate) async fn tokens_create_handler(
       payload.max_rps.filter(|v| *v > 0.0),
       payload.daily_max_bytes.filter(|v| *v > 0),
       payload.allow_public,
+      payload.allow_bind,
       payload.canary,
       org,
     )
@@ -438,6 +448,7 @@ pub(crate) async fn tokens_update_handler(
     payload.max_rps.map(Some),
     payload.daily_max_bytes.map(Some),
     payload.allow_public,
+    payload.allow_bind,
     payload.canary,
   );
 

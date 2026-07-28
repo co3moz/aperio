@@ -180,6 +180,7 @@ export interface TokenView {
   max_rps: number | null
   daily_max_bytes: number | null
   allow_public: boolean
+  allow_bind: boolean
   canary: boolean
 }
 
@@ -210,6 +211,7 @@ export interface TokenCreatePayload {
   max_rps?: number
   daily_max_bytes?: number
   allow_public?: boolean
+  allow_bind?: boolean
   canary?: boolean
 }
 
@@ -221,6 +223,7 @@ export interface TokenUpdatePayload {
   max_rps?: number
   daily_max_bytes?: number
   allow_public?: boolean
+  allow_bind?: boolean
   canary?: boolean
 }
 
@@ -544,8 +547,26 @@ export interface TopologyGraph {
   offline: TopoOffline[]
 }
 
+/** One tunnel declared by a connected client, as the dashboard lists it. */
+export interface DeclaredTunnel {
+  /** Handle a binder addresses, unique within the organization. */
+  name: string
+  protocol: string
+  /** Address the declaring client dials locally. */
+  target: string
+  client_id: string | null
+  /** How many connections of that client process announce it. */
+  paths: number
+  /** True when at least one of them can serve a bind right now. */
+  available: boolean
+  encrypt: boolean
+  idle_timeout: number | null
+  token_name: string | null
+}
+
 export const api = {
   stats: () => request<ServerStats>('/stats'),
+  declaredTunnels: () => request<DeclaredTunnel[]>('/tunnels'),
   uptime: () => request<UptimeEntry[]>('/uptime'),
   topology: () => request<TopologyGraph>('/topology'),
   statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {

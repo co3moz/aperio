@@ -8,6 +8,7 @@ fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
     token_name: Some("t".to_string()),
     token_id: Some("id".to_string()),
     allow_public: false,
+    allow_bind: false,
     org_id: None,
     org_hostnames: Vec::new(),
   }
@@ -565,6 +566,7 @@ async fn test_check_token_limits_rps_and_quota() {
       None,
       false,
       false,
+      false,
       None,
     );
     tok.id
@@ -586,6 +588,7 @@ async fn test_check_token_limits_rps_and_quota() {
       None,
       None,
       Some(100),
+      false,
       false,
       false,
       None,
@@ -673,6 +676,7 @@ async fn test_disconnect_token_clients() {
     token_name: Some("t".to_string()),
     token_id: Some("tok-1".to_string()),
     allow_public: false,
+    allow_bind: false,
     org_id: None,
     org_hostnames: Vec::new(),
   };

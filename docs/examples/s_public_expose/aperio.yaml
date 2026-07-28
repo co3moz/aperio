@@ -2,9 +2,9 @@ server:
   url: https://tunnel.example.com
   token: apr_public_expose_change_me
 
-# Declare the tunnel and tie it to the server's expose port via the shared
-# key. The key travels only inside the tunnel handshake and is never revealed
-# to --bind-tunnels consumers.
+# Declare the tunnel by name. The server's expose: entry names this tunnel
+# and the token above, so only a client holding that token can claim the
+# public port; revoking the token closes the port's source.
 tunnels:
-  - target: 127.0.0.1:22
-    expose: replace-with-a-long-random-shared-secret
+  - name: ssh
+    target: 127.0.0.1:22

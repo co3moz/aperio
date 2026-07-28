@@ -65,7 +65,7 @@ fn expose_rule_defaults_protocol_to_tcp() {
   let rule: ExposeRule = serde_yaml::from_str("port: 5000\nkey: longenoughkey\n").unwrap();
   assert_eq!(rule.protocol, "tcp");
   assert_eq!(rule.port, 5000);
-  assert_eq!(rule.key, "longenoughkey");
+  assert_eq!(rule.key.as_deref(), Some("longenoughkey"));
 }
 
 #[test]
@@ -93,8 +93,31 @@ fn from_config_file_parses_valid_rules() {
 // find_declarer
 // --------------------------------------------------------------------------
 
+/// An `expose:` rule in the deprecated shared-secret form.
+fn key_rule(key: &str) -> ExposeRule {
+  ExposeRule {
+    protocol: "tcp".to_string(),
+    port: 5000,
+    tunnel: None,
+    token: None,
+    key: Some(key.to_string()),
+  }
+}
+
+/// An `expose:` rule in the identity form: a named tunnel owned by a token.
+fn named_rule(tunnel: &str, token: Option<&str>) -> ExposeRule {
+  ExposeRule {
+    protocol: "tcp".to_string(),
+    port: 5000,
+    tunnel: Some(tunnel.to_string()),
+    token: token.map(str::to_string),
+    key: None,
+  }
+}
+
 fn tunnel(key: Option<&str>, protocol: &str, encrypt: bool) -> TunnelDecl {
   TunnelDecl {
+    name: None,
     target: "127.0.0.1:9000".to_string(),
     protocol: protocol.to_string(),
     encrypt,
@@ -122,7 +145,7 @@ async fn find_declarer_matches_healthy_declaring_client() {
   })
   .await;
 
-  let found = find_declarer(&state, "mykey12345").await;
+  let found = find_declarer(&state, &key_rule("mykey12345")).await;
   let (cid, _tx, target) = found.expect("declaring client found");
   assert_eq!(cid, "c1");
   assert_eq!(target, "127.0.0.1:9000");
@@ -131,7 +154,11 @@ async fn find_declarer_matches_healthy_declaring_client() {
 #[tokio::test]
 async fn find_declarer_none_when_no_client() {
   let state = Arc::new(test_state());
-  assert!(find_declarer(&state, "mykey12345").await.is_none());
+  assert!(
+    find_declarer(&state, &key_rule("mykey12345"))
+      .await
+      .is_none()
+  );
 }
 
 #[tokio::test]
@@ -159,7 +186,11 @@ async fn find_declarer_skips_ineligible_and_mismatched_clients() {
   })
   .await;
 
-  assert!(find_declarer(&state, "mykey12345").await.is_none());
+  assert!(
+    find_declarer(&state, &key_rule("mykey12345"))
+      .await
+      .is_none()
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -177,7 +208,7 @@ async fn relay_drops_connection_without_a_declarer() {
   let (server_sock, peer) = listener.accept().await.unwrap();
 
   // No client declares this key -> relay audits nothing serving and returns.
-  relay_public_tcp(state, server_sock, peer, "unknownkey1").await;
+  relay_public_tcp(state, server_sock, peer, &key_rule("unknownkey1")).await;
 }
 
 #[tokio::test]
@@ -207,7 +238,7 @@ async fn relay_end_to_end_pumps_bytes_both_directions() {
   // Run the relay in the background.
   let relay_state = state.clone();
   let relay = tokio::spawn(async move {
-    relay_public_tcp(relay_state, server_sock, peer, "mykey12345").await;
+    relay_public_tcp(relay_state, server_sock, peer, &key_rule("mykey12345")).await;
   });
 
   // First message the client receives must be a TcpOpen for its target.
@@ -278,7 +309,7 @@ async fn relay_rejected_by_rate_limit_returns_early() {
   let (server_sock, peer) = listener.accept().await.unwrap();
 
   // check_rate_limit -> false -> relay returns before touching the stream map.
-  relay_public_tcp(state.clone(), server_sock, peer, "mykey12345").await;
+  relay_public_tcp(state.clone(), server_sock, peer, &key_rule("mykey12345")).await;
   assert!(state.tcp_streams.lock().await.is_empty());
 }
 
@@ -300,7 +331,7 @@ async fn relay_bails_when_the_client_channel_is_closed() {
   let _visitor = TcpStream::connect(addr).await.unwrap();
   let (server_sock, peer) = listener.accept().await.unwrap();
 
-  relay_public_tcp(state.clone(), server_sock, peer, "mykey12345").await;
+  relay_public_tcp(state.clone(), server_sock, peer, &key_rule("mykey12345")).await;
   assert!(state.tcp_streams.lock().await.is_empty());
 }
 
@@ -326,7 +357,7 @@ async fn relay_closes_when_tunnel_signals_close() {
 
   let relay_state = state.clone();
   let relay = tokio::spawn(async move {
-    relay_public_tcp(relay_state, server_sock, peer, "mykey12345").await;
+    relay_public_tcp(relay_state, server_sock, peer, &key_rule("mykey12345")).await;
   });
 
   // Consume the TcpOpen and grab the stream id.
@@ -369,7 +400,9 @@ async fn spawn_listeners_accepts_and_relays_a_connection() {
     vec![ExposeRule {
       protocol: "tcp".to_string(),
       port,
-      key: "spawnkey123".to_string(),
+      tunnel: None,
+      token: None,
+      key: Some("spawnkey123".to_string()),
     }],
   );
 
@@ -387,4 +420,116 @@ async fn spawn_listeners_accepts_and_relays_a_connection() {
   assert!(connected, "listener should accept a connection");
   // Let the accepted connection be relayed before the test ends.
   tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+// --------------------------------------------------------------------------
+// The identity form: `tunnel:` + `token:` instead of a shared secret.
+// --------------------------------------------------------------------------
+
+/// A named tunnel declaration.
+fn named_tunnel(name: &str) -> TunnelDecl {
+  TunnelDecl {
+    name: Some(name.to_string()),
+    target: "127.0.0.1:9000".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    idle_timeout: None,
+    expose: None,
+  }
+}
+
+#[tokio::test]
+async fn a_named_rule_matches_the_tunnel_of_the_named_token() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |c| {
+    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.perms.token_name = Some("bastion-host".to_string());
+  })
+  .await;
+
+  let found = find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host"))).await;
+  let (cid, _tx, target) = found.expect("the declaring client is found by name");
+  assert_eq!(cid, "c1");
+  assert_eq!(target, "127.0.0.1:9000");
+}
+
+#[tokio::test]
+async fn a_named_rule_does_not_match_another_token_claiming_the_name() {
+  // The point of pinning the token: a second client in the same organization
+  // must not be able to take the name and receive the public port's traffic.
+  let state = Arc::new(test_state());
+  insert_client(&state, "impostor", |c| {
+    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.perms.token_name = Some("some-other-token".to_string());
+  })
+  .await;
+
+  assert!(
+    find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host")))
+      .await
+      .is_none()
+  );
+}
+
+#[tokio::test]
+async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "master-client", |c| {
+    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    // A master-token client reports no token name.
+    c.perms.token_name = None;
+  })
+  .await;
+  assert!(
+    find_declarer(&state, &named_rule("ssh-bastion", None))
+      .await
+      .is_some()
+  );
+
+  let state2 = Arc::new(test_state());
+  insert_client(&state2, "named-client", |c| {
+    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.perms.token_name = Some("ops".to_string());
+  })
+  .await;
+  assert!(
+    find_declarer(&state2, &named_rule("ssh-bastion", None))
+      .await
+      .is_none(),
+    "a named token's tunnel needs the rule to name that token"
+  );
+}
+
+#[tokio::test]
+async fn a_named_rule_still_refuses_an_encrypted_tunnel() {
+  // A raw public socket cannot run the client-side handshake, whichever way
+  // the rule addresses the tunnel.
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |c| {
+    let mut decl = named_tunnel("ssh-bastion");
+    decl.encrypt = true;
+    c.tunnels = vec![decl];
+    c.perms.token_name = Some("bastion-host".to_string());
+  })
+  .await;
+  assert!(
+    find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host")))
+      .await
+      .is_none()
+  );
+}
+
+#[test]
+fn an_unnamed_tunnel_is_addressable_by_its_derived_name() {
+  // A rule may name a tunnel the client never named, since the derivation is
+  // shared between both sides.
+  let decl = TunnelDecl {
+    name: None,
+    target: "127.0.0.1:22".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    idle_timeout: None,
+    expose: None,
+  };
+  assert_eq!(crate::tunnel::registry::name_of(&decl), "127-0-0-1-22-tcp");
 }

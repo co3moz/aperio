@@ -714,6 +714,8 @@ pub(crate) struct ClientPerms {
   pub(crate) token_id: Option<String>,
   /// May this token publish services as public (visitor auth gate skipped)?
   pub(crate) allow_public: bool,
+  /// May this token bind another client's tunnels within its organization?
+  pub(crate) allow_bind: bool,
   /// Organization this token (and therefore this client) belongs to
   /// (None = master).
   pub(crate) org_id: Option<String>,
@@ -734,6 +736,7 @@ impl ClientPerms {
       token_name: None,
       token_id: None,
       allow_public: true,
+      allow_bind: true,
       org_id: None,
       org_hostnames: Vec::new(),
     }

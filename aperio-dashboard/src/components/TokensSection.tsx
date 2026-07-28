@@ -66,6 +66,7 @@ interface TokenFormState {
   maxRps: string
   dailyMaxMb: string
   allowPublic: boolean
+  allowBind: boolean
   canary: boolean
 }
 
@@ -79,6 +80,7 @@ function formFromToken(tok: TokenView | null): TokenFormState {
     maxRps: tok?.max_rps != null ? String(tok.max_rps) : '',
     dailyMaxMb: tok?.daily_max_bytes != null ? String(tok.daily_max_bytes / (1024 * 1024)) : '',
     allowPublic: tok?.allow_public ?? false,
+    allowBind: tok?.allow_bind ?? false,
     canary: tok?.canary ?? false,
   }
 }
@@ -139,6 +141,7 @@ function TokenFormDialog({
           ...(Number.isNaN(maxRps) || maxRps < 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes < 0 ? {} : { daily_max_bytes: dailyBytes }),
           allow_public: form.allowPublic,
+          allow_bind: form.allowBind,
           canary: form.canary,
         })
         onSaved()
@@ -157,6 +160,7 @@ function TokenFormDialog({
           ...(Number.isNaN(maxRps) || maxRps <= 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes <= 0 ? {} : { daily_max_bytes: dailyBytes }),
           allow_public: form.allowPublic,
+          allow_bind: form.allowBind,
           canary: form.canary,
         })
         onSaved()
@@ -257,6 +261,13 @@ function TokenFormDialog({
               onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
             />
             {t('May publish public services (visitor auth gate skipped)')}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.allowBind}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, allowBind: v === true }))}
+            />
+            {t("May bind other clients' tunnels in this organization")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
@@ -411,6 +422,7 @@ export function TokensSection() {
                         </TintBadge>
                       )}
                       {tok.allow_public && <TintBadge tint="green">{t('public ok')}</TintBadge>}
+                      {tok.allow_bind && <TintBadge tint="blue">{t('may bind')}</TintBadge>}
                       {tok.canary && <TintBadge tint="red">{t('canary')}</TintBadge>}
                       {tok.max_rps == null &&
                         tok.daily_max_bytes == null &&

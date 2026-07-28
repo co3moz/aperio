@@ -59,7 +59,9 @@ use crate::api::tokens::{
   tokens_create_handler, tokens_list_handler, tokens_refresh_handler, tokens_revoke_handler,
   tokens_rotate_handler, tokens_update_handler,
 };
-use crate::api::tunnels::{tunnels_create_handler, tunnels_delete_handler};
+use crate::api::tunnels::{
+  tunnels_create_handler, tunnels_declared_handler, tunnels_delete_handler,
+};
 use crate::api::webhooks::{
   audit_handler, audit_verify_handler, webhook_deliveries_handler, webhook_redeliver_handler,
   webhooks_create_handler, webhooks_delete_handler, webhooks_list_handler,
@@ -84,7 +86,9 @@ use crate::store::audit::AuditLog;
 use crate::store::stats::StatsStore;
 use crate::store::tokens::TokenStore;
 use crate::store::webhooks::WebhookStore;
-use crate::tunnel::tcp::{tcp_ws_handler, tunnels_list_handler, udp_ws_handler};
+use crate::tunnel::tcp::{
+  tcp_ws_handler, tunnels_discovery_handler, tunnels_list_handler, udp_ws_handler,
+};
 use crate::tunnel::ws::ws_handler;
 
 /// Entry point for the Aperio server.
@@ -1548,7 +1552,7 @@ async fn async_main() {
   );
   app = app.route(
     "/aperio/api/tunnels",
-    axum::routing::post(tunnels_create_handler),
+    get(tunnels_declared_handler).post(tunnels_create_handler),
   );
   app = app.route(
     "/aperio/api/tunnels/:id",
@@ -1559,6 +1563,7 @@ async fn async_main() {
   app = app.route("/aperio/udp", get(udp_ws_handler));
   // Tunnel discovery for --bind-tunnels consumers: same token the client
   // connected with (or master), explicit client id — never a listing.
+  app = app.route("/aperio/tunnels", get(tunnels_discovery_handler));
   app = app.route("/aperio/tunnels/:client_id", get(tunnels_list_handler));
   app = app.route("/aperio/oidc/login", get(oidc_login_handler));
   app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));

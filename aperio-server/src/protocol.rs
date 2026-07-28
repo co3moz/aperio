@@ -119,6 +119,11 @@ pub struct ConfigNote {
 /// the server with `--bind-tunnels` — same token, explicit client id.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TunnelDecl {
+  /// Handle this tunnel is addressed by, unique within the organization.
+  /// Unset (an older client, or a declaration that never named one) means the
+  /// name is derived from the target and protocol instead.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>,
   /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
   pub target: String,
   /// Transport protocol: `tcp` or `udp` (best-effort datagram relay).

@@ -18,6 +18,7 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 - **Lifetime**, optional TTL; expired tokens are rejected at connect time. As an early-warning system, a `token_expiring` webhook/audit event fires once a token's remaining lifetime drops under `APERIO_TOKEN_EXPIRY_WARNING` (default 24 h), and the dashboard tokens table shows an "expiring soon" badge, refresh or re-issue before anything breaks.
 - **Rate limit**, optional requests/second cap for the traffic served through this token; excess requests answer `429`.
 - **Daily quota**, optional bytes/day cap (request + response payload), answering `429` once exhausted until local midnight (in-memory tracking; a restart resets the day's usage).
+- **May bind tunnels** (`allow_bind`, off by default), whether this token may bind the [tunnels](emergency-tunnels.md) declared by *other* clients in its organization. Without it a binder needs the very credential the declaring client connected with, which is also the credential that publishes services as that client: reaching a database for ten minutes meant handing over the ability to serve as them. It never crosses an organization; only the master token does that.
 
 A client declaring a bind its token doesn't permit gets the declaration ignored (and logged). Tokens can be edited in place, scope, IPs, expiry change while the secret stays the same, or revoked, which immediately drops the tunnel connections using the token and rejects reconnects.
 

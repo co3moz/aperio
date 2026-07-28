@@ -413,6 +413,7 @@ async fn test_run_udp_bind_bind_failure_returns() {
   let port = hog.local_addr().unwrap().port();
   // The port is already bound by `hog`, so run_udp_bind's bind fails and returns.
   run_udp_bind(
+    "127.0.0.1".to_string(),
     port,
     "ws://127.0.0.1:1/aperio/udp".to_string(),
     "tok".to_string(),
@@ -431,6 +432,7 @@ async fn test_run_udp_bind_creates_and_reuses_session() {
   // Short idle timeout: after the two datagrams the bridge idles out, so the
   // session's cleanup path (remove + log) also runs.
   let handle = tokio::spawn(run_udp_bind(
+    "127.0.0.1".to_string(),
     port,
     ws_url,
     "tok".to_string(),

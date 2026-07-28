@@ -128,10 +128,17 @@ pub(crate) async fn topology_handler(
           let serving = c.admin_enabled
             && !c.draining
             && c.is_healthy(threshold)
-            && c
-              .tunnels
-              .iter()
-              .any(|d| d.protocol == "tcp" && !d.encrypt && d.expose.as_deref() == Some(&e.key));
+            && c.tunnels.iter().any(|d| {
+              d.protocol == "tcp"
+                && !d.encrypt
+                && match &e.tunnel {
+                  Some(name) => {
+                    crate::tunnel::registry::name_of(d) == name.trim()
+                      && c.perms.token_name.as_deref() == e.token.as_deref().map(str::trim)
+                  }
+                  None => d.expose.as_deref() == e.key.as_deref(),
+                }
+            });
           serving.then(|| cid.clone())
         });
         TopoExpose {

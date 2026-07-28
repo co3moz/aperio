@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   BracesIcon,
+  CableIcon,
   InboxIcon,
   ChartPieIcon,
   ConstructionIcon,
@@ -41,6 +42,7 @@ import { formatUptime } from '@/lib/format'
 export type Page =
   | 'overview'
   | 'clients'
+  | 'tunnels'
   | 'traffic'
   | 'inbox'
   | 'breakdown'
@@ -74,6 +76,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     pages: [
       { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity' },
       { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections' },
+      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with --bind-tunnels' },
     ],
   },
   {

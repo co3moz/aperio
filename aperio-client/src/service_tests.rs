@@ -319,6 +319,7 @@ async fn test_run_service_message_loop() {
   spec.tcp_target = Some("127.0.0.1:9".to_string());
   spec.tunnels = vec![
     TunnelDecl {
+      name: None,
       target: "127.0.0.1:5432".to_string(),
       protocol: "tcp".to_string(),
       encrypt: false,
@@ -327,6 +328,7 @@ async fn test_run_service_message_loop() {
       expose: None,
     },
     TunnelDecl {
+      name: None,
       target: "127.0.0.1:5353".to_string(),
       protocol: "udp".to_string(),
       encrypt: false,

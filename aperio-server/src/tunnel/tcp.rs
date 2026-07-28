@@ -17,14 +17,37 @@ use tracing::{debug, info};
 use crate::auth::authorize_tunnel_token;
 use crate::protocol::TunnelMessage;
 use crate::routing::extract_client_ip;
-use crate::state::{AppState, ClientPerms, TcpConsumerMsg, TcpStreamHandle};
+use crate::state::{AppState, TcpConsumerMsg, TcpStreamHandle};
+use crate::tunnel::registry;
 
-/// May a consumer authenticated as `consumer` bind the tunnels of a client
-/// that connected as `owner`? The master token may bind any client's
-/// tunnels; a dynamic token only those of clients using the very same
-/// token. Client ids are always required — there is no listing.
-fn same_token(consumer: &ClientPerms, owner: &ClientPerms) -> bool {
-  consumer.master || (consumer.token_id.is_some() && consumer.token_id == owner.token_id)
+/// Turns a resolution failure into the answer the caller gets.
+///
+/// The three are kept apart on purpose. A binder that is told "not connected"
+/// looks for a dead client; one told "not permitted" looks at its token; one
+/// told "no path available" waits. Collapsing them, as the previous code did,
+/// sent every one of those operators down the first road.
+fn reject(rejection: registry::Rejection, what: &str) -> (StatusCode, String) {
+  match rejection {
+    registry::Rejection::Unknown => (
+      StatusCode::NOT_FOUND,
+      format!("No connected client declares a tunnel matching '{what}'"),
+    ),
+    registry::Rejection::Forbidden => {
+      info!(
+        "Tunnel bind for '{}' rejected: not permitted for this token",
+        what
+      );
+      (
+        StatusCode::FORBIDDEN,
+        "Binding needs the declaring client's own token, or one in its organization with allow_bind"
+          .to_string(),
+      )
+    }
+    registry::Rejection::Unavailable => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      format!("The client declaring '{what}' is not available"),
+    ),
+  }
 }
 
 #[cfg(test)]
@@ -69,10 +92,32 @@ pub(crate) async fn tcp_ws_handler(
     .get("target")
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty());
+  let requested_name = params
+    .get("tunnel")
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
 
   // Select the serving client and (for declared tunnels) the target.
-  let (client_id, client_tx, target) = match requested_client {
-    Some(ref id) => {
+  let (client_id, client_tx, target) = match (&requested_name, &requested_client) {
+    // `?tunnel=<name>`: the organization-wide handle, no client id needed.
+    (Some(name), _) => {
+      match registry::resolve(&state, &perms, registry::Selector::Name(name)).await {
+        Ok(found) if found.decl.protocol == "tcp" => {
+          let target = found.decl.target.clone();
+          (found.client_id, found.tx, Some(target))
+        }
+        Ok(_) => {
+          return (
+            StatusCode::BAD_REQUEST,
+            "That tunnel is a udp tunnel; use the udp endpoint",
+          )
+            .into_response();
+        }
+        Err(rejection) => return reject(rejection, name).into_response(),
+      }
+    }
+    // `?client=<id>&target=<host:port>`: the original addressing.
+    (None, Some(id)) => {
       let Some(target) = requested_target else {
         return (
           StatusCode::BAD_REQUEST,
@@ -80,43 +125,17 @@ pub(crate) async fn tcp_ws_handler(
         )
           .into_response();
       };
-      let clients = state.clients.lock().await;
-      // The id may be the server-side connection id or the client's
-      // self-reported instance id (the one shown in the client's own logs).
-      let found = clients
-        .iter()
-        .find(|(cid, c)| *cid == id || c.reported_instance_id.as_deref() == Some(id));
-      let Some((cid, c)) = found else {
-        return (StatusCode::NOT_FOUND, "No such client connected").into_response();
+      let selector = registry::Selector::ClientTarget {
+        client: id,
+        target: &target,
+        protocol: "tcp",
       };
-      if !same_token(&perms, &c.perms) {
-        info!(
-          "Tunnel bind for client {} rejected: token mismatch (binding requires the same token the client connected with)",
-          id
-        );
-        return (
-          StatusCode::FORBIDDEN,
-          "Tunnel binding requires the same token the client connected with",
-        )
-          .into_response();
+      match registry::resolve(&state, &perms, selector).await {
+        Ok(found) => (found.client_id, found.tx, Some(target)),
+        Err(rejection) => return reject(rejection, id).into_response(),
       }
-      if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
-        return (StatusCode::SERVICE_UNAVAILABLE, "Client is not available").into_response();
-      }
-      if !c
-        .tunnels
-        .iter()
-        .any(|d| d.target == target && d.protocol == "tcp")
-      {
-        return (
-          StatusCode::NOT_FOUND,
-          "The client does not declare this tunnel target",
-        )
-          .into_response();
-      }
-      (cid.clone(), c.tx.clone(), Some(target))
     }
-    None => {
+    (None, None) => {
       // Legacy mode: any TCP-capable, eligible client.
       let clients = state.clients.lock().await;
       let found = clients
@@ -185,57 +204,55 @@ pub(crate) async fn udp_ws_handler(
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
 
-  let (Some(id), Some(target)) = (
-    params
-      .get("client")
-      .map(|s| s.trim().to_string())
-      .filter(|s| !s.is_empty()),
-    params
-      .get("target")
-      .map(|s| s.trim().to_string())
-      .filter(|s| !s.is_empty()),
-  ) else {
-    return (
-      StatusCode::BAD_REQUEST,
-      "UDP tunneling requires client and target parameters",
-    )
-      .into_response();
-  };
+  let requested_name = params
+    .get("tunnel")
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+  let requested_client = params
+    .get("client")
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
+  let requested_target = params
+    .get("target")
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty());
 
-  let (client_id, client_tx) = {
-    let clients = state.clients.lock().await;
-    let found = clients
-      .iter()
-      .find(|(cid, c)| **cid == id || c.reported_instance_id.as_deref() == Some(&id));
-    let Some((cid, c)) = found else {
-      return (StatusCode::NOT_FOUND, "No such client connected").into_response();
-    };
-    if !same_token(&perms, &c.perms) {
-      info!(
-        "UDP tunnel bind for client {} rejected: token mismatch (binding requires the same token the client connected with)",
-        id
-      );
+  let (client_id, client_tx, target) = match (&requested_name, &requested_client, &requested_target)
+  {
+    (Some(name), _, _) => {
+      match registry::resolve(&state, &perms, registry::Selector::Name(name)).await {
+        Ok(found) if found.decl.protocol == "udp" => {
+          let target = found.decl.target.clone();
+          (found.client_id, found.tx, target)
+        }
+        Ok(_) => {
+          return (
+            StatusCode::BAD_REQUEST,
+            "That tunnel is a tcp tunnel; use the tcp endpoint",
+          )
+            .into_response();
+        }
+        Err(rejection) => return reject(rejection, name).into_response(),
+      }
+    }
+    (None, Some(id), Some(target)) => {
+      let selector = registry::Selector::ClientTarget {
+        client: id,
+        target,
+        protocol: "udp",
+      };
+      match registry::resolve(&state, &perms, selector).await {
+        Ok(found) => (found.client_id, found.tx, target.clone()),
+        Err(rejection) => return reject(rejection, id).into_response(),
+      }
+    }
+    _ => {
       return (
-        StatusCode::FORBIDDEN,
-        "Tunnel binding requires the same token the client connected with",
+        StatusCode::BAD_REQUEST,
+        "UDP tunneling requires a tunnel parameter, or client and target parameters",
       )
         .into_response();
     }
-    if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
-      return (StatusCode::SERVICE_UNAVAILABLE, "Client is not available").into_response();
-    }
-    if !c
-      .tunnels
-      .iter()
-      .any(|d| d.target == target && d.protocol == "udp")
-    {
-      return (
-        StatusCode::NOT_FOUND,
-        "The client does not declare this UDP tunnel target",
-      )
-        .into_response();
-    }
-    (cid.clone(), c.tx.clone())
   };
 
   state
@@ -343,10 +360,39 @@ async fn relay_udp_consumer(
   debug!("UDP tunnel stream {} closed", stream_id);
 }
 
-/// Tunnel discovery endpoint (`GET /aperio/tunnels/:client_id`): returns the
-/// tunnels a connected client declared, for `--bind-tunnels` consumers. Same
-/// authorization rule as the stream endpoint: the same token the client
-/// connected with (or the master token), and the explicit client id.
+/// Tunnel discovery (`GET /aperio/tunnels`): every tunnel this caller may
+/// bind, across the clients of its organization.
+///
+/// The listing is what makes a name usable as an address. Without it a binder
+/// had to already know a client id to ask anything at all, which meant the
+/// only way to find out what you could reach was to be told out of band.
+#[utoipa::path(get, path = "/aperio/tunnels", tag = "tunnels",
+  description = "Lists the tunnels the presented token may bind.",
+  responses((status = 200, description = "Bindable tunnels", body = Vec<registry::TunnelView>)))]
+pub(crate) async fn tunnels_discovery_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let caller_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  if !state.check_rate_limit(caller_ip).await {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
+  let Some(perms) = authorize_tunnel_token(&state, &headers, caller_ip).await else {
+    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+  };
+  Json(registry::visible(&state, &perms).await).into_response()
+}
+
+/// Per-client tunnel discovery (`GET /aperio/tunnels/:client_id`): the
+/// tunnels one connected client declared. The original endpoint, kept for
+/// binders that address a peer by id; `GET /aperio/tunnels` is the listing.
 pub(crate) async fn tunnels_list_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
@@ -369,18 +415,19 @@ pub(crate) async fn tunnels_list_handler(
 
   let id = client_id.trim();
   let clients = state.clients.lock().await;
-  let found = clients
-    .iter()
-    .find(|(cid, c)| *cid == id || c.reported_instance_id.as_deref() == Some(id));
+  // Any connection of the process answers: they all announce the same list.
+  // The id may be the connection id, the reported instance id, or the raw
+  // `client_id` from the file, which is the one an operator actually has.
+  let found = clients.iter().find(|(cid, c)| {
+    *cid == id
+      || c.reported_instance_id.as_deref() == Some(id)
+      || c.instance_group.as_deref() == Some(id)
+  });
   let Some((_, c)) = found else {
     return (StatusCode::NOT_FOUND, "No such client connected").into_response();
   };
-  if !same_token(&perms, &c.perms) {
-    return (
-      StatusCode::FORBIDDEN,
-      "Tunnel binding requires the same token the client connected with",
-    )
-      .into_response();
+  if !registry::may_bind(&perms, &c.perms) {
+    return reject(registry::Rejection::Forbidden, id).into_response();
   }
   Json(c.tunnels.clone()).into_response()
 }

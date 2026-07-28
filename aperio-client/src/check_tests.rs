@@ -228,6 +228,7 @@ fn base_settings() -> ClientSettings {
 
 fn tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    name: None,
     target: target.to_string(),
     protocol: "tcp".to_string(),
     encrypt: false,
