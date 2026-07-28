@@ -119,9 +119,19 @@ export function TunnelsSection() {
                       {tunnel.target}
                     </TableCell>
                     <TableCell>
-                      <TintBadge tint={tunnel.protocol === 'udp' ? 'amber' : 'blue'}>
-                        {tunnel.protocol}
-                      </TintBadge>
+                      {/* A `tcp/udp` tunnel is one tunnel on both transports,
+                          so it gets one badge per transport rather than a
+                          single label nobody can scan. */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {tunnel.protocol.split('/').map((transport) => (
+                          <TintBadge
+                            key={transport}
+                            tint={transport === 'udp' ? 'amber' : 'blue'}
+                          >
+                            {transport}
+                          </TintBadge>
+                        ))}
+                      </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {tunnel.client_id ?? '—'}

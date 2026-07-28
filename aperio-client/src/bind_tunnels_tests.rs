@@ -507,3 +507,50 @@ async fn discovery_asks_every_configured_credential() {
   assert!(asked.contains(&"apr_layered".to_string()));
   assert!(asked.contains(&"apr_entry".to_string()));
 }
+
+#[tokio::test]
+async fn a_combined_tunnel_opens_both_listeners_on_one_port() {
+  init_tracing();
+  // The whole point of `tcp/udp`: one name, one entry, one local port, and
+  // both transports answering on it. TCP and UDP are separate port spaces, so
+  // sharing the number is not a conflict.
+  let body = serde_json::json!([
+    {
+      "name": "dns",
+      "protocol": "tcp/udp",
+      "target": "192.168.3.100:53",
+      "client_id": "peer-1",
+      "paths": 1,
+      "available": true,
+      "encrypt": false,
+      "idle_timeout": 30,
+      "token_name": null
+    }
+  ])
+  .to_string();
+  let server = spawn_http(move |_| (200, body.clone())).await;
+
+  let mut map = HashMap::new();
+  map.insert("dns".to_string(), BindTunnelValue::Port(39230));
+  let settings = settings_with(Some("apr_test"), map);
+
+  let server2 = server.clone();
+  tokio::spawn(async move {
+    run_bind_tunnels(&settings, &server2, "").await;
+  });
+  tokio::time::sleep(Duration::from_millis(500)).await;
+
+  assert!(
+    tokio::net::TcpStream::connect("127.0.0.1:39230")
+      .await
+      .is_ok(),
+    "the tcp half should be listening"
+  );
+  // The udp half holds the same port number: binding it ourselves must fail.
+  assert!(
+    tokio::net::UdpSocket::bind("127.0.0.1:39230")
+      .await
+      .is_err(),
+    "the udp half should hold the same local port"
+  );
+}

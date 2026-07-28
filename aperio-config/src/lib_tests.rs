@@ -514,3 +514,30 @@ fn a_bind_entry_accepts_the_short_and_long_forms() {
   assert_eq!(entry.port, Some(15432));
   assert_eq!(entry.address.as_deref(), Some("0.0.0.0"));
 }
+
+// ---------------------------------------------------------------------------
+// The combined `tcp/udp` declaration.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_combined_declaration_serves_both_transports() {
+  // DNS is the reason this exists: port 53 is genuinely both, and writing it
+  // as two declarations meant two names and two entries in every binder.
+  assert!(protocol_serves(PROTOCOL_BOTH, "tcp"));
+  assert!(protocol_serves(PROTOCOL_BOTH, "udp"));
+  assert!(protocol_serves("tcp", "tcp"));
+  assert!(!protocol_serves("tcp", "udp"));
+  assert!(protocol_serves("udp", "udp"));
+  assert!(!protocol_serves("udp", "tcp"));
+  // Spacing and case in a hand-written file must not change the answer.
+  assert!(protocol_serves("  TCP/UDP ", "udp"));
+}
+
+#[test]
+fn a_combined_derived_name_stays_addressable() {
+  // The protocol goes into a derived name, and a slash is not a character a
+  // name may contain, so it has to be folded rather than passed through.
+  let name = tunnel_name(&decl(None, "192.168.3.100:53", PROTOCOL_BOTH));
+  assert_eq!(name, "192-168-3-100-53-tcp-udp");
+  assert!(validate_tunnel_name(&name).is_ok());
+}

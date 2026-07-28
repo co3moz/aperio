@@ -17,5 +17,5 @@ tunnels:
     target: 127.0.0.1:22
   - name: dns
     target: 127.0.0.1:53        # internal DNS resolver
-    protocol: udp
-    idle_timeout: 10            # udp only: relay expiry in seconds (default 60)
+    protocol: tcp/udp           # one tunnel, one local port, both transports
+    idle_timeout: 10            # the udp half: relay expiry in seconds (default 60)

@@ -131,19 +131,31 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
     std::process::exit(1);
   }
 
-  let mut claimed: HashMap<(String, u16), String> = HashMap::new();
+  let mut claimed: HashMap<(&str, u16), String> = HashMap::new();
   let mut listeners = 0usize;
   for binding in bindings {
-    let claim = (binding.decl.protocol.clone(), binding.port);
-    if let Some(other) = claimed.get(&claim) {
-      error!(
-        "Local {} port {} is already used by {}; give {} its own `port:` — not binding",
-        binding.decl.protocol, binding.port, other, binding.label
-      );
-      continue;
+    // A `tcp/udp` tunnel is one name and one local port, opened on both
+    // transports. They are separate port spaces, so the same number on each
+    // is not a conflict.
+    let mut opened = false;
+    for transport in ["tcp", "udp"] {
+      if !aperio_config::protocol_serves(&binding.decl.protocol, transport) {
+        continue;
+      }
+      let claim = (transport, binding.port);
+      if let Some(other) = claimed.get(&claim) {
+        error!(
+          "Local {} port {} is already used by {}; give {} its own `port:` — not binding",
+          transport, binding.port, other, binding.label
+        );
+        continue;
+      }
+      if spawn_listener(server, &binding, transport).await {
+        claimed.insert(claim, binding.label.clone());
+        opened = true;
+      }
     }
-    if spawn_listener(server, &binding).await {
-      claimed.insert(claim, binding.label.clone());
+    if opened {
       listeners += 1;
     }
   }
@@ -333,10 +345,11 @@ fn derived_port(name: &str) -> u16 {
   DERIVED_PORT_BASE + (hash % DERIVED_PORT_SPAN as u64) as u16
 }
 
-/// Opens the local listener for one binding. Returns false when it could not
-/// be opened, which is reported but never fatal for the other bindings.
-async fn spawn_listener(server: &str, binding: &Binding) -> bool {
-  let path = if binding.decl.protocol == "udp" {
+/// Opens one local listener for a binding, on `transport` (`tcp` or `udp`).
+/// Returns false when it could not be opened, which is reported but never
+/// fatal for the other bindings.
+async fn spawn_listener(server: &str, binding: &Binding, transport: &str) -> bool {
+  let path = if transport == "udp" {
     "/aperio/udp"
   } else {
     "/aperio/tcp"
@@ -352,7 +365,7 @@ async fn spawn_listener(server: &str, binding: &Binding) -> bool {
     }
   };
 
-  if binding.decl.protocol == "udp" {
+  if transport == "udp" {
     let idle_timeout = crate::udp::effective_idle_timeout(binding.decl.idle_timeout);
     info!(
       "Tunnel bound: {}:{} -> {} -> {} (udp)",

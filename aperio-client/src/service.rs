@@ -1057,7 +1057,10 @@ pub(crate) async fn run_service(
                                                   Some(t) => spec
                                                       .tunnels
                                                       .iter()
-                                                      .find(|d| d.target == *t && d.protocol == "tcp")
+                                                      .find(|d| {
+                                                          d.target == *t
+                                                              && aperio_config::protocol_serves(&d.protocol, "tcp")
+                                                      })
                                                       .map(|d| (d.target.clone(), d.encrypt, d.psk.clone())),
                                                   None => spec.tcp_target.clone().map(|t| (t, false, None)),
                                               };
@@ -1102,7 +1105,10 @@ pub(crate) async fn run_service(
                                               let resolved = spec
                                                   .tunnels
                                                   .iter()
-                                                  .find(|d| d.target == target && d.protocol == "udp")
+                                                  .find(|d| {
+                                                      d.target == target
+                                                          && aperio_config::protocol_serves(&d.protocol, "udp")
+                                                  })
                                                   .map(|d| (d.target.clone(), crate::udp::effective_idle_timeout(d.idle_timeout)));
                                               match resolved {
                                                   Some((target_addr, idle_timeout)) => {

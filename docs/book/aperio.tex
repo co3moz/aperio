@@ -1787,6 +1787,9 @@ tunnels:
     target: 127.0.0.1:5432
     encrypt: true
     psk: a-long-random-string   # never sent anywhere
+  - name: dns
+    target: 127.0.0.1:53
+    protocol: tcp/udp           # one tunnel, both transports
 \end{lstlisting}
 
 \begin{lstlisting}[language=aperiosh]

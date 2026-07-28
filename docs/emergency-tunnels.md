@@ -23,9 +23,11 @@ tunnels:
     target: 127.0.0.1:22
   - name: dns
     target: 127.0.0.1:53          # e.g. an internal DNS resolver
-    protocol: udp
-    idle_timeout: 10              # udp only: relay expiry in seconds (default 60)
+    protocol: tcp/udp             # one tunnel, both transports
+    idle_timeout: 10              # the udp half: relay expiry in seconds (default 60)
 ```
+
+`protocol:` takes `tcp` (the default), `udp`, or `tcp/udp` for a service that is genuinely both, DNS being the obvious one. A combined tunnel is **one** tunnel: one name, one entry in the binder, one local port, with a listener opened on each transport (they are separate port spaces, so the number is shared without conflict). Declaring the same target twice, once per protocol, still works and gives you two independently addressable tunnels; use it when you want them bound to different local ports. `encrypt: true` is refused on a combined tunnel, since the handshake is TCP-only and accepting it would leave the datagram half in the clear under a flag that says otherwise.
 
 Names are unique within the organization and may contain letters, digits, `-`, `_` and `.`. A name shaped like a UUID is refused, so names can never be confused with client ids. Leaving `name:` out derives one from the target and protocol (`127.0.0.1:5432` tcp becomes `127-0-0-1-5432-tcp`), which keeps older files working and still gives every tunnel a stable handle; two tunnels that would resolve to the same name are a startup error.
 
@@ -107,7 +109,7 @@ A passive server learns nothing either way. An **active** server could man-in-th
 
 ## UDP tunnels
 
-A `protocol: udp` declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer, enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic in either direction expires after 60 seconds by default, tune it per tunnel with `idle_timeout: <seconds>` on the declaration (e.g. `300` for long-lived WireGuard sessions, `10` for DNS; the binder picks the value up automatically via tunnel discovery, and the next datagram after an expiry opens a fresh relay); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput, it's a break-glass path, same as TCP.
+A `protocol: udp` (or `tcp/udp`) declaration binds a local **UDP** socket on the consumer side. Each distinct local peer (source address) gets its own relay stream through the server, so responses find their way back to the right peer, enough for DNS lookups, statsd counters, or a WireGuard handshake in a pinch. The relay is deliberately **best-effort**, matching UDP semantics: when any hop is congested, datagrams are dropped rather than queued; a relay with no traffic in either direction expires after 60 seconds by default, tune it per tunnel with `idle_timeout: <seconds>` on the declaration (e.g. `300` for long-lived WireGuard sessions, `10` for DNS; the binder picks the value up automatically via tunnel discovery, and the next datagram after an expiry opens a fresh relay); and datagrams above 64 KiB are not relayed. Don't expect wire-rate throughput, it's a break-glass path, same as TCP.
 
 ## Public expose
 

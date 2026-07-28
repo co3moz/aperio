@@ -186,7 +186,7 @@ async fn find_declarer(
     // A public socket cannot run the client-side encryption handshake, so an
     // encrypted tunnel is never eligible however it is addressed.
     let matched = c.tunnels.iter().find(|d| {
-      if d.protocol != "tcp" || d.encrypt {
+      if !aperio_config::protocol_serves(&d.protocol, "tcp") || d.encrypt {
         return false;
       }
       match &rule.tunnel {

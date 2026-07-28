@@ -6,6 +6,7 @@ ECHO_PORT=18105
 BIND_PORT=18106
 BRIDGE_PORT=18107
 NAMED_PORT=18121
+BOTH_PORT=18122
 
 # Raw TCP echo backend: echoes every received chunk prefixed with "echo:".
 
@@ -45,6 +46,9 @@ tunnels:
   - name: echo-main
     target: 127.0.0.1:${ECHO_PORT}
     protocol: tcp
+  - name: echo-both
+    target: 127.0.0.1:${ECHO_PORT}
+    protocol: tcp/udp
 YAML
 "$CLIENT_BIN" --config "$DECL_CFG" >"$LOG_DIR/client-tunnels-decl.log" 2>&1 &
 CLIENT_PIDS+=($!)
@@ -74,6 +78,7 @@ step "Tunnel listing and the allow_bind capability"
 LISTED="$(curl -s -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/tunnels")"
 assert_contains "$LISTED" '"name":"echo-main"' "the listing names the tunnel"
 assert_contains "$LISTED" '"available":true' "the listing says whether it can be served"
+assert_contains "$LISTED" '"protocol":"tcp/udp"' "a combined declaration is listed as one tunnel"
 # A token without the capability sees nothing, rather than being told what it
 # cannot have.
 EMPTY="$(curl -s -H "Authorization: Bearer ${OTHER_TOKEN}" "$BASE/aperio/tunnels")"
@@ -122,6 +127,7 @@ server:
   token: ${BIND_TOKEN}
 bind-tunnels:
   echo-main: ${NAMED_PORT}
+  echo-both: ${BOTH_PORT}
 YAML
 "$CLIENT_BIN" --bind-tunnels --config "$NAMED_CFG" \
   >"$LOG_DIR/client-tunnels-named.log" 2>&1 &
@@ -132,6 +138,14 @@ OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$NAMED_PORT" ping-named)"
 assert_contains "$OUT" "echo:ping-named" "bytes relayed through a tunnel bound by name"
 assert_contains "$(cat "$LOG_DIR/client-tunnels-named.log")" "tunnel echo-main" \
   "the binder logs the tunnel by name"
+# One `tcp/udp` declaration opens both listeners on the same local port.
+NAMED_LOG="$(cat "$LOG_DIR/client-tunnels-named.log")"
+assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo-both -> 127.0.0.1:${ECHO_PORT} (tcp)" \
+  "a tcp/udp tunnel opens its tcp half"
+assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo-both -> 127.0.0.1:${ECHO_PORT} (udp)" \
+  "a tcp/udp tunnel opens its udp half on the same port"
+OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$BOTH_PORT" ping-both)"
+assert_contains "$OUT" "echo:ping-both" "bytes relayed through the tcp half of a tcp/udp tunnel"
 
 step "Legacy tcp bridge"
 "$CLIENT_BIN" tcp "$BRIDGE_PORT" --server-url "$BASE" --server-token "$TOKEN" \

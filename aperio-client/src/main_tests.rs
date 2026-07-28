@@ -99,7 +99,7 @@ fn test_build_specs_tunnels_validation() {
     expose: None,
   }];
   let err = build_specs(&settings, "base-id", false).unwrap_err();
-  assert!(err.contains("only tcp and udp"), "got: {err}");
+  assert!(err.contains("use tcp, udp, or tcp/udp"), "got: {err}");
 
   // The same target may be declared once per protocol (e.g. DNS tcp+udp).
   settings.tunnels = vec![
@@ -1105,4 +1105,65 @@ fn test_log_spec_all_branches() {
   settings.hostnames = Vec::new();
   let specs = build_specs(&settings, "id", false).unwrap();
   log_spec(&specs[0]);
+}
+
+// ---------------------------------------------------------------------------
+// The combined `tcp/udp` declaration: one tunnel, both transports.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_tunnels_accepts_the_combined_protocol() {
+  let decl = |protocol: &str| protocol::TunnelDecl {
+    name: Some("dns".to_string()),
+    target: "192.168.3.100:53".to_string(),
+    protocol: protocol.to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: Some(30),
+    expose: None,
+  };
+
+  let out = validate_tunnels(&[decl("tcp/udp")]).expect("tcp/udp is accepted");
+  assert_eq!(out[0].protocol, "tcp/udp");
+  // The idle timeout belongs to the datagram half, so a combined tunnel keeps
+  // it rather than being told it is a tcp-only setting.
+  assert_eq!(out[0].idle_timeout, Some(30));
+
+  // Written the other way round it means the same thing, and is normalized so
+  // everything downstream compares against one spelling.
+  let out = validate_tunnels(&[decl("UDP/TCP")]).expect("udp/tcp is the same declaration");
+  assert_eq!(out[0].protocol, "tcp/udp");
+}
+
+#[test]
+fn test_validate_tunnels_refuses_encrypt_on_a_combined_tunnel() {
+  // Encryption is the tcp-only handshake; accepting it here would leave the
+  // udp half in the clear under a flag that says otherwise.
+  let err = validate_tunnels(&[protocol::TunnelDecl {
+    name: Some("dns".to_string()),
+    target: "192.168.3.100:53".to_string(),
+    protocol: "tcp/udp".to_string(),
+    encrypt: true,
+    psk: None,
+    idle_timeout: None,
+    expose: None,
+  }])
+  .unwrap_err();
+  assert!(err.contains("only supported for tcp tunnels"), "got: {err}");
+}
+
+#[test]
+fn test_validate_tunnels_allows_expose_on_a_combined_tunnel() {
+  // A public port relays TCP; the tunnel's tcp half qualifies.
+  let out = validate_tunnels(&[protocol::TunnelDecl {
+    name: Some("dns".to_string()),
+    target: "192.168.3.100:53".to_string(),
+    protocol: "tcp/udp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: None,
+    expose: Some("a-long-shared-secret".to_string()),
+  }])
+  .expect("expose is accepted on the tcp half");
+  assert_eq!(out.len(), 1);
 }

@@ -1088,10 +1088,18 @@ fn validate_tunnels(
   let mut out = Vec::with_capacity(raw.len());
   for decl in raw {
     let target = decl.target.trim().to_string();
-    let protocol = decl.protocol.trim().to_ascii_lowercase();
-    if protocol != "tcp" && protocol != "udp" {
+    // `udp/tcp` is normalized to the one spelling everything else compares
+    // against, so a file may write it either way round.
+    let protocol = match decl.protocol.trim().to_ascii_lowercase().as_str() {
+      "udp/tcp" => aperio_config::PROTOCOL_BOTH.to_string(),
+      other => other.to_string(),
+    };
+    if !matches!(
+      protocol.as_str(),
+      "tcp" | "udp" | aperio_config::PROTOCOL_BOTH
+    ) {
       return Err(format!(
-        "CRITICAL ERROR: tunnel '{}' declares protocol '{}'; only tcp and udp are supported",
+        "CRITICAL ERROR: tunnel '{}' declares protocol '{}'; use tcp, udp, or tcp/udp for a service that is both",
         target, decl.protocol
       ));
     }
@@ -1116,7 +1124,7 @@ fn validate_tunnels(
     }
     if decl.encrypt && protocol != "tcp" {
       return Err(format!(
-        "CRITICAL ERROR: tunnel '{}' sets encrypt: true, which is only supported for tcp tunnels",
+        "CRITICAL ERROR: tunnel '{}' sets encrypt: true, which is only supported for tcp tunnels (a tcp/udp tunnel would leave its udp half in the clear)",
         target
       ));
     }
@@ -1127,7 +1135,8 @@ fn validate_tunnels(
       ));
     }
     if let Some(secs) = decl.idle_timeout {
-      if protocol != "udp" {
+      // Applies to the datagram half, so a combined tunnel may set it.
+      if !aperio_config::protocol_serves(&protocol, "udp") {
         return Err(format!(
           "CRITICAL ERROR: tunnel '{}' sets idle_timeout, which is only supported for udp tunnels",
           target
@@ -1141,7 +1150,8 @@ fn validate_tunnels(
       }
     }
     if decl.expose.is_some() {
-      if protocol != "tcp" {
+      // A public port relays TCP; a combined tunnel qualifies for its tcp half.
+      if !aperio_config::protocol_serves(&protocol, "tcp") {
         return Err(format!(
           "CRITICAL ERROR: tunnel '{}' sets expose, which is only supported for tcp tunnels",
           target

@@ -65,7 +65,7 @@ pub(crate) struct Resolved {
 pub(crate) struct TunnelView {
   /// Handle to bind, unique within the organization.
   pub(crate) name: String,
-  /// `tcp` or `udp`.
+  /// `tcp`, `udp`, or `tcp/udp` for a tunnel that serves both.
   pub(crate) protocol: String,
   /// Address the declaring client dials locally.
   pub(crate) target: String,
@@ -160,10 +160,9 @@ pub(crate) async fn resolve(
         if !matches_client(cid, handle, client.trim()) {
           continue;
         }
-        handle
-          .tunnels
-          .iter()
-          .find(|d| d.target == target.trim() && d.protocol == protocol)
+        handle.tunnels.iter().find(|d| {
+          d.target == target.trim() && aperio_config::protocol_serves(&d.protocol, protocol)
+        })
       }
     };
     let Some(decl) = decl else { continue };

@@ -19,6 +19,20 @@ fn default_tcp() -> String {
   "tcp".to_string()
 }
 
+/// The combined declaration: one tunnel reachable over both transports.
+pub const PROTOCOL_BOTH: &str = "tcp/udp";
+
+/// Does a declared `protocol` serve `want` (`tcp` or `udp`)?
+///
+/// A tunnel may declare `tcp/udp`, which is one tunnel with one name and one
+/// local port that answers on both transports. DNS is the reason: port 53 is
+/// genuinely both, and writing it as two declarations meant two names and two
+/// entries in every binder for what an operator thinks of as one thing.
+pub fn protocol_serves(protocol: &str, want: &str) -> bool {
+  let protocol = protocol.trim().to_ascii_lowercase();
+  protocol == want || protocol == PROTOCOL_BOTH
+}
+
 /// True when a string is shaped like the UUID a client id is.
 ///
 /// Tunnel names and client ids share one key space in `bind-tunnels:`, where a
@@ -56,10 +70,12 @@ pub fn tunnel_name(decl: &TunnelDecl) -> String {
     .chars()
     .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
     .collect();
+  // `tcp/udp` would put a slash in the name, which is not a character a name
+  // may contain; fold it so a combined tunnel stays addressable.
   format!(
     "{}-{}",
     slug.trim_matches('-'),
-    decl.protocol.trim().to_ascii_lowercase()
+    decl.protocol.trim().to_ascii_lowercase().replace('/', "-")
   )
 }
 
@@ -101,9 +117,12 @@ pub struct TunnelDecl {
   /// Local address this client dials when a peer binds the tunnel.
   #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
   pub target: String,
-  /// Transport of the tunnel: `tcp` (default) or `udp` (best-effort datagram relay).
+  /// Transport of the tunnel: `tcp` (default), `udp` (best-effort datagram
+  /// relay), or `tcp/udp` for a service that is genuinely both (DNS, for
+  /// instance). A combined tunnel is one tunnel with one name and one local
+  /// port on the binder, answering on both transports.
   #[serde(default = "default_tcp")]
-  #[schemars(extend("examples" = ["tcp", "udp"]))]
+  #[schemars(extend("examples" = ["tcp", "udp", "tcp/udp"]))]
   pub protocol: String,
   /// End-to-end encrypt this tunnel between the two clients (X25519 +
   /// ChaCha20-Poly1305); the server only relays ciphertext. TCP only.

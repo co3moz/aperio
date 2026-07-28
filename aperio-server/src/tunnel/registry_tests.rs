@@ -239,3 +239,53 @@ async fn the_listing_shows_only_what_the_caller_may_bind() {
   assert_eq!(listed.len(), 1);
   assert_eq!(listed[0].name, "mine");
 }
+
+#[tokio::test]
+async fn a_combined_tunnel_resolves_on_both_transports() {
+  // One name, one declaration, addressable from the tcp and the udp endpoint.
+  let state = Arc::new(test_state());
+  insert(&state, "conn-abc", |c| {
+    c.tunnels = vec![decl("dns", "tcp/udp")];
+  })
+  .await;
+
+  let found = resolve(&state, &ClientPerms::master(), Selector::Name("dns"))
+    .await
+    .expect("resolved by name");
+  assert_eq!(found.decl.protocol, "tcp/udp");
+
+  // And through the older client/target addressing, for either transport.
+  for protocol in ["tcp", "udp"] {
+    let selector = Selector::ClientTarget {
+      client: "conn-abc",
+      target: "127.0.0.1:5432",
+      protocol,
+    };
+    assert!(
+      resolve(&state, &ClientPerms::master(), selector)
+        .await
+        .is_ok(),
+      "a tcp/udp tunnel must answer the {protocol} endpoint"
+    );
+  }
+}
+
+#[tokio::test]
+async fn a_single_transport_tunnel_still_refuses_the_other() {
+  let state = Arc::new(test_state());
+  insert(&state, "conn-abc", |c| {
+    c.tunnels = vec![decl("pg-main", "tcp")];
+  })
+  .await;
+  let selector = Selector::ClientTarget {
+    client: "conn-abc",
+    target: "127.0.0.1:5432",
+    protocol: "udp",
+  };
+  assert_eq!(
+    resolve(&state, &ClientPerms::master(), selector)
+      .await
+      .unwrap_err(),
+    Rejection::Unknown
+  );
+}

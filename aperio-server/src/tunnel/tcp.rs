@@ -102,14 +102,14 @@ pub(crate) async fn tcp_ws_handler(
     // `?tunnel=<name>`: the organization-wide handle, no client id needed.
     (Some(name), _) => {
       match registry::resolve(&state, &perms, registry::Selector::Name(name)).await {
-        Ok(found) if found.decl.protocol == "tcp" => {
+        Ok(found) if aperio_config::protocol_serves(&found.decl.protocol, "tcp") => {
           let target = found.decl.target.clone();
           (found.client_id, found.tx, Some(target))
         }
         Ok(_) => {
           return (
             StatusCode::BAD_REQUEST,
-            "That tunnel is a udp tunnel; use the udp endpoint",
+            "That tunnel does not serve tcp; use the udp endpoint",
           )
             .into_response();
         }
@@ -221,14 +221,14 @@ pub(crate) async fn udp_ws_handler(
   {
     (Some(name), _, _) => {
       match registry::resolve(&state, &perms, registry::Selector::Name(name)).await {
-        Ok(found) if found.decl.protocol == "udp" => {
+        Ok(found) if aperio_config::protocol_serves(&found.decl.protocol, "udp") => {
           let target = found.decl.target.clone();
           (found.client_id, found.tx, target)
         }
         Ok(_) => {
           return (
             StatusCode::BAD_REQUEST,
-            "That tunnel is a tcp tunnel; use the tcp endpoint",
+            "That tunnel does not serve udp; use the tcp endpoint",
           )
             .into_response();
         }
