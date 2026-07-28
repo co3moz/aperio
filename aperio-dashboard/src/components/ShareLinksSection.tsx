@@ -99,7 +99,11 @@ export function ShareLinksSection() {
               placeholder={t('/docs (optional)')}
               className="min-w-32 flex-1"
             />
-            <Select value={ttl} onValueChange={(v) => setTtl(v as string)}>
+            <Select
+              items={Object.fromEntries(TTL_OPTIONS.map((o) => [o.value, t(o.label)]))}
+              value={ttl}
+              onValueChange={(v) => setTtl(v as string)}
+            >
               <SelectTrigger className="w-36">
                 <SelectValue />
               </SelectTrigger>

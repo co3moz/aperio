@@ -118,7 +118,7 @@ export function TrafficHistoryChart() {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+            <Select items={rangeLabels} value={range} onValueChange={(v) => setRange(v as RangeKey)}>
               <SelectTrigger className="w-40" size="sm">
                 <SelectValue />
               </SelectTrigger>

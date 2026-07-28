@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableCell, TableRow } from '@/components/ui/table'
@@ -203,6 +203,24 @@ export function RecordSkeleton({ rows }: { rows: number }) {
       ))}
     </>
   )
+}
+
+/**
+ * Enter in a text field runs the dialog's confirm action.
+ *
+ * These dialogs are built from labelled inputs and a footer button rather
+ * than a real `<form>`, so nothing gives them the one behaviour every filled-in
+ * form has: typing the last value and pressing Enter. Put it on the element
+ * wrapping the fields. Textareas and buttons keep Enter for themselves — a
+ * newline and a click are what it means there.
+ */
+export function submitOnEnter(run: () => void) {
+  return (e: KeyboardEvent) => {
+    if (e.key !== 'Enter') return
+    if ((e.target as HTMLElement).tagName !== 'INPUT') return
+    e.preventDefault()
+    run()
+  }
 }
 
 /** Preformatted block for headers/bodies/commands (inspector, wizard). */

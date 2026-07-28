@@ -18,6 +18,7 @@ import {
   RecordRow,
   RecordSkeleton,
   SectionHeader,
+  submitOnEnter,
 } from './shared'
 import { TintBadge, type Tint } from './badges'
 import {
@@ -58,6 +59,9 @@ import { api, ApiError, type DashboardUser, type Role, type LiveSession } from '
 import { formatRelativeTime } from '@/lib/format'
 import { useOrgName, useSession } from '@/lib/session'
 
+/** The server's own floor, mirrored so the form can say no first. */
+const MIN_PASSWORD = 8
+
 const ROLE_TINT: Record<Role, Tint> = { admin: 'red', operator: 'blue', viewer: 'gray' }
 
 function RoleBadge({ role }: { role: Role }) {
@@ -68,15 +72,24 @@ function RoleBadge({ role }: { role: Role }) {
 
 function RoleSelect({ value, onChange }: { value: Role; onChange: (r: Role) => void }) {
   const { t } = useI18n()
+  // `items` is what makes the closed trigger read the *label*: without it the
+  // popup offered "İzleyici" and the field above it then said "viewer".
+  const items: Record<Role, string> = {
+    viewer: t('Viewer'),
+    operator: t('Operator'),
+    admin: t('Admin'),
+  }
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as Role)}>
+    <Select items={items} value={value} onValueChange={(v) => onChange(v as Role)}>
       <SelectTrigger className="w-full">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="viewer">{t('Viewer')}</SelectItem>
-        <SelectItem value="operator">{t('Operator')}</SelectItem>
-        <SelectItem value="admin">{t('Admin')}</SelectItem>
+        {(Object.keys(items) as Role[]).map((r) => (
+          <SelectItem key={r} value={r}>
+            {items[r]}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   )
@@ -101,7 +114,12 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
     setOpen(next)
   }
 
+  // The server refuses a short password; saying so here costs a round-trip
+  // less than being told after the click.
+  const ready = username.trim().length > 0 && password.length >= MIN_PASSWORD
+
   const submit = async () => {
+    if (!ready || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -128,7 +146,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
             {t('Users sign in at the dashboard login with their username and password.')}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
+        <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
           <div className="grid gap-2">
             <Label htmlFor="user-name">{t('Username')}</Label>
             <Input
@@ -159,7 +177,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
           <Button variant="outline" onClick={() => setOpen(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} disabled={busy || !ready}>
             {busy && <Spinner />} {t('Create')}
           </Button>
         </DialogFooter>
@@ -187,7 +205,12 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
     setOpen(next)
   }
 
+  // Blank means "keep the current one"; anything else has to clear the same
+  // bar a new account does.
+  const ready = password === '' || password.length >= MIN_PASSWORD
+
   const submit = async () => {
+    if (!ready || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -215,7 +238,7 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
         <DialogHeader>
           <DialogTitle>{t('Edit user "{name}"', { name: user.username })}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4">
+        <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
           <div className="grid gap-2">
             <Label>{t('Role')}</Label>
             <RoleSelect value={role} onChange={setRole} />
@@ -240,7 +263,7 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
           <Button variant="outline" onClick={() => setOpen(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} disabled={busy || !ready}>
             {busy && <Spinner />} {t('Save')}
           </Button>
         </DialogFooter>

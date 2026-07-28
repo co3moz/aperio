@@ -50,6 +50,12 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A closed dropdown shows the label it was picked by, not the raw value underneath.** The role field read "viewer" over a list offering "İzleyici", the share-link expiry read "3600" instead of "1 hour", and the traffic range read "30d" — each menu was translated and each closed field then contradicted it. The four affected pickers now name their options, so the selected one reads the same closed as it did open.
+
+- **Enter submits the user, organization and password forms.** They are built from labelled inputs and a footer button rather than a real `<form>`, so the one thing every filled-in form does — type the last value, press Enter — did nothing, and the organization form only honoured it from its first field. Textareas keep Enter for newlines.
+
+- **The user forms enforce the eight-character password minimum before submitting.** The label said it and the server refused it, but only after the round-trip. Create stays disabled until there is a username and a long enough password; on edit, blank still means "keep the current one".
+
 - **The config builder's section headings are translated.** Every heading and blurb in the builder rendered in English on a dashboard running in any other language, while the rest of the page around them was translated. They reach `t()` through a variable, and the build-time translation check only sees literal arguments, so it had been reporting a clean sheet over twenty-two headings and their descriptions. The check now reads that table too, which is what turned the gap up, and all seven languages carry them.
 
 - **A config builder section with nothing to lead with no longer hides everything behind "More settings".** Sections whose keys are all secondary, Access control and five others, opened onto a single nested accordion and nothing else: an accordion whose only child is another accordion. Those sections now list their fields directly. The nesting stays where it earns its place, on a section with a short head and a long tail.

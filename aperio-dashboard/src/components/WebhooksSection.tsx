@@ -136,7 +136,11 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="wh-format">{t('Payload format')}</Label>
-            <Select value={format} onValueChange={(v) => setFormat(v as string)}>
+            <Select
+              items={{ generic: t('Generic JSON'), slack: 'Slack', discord: 'Discord', teams: 'Microsoft Teams' }}
+              value={format}
+              onValueChange={(v) => setFormat(v as string)}
+            >
               <SelectTrigger id="wh-format" className="w-full">
                 <SelectValue />
               </SelectTrigger>

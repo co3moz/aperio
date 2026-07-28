@@ -16,6 +16,7 @@ import {
   RecordRow,
   RecordSkeleton,
   SectionHeader,
+  submitOnEnter,
 } from './shared'
 import { TintBadge } from './badges'
 import {
@@ -141,6 +142,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   }
 
   const submit = async () => {
+    if (!name.trim() || busy) return
     setBusy(true)
     setError(null)
     const label = name.trim()
@@ -188,7 +190,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
             {t('Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.')}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
+        <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
           <div className="grid gap-2">
             <Label htmlFor="org-name">{t('Name')}</Label>
             <Input
@@ -197,9 +199,6 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Inc."
               autoComplete="off"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && !busy) void submit()
-              }}
             />
           </div>
           <div className="grid gap-2">
