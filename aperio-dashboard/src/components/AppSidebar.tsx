@@ -161,7 +161,10 @@ export function AppSidebar({
                   theme and near-white in the dark one. Inherited rather than
                   named, so it stays right if the palette moves. */}
               <div className="flex size-8 shrink-0 items-center justify-center">
-                <AperioMark className="size-[30px]" />
+                {/* `!` because SidebarMenuButton's base carries `[&_svg]:size-4`,
+                    a descendant selector that outranks a plain size utility on
+                    specificity and pins every nested icon to 16px. */}
+                <AperioMark className="size-[30px]!" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <AperioWordmark className="truncate text-[15px] font-normal" />

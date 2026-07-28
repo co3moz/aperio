@@ -143,8 +143,15 @@ export function AuthApp() {
           {/* Mark and wordmark on one line: they are one lockup, and stacking
               them made the card open with two headings above the description. */}
           <div className="mb-2 flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
-              {totpStep ? <ShieldCheckIcon className="size-6" /> : <AperioMark className="size-7" />}
+            {/* Same treatment as the sidebar: no tile, the mark standing on the
+                card and taking the foreground colour, near-black on the light
+                theme and near-white on the dark one. */}
+            <div className="flex size-10 shrink-0 items-center justify-center">
+              {totpStep ? (
+                <ShieldCheckIcon className="size-7" />
+              ) : (
+                <AperioMark className="size-[34px]" />
+              )}
             </div>
             <CardTitle>
               <AperioWordmark className="text-lg font-normal" />
@@ -155,7 +162,22 @@ export function AuthApp() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={submit} className="grid gap-4">
+          {/* Enter in a field has to submit. Implicit submission should give
+              that for free, and does not here, so the form asks for the submit
+              itself. `requestSubmit` rather than calling the handler directly:
+              it still runs the browser's own validation and fires one real
+              submit event, so an empty field is reported the usual way instead
+              of being posted. Scoped to inputs, so Enter on the passkey button
+              still activates that button. */}
+          <form
+            onSubmit={submit}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement)) return
+              e.preventDefault()
+              e.currentTarget.requestSubmit()
+            }}
+            className="grid gap-4"
+          >
             {!totpStep && (
               <>
                 <div className="grid gap-2">
