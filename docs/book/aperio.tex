@@ -1405,13 +1405,56 @@ as a named user, or through OIDC.
         client, declared-but-offline binds, and public expose ports.
   \item[Autoscaling] Armed records with live pool utilisation
         (Chapter~\ref{ch:autoscaling}).
-  \item[Tokens, Users, Organizations, Webhooks, Audit] The management
-        surfaces, each mirroring an API endpoint.
-  \item[Server Settings] The live-editable configuration surface. Changes
-        apply immediately and persist to \code{settings.json}.
-  \item[API Explorer] The generated OpenAPI document, browsable and
-        callable from the browser.
+  \item[Tokens] The management surface for tunnel credentials, mirroring
+        the API endpoint behind it.
 \end{description}
+
+\section{Two dialogs, not eight pages}
+
+The screens above are places you go and stay. The rest are not, and they
+open as dialogs over whatever page you were on rather than replacing it.
+
+\textbf{Settings} holds server settings, organisations, users, webhooks
+and the webhook inbox: things you open, change, and leave. \textbf{Tools}
+holds the audit log, the API explorer and the config builder: instruments
+you reach for when something needs working out. Neither appears in the
+URL, so a reload returns to the page underneath with the dialog shut,
+which is why a settings form with unsaved edits asks before it is
+discarded, on closing, on switching panes, and on the browser's own
+reload.
+
+\section{What the settings screen can change}
+
+Everything on it is live: a save applies to the running server with no
+restart and no reconnect. The environment and \code{aperio-server.yaml}
+provide the defaults; an edit becomes a persisted override in
+\code{settings.json} that wins over both and can be reset per field. The
+settings are grouped by what they govern: gateway timeouts and body
+size; capacity and the client-down threshold; load balancing and the
+whole failover policy; the per-IP rate limit; tunnel compression, the
+random-subdomain pattern and preview \code{noindex}; the response cache
+and its serve-stale window; the stream flow-control watermarks; login
+lockout and audit rotation; and the visitor-facing language, password
+gate and custom 504/503 pages. Two of them reach connected clients
+immediately: enabling compression is offered to them at once, and a new
+subdomain pattern re-issues their random hostnames on the spot.
+
+What is \emph{not} there is the point of the design. The master token,
+host and port, the data directory, proxy trust, cookie security, OIDC,
+metrics, the access log and the outbound callback policy never become
+dashboard overrides, because a compromised dashboard session must not be
+able to move them. They are settable from the file and need a restart,
+and the screen lists them read-only with their current values rather
+than hiding them.
+
+\section{Finding a setting}
+
+\code{Ctrl+K} (\code{Cmd+K} on macOS) searches the settings as well as
+the pages. A setting matches on its name in either language,
+its environment key and its group, and carries its current value, marked
+when that value is an override rather than the environment default;
+picking one opens the pane, expands the group and scrolls to it. Values
+are shown to the master super-admin alone, since only they may read them.
 
 \section{The request inspector}
 

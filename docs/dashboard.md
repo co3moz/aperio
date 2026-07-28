@@ -85,26 +85,58 @@ Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page
 
 When the built-in `aperio` super-admin is signed in, an **organization picker** appears at the top of the sidebar and an **Organizations** page (create / delete child organizations, with live user and token counts) is available. Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant. Named users don't see the picker: they are pinned to their own organization. See [Organizations](organizations.md).
 
+## Settings dialog
+
+The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut — which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users**, **Webhooks** and **Webhook Inbox**; each is still reachable by role (a viewer sees the webhook panes only, organizations and server settings are the master super-admin's).
+
 ## Server settings
 
-Almost every runtime setting, timeouts, limits, load-balancing strategy, failover, compression, random subdomains, visitor password, custom 503/504 HTML, can be edited live and takes effect immediately: changing the random-subdomain pattern re-issues connected clients' random hostnames on the spot, and enabling tunnel compression is offered to already-connected clients. Environment variables stay the defaults; edits become **persisted overrides** (`APERIO_DATA_DIR/settings.json`) that survive restarts and can be reset per field. The master token, `HOST`/`PORT`, proxy trust, OIDC, and the outbound callback policy are not runtime-editable; they are set in `aperio-server.yaml` (or its environment spellings) and need a restart. Changes are audited as `settings_updated`. Server settings are a whole-server concern, so the page (and its export/import) is reserved for the master super-admin; a named organization admin manages their own organization, not the server.
+Everything on this pane is **live**: a save applies immediately and takes effect on the running server, no restart and no reconnect. Environment variables and `aperio-server.yaml` stay the defaults; an edit becomes a **persisted override** (`APERIO_DATA_DIR/settings.json`) that survives restarts, wins over both, and can be reset per field back to the environment default. Every change is audited as `settings_updated`.
+
+The settings sit in one accordion, grouped by what they govern. The full description of each is in the [Configuration Reference](configuration.md); this is what the screen can reach:
+
+| Group | What you can change from here |
+| --- | --- |
+| **Gateway & Requests** | How long a request waits for a client to (re)connect and to answer, and the largest request body accepted (`APERIO_GATEWAY_TIMEOUT`, `APERIO_GATEWAY_RESPONSE_TIMEOUT`, `APERIO_MAX_BODY_SIZE`). |
+| **Capacity & Health** | Ceiling on connected tunnel clients and on in-flight proxied requests, and the missed-heartbeat window after which a client leaves routing (`APERIO_MAX_TUNNELS`, `APERIO_MAX_CONCURRENT_REQUESTS`, `APERIO_CLIENT_DOWN_THRESHOLD`). |
+| **Routing & Failover** | Load-balancing strategy, strict multi-tenant mode, and the whole in-flight failover policy: mode, jump count, time budget, and whether non-idempotent methods take part (`APERIO_LB_STRATEGY`, `APERIO_REQUIRE_HOSTNAME_BIND`, `APERIO_FAILOVER*`). |
+| **Rate Limiting** | The per-visitor-IP token bucket: burst size and sustained rate (`APERIO_IP_LIMIT_MAX`, `APERIO_IP_LIMIT_REFILL`). |
+| **Tunnels & Domains** | Tunnel compression, the random-subdomain pattern, and whether preview hosts answer `noindex` (`APERIO_TUNNEL_COMPRESSION`, `APERIO_RANDOM_SUBDOMAIN`, `APERIO_PREVIEW_NOINDEX`). Two of these reach connected clients at once: enabling compression is offered to them immediately, and a new pattern re-issues their random hostnames on the spot. |
+| **Caching** | The response cache: on/off, its memory budget, and how long an expired entry may still answer while a resilient service has no healthy client (`APERIO_CACHE`, `APERIO_CACHE_MAX_BYTES`, `APERIO_CACHE_MAX_STALE`). Disabling it clears the stored entries. |
+| **Stream Flow Control** | The backpressure watermarks: the backlog at which a producing client is told to pause, the one at which it resumes, and the hard cap past which a stream whose producer cannot be paused is dropped (`APERIO_STREAM_PAUSE_BYTES`, `APERIO_STREAM_RESUME_BYTES`, `APERIO_STREAM_BACKLOG_LIMIT`). |
+| **Security & Audit** | Login brute-force lockout (threshold and base duration, which doubles per repeat) and `audit.jsonl` rotation size and generations kept (`APERIO_LOGIN_LOCKOUT_*`, `APERIO_AUDIT_MAX_*`). |
+| **Visitor Experience** | Default dashboard/login language, the visitor password gate in front of all proxied traffic, and custom 504/503 HTML (`APERIO_UI_LANGUAGE`, `APERIO_SERVER_AUTH`, `APERIO_504_PAGE`, `APERIO_503_PAGE`). |
+| **Export & Import** | The whole server configuration as one document, to move a deployment or keep a copy. |
+| **Environment Flags** | Read-only: the env-only flags with their current values, and the exact way to change one on this host (a `docker run`/compose snippet or a shell/systemd one, chosen by what the server detects it is running in). |
+
+**What is deliberately not here.** The master token, `HOST`/`PORT`, `data_dir`, proxy trust, secure cookies, OIDC, metrics, the access log and the outbound callback policy never become dashboard overrides: they are security- or startup-critical, and a compromised dashboard session must not be able to move them. Every one is still settable from `aperio-server.yaml` (or its environment spelling) and needs a restart. The pane lists them read-only rather than hiding them, so the screen still answers "what is this server actually running".
+
+Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
+
+## Finding a setting
+
+`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting is listed by name — matching its English name, its translated one, its environment key (`max_body_size`) and its group — **with its current value on the right**, marked when that value is an override rather than the environment default. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
 
 ## Also here
 
 - **API Tokens / Webhooks**, create, edit, revoke (see [Tokens & Authentication](tokens-and-auth.md), [Observability](observability.md)).
 - **Share links**, generate signed visitor-access URLs (see [Share Links](share-links.md)).
 - **Traffic breakdown**, top consumers per token and per hostname, plus a **traffic history** chart over the persisted statistics: last 7/30/60 days, 26 weeks, 24 months, or a custom date range, with successful/failed requests, transfer volume, and average latency per bucket (`GET /aperio/api/stats/history`).
-- **Audit log**, the last 200 administrative/security events.
+- **Audit log**, the last 200 administrative/security events (sidebar → **Tools**).
+
+## Tools
+
+The audit log, the API explorer and the config builder share a second dialog, **Tools**. None of them is where the day-to-day work happens: you open the audit log because something changed and you want to know who, the explorer because a call is not doing what you expected, the builder because a file needs writing. It is wider than the settings dialog, since a request/response pair and a generated YAML document are wide by nature.
 
 ## API explorer
 
-The *API Explorer* page (System group) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded, no external Swagger assets are loaded.
+The *API Explorer* pane (sidebar → **Tools**) renders the server's own `/aperio/api/openapi.json` as a browsable reference: operations grouped by tag, each expandable into its description, parameters, and an inline **try-it** form that runs the request against this very server with your current dashboard session (path-parameter inputs, a free-form query string, and a JSON body editor for mutating methods). Fully embedded, no external Swagger assets are loaded.
 
 
 
 ## Config builder
 
-The *Config Builder* page (System group) writes an `aperio.yaml` or an `aperio-server.yaml` for you. Pick which of the two at the top, then either start from **New** or press **Import YAML** and paste a document (or open a file) to edit one you already have. **Export YAML** at the bottom shows the finished document to copy, or saves it as a file named after the side you chose.
+The *Config Builder* pane (sidebar → **Tools**) writes an `aperio.yaml` or an `aperio-server.yaml` for you. Pick which of the two at the top, then either start from **New** or press **Import YAML** and paste a document (or open a file) to edit one you already have. **Export YAML** at the bottom shows the finished document to copy, or saves it as a file named after the side you chose.
 
 The form is generated from the JSON Schema this server serves (`GET /aperio/api/config/schema/{client|server}`), which is derived from the very Rust types that parse these files. That is the point of building it this way: the page offers exactly the settings the running binary understands, so it cannot drift ahead of an older server or lag behind a newer one, and each field carries the setting's own documentation.
 

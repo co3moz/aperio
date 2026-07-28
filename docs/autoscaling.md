@@ -118,6 +118,7 @@ Every call is audited (`scaling_requested` / `scaling_failed`) and emitted as a 
 The declaration comes from a client, which is a lower-trust credential than an operator, and it makes the server perform an outbound request. That is server-side request forgery by construction, so the destination is fenced:
 
 - **https only**, unless the operator sets `APERIO_SCALING_ALLOW_HTTP=1`.
+- **public addresses only**, unless the operator sets `APERIO_SCALING_ALLOW_PRIVATE=1`; every address the hostname resolves to is checked, not just the first.
 - **Every resolved address is checked**: loopback, private ranges, link-local (including `169.254.169.254`, the cloud metadata address), carrier-grade NAT, and their IPv6 equivalents are refused. A hostname that resolves to one of them is refused too.
 - **Redirects are never followed**, since a redirect is a way to reach an address the pre-flight check just refused.
 - The secret is write-only: never returned by the API, never logged.
@@ -131,6 +132,7 @@ Records are scoped to the organization of the token that armed them, and a recor
 | --- | --- | --- | --- |
 | `APERIO_SCALING` | `scaling` | Honor client `scaling:` declarations. | `0` |
 | `APERIO_SCALING_ALLOW_HTTP` | `scaling_allow_http` | Permit a plain-http endpoint. | `0` |
+| `APERIO_SCALING_ALLOW_PRIVATE` | `scaling_allow_private` | Permit an endpoint resolving to a private/loopback/link-local address. | `0` |
 | `APERIO_OUTBOUND_ALLOWLIST` | `outbound.allowlist` | Host/CIDR patterns the server may call for scaling hooks and webhooks; everything else refused. Empty = no restriction. | |
 | `APERIO_OUTBOUND_BLOCK_PRIVATE` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
 | `APERIO_SCALING_RECORD_TTL` | `scaling_record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
