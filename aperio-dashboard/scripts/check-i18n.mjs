@@ -84,6 +84,32 @@ function referenceKeys() {
 }
 
 /**
+ * String literals assigned to the named properties anywhere in a file. Used
+ * for tables of text that reach `t()` indirectly.
+ */
+function tableStrings(file, properties) {
+  const out = new Set()
+  const sf = parse(file, readFileSync(file, 'utf8'))
+  const visit = (node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      properties.includes(node.name.text) &&
+      (ts.isStringLiteral(node.initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(node.initializer))
+    ) {
+      out.add(node.initializer.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  if (out.size === 0) {
+    throw new Error(`no ${properties.join('/')} strings found in ${file}`)
+  }
+  return out
+}
+
+/**
  * Strings the source explicitly asks to translate: the first argument of every
  * `t('...')` call, when it is a plain literal. Unlike [`referenceKeys`] this is
  * a *requirement* — a key here that a dictionary lacks renders as English.
@@ -115,6 +141,17 @@ function requiredKeys() {
       ts.forEachChild(node, visit)
     }
     visit(sf)
+  }
+  // Strings passed to `t()` through a variable are invisible to the walk
+  // above, so a table of user-facing text ends up looking fully translated
+  // while rendering in English. The config builder's section titles and
+  // descriptions are exactly that: `t(section.spec.title)`. They are read
+  // from their own table instead.
+  for (const key of tableStrings(join(SRC, 'lib', 'configGroups.ts'), [
+    'title',
+    'description',
+  ])) {
+    keys.add(key)
   }
   return keys
 }

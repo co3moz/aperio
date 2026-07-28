@@ -30,6 +30,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **The config builder's section headings are translated.** Every heading and blurb in the builder rendered in English on a dashboard running in any other language, while the rest of the page around them was translated. They reach `t()` through a variable, and the build-time translation check only sees literal arguments, so it had been reporting a clean sheet over twenty-two headings and their descriptions. The check now reads that table too, which is what turned the gap up, and all seven languages carry them.
+
 - **A config builder section with nothing to lead with no longer hides everything behind "More settings".** Sections whose keys are all secondary, Access control and five others, opened onto a single nested accordion and nothing else: an accordion whose only child is another accordion. Those sections now list their fields directly. The nesting stays where it earns its place, on a section with a short head and a long tail.
 
 - **The config builder shows every accepted value of a setting, not the first.** A key whose schema examples enumerate its choices, like a tunnel's `tcp` / `udp` / `tcp/udp`, was advertising one of them as a placeholder and leaving the rest undiscoverable from the only screen an operator would look at.
