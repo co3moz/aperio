@@ -2,11 +2,19 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/noto-sans";
+/* The wordmark face. Self-hosted like the body font rather than fetched from
+   Google: the dashboard is served from the server binary under a
+   `default-src 'self'` policy, so an external font request would be blocked
+   outright, and an air-gapped install has nothing to fetch from. */
+@import "@fontsource/michroma/latin-400.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
+    /* Brand wordmark only, never body text: Michroma has one weight, no
+       italic, and wide letterforms that stop being readable below a heading. */
+    --font-wordmark: 'Michroma', var(--font-sans);
     --font-sans: 'Noto Sans Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);

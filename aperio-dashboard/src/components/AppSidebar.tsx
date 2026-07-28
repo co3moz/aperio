@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { UsersIcon } from 'lucide-react'
 import { AperioMark } from './AperioMark'
+import { AperioWordmark } from './AperioWordmark'
 import { OrgSwitcher } from './OrgSwitcher'
 import {
   Sidebar,
@@ -163,7 +164,7 @@ export function AppSidebar({
                 <AperioMark className="size-6" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
-                <span className="font-heading truncate font-semibold">Aperio</span>
+                <AperioWordmark className="truncate text-[15px] font-normal" />
                 <span className="truncate text-xs text-muted-foreground">
                   {version ? `v${version}` : '…'}
                 </span>

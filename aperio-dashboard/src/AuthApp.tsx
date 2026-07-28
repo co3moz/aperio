@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { AperioMark } from './components/AperioMark'
+import { AperioWordmark } from './components/AperioWordmark'
 import { LOGO_COLOR, logoDataUri } from '@/lib/logo'
 import { useI18n } from '@/i18n'
 import {
@@ -137,7 +138,9 @@ export function AuthApp() {
             <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
               {totpStep ? <ShieldCheckIcon className="size-6" /> : <AperioMark className="size-7" />}
             </div>
-            <CardTitle className="font-heading text-xl">Aperio</CardTitle>
+            <CardTitle>
+              <AperioWordmark className="text-lg font-normal" />
+            </CardTitle>
           </div>
           <CardDescription>
             {totpStep ? t('Enter the code from your authenticator app') : t('Sign in to continue')}
