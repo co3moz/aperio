@@ -126,7 +126,7 @@ export function AuthApp() {
           {/* Mark and wordmark on one line: they are one lockup, and stacking
               them made the card open with two headings above the description. */}
           <div className="mb-2 flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
               {totpStep ? <ShieldCheckIcon className="size-6" /> : <AperioMark className="size-7" />}
             </div>
             <CardTitle className="font-heading text-xl">Aperio</CardTitle>

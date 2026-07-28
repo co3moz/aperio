@@ -155,9 +155,11 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="pointer-events-none">
-              {/* A squircle, not a circle: at this size `rounded-2xl` is half
-                  the box, and a round tile crops the mark's corners visually. */}
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              {/* An explicit radius, not a scale step: this theme redefines the
+                  radius scale off `--radius: 0.75rem`, so `rounded-lg` is 12px
+                  and on a 32px tile that is close enough to half the box to
+                  read as a circle, which crops the mark's own square corners. */}
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
                 <AperioMark className="size-6" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
