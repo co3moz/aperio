@@ -139,8 +139,13 @@ export function fieldsOf(
     const outer = deref(raw, root)
     const description = outer.description ?? schema.description
     const examples = outer.examples ?? schema.examples
-    const example =
-      examples?.[0] !== undefined ? String(examples[0]) : undefined
+    // Every example, not just the first. A key whose examples enumerate the
+    // accepted values (`tcp`, `udp`, `tcp/udp`) is documenting a choice, and
+    // showing one of three hides the other two from the only place an
+    // operator would look for them.
+    const example = examples?.length
+      ? examples.map((e) => String(e)).join(', ')
+      : undefined
     const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
     // The schema documents superseded keys as "Deprecated spelling of `x`",
     // sometimes after a sentence of their own, so the phrase is matched

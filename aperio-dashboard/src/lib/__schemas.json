@@ -1,0 +1,3576 @@
+{
+  "client": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "FileConfig",
+    "description": "The Aperio client configuration file (`aperio.yaml` or `~/.aperio.yaml`).\nEvery key is optional and can equally be set with a CLI flag or an `APERIO_*`\nenvironment variable; this file is the lowest-friction way to keep them.",
+    "type": "object",
+    "properties": {
+      "allowed_ips": {
+        "description": "Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR\nranges); empty/unset = everyone. Enforced by the server before dispatch.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "203.0.113.7",
+            "10.0.0.0/8"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "auth": {
+        "description": "Gate this client behind your own `user:password` login instead of the server's.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "admin:s3cret"
+        ]
+      },
+      "bandwidth": {
+        "description": "Total link capacity of this client: a budget divided across every service\nand every parallel connection, so the sum the server is allowed to push\nnever exceeds it. Bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte\nsuffixes (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "8mbit",
+          "500kbit",
+          "2MB"
+        ]
+      },
+      "bind-tunnels": {
+        "description": "Tunnels this process binds to local ports, keyed by the tunnel's name.\nA key naming a peer's client id instead binds every tunnel that peer\ndeclares, which is the older spelling and still works.",
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": {
+          "$ref": "#/$defs/BindTunnelValue"
+        }
+      },
+      "cache": {
+        "description": "Let the server cache GET responses (per their `Cache-Control`);\neffective only when the server enables APERIO_CACHE.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "client_id": {
+        "description": "Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`\ncan recognize this client; a random one is used when unset.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+        ]
+      },
+      "connections": {
+        "description": "Parallel tunnel connections opened for the exposed service (1–16,\ndefault 1); the server load-balances across them like separate clients,\nso a single dropped connection leaves no visitor-facing gap.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "examples": [
+          2
+        ],
+        "minimum": 0
+      },
+      "denied": {
+        "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth; services may override).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "https://example.com/not-for-you"
+        ]
+      },
+      "device_key": {
+        "description": "Trust-on-first-use device key announced with the tunnel token, so a\nserver with token pinning on can bind that token to this machine\n(env: APERIO_DEVICE_KEY).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "device_key_file": {
+        "description": "File holding the device key; a random one is generated and persisted\nthere on first run. Ignored when `device_key` is set directly\n(env: APERIO_DEVICE_KEY_FILE).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "/var/lib/aperio/device.key"
+        ]
+      },
+      "headers": {
+        "description": "Request/response header add-remove rules applied by this client to\nproxied HTTP traffic (services may override with their own `headers`).",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/HeaderRules"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "health": {
+        "description": "Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,\n`wait_for_backend`). Preferred over the flat `target_health` / `health_*`\nkeys, which still work; `services:` entries may override it per service.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/HealthConfig"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "health_interval": {
+        "description": "Seconds between backend health probes.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          10
+        ],
+        "minimum": 0
+      },
+      "health_threshold": {
+        "description": "Failed probes in a row before the backend is reported unhealthy.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "examples": [
+          3
+        ],
+        "minimum": 0
+      },
+      "health_timeout": {
+        "description": "Seconds to wait for each health probe before counting it as failed.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          5
+        ],
+        "minimum": 0
+      },
+      "hostname": {
+        "description": "Public hostname(s) to claim for this client's traffic: a single string\nor a list.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Hostnames"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "examples": [
+          "app.example.com",
+          [
+            "app.example.com",
+            "www.example.com"
+          ]
+        ]
+      },
+      "idle_timeout": {
+        "description": "Shut this client down after it has served no request for this long, e.g.\n`5m` (unset = never). The scale-in half of `scaling`: the server never\nstops anything, an idle client retires itself. The shutdown is graceful\n(the server stops routing to it first, in-flight requests finish), and\nthe timer only starts once the client has served its first request, so a\nslow cold start cannot make it exit before it is ever used.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "5m"
+        ]
+      },
+      "ip_family": {
+        "description": "IP family used to dial the tunnel server: `auto` (default, tries both),\n`ipv4`, or `ipv6`. Set `ipv4` when the server hostname resolves to an\nIPv6 address the host cannot reach (env: APERIO_IP_FAMILY).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "auto",
+          "ipv4"
+        ]
+      },
+      "log_format": {
+        "description": "Log output format: `json`, or `pretty`/`text` for the human-readable\nform. Unset auto-detects, a TTY gets `pretty` and a pipe gets `json`\n(env: APERIO_LOG_FORMAT).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "json",
+          "pretty"
+        ]
+      },
+      "log_level": {
+        "description": "Log verbosity of this client (env: LOG_LEVEL; `RUST_LOG` overrides both).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "info",
+          "debug"
+        ]
+      },
+      "max_concurrent": {
+        "description": "Most requests handled at once before the server queues the rest.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "examples": [
+          8
+        ],
+        "minimum": 0
+      },
+      "max_message_size": {
+        "description": "Largest single tunnel frame, in bytes, the client will accept.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint",
+        "examples": [
+          33554432
+        ],
+        "minimum": 0
+      },
+      "max_redirects": {
+        "description": "How many backend redirects to follow transparently before passing one through.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint",
+        "examples": [
+          5
+        ],
+        "minimum": 0
+      },
+      "max_request_body": {
+        "description": "Largest request body, in bytes, visitors may upload to this service;\nthe server rejects bigger uploads with 413 before they enter the tunnel.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          1048576
+        ],
+        "minimum": 0
+      },
+      "max_response_body": {
+        "description": "Largest response body, in bytes, the client will relay to a visitor.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint",
+        "examples": [
+          10485760
+        ],
+        "minimum": 0
+      },
+      "pass_hostname": {
+        "description": "Forward the visitor's original Host header to the backend instead of the target's.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "path": {
+        "description": "Public path prefix to claim for this client's traffic.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "/api"
+        ]
+      },
+      "priority": {
+        "description": "Failover tier for this client (0 = primary, higher numbers are standbys).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "examples": [
+          0
+        ],
+        "minimum": 0
+      },
+      "public": {
+        "description": "Serve without the server's visitor login (needs a token that allows it).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "resilience": {
+        "description": "Keep serving this service's cached responses (marked, even past their\nlifetime) while no healthy client is connected, instead of failing with\n504 (needs `cache: true` and the server-side cache enabled).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "response_timeout": {
+        "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it — a per-service override of the server's global\ngateway response timeout (defaults applied per service).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          120
+        ],
+        "minimum": 0
+      },
+      "scaling": {
+        "description": "Autoscaling: the endpoint the server calls when this client's services\nneed capacity. Applies to every service this client exposes; each\nhostname bind gets its own record on the server.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ScalingDecl"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "security_headers": {
+        "description": "Security response-header preset: `true` injects HSTS,\n`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and\n`Referrer-Policy`; a mapping picks headers individually (services may\noverride with their own `security_headers`).",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SecurityHeaders"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "serve": {
+        "description": "Serve a local directory of static files instead of forwarding to a\nbackend (mutually exclusive with `target`); directories serve their\n`index.html`.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "./dist"
+        ]
+      },
+      "serve_404": {
+        "description": "Static-file mode: HTML file served with status 404 for misses the SPA\nfallback does not cover (env: APERIO_SERVE_404). Process-wide, like\n`serve_spa`.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "./dist/404.html"
+        ]
+      },
+      "serve_spa": {
+        "description": "Static-file mode: answer a navigation (`Accept: text/html`) that matches\nno file with the root `index.html` and status 200, so a client-side\nrouter owns its routes. A missing asset still 404s\n(env: APERIO_SERVE_SPA). Process-wide: it applies to every served\ndirectory of this client.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "server": {
+        "description": "The Aperio server to reach and the token to authenticate the tunnel with.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ServerValue"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "services": {
+        "description": "Expose several backends from one client, each on its own tunnel connection\n(replaces the single top-level `target`).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/ServiceEntry"
+        }
+      },
+      "target": {
+        "description": "Local backend to expose (single-service mode; use `services` for\nseveral). `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "http://localhost:3000",
+          "3000",
+          "h2c://127.0.0.1:50051"
+        ]
+      },
+      "target_health": {
+        "description": "Backend health endpoint to probe; a failing backend leaves rotation\nwithout dropping the tunnel. Deprecated spelling of `health.endpoint`.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "/health"
+        ]
+      },
+      "tcp_target": {
+        "description": "Raw TCP backend to expose instead of HTTP (experimental).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "127.0.0.1:5432"
+        ]
+      },
+      "timeout": {
+        "description": "Seconds to wait for the backend to respond before failing a request.",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          30
+        ],
+        "minimum": 0
+      },
+      "token": {
+        "description": "Deprecated spelling of `server.token`, kept so a token written at the\ntop level still authenticates rather than being silently ignored.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "apr_xxxxxxxxxxxxxxxx"
+        ]
+      },
+      "trim_bind": {
+        "description": "Strip the path prefix before forwarding, so the backend sees `/` not the bind.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "tunnels": {
+        "description": "Private local services a peer client may reach via `--bind-tunnels`; never\nexposed to the public web.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/TunnelDecl"
+        }
+      },
+      "version": {
+        "description": "The Aperio version this file was written for, e.g. `0.5.0`. On startup\nthe client compares it against its own build and reports every recorded\nchange to the configuration format that landed in between, refusing to\nstart when one of them has security consequences. Unset disables the\ncheck (env: APERIO_VERSION).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "0.5.0"
+        ]
+      },
+      "wait_for_backend": {
+        "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `target_health` when that is set). Deprecated spelling of\n`health.wait_for_backend`.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "webhook_inbox": {
+        "description": "Persist inbound POST requests (third-party webhooks) into the server's\nwebhook inbox, for browsing and re-firing (services may override).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "$defs": {
+      "BindTunnelEntry": {
+        "description": "What to bind, and where to bind it: one named tunnel (or, in the older\nspelling, every tunnel of one peer client).",
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "Local address the listener binds. Defaults to `127.0.0.1`; anything else\nputs a deliberately unexposed service on the network and is warned about.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "127.0.0.1"
+            ]
+          },
+          "override": {
+            "description": "Map a declared tunnel target to a specific local port instead of reusing\nthe target's. Only meaningful for an entry keyed by a peer's client id,\nwhich binds every tunnel that peer declares; a name-keyed entry is one\ntunnel and uses `port`.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "default": {}
+          },
+          "port": {
+            "description": "Local port for this tunnel. Unset reuses the declared target's port when\nit is free and unprivileged, and otherwise picks a stable port derived\nfrom the tunnel's name (logged at startup).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint16",
+            "examples": [
+              15432
+            ],
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "psk": {
+            "description": "Pre-shared key for this peer's end-to-end encrypted tunnels; must match\nthe `psk` the declaring client configured. Never sent to the server.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token": {
+            "description": "Token to authenticate the binding with; falls back to this client's\nserver token. Only needed when the tunnel is reached with a different\ncredential than the one this client connects with.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "apr_xxxxxxxxxxxxxxxx"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "BindTunnelValue": {
+        "description": "One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older\nspelling, by a peer client's id).\n\nA bare port number is the short form of `{ port: <n> }`, since naming the\nlocal port is the only thing most entries do.",
+        "anyOf": [
+          {
+            "description": "`pg-main: 15432` — the local port, everything else defaulted.",
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          {
+            "description": "The full entry.",
+            "$ref": "#/$defs/BindTunnelEntry"
+          }
+        ]
+      },
+      "HeaderDirectives": {
+        "description": "Header edits applied to one direction of proxied traffic (request or\nresponse): `add` sets headers (replacing any existing value of the same\nname), `remove` strips headers by name (case-insensitive).",
+        "type": "object",
+        "properties": {
+          "add": {
+            "description": "Headers to set, name → value; replaces an existing header of the same name.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "examples": [
+              {
+                "X-Forwarded-Env": "staging"
+              }
+            ]
+          },
+          "remove": {
+            "description": "Header names to strip (case-insensitive).",
+            "type": "array",
+            "default": [],
+            "examples": [
+              [
+                "Server",
+                "X-Powered-By"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HeaderRules": {
+        "description": "Header add/remove rules for proxied HTTP traffic: `request` edits what the\nlocal backend receives, `response` edits what the visitor receives.\nHop-by-hop and tunnel-critical headers stay managed by Aperio regardless.",
+        "type": "object",
+        "properties": {
+          "request": {
+            "description": "Edits applied to forwarded requests before they reach the local backend.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderDirectives"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response": {
+            "description": "Edits applied to backend responses before they return to the visitor.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderDirectives"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "HealthConfig": {
+        "description": "Backend health probing for one service: the endpoint the client checks and\nhow patient it is before pulling the backend out of routing.\n\nThe flat `target_health` / `health_interval` / `health_timeout` /\n`health_threshold` / `wait_for_backend` keys mean exactly the same thing\nand still work; this block is the form to write new configs in, and wins\nper field when both are present.",
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "description": "Endpoint to probe: a path like `/health` or a full URL. Unset = no probe,\nand the service is routable as soon as the tunnel is up.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/health"
+            ]
+          },
+          "interval": {
+            "description": "Seconds between probes.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              10
+            ],
+            "minimum": 0
+          },
+          "threshold": {
+            "description": "Failed probes in a row before the backend is reported unhealthy.\nDeprecated spelling of `health.threshold`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              3
+            ],
+            "minimum": 0
+          },
+          "timeout": {
+            "description": "Seconds to wait for each probe before counting it as failed.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "wait_for_backend": {
+            "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `endpoint` when that is set).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Hostnames": {
+        "description": "A service's public hostname(s): either a single `hostname: app.example.com`\nor a list `hostname: [app.example.com, www.example.com]`. Each must be\npermitted by the client's token.",
+        "anyOf": [
+          {
+            "description": "A single hostname.",
+            "type": "string"
+          },
+          {
+            "description": "Several hostnames routing to the same service.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "ScalingDecl": {
+        "description": "Autoscaling declaration: the URL the *server* calls when this service needs\ncapacity it does not have. Aperio never starts or stops anything itself, it\nonly signals a desired capacity to an endpoint the operator controls.\n\nThe record outlives the client process on purpose: the whole point of\n`min: 0` is that the server can call this URL when nothing is running.",
+        "type": "object",
+        "properties": {
+          "cold_start": {
+            "description": "How long a visitor request may be held while a cold start completes,\ne.g. `45s` (default 45s, 0 = do not hold, answer immediately).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "45s"
+            ]
+          },
+          "cooldown": {
+            "description": "Minimum gap between two calls for this bind, e.g. `60s` (default 60s).\nA new instance needs time to appear; without this the server would ask\nagain while it is still starting.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "60s"
+            ]
+          },
+          "max": {
+            "description": "Ceiling the server will never ask to exceed (0 = only cold starts, no\nscale-out).",
+            "type": "integer",
+            "format": "uint32",
+            "default": 0,
+            "minimum": 0
+          },
+          "min": {
+            "description": "Instances that should always be running. `0` opts into scale-to-zero:\na request for an unserved hostname triggers a cold start instead of a\n504.",
+            "type": "integer",
+            "format": "uint32",
+            "default": 0,
+            "minimum": 0
+          },
+          "secret": {
+            "description": "Sent as `Authorization: Bearer` on the outgoing call. Write-only: the\nserver never echoes it back and never logs it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_utilization": {
+            "description": "Pool utilization above which the server asks for one more instance,\nbetween 0 and 1 (default 0.8).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "examples": [
+              0.8
+            ]
+          },
+          "url": {
+            "description": "Endpoint the server POSTs to when it wants more capacity. HTTPS only\nunless the server allows plain HTTP; private and loopback addresses are\nrefused, since the caller is a lower-trust credential than an operator.",
+            "type": "string",
+            "examples": [
+              "https://api.provider.example/apps/web/scale"
+            ]
+          },
+          "window": {
+            "description": "How long utilization must stay above the target before scaling out,\ne.g. `15s` (default 15s). Guards against reacting to a single spike.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "15s"
+            ]
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "SecurityHeaderOptions": {
+        "description": "Individually selected security response headers; only the set fields are\ninjected.",
+        "type": "object",
+        "properties": {
+          "csp": {
+            "description": "`Content-Security-Policy` value to inject (no default — CSP is\napplication-specific).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "default-src 'self'"
+            ]
+          },
+          "frame_options": {
+            "description": "`X-Frame-Options` value to inject.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "DENY",
+              "SAMEORIGIN"
+            ]
+          },
+          "hsts": {
+            "description": "Inject `Strict-Transport-Security` (only meaningful behind HTTPS).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "hsts_max_age": {
+            "description": "HSTS `max-age` in seconds (default 63072000 = 2 years).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              31536000
+            ],
+            "minimum": 0
+          },
+          "nosniff": {
+            "description": "Inject `X-Content-Type-Options: nosniff`.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "referrer_policy": {
+            "description": "`Referrer-Policy` value to inject.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "strict-origin-when-cross-origin"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SecurityHeaders": {
+        "description": "Security response-header preset: `security_headers: true` enables the\nstandard set (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options:\nnosniff`, `Referrer-Policy: strict-origin-when-cross-origin`), a mapping\npicks headers individually. Explicit `headers:` rules always win over the\npreset.",
+        "anyOf": [
+          {
+            "description": "`true` enables the standard preset, `false` disables it (e.g. for one\nservice when the top level enables it).",
+            "type": "boolean"
+          },
+          {
+            "description": "Granular per-header selection.",
+            "$ref": "#/$defs/SecurityHeaderOptions"
+          }
+        ]
+      },
+      "ServerValue": {
+        "description": "The Aperio server this client connects to: either a bare URL string, or a\n`{ url, token }` section that also carries the tunnel token.",
+        "anyOf": [
+          {
+            "description": "Server URL only — the token then comes from `token:` or the environment.",
+            "type": "string"
+          },
+          {
+            "description": "Server URL together with the tunnel token.",
+            "type": "object",
+            "properties": {
+              "api_key": {
+                "description": "Admin API key used by `aperio-client api ...` calls (never for the\ntunnel itself).",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "examples": [
+                  "apk_xxxxxxxxxxxxxxxx"
+                ]
+              },
+              "token": {
+                "description": "Tunnel token (master or a scoped dynamic token) that authorizes this client.",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "examples": [
+                  "apr_xxxxxxxxxxxxxxxx"
+                ]
+              },
+              "url": {
+                "description": "URL of the Aperio server this client dials out to.",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "examples": [
+                  "https://tunnel.example.com"
+                ]
+              },
+              "urls": {
+                "description": "Additional server URLs to fail over to, tried in order when `url` is\nunreachable, for a redundant control plane.",
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "examples": [
+                  [
+                    "https://tunnel-b.example.com"
+                  ]
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ServiceEntry": {
+        "description": "One exposed backend when a single client serves several at once; any unset\nfield falls back to the top-level value.",
+        "type": "object",
+        "properties": {
+          "allowed_ips": {
+            "description": "Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR\nranges); empty/unset = everyone. Enforced by the server before dispatch.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "203.0.113.7",
+                "10.0.0.0/8"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "auth": {
+            "description": "Gate this service behind your own `user:password` login instead of the server's.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "admin:s3cret"
+            ]
+          },
+          "bandwidth": {
+            "description": "This service's share of the link: the server never pushes it faster than\nthis, and the share is split across its `connections`. Settled against the\ntop-level `bandwidth` budget when there is one. Bit suffixes\n(`kbit`/`mbit`/`gbit`) count as /8, byte suffixes (`kb`/`mb`/`gb`, or bare\n`k`/`m`/`g`) as x1000.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "8mbit",
+              "500kbit",
+              "2MB"
+            ]
+          },
+          "cache": {
+            "description": "Let the server cache this service's GET responses (per their\n`Cache-Control`); effective only when the server enables APERIO_CACHE.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connections": {
+            "description": "Parallel tunnel connections opened for this service (1–16, default 1);\nthe server load-balances across them like separate clients, so a single\ndropped connection leaves no visitor-facing gap.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              2
+            ],
+            "minimum": 0
+          },
+          "denied": {
+            "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth: the same answer as an\nunclaimed route).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "https://example.com/not-for-you"
+            ]
+          },
+          "headers": {
+            "description": "Request/response header add-remove rules for this service (replaces the\ntop-level `headers` when set).",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderRules"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "description": "Backend health probing for this service (`endpoint`, `interval`,\n`timeout`, `threshold`, `wait_for_backend`). Preferred over the flat\n`target_health` / `health_*` keys, which still work.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HealthConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_interval": {
+            "description": "Seconds between backend health probes. Deprecated spelling of\n`health.interval`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              10
+            ],
+            "minimum": 0
+          },
+          "health_threshold": {
+            "description": "Failed probes in a row before the backend is reported unhealthy.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              3
+            ],
+            "minimum": 0
+          },
+          "health_timeout": {
+            "description": "Seconds to wait for each health probe before counting it as failed.\nDeprecated spelling of `health.timeout`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "hostname": {
+            "description": "Public hostname(s) that should route to this service: a single string\nor a list. Each must be permitted by the client's token.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Hostnames"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "app.example.com",
+              [
+                "app.example.com",
+                "www.example.com"
+              ]
+            ]
+          },
+          "max_concurrent": {
+            "description": "Most requests this service handles at once before the server queues the rest.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              8
+            ],
+            "minimum": 0
+          },
+          "max_redirects": {
+            "description": "How many backend redirects to follow transparently before passing one through.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "max_request_body": {
+            "description": "Largest request body, in bytes, visitors may upload to this service;\nthe server rejects bigger uploads with 413 before they enter the tunnel.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              1048576
+            ],
+            "minimum": 0
+          },
+          "max_response_body": {
+            "description": "Largest response body, in bytes, this service will relay to a visitor.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "examples": [
+              10485760
+            ],
+            "minimum": 0
+          },
+          "name": {
+            "description": "Label for this service in client logs and the dashboard clients table.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "web"
+            ]
+          },
+          "pass_hostname": {
+            "description": "Forward the visitor's original Host header instead of the target's.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Public path prefix that should route to this service.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/api"
+            ]
+          },
+          "priority": {
+            "description": "Failover tier for this service (0 = primary, higher numbers are standbys).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              0
+            ],
+            "minimum": 0
+          },
+          "public": {
+            "description": "Serve this service without the server's visitor login (needs a token that allows it).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "resilience": {
+            "description": "Keep serving this service's cached responses (marked, even past their\nlifetime) while no healthy client is connected, instead of failing with\n504 (needs `cache: true` and the server-side cache enabled).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "response_timeout": {
+            "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it — a per-service override of the server's global\ngateway response timeout, for slow report/upload endpoints.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              120
+            ],
+            "minimum": 0
+          },
+          "security_headers": {
+            "description": "Security response-header preset for this service (`true` or a granular\nmapping; replaces the top-level `security_headers` when set).",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SecurityHeaders"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "serve": {
+            "description": "Serve a local directory of static files as this service instead of\nforwarding to a backend (mutually exclusive with `target`/`tcp_target`);\ndirectories serve their `index.html`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "./dist"
+            ]
+          },
+          "target": {
+            "description": "Local backend this service exposes through the tunnel; `h2c://` /\n`h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed);\n`unix://` targets forward over a Unix domain socket.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "http://localhost:3000",
+              "3000",
+              "h2c://127.0.0.1:50051",
+              "unix:///var/run/app.sock"
+            ]
+          },
+          "target_health": {
+            "description": "Backend health endpoint the client probes to pull itself from rotation\nwhen down. Deprecated spelling of `health.endpoint`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/health"
+            ]
+          },
+          "tcp_target": {
+            "description": "Raw TCP backend for this service instead of HTTP (experimental).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "127.0.0.1:5432"
+            ]
+          },
+          "timeout": {
+            "description": "Seconds to wait for this backend to respond before failing the request.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              30
+            ],
+            "minimum": 0
+          },
+          "trim_bind": {
+            "description": "Strip the path prefix before forwarding, so the backend sees `/` not the bind.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "wait_for_backend": {
+            "description": "Hold this service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `target_health` when that is set).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "webhook_inbox": {
+            "description": "Persist inbound POST requests (third-party webhooks) hitting this\nservice into the server's webhook inbox, for browsing and re-firing.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "TunnelDecl": {
+        "description": "A private local service (e.g. a database or SSH) this client makes reachable\nto a peer running `--bind-tunnels`, without ever exposing it to the public web.",
+        "type": "object",
+        "properties": {
+          "encrypt": {
+            "description": "End-to-end encrypt this tunnel between the two clients (X25519 +\nChaCha20-Poly1305); the server only relays ciphertext. TCP only.",
+            "type": "boolean",
+            "default": false
+          },
+          "expose": {
+            "description": "Deprecated spelling of the public-port claim (TCP only): the value must\nequal the `key` of an `expose:` entry in the server's aperio-server.yaml.\nPrefer naming the tunnel and letting the server's `expose:` entry point\nat it by `tunnel:` + `token:`, which is revocable and names an owner.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "k5fj2q-expose-secret"
+            ]
+          },
+          "idle_timeout": {
+            "description": "UDP only: seconds a relay may sit with no datagrams in either direction\nbefore it expires (default 60); binders learn it via tunnel discovery.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              300
+            ],
+            "minimum": 0
+          },
+          "name": {
+            "description": "Handle this tunnel is bound and exposed by, unique within the\norganization. Binders name it instead of naming a client id, so the\nhandle survives reconnects, parallel connections and a `services:` list.\nUnset derives one from the target, and a name shaped like a UUID is\nrejected so names can never collide with client ids.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "pg-main",
+              "ssh-bastion"
+            ]
+          },
+          "protocol": {
+            "description": "Transport of the tunnel: `tcp` (default), `udp` (best-effort datagram\nrelay), or `tcp/udp` for a service that is genuinely both (DNS, for\ninstance). A combined tunnel is one tunnel with one name and one local\nport on the binder, answering on both transports.",
+            "type": "string",
+            "default": "tcp",
+            "examples": [
+              "tcp",
+              "udp",
+              "tcp/udp"
+            ]
+          },
+          "psk": {
+            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere —\nthe binder configures the same value in its `bind-tunnels` entry.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "writeOnly": true
+          },
+          "target": {
+            "description": "Local address this client dials when a peer binds the tunnel.",
+            "type": "string",
+            "examples": [
+              "127.0.0.1:27017"
+            ]
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    }
+  },
+  "server": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ServerFileConfig",
+    "description": "The `aperio-server.yaml` configuration file. The server is environment-\ndriven; every scalar key here is materialized into its `APERIO_*`\nenvironment variable at startup (the file takes precedence over the\nenvironment). Structured sections (`headers`, `routes`, `expose`) are read\ndirectly. Unknown keys are allowed and passed through as env vars.",
+    "type": "object",
+    "properties": {
+      "503_page": {
+        "description": "Custom 503 maintenance page path (env: APERIO_503_PAGE).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "504_page": {
+        "description": "Custom 504 error page path (env: APERIO_504_PAGE).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "access_log": {
+        "description": "Structured access log path (env: APERIO_ACCESS_LOG).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "admin_allowed_ips": {
+        "description": "Source IPs/CIDRs allowed to reach the authenticated admin surface (the\ndashboard and `/aperio/api/*`); empty = no restriction. An invalid entry\nrefuses startup rather than applying a partial allowlist\n(env: APERIO_ADMIN_ALLOWED_IPS).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "10.0.0.0/8"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "alert": {
+        "description": "Alerting thresholds: when the server logs and emits an alert",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AlertGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "alert_client_down": {
+        "description": "Deprecated spelling of `alert.client_down` (env: APERIO_ALERT_CLIENT_DOWN).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "alert_error_rate": {
+        "description": "Deprecated spelling of `alert.error_rate` (env: APERIO_ALERT_ERROR_RATE).",
+        "type": [
+          "number",
+          "null"
+        ],
+        "format": "double"
+      },
+      "alert_min_requests": {
+        "description": "Deprecated spelling of `alert.min_requests` (env: APERIO_ALERT_MIN_REQUESTS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "alert_window": {
+        "description": "Deprecated spelling of `alert.window` (env: APERIO_ALERT_WINDOW).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "audit": {
+        "description": "Audit-log file rotation",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AuditGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "audit_max_files": {
+        "description": "Deprecated spelling of `audit.max_files` (env: APERIO_AUDIT_MAX_FILES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "audit_max_size": {
+        "description": "Deprecated spelling of `audit.max_size` (env: APERIO_AUDIT_MAX_SIZE).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "backup": {
+        "description": "Scheduled snapshots of the SQLite store",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/BackupGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "backup_dir": {
+        "description": "Flat spelling of `backup.dir` (env: APERIO_BACKUP_DIR).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "backup_interval": {
+        "description": "Flat spelling of `backup.interval` (env: APERIO_BACKUP_INTERVAL).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "backup_keep": {
+        "description": "Flat spelling of `backup.keep` (env: APERIO_BACKUP_KEEP).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "cache": {
+        "description": "The server-side GET response cache",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CacheSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "cache_max_bytes": {
+        "description": "Deprecated spelling of `cache.max_bytes` (env: APERIO_CACHE_MAX_BYTES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "cache_max_stale": {
+        "description": "Deprecated spelling of `cache.max_stale` (env: APERIO_CACHE_MAX_STALE).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "cache_negative_ttl": {
+        "description": "Flat spelling of `cache.negative_ttl` (env: APERIO_CACHE_NEGATIVE_TTL).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "client_down_threshold": {
+        "description": "Seconds without a heartbeat before a client is considered down (env: APERIO_CLIENT_DOWN_THRESHOLD).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "config_hot_reload": {
+        "description": "Watch the config file and apply live-editable changes without a restart.\nOn by default (env: APERIO_CONFIG_HOT_RELOAD).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "dashboard": {
+        "description": "The built-in dashboard",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DashboardSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "data_dir": {
+        "description": "Directory for the SQLite store and logs (env: APERIO_DATA_DIR).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "/app/data"
+        ]
+      },
+      "db_max_bytes": {
+        "description": "Cap on aperio.db (+WAL/SHM) in bytes; nearing it emits a warning, exceeding it auto-prunes low-priority data (env: APERIO_DB_MAX_BYTES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "edge": {
+        "description": "Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EdgeGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "edge_cert_resolver": {
+        "description": "Deprecated spelling of `edge.cert_resolver` (env: APERIO_EDGE_CERT_RESOLVER).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "edge_entrypoints": {
+        "description": "Deprecated spelling of `edge.entrypoints` (env: APERIO_EDGE_ENTRYPOINTS).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "edge_include_offline": {
+        "description": "Deprecated spelling of `edge.include_offline` (env: APERIO_EDGE_INCLUDE_OFFLINE).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "edge_service_url": {
+        "description": "Deprecated spelling of `edge.service_url` (env: APERIO_EDGE_SERVICE_URL).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "edge_token": {
+        "description": "Deprecated spelling of `edge.token` (env: APERIO_EDGE_TOKEN).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "error_pages": {
+        "description": "Per-hostname custom 504/503 error pages (override the global\n`504_page`/`503_page` for that hostname).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/ErrorPageRule"
+        }
+      },
+      "expose": {
+        "description": "Experimental public TCP expose ports.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/ExposeEntry"
+        }
+      },
+      "failover": {
+        "description": "In-flight failover: what happens to a request whose client disappears mid-flight",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FailoverSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "failover_all_methods": {
+        "description": "Deprecated spelling of `failover.all_methods` (env: APERIO_FAILOVER_ALL_METHODS).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "failover_max_jumps": {
+        "description": "Deprecated spelling of `failover.max_jumps` (env: APERIO_FAILOVER_MAX_JUMPS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "minimum": 0
+      },
+      "failover_window": {
+        "description": "Deprecated spelling of `failover.window` (env: APERIO_FAILOVER_WINDOW).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "fallbacks": {
+        "description": "Per-hostname fallback URLs answered when no client serves the route.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/FallbackRule"
+        }
+      },
+      "gateway": {
+        "description": "Gateway timeouts applied to a proxied request",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/GatewayGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "gateway_response_timeout": {
+        "description": "Deprecated spelling of `gateway.response_timeout` (env: APERIO_GATEWAY_RESPONSE_TIMEOUT).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "gateway_timeout": {
+        "description": "Deprecated spelling of `gateway.timeout` (env: APERIO_GATEWAY_TIMEOUT).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "headers": {
+        "description": "Server-wide request/response header rewrite rules applied to all traffic.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/HeaderRules"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "host": {
+        "description": "Address to bind (bare env: HOST).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "0.0.0.0"
+        ]
+      },
+      "ignore_client_auth": {
+        "description": "Ignore client-declared visitor passwords (env: APERIO_IGNORE_CLIENT_AUTH).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "inspector_redact": {
+        "description": "Mask credential headers and secret-looking body fields in the request\ninspector, the cURL copy and the HAR export. On by default\n(env: APERIO_INSPECTOR_REDACT).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "ip_limit": {
+        "description": "Per-visitor-IP rate limiting (token bucket)",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/IpLimitGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "ip_limit_max": {
+        "description": "Deprecated spelling of `ip_limit.max` (env: APERIO_IP_LIMIT_MAX).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "ip_limit_refill": {
+        "description": "Deprecated spelling of `ip_limit.refill` (env: APERIO_IP_LIMIT_REFILL).",
+        "type": [
+          "number",
+          "null"
+        ],
+        "format": "double"
+      },
+      "lb_strategy": {
+        "description": "Load-balancing strategy (env: APERIO_LB_STRATEGY).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "round-robin",
+          "primary-standby",
+          "sticky"
+        ]
+      },
+      "log_level": {
+        "description": "Log level (bare env: LOG_LEVEL).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "info",
+          "debug"
+        ]
+      },
+      "login_lockout": {
+        "description": "Dashboard login lockout after repeated failures",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/LoginLockoutGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "login_lockout_secs": {
+        "description": "Deprecated spelling of `login_lockout.secs` (env: APERIO_LOGIN_LOCKOUT_SECS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "login_lockout_threshold": {
+        "description": "Deprecated spelling of `login_lockout.threshold` (env: APERIO_LOGIN_LOCKOUT_THRESHOLD).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "minimum": 0
+      },
+      "max_body_size": {
+        "description": "Largest request body in bytes (env: APERIO_MAX_BODY_SIZE).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "max_concurrent_requests": {
+        "description": "Concurrent proxied requests limit (env: APERIO_MAX_CONCURRENT_REQUESTS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "max_tunnels": {
+        "description": "Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "max_ws_connections": {
+        "description": "Maximum concurrently-live proxied public WebSockets; they are long-lived,\nso they get their own ceiling separate from `max_concurrent_requests`.\n`0` = uncapped (env: APERIO_MAX_WS_CONNECTIONS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "metrics": {
+        "description": "The Prometheus metrics endpoint",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/MetricsSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "metrics_token": {
+        "description": "Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oidc": {
+        "description": "OIDC single sign-on for the dashboard",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OidcGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "oidc_allowed_emails": {
+        "description": "Deprecated spelling of `oidc.allowed_emails` (env: APERIO_OIDC_ALLOWED_EMAILS).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "oidc_client_id": {
+        "description": "Deprecated spelling of `oidc.client_id` (env: APERIO_OIDC_CLIENT_ID).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oidc_client_secret": {
+        "description": "Deprecated spelling of `oidc.client_secret` (env: APERIO_OIDC_CLIENT_SECRET).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oidc_issuer": {
+        "description": "Deprecated spelling of `oidc.issuer` (env: APERIO_OIDC_ISSUER).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oidc_redirect_url": {
+        "description": "Deprecated spelling of `oidc.redirect_url` (env: APERIO_OIDC_REDIRECT_URL).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oidc_scopes": {
+        "description": "Deprecated spelling of `oidc.scopes` (env: APERIO_OIDC_SCOPES).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "otel": {
+        "description": "OpenTelemetry trace export",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OtelSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "otel_endpoint": {
+        "description": "Deprecated spelling of `otel.endpoint` (env: APERIO_OTEL_ENDPOINT).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "otel_protocol": {
+        "description": "Deprecated spelling of `otel.protocol` (env: APERIO_OTEL_PROTOCOL).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "otel_service_name": {
+        "description": "Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "outbound": {
+        "description": "Where the server may send outbound callbacks (webhooks, autoscaling hooks)",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OutboundGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "outbound_allowlist": {
+        "description": "Flat spelling of `outbound.allowlist` (env: APERIO_OUTBOUND_ALLOWLIST).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "outbound_block_private": {
+        "description": "Flat spelling of `outbound.block_private` (env: APERIO_OUTBOUND_BLOCK_PRIVATE).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "outlier_eject_secs": {
+        "description": "Seconds an ejected client stays out before re-admission\n(env: APERIO_OUTLIER_EJECT_SECS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "outlier_ejection": {
+        "description": "Passive outlier ejection: temporarily drop a client from the pool when it\nreturns too many errors in a window (env: APERIO_OUTLIER_EJECTION).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "outlier_max_failures": {
+        "description": "Failures inside the window before a client is ejected\n(env: APERIO_OUTLIER_MAX_FAILURES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint32",
+        "minimum": 0
+      },
+      "outlier_window": {
+        "description": "Sliding window in seconds the failures are counted over\n(env: APERIO_OUTLIER_WINDOW).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "port": {
+        "description": "Port to listen on (bare env: PORT).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint16",
+        "examples": [
+          8080
+        ],
+        "maximum": 65535,
+        "minimum": 0
+      },
+      "preview_noindex": {
+        "description": "Inject noindex headers for random-subdomain preview services (env: APERIO_PREVIEW_NOINDEX).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "random_subdomain": {
+        "description": "Wildcard pattern granting each client a random subdomain (env: APERIO_RANDOM_SUBDOMAIN).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "*.example.com"
+        ]
+      },
+      "rate_limits": {
+        "description": "Per-route request rate limits, capping aggregate rps to a host+path.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/RateLimitRule"
+        }
+      },
+      "real_ip_header": {
+        "description": "Header carrying the real client IP (env: APERIO_REAL_IP_HEADER).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "CF-Connecting-IP"
+        ]
+      },
+      "require_hostname_bind": {
+        "description": "Require every client to carry a hostname bind (env: APERIO_REQUIRE_HOSTNAME_BIND).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "retention": {
+        "description": "How long each kind of recorded data is kept, in days",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RetentionGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "retention_access_log": {
+        "description": "Deprecated spelling of `retention.access_log` (env: APERIO_RETENTION_ACCESS_LOG).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "retention_audit": {
+        "description": "Deprecated spelling of `retention.audit` (env: APERIO_RETENTION_AUDIT).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "retention_captures": {
+        "description": "Deprecated spelling of `retention.captures` (env: APERIO_RETENTION_CAPTURES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "retention_stats": {
+        "description": "Deprecated spelling of `retention.stats` (env: APERIO_RETENTION_STATS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "retry_on_5xx": {
+        "description": "Re-dispatch a buffered response whose status is a retryable server error\nto another client instead of returning it (env: APERIO_RETRY_ON_5XX).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "retry_statuses": {
+        "description": "Status codes that trigger that retry; empty = every 5xx\n(env: APERIO_RETRY_STATUSES).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            502,
+            503
+          ]
+        ],
+        "items": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "reuseport": {
+        "description": "Bind the listener with SO_REUSEPORT, so a second process can take over\nthe port for a zero-downtime handover (env: APERIO_REUSEPORT).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "routes": {
+        "description": "Client-less routes: bind a hostname/path to a redirect or fixed response.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/RouteRule"
+        }
+      },
+      "scaling": {
+        "description": "Autoscaling: the server signalling desired capacity to an endpoint you control",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ScalingSetting"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "scaling_allow_http": {
+        "description": "Deprecated spelling of `scaling.allow_http` (env: APERIO_SCALING_ALLOW_HTTP).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "scaling_allow_private": {
+        "description": "Flat spelling of `scaling.allow_private` (env: APERIO_SCALING_ALLOW_PRIVATE).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "scaling_record_ttl": {
+        "description": "Deprecated spelling of `scaling.record_ttl` (env: APERIO_SCALING_RECORD_TTL).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "secure_cookies": {
+        "description": "Mark session cookies `Secure` (env: APERIO_SECURE_COOKIES).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "server": {
+        "description": "The server's own credentials",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ServerCredentials"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "server_auth": {
+        "description": "Deprecated spelling of `server.auth` (env: APERIO_SERVER_AUTH).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "server_token": {
+        "description": "Deprecated spelling of `server.token` (env: APERIO_SERVER_TOKEN).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "stream": {
+        "description": "Per-stream flow control for streamed data (responses, WebSocket, TCP)",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/StreamGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "stream_backlog_limit": {
+        "description": "Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "stream_pause_bytes": {
+        "description": "Flat spelling of `stream.pause_bytes` (env: APERIO_STREAM_PAUSE_BYTES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "stream_resume_bytes": {
+        "description": "Flat spelling of `stream.resume_bytes` (env: APERIO_STREAM_RESUME_BYTES).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "token_expiry_warning": {
+        "description": "Days before a token's expiry to start warning (env: APERIO_TOKEN_EXPIRY_WARNING).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "token_pinning": {
+        "description": "Pin a dynamic token to the first device key that presents it; a later\nconnection with a different (or missing) key is rejected\n(env: APERIO_TOKEN_PINNING).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "trust_cf_header": {
+        "description": "Trust the Cloudflare client-IP header (env: APERIO_TRUST_CF_HEADER).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "trust_proxy": {
+        "description": "Trust `X-Forwarded-For` from proxies (env: APERIO_TRUST_PROXY).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "trusted_proxies": {
+        "description": "Trusted proxy IPs/CIDRs (env: APERIO_TRUSTED_PROXIES).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "10.0.0.0/8"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "tunnel_compression": {
+        "description": "zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "ui_language": {
+        "description": "Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "en",
+          "tr"
+        ]
+      },
+      "uptime_tick_secs": {
+        "description": "Seconds between availability-history ticks for the dashboard's Uptime\npanel, minimum 1 (env: APERIO_UPTIME_TICK_SECS).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "minimum": 0
+      },
+      "version": {
+        "description": "The Aperio version this file was written for, e.g. `0.5.0`. On startup\nthe server compares it against its own build and reports every recorded\nchange to the configuration format that landed in between, refusing to\nstart when one of them has security consequences. Unset disables the\ncheck (env: APERIO_VERSION).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "0.5.0"
+        ]
+      },
+      "waf": {
+        "description": "WAF-lite deny/size rules evaluated before a request is proxied.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "$ref": "#/$defs/WafRule"
+        }
+      },
+      "webauthn_origin": {
+        "description": "Public dashboard URL enabling passkeys; its domain is the RP ID (env: APERIO_WEBAUTHN_ORIGIN).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "https://tunnel.example.com"
+        ]
+      },
+      "webauthn_rp_id": {
+        "description": "Passkey relying-party ID, when it must differ from the origin's domain\n(env: APERIO_WEBAUTHN_RP_ID).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "example.com"
+        ]
+      },
+      "webhook_retry_schedule": {
+        "description": "Seconds between webhook delivery retries; empty = no retries\n(env: APERIO_WEBHOOK_RETRY_SCHEDULE).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            1,
+            5,
+            25,
+            60
+          ]
+        ],
+        "items": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "$defs": {
+      "AlertGroup": {
+        "description": "Alerting thresholds: when the server logs and emits an alert.\n\nWritten as a `alert:` block; the flat `alert_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "client_down": {
+            "description": "Connected-client floor below which the client-down alert fires.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "error_rate": {
+            "description": "Error-rate alert threshold, 0..1.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "examples": [
+              0.25
+            ]
+          },
+          "min_requests": {
+            "description": "Minimum requests in the window before the error-rate alert fires.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "window": {
+            "description": "Alert sliding-window seconds.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuditGroup": {
+        "description": "Audit-log file rotation.\n\nWritten as a `audit:` block; the flat `audit_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "max_files": {
+            "description": "Rotated audit log files kept.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "max_size": {
+            "description": "Audit log rotation size in bytes, 0 disables.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "BackupGroup": {
+        "description": "Scheduled snapshots of the SQLite store.\n\nWritten as a `backup:` block; the flat `backup_*` keys mean the same thing\nand still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "dir": {
+            "description": "Directory the snapshots are written to (default `<data_dir>/backups`).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/var/backups/aperio"
+            ]
+          },
+          "interval": {
+            "description": "Seconds between snapshots; unset or `0` disables scheduled backups.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              86400
+            ],
+            "minimum": 0
+          },
+          "keep": {
+            "description": "Snapshots to keep; older ones are pruned.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CacheGroup": {
+        "description": "The server-side GET response cache.\n\nWritten as a `cache:` block; the flat `cache_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "description": "Enable the server-side GET response cache.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_bytes": {
+            "description": "Response-cache budget in bytes.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "max_stale": {
+            "description": "Serve-stale window in seconds for resilient services.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "negative_ttl": {
+            "description": "Seconds to briefly cache error / negative responses (e.g. `404`), so a\nhot missing URL cannot hammer the backend. `0` = disabled.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CacheSetting": {
+        "description": "`cache:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "`true` turns the cache on with the defaults.",
+            "type": "boolean"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/CacheGroup"
+          }
+        ]
+      },
+      "DashboardGroup": {
+        "description": "The built-in dashboard.\n\nWritten as a `dashboard:` block; the flat `dashboard_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "description": "Serve the admin dashboard.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DashboardSetting": {
+        "description": "`dashboard:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "`false` serves no dashboard at all.",
+            "type": "boolean"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/DashboardGroup"
+          }
+        ]
+      },
+      "EdgeGroup": {
+        "description": "Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server.\n\nWritten as a `edge:` block; the flat `edge_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "cert_resolver": {
+            "description": "Traefik certificate resolver for the generated routers.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "letsencrypt"
+            ]
+          },
+          "entrypoints": {
+            "description": "Traefik entry points for the generated routers.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "websecure"
+            ]
+          },
+          "include_offline": {
+            "description": "Also publish hostnames a token permits but no client serves yet\n.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "service_url": {
+            "description": "URL the edge proxy forwards matched traffic to.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "http://aperio:8080"
+            ]
+          },
+          "token": {
+            "description": "Credential enabling the edge-integration endpoints, which publish the\nlive hostname inventory to a reverse proxy in front of this server\n.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ErrorPageRule": {
+        "description": "One `error_pages:` entry of `aperio-server.yaml`: per-hostname custom\n504/503 pages overriding the global `504_page`/`503_page` for that host.",
+        "type": "object",
+        "properties": {
+          "503_page": {
+            "description": "Path of the HTML file served on 503 maintenance responses.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "./pages/app-503.html"
+            ]
+          },
+          "504_page": {
+            "description": "Path of the HTML file served on 504 gateway-timeout responses.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "./pages/app-504.html"
+            ]
+          },
+          "hostname": {
+            "description": "Hostname the pages apply to (matched exactly, case-insensitive).",
+            "type": "string",
+            "examples": [
+              "app.example.com"
+            ]
+          }
+        },
+        "required": [
+          "hostname"
+        ]
+      },
+      "ExposeEntry": {
+        "description": "One `expose:` entry of `aperio-server.yaml`: a raw public TCP port the\nserver relays into a client's declared tunnel, with no binder peer.",
+        "type": "object",
+        "properties": {
+          "key": {
+            "description": "Deprecated spelling: a shared secret the client's tunnel declaration\nrepeats as `expose: <key>`. Still honored, but it names no owner, cannot\nbe revoked, and lives in plaintext in two files; prefer `tunnel` + `token`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "k5fj2q-expose-secret"
+            ]
+          },
+          "port": {
+            "description": "Public port the server listens on.",
+            "type": "integer",
+            "format": "uint16",
+            "examples": [
+              2222
+            ],
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "protocol": {
+            "description": "Transport of the exposed port; only `tcp` is supported. A public UDP\nport is an amplification surface and is a separate decision.",
+            "type": "string",
+            "default": "tcp",
+            "examples": [
+              "tcp"
+            ]
+          },
+          "token": {
+            "description": "Name of the token whose client may claim this port. Unset accepts only\ntunnels declared with the master token, so a named token is what lets an\norganization own an exposed port; revoking it closes the port's source.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "bastion-host"
+            ]
+          },
+          "tunnel": {
+            "description": "Name of the tunnel this port is relayed into. Preferred over `key`:\nthe claim is settled by identity (which token declared the tunnel)\nrather than by a secret copied into two files.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "ssh-bastion"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "port"
+        ]
+      },
+      "FailoverGroup": {
+        "description": "In-flight failover: what happens to a request whose client disappears mid-flight.\n\nWritten as a `failover:` block; the flat `failover_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "all_methods": {
+            "description": "Allow failover for non-idempotent methods too.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_jumps": {
+            "description": "Maximum failover re-dispatches per request.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "mode": {
+            "description": "In-flight failover mode.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "fail",
+              "retry",
+              "wait",
+              "retry-wait"
+            ]
+          },
+          "window": {
+            "description": "Failover window in seconds.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "FailoverSetting": {
+        "description": "`failover:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "The mode alone, e.g. `retry`.",
+            "type": "string"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/FailoverGroup"
+          }
+        ]
+      },
+      "FallbackRule": {
+        "description": "One `fallbacks:` entry: where to send visitors of a hostname no client\ncurrently serves, instead of answering with a gateway error.",
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "description": "Hostname to catch, or `*` for every unserved hostname.",
+            "type": "string",
+            "examples": [
+              "app.example.com",
+              "*"
+            ]
+          },
+          "permanent": {
+            "description": "Answer `308` instead of `307`, i.e. let clients cache the redirect.",
+            "type": "boolean",
+            "default": false
+          },
+          "preserve_path": {
+            "description": "Append the requested path to the target URL.",
+            "type": "boolean",
+            "default": false
+          },
+          "url": {
+            "description": "URL visitors are redirected to.",
+            "type": "string",
+            "examples": [
+              "https://status.example.com"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "hostname",
+          "url"
+        ]
+      },
+      "GatewayGroup": {
+        "description": "Gateway timeouts applied to a proxied request.\n\nWritten as a `gateway:` block; the flat `gateway_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "response_timeout": {
+            "description": "Seconds to wait for a client response.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "timeout": {
+            "description": "Seconds to wait for a client connection.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "HeaderDirectives": {
+        "description": "Header edits applied to one direction of proxied traffic (request or\nresponse): `add` sets headers (replacing any existing value of the same\nname), `remove` strips headers by name (case-insensitive).",
+        "type": "object",
+        "properties": {
+          "add": {
+            "description": "Headers to set, name → value; replaces an existing header of the same name.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "examples": [
+              {
+                "X-Forwarded-Env": "staging"
+              }
+            ]
+          },
+          "remove": {
+            "description": "Header names to strip (case-insensitive).",
+            "type": "array",
+            "default": [],
+            "examples": [
+              [
+                "Server",
+                "X-Powered-By"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HeaderRules": {
+        "description": "Header add/remove rules for proxied HTTP traffic: `request` edits what the\nlocal backend receives, `response` edits what the visitor receives.\nHop-by-hop and tunnel-critical headers stay managed by Aperio regardless.",
+        "type": "object",
+        "properties": {
+          "request": {
+            "description": "Edits applied to forwarded requests before they reach the local backend.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderDirectives"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response": {
+            "description": "Edits applied to backend responses before they return to the visitor.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderDirectives"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "IpLimitGroup": {
+        "description": "Per-visitor-IP rate limiting (token bucket).\n\nWritten as a `ip_limit:` block; the flat `ip_limit_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "max": {
+            "description": "Per-IP rate-limit burst.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "refill": {
+            "description": "Per-IP rate-limit refill per second.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginLockoutGroup": {
+        "description": "Dashboard login lockout after repeated failures.\n\nWritten as a `login_lockout:` block; the flat `login_lockout_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "secs": {
+            "description": "Base lockout seconds, doubled per repeat.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "threshold": {
+            "description": "Failed logins per IP before a lockout.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "MetricsGroup": {
+        "description": "The Prometheus metrics endpoint.\n\nWritten as a `metrics:` block; the flat `metrics_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "description": "Prometheus metrics endpoint toggle.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "token": {
+            "description": "Bearer token gating the metrics endpoint.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MetricsSetting": {
+        "description": "`metrics:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "`true` exposes the Prometheus endpoint.",
+            "type": "boolean"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/MetricsGroup"
+          }
+        ]
+      },
+      "OidcGroup": {
+        "description": "OIDC single sign-on for the dashboard.\n\nWritten as a `oidc:` block; the flat `oidc_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "allowed_emails": {
+            "description": "Allowed OIDC login emails.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "client_id": {
+            "description": "OIDC client id.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret": {
+            "description": "OIDC client secret.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuer": {
+            "description": "OIDC issuer URL.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_url": {
+            "description": "OIDC redirect URL override.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "description": "OIDC scopes.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "OtelGroup": {
+        "description": "OpenTelemetry trace export.\n\nWritten as a `otel:` block; the flat `otel_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "description": "Enable OpenTelemetry OTLP export.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "endpoint": {
+            "description": "OTLP endpoint. The conventional ports are 4318 for OTLP/HTTP and 4317\nfor OTLP/gRPC; `protocol` follows from the port unless it is set.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "http://localhost:4318",
+              "http://localhost:4317"
+            ]
+          },
+          "protocol": {
+            "description": "OTLP transport: `http` (protobuf over HTTP) or `grpc`. Unset picks `grpc`\nfor an endpoint on port 4317 and `http` everywhere else — a collector\nanswering the wrong protocol drops every span silently, so pin this when\nthe endpoint runs on a non-standard port.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "http",
+              "grpc"
+            ]
+          },
+          "service_name": {
+            "description": "OTLP service name.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "OtelSetting": {
+        "description": "`otel:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "`true` exports traces with the defaults.",
+            "type": "boolean"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/OtelGroup"
+          }
+        ]
+      },
+      "OutboundGroup": {
+        "description": "Where the server may send outbound callbacks (webhook deliveries,\nautoscaling hooks). Optional: empty/off keeps the permissive default.\n\nWritten as an `outbound:` block; the flat `outbound_*` keys mean the\nsame thing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "allowlist": {
+            "description": "Host/CIDR patterns the server may call (exact host, `*.suffix`, IP, or\nCIDR). When set, any other destination is refused; a matching entry is\ntrusted even if private.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "block_private": {
+            "description": "With no allowlist: refuse destinations resolving to internal addresses\n(loopback, RFC 1918, link-local/metadata, CGNAT, unique-local).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateLimitRule": {
+        "description": "One `rate_limits:` entry: an aggregate requests-per-second ceiling for a\nhostname and/or path prefix, independent of the per-visitor IP limit.",
+        "type": "object",
+        "properties": {
+          "burst": {
+            "description": "Burst capacity; defaults to one second's worth of `rps`.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "examples": [
+              100
+            ]
+          },
+          "hostname": {
+            "description": "Hostname the rule applies to (omit for any host).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "api.example.com"
+            ]
+          },
+          "path": {
+            "description": "Path prefix the rule applies to (omit for any path).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/api"
+            ]
+          },
+          "rps": {
+            "description": "Sustained requests per second allowed to the route.",
+            "type": "number",
+            "format": "double",
+            "examples": [
+              50
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rps"
+        ]
+      },
+      "RespondRule": {
+        "description": "The fixed response of a client-less `respond` route.",
+        "type": "object",
+        "properties": {
+          "body": {
+            "description": "Response body.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "<h1>Coming soon</h1>"
+            ]
+          },
+          "content_type": {
+            "description": "`Content-Type` of the response body.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "text/html; charset=utf-8"
+            ]
+          },
+          "status": {
+            "description": "HTTP status to answer with (default 200).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint16",
+            "examples": [
+              503
+            ],
+            "maximum": 65535,
+            "minimum": 0
+          }
+        }
+      },
+      "RetentionGroup": {
+        "description": "How long each kind of recorded data is kept, in days.\n\nWritten as a `retention:` block; the flat `retention_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "access_log": {
+            "description": "Days to keep access-log file lines; 0/unset = forever.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "audit": {
+            "description": "Days to keep audit events; 0/unset = forever.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "captures": {
+            "description": "Days to keep inspector captures and webhook inbox entries; 0/unset = forever.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "stats": {
+            "description": "Days to keep day-granularity stats buckets; 0/unset = the built-in caps.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RouteRule": {
+        "description": "One `routes:` entry of `aperio-server.yaml`: a hostname/path match paired\nwith exactly one action (`redirect` or `respond`), served without a client.",
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "description": "Hostname to match exactly (unset = any hostname).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "old.example.com"
+            ]
+          },
+          "path": {
+            "description": "Path prefix to match, with bind semantics (unset = any path).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/robots.txt"
+            ]
+          },
+          "permanent": {
+            "description": "Use a permanent 301 instead of the default 302.",
+            "type": "boolean",
+            "default": false
+          },
+          "preserve_path": {
+            "description": "Append the request's path and query to the redirect target.",
+            "type": "boolean",
+            "default": false
+          },
+          "redirect": {
+            "description": "Redirect target; answers 302 (or 301 with `permanent: true`).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "https://new.example.com"
+            ]
+          },
+          "respond": {
+            "description": "Serve a fixed response instead of redirecting.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RespondRule"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ScalingGroup": {
+        "description": "Autoscaling: the server signalling desired capacity to an endpoint you control.\n\nWritten as a `scaling:` block; the flat `scaling_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "allow_http": {
+            "description": "Allow a plain-http autoscaling endpoint.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "allow_private": {
+            "description": "Allow an autoscaling endpoint on a private or loopback address, for a\nprovider API that genuinely lives on the internal network.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "Honor client `scaling:` declarations.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "record_ttl": {
+            "description": "Seconds after which an unrefreshed autoscaling record is dropped\n.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScalingSetting": {
+        "description": "`scaling:` written either as the bare value it has always accepted, or as\nthe block that carries its companion settings too.",
+        "anyOf": [
+          {
+            "description": "`true` honors the clients' scaling declarations.",
+            "type": "boolean"
+          },
+          {
+            "description": "The full block.",
+            "$ref": "#/$defs/ScalingGroup"
+          }
+        ]
+      },
+      "ServerCredentials": {
+        "description": "The server's own credentials.\n\nWritten as a `server:` block; the flat `server_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "auth": {
+            "description": "Visitor auth `user:password` gate.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "admin:s3cret"
+            ]
+          },
+          "token": {
+            "description": "Master token; also the fallback dashboard password.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "StreamGroup": {
+        "description": "Per-stream flow control for streamed data (responses, WebSocket, TCP).\n\nWritten as a `stream:` block; the flat `stream_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "type": "object",
+        "properties": {
+          "backlog_limit": {
+            "description": "Hard per-stream backlog cap in bytes (drops producers that cannot pause).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "pause_bytes": {
+            "description": "Backlog bytes at which the producing client is asked to pause a stream.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "resume_bytes": {
+            "description": "Backlog bytes under which a paused producer is asked to resume.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "WafHeaderMatch": {
+        "description": "A header match inside a `waf:` rule.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "Header name to inspect (case-insensitive).",
+            "type": "string",
+            "examples": [
+              "user-agent"
+            ]
+          },
+          "regex": {
+            "description": "Regular expression the header value must match for the rule to fire.",
+            "type": "string",
+            "examples": [
+              "(?i)sqlmap|nikto"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "regex"
+        ]
+      },
+      "WafRule": {
+        "description": "One `waf:` entry: a request is denied with `403` when every set condition\nmatches, or answered `413` when `max_body` is exceeded.",
+        "type": "object",
+        "properties": {
+          "header": {
+            "description": "Header condition the request must match.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WafHeaderMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_body": {
+            "description": "Body-size ceiling in bytes for the matched route; makes this a `413`\nsize rule rather than a `403` deny rule.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "examples": [
+              1048576
+            ],
+            "minimum": 0
+          },
+          "methods": {
+            "description": "HTTP methods the rule applies to (omit for any).",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "POST",
+                "PUT"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "path": {
+            "description": "Regular expression matched against the request path.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "^/wp-admin"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

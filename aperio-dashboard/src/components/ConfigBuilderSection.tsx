@@ -345,7 +345,20 @@ export function ConfigBuilderSection() {
                           onChange={update}
                         />
                       ))}
-                      {section.rest.length > 0 && (
+                      {/* A section with no leading fields is not a short list
+                          plus a long tail, it is just a list, and folding it
+                          behind "More settings" makes an accordion whose only
+                          child is another accordion. Show it. */}
+                      {section.essential.length === 0 &&
+                        section.rest.map((field) => (
+                          <FieldRow
+                            key={field.path}
+                            field={field}
+                            doc={doc}
+                            onChange={update}
+                          />
+                        ))}
+                      {section.essential.length > 0 && section.rest.length > 0 && (
                         // The long tail of a section, one level deeper: the
                         // keys you decide first stay visible, the rest are one
                         // click away instead of thirty rows of scrolling.

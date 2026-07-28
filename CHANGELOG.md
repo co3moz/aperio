@@ -30,6 +30,10 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A config builder section with nothing to lead with no longer hides everything behind "More settings".** Sections whose keys are all secondary, Access control and five others, opened onto a single nested accordion and nothing else: an accordion whose only child is another accordion. Those sections now list their fields directly. The nesting stays where it earns its place, on a section with a short head and a long tail.
+
+- **The config builder shows every accepted value of a setting, not the first.** A key whose schema examples enumerate its choices, like a tunnel's `tcp` / `udp` / `tcp/udp`, was advertising one of them as a placeholder and leaving the rest undiscoverable from the only screen an operator would look at.
+
 - **Enter in a login field signs you in.** The form had a submit button and no handler in the way, so the browser's implicit submission should have covered it, and did not: a real Enter in the password field raised no submit event at all, leaving the button the only way in. The form now asks for the submit itself when Enter is pressed in one of its fields, through `requestSubmit`, so the browser's own validation still runs and an empty field is still reported rather than posted.
 
 - **The sidebar logo is the size it is set to.** `SidebarMenuButton` carries `[&_svg]:size-4` in its base classes, and a descendant selector outranks a plain size utility, so every size given to the mark there was silently discarded and it rendered at 16px throughout.
