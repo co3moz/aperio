@@ -263,7 +263,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               <Section label={t('Request Headers')} content={formatHeaders(detail.req_headers)} />
               <Section
                 label={t('Request Body')}
-                content={decodeBodyPreview(detail.req_body, detail.req_body_truncated, false)}
+                content={decodeBodyPreview(detail.req_body, detail.req_body_truncated, false, t)}
               />
               <Section label={t('Response Headers')} content={formatHeaders(detail.resp_headers)} />
               <Section
@@ -272,6 +272,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
                   detail.resp_body,
                   detail.resp_body_truncated,
                   detail.resp_streamed,
+                  t,
                 )}
               />
             </>

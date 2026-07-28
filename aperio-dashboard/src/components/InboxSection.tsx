@@ -31,7 +31,7 @@ interface InboxDetail extends InboxSummary {
   body: string | null
 }
 
-function decodeBody(b64: string | null): string {
+function decodeBody(b64: string | null, t: (key: string) => string): string {
   if (!b64) return ''
   try {
     const text = atob(b64)
@@ -41,7 +41,7 @@ function decodeBody(b64: string | null): string {
       return text
     }
   } catch {
-    return '(binary payload)'
+    return t('(binary payload)')
   }
 }
 
@@ -213,7 +213,7 @@ export function InboxSection() {
               {t('Payload')}
             </h4>
             <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
-              {decodeBody(detail.body) || t('(no body)')}
+              {decodeBody(detail.body, t) || t('(no body)')}
             </pre>
           </div>
         </div>

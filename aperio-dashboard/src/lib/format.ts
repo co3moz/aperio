@@ -95,16 +95,24 @@ export function formatExpiry(expiresAt: number | null, expired: boolean): string
 }
 
 /** Decodes a captured base64 body into a printable preview. */
+/**
+ * A captured body as text, or a marker saying why it is not shown.
+ *
+ * Takes the translator rather than returning English markers: every one of
+ * these six strings is read by a person, and the inspector around them is
+ * translated.
+ */
 export function decodeBodyPreview(
   b64: string | null,
   truncated: boolean,
   streamed: boolean,
+  t: (key: string, vars?: Record<string, string | number>) => string,
 ): string {
-  if (streamed) return '(streamed body — not captured)'
-  if (!b64) return '(empty)'
+  if (streamed) return t('(streamed body — not captured)')
+  if (!b64) return t('(empty)')
   try {
     const bin = atob(b64)
-    if (bin.length === 0) return '(empty)'
+    if (bin.length === 0) return t('(empty)')
     // Show as text when mostly printable; otherwise note binary.
     let printable = 0
     for (let i = 0; i < bin.length; i++) {
@@ -113,12 +121,14 @@ export function decodeBodyPreview(
     }
     if (printable / bin.length > 0.9) {
       const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0))
-      const suffix = truncated ? '\n… (truncated at 64 KB)' : ''
+      const suffix = truncated ? `\n… ${t('(truncated at 64 KB)')}` : ''
       return new TextDecoder().decode(bytes) + suffix
     }
-    return `(binary body, ${bin.length} bytes${truncated ? ', truncated' : ''})`
+    return truncated
+      ? t('(binary body, {bytes} bytes, truncated)', { bytes: bin.length })
+      : t('(binary body, {bytes} bytes)', { bytes: bin.length })
   } catch {
-    return '(unable to decode body)'
+    return t('(unable to decode body)')
   }
 }
 

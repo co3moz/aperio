@@ -147,11 +147,15 @@ function requiredKeys() {
   // while rendering in English. The config builder's section titles and
   // descriptions are exactly that: `t(section.spec.title)`. They are read
   // from their own table instead.
-  for (const key of tableStrings(join(SRC, 'lib', 'configGroups.ts'), [
-    'title',
-    'description',
-  ])) {
-    keys.add(key)
+  // Catalogues whose strings reach `t()` through a variable. Without these the
+  // check reports a clean sheet over a screen that ships entirely in English:
+  // the strings are "used" (they appear in the source, so they are not stale)
+  // but nothing ever demanded a translation for them.
+  for (const [file, properties] of [
+    [join(SRC, 'lib', 'configGroups.ts'), ['title', 'description']],
+    [join(SRC, 'lib', 'settingsCatalog.ts'), ['title', 'description', 'label', 'hint']],
+  ]) {
+    for (const key of tableStrings(file, properties)) keys.add(key)
   }
   return keys
 }

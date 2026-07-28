@@ -38,6 +38,7 @@ function barColor(b: TrendBucket): string {
 }
 
 function Sparkline({ buckets }: { buckets: TrendBucket[] }) {
+  const { t } = useI18n()
   const max = Math.max(1, ...buckets.map((b) => b.total))
   const barW = 6
   const gap = 2
@@ -49,7 +50,7 @@ function Sparkline({ buckets }: { buckets: TrendBucket[] }) {
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="status trend"
+      aria-label={t('status trend')}
     >
       {buckets.map((b, i) => {
         const h = b.total > 0 ? Math.max(3, (b.total / max) * height) : 2

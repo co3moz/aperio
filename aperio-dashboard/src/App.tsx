@@ -274,11 +274,7 @@ export default function App() {
   // Reflect connection state in the tab title and favicon so a backgrounded tab
   // shows at a glance whether the tunnel is up.
   useEffect(() => {
-    document.title = connected
-      ? 'Aperio · Connected'
-      : statsError
-        ? 'Aperio · Disconnected'
-        : 'Aperio · Waiting'
+    document.title = `Aperio · ${connected ? t('Connected') : statsError ? t('Disconnected') : t('Waiting')}`
     // The mark, tinted by state: the tab still says at a glance whether the
     // tunnel is up, and now says which product it belongs to.
     const color = connected ? '#84cc16' : statsError ? '#ef4444' : '#f59e0b'
@@ -290,7 +286,7 @@ export default function App() {
     }
     link.type = 'image/svg+xml'
     link.href = logoDataUri(color)
-  }, [connected, statsError])
+  }, [connected, statsError, t])
 
   const signOut = useCallback(async () => {
     await logout()

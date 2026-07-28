@@ -160,7 +160,7 @@ export function TotpDialog({
             </p>
             {qr && (
               <div className="flex justify-center">
-                <img src={qr} alt="TOTP QR" className="rounded-lg border bg-white p-1" />
+                <img src={qr} alt={t('TOTP QR code')} className="rounded-lg border bg-white p-1" />
               </div>
             )}
             <p className="break-all text-center font-mono text-xs text-muted-foreground">

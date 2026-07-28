@@ -54,6 +54,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Eleven server settings, the browser tab title and the request inspector's body markers were shipping in English.** Three groups of settings — stream flow control, the serve-stale window and the noindex switch — had no translation in any language, and the tab read "Aperio · Connected" whatever the dashboard was set to. The translation check could not see any of it: those settings reach `t()` through a variable, and it only reads literal arguments, so it had been reporting a clean sheet over a whole screen. It now reads the settings catalogue the same way it reads the config builder's, which is what turned the gap up, and all seven languages carry them.
+
 - **A closed dropdown shows the label it was picked by, not the raw value underneath.** The role field read "viewer" over a list offering "İzleyici", the share-link expiry read "3600" instead of "1 hour", and the traffic range read "30d" — each menu was translated and each closed field then contradicted it. The four affected pickers now name their options, so the selected one reads the same closed as it did open.
 
 - **Enter submits the user, organization and password forms.** They are built from labelled inputs and a footer button rather than a real `<form>`, so the one thing every filled-in form does — type the last value, press Enter — did nothing, and the organization form only honoured it from its first field. Textareas keep Enter for newlines.
