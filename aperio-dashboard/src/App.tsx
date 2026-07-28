@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
 import { AppearanceControls } from './components/AppearanceControls'
 import { SettingsDialog, isSettingsPage, type SettingsPage } from './components/SettingsDialog'
+import { ToolsDialog, isToolsPage, type ToolsPage } from './components/ToolsDialog'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
-import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
 import { TunnelsSection } from './components/TunnelsSection'
 import { UptimeSection } from './components/UptimeSection'
@@ -21,8 +21,6 @@ import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { CacheStatsSection } from './components/CacheStatsSection'
 import { SelfHealthSection } from './components/SelfHealthSection'
-import { ApiExplorerSection } from './components/ApiExplorerSection'
-import { ConfigBuilderSection } from './components/ConfigBuilderSection'
 import { BandwidthSection } from './components/BandwidthSection'
 import { RouteTrendsSection } from './components/RouteTrendsSection'
 import { SlowEndpointsSection } from './components/SlowEndpointsSection'
@@ -50,10 +48,17 @@ const HISTORY_KEY = 'aperio-activity-history'
 // much later starts clean instead of replaying stale bars.
 const HISTORY_MAX_AGE_MS = 15_000
 
+/** A pane of the Settings or Tools dialog: a page, but never a destination. */
+type OverlayPage = SettingsPage | ToolsPage
+
+function isOverlayPage(page: Page): page is OverlayPage {
+  return isSettingsPage(page) || isToolsPage(page)
+}
+
 function isPage(value: string | null): value is Page {
-  // The settings panes are pages the sidebar no longer lists individually, so
+  // The dialog panes are pages the sidebar no longer lists individually, so
   // `PAGES` alone would refuse a perfectly good link to one.
-  return PAGES.some((p) => p.id === value) || isSettingsPage(value as Page)
+  return PAGES.some((p) => p.id === value) || isOverlayPage(value as Page)
 }
 
 // Old bookmarks used the four coarse tabs; land them on the closest new page.
@@ -73,12 +78,12 @@ function tabFromUrl(): Page {
 // the reader back in a settings screen they never navigated to.
 function pageFromUrl(): Page {
   const tab = tabFromUrl()
-  return isSettingsPage(tab) ? 'overview' : tab
+  return isOverlayPage(tab) ? 'overview' : tab
 }
 
-function paneFromUrl(): SettingsPage | null {
+function paneFromUrl(): OverlayPage | null {
   const tab = tabFromUrl()
-  return isSettingsPage(tab) ? tab : null
+  return isOverlayPage(tab) ? tab : null
 }
 
 function loadHistory(): number[] {
@@ -113,7 +118,7 @@ export default function App() {
   // so an opened capture can be bookmarked or shared and reopens on reload.
   const [inspectId, setInspectId] = useState<string | null>(() => readParams().get('inspect'))
   const [page, setPage] = useState<Page>(pageFromUrl)
-  const [settingsPane, setSettingsPane] = useState<SettingsPage | null>(paneFromUrl)
+  const [overlay, setOverlay] = useState<OverlayPage | null>(paneFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
   const { t } = useI18n()
@@ -123,8 +128,8 @@ export default function App() {
   // thing that does not travel that way: it opens over whatever is on screen
   // and leaves the URL — and therefore the page underneath — untouched.
   const goto = useCallback((next: Page) => {
-    if (isSettingsPage(next)) {
-      setSettingsPane(next)
+    if (isOverlayPage(next)) {
+      setOverlay(next)
       return
     }
     setPage(next)
@@ -133,8 +138,8 @@ export default function App() {
     writeParams(params, true)
   }, [])
 
-  // Drop a legacy `?tab=<settings pane>` once it has been honoured, so the
-  // dialog it opened is not what a reload comes back to.
+  // Drop a legacy `?tab=<pane>` once it has been honoured, so the dialog it
+  // opened is not what a reload comes back to.
   useEffect(() => {
     if (paneFromUrl() === null) return
     const params = readParams()
@@ -276,22 +281,32 @@ export default function App() {
         onChanged={refreshSession}
       />
       <PasskeysDialog open={passkeysOpen} onOpenChange={setPasskeysOpen} />
-      {settingsPane && (
+      {overlay && isSettingsPage(overlay) && (
         <SettingsDialog
-          page={settingsPane}
+          page={overlay}
           role={role}
           masterAdmin={masterAdmin}
-          onNavigate={setSettingsPane}
-          onClose={() => setSettingsPane(null)}
+          onNavigate={setOverlay}
+          onClose={() => setOverlay(null)}
+        />
+      )}
+      {overlay && isToolsPage(overlay) && (
+        <ToolsDialog
+          page={overlay}
+          role={role}
+          masterAdmin={masterAdmin}
+          onNavigate={setOverlay}
+          onClose={() => setOverlay(null)}
         />
       )}
       <AppSidebar
         username={session?.username ?? 'aperio'}
         onOpenTotp={() => setTotpOpen(true)}
         onOpenPasskeys={() => setPasskeysOpen(true)}
-        // With the dialog open, the sidebar's Settings entry is what is active,
-        // even though the page under it has not changed.
-        page={settingsPane ?? page}
+        // With a dialog open, its sidebar entry is what is active, even though
+        // the page under it has not changed. The Tools entry stands for three
+        // panes and carries the id of the first, so the other two answer to it.
+        page={overlay ? (isToolsPage(overlay) ? 'audit' : overlay) : page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
@@ -396,9 +411,6 @@ export default function App() {
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
               {page === 'scaling' && <ScalingSection />}
-              {page === 'audit' && <AuditSection />}
-              {page === 'api' && <ApiExplorerSection />}
-              {page === 'config-builder' && <ConfigBuilderSection />}
             </>
           )}
         </main>

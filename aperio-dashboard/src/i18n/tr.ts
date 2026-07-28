@@ -33,7 +33,6 @@ export const tr: Record<string, string> = {
   'Add webhook': 'Webhook ekle',
   'Adjusts the token scope in place; the secret never changes.':
     'Token kapsamını yerinde günceller; gizli anahtar asla değişmez.',
-  'Administrative events': 'Yönetimsel olaylar',
   'All-time (persisted)': 'Tüm zamanlar (kalıcı)',
   'Allowed IPs': "İzinli IP'ler",
   'Allowed hostnames (comma separated, * = all)': 'İzinli alan adları (virgülle ayrılmış, * = tümü)',
@@ -215,7 +214,6 @@ export const tr: Record<string, string> = {
   'Headers': 'Başlıklar',
   '(no body)': '(gövde yok)',
   'API Explorer': 'API Gezgini',
-  'Browse & try the admin API': 'Yönetim API’sini keşfet ve dene',
   'Filter endpoints...': 'Uç noktaları filtrele...',
   'Query string': 'Sorgu dizesi',
   'JSON request body (optional)': 'JSON istek gövdesi (isteğe bağlı)',
@@ -689,7 +687,6 @@ export const tr: Record<string, string> = {
   'applied by the server': 'sunucunun uyguladığı',
   "Show this connection's effective configuration": 'Bu bağlantının geçerli yapılandırmasını göster',
   'Config Builder': 'Yapılandırma Oluşturucu',
-  'Build an aperio.yaml or aperio-server.yaml': 'aperio.yaml veya aperio-server.yaml oluştur',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Bu sunucunun anladığı ayarlardan bir aperio.yaml veya aperio-server.yaml oluşturun ya da mevcut bir dosyayı açıp düzenleyin.',
   'Which file?': 'Hangi dosya?',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'İstemci dosyası bir tünel istemcisini ve yayınladıklarını, sunucu dosyası ise Aperio sunucusunun kendisini yapılandırır.',
@@ -880,4 +877,7 @@ export const tr: Record<string, string> = {
   'Limits (optional)': 'Sınırlar (isteğe bağlı)',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': '"{name}" organizasyonu oluşturuldu ancak sınırları kaydedilemedi: {error}. Sınırları Düzenle ile ayarlayın.',
   'Organization updated': 'Organizasyon güncellendi',
+  'Tools': 'Araçlar',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Teşhis, inceleme ve üretme — bir şeyin çözülmesi gerektiğinde başvurduğunuz şeyler.',
+  'Audit log, API explorer and config builder': 'Denetim kaydı, API gezgini ve yapılandırma oluşturucu',
 }

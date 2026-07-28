@@ -33,7 +33,6 @@ export const zh: Record<string, string> = {
   'Add webhook': '添加 Webhook',
   'Adjusts the token scope in place; the secret never changes.':
     '就地调整令牌范围；密钥永不改变。',
-  'Administrative events': '管理事件',
   'All-time (persisted)': '累计（持久化）',
   'Allowed IPs': '允许的 IP',
   'Allowed hostnames (comma separated, * = all)': '允许的主机名（逗号分隔，* = 全部）',
@@ -211,7 +210,6 @@ export const zh: Record<string, string> = {
   'Headers': '请求头',
   '(no body)': '（无请求体）',
   'API Explorer': 'API 浏览器',
-  'Browse & try the admin API': '浏览并试用管理 API',
   'Filter endpoints...': '过滤端点...',
   'Query string': '查询字符串',
   'JSON request body (optional)': 'JSON 请求体（可选）',
@@ -666,7 +664,6 @@ export const zh: Record<string, string> = {
   'applied by the server': '由服务器应用',
   "Show this connection's effective configuration": '显示此连接的生效配置',
   'Config Builder': '配置生成器',
-  'Build an aperio.yaml or aperio-server.yaml': '生成 aperio.yaml 或 aperio-server.yaml',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': '用本服务器可识别的设置组装 aperio.yaml 或 aperio-server.yaml，也可打开已有文件进行编辑。',
   'Which file?': '哪个文件？',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': '客户端文件配置隧道客户端及其对外发布的内容；服务器文件配置 Aperio 服务器本身。',
@@ -857,4 +854,7 @@ export const zh: Record<string, string> = {
   'Limits (optional)': '限额（可选）',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': '组织“{name}”已创建，但其限额未能保存：{error}。请通过“编辑”设置。',
   'Organization updated': '组织已更新',
+  'Tools': '工具',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': '诊断、检查与生成——需要弄清楚某件事时会用到的东西。',
+  'Audit log, API explorer and config builder': '审计日志、API 浏览器和配置生成器',
 }

@@ -33,7 +33,6 @@ export const fr: Record<string, string> = {
   'Add webhook': 'Ajouter un webhook',
   'Adjusts the token scope in place; the secret never changes.':
     'Ajuste la portée du jeton sur place ; le secret ne change jamais.',
-  'Administrative events': 'Événements administratifs',
   'All-time (persisted)': 'Depuis toujours (persisté)',
   'Allowed IPs': 'IPs autorisées',
   'Allowed hostnames (comma separated, * = all)': 'Hostnames autorisés (séparés par virgules, * = tous)',
@@ -215,7 +214,6 @@ export const fr: Record<string, string> = {
   'Headers': 'En-têtes',
   '(no body)': '(pas de corps)',
   'API Explorer': 'Explorateur d’API',
-  'Browse & try the admin API': 'Parcourir et essayer l’API d’administration',
   'Filter endpoints...': 'Filtrer les points de terminaison...',
   'Query string': 'Chaîne de requête',
   'JSON request body (optional)': 'Corps de requête JSON (facultatif)',
@@ -685,7 +683,6 @@ export const fr: Record<string, string> = {
   'applied by the server': 'appliqué par le serveur',
   "Show this connection's effective configuration": 'Afficher la configuration effective de cette connexion',
   'Config Builder': 'Générateur de configuration',
-  'Build an aperio.yaml or aperio-server.yaml': 'Créer un aperio.yaml ou aperio-server.yaml',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Composez un aperio.yaml ou aperio-server.yaml à partir des réglages que ce serveur comprend, ou ouvrez-en un existant pour le modifier.',
   'Which file?': 'Quel fichier ?',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': "Le fichier client configure un client de tunnel et ce qu'il expose ; le fichier serveur configure le serveur Aperio lui-même.",
@@ -876,4 +873,7 @@ export const fr: Record<string, string> = {
   'Limits (optional)': 'Limites (facultatif)',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': 'L’organisation « {name} » a été créée, mais ses limites n’ont pas pu être enregistrées : {error}. Définissez-les via Modifier.',
   'Organization updated': 'Organisation mise à jour',
+  'Tools': 'Outils',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Diagnostiquer, inspecter et générer — ce vers quoi on se tourne quand quelque chose doit être élucidé.',
+  'Audit log, API explorer and config builder': 'Journal d’audit, explorateur d’API et générateur de configuration',
 }

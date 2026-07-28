@@ -33,7 +33,6 @@ export const ja: Record<string, string> = {
   'Add webhook': 'Webhookを追加',
   'Adjusts the token scope in place; the secret never changes.':
     'トークンのスコープをその場で調整します。シークレットは変わりません。',
-  'Administrative events': '管理イベント',
   'All-time (persisted)': '累計（永続化）',
   'Allowed IPs': '許可IP',
   'Allowed hostnames (comma separated, * = all)': '許可ホスト名（カンマ区切り、* = すべて）',
@@ -213,7 +212,6 @@ export const ja: Record<string, string> = {
   'Headers': 'ヘッダー',
   '(no body)': '（ボディなし）',
   'API Explorer': 'API エクスプローラー',
-  'Browse & try the admin API': '管理 API の閲覧と試行',
   'Filter endpoints...': 'エンドポイントを絞り込み...',
   'Query string': 'クエリ文字列',
   'JSON request body (optional)': 'JSON リクエストボディ（任意）',
@@ -683,7 +681,6 @@ export const ja: Record<string, string> = {
   'applied by the server': 'サーバーが適用',
   "Show this connection's effective configuration": 'この接続の実効設定を表示',
   'Config Builder': '設定ビルダー',
-  'Build an aperio.yaml or aperio-server.yaml': 'aperio.yaml または aperio-server.yaml を作成',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'このサーバーが理解する設定から aperio.yaml または aperio-server.yaml を組み立てるか、既存のファイルを開いて編集します。',
   'Which file?': 'どちらのファイル？',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'クライアントファイルはトンネルクライアントと公開内容を、サーバーファイルは Aperio サーバー自体を設定します。',
@@ -874,4 +871,7 @@ export const ja: Record<string, string> = {
   'Limits (optional)': '上限（任意）',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': '組織「{name}」は作成されましたが、上限を保存できませんでした: {error}。「編集」から設定してください。',
   'Organization updated': '組織を更新しました',
+  'Tools': 'ツール',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': '診断・確認・生成 — 何かを解き明かす必要があるときに手に取るもの。',
+  'Audit log, API explorer and config builder': '監査ログ、API エクスプローラー、設定ビルダー',
 }

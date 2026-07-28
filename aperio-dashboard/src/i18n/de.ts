@@ -33,7 +33,6 @@ export const de: Record<string, string> = {
   'Add webhook': 'Webhook hinzufügen',
   'Adjusts the token scope in place; the secret never changes.':
     'Passt den Token-Umfang direkt an; das Secret ändert sich nie.',
-  'Administrative events': 'Administrative Ereignisse',
   'All-time (persisted)': 'Gesamt (persistiert)',
   'Allowed IPs': 'Erlaubte IPs',
   'Allowed hostnames (comma separated, * = all)': 'Erlaubte Hostnames (kommagetrennt, * = alle)',
@@ -216,7 +215,6 @@ export const de: Record<string, string> = {
   'Headers': 'Header',
   '(no body)': '(kein Body)',
   'API Explorer': 'API-Explorer',
-  'Browse & try the admin API': 'Admin-API durchsuchen & ausprobieren',
   'Filter endpoints...': 'Endpunkte filtern...',
   'Query string': 'Query-String',
   'JSON request body (optional)': 'JSON-Request-Body (optional)',
@@ -687,7 +685,6 @@ export const de: Record<string, string> = {
   'applied by the server': 'vom Server angewendet',
   "Show this connection's effective configuration": 'Effektive Konfiguration dieser Verbindung anzeigen',
   'Config Builder': 'Konfigurations-Builder',
-  'Build an aperio.yaml or aperio-server.yaml': 'Eine aperio.yaml oder aperio-server.yaml erstellen',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Stellen Sie aus den Einstellungen, die dieser Server versteht, eine aperio.yaml oder aperio-server.yaml zusammen — oder öffnen und bearbeiten Sie eine vorhandene.',
   'Which file?': 'Welche Datei?',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Die Client-Datei konfiguriert einen Tunnel-Client und was er veröffentlicht; die Server-Datei den Aperio-Server selbst.',
@@ -878,4 +875,7 @@ export const de: Record<string, string> = {
   'Limits (optional)': 'Limits (optional)',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': 'Organisation „{name}“ wurde angelegt, ihre Limits konnten aber nicht gespeichert werden: {error}. Setze sie über „Bearbeiten“.',
   'Organization updated': 'Organisation aktualisiert',
+  'Tools': 'Werkzeuge',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Diagnostizieren, prüfen und erzeugen — das, wonach man greift, wenn etwas geklärt werden muss.',
+  'Audit log, API explorer and config builder': 'Audit-Log, API-Explorer und Konfigurations-Generator',
 }

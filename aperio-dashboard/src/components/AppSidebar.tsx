@@ -1,6 +1,5 @@
 import {
   ActivityIcon,
-  BracesIcon,
   CableIcon,
   ChartPieIcon,
   ConstructionIcon,
@@ -10,7 +9,6 @@ import {
   LayoutDashboardIcon,
   Link2Icon,
   LogOutIcon,
-  ScrollTextIcon,
   ChevronsUpDownIcon,
   ServerIcon,
   UserRoundIcon,
@@ -18,7 +16,7 @@ import {
   FingerprintIcon,
   ShieldCheckIcon,
   WaypointsIcon,
-  FileCog2Icon,
+  WrenchIcon,
 } from 'lucide-react'
 import { AperioMark } from './AperioMark'
 import { AperioWordmark } from './AperioWordmark'
@@ -107,14 +105,12 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'System',
     pages: [
-      // One entry for the three configuration pages: they open as panes of a
-      // settings dialog rather than as full-screen pages, so the sidebar
-      // should not read as if they were three destinations. The pages
-      // themselves still exist, which is what keeps their links working.
+      // Two entries for eight pages: each opens as a pane of a dialog rather
+      // than as a full-screen page, so the sidebar should not read as if they
+      // were eight destinations. The pages themselves still exist, which is
+      // what keeps their links working.
       { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', minRole: 'admin' },
-      { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
-      { id: 'api', label: 'API Explorer', icon: BracesIcon, hint: 'Browse & try the admin API' },
-      { id: 'config-builder', label: 'Config Builder', icon: FileCog2Icon, hint: 'Build an aperio.yaml or aperio-server.yaml' },
+      { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder' },
     ],
   },
 ]

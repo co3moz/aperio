@@ -24,6 +24,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The audit log, API explorer and config builder open as a "Tools" dialog.** None of them is where the work happens: you check the audit log because something changed and want to know who, you open the explorer because a call is not doing what you expected, you open the builder because a file needs writing. They are instruments, so they now sit together behind one sidebar entry instead of taking four rows next to Settings. The dialog is wider than the settings one — a request/response pair and a generated YAML file are wide by nature — and shares its shell with it, including the overlay behaviour and the unsaved-changes guard.
+
 - **The organization row's action is "Edit" rather than "Quota".** It opens the hostname fence, the limits and the OIDC override as well as this month's usage, so naming it after one of the four sent people looking elsewhere for the other three.
 
 - **The configuration pages open as a settings dialog instead of taking over the window.** Server settings, organizations, users, webhooks and the webhook inbox are things you open, act on and leave, so they now share one dialog with their own nav down the side, reached from a single "Settings" entry where the sidebar used to list them as separate destinations. The pages that are *read* rather than operated keep the whole window: the audit log, the API explorer and the config builder.

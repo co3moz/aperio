@@ -33,7 +33,6 @@ export const ru: Record<string, string> = {
   'Add webhook': 'Добавить вебхук',
   'Adjusts the token scope in place; the secret never changes.':
     'Изменяет область действия токена на месте; секрет никогда не меняется.',
-  'Administrative events': 'Административные события',
   'All-time (persisted)': 'За всё время (сохраняется)',
   'Allowed IPs': 'Разрешённые IP',
   'Allowed hostnames (comma separated, * = all)': 'Разрешённые хосты (через запятую, * = все)',
@@ -215,7 +214,6 @@ export const ru: Record<string, string> = {
   'Headers': 'Заголовки',
   '(no body)': '(нет тела)',
   'API Explorer': 'Обозреватель API',
-  'Browse & try the admin API': 'Просмотр и проверка админ-API',
   'Filter endpoints...': 'Фильтр эндпоинтов...',
   'Query string': 'Строка запроса',
   'JSON request body (optional)': 'JSON-тело запроса (необязательно)',
@@ -685,7 +683,6 @@ export const ru: Record<string, string> = {
   'applied by the server': 'применено сервером',
   "Show this connection's effective configuration": 'Показать действующую конфигурацию этого соединения',
   'Config Builder': 'Конструктор конфигурации',
-  'Build an aperio.yaml or aperio-server.yaml': 'Создать aperio.yaml или aperio-server.yaml',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Соберите aperio.yaml или aperio-server.yaml из настроек, которые понимает этот сервер, либо откройте существующий файл и отредактируйте его.',
   'Which file?': 'Какой файл?',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Клиентский файл настраивает туннельный клиент и то, что он публикует; серверный — сам сервер Aperio.',
@@ -876,4 +873,7 @@ export const ru: Record<string, string> = {
   'Limits (optional)': 'Лимиты (необязательно)',
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': 'Организация «{name}» создана, но её лимиты сохранить не удалось: {error}. Задайте их через «Изменить».',
   'Organization updated': 'Организация обновлена',
+  'Tools': 'Инструменты',
+  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Диагностика, разбор и генерация — то, к чему обращаются, когда нужно в чём-то разобраться.',
+  'Audit log, API explorer and config builder': 'Журнал аудита, обозреватель API и генератор конфигурации',
 }
