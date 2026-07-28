@@ -28,6 +28,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Tunnel discovery names the declaring process, not one of its connections.** The listing reported a per-connection instance id, which carries a service index the operator never wrote (`<uuid>-1`) and, worse, was whichever connection happened to be visited first: a tunnel served by two connections could report a different id on two calls that described the same thing. It now reports the process's own `client_id`, exactly as written in its config file, falling back to the per-connection id for a client too old to announce one. A `bind-tunnels:` key naming a connection (`<uuid>-0`) still selects that peer, so configurations written before tunnels had names keep working.
+
 - **A dialog whose content grows no longer pushes its own buttons off the screen.** Dialogs are centred on the viewport, so one taller than the window loses both ends at once, and with nothing to scroll the confirm and cancel buttons simply could not be reached. The text areas made this easy to hit: they size themselves to their content, so pasting a configuration into the config builder's import dialog grew the box until OK was somewhere below the bottom of the screen. Two caps, both on the shared components rather than on the dialogs that happened to notice: a dialog is now at most the height of the viewport and scrolls past that, and a text area stops growing at half the viewport and scrolls internally instead. The two dialogs that had worked around this individually drop their local caps.
 
 ## [0.6.0] - 2026-07-28

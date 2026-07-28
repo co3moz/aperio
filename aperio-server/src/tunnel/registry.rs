@@ -69,7 +69,12 @@ pub(crate) struct TunnelView {
   pub(crate) protocol: String,
   /// Address the declaring client dials locally.
   pub(crate) target: String,
-  /// Instance id of the declaring client process, when it reported one.
+  /// The declaring process's own `client_id`, as written in its config file.
+  ///
+  /// Deliberately not the per-connection id: that one carries a service index
+  /// the operator never sees, and with several paths it would be whichever
+  /// connection happened to be visited first, so it could change between two
+  /// calls that describe the same tunnel.
   pub(crate) client_id: Option<String>,
   /// How many connections of that process announce this tunnel.
   pub(crate) paths: usize,
@@ -224,7 +229,12 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
         name,
         protocol: decl.protocol.clone(),
         target: decl.target.clone(),
-        client_id: handle.reported_instance_id.clone(),
+        // The process handle, falling back to the per-connection id for a
+        // client too old to announce `x-aperio-instance`.
+        client_id: handle
+          .instance_group
+          .clone()
+          .or_else(|| handle.reported_instance_id.clone()),
         paths: 1,
         available: usable,
         encrypt: decl.encrypt,

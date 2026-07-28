@@ -289,3 +289,45 @@ async fn a_single_transport_tunnel_still_refuses_the_other() {
     Rejection::Unknown
   );
 }
+
+#[tokio::test]
+async fn the_listing_names_the_process_not_one_of_its_connections() {
+  // With several paths, reporting a per-connection id would mean the value
+  // depends on iteration order and could differ between two calls describing
+  // the same tunnel. It is also the suffixed form, which carries a service
+  // index the operator never wrote.
+  let state = Arc::new(test_state());
+  for (cid, index) in [("conn-a", "0"), ("conn-b", "1")] {
+    insert(&state, cid, |c| {
+      c.tunnels = vec![decl("dns", "udp")];
+      c.instance_group = Some("dae0d524-3408-4a1a-bbda-304c7502d3ce".to_string());
+      c.reported_instance_id = Some(format!("dae0d524-3408-4a1a-bbda-304c7502d3ce-{index}"));
+    })
+    .await;
+  }
+
+  let listed = visible(&state, &ClientPerms::master()).await;
+  assert_eq!(listed.len(), 1);
+  assert_eq!(listed[0].paths, 2);
+  assert_eq!(
+    listed[0].client_id.as_deref(),
+    Some("dae0d524-3408-4a1a-bbda-304c7502d3ce"),
+    "the id shown is the one written in the config file"
+  );
+}
+
+#[tokio::test]
+async fn an_older_client_still_reports_an_id() {
+  // A client that predates the `x-aperio-instance` header has no group, so
+  // the per-connection id is better than nothing.
+  let state = Arc::new(test_state());
+  insert(&state, "conn-a", |c| {
+    c.tunnels = vec![decl("dns", "udp")];
+    c.instance_group = None;
+    c.reported_instance_id = Some("legacy-id".to_string());
+  })
+  .await;
+
+  let listed = visible(&state, &ClientPerms::master()).await;
+  assert_eq!(listed[0].client_id.as_deref(), Some("legacy-id"));
+}

@@ -554,3 +554,48 @@ async fn a_combined_tunnel_opens_both_listeners_on_one_port() {
     "the udp half should hold the same local port"
   );
 }
+
+#[test]
+fn a_client_id_key_accepts_the_process_id_and_a_connection_id() {
+  // Discovery reports the process's own `client_id`, but a file written
+  // before names existed may name one of its connections, which is what the
+  // server used to answer to. Both must select the same peer.
+  let process = "dae0d524-3408-4a1a-bbda-304c7502d3ce";
+  for key in [
+    process.to_string(),
+    format!("{process}-0"),
+    format!("{process}-c2"),
+  ] {
+    let mut map = HashMap::new();
+    map.insert(key.clone(), entry_with(None));
+    let mut visible = vec![view("dns", "192.168.3.100:53", "udp")];
+    visible[0].client_id = Some(process.to_string());
+    let planned = plan(
+      &settings_with(Some("apr_t"), map),
+      "",
+      &visible,
+      &Some("apr_t".to_string()),
+    )
+    .unwrap();
+    assert_eq!(planned.len(), 1, "`{key}` should select the peer");
+  }
+}
+
+#[test]
+fn a_client_id_key_does_not_reach_a_different_peer() {
+  let mut map = HashMap::new();
+  map.insert(
+    "dae0d524-3408-4a1a-bbda-304c7502d3cf".to_string(),
+    entry_with(None),
+  );
+  let mut visible = vec![view("dns", "192.168.3.100:53", "udp")];
+  visible[0].client_id = Some("dae0d524-3408-4a1a-bbda-304c7502d3ce".to_string());
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .unwrap();
+  assert!(planned.is_empty(), "a different uuid must not match");
+}

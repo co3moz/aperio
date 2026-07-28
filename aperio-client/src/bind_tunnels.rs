@@ -245,9 +245,22 @@ fn resolve_key(
   }
   // Not a name this token can bind. A client id binds everything that peer
   // declares, which is the older spelling.
+  //
+  // Discovery reports the process's own `client_id`, but a configuration
+  // written before names existed may name one of its *connections*
+  // (`<uuid>-0`, `<uuid>-c2`), since that is what the server used to answer
+  // to. Either selects the process: the id is a full UUID, so a key that
+  // extends it with a suffix cannot be some other client.
   let peer: Vec<&TunnelView> = visible
     .iter()
-    .filter(|v| v.client_id.as_deref() == Some(key))
+    .filter(|v| {
+      v.client_id.as_deref().is_some_and(|id| {
+        id == key
+          || key
+            .strip_prefix(id)
+            .is_some_and(|rest| rest.starts_with('-'))
+      })
+    })
     .collect();
   if peer.is_empty() {
     return Err(format!(
