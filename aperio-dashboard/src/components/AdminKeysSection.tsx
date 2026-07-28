@@ -1,7 +1,15 @@
-import { PlusIcon, Trash2Icon } from 'lucide-react'
+import { Building2Icon, ClockIcon, KeyRoundIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { CopyButton, EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import {
+  CopyButton,
+  RecordEmpty,
+  RecordFact,
+  RecordList,
+  RecordRow,
+  RecordSkeleton,
+  SectionHeader,
+} from './shared'
 import { TintBadge } from './badges'
 import {
   AlertDialog,
@@ -15,7 +23,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -28,14 +35,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { api, type AdminKeyView } from '@/lib/api'
 import { formatExpiry } from '@/lib/format'
@@ -187,76 +186,71 @@ export function AdminKeysSection() {
   }
 
   return (
-    <Card className="p-4">
+    <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Programmatic admin keys')}
         description={t('Scoped Bearer credentials for automation (master-admin only).')}
       >
         <CreateAdminKeyDialog onCreated={refresh} onSecret={setSecret} />
       </SectionHeader>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('Name')}</TableHead>
-            <TableHead>{t('Prefix')}</TableHead>
-            <TableHead>{t('Role')}</TableHead>
-            <TableHead>{t('Organization')}</TableHead>
-            <TableHead>{t('Expires')}</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading && !data ? (
-            <SkeletonRows rows={2} cols={6} />
-          ) : !data || data.length === 0 ? (
-            <EmptyRow colSpan={6}>{t('No admin keys yet')}</EmptyRow>
-          ) : (
-            data.map((k) => (
-              <TableRow key={k.id}>
-                <TableCell className="font-medium">{k.name}</TableCell>
-                <TableCell>
-                  <code className="text-xs">{k.key_prefix}…</code>
-                </TableCell>
-                <TableCell>
+      <RecordList>
+        {loading && !data ? (
+          <RecordSkeleton rows={2} />
+        ) : !data || data.length === 0 ? (
+          <RecordEmpty>{t('No admin keys yet')}</RecordEmpty>
+        ) : (
+          data.map((k) => (
+            <RecordRow
+              key={k.id}
+              title={
+                <>
+                  {k.name}
                   <TintBadge tint={k.role === 'admin' ? 'red' : k.role === 'operator' ? 'amber' : 'gray'}>
                     {k.role}
                   </TintBadge>
-                </TableCell>
-                <TableCell>{k.org_id ?? t('master')}</TableCell>
-                <TableCell className={k.expired ? 'text-destructive' : undefined}>
-                  {formatExpiry(k.expires_at, k.expired)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <AlertDialog>
-                    <AlertDialogTrigger
-                      render={<Button variant="ghost" size="icon" aria-label={t('Revoke')} />}
-                    >
-                      <Trash2Icon className="text-destructive" />
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>{t('Revoke admin key?')}</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t('Automation using "{name}" will immediately lose access.', {
-                            name: k.name,
-                          })}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => revoke(k.id, k.name)}>
-                          {t('Revoke')}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+                </>
+              }
+              actions={
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={<Button variant="ghost" size="icon-sm" aria-label={t('Revoke')} />}
+                  >
+                    <Trash2Icon className="text-destructive" />
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('Revoke admin key?')}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('Automation using "{name}" will immediately lose access.', {
+                          name: k.name,
+                        })}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => revoke(k.id, k.name)}>
+                        {t('Revoke')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              }
+            >
+              <RecordFact icon={<KeyRoundIcon />} className="font-mono">
+                {k.key_prefix}…
+              </RecordFact>
+              <RecordFact icon={<Building2Icon />}>{k.org_id ?? t('master')}</RecordFact>
+              <RecordFact
+                icon={<ClockIcon />}
+                className={k.expired ? 'text-destructive' : undefined}
+              >
+                {formatExpiry(k.expires_at, k.expired)}
+              </RecordFact>
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
       <CreatedKeyDialog secret={secret} onClose={() => setSecret(null)} />
-    </Card>
+    </section>
   )
 }

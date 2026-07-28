@@ -1,7 +1,24 @@
-import { KeyRoundIcon, PencilIcon, PlusIcon, Trash2Icon, LogOutIcon } from 'lucide-react'
+import {
+  Building2Icon,
+  ClockIcon,
+  GlobeIcon,
+  KeyRoundIcon,
+  LogOutIcon,
+  MonitorIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import {
+  RecordEmpty,
+  RecordFact,
+  RecordList,
+  RecordRow,
+  RecordSkeleton,
+  SectionHeader,
+} from './shared'
 import { TintBadge, type Tint } from './badges'
 import {
   AlertDialog,
@@ -15,7 +32,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -36,19 +52,11 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { api, ApiError, type DashboardUser, type Role, type LiveSession } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
-import { useSession } from '@/lib/session'
+import { useOrgName, useSession } from '@/lib/session'
 
 const ROLE_TINT: Record<Role, Tint> = { admin: 'red', operator: 'blue', viewer: 'gray' }
 
@@ -352,60 +360,48 @@ function SessionsCard() {
           <LogOutIcon /> {t('Sign out everywhere else')}
         </Button>
       </SectionHeader>
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Username')}</TableHead>
-              <TableHead>{t('Role')}</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>{t('Browser')}</TableHead>
-              <TableHead>{t('Signed in')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sessions === null ? (
-              <SkeletonRows rows={2} cols={6} />
-            ) : sessions.length === 0 ? (
-              <EmptyRow colSpan={6}>{t('No live sessions')}</EmptyRow>
-            ) : (
-              sessions.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 font-medium">
-                      {s.username}
-                      {s.current && <TintBadge tint="lime">{t('this session')}</TintBadge>}
-                      {s.scope_host && <TintBadge tint="blue">{s.scope_host}</TintBadge>}
-                    </div>
-                  </TableCell>
-                  <TableCell>{s.role}</TableCell>
-                  <TableCell className="font-mono text-xs">{s.ip ?? '-'}</TableCell>
-                  <TableCell>
-                    <span className="block max-w-64 truncate text-xs text-muted-foreground" title={s.user_agent ?? ''}>
-                      {s.user_agent ?? '-'}
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {s.created_at ? formatRelativeTime(s.created_at) : '-'}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end">
-                      {s.current ? (
-                        <span className="text-muted-foreground">-</span>
-                      ) : (
-                        <Button size="xs" variant="destructive" onClick={() => void revoke(s)}>
-                          <LogOutIcon /> {t('End session')}
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      <RecordList>
+        {sessions === null ? (
+          <RecordSkeleton rows={2} />
+        ) : sessions.length === 0 ? (
+          <RecordEmpty>{t('No live sessions')}</RecordEmpty>
+        ) : (
+          sessions.map((s) => (
+            <RecordRow
+              key={s.id}
+              title={
+                <>
+                  {s.username}
+                  <TintBadge tint="gray">{s.role}</TintBadge>
+                  {s.current && <TintBadge tint="lime">{t('this session')}</TintBadge>}
+                  {s.scope_host && <TintBadge tint="blue">{s.scope_host}</TintBadge>}
+                </>
+              }
+              actions={
+                s.current ? null : (
+                  <Button size="xs" variant="destructive" onClick={() => void revoke(s)}>
+                    <LogOutIcon /> {t('End session')}
+                  </Button>
+                )
+              }
+            >
+              <RecordFact icon={<GlobeIcon />} className="font-mono">
+                {s.ip ?? '-'}
+              </RecordFact>
+              {s.created_at && (
+                <RecordFact icon={<ClockIcon />}>{formatRelativeTime(s.created_at)}</RecordFact>
+              )}
+              <RecordFact
+                icon={<MonitorIcon />}
+                className="basis-full"
+                title={s.user_agent ?? undefined}
+              >
+                {s.user_agent ?? '-'}
+              </RecordFact>
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
     </>
   )
 }
@@ -413,6 +409,7 @@ function SessionsCard() {
 export function UsersSection() {
   const { t } = useI18n()
   const { username: self } = useSession()
+  const orgName = useOrgName()
   const { data: users, refresh } = usePoll(api.users, 15_000)
 
   return (
@@ -421,64 +418,53 @@ export function UsersSection() {
         title={t('Dashboard Users')}
         description={t('Role-based access. The master token and dashboard password always sign in as a built-in admin ("aperio").')}
       >
+        {/* Which org these are is not decoration: the list is filtered to the
+            session's organization, so without it a short list reads as "there
+            are only two users" rather than "in this org there are two". */}
+        <TintBadge tint="blue">
+          <Building2Icon className="size-3.5" /> {orgName}
+        </TintBadge>
         <CreateUserDialog onCreated={refresh} />
       </SectionHeader>
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Username')}</TableHead>
-              <TableHead>{t('Role')}</TableHead>
-              <TableHead>{t('Status')}</TableHead>
-              <TableHead>{t('Created')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users === null ? (
-              <SkeletonRows rows={3} cols={5} />
-            ) : users.length === 0 ? (
-              <EmptyRow colSpan={5} icon={<KeyRoundIcon />}>
-                {t('No dashboard users yet — the master token and dashboard password still work.')}
-              </EmptyRow>
-            ) : (
-              users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">
-                    {u.username}
-                    {u.username === self && (
-                      <span className="ml-1.5 text-xs text-muted-foreground">{t('(you)')}</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <RoleBadge role={u.role} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5">
-                      {u.enabled ? (
-                        <TintBadge tint="green">{t('active')}</TintBadge>
-                      ) : (
-                        <TintBadge tint="gray">{t('disabled')}</TintBadge>
-                      )}
-                      {u.totp && <TintBadge tint="blue">2FA</TintBadge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatRelativeTime(u.created_at)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      {u.totp && <ResetTotpButton user={u} onDone={refresh} />}
-                      <EditUserDialog user={u} onSaved={refresh} />
-                      <DeleteUserButton user={u} onDone={refresh} />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      <RecordList>
+        {users === null ? (
+          <RecordSkeleton rows={3} />
+        ) : users.length === 0 ? (
+          <RecordEmpty icon={<KeyRoundIcon />}>
+            {t('No dashboard users yet — the master token and dashboard password still work.')}
+          </RecordEmpty>
+        ) : (
+          users.map((u) => (
+            <RecordRow
+              key={u.id}
+              title={
+                <>
+                  {u.username}
+                  {u.username === self && (
+                    <span className="text-xs font-normal text-muted-foreground">{t('(you)')}</span>
+                  )}
+                  <RoleBadge role={u.role} />
+                  {u.enabled ? (
+                    <TintBadge tint="green">{t('active')}</TintBadge>
+                  ) : (
+                    <TintBadge tint="gray">{t('disabled')}</TintBadge>
+                  )}
+                  {u.totp && <TintBadge tint="blue">2FA</TintBadge>}
+                </>
+              }
+              actions={
+                <>
+                  {u.totp && <ResetTotpButton user={u} onDone={refresh} />}
+                  <EditUserDialog user={u} onSaved={refresh} />
+                  <DeleteUserButton user={u} onDone={refresh} />
+                </>
+              }
+            >
+              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(u.created_at)}</RecordFact>
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
       <SessionsCard />
     </section>
   )

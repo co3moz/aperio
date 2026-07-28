@@ -1,5 +1,6 @@
 import { RotateCcwIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useUnsavedChanges } from '@/lib/unsaved'
 import { SectionHeader } from './shared'
 import {
   Accordion,
@@ -308,6 +309,9 @@ export function SettingsSection() {
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  // Nothing here is applied until Save, and the dialog around this form can be
+  // dismissed (or the page reloaded) in one keystroke.
+  useUnsavedChanges(dirty)
 
   const load = () => {
     api

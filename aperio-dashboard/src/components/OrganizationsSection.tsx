@@ -1,6 +1,7 @@
 import {
   Building2Icon,
   GaugeIcon,
+  GlobeIcon,
   KeyRoundIcon,
   PlusIcon,
   Trash2Icon,
@@ -8,7 +9,14 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import {
+  RecordEmpty,
+  RecordFact,
+  RecordList,
+  RecordRow,
+  RecordSkeleton,
+  SectionHeader,
+} from './shared'
 import { TintBadge } from './badges'
 import {
   AlertDialog,
@@ -22,7 +30,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -35,14 +42,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { api, ApiError, type Organization, type OrgUsage } from '@/lib/api'
@@ -242,9 +241,9 @@ function QuotaDialog({ org }: { org: Organization }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger
-        render={<Button variant="ghost" size="icon" aria-label={t('Quota & usage')} />}
+        render={<Button variant="outline" size="xs" aria-label={t('Quota & usage')} />}
       >
-        <GaugeIcon />
+        <GaugeIcon /> {t('Quota')}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -399,73 +398,53 @@ export function OrganizationsSection() {
       >
         <CreateOrgDialog onCreated={refresh} />
       </SectionHeader>
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Name')}</TableHead>
-              <TableHead>{t('Hostnames')}</TableHead>
-              <TableHead>{t('Users')}</TableHead>
-              <TableHead>{t('Tokens')}</TableHead>
-              <TableHead>{t('Created')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orgs === null ? (
-              <SkeletonRows rows={2} cols={6} />
-            ) : orgs.length === 0 ? (
-              <EmptyRow colSpan={6} icon={<Building2Icon />}>
-                {t('No organizations yet')}
-              </EmptyRow>
-            ) : (
-              orgs.map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-1.5">
-                      <Building2Icon className="size-4 text-muted-foreground" />
-                      {o.name}
-                      {o.master && <TintBadge tint="lime">{t('master')}</TintBadge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {o.master || !o.hostnames?.length ? (
-                      <span title={t('No hostname restriction')}>{t('any')}</span>
-                    ) : (
-                      <span className="font-mono text-xs">{o.hostnames.join(', ')}</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1 text-muted-foreground">
-                      <UsersIcon className="size-3.5" /> {o.users}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1 text-muted-foreground">
-                      <KeyRoundIcon className="size-3.5" /> {o.tokens}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {o.created_at ? formatRelativeTime(o.created_at) : '-'}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end">
-                      {o.master ? (
-                        <span className="text-muted-foreground">-</span>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <QuotaDialog org={o} />
-                          <DeleteOrgButton org={o} onDone={refresh} />
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      <RecordList>
+        {orgs === null ? (
+          <RecordSkeleton rows={2} />
+        ) : orgs.length === 0 ? (
+          <RecordEmpty icon={<Building2Icon />}>{t('No organizations yet')}</RecordEmpty>
+        ) : (
+          orgs.map((o) => (
+            <RecordRow
+              key={o.id}
+              title={
+                <>
+                  <Building2Icon className="size-4 text-muted-foreground" />
+                  {o.name}
+                  {o.master && <TintBadge tint="lime">{t('master')}</TintBadge>}
+                </>
+              }
+              actions={
+                o.master ? null : (
+                  <>
+                    <QuotaDialog org={o} />
+                    <DeleteOrgButton org={o} onDone={refresh} />
+                  </>
+                )
+              }
+            >
+              <RecordFact icon={<UsersIcon />}>
+                {t('{count} users', { count: o.users })}
+              </RecordFact>
+              <RecordFact icon={<KeyRoundIcon />}>
+                {t('{count} tokens', { count: o.tokens })}
+              </RecordFact>
+              {o.created_at && <RecordFact>{formatRelativeTime(o.created_at)}</RecordFact>}
+              <RecordFact
+                icon={<GlobeIcon />}
+                className="basis-full"
+                title={o.master || !o.hostnames?.length ? t('No hostname restriction') : undefined}
+              >
+                {o.master || !o.hostnames?.length ? (
+                  t('any hostname')
+                ) : (
+                  <span className="font-mono">{o.hostnames.join(', ')}</span>
+                )}
+              </RecordFact>
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
     </section>
   )
 }

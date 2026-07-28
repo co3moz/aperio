@@ -1,7 +1,14 @@
-import { PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
+import { ClockIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import {
+  RecordEmpty,
+  RecordFact,
+  RecordList,
+  RecordRow,
+  RecordSkeleton,
+  SectionHeader,
+} from './shared'
 import { TintBadge } from './badges'
 import {
   AlertDialog,
@@ -15,7 +22,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -35,14 +41,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError, type Webhook, type WebhookDelivery } from '@/lib/api'
 import { formatRelativeTime, splitList } from '@/lib/format'
@@ -241,73 +239,52 @@ function DeliveriesTable() {
   return (
     <>
       <SectionHeader title={t('Recent deliveries')} />
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Event')}</TableHead>
-              <TableHead>{t('Webhook')}</TableHead>
-              <TableHead>{t('Result')}</TableHead>
-              <TableHead>{t('Attempts')}</TableHead>
-              <TableHead>{t('When')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {deliveries === null ? (
-              <SkeletonRows rows={3} cols={6} />
-            ) : deliveries.length === 0 ? (
-              <EmptyRow colSpan={6}>{t('No deliveries yet')}</EmptyRow>
-            ) : (
-              deliveries.map((d) => (
-                <TableRow key={d.id}>
-                  <TableCell>
-                    <TintBadge tint="lime">{d.event}</TintBadge>
-                  </TableCell>
-                  <TableCell className="font-medium">{d.webhook_name}</TableCell>
-                  <TableCell>
-                    {d.success ? (
-                      <TintBadge tint="green">{d.status ?? 200}</TintBadge>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5">
-                        <TintBadge tint="red">{d.status ?? t('failed')}</TintBadge>
-                        {d.error && (
-                          <span
-                            className="max-w-56 truncate text-xs text-muted-foreground"
-                            title={d.error}
-                          >
-                            {d.error}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{d.attempts}</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatRelativeTime(d.timestamp)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end">
-                      {canMutate ? (
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={busyId === d.id}
-                          onClick={() => void redeliver(d)}
-                        >
-                          {busyId === d.id ? <Spinner /> : <RotateCwIcon />} {t('Redeliver')}
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      <RecordList>
+        {deliveries === null ? (
+          <RecordSkeleton rows={3} />
+        ) : deliveries.length === 0 ? (
+          <RecordEmpty>{t('No deliveries yet')}</RecordEmpty>
+        ) : (
+          deliveries.map((d) => (
+            <RecordRow
+              key={d.id}
+              title={
+                <>
+                  <TintBadge tint="lime">{d.event}</TintBadge>
+                  {d.webhook_name}
+                  {d.success ? (
+                    <TintBadge tint="green">{d.status ?? 200}</TintBadge>
+                  ) : (
+                    <TintBadge tint="red">{d.status ?? t('failed')}</TintBadge>
+                  )}
+                </>
+              }
+              actions={
+                canMutate ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={busyId === d.id}
+                    onClick={() => void redeliver(d)}
+                  >
+                    {busyId === d.id ? <Spinner /> : <RotateCwIcon />} {t('Redeliver')}
+                  </Button>
+                ) : null
+              }
+            >
+              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(d.timestamp)}</RecordFact>
+              <RecordFact icon={<RotateCwIcon />}>
+                {t('{count} attempts', { count: d.attempts })}
+              </RecordFact>
+              {d.error && (
+                <RecordFact className="basis-full text-destructive" title={d.error}>
+                  {d.error}
+                </RecordFact>
+              )}
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
     </>
   )
 }
@@ -322,58 +299,38 @@ export function WebhooksSection() {
       <SectionHeader title={t('Webhooks')}>
         {canMutate && <CreateWebhookDialog onCreated={refresh} />}
       </SectionHeader>
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Name')}</TableHead>
-              <TableHead>URL</TableHead>
-              <TableHead>{t('Events')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {hooks === null ? (
-              <SkeletonRows rows={3} cols={4} />
-            ) : hooks.length === 0 ? (
-              <EmptyRow colSpan={4}>{t('No webhooks defined')}</EmptyRow>
-            ) : (
-              hooks.map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 font-medium">
-                      {h.name}
-                      {h.format !== 'generic' && <TintBadge tint="blue">{h.format}</TintBadge>}
-                      {h.signed && <TintBadge tint="green">{t('signed')}</TintBadge>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <code className="break-all font-mono text-xs">{h.url}</code>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {(h.events.length ? h.events : ['*']).map((e) => (
-                        <TintBadge key={e} tint="lime">
-                          {e}
-                        </TintBadge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end">
-                      {canMutate ? (
-                        <DeleteWebhookButton hook={h} onDone={refresh} />
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      <RecordList>
+        {hooks === null ? (
+          <RecordSkeleton rows={3} />
+        ) : hooks.length === 0 ? (
+          <RecordEmpty>{t('No webhooks defined')}</RecordEmpty>
+        ) : (
+          hooks.map((h) => (
+            <RecordRow
+              key={h.id}
+              title={
+                <>
+                  {h.name}
+                  {h.format !== 'generic' && <TintBadge tint="blue">{h.format}</TintBadge>}
+                  {h.signed && <TintBadge tint="green">{t('signed')}</TintBadge>}
+                </>
+              }
+              actions={canMutate ? <DeleteWebhookButton hook={h} onDone={refresh} /> : null}
+            >
+              <RecordFact className="basis-full font-mono" title={h.url}>
+                {h.url}
+              </RecordFact>
+              <div className="flex flex-wrap gap-1">
+                {(h.events.length ? h.events : ['*']).map((e) => (
+                  <TintBadge key={e} tint="lime">
+                    {e}
+                  </TintBadge>
+                ))}
+              </div>
+            </RecordRow>
+          ))
+        )}
+      </RecordList>
       <DeliveriesTable />
     </section>
   )

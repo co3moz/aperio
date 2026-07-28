@@ -1,10 +1,21 @@
 import { Building2Icon, InboxIcon, Settings2Icon, UsersIcon, WebhookIcon } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { AdminKeysSection } from './AdminKeysSection'
 import { InboxSection } from './InboxSection'
 import { OrganizationsSection } from './OrganizationsSection'
 import { SettingsSection } from './SettingsSection'
 import { UsersSection } from './UsersSection'
 import { WebhooksSection } from './WebhooksSection'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import {
   Sidebar,
@@ -18,6 +29,7 @@ import {
 } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
 import type { Role } from '@/lib/api'
+import { UnsavedContext } from '@/lib/unsaved'
 import { ROLE_ORDER, type Page } from './AppSidebar'
 
 /**
@@ -69,9 +81,13 @@ const PANES: {
 /**
  * The settings pages, in one dialog with their own nav down the side.
  *
- * They stay real pages underneath: the URL still names which pane is open, so
- * a link to a setting still lands on it and the command palette still reaches
- * them. The dialog is how they are presented, not what they are.
+ * Deliberately absent from the URL. A dialog is something you open on top of
+ * what you were doing, and putting it in `?tab=` made it replace that instead:
+ * the page underneath was lost, the back button stepped through settings panes,
+ * and a reload came back into a settings screen nobody asked to be on. So the
+ * page under it keeps the URL, and a reload returns to it with the dialog
+ * closed — which is only safe because a pane holding unsaved edits says so, and
+ * gets a confirmation before it is thrown away.
  */
 export function SettingsDialog({
   page,
@@ -93,8 +109,48 @@ export function SettingsDialog({
   )
   const current = panes.find((p) => p.id === page) ?? panes[0]
 
+  const [dirty, setDirty] = useState(false)
+  // The exit a confirmation is currently standing in front of: a pane to move
+  // to, or `null` for closing the dialog. `undefined` = nothing is being asked.
+  const [pending, setPending] = useState<SettingsPage | null | undefined>(undefined)
+
+  const go = useCallback(
+    (to: SettingsPage | null) => (to === null ? onClose() : onNavigate(to)),
+    [onClose, onNavigate],
+  )
+  // Switching panes unmounts the form just as surely as closing does, so both
+  // ways out ask the same question.
+  const leave = (to: SettingsPage | null) => (dirty ? setPending(to) : go(to))
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && leave(null)}>
+      <AlertDialog
+        open={pending !== undefined}
+        onOpenChange={(open) => !open && setPending(undefined)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Discard unsaved changes?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('These settings were edited but never applied. Leaving now throws the edits away; the server keeps running what it has.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Keep editing')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+              onClick={() => {
+                const to = pending
+                setPending(undefined)
+                setDirty(false)
+                if (to !== undefined) go(to)
+              }}
+            >
+              {t('Discard')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <DialogContent className="overflow-hidden p-0 sm:max-w-4xl">
         <DialogTitle className="sr-only">{t('Settings')}</DialogTitle>
         <DialogDescription className="sr-only">
@@ -110,7 +166,7 @@ export function SettingsDialog({
                       <SidebarMenuItem key={pane.id}>
                         <SidebarMenuButton
                           isActive={pane.id === current?.id}
-                          onClick={() => onNavigate(pane.id)}
+                          onClick={() => leave(pane.id)}
                         >
                           <pane.icon />
                           <span>{t(pane.label)}</span>
@@ -131,16 +187,18 @@ export function SettingsDialog({
             <h2 className="mb-4 font-heading text-base font-medium md:hidden">
               {current && t(current.label)}
             </h2>
-            {page === 'settings' && <SettingsSection />}
-            {page === 'organizations' && <OrganizationsSection />}
-            {page === 'users' && (
-              <div className="space-y-6">
-                <UsersSection />
-                <AdminKeysSection />
-              </div>
-            )}
-            {page === 'webhooks' && <WebhooksSection />}
-            {page === 'inbox' && <InboxSection />}
+            <UnsavedContext.Provider value={setDirty}>
+              {page === 'settings' && <SettingsSection />}
+              {page === 'organizations' && <OrganizationsSection />}
+              {page === 'users' && (
+                <div className="space-y-6">
+                  <UsersSection />
+                  <AdminKeysSection />
+                </div>
+              )}
+              {page === 'webhooks' && <WebhooksSection />}
+              {page === 'inbox' && <InboxSection />}
+            </UnsavedContext.Provider>
           </main>
         </SidebarProvider>
       </DialogContent>

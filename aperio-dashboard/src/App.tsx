@@ -2,7 +2,7 @@ import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
 import { AppearanceControls } from './components/AppearanceControls'
-import { SettingsDialog, isSettingsPage } from './components/SettingsDialog'
+import { SettingsDialog, isSettingsPage, type SettingsPage } from './components/SettingsDialog'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
@@ -60,10 +60,25 @@ function isPage(value: string | null): value is Page {
 // `tail` was merged into the traffic view as its console toggle.
 const LEGACY_TABS: Record<string, Page> = { access: 'tokens', system: 'settings', tail: 'traffic' }
 
-function pageFromUrl(): Page {
+/** What `?tab=` names, resolved through the legacy aliases. */
+function tabFromUrl(): Page {
   const t = readParams().get('tab')
   if (isPage(t)) return t
   return (t && LEGACY_TABS[t]) || 'overview'
+}
+
+// The settings dialog is not a destination, so it never appears in the URL —
+// but links written while it was one still exist. They open it once, over the
+// overview, and the parameter is dropped on arrival so a reload does not put
+// the reader back in a settings screen they never navigated to.
+function pageFromUrl(): Page {
+  const tab = tabFromUrl()
+  return isSettingsPage(tab) ? 'overview' : tab
+}
+
+function paneFromUrl(): SettingsPage | null {
+  const tab = tabFromUrl()
+  return isSettingsPage(tab) ? tab : null
 }
 
 function loadHistory(): number[] {
@@ -98,23 +113,35 @@ export default function App() {
   // so an opened capture can be bookmarked or shared and reopens on reload.
   const [inspectId, setInspectId] = useState<string | null>(() => readParams().get('inspect'))
   const [page, setPage] = useState<Page>(pageFromUrl)
+  const [settingsPane, setSettingsPane] = useState<SettingsPage | null>(paneFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
   const { t } = useI18n()
 
   // Navigate tabs through the URL so reloads/bookmarks land on the same tab and
-  // the browser back button steps between them.
-  // Closing the settings dialog has to land somewhere, and the page under it
-  // is the only answer that is not a guess: the last page that was actually a
-  // page rather than a dialog pane.
-  const lastFullPage = useRef<Page>('overview')
+  // the browser back button steps between them. A settings pane is the one
+  // thing that does not travel that way: it opens over whatever is on screen
+  // and leaves the URL — and therefore the page underneath — untouched.
   const goto = useCallback((next: Page) => {
-    if (!isSettingsPage(next)) lastFullPage.current = next
+    if (isSettingsPage(next)) {
+      setSettingsPane(next)
+      return
+    }
     setPage(next)
     const params = readParams()
     params.set('tab', next)
     writeParams(params, true)
   }, [])
+
+  // Drop a legacy `?tab=<settings pane>` once it has been honoured, so the
+  // dialog it opened is not what a reload comes back to.
+  useEffect(() => {
+    if (paneFromUrl() === null) return
+    const params = readParams()
+    params.delete('tab')
+    writeParams(params, true)
+  }, [])
+
   useEffect(() => {
     const onPop = () => {
       setPage(pageFromUrl())
@@ -206,12 +233,7 @@ export default function App() {
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
   useEffect(() => {
-    // A settings pane is not in the sidebar's page list any more, since the
-    // three of them share one entry; the dialog decides who may open which,
-    // so the guard must not bounce a link to one.
-    if (session && !isSettingsPage(page) && !allowedPages.some((p) => p.id === page)) {
-      goto('overview')
-    }
+    if (session && !allowedPages.some((p) => p.id === page)) goto('overview')
   }, [session, allowedPages, page, goto])
 
   const commands = useMemo<Command[]>(
@@ -237,11 +259,15 @@ export default function App() {
 
   const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
   // Render nothing role-restricted until the redirect effect settles.
-  const canView =
-    !session || isSettingsPage(page) || allowedPages.some((p) => p.id === page)
+  const canView = !session || allowedPages.some((p) => p.id === page)
 
   return (
-    <SessionProvider username={session?.username ?? 'aperio'} role={role}>
+    <SessionProvider
+      username={session?.username ?? 'aperio'}
+      role={role}
+      selectedOrg={selectedOrg}
+      masterAdmin={masterAdmin}
+    >
     <SidebarProvider>
       <TotpDialog
         open={totpOpen}
@@ -250,20 +276,22 @@ export default function App() {
         onChanged={refreshSession}
       />
       <PasskeysDialog open={passkeysOpen} onOpenChange={setPasskeysOpen} />
-      {isSettingsPage(page) && (
+      {settingsPane && (
         <SettingsDialog
-          page={page}
+          page={settingsPane}
           role={role}
           masterAdmin={masterAdmin}
-          onNavigate={goto}
-          onClose={() => goto(lastFullPage.current)}
+          onNavigate={setSettingsPane}
+          onClose={() => setSettingsPane(null)}
         />
       )}
       <AppSidebar
         username={session?.username ?? 'aperio'}
         onOpenTotp={() => setTotpOpen(true)}
         onOpenPasskeys={() => setPasskeysOpen(true)}
-        page={page}
+        // With the dialog open, the sidebar's Settings entry is what is active,
+        // even though the page under it has not changed.
+        page={settingsPane ?? page}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}

@@ -109,6 +109,102 @@ export function StatusDot({ active, className }: { active: boolean; className?: 
   )
 }
 
+/**
+ * A list of records as stacked rows rather than a table.
+ *
+ * A table spends the width it has on columns, and inside the settings dialog
+ * there is not enough of it: six columns in a pane that narrow leave every
+ * cell too cramped to read, and the widest value (a hostname list, a user
+ * agent) decides how squeezed the rest are. Stacking gives each record the
+ * full width one line at a time, and drops the header row that a handful of
+ * records did not need anyway.
+ *
+ * Deliberately unfilled: the dialog behind it is a glass panel, and an opaque
+ * card would put a solid sheet over the whole thing.
+ */
+export function RecordList({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('divide-y overflow-hidden rounded-3xl border', className)}>{children}</div>
+  )
+}
+
+/**
+ * One record: what it is on the first line, what is true about it on the
+ * second, and what can be done to it on the right.
+ */
+export function RecordRow({
+  title,
+  actions,
+  children,
+}: {
+  title: ReactNode
+  actions?: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 py-3">
+      {/* `basis-56` rather than auto width: a long value on the detail line (a
+          webhook URL, a hostname list) would otherwise widen this column until
+          the actions wrapped underneath it. Truncating the value is the better
+          trade — it has a `title` — and the buttons stay where they were on the
+          row above. */}
+      <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium">{title}</div>
+        {children && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {children}
+          </div>
+        )}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-1">{actions}</div>}
+    </div>
+  )
+}
+
+/** One fact on a record's detail line, with an optional leading icon. */
+export function RecordFact({
+  icon,
+  title,
+  className,
+  children,
+}: {
+  icon?: ReactNode
+  title?: string
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <span className={cn('inline-flex min-w-0 items-center gap-1', className)} title={title}>
+      {icon && <span className="shrink-0 [&_svg]:size-3.5">{icon}</span>}
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}
+
+/** Centered empty state for a `RecordList`. */
+export function RecordEmpty({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground">
+      {icon && <span className="opacity-60 [&_svg]:size-6">{icon}</span>}
+      <span className="text-sm">{children}</span>
+    </div>
+  )
+}
+
+/** Placeholder rows shown while a `RecordList`'s first fetch is in flight. */
+export function RecordSkeleton({ rows }: { rows: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="flex flex-col gap-2 px-4 py-3.5">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3 w-64 max-w-full" />
+        </div>
+      ))}
+    </>
+  )
+}
+
 /** Preformatted block for headers/bodies/commands (inspector, wizard). */
 export function PreBlock({ children, className }: { children: string; className?: string }) {
   return (

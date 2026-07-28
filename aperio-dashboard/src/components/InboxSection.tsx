@@ -1,18 +1,16 @@
-import { InboxIcon, RefreshCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
+import { ClockIcon, GlobeIcon, InboxIcon, RefreshCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import {
+  RecordEmpty,
+  RecordFact,
+  RecordList,
+  RecordRow,
+  RecordSkeleton,
+  SectionHeader,
+} from './shared'
 import { MethodBadge, StatusBadge } from './badges'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
@@ -143,76 +141,62 @@ export function InboxSection() {
         )}
       </p>
 
-      <Card className="overflow-hidden py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Timestamp')}</TableHead>
-              <TableHead>{t('Method')}</TableHead>
-              <TableHead>{t('Hostname')}</TableHead>
-              <TableHead>{t('Path')}</TableHead>
-              <TableHead>{t('Status')}</TableHead>
-              <TableHead>{t('Payload')}</TableHead>
-              <TableHead className="text-right">{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries === null ? (
-              <SkeletonRows rows={4} cols={7} />
-            ) : entries.length === 0 ? (
-              <EmptyRow colSpan={7} icon={<InboxIcon />}>
-                {t('No captured webhooks yet — opt a service in with webhook_inbox: true.')}
-              </EmptyRow>
-            ) : (
-              entries.map((e) => (
-                <TableRow
-                  key={e.id}
-                  className="cursor-pointer"
-                  onClick={() => setOpenId((cur) => (cur === e.id ? null : e.id))}
-                >
-                  <TableCell>
-                    <span className="font-mono text-xs text-muted-foreground" title={formatAbsoluteTime(e.timestamp)}>
-                      {formatRelativeTime(e.timestamp)}
-                    </span>
-                  </TableCell>
-                  <TableCell>
+      <RecordList>
+        {entries === null ? (
+          <RecordSkeleton rows={4} />
+        ) : entries.length === 0 ? (
+          <RecordEmpty icon={<InboxIcon />}>
+            {t('No captured webhooks yet — opt a service in with webhook_inbox: true.')}
+          </RecordEmpty>
+        ) : (
+          entries.map((e) => (
+            <div
+              key={e.id}
+              className="cursor-pointer hover:bg-muted/40"
+              onClick={() => setOpenId((cur) => (cur === e.id ? null : e.id))}
+            >
+              <RecordRow
+                title={
+                  <>
                     <MethodBadge method={e.method} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{e.host ?? '-'}</TableCell>
-                  <TableCell>
-                    <span className="inline-block max-w-80 break-all font-mono text-sm">{e.uri}</span>
-                  </TableCell>
-                  <TableCell>
+                    <span className="break-all font-mono">{e.uri}</span>
                     <StatusBadge status={e.status} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs tabular-nums">
-                    {e.body_bytes} B{e.body_truncated ? ' (truncated)' : ''}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5" onClick={(ev) => ev.stopPropagation()}>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={busy === e.id || e.body_truncated}
-                        onClick={() => void refire(e.id)}
-                        title={t('Re-fire to the connected client')}
-                      >
-                        <SendIcon /> {t('Re-fire')}
-                      </Button>
-                      <Button size="xs" variant="ghost" onClick={() => void remove(e.id)}>
-                        <Trash2Icon />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+                  </>
+                }
+                actions={
+                  <div className="flex gap-1.5" onClick={(ev) => ev.stopPropagation()}>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={busy === e.id || e.body_truncated}
+                      onClick={() => void refire(e.id)}
+                      title={t('Re-fire to the connected client')}
+                    >
+                      <SendIcon /> {t('Re-fire')}
+                    </Button>
+                    <Button size="xs" variant="ghost" onClick={() => void remove(e.id)}>
+                      <Trash2Icon />
+                    </Button>
+                  </div>
+                }
+              >
+                <RecordFact icon={<ClockIcon />} title={formatAbsoluteTime(e.timestamp)}>
+                  {formatRelativeTime(e.timestamp)}
+                </RecordFact>
+                <RecordFact icon={<GlobeIcon />} className="font-mono">
+                  {e.host ?? '-'}
+                </RecordFact>
+                <RecordFact className="tabular-nums">
+                  {e.body_bytes} B{e.body_truncated ? ` ${t('(truncated)')}` : ''}
+                </RecordFact>
+              </RecordRow>
+            </div>
+          ))
+        )}
+      </RecordList>
 
       {openId && detail && (
-        <Card className="gap-3 p-5">
+        <div className="flex flex-col gap-3 rounded-3xl border p-5">
           <h3 className="text-sm font-semibold">
             {detail.method} {detail.uri}
           </h3>
@@ -232,7 +216,7 @@ export function InboxSection() {
               {decodeBody(detail.body) || t('(no body)')}
             </pre>
           </div>
-        </Card>
+        </div>
       )}
     </section>
   )
