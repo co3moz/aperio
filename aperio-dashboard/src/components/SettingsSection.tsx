@@ -481,7 +481,7 @@ export function SettingsSection() {
       )
     }
     return (
-      <div key={f.key} className={cn('flex flex-col gap-1.5', f.kind === 'textarea' && 'sm:col-span-2')}>
+      <div key={f.key} className={cn('flex flex-col gap-1.5', f.kind === 'textarea' && '@2xl:col-span-2')}>
         <Label className="flex items-center gap-2">
           {t(f.label)} {overrideControls(f)}
         </Label>
@@ -528,8 +528,14 @@ export function SettingsSection() {
             </AccordionTrigger>
             <AccordionContent>
               <p className="mb-4 text-xs text-muted-foreground">{t(group.description)}</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {group.fields.map(field)}
+              {/* Container query, not `sm:`: these live in a dialog whose
+                  width does not follow the viewport's, so asking the screen
+                  how much room there is gave two columns in a 620px pane and
+                  wrapped every label onto three lines. */}
+              <div className="@container">
+                <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">
+                  {group.fields.map(field)}
+                </div>
               </div>
             </AccordionContent>
           </AccordionItem>
