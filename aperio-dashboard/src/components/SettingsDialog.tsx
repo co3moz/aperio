@@ -156,7 +156,11 @@ export function SettingsDialog({
         <DialogDescription className="sr-only">
           {t('Configure this server, its organizations and who may sign in.')}
         </DialogDescription>
-        <SidebarProvider className="min-h-0 items-start">
+        {/* `min-w-0`: this is a grid item, whose automatic minimum size is its
+            content's, so without it the nav plus the widest thing in the pane
+            set the width and the dialog's `overflow-hidden` simply cut off
+            everything past its right edge — action buttons included. */}
+        <SidebarProvider className="min-h-0 min-w-0 items-start">
           <Sidebar collapsible="none" className="hidden w-52 shrink-0 bg-transparent md:flex">
             <SidebarContent>
               <SidebarGroup>
