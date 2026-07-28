@@ -834,8 +834,6 @@ export const fr: Record<string, string> = {
   'Target': 'Cible',
   'Tunnels': 'Tunnels',
   'encrypted': 'chiffré',
-  'none available': 'aucun disponible',
-  '{n} available': '{n} disponible(s)',
   'May bind other clients\' tunnels in this organization': 'Peut lier les tunnels d\'autres clients de cette organisation',
   'may bind': 'peut lier',
 }

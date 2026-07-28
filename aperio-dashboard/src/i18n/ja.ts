@@ -832,8 +832,6 @@ export const ja: Record<string, string> = {
   'Target': 'ターゲット',
   'Tunnels': 'トンネル',
   'encrypted': '暗号化済み',
-  'none available': '利用可能なものなし',
-  '{n} available': '{n} 件利用可能',
   'May bind other clients\' tunnels in this organization': 'この組織内の他クライアントのトンネルをバインドできる',
   'may bind': 'バインド可',
 }

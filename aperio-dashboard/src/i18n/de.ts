@@ -836,8 +836,6 @@ export const de: Record<string, string> = {
   'Target': 'Ziel',
   'Tunnels': 'Tunnel',
   'encrypted': 'verschlüsselt',
-  'none available': 'keiner verfügbar',
-  '{n} available': '{n} verfügbar',
   'May bind other clients\' tunnels in this organization': 'Darf Tunnel anderer Clients in dieser Organisation binden',
   'may bind': 'darf binden',
 }

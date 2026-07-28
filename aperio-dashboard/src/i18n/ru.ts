@@ -834,8 +834,6 @@ export const ru: Record<string, string> = {
   'Target': 'Цель',
   'Tunnels': 'Туннели',
   'encrypted': 'зашифрован',
-  'none available': 'нет доступных',
-  '{n} available': 'доступно: {n}',
   'May bind other clients\' tunnels in this organization': 'Может привязывать туннели других клиентов этой организации',
   'may bind': 'может привязывать',
 }

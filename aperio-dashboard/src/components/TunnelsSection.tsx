@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { TintBadge } from './badges'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows, StatusDot } from './shared'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -81,78 +81,70 @@ export function TunnelsSection() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('Name')}</TableHead>
-                  <TableHead>{t('Target')}</TableHead>
-                  <TableHead>{t('Protocol')}</TableHead>
-                  <TableHead>{t('Client')}</TableHead>
-                  <TableHead>{t('Paths')}</TableHead>
-                  <TableHead className="text-right">{t('Bind')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tunnels === null && <SkeletonRows rows={3} cols={6} />}
-                {tunnels?.length === 0 && (
-                  <EmptyRow colSpan={6} icon={<CableIcon />}>
-                    {t(
-                      'No tunnels declared. A client declares them with a tunnels: list in its aperio.yaml; nothing about them is routed or exposed publicly.',
-                    )}
-                  </EmptyRow>
+      {/* `py-0` because the table is the card: the card's own vertical padding
+          would otherwise leave a band above the header row and below the last
+          one, which reads as a broken table rather than as spacing. Same
+          shape as the other table sections. */}
+      <Card className="overflow-hidden py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Target')}</TableHead>
+              <TableHead>{t('Protocol')}</TableHead>
+              <TableHead>{t('Client')}</TableHead>
+              <TableHead className="text-right">{t('Bind')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tunnels === null && <SkeletonRows rows={3} cols={5} />}
+            {tunnels?.length === 0 && (
+              <EmptyRow colSpan={5} icon={<CableIcon />}>
+                {t(
+                  'No tunnels declared. A client declares them with a tunnels: list in its aperio.yaml; nothing about them is routed or exposed publicly.',
                 )}
-                {tunnels?.map((tunnel) => (
-                  <TableRow key={tunnel.name}>
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-2">
-                        <StatusDot active={tunnel.available} />
-                        {tunnel.name}
-                        {tunnel.encrypt && (
-                          <TintBadge tint="blue">{t('encrypted')}</TintBadge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {tunnel.target}
-                    </TableCell>
-                    <TableCell>
-                      {/* A `tcp/udp` tunnel is one tunnel on both transports,
-                          so it gets one badge per transport rather than a
-                          single label nobody can scan. */}
-                      <div className="flex flex-wrap items-center gap-1">
-                        {tunnel.protocol.split('/').map((transport) => (
-                          <TintBadge
-                            key={transport}
-                            tint={transport === 'udp' ? 'amber' : 'blue'}
-                          >
-                            {transport}
-                          </TintBadge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {tunnel.client_id ?? '—'}
-                      {tunnel.token_name && (
-                        <span className="ml-2 font-sans">{tunnel.token_name}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {tunnel.available
-                        ? t('{n} available', { n: String(tunnel.paths) })
-                        : t('none available')}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <CopyButton value={bindSnippet(tunnel)} label={t('Copy config')} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
+              </EmptyRow>
+            )}
+            {tunnels?.map((tunnel) => (
+              <TableRow key={tunnel.name}>
+                <TableCell className="font-mono text-xs">
+                  <div className="flex items-center gap-2">
+                    {/* The dot is the availability signal: a tunnel nothing
+                        can serve right now is still worth listing, but it
+                        should not look bindable. */}
+                    <StatusDot active={tunnel.available} />
+                    {tunnel.name}
+                    {tunnel.encrypt && <TintBadge tint="blue">{t('encrypted')}</TintBadge>}
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {tunnel.target}
+                </TableCell>
+                <TableCell>
+                  {/* A `tcp/udp` tunnel is one tunnel on both transports, so
+                      it gets one badge per transport rather than a single
+                      label nobody can scan. */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {tunnel.protocol.split('/').map((transport) => (
+                      <TintBadge key={transport} tint={transport === 'udp' ? 'amber' : 'blue'}>
+                        {transport}
+                      </TintBadge>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {tunnel.client_id ?? '—'}
+                  {tunnel.token_name && (
+                    <span className="ml-2 font-sans">{tunnel.token_name}</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right">
+                  <CopyButton value={bindSnippet(tunnel)} label={t('Copy config')} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Card>
     </div>
   )

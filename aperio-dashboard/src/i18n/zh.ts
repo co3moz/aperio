@@ -815,8 +815,6 @@ export const zh: Record<string, string> = {
   'Target': '目标',
   'Tunnels': '隧道',
   'encrypted': '已加密',
-  'none available': '无可用',
-  '{n} available': '{n} 个可用',
   'May bind other clients\' tunnels in this organization': '可以绑定本组织中其他客户端的隧道',
   'may bind': '可绑定',
 }

@@ -838,8 +838,6 @@ export const tr: Record<string, string> = {
   'Target': 'Hedef',
   'Tunnels': 'Tüneller',
   'encrypted': 'şifreli',
-  'none available': 'hiçbiri kullanılabilir değil',
-  '{n} available': '{n} kullanılabilir',
   'May bind other clients\' tunnels in this organization': 'Bu organizasyondaki diğer istemcilerin tünellerini bağlayabilir',
   'may bind': 'bağlayabilir',
 }
