@@ -162,7 +162,7 @@ export function AddClientWizard() {
       <DialogTrigger render={<Button size="sm" variant="outline" />}>
         <PlusIcon /> {t('Connect a new client')}
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('Add a tunnel client')}</DialogTitle>
           <DialogDescription>

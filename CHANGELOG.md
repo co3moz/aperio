@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Fixed
+
+- **A dialog whose content grows no longer pushes its own buttons off the screen.** Dialogs are centred on the viewport, so one taller than the window loses both ends at once, and with nothing to scroll the confirm and cancel buttons simply could not be reached. The text areas made this easy to hit: they size themselves to their content, so pasting a configuration into the config builder's import dialog grew the box until OK was somewhere below the bottom of the screen. Two caps, both on the shared components rather than on the dialogs that happened to notice: a dialog is now at most the height of the viewport and scrolls past that, and a text area stops growing at half the viewport and scrolls internally instead. The two dialogs that had worked around this individually drop their local caps.
+
 ## [0.6.0] - 2026-07-28
 
 ### Security

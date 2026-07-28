@@ -195,7 +195,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
         if (!open) onClose()
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <div className="flex items-start justify-between gap-3 pr-8">
             <DialogTitle className="break-all leading-snug">
