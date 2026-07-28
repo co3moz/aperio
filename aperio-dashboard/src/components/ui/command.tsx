@@ -25,7 +25,10 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex size-full flex-col overflow-hidden rounded-4xl bg-popover p-1 text-popover-foreground",
+        // No fill: standalone this inherits whatever it is placed in, and inside a
+        // CommandDialog the dialog is already glass, so a second fill here would
+        // stack the two into an opaque panel.
+        "flex size-full flex-col overflow-hidden rounded-4xl p-1 text-popover-foreground",
         className
       )}
       {...props}
