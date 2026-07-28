@@ -156,12 +156,12 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="pointer-events-none">
-              {/* An explicit radius, not a scale step: this theme redefines the
-                  radius scale off `--radius: 0.75rem`, so `rounded-lg` is 12px
-                  and on a 32px tile that is close enough to half the box to
-                  read as a circle, which crops the mark's own square corners. */}
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
-                <AperioMark className="size-6" />
+              {/* No tile behind the mark: it stands on the sidebar itself and
+                  takes `--sidebar-foreground`, which is near-black in the light
+                  theme and near-white in the dark one. Inherited rather than
+                  named, so it stays right if the palette moves. */}
+              <div className="flex size-8 shrink-0 items-center justify-center">
+                <AperioMark className="size-[30px]" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <AperioWordmark className="truncate text-[15px] font-normal" />
