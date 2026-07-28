@@ -1,4 +1,4 @@
-import { FingerprintIcon, GlobeIcon, LockIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from 'lucide-react'
+import { FingerprintIcon, LockIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,6 +11,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
+import { AperioMark } from './components/AperioMark'
+import { LOGO_COLOR, logoDataUri } from '@/lib/logo'
 import { useI18n } from '@/i18n'
 import {
   browserSupportsPasskeys,
@@ -42,6 +44,20 @@ export function AuthApp() {
   useEffect(() => {
     if (!browserSupportsPasskeys()) return
     void serverSupportsPasskeys().then(setPasskeys)
+  }, [])
+
+  // The login page had no icon at all, so a tab waiting on a sign-in was an
+  // anonymous blank. The dashboard tints the same mark by connection state;
+  // here there is nothing to report yet, so it takes the brand colour.
+  useEffect(() => {
+    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
+    if (!link) {
+      link = document.createElement('link')
+      link.rel = 'icon'
+      document.head.appendChild(link)
+    }
+    link.type = 'image/svg+xml'
+    link.href = logoDataUri(LOGO_COLOR)
   }, [])
 
   const signInWithPasskey = async () => {
@@ -108,7 +124,7 @@ export function AuthApp() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <div className="mb-2 flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            {totpStep ? <ShieldCheckIcon className="size-5" /> : <GlobeIcon className="size-5" />}
+            {totpStep ? <ShieldCheckIcon className="size-5" /> : <AperioMark className="size-6" />}
           </div>
           <CardTitle className="font-heading text-xl">Aperio</CardTitle>
           <CardDescription>

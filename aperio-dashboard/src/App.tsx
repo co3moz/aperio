@@ -1,6 +1,7 @@
 import { CheckIcon, LanguagesIcon, MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
+import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
 import { ClientsSection } from './components/ClientsSection'
@@ -178,8 +179,9 @@ export default function App() {
       : statsError
         ? 'Aperio · Disconnected'
         : 'Aperio · Waiting'
+    // The mark, tinted by state: the tab still says at a glance whether the
+    // tunnel is up, and now says which product it belongs to.
     const color = connected ? '#84cc16' : statsError ? '#ef4444' : '#f59e0b'
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${color}"/></svg>`
     let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
     if (!link) {
       link = document.createElement('link')
@@ -187,7 +189,7 @@ export default function App() {
       document.head.appendChild(link)
     }
     link.type = 'image/svg+xml'
-    link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`
+    link.href = logoDataUri(color)
   }, [connected, statsError])
 
   const signOut = useCallback(async () => {

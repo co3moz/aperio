@@ -22,6 +22,7 @@ import {
   FileCog2Icon,
 } from 'lucide-react'
 import { UsersIcon } from 'lucide-react'
+import { AperioMark } from './AperioMark'
 import { OrgSwitcher } from './OrgSwitcher'
 import {
   Sidebar,
@@ -155,7 +156,7 @@ export function AppSidebar({
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="pointer-events-none">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                <GlobeIcon className="size-4" />
+                <AperioMark className="size-5" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <span className="font-heading truncate font-semibold">Aperio</span>
