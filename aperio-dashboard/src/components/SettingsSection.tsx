@@ -1,15 +1,14 @@
 import { RotateCcwIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { SectionHeader } from './shared'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 import { TintBadge } from './badges'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -236,23 +235,17 @@ const ENV_FLAG_DESCRIPTIONS: Record<string, string> = {
  * Read-only reference of env-only flags: their current values and, based on
  * whether the server runs in Docker, how to change them.
  */
-function EnvReferenceCard({ environment }: { environment?: EnvironmentReport }) {
+function EnvReference({ environment }: { environment?: EnvironmentReport }) {
   const { t } = useI18n()
   if (!environment) return null
   const docker = environment.runtime === 'docker'
   return (
-    <Card className="gap-4 py-5 xl:col-span-2">
-      <CardHeader className="px-5">
-        <CardTitle className="font-heading flex items-center gap-2 text-base">
-          {t('Environment Flags')} <TintBadge tint="gray">{t('read-only')}</TintBadge>
-        </CardTitle>
-        <CardDescription>
+    <div className="flex flex-col gap-4">
+      <p className="text-xs text-muted-foreground">
           {docker
             ? t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:')
             : t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4 px-5">
+      </p>
         <pre className="overflow-x-auto rounded-2xl border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
           {docker
             ? `# docker run: add the flag and recreate the container
@@ -298,8 +291,7 @@ Environment=APERIO_TRUST_PROXY=1`}
             ))}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card>
+    </div>
   )
 }
 
@@ -520,21 +512,45 @@ export function SettingsSection() {
           {message.text}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {GROUPS.map((group) => (
-          <Card key={group.title} className="gap-4 py-5">
-            <CardHeader className="px-5">
-              <CardTitle className="font-heading text-base">{t(group.title)}</CardTitle>
-              <CardDescription>{t(group.description)}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 px-5 sm:grid-cols-2">
-              {group.fields.map(field)}
-            </CardContent>
-          </Card>
+      {/* One column of collapsed groups rather than two columns of open
+          cards: side by side, two unrelated groups of switches read as one
+          undifferentiated wall, and finding a setting meant scanning both
+          columns. Collapsed, the headings are the index. */}
+      <Accordion className="w-full">
+        {GROUPS.map((group, i) => (
+          <AccordionItem key={group.title} value={String(i)}>
+            <AccordionTrigger>
+              <span className="flex-1 text-left">{t(group.title)}</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <p className="mb-4 text-xs text-muted-foreground">{t(group.description)}</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {group.fields.map(field)}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
         ))}
-        <ExportImportCard onImported={load} />
-        <EnvReferenceCard environment={data.environment} />
-      </div>
+        <AccordionItem value="export">
+          <AccordionTrigger>
+            <span className="flex-1 text-left">{t('Export & Import')}</span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <ExportImport onImported={load} />
+          </AccordionContent>
+        </AccordionItem>
+        {data.environment && (
+          <AccordionItem value="environment">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 text-left">
+                {t('Environment Flags')} <TintBadge tint="gray">{t('read-only')}</TintBadge>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <EnvReference environment={data.environment} />
+            </AccordionContent>
+          </AccordionItem>
+        )}
+      </Accordion>
     </section>
   )
 }
@@ -543,7 +559,7 @@ export function SettingsSection() {
  * Dump export/import: download a logical JSON dump of tokens, webhooks,
  * users and settings overrides, or apply one (replacing the stores).
  */
-function ExportImportCard({ onImported }: { onImported: () => void }) {
+function ExportImport({ onImported }: { onImported: () => void }) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
@@ -576,14 +592,11 @@ function ExportImportCard({ onImported }: { onImported: () => void }) {
   }
 
   return (
-    <Card className="gap-4 py-5">
-      <CardHeader className="px-5">
-        <CardTitle className="font-heading text-base">{t('Export & Import')}</CardTitle>
-        <CardDescription>
+    <div className="flex flex-col gap-4">
+      <p className="text-xs text-muted-foreground">
           {t('A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3 px-5">
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={() => { window.location.href = '/aperio/api/export' }}>
           {t('Download export')}
         </Button>
@@ -604,7 +617,7 @@ function ExportImportCard({ onImported }: { onImported: () => void }) {
             {note.text}
           </span>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

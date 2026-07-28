@@ -23,12 +23,10 @@ import { CacheStatsSection } from './components/CacheStatsSection'
 import { SelfHealthSection } from './components/SelfHealthSection'
 import { ApiExplorerSection } from './components/ApiExplorerSection'
 import { ConfigBuilderSection } from './components/ConfigBuilderSection'
-import { InboxSection } from './components/InboxSection'
 import { BandwidthSection } from './components/BandwidthSection'
 import { RouteTrendsSection } from './components/RouteTrendsSection'
 import { SlowEndpointsSection } from './components/SlowEndpointsSection'
 import { TrafficSection } from './components/TrafficSection'
-import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -354,7 +352,6 @@ export default function App() {
               )}
               {page === 'tunnels' && <TunnelsSection />}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
-              {page === 'inbox' && <InboxSection />}
               {page === 'breakdown' && (
                 <div className="flex flex-col gap-6">
                   <TrafficBreakdownSection stats={stats} />
@@ -371,7 +368,6 @@ export default function App() {
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
               {page === 'scaling' && <ScalingSection />}
-              {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}
               {page === 'api' && <ApiExplorerSection />}
               {page === 'config-builder' && <ConfigBuilderSection />}

@@ -2,7 +2,6 @@ import {
   ActivityIcon,
   BracesIcon,
   CableIcon,
-  InboxIcon,
   ChartPieIcon,
   ConstructionIcon,
   GaugeIcon,
@@ -18,7 +17,6 @@ import {
   Settings2Icon,
   FingerprintIcon,
   ShieldCheckIcon,
-  WebhookIcon,
   WaypointsIcon,
   FileCog2Icon,
 } from 'lucide-react'
@@ -93,7 +91,6 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     label: 'Traffic',
     pages: [
       { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time — table or console' },
-      { id: 'inbox', label: 'Webhook Inbox', icon: InboxIcon, hint: 'Captured inbound webhooks, re-firable' },
       { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
       { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map' },
     ],
@@ -115,7 +112,6 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       // should not read as if they were three destinations. The pages
       // themselves still exist, which is what keeps their links working.
       { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', minRole: 'admin' },
-      { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
       { id: 'api', label: 'API Explorer', icon: BracesIcon, hint: 'Browse & try the admin API' },
       { id: 'config-builder', label: 'Config Builder', icon: FileCog2Icon, hint: 'Build an aperio.yaml or aperio-server.yaml' },

@@ -1,8 +1,10 @@
-import { Building2Icon, Settings2Icon, UsersIcon } from 'lucide-react'
+import { Building2Icon, InboxIcon, Settings2Icon, UsersIcon, WebhookIcon } from 'lucide-react'
 import { AdminKeysSection } from './AdminKeysSection'
+import { InboxSection } from './InboxSection'
 import { OrganizationsSection } from './OrganizationsSection'
 import { SettingsSection } from './SettingsSection'
 import { UsersSection } from './UsersSection'
+import { WebhooksSection } from './WebhooksSection'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import {
   Sidebar,
@@ -24,11 +26,19 @@ import { ROLE_ORDER, type Page } from './AppSidebar'
  *
  * The distinction is what decides the shape: you go *to* a log or an explorer
  * and stay there, so those keep the whole window; you open a setting, change
- * it, and leave, which is a dialog. Webhooks, the audit log, the API explorer
- * and the config builder stay full screen for that reason, the first because
- * half of it is a delivery log and the rest because they are wide by nature.
+ * it, and leave, which is a dialog. Webhooks and the webhook inbox come here
+ * because what you do with them is configure and act on them, even though
+ * both carry a table of past deliveries. The audit log, the API explorer and
+ * the config builder stay full screen: they are read, not operated, and are
+ * wide by nature.
  */
-export const SETTINGS_PAGES = ['settings', 'organizations', 'users'] as const
+export const SETTINGS_PAGES = [
+  'settings',
+  'organizations',
+  'users',
+  'webhooks',
+  'inbox',
+] as const
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number]
 
@@ -52,6 +62,8 @@ const PANES: {
   { id: 'settings', label: 'Server Settings', icon: Settings2Icon, minRole: 'admin', masterOnly: true },
   { id: 'organizations', label: 'Organizations', icon: Building2Icon, minRole: 'admin', masterOnly: true },
   { id: 'users', label: 'Users', icon: UsersIcon, minRole: 'admin' },
+  { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, minRole: 'viewer' },
+  { id: 'inbox', label: 'Webhook Inbox', icon: InboxIcon, minRole: 'viewer' },
 ]
 
 /**
@@ -112,7 +124,10 @@ export function SettingsDialog({
           </Sidebar>
           {/* The pane scrolls, not the dialog: the nav beside it has to stay
               put, or choosing the next setting means scrolling back up. */}
-          <main className="flex h-[70dvh] min-w-0 flex-1 flex-col overflow-y-auto p-6">
+          {/* `pr-14` clears the dialog's close button, which floats over the
+              top-right corner: a pane whose own header carries an action put
+              the two on top of each other. */}
+          <main className="flex h-[70dvh] min-w-0 flex-1 flex-col overflow-y-auto p-6 pr-14">
             <h2 className="mb-4 font-heading text-base font-medium md:hidden">
               {current && t(current.label)}
             </h2>
@@ -124,6 +139,8 @@ export function SettingsDialog({
                 <AdminKeysSection />
               </div>
             )}
+            {page === 'webhooks' && <WebhooksSection />}
+            {page === 'inbox' && <InboxSection />}
           </main>
         </SidebarProvider>
       </DialogContent>
