@@ -12,15 +12,13 @@
    outright, and an air-gapped install has nothing to fetch from. */
 @import "@fontsource/michroma/latin-400.css";
 
-/* The glass recipe, in one place because five surfaces share it: dialogs, the
-   command palette, dropdown menus and select panels.
-   No fill at all: the surface is the blur. A wide radius is what carries it,
-   since a light blur over a dense table leaves the text behind legible
-   straight through the menu items. Where `backdrop-filter` is unsupported
-   these surfaces fall back to no background whatsoever, which is the known
-   and accepted cost of a genuinely transparent panel. */
+/* The glass recipe, in one place because every floating surface shares it:
+   the login card, dialogs, the command palette, dropdown menus and select
+   panels. No fill and a 5px blur, so the surface is the blur and nothing
+   else. Where `backdrop-filter` is unsupported these surfaces have no
+   background at all, which is the accepted cost of a transparent panel. */
 @utility glass-surface {
-  @apply bg-transparent backdrop-blur-xl;
+  @apply bg-transparent backdrop-blur-[5px];
 }
 
 @custom-variant dark (&:is(.dark *));
