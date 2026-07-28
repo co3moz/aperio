@@ -334,7 +334,6 @@ export const es: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     'Archivos audit.jsonl.N rotados a conservar; se descarta el más antiguo',
   'Routing & Failover': 'Enrutamiento y failover',
-  'Runtime configuration': 'Configuración en tiempo de ejecución',
   'SHARED ID': 'ID COMPARTIDO',
   Save: 'Guardar',
   'Save & apply': 'Guardar y aplicar',
@@ -573,7 +572,6 @@ export const es: Record<string, string> = {
   'Admin': 'Administrador',
   'Created': 'Creado',
   'Dashboard Users': 'Usuarios del panel',
-  'Dashboard access & roles': 'Acceso al panel y roles',
   'Delete user "{name}"?': '¿Eliminar al usuario «{name}»?',
   'Edit user "{name}"': 'Editar al usuario «{name}»',
   'New password (leave blank to keep)': 'Nueva contraseña (dejar en blanco para mantener)',
@@ -656,7 +654,6 @@ export const es: Record<string, string> = {
   'User': 'Usuario',
   'Organizations': 'Organizaciones',
   'Organization': 'Organización',
-  'Isolated tenants': 'Inquilinos aislados',
   'New Organization': 'Nueva organización',
   'Create organization': 'Crear organización',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Los tokens y usuarios que creas con una organización seleccionada pertenecen solo a ella: sus miembros nunca ven los clientes ni los tokens de otra organización.',
@@ -879,4 +876,7 @@ export const es: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'Qué ven los visitantes ante un error, y la reescritura de cabeceras en todo el servidor.',
   'Process & maintenance': 'Proceso y mantenimiento',
   'Startup behaviour, backups, and the public expose ports.': 'Comportamiento de arranque, copias de seguridad y los puertos públicos de exposición.',
+  'Settings': 'Ajustes',
+  'Configure this server, its organizations and who may sign in.': 'Configura este servidor, sus organizaciones y quién puede iniciar sesión.',
+  'Server, organizations and users': 'Servidor, organizaciones y usuarios',
 }

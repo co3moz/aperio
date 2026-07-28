@@ -336,7 +336,6 @@ export const de: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     'Aufzubewahrende audit.jsonl.N-Dateien; die älteste wird verworfen',
   'Routing & Failover': 'Routing & Failover',
-  'Runtime configuration': 'Laufzeitkonfiguration',
   'SHARED ID': 'GETEILTE ID',
   Save: 'Speichern',
   'Save & apply': 'Speichern & anwenden',
@@ -575,7 +574,6 @@ export const de: Record<string, string> = {
   'Admin': 'Admin',
   'Created': 'Erstellt',
   'Dashboard Users': 'Dashboard-Benutzer',
-  'Dashboard access & roles': 'Dashboard-Zugriff & Rollen',
   'Delete user "{name}"?': 'Benutzer „{name}“ löschen?',
   'Edit user "{name}"': 'Benutzer „{name}“ bearbeiten',
   'New password (leave blank to keep)': 'Neues Passwort (leer lassen zum Behalten)',
@@ -658,7 +656,6 @@ export const de: Record<string, string> = {
   'User': 'Benutzer',
   'Organizations': 'Organisationen',
   'Organization': 'Organisation',
-  'Isolated tenants': 'Isolierte Mandanten',
   'New Organization': 'Neue Organisation',
   'Create organization': 'Organisation erstellen',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Tokens und Benutzer, die Sie bei ausgewählter Organisation erstellen, gehören nur zu dieser – ihre Mitglieder sehen niemals die Clients oder Tokens einer anderen Organisation.',
@@ -881,4 +878,7 @@ export const de: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'Was Besucher bei einem Fehler sehen, und serverweites Umschreiben von Headern.',
   'Process & maintenance': 'Prozess & Wartung',
   'Startup behaviour, backups, and the public expose ports.': 'Startverhalten, Sicherungen und die öffentlichen Expose-Ports.',
+  'Settings': 'Einstellungen',
+  'Configure this server, its organizations and who may sign in.': 'Diesen Server, seine Organisationen und die Anmeldeberechtigten konfigurieren.',
+  'Server, organizations and users': 'Server, Organisationen und Benutzer',
 }

@@ -334,7 +334,6 @@ export const fr: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     'Fichiers audit.jsonl.N conservés après rotation ; le plus ancien est supprimé',
   'Routing & Failover': 'Routage et failover',
-  'Runtime configuration': 'Configuration à chaud',
   'SHARED ID': 'ID PARTAGÉ',
   Save: 'Enregistrer',
   'Save & apply': 'Enregistrer et appliquer',
@@ -573,7 +572,6 @@ export const fr: Record<string, string> = {
   'Admin': 'Administrateur',
   'Created': 'Créé',
   'Dashboard Users': 'Utilisateurs du tableau de bord',
-  'Dashboard access & roles': 'Accès au tableau de bord et rôles',
   'Delete user "{name}"?': 'Supprimer l’utilisateur « {name} » ?',
   'Edit user "{name}"': 'Modifier l’utilisateur « {name} »',
   'New password (leave blank to keep)': 'Nouveau mot de passe (laisser vide pour conserver)',
@@ -656,7 +654,6 @@ export const fr: Record<string, string> = {
   'User': 'Utilisateur',
   'Organizations': 'Organisations',
   'Organization': 'Organisation',
-  'Isolated tenants': 'Locataires isolés',
   'New Organization': 'Nouvelle organisation',
   'Create organization': 'Créer une organisation',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Les jetons et utilisateurs que vous créez lorsqu’une organisation est sélectionnée lui appartiennent uniquement — ses membres ne voient jamais les clients ou jetons d’une autre organisation.',
@@ -879,4 +876,7 @@ export const fr: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'Ce que voient les visiteurs en cas d’erreur, et la réécriture d’en-têtes à l’échelle du serveur.',
   'Process & maintenance': 'Processus et maintenance',
   'Startup behaviour, backups, and the public expose ports.': 'Comportement au démarrage, sauvegardes et ports d’exposition publics.',
+  'Settings': 'Paramètres',
+  'Configure this server, its organizations and who may sign in.': 'Configurez ce serveur, ses organisations et qui peut se connecter.',
+  'Server, organizations and users': 'Serveur, organisations et utilisateurs',
 }

@@ -2,6 +2,7 @@ import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
 import { AppearanceControls } from './components/AppearanceControls'
+import { SettingsDialog, isSettingsPage } from './components/SettingsDialog'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
@@ -12,7 +13,6 @@ import { CommandPalette, type Command } from './components/CommandPalette'
 import { InspectorDialog } from './components/InspectorDialog'
 import { MaintenanceSection } from './components/MaintenanceSection'
 import { ScalingSection } from './components/ScalingSection'
-import { SettingsSection } from './components/SettingsSection'
 import { ShareLinksSection } from './components/ShareLinksSection'
 import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
@@ -28,9 +28,6 @@ import { BandwidthSection } from './components/BandwidthSection'
 import { RouteTrendsSection } from './components/RouteTrendsSection'
 import { SlowEndpointsSection } from './components/SlowEndpointsSection'
 import { TrafficSection } from './components/TrafficSection'
-import { UsersSection } from './components/UsersSection'
-import { AdminKeysSection } from './components/AdminKeysSection'
-import { OrganizationsSection } from './components/OrganizationsSection'
 import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
@@ -56,7 +53,9 @@ const HISTORY_KEY = 'aperio-activity-history'
 const HISTORY_MAX_AGE_MS = 15_000
 
 function isPage(value: string | null): value is Page {
-  return PAGES.some((p) => p.id === value)
+  // The settings panes are pages the sidebar no longer lists individually, so
+  // `PAGES` alone would refuse a perfectly good link to one.
+  return PAGES.some((p) => p.id === value) || isSettingsPage(value as Page)
 }
 
 // Old bookmarks used the four coarse tabs; land them on the closest new page.
@@ -107,7 +106,12 @@ export default function App() {
 
   // Navigate tabs through the URL so reloads/bookmarks land on the same tab and
   // the browser back button steps between them.
+  // Closing the settings dialog has to land somewhere, and the page under it
+  // is the only answer that is not a guess: the last page that was actually a
+  // page rather than a dialog pane.
+  const lastFullPage = useRef<Page>('overview')
   const goto = useCallback((next: Page) => {
+    if (!isSettingsPage(next)) lastFullPage.current = next
     setPage(next)
     const params = readParams()
     params.set('tab', next)
@@ -204,7 +208,10 @@ export default function App() {
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
   useEffect(() => {
-    if (session && !allowedPages.some((p) => p.id === page)) {
+    // A settings pane is not in the sidebar's page list any more, since the
+    // three of them share one entry; the dialog decides who may open which,
+    // so the guard must not bounce a link to one.
+    if (session && !isSettingsPage(page) && !allowedPages.some((p) => p.id === page)) {
       goto('overview')
     }
   }, [session, allowedPages, page, goto])
@@ -232,7 +239,8 @@ export default function App() {
 
   const active = PAGES.find((p) => p.id === page) ?? PAGES[0]
   // Render nothing role-restricted until the redirect effect settles.
-  const canView = !session || allowedPages.some((p) => p.id === page)
+  const canView =
+    !session || isSettingsPage(page) || allowedPages.some((p) => p.id === page)
 
   return (
     <SessionProvider username={session?.username ?? 'aperio'} role={role}>
@@ -244,6 +252,15 @@ export default function App() {
         onChanged={refreshSession}
       />
       <PasskeysDialog open={passkeysOpen} onOpenChange={setPasskeysOpen} />
+      {isSettingsPage(page) && (
+        <SettingsDialog
+          page={page}
+          role={role}
+          masterAdmin={masterAdmin}
+          onNavigate={goto}
+          onClose={() => goto(lastFullPage.current)}
+        />
+      )}
       <AppSidebar
         username={session?.username ?? 'aperio'}
         onOpenTotp={() => setTotpOpen(true)}
@@ -354,14 +371,6 @@ export default function App() {
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
               {page === 'scaling' && <ScalingSection />}
-              {page === 'settings' && <SettingsSection />}
-              {page === 'users' && (
-                <div className="space-y-6">
-                  <UsersSection />
-                  <AdminKeysSection />
-                </div>
-              )}
-              {page === 'organizations' && <OrganizationsSection />}
               {page === 'webhooks' && <WebhooksSection />}
               {page === 'audit' && <AuditSection />}
               {page === 'api' && <ApiExplorerSection />}

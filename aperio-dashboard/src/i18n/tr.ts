@@ -334,7 +334,6 @@ export const tr: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     'Saklanacak audit.jsonl.N dosyası; en eskisi silinir',
   'Routing & Failover': 'Yönlendirme ve Failover',
-  'Runtime configuration': 'Çalışma zamanı yapılandırması',
   'SHARED ID': 'PAYLAŞILAN KİMLİK',
   Save: 'Kaydet',
   'Save & apply': 'Kaydet ve uygula',
@@ -573,7 +572,6 @@ export const tr: Record<string, string> = {
   'Admin': 'Yönetici',
   'Created': 'Oluşturulma',
   'Dashboard Users': 'Panel Kullanıcıları',
-  'Dashboard access & roles': 'Panel erişimi ve roller',
   'Delete user "{name}"?': '"{name}" kullanıcısı silinsin mi?',
   'Edit user "{name}"': '"{name}" kullanıcısını düzenle',
   'New password (leave blank to keep)': 'Yeni parola (korumak için boş bırakın)',
@@ -656,7 +654,6 @@ export const tr: Record<string, string> = {
   'User': 'Kullanıcı',
   'Organizations': 'Organizasyonlar',
   'Organization': 'Organizasyon',
-  'Isolated tenants': 'İzole kiracılar',
   'New Organization': 'Yeni Organizasyon',
   'Create organization': 'Organizasyon oluştur',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.':
@@ -883,4 +880,7 @@ export const tr: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'Hata durumunda ziyaretçilerin ne gördüğü ve sunucu genelinde başlık yeniden yazımı.',
   'Process & maintenance': 'Süreç ve bakım',
   'Startup behaviour, backups, and the public expose ports.': 'Başlangıç davranışı, yedekler ve herkese açık expose portları.',
+  'Settings': 'Ayarlar',
+  'Configure this server, its organizations and who may sign in.': 'Bu sunucuyu, organizasyonlarını ve kimlerin giriş yapabileceğini yapılandırın.',
+  'Server, organizations and users': 'Sunucu, organizasyonlar ve kullanıcılar',
 }

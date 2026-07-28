@@ -334,7 +334,6 @@ export const ru: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     'Хранимые файлы audit.jsonl.N после ротации; старейший удаляется',
   'Routing & Failover': 'Маршрутизация и failover',
-  'Runtime configuration': 'Конфигурация во время работы',
   'SHARED ID': 'ОБЩИЙ ID',
   Save: 'Сохранить',
   'Save & apply': 'Сохранить и применить',
@@ -573,7 +572,6 @@ export const ru: Record<string, string> = {
   'Admin': 'Администратор',
   'Created': 'Создан',
   'Dashboard Users': 'Пользователи панели',
-  'Dashboard access & roles': 'Доступ к панели и роли',
   'Delete user "{name}"?': 'Удалить пользователя «{name}»?',
   'Edit user "{name}"': 'Изменить пользователя «{name}»',
   'New password (leave blank to keep)': 'Новый пароль (оставьте пустым, чтобы сохранить)',
@@ -656,7 +654,6 @@ export const ru: Record<string, string> = {
   'User': 'Пользователь',
   'Organizations': 'Организации',
   'Organization': 'Организация',
-  'Isolated tenants': 'Изолированные арендаторы',
   'New Organization': 'Новая организация',
   'Create organization': 'Создать организацию',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Токены и пользователи, созданные при выбранной организации, принадлежат только ей — её участники никогда не видят клиентов или токены другой организации.',
@@ -879,4 +876,7 @@ export const ru: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'Что видят посетители при ошибке и переписывание заголовков на уровне сервера.',
   'Process & maintenance': 'Процесс и обслуживание',
   'Startup behaviour, backups, and the public expose ports.': 'Поведение при запуске, резервные копии и публичные expose-порты.',
+  'Settings': 'Настройки',
+  'Configure this server, its organizations and who may sign in.': 'Настройте этот сервер, его организации и тех, кто может входить.',
+  'Server, organizations and users': 'Сервер, организации и пользователи',
 }

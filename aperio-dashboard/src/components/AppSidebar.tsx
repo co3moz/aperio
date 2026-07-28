@@ -20,10 +20,8 @@ import {
   ShieldCheckIcon,
   WebhookIcon,
   WaypointsIcon,
-  Building2Icon,
   FileCog2Icon,
 } from 'lucide-react'
-import { UsersIcon } from 'lucide-react'
 import { AperioMark } from './AperioMark'
 import { AperioWordmark } from './AperioWordmark'
 import {
@@ -112,9 +110,11 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'System',
     pages: [
-      { id: 'settings', label: 'Server Settings', icon: Settings2Icon, hint: 'Runtime configuration', minRole: 'admin', masterOnly: true },
-      { id: 'organizations', label: 'Organizations', icon: Building2Icon, hint: 'Isolated tenants', minRole: 'admin', masterOnly: true },
-      { id: 'users', label: 'Users', icon: UsersIcon, hint: 'Dashboard access & roles', minRole: 'admin' },
+      // One entry for the three configuration pages: they open as panes of a
+      // settings dialog rather than as full-screen pages, so the sidebar
+      // should not read as if they were three destinations. The pages
+      // themselves still exist, which is what keeps their links working.
+      { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', minRole: 'admin' },
       { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, hint: 'Event deliveries' },
       { id: 'audit', label: 'Audit Log', icon: ScrollTextIcon, hint: 'Administrative events' },
       { id: 'api', label: 'API Explorer', icon: BracesIcon, hint: 'Browse & try the admin API' },
@@ -125,7 +125,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
 
 export const PAGES: PageSpec[] = PAGE_GROUPS.flatMap((g) => g.pages)
 
-const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
+export const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
 
 /** Pages the given role may access. Master-only pages (organization
  *  management) are visible solely to the built-in `aperio` super-admin. */

@@ -332,7 +332,6 @@ export const ja: Record<string, string> = {
   'Rotated audit.jsonl.N files to keep; oldest is dropped':
     '保持するaudit.jsonl.Nローテーションファイル数。最古のものは削除されます',
   'Routing & Failover': 'ルーティングとフェイルオーバー',
-  'Runtime configuration': 'ランタイム設定',
   'SHARED ID': '共有ID',
   Save: '保存',
   'Save & apply': '保存して適用',
@@ -571,7 +570,6 @@ export const ja: Record<string, string> = {
   'Admin': '管理者',
   'Created': '作成日時',
   'Dashboard Users': 'ダッシュボードユーザー',
-  'Dashboard access & roles': 'ダッシュボードのアクセスとロール',
   'Delete user "{name}"?': 'ユーザー「{name}」を削除しますか？',
   'Edit user "{name}"': 'ユーザー「{name}」を編集',
   'New password (leave blank to keep)': '新しいパスワード（変更しない場合は空欄）',
@@ -654,7 +652,6 @@ export const ja: Record<string, string> = {
   'User': 'ユーザー',
   'Organizations': '組織',
   'Organization': '組織',
-  'Isolated tenants': '分離されたテナント',
   'New Organization': '新しい組織',
   'Create organization': '組織を作成',
   'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': '組織を選択している間に作成したトークンとユーザーは、その組織のみに属します。メンバーが他の組織のクライアントやトークンを見ることはありません。',
@@ -877,4 +874,7 @@ export const ja: Record<string, string> = {
   'What visitors see on an error, and server-wide header rewriting.': 'エラー時に訪問者が見るものと、サーバー全体でのヘッダー書き換え。',
   'Process & maintenance': 'プロセスとメンテナンス',
   'Startup behaviour, backups, and the public expose ports.': '起動時の挙動、バックアップ、そして公開 expose ポート。',
+  'Settings': '設定',
+  'Configure this server, its organizations and who may sign in.': 'このサーバー、その組織、そしてログインできる相手を設定します。',
+  'Server, organizations and users': 'サーバー、組織、ユーザー',
 }
