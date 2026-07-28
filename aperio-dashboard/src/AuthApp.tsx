@@ -134,7 +134,11 @@ export function AuthApp() {
           the watermark behind it reads as frosted rather than as a picture
           the card is sitting on. The ring and shadow the card already carries
           are what still draw its edge, now that there is no fill to do it. */}
-      <Card className="glass-surface relative w-full max-w-sm">
+      {/* `bg-transparent` is not redundant next to `glass-surface`: Card ships
+          `bg-card` in its own base, and tailwind-merge cannot know a custom
+          utility is a background, so it keeps both and `bg-card` wins on
+          source order. Naming the background here is what drops it. */}
+      <Card className="glass-surface relative w-full max-w-sm bg-transparent">
         <CardHeader>
           {/* Mark and wordmark on one line: they are one lockup, and stacking
               them made the card open with two headings above the description. */}
