@@ -130,7 +130,11 @@ export function AuthApp() {
         aria-hidden
         className="pointer-events-none absolute size-[min(115vmin,1000px)] text-foreground/[0.045] select-none"
       />
-      <Card className="relative w-full max-w-sm">
+      {/* Glass: the card drops its own fill and blurs what shows through, so
+          the watermark behind it reads as frosted rather than as a picture
+          the card is sitting on. The ring and shadow the card already carries
+          are what still draw its edge, now that there is no fill to do it. */}
+      <Card className="relative w-full max-w-sm bg-transparent backdrop-blur-[5px]">
         <CardHeader>
           {/* Mark and wordmark on one line: they are one lockup, and stacking
               them made the card open with two headings above the description. */}
