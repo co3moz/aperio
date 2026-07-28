@@ -54,11 +54,7 @@ function SelectTrigger({
   )
 }
 
-// Glass, like the login card, but not transparent like it: a popover opens
-// over whatever the page is showing, and a menu with no fill of its own over
-// a dense table is unreadable. The fill carries the legibility and the blur
-// carries the look, which also means the surface still reads on a browser
-// without `backdrop-filter`.
+// Glass, like the login card: no fill of its own, the blur is the surface.
 function SelectContent({
   className,
   children,
