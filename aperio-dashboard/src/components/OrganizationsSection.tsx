@@ -1,8 +1,8 @@
 import {
   Building2Icon,
-  GaugeIcon,
   GlobeIcon,
   KeyRoundIcon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
   UsersIcon,
@@ -55,11 +55,78 @@ function parseHostnames(raw: string): string[] {
     .filter(Boolean)
 }
 
+/** The four caps, as text so an empty box can mean "no limit". */
+interface QuotaForm {
+  clients: string
+  tokens: string
+  users: string
+  bytesMb: string
+}
+
+const EMPTY_QUOTA: QuotaForm = { clients: '', tokens: '', users: '', bytesMb: '' }
+
+/** Empty input = clear the quota (the API reads 0 as "no limit"). */
+function quotaNumber(s: string): number {
+  const n = parseInt(s, 10)
+  return Number.isNaN(n) || n < 0 ? 0 : n
+}
+
+function quotaPayload(f: QuotaForm) {
+  return {
+    max_clients: quotaNumber(f.clients),
+    max_tokens: quotaNumber(f.tokens),
+    max_users: quotaNumber(f.users),
+    max_bytes_month: quotaNumber(f.bytesMb) * 1024 * 1024,
+  }
+}
+
+/**
+ * The quota inputs, shared by creating an organization and editing one.
+ *
+ * One component rather than two copies because the point of asking at
+ * creation is that the caps are part of what an organization *is*; if the
+ * create form could drift from the edit form, it would quietly stop offering
+ * one of them.
+ */
+function QuotaFields({
+  value,
+  onChange,
+}: {
+  value: QuotaForm
+  onChange: (next: QuotaForm) => void
+}) {
+  const { t } = useI18n()
+  const set = (k: keyof QuotaForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...value, [k]: e.target.value })
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1">
+        <Label>{t('Max clients')}</Label>
+        <Input value={value.clients} onChange={set('clients')} inputMode="numeric" />
+      </div>
+      <div className="space-y-1">
+        <Label>{t('Max tokens')}</Label>
+        <Input value={value.tokens} onChange={set('tokens')} inputMode="numeric" />
+      </div>
+      <div className="space-y-1">
+        <Label>{t('Max users')}</Label>
+        <Input value={value.users} onChange={set('users')} inputMode="numeric" />
+      </div>
+      <div className="space-y-1">
+        <Label>{t('Max MB / month')}</Label>
+        <Input value={value.bytesMb} onChange={set('bytesMb')} inputMode="numeric" />
+      </div>
+    </div>
+  )
+}
+
 function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [hostnames, setHostnames] = useState('')
+  const [quota, setQuota] = useState<QuotaForm>(EMPTY_QUOTA)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -67,6 +134,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
     if (next) {
       setName('')
       setHostnames('')
+      setQuota(EMPTY_QUOTA)
       setError(null)
     }
     setOpen(next)
@@ -75,10 +143,31 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const submit = async () => {
     setBusy(true)
     setError(null)
+    const label = name.trim()
     try {
-      await api.createOrg(name.trim(), parseHostnames(hostnames))
+      const created = await api.createOrg(label, parseHostnames(hostnames))
+      // The create endpoint takes the name and the fence; the caps are their
+      // own endpoint. Only call it when something was actually typed, so a
+      // form left blank does not write four explicit "no limit" values.
+      if (Object.values(quota).some((v) => v.trim())) {
+        try {
+          await api.setOrgQuota(created.id, quotaPayload(quota))
+        } catch (e) {
+          // The organization exists; only the caps failed to land. Say so
+          // rather than reporting a failure that would send someone looking
+          // for an org that is already there — uncapped.
+          setError(
+            t('Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.', {
+              name: label,
+              error: e instanceof ApiError ? e.message : String(e),
+            }),
+          )
+          onCreated()
+          return
+        }
+      }
       setOpen(false)
-      toast.success(t('Organization "{name}" created', { name: name.trim() }))
+      toast.success(t('Organization "{name}" created', { name: label }))
       onCreated()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -125,6 +214,13 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
             <p className="text-xs text-muted-foreground">
               {t('Fences every bind made inside the organization: its tokens and clients can only claim these hostnames. Leave empty for no restriction.')}
             </p>
+          </div>
+          <div className="grid gap-2">
+            <Label>{t('Limits (optional)')}</Label>
+            <p className="text-xs text-muted-foreground">
+              {t('Leave a field empty for no limit. The monthly allowance covers traffic proxied for this organization and resets each calendar month.')}
+            </p>
+            <QuotaFields value={quota} onChange={setQuota} />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
@@ -179,13 +275,14 @@ function DeleteOrgButton({ org, onDone }: { org: Organization; onDone: () => voi
   )
 }
 
-// Per-org quota editor + current-month usage. Opens on demand and fetches
-// usage; saving updates the quota and re-fetches.
-function QuotaDialog({ org }: { org: Organization }) {
+// Everything about one organization that can change after it exists: its
+// fence, its caps, and its SSO, next to what it has used this month. Opens on
+// demand and fetches usage; saving writes and re-fetches.
+function EditOrgDialog({ org }: { org: Organization }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<OrgUsage | null>(null)
-  const [form, setForm] = useState({ clients: '', tokens: '', users: '', bytesMb: '' })
+  const [form, setForm] = useState<QuotaForm>(EMPTY_QUOTA)
   const [hostnames, setHostnames] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -209,26 +306,15 @@ function QuotaDialog({ org }: { org: Organization }) {
     if (next) load().catch(() => setUsage(null))
   }
 
-  // Empty input = clear the quota (send 0); a number sets it.
-  const num = (s: string) => {
-    const n = parseInt(s, 10)
-    return Number.isNaN(n) || n < 0 ? 0 : n
-  }
-
   const save = async () => {
     setBusy(true)
     try {
-      await api.setOrgQuota(org.id, {
-        max_clients: num(form.clients),
-        max_tokens: num(form.tokens),
-        max_users: num(form.users),
-        max_bytes_month: num(form.bytesMb) * 1024 * 1024,
-      })
+      await api.setOrgQuota(org.id, quotaPayload(form))
       // The allowlist is a separate endpoint; save it in the same click so the
       // dialog behaves as one form.
       await api.setOrgHostnames(org.id, parseHostnames(hostnames))
       await load()
-      toast.success(t('Quota updated'))
+      toast.success(t('Organization updated'))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -240,16 +326,14 @@ function QuotaDialog({ org }: { org: Organization }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger
-        render={<Button variant="outline" size="xs" aria-label={t('Quota & usage')} />}
-      >
-        <GaugeIcon /> {t('Quota')}
+      <DialogTrigger render={<Button variant="outline" size="xs" />}>
+        <PencilIcon /> {t('Edit')}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('Quota & usage — {name}', { name: org.name })}</DialogTitle>
+          <DialogTitle>{t('Edit organization "{name}"', { name: org.name })}</DialogTitle>
           <DialogDescription>
-            {t('Leave a field empty for no limit. Usage is for the current calendar month.')}
+            {t('Leave a limit empty for no limit. Usage is for the current calendar month.')}
           </DialogDescription>
         </DialogHeader>
         {usage && (
@@ -263,40 +347,7 @@ function QuotaDialog({ org }: { org: Organization }) {
             })}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>{t('Max clients')}</Label>
-            <Input
-              value={form.clients}
-              onChange={(e) => setForm((f) => ({ ...f, clients: e.target.value }))}
-              inputMode="numeric"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('Max tokens')}</Label>
-            <Input
-              value={form.tokens}
-              onChange={(e) => setForm((f) => ({ ...f, tokens: e.target.value }))}
-              inputMode="numeric"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('Max users')}</Label>
-            <Input
-              value={form.users}
-              onChange={(e) => setForm((f) => ({ ...f, users: e.target.value }))}
-              inputMode="numeric"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('Max MB / month')}</Label>
-            <Input
-              value={form.bytesMb}
-              onChange={(e) => setForm((f) => ({ ...f, bytesMb: e.target.value }))}
-              inputMode="numeric"
-            />
-          </div>
-        </div>
+        <QuotaFields value={form} onChange={setForm} />
         <div className="space-y-1">
           <Label>{t('Allowed hostnames')}</Label>
           <Input
@@ -315,7 +366,7 @@ function QuotaDialog({ org }: { org: Organization }) {
             {t('Close')}
           </Button>
           <Button onClick={save} disabled={busy}>
-            {busy && <Spinner />} {t('Save quota')}
+            {busy && <Spinner />} {t('Save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -417,7 +468,7 @@ export function OrganizationsSection() {
               actions={
                 o.master ? null : (
                   <>
-                    <QuotaDialog org={o} />
+                    <EditOrgDialog org={o} />
                     <DeleteOrgButton org={o} onDone={refresh} />
                   </>
                 )

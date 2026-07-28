@@ -20,7 +20,11 @@ project follows semantic versioning per release tag.
 
 - **The login page has a language picker and a theme toggle.** Both were only reachable after signing in, which is backwards for the language one: somebody who cannot read the form cannot get far enough to find the control that would fix it. The theme follows: the login page was the one page that ignored a dark-theme preference and flashed white. Both controls are the same component the dashboard header uses, not a second copy of it.
 
+- **Creating an organization asks for its limits, including the monthly traffic allowance.** The form only took a name and a hostname fence, so every organization started uncapped and stayed that way until someone remembered to go back and set the caps — which is the wrong default for the one thing an organization is meant to bound. Client, token, user and MB-per-month limits are now part of creating it; each is still optional, and an empty field still means no limit. If the caps fail to save after the organization is created, the form says so and leaves it open rather than reporting a failure for an organization that already exists.
+
 ### Changed
+
+- **The organization row's action is "Edit" rather than "Quota".** It opens the hostname fence, the limits and the OIDC override as well as this month's usage, so naming it after one of the four sent people looking elsewhere for the other three.
 
 - **The configuration pages open as a settings dialog instead of taking over the window.** Server settings, organizations, users, webhooks and the webhook inbox are things you open, act on and leave, so they now share one dialog with their own nav down the side, reached from a single "Settings" entry where the sidebar used to list them as separate destinations. The pages that are *read* rather than operated keep the whole window: the audit log, the API explorer and the config builder.
 
