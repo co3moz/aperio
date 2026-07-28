@@ -1,4 +1,4 @@
-# Aperio 🛡️
+# <img src="docs/assets/aperio-mark.svg" alt="" height="30"> Aperio
 
 Put a local service on the public internet through one outbound connection. No inbound ports, no port-forwarding, no firewall holes. Self-hosted, written in Rust.
 

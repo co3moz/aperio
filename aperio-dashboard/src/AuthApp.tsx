@@ -123,10 +123,14 @@ export function AuthApp() {
     <div className="flex min-h-svh items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <div className="mb-2 flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            {totpStep ? <ShieldCheckIcon className="size-5" /> : <AperioMark className="size-6" />}
+          {/* Mark and wordmark on one line: they are one lockup, and stacking
+              them made the card open with two headings above the description. */}
+          <div className="mb-2 flex items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              {totpStep ? <ShieldCheckIcon className="size-6" /> : <AperioMark className="size-7" />}
+            </div>
+            <CardTitle className="font-heading text-xl">Aperio</CardTitle>
           </div>
-          <CardTitle className="font-heading text-xl">Aperio</CardTitle>
           <CardDescription>
             {totpStep ? t('Enter the code from your authenticator app') : t('Sign in to continue')}
           </CardDescription>

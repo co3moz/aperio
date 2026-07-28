@@ -155,8 +155,10 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="pointer-events-none">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                <AperioMark className="size-5" />
+              {/* A squircle, not a circle: at this size `rounded-2xl` is half
+                  the box, and a round tile crops the mark's corners visually. */}
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <AperioMark className="size-6" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <span className="font-heading truncate font-semibold">Aperio</span>
