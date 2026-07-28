@@ -1,6 +1,7 @@
-import { CheckIcon, LanguagesIcon, MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
+import { MoonIcon, SearchIcon, SunIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, pagesForRole, type Page } from './components/AppSidebar'
+import { AppearanceControls } from './components/AppearanceControls'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { AuditSection } from './components/AuditSection'
@@ -34,22 +35,15 @@ import { WebhooksSection } from './components/WebhooksSection'
 import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
 import { api, logout } from './lib/api'
 import { formatUptime } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
-import { LANGUAGES, useI18n } from '@/i18n'
+import { useI18n } from '@/i18n'
 import { SessionProvider } from '@/lib/session'
 import { PasskeysDialog } from './components/PasskeysDialog'
 import { TotpDialog } from './components/TotpDialog'
@@ -109,7 +103,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const { appearance, toggle } = useThemeMode()
-  const { t, lang, setLang } = useI18n()
+  const { t } = useI18n()
 
   // Navigate tabs through the URL so reloads/bookmarks land on the same tab and
   // the browser back button steps between them.
@@ -288,40 +282,7 @@ export default function App() {
                 ⌘K
               </kbd>
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button variant="ghost" size="icon-sm" aria-label={t('Change language')} />
-                }
-              >
-                <LanguagesIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {LANGUAGES.map((l) => (
-                  <DropdownMenuItem key={l.code} onClick={() => setLang(l.code)}>
-                    <span className="flex-1">{l.label}</span>
-                    {lang === l.code && <CheckIcon className="size-4" />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={toggle}
-                    aria-label={t('Toggle color theme')}
-                  />
-                }
-              >
-                {appearance === 'dark' ? <SunIcon /> : <MoonIcon />}
-              </TooltipTrigger>
-              <TooltipContent>
-                {appearance === 'dark' ? t('Switch to light theme') : t('Switch to dark theme')}
-              </TooltipContent>
-            </Tooltip>
+            <AppearanceControls />
             {session && (
               <Badge variant="outline" className="hidden gap-1.5 rounded-full px-2.5 py-1 lg:inline-flex">
                 <span className="text-muted-foreground">{session.username}</span>

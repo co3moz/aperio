@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { AperioMark } from './components/AperioMark'
+import { AppearanceControls } from './components/AppearanceControls'
 import { AperioWordmark } from './components/AperioWordmark'
 import { LOGO_COLOR, logoDataUri } from '@/lib/logo'
 import { useI18n } from '@/i18n'
@@ -138,6 +139,12 @@ export function AuthApp() {
           `bg-card` in its own base, and tailwind-merge cannot know a custom
           utility is a background, so it keeps both and `bg-card` wins on
           source order. Naming the background here is what drops it. */}
+      {/* Language and theme, above the card. Both have to be reachable before
+          signing in: someone who cannot read the form cannot get far enough
+          to find the control that would fix it. */}
+      <div className="absolute top-4 right-4 flex items-center gap-1">
+        <AppearanceControls />
+      </div>
       <Card className="glass-surface relative w-full max-w-sm bg-transparent">
         <CardHeader>
           {/* Mark and wordmark on one line: they are one lockup, and stacking

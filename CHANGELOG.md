@@ -16,6 +16,10 @@ project follows semantic versioning per release tag.
 
 - **Binding is a token capability (`allow_bind`) instead of possession of the declaring client's own credential.** The rule was byte equality: to bind a client's tunnel you presented the exact token that client connected with, which is also the token that publishes services as that client. Letting a colleague reach a database for ten minutes meant handing over the ability to serve as that deployment. A token can now carry `allow_bind` and reach the tunnels of *other* clients in its organization while publishing nothing. It is off by default, never crosses an organization, and the two old ways in (the master token, the same token) are unchanged, so no existing setup is affected.
 
+### Added
+
+- **The login page has a language picker and a theme toggle.** Both were only reachable after signing in, which is backwards for the language one: somebody who cannot read the form cannot get far enough to find the control that would fix it. The theme follows: the login page was the one page that ignored a dark-theme preference and flashed white. Both controls are the same component the dashboard header uses, not a second copy of it.
+
 ### Changed
 
 - **The sidebar footer is one user entry instead of three loose buttons.** Two-factor auth, passkeys and signing out sat in the footer as menu items with the same weight as the navigation above them, though none of them is a place you go. They are now behind the signed-in identity, which the footer shows with its role, in the shape the sidebar's own composition describes for a footer. The remaining session time moves into that menu. The sidebar also gains its edge rail, so it can be collapsed by dragging the border rather than only from the one button in the page header.
