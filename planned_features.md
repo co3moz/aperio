@@ -444,3 +444,74 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   (3) a per-IP cap on concurrently open streamed responses, so saturating a
   service's concurrency budget takes a botnet rather than one host. (From the
   2026-07 flow-control fix discussion.)
+
+- [ ] **#19 Pub/sub between the clients of an organization, over the tunnel
+  that already exists.** Clients can be reached from outside and can reach a
+  private service through a peer, but they have no way to *signal each other*.
+  The workaround today is an MQTT broker exposed as a `tunnels:` entry and
+  bound by every consumer: three moving parts, and a message crosses the tunnel
+  once to the broker and once more per subscriber, so a wide fan-out pays for
+  it. See [`docs/examples/mqtt`](docs/examples/mqtt/) for that shape, which
+  stays valid for anyone who wants their own broker's semantics.
+
+  **On the wire it is not MQTT.** Three `TunnelMessage` variants, `Subscribe`,
+  `Unsubscribe`, `Publish`, on the WebSocket connection the client already
+  holds, plus a per-organization topic → subscriber map on the server. No
+  second listener, no second connection, no second authentication path; the
+  connection arrives already identified, org-scoped and heartbeated. Embedding
+  a broker (rumqttd) was considered and rejected for that reason: with both
+  ends ours, MQTT on the wire is a dependency and a second connection lifecycle
+  for something no user would ever see.
+
+  **Subscriptions key on `instance_group`, not on the connection.** A client
+  with a `services:` list holds one connection per service, so a
+  connection-keyed subscription delivers N copies to one process. Keying on the
+  process identity the server already tracks means the duplicate never exists,
+  which is strictly better than a client-side seen-id cache with a time window
+  nobody can size correctly. A small seen-set stays justified for QoS 1 only,
+  where a lost ack makes a redelivery legitimate.
+
+  **What the server keeps is a send window, not a store**: per subscriber
+  process, un-acked messages bounded by count and by age (seconds, at most a
+  minute), oldest dropped on overflow with a metric, gone on restart. Offline
+  delivery ("give me what I missed while I was down") is explicitly out of
+  scope for v1. It is a different feature with retention, disk and backpressure
+  semantics, and for the case that motivates this one (a client reacting to an
+  event) replaying an hour-old message is a bug, not a service.
+
+  **The application boundary is where a well-known protocol earns its keep.**
+  Push is easy: a `POST /aperio/api/publish` endpoint, reachable through the
+  existing `aperio-client api` wrapper, no tunnel needed. Subscribe is the hard
+  half: something has to hand the message to the user's process. Two faces over
+  one subscription machine, in this order:
+
+  1. **A local HTTP port on the client**: SSE for subscribe, POST for publish.
+     No codec, no dependency, works from `curl -N` and from every language's
+     standard library, and it proves the whole path (server routing,
+     per-process delivery, fan-out, send window) before any protocol work.
+     **Agreed as the first face to build.**
+  2. **A local MQTT listener on the client**, so an app connects with the MQTT
+     library it already has and subscribes as usual, while the client
+     translates that into a subscription over the tunnel. A packet codec
+     (`mqttbytes`), never an embedded broker: a broker means local fan-out plus
+     an upward bridge, and a bridge means loop prevention. The compatibility
+     answer is written up front rather than discovered: granted QoS 0 or 1, no
+     retained, clean session always, no will.
+
+  **Reserve `$aperio/` for the server's own events**, the way MQTT reserves
+  `$SYS`, and publish the existing event bus on it (`client.connected`,
+  `request.failed`, `tunnel.bound`). The events already exist and already feed
+  webhooks; putting them on topics lets a client react to infrastructure events
+  without running a webhook receiver, and turns this from a new subsystem into
+  the thing that makes an existing one reachable.
+
+  **Authorization is a token capability with a topic prefix**, alongside
+  `allow_bind`, never crossing an organization. Any sink that runs something
+  locally on receipt is a remote-execution primitive by design and needs the
+  payload off the command line (stdin or an env var), a concurrency cap, a
+  timeout, and an audit line naming the publisher.
+
+  Freeze before writing code: `instance_group` keying, the send window's
+  numbers, the `$aperio/` split, the capability shape, and the sentence saying
+  v1 has no offline delivery. (From the 2026-07 client-to-client messaging
+  discussion.)
