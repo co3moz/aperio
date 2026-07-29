@@ -451,8 +451,9 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   `POST /aperio/api/publish`, `subscribe:`/`messages_listen:`/
   `messages_mqtt_listen:` on the client, a token `topics` capability, and the
   server's events mirrored onto `$aperio/`, and QoS 1 with a bounded send
-  window plus client-side duplicate suppression. Offline delivery stays out of
-  scope, as the entry below argues. Original note follows.
+  window plus client-side duplicate suppression, and a `run:` sink with the
+  constraints the entry below names. Offline delivery stays out of scope, as
+  it argues. Original note follows.
 
   Original: Clients can be reached from outside and can reach a
   private service through a peer, but they have no way to *signal each other*.

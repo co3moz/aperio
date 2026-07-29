@@ -526,7 +526,7 @@
         }
       },
       "subscribe": {
-        "description": "Topic filters this client subscribes to, for messages from the other\nclients of its organization. MQTT filter syntax: `+` is one level, `#`\nis the rest. `$aperio/...` carries the server's own events.",
+        "description": "Topic filters this client subscribes to, for messages from the other\nclients of its organization. MQTT filter syntax: `+` is one level, `#`\nis the rest. `$aperio/...` carries the server's own events.\n\nAn entry is a bare filter, or an object that also names a command to run\nwhen a message arrives.",
         "type": [
           "array",
           "null"
@@ -534,11 +534,15 @@
         "examples": [
           [
             "deploy/web",
-            "$aperio/client/#"
+            {
+              "run": "./deploy.sh",
+              "timeout": 120,
+              "topic": "deploy/api"
+            }
           ]
         ],
         "items": {
-          "type": "string"
+          "$ref": "#/$defs/SubscribeValue"
         }
       },
       "target": {
@@ -1533,6 +1537,72 @@
             ]
           }
         }
+      },
+      "SubscribeEntry": {
+        "description": "A subscription that may also run a command when a message arrives.\n\n`run:` is a remote-execution primitive by design: a message from another\nclient of the organization causes a command to run here. Everything about\nits shape follows from that. The payload never reaches the command line,\nonly stdin and the environment, so a message can never become part of the\ncommand. Concurrency is capped and the run is timed, so a publisher in a\nloop cannot fork a thousand processes or leave one wedged forever. And it\nis per topic, opt-in, in a file the operator wrote.",
+        "type": "object",
+        "properties": {
+          "max_concurrent": {
+            "description": "Runs allowed at once for this subscription (default 1). Messages that\narrive while the cap is reached are dropped with a warning rather than\nqueued: a queue for a command that cannot keep up is the same problem\none step later.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              1
+            ],
+            "minimum": 0
+          },
+          "run": {
+            "description": "Command to run for each message, through the shell. The message body\narrives on **stdin**, never as an argument; `APERIO_MESSAGE_TOPIC` and\n`APERIO_MESSAGE_ID` are set in the environment. Unset = deliver only.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "./deploy.sh",
+              "systemctl reload nginx"
+            ]
+          },
+          "timeout": {
+            "description": "Seconds a run may take before it is killed (default 60). A command that\nhangs must not hold the subscription's one slot forever.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              60
+            ],
+            "minimum": 0
+          },
+          "topic": {
+            "description": "The topic filter to subscribe to.",
+            "type": "string",
+            "examples": [
+              "deploy/web",
+              "$aperio/client/#"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "topic"
+        ]
+      },
+      "SubscribeValue": {
+        "description": "One `subscribe:` entry.\n\nA bare filter is the short form: listen, and let whatever is attached to\nthe local face receive it. The object form is for a client that should\n*act* on the message itself.",
+        "anyOf": [
+          {
+            "description": "`- deploy/web` — listen and deliver, nothing else.",
+            "type": "string"
+          },
+          {
+            "description": "The full entry, for a subscription that runs something.",
+            "$ref": "#/$defs/SubscribeEntry"
+          }
+        ]
       },
       "TopHealthConfig": {
         "description": "The top level's `health:` block.\n\nThe same fields as [`HealthConfig`] — a file written either way parses\nidentically — except that `endpoint` is on its way out here. The other\nchildren are real defaults: a `services:` entry that says nothing about\nits interval, timeout, threshold or boot wait inherits them. `endpoint` is\nnot, and never was: a probe path belongs to the backend it probes, so the\nresolver reads it strictly per entry and a top-level one is read by\nnothing at all once a `services:` list exists.",

@@ -42,6 +42,31 @@ Filters are MQTT's, because that is the syntax people already know: `+` matches 
 
 **A subscription belongs to the client process, not to its connections.** A client with a `services:` list holds one tunnel connection per service and still receives each message once. There is nothing to deduplicate.
 
+## Reacting: running a command
+
+A subscription can run something itself, without an application attached:
+
+```yaml
+subscribe:
+  - deploy/web                      # listen; the local face delivers it
+  - topic: deploy/api               # listen, and run this
+    run: ./deploy.sh
+    timeout: 120                    # seconds before the run is killed (default 60)
+    max_concurrent: 1               # runs at once (default 1)
+```
+
+The message body arrives on the command's **stdin**. `APERIO_MESSAGE_TOPIC` and `APERIO_MESSAGE_ID` are set in its environment. The command runs through the shell, so `run: systemctl reload nginx` works as written.
+
+**This is a remote-execution primitive, and it is shaped accordingly.** A message published by another client of the organization causes a command to run on this machine, so:
+
+- **The payload never reaches the command line.** It is only ever stdin and environment, so a message cannot become part of the command no matter what it contains or how it is quoted.
+- **Concurrency is capped, and the excess is dropped rather than queued.** A publisher in a loop cannot fork a thousand processes, and a queue for a command that cannot keep up is the same problem one step later with the memory growing instead.
+- **Every run is timed**, so a command that hangs does not hold the subscription's slot forever.
+- **It is opt-in per topic**, in a file you wrote, and bounded by the publishing token's `topics` on the server side. Give the tokens that may reach a topic like this the narrowest scope you can.
+- **Every run is logged**, started and finished, with the topic and the exit status.
+
+`run:` cannot be set from the environment: `APERIO_SUBSCRIBE` carries filters only. What may execute on a machine belongs in a file an operator wrote, not in a variable a process inherited.
+
 ## Receiving: the local face
 
 A client subscribing is only half of it; something has to hand the message to your application. Set a local address and the client speaks plain HTTP on it:

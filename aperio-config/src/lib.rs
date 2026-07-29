@@ -692,6 +692,65 @@ pub struct ServiceEntry {
   pub denied: Option<String>,
 }
 
+/// One `subscribe:` entry.
+///
+/// A bare filter is the short form: listen, and let whatever is attached to
+/// the local face receive it. The object form is for a client that should
+/// *act* on the message itself.
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum SubscribeValue {
+  /// `- deploy/web` — listen and deliver, nothing else.
+  Filter(String),
+  /// The full entry, for a subscription that runs something.
+  Entry(SubscribeEntry),
+}
+
+impl SubscribeValue {
+  /// The entry form, so callers do not branch on the spelling.
+  pub fn entry(&self) -> SubscribeEntry {
+    match self {
+      SubscribeValue::Filter(topic) => SubscribeEntry {
+        topic: topic.clone(),
+        ..SubscribeEntry::default()
+      },
+      SubscribeValue::Entry(entry) => entry.clone(),
+    }
+  }
+}
+
+/// A subscription that may also run a command when a message arrives.
+///
+/// `run:` is a remote-execution primitive by design: a message from another
+/// client of the organization causes a command to run here. Everything about
+/// its shape follows from that. The payload never reaches the command line,
+/// only stdin and the environment, so a message can never become part of the
+/// command. Concurrency is capped and the run is timed, so a publisher in a
+/// loop cannot fork a thousand processes or leave one wedged forever. And it
+/// is per topic, opt-in, in a file the operator wrote.
+#[derive(Deserialize, Clone, Debug, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SubscribeEntry {
+  /// The topic filter to subscribe to.
+  #[schemars(extend("examples" = ["deploy/web", "$aperio/client/#"]))]
+  pub topic: String,
+  /// Command to run for each message, through the shell. The message body
+  /// arrives on **stdin**, never as an argument; `APERIO_MESSAGE_TOPIC` and
+  /// `APERIO_MESSAGE_ID` are set in the environment. Unset = deliver only.
+  #[schemars(extend("examples" = ["./deploy.sh", "systemctl reload nginx"]))]
+  pub run: Option<String>,
+  /// Seconds a run may take before it is killed (default 60). A command that
+  /// hangs must not hold the subscription's one slot forever.
+  #[schemars(extend("examples" = [60]))]
+  pub timeout: Option<u64>,
+  /// Runs allowed at once for this subscription (default 1). Messages that
+  /// arrive while the cap is reached are dropped with a warning rather than
+  /// queued: a queue for a command that cannot keep up is the same problem
+  /// one step later.
+  #[schemars(extend("examples" = [1]))]
+  pub max_concurrent: Option<u32>,
+}
+
 /// One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older
 /// spelling, by a peer client's id).
 ///
@@ -863,8 +922,11 @@ pub struct FileConfig {
   /// Topic filters this client subscribes to, for messages from the other
   /// clients of its organization. MQTT filter syntax: `+` is one level, `#`
   /// is the rest. `$aperio/...` carries the server's own events.
-  #[schemars(extend("examples" = [["deploy/web", "$aperio/client/#"]]))]
-  pub subscribe: Option<Vec<String>>,
+  ///
+  /// An entry is a bare filter, or an object that also names a command to run
+  /// when a message arrives.
+  #[schemars(extend("examples" = [["deploy/web", {"topic": "deploy/api", "run": "./deploy.sh", "timeout": 120}]]))]
+  pub subscribe: Option<Vec<SubscribeValue>>,
   /// Local address the message face listens on, so an application on this
   /// machine can subscribe (SSE) and publish (POST) without speaking the
   /// tunnel protocol. Unset = no local listener.

@@ -13,6 +13,7 @@ mod e2e;
 mod flow;
 mod messages_http;
 mod messages_mqtt;
+mod messages_run;
 mod protocol;
 mod proxy;
 mod pubsub;
@@ -220,7 +221,9 @@ async fn main() {
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     // 0 = nothing served yet, which keeps the idle clock stopped.
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-    messages: crate::pubsub::MessageBus::new(settings.subscribe.clone()),
+    messages: crate::pubsub::MessageBus::new(
+      settings.subscribe.iter().map(|e| e.topic.clone()).collect(),
+    ),
   };
 
   // The local face, if the operator asked for one. Started before the
@@ -233,6 +236,26 @@ async fn main() {
     error!("CRITICAL ERROR: {}", e);
     std::process::exit(1);
   }
+  // Subscriptions that run something. Started before the services so a
+  // message arriving on the first connection already has somewhere to go.
+  crate::messages_run::spawn(
+    shared.messages.clone(),
+    settings
+      .subscribe
+      .iter()
+      .filter_map(|entry| {
+        entry.run.as_deref().map(|command| {
+          crate::messages_run::Runner::new(
+            entry.topic.clone(),
+            command.to_string(),
+            entry.timeout,
+            entry.max_concurrent,
+          )
+        })
+      })
+      .collect(),
+  );
+
   if let Some(addr) = settings.messages_mqtt_listen.clone()
     && let Err(e) = crate::messages_mqtt::serve(&addr, shared.messages.clone()).await
   {

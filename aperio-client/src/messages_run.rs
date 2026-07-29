@@ -1,0 +1,197 @@
+//! Running a command when a message arrives.
+//!
+//! This is a remote-execution primitive by design: a message published by
+//! another client of the organization causes a command to run on this
+//! machine. Every constraint here follows from that sentence, and none of
+//! them is a detail to relax later.
+//!
+//! - **The payload never reaches the command line.** It goes to stdin, and
+//!   the topic and message id go to the environment. A message can therefore
+//!   never become part of the command, however it is quoted, whatever the
+//!   shell would have done with it.
+//! - **Concurrency is capped, and the excess is dropped rather than queued.**
+//!   A publisher in a loop must not fork a thousand processes; a queue for a
+//!   command that cannot keep up is the same problem one step later, with the
+//!   memory growing instead.
+//! - **Every run is timed.** A command that hangs must not hold the
+//!   subscription's slot forever.
+//! - **It is opt-in per topic**, written by the operator in a file, and
+//!   bounded by the token's `topics` on the server side.
+//! - **Every run is logged**, started and finished, with the topic and the
+//!   exit status.
+
+use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
+
+use aperio_config::topic_matches;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+use tracing::{info, warn};
+
+use crate::pubsub::{Delivery, MessageBus};
+
+/// Seconds a run may take before it is killed.
+const DEFAULT_TIMEOUT: u64 = 60;
+
+/// Runs allowed at once for one subscription.
+const DEFAULT_MAX_CONCURRENT: u32 = 1;
+
+/// A subscription that runs something.
+pub(crate) struct Runner {
+  pub(crate) topic: String,
+  pub(crate) command: String,
+  pub(crate) timeout: Duration,
+  pub(crate) max_concurrent: u32,
+  /// Runs in flight, so the cap is enforced without a lock on the hot path.
+  running: Arc<AtomicU32>,
+}
+
+impl Runner {
+  pub(crate) fn new(
+    topic: String,
+    command: String,
+    timeout: Option<u64>,
+    max: Option<u32>,
+  ) -> Self {
+    Runner {
+      topic,
+      command,
+      timeout: Duration::from_secs(timeout.unwrap_or(DEFAULT_TIMEOUT).max(1)),
+      max_concurrent: max.unwrap_or(DEFAULT_MAX_CONCURRENT).max(1),
+      running: Arc::new(AtomicU32::new(0)),
+    }
+  }
+}
+
+/// Watches the bus and runs what the runners ask for, until the process ends.
+pub(crate) fn spawn(bus: Arc<MessageBus>, runners: Vec<Runner>) {
+  if runners.is_empty() {
+    return;
+  }
+  for runner in &runners {
+    info!(
+      "Running `{}` for messages on '{}' (timeout {}s, {} at a time)",
+      runner.command,
+      runner.topic,
+      runner.timeout.as_secs(),
+      runner.max_concurrent
+    );
+  }
+  let runners = Arc::new(runners);
+  tokio::spawn(async move {
+    let mut deliveries = bus.listen();
+    loop {
+      match deliveries.recv().await {
+        Ok(delivery) => {
+          for runner in runners.iter() {
+            if topic_matches(&runner.topic, &delivery.topic) {
+              dispatch(runner, &delivery);
+            }
+          }
+        }
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+          warn!("Message runners fell behind; {n} message(s) did not trigger a run");
+        }
+        Err(_) => return,
+      }
+    }
+  });
+}
+
+/// Starts one run, unless this subscription is already at its cap.
+fn dispatch(runner: &Runner, delivery: &Delivery) {
+  let running = runner.running.clone();
+  // Claim a slot before spawning: two messages arriving together must not
+  // both see the old count and both start.
+  let claimed = running
+    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+      (current < runner.max_concurrent).then_some(current + 1)
+    })
+    .is_ok();
+  if !claimed {
+    warn!(
+      "Dropping a message on '{}': {} run(s) of `{}` are already going",
+      delivery.topic, runner.max_concurrent, runner.command
+    );
+    return;
+  }
+
+  let command = runner.command.clone();
+  let timeout = runner.timeout;
+  let topic = delivery.topic.clone();
+  let id = delivery.id.clone().unwrap_or_default();
+  let payload = delivery.payload.clone();
+
+  tokio::spawn(async move {
+    let started = std::time::Instant::now();
+    info!("Message on '{topic}' is running `{command}`");
+    let outcome = run_once(&command, &topic, &id, &payload, timeout).await;
+    running.fetch_sub(1, Ordering::SeqCst);
+    match outcome {
+      Ok(Some(status)) if status.success() => {
+        info!(
+          "`{command}` finished for '{topic}' in {:.1}s",
+          started.elapsed().as_secs_f64()
+        );
+      }
+      Ok(Some(status)) => {
+        warn!("`{command}` exited {status} for a message on '{topic}'");
+      }
+      // Killed by the timeout.
+      Ok(None) => {
+        warn!(
+          "`{command}` was killed after {}s for a message on '{topic}'",
+          timeout.as_secs()
+        );
+      }
+      Err(e) => warn!("`{command}` could not be run for '{topic}': {e}"),
+    }
+  });
+}
+
+/// Runs the command once. `Ok(None)` means it was killed by the timeout.
+async fn run_once(
+  command: &str,
+  topic: &str,
+  id: &str,
+  payload: &[u8],
+  timeout: Duration,
+) -> Result<Option<std::process::ExitStatus>, String> {
+  let shell = if cfg!(windows) { "cmd" } else { "sh" };
+  let flag = if cfg!(windows) { "/C" } else { "-c" };
+  let mut child = Command::new(shell)
+    .arg(flag)
+    .arg(command)
+    // The message is data, so it travels where data goes. Nothing about it
+    // is ever part of the command, which is the whole reason this is safe to
+    // offer at all.
+    .env("APERIO_MESSAGE_TOPIC", topic)
+    .env("APERIO_MESSAGE_ID", id)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .kill_on_drop(true)
+    .spawn()
+    .map_err(|e| e.to_string())?;
+
+  if let Some(mut stdin) = child.stdin.take() {
+    // A command that does not read stdin closes it, and writing to a closed
+    // pipe is not a failure of the run.
+    let _ = stdin.write_all(payload).await;
+    let _ = stdin.shutdown().await;
+  }
+
+  match tokio::time::timeout(timeout, child.wait()).await {
+    Ok(status) => status.map(Some).map_err(|e| e.to_string()),
+    Err(_) => {
+      let _ = child.kill().await;
+      Ok(None)
+    }
+  }
+}
+
+#[cfg(test)]
+#[path = "messages_run_tests.rs"]
+mod tests;

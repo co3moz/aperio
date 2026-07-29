@@ -180,4 +180,57 @@ COPIES="$(grep -c 'event: deploy/once' "$QOS_OUT")"
 echo "  ok: a QoS 1 message is acknowledged and stops being resent"
 kill "$QOS_PID" 2>/dev/null || true
 
+step "A subscription can run a command, with the payload nowhere near it"
+RUN_DIR="$LOG_DIR/run-target"
+mkdir -p "$RUN_DIR"
+# Quoted heredoc: nothing here is expanded by this shell, so the command keeps
+# its `$APERIO_MESSAGE_TOPIC` for the *run* rather than losing it at write
+# time. The two placeholders are filled in afterwards.
+cat >"$LOG_DIR/runner.yaml" <<'YAML'
+server:
+  url: __BASE__
+  token: __TOKEN__
+services:
+  - target: __TARGET__
+    hostname: msgrun.e2e.local
+subscribe:
+  - topic: deploy/run
+    run: cat > __RUNDIR__/payload; printf '%s' "$APERIO_MESSAGE_TOPIC" > __RUNDIR__/topic
+    timeout: 10
+YAML
+"$PYTHON" - "$LOG_DIR/runner.yaml" "$BASE" "$TOKEN" "http://127.0.0.1:$MSG_BACKEND_PORT" "$RUN_DIR" <<'PYEOF'
+import sys
+path, base, token, target, rundir = sys.argv[1:6]
+text = open(path).read()
+for needle, value in (("__BASE__", base), ("__TOKEN__", token),
+                      ("__TARGET__", target), ("__RUNDIR__", rundir)):
+    text = text.replace(needle, value)
+open(path, "w").write(text)
+PYEOF
+
+env APERIO_CONNECTIONS=1 "$CLIENT_BIN" --config "$LOG_DIR/runner.yaml" \
+  >"$LOG_DIR/client-$PHASE-msgrun.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable msgrun.e2e.local /hello
+
+# A payload built to break out of a shell command. It must arrive as bytes.
+HOSTILE="'; touch $RUN_DIR/PWNED ; echo '"
+"$PYTHON" - "$BASE" "$MJAR" "$HOSTILE" <<'PYEOF'
+import json, subprocess, sys
+base, jar, hostile = sys.argv[1], sys.argv[2], sys.argv[3]
+body = json.dumps({"topic": "deploy/run", "payload": hostile})
+subprocess.run(["curl", "-s", "-o", "/dev/null", "-b", jar, "-X", "POST",
+                f"{base}/aperio/api/publish", "-H", "content-type: application/json",
+                "-d", body], check=True)
+PYEOF
+
+retry 20 test -f "$RUN_DIR/payload" || fail "the subscription did not run its command"
+[ "$(cat "$RUN_DIR/topic")" = "deploy/run" ] \
+  || fail "the topic should reach the command through the environment"
+[ "$(cat "$RUN_DIR/payload")" = "$HOSTILE" ] \
+  || fail "the payload should arrive on stdin byte for byte"
+[ ! -f "$RUN_DIR/PWNED" ] \
+  || fail "the payload was interpreted by the shell"
+echo "  ok: a subscription runs a command, and the payload stays data"
+
 kill "$MSG_BACKEND_PID" 2>/dev/null || true

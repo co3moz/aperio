@@ -429,8 +429,9 @@ pub(crate) struct ClientSettings {
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// `bind-tunnels:` entries (local config file only).
   pub(crate) bind_tunnels: HashMap<String, aperio_config::BindTunnelValue>,
-  /// Topic filters this process subscribes to (process-wide, not per service).
-  pub(crate) subscribe: Vec<String>,
+  /// `subscribe:` entries: the filters this process listens to, and the
+  /// commands some of them run.
+  pub(crate) subscribe: Vec<aperio_config::SubscribeEntry>,
   /// Local address the message face listens on (None = no local listener).
   pub(crate) messages_listen: Option<String>,
   /// Local address the MQTT face listens on (None = no MQTT listener).
@@ -1024,10 +1025,21 @@ pub(crate) fn resolve_settings(
     subscribe: layered(
       None,
       local.subscribe.clone(),
-      env_str("APERIO_SUBSCRIBE").map(|v| split_ip_list(&v)),
+      // The environment can only carry filters: a command to run is not
+      // something to pick up from an env var, and the file is where an
+      // operator writes down what may execute here.
+      env_str("APERIO_SUBSCRIBE").map(|v| {
+        split_ip_list(&v)
+          .into_iter()
+          .map(aperio_config::SubscribeValue::Filter)
+          .collect()
+      }),
       home.subscribe.clone(),
     )
-    .unwrap_or_default(),
+    .unwrap_or_default()
+    .iter()
+    .map(aperio_config::SubscribeValue::entry)
+    .collect(),
     messages_listen: layered(
       None,
       local.messages_listen.clone(),
