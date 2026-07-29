@@ -62,6 +62,9 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The README says what Aperio is for.** It opened with a diagram and a link list: no statement of what makes it different from the hosted tunnels people have used (it is yours, it is two binaries and a token, the connection goes outward, it is a product rather than a pipe), no way to see at a glance what it carries and what it does with it, no measured footprint, and no mention of half the features — messaging, the request firewall, maintenance mode, static serving, end-to-end encrypted tunnels — that the docs index has listed all along. All of that is there now, with the numbers measured rather than asserted.
+
+
 - **The dashboard screenshots in the README and the docs are current again**, and re-capturing them is now `npm run capture:docs` rather than an afternoon: the script brings up a throwaway instance, drives demo traffic through it, and captures every page at the same size as before. The old set was taken at v0.4.3 and showed a sidebar, a logo and a set of pages that no longer exist.
 
 

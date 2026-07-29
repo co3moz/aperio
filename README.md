@@ -12,6 +12,14 @@ Put a local service on the public internet through one outbound connection. No i
 
 The client always dials **out**, so nothing on your network accepts inbound connections.
 
+## Why Aperio
+
+- **It is yours.** Both sides are binaries you run: no account, no third-party relay, no traffic through someone else's infrastructure, nothing to price per tunnel or per seat.
+- **Two binaries and a token.** No database, no message broker, no sidecar. The server keeps its state in a file next to it; the dashboard is compiled into the binary.
+- **One connection out.** The tunnel is a WebSocket the client opens, so the machine serving your app can sit behind NAT, CGNAT or a firewall that allows nothing inbound.
+- **Small enough to leave running.** Measured on an Apple M-series laptop: the server binary is 19 MB (dashboard included) and idles at ~13 MB RSS; the client is 9 MB and idles at ~7 MB. Neither grows with request count.
+- **It is a product, not a pipe.** A live dashboard, a request inspector with replay, scoped tokens, organizations, caching, failover, autoscaling hooks and messaging between clients ship in the same binaries.
+
 [![The Aperio admin dashboard](docs/images/dashboard-overview.png)](docs/dashboard.md)
 
 ## Quick start
@@ -39,7 +47,41 @@ aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xx
 
 Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough: **[Getting Started](docs/getting-started.md)**.
 
-## What it does
+## What it carries
+
+| | Supported |
+|---|---|
+| **HTTP** | HTTP/1.1 and HTTP/2 (h2c and h2), streamed request and response bodies, `Range` requests, trailers |
+| **WebSocket** | passed through end to end, with per-stream flow control |
+| **gRPC** | over h2c/h2, `te: trailers` forwarded, `grpc-status` relayed back |
+| **TCP** | declared tunnels bound from another client (`--bind-tunnels`) or opened on a public port (`expose:`) |
+| **UDP** | the same, as a best-effort datagram relay; `tcp/udp` declares one tunnel on both |
+| **Static files** | a directory served with no backend at all: SPA fallback, custom 404, streaming |
+| **Messages** | clients of one organization publish and subscribe over the tunnel they already hold, with an MQTT or plain-HTTP local face |
+
+## What it does with it
+
+| | |
+|---|---|
+| **Routing** | hostname and path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains, in-flight failover |
+| **Access** | scoped dynamic tokens (rate limits, quotas, IP pinning, expiry), visitor passwords, OIDC/SSO, share links, TOTP and passkeys for operators |
+| **Tenancy** | organizations with their own clients, tokens, users, hostname fences and quotas, and a super-admin who moves between them |
+| **Traffic control** | response caching with serve-stale, per-route rate limits, a small request firewall (`waf:`), maintenance mode, static routes and redirects |
+| **Operations** | live dashboard, request inspector with replay and cURL/HAR export, kill switch, config hot-reload, graceful drain, autoscaling hooks |
+| **Observability** | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox |
+| **Hardening** | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
+
+Throughput is not the interesting number for most deployments — the tunnel adds one hop, and the backend is usually what you are waiting for — but for scale: ~12k requests/second through a tunnel on loopback with a trivial backend and one keep-alive connection, on the same laptop as above.
+
+## Use it for
+
+- **Showing work in progress.** A localhost port on a real URL, with TLS in front and a password or a share link on it.
+- **Preview environments.** One ephemeral hostname per pull request, minted through the API, torn down when it merges. There is a [GitHub Action](docs/ephemeral-tunnels.md) for the whole flow.
+- **Publishing from where you cannot open ports.** A machine behind NAT or CGNAT — a home server, a customer's network, a device in the field — serving traffic through an outbound connection.
+- **Reaching a private service in an incident.** A database or an SSH daemon that is exposed to nobody, bound locally from another machine for as long as you need it.
+- **Running it as infrastructure for other people.** Organizations, per-tenant quotas and hostname fences, per-token rate limits, and an audit trail of who did what.
+
+## Documentation
 
 Click a feature for the details.
 
@@ -47,6 +89,7 @@ Click a feature for the details.
 
 - [Getting Started](docs/getting-started.md), server and client running in five minutes, Docker or CLI.
 - [Configuration](docs/configuration.md), every setting on both sides: env, CLI, or yaml.
+- [Configuration Examples](docs/examples/README.md), ready-to-adapt config pairs, one folder per scenario.
 - [Client Resilience](docs/client-resilience.md), reconnect backoff, health probes, graceful drain.
 - [Behind a Dynamic Edge Proxy](docs/edge-proxy.md), let Traefik or Caddy learn the hostnames that only exist at runtime.
 
@@ -56,11 +99,13 @@ Click a feature for the details.
 - [Random Subdomains](docs/routing-and-load-balancing.md#random-subdomains), an automatic `a1b2c3.example.com` on a wildcard domain.
 - [In-Flight Failover](docs/failover.md), survive a client dying mid-request without the visitor noticing.
 - [Response Caching](docs/caching.md), serve GETs without touching the tunnel.
+- [Static File Serving](docs/static-serving.md), publish a directory with no backend behind it.
 
 **3. Tunnels & protocols**
 
 - [Tunnel Protocol](docs/tunnel-protocol.md), WebSocket pass-through, chunked bodies, gRPC over h2c/h2.
-- [Emergency TCP Tunnels](docs/emergency-tunnels.md), reach a database or SSH through the same tunnel.
+- [Tunnels](docs/emergency-tunnels.md), reach a database, an SSH daemon or a DNS resolver through the same connection, end-to-end encrypted if you want it.
+- [Messages Between Clients](docs/messaging.md), publish a topic and every subscribed client of the organization hears it; the server's own events are on `$aperio/`.
 - [PR Preview Tunnels](docs/ephemeral-tunnels.md), one ephemeral hostname per pull request, with a GitHub Action.
 
 **4. Security & access control**
@@ -68,10 +113,11 @@ Click a feature for the details.
 - [Visitor Auth & SSO](docs/tokens-and-auth.md#protecting-proxied-traffic), OIDC or a password in front of a proxied site.
 - [Access Tokens](docs/tokens-and-auth.md#dynamic-tokens), scoped, revocable, rate-limited, IP-pinned.
 - [Share Links](docs/share-links.md), temporary visitor access with no account.
+- [Production Hardening](docs/production-hardening.md), the pre-flight checklist, and the [Threat Model](docs/threat-model.md) behind it.
 
 **5. Management & operations**
 
-- [Admin Dashboard](docs/dashboard.md), live traffic, request inspector and replay, kill switch.
+- [Admin Dashboard](docs/dashboard.md), live traffic, request inspector and replay, maintenance mode, kill switch.
 - [Admin API from the CLI](docs/cli-api.md), script it all: `aperio-client api share | token | ...`.
 - [Autoscaling](docs/autoscaling.md), cold start from zero on the first request, scale out when the pool saturates.
 - [Multi-tenancy](docs/organizations.md), isolated organizations on one server.
@@ -80,7 +126,7 @@ Click a feature for the details.
 
 - [Metrics, traces & logs](docs/observability.md), Prometheus, OpenTelemetry, webhooks, access and audit logs.
 
-Full index: **[docs/](docs/README.md)**.
+Full index: **[docs/](docs/README.md)**. Prefer one long read? [**The Complete Guide**](docs/book/aperio.tex) is a single-file LaTeX book covering all of it in one narrative, with generated reference tables for every setting, endpoint and protocol message.
 
 ## Security
 
@@ -88,7 +134,7 @@ Full index: **[docs/](docs/README.md)**.
 - Prefer scoped dynamic tokens. Treat the master token like a root password.
 - The client only talks to its configured targets and caps message sizes.
 
-More: **[Tokens & Authentication](docs/tokens-and-auth.md)**.
+More: **[Tokens & Authentication](docs/tokens-and-auth.md)**, and the [Threat Model](docs/threat-model.md) for what each side is trusted to do.
 
 ## License
 
