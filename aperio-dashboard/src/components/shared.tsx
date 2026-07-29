@@ -19,9 +19,12 @@ export function EmptyRow({
   return (
     <TableRow className="hover:bg-transparent">
       <TableCell colSpan={colSpan}>
-        <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground">
+        <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-muted-foreground">
           {icon && <span className="[&_svg]:size-6 opacity-60">{icon}</span>}
-          <span className="text-sm">{children}</span>
+          {/* Centred and held to a readable width. A sentence long enough to
+              wrap would otherwise run the full width of the container and sit
+              left of an icon that is centred, which reads as a layout bug. */}
+          <span className="max-w-md text-center text-sm text-balance">{children}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -184,9 +187,9 @@ export function RecordFact({
 /** Centered empty state for a `RecordList`. */
 export function RecordEmpty({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground">
+    <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-muted-foreground">
       {icon && <span className="opacity-60 [&_svg]:size-6">{icon}</span>}
-      <span className="text-sm">{children}</span>
+      <span className="max-w-md text-center text-sm text-balance">{children}</span>
     </div>
   )
 }
