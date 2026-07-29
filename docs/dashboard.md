@@ -87,7 +87,7 @@ When the built-in `aperio` super-admin is signed in, an **organization picker** 
 
 ## Settings dialog
 
-The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut — which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users**, **Webhooks** and **Webhook Inbox**; each is still reachable by role (a viewer sees the webhook panes only, organizations and server settings are the master super-admin's).
+The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users**, **Webhooks** and **Webhook Inbox**; each is still reachable by role (a viewer sees the webhook panes only, organizations and server settings are the master super-admin's).
 
 ## Server settings
 
@@ -117,11 +117,11 @@ Server settings are a whole-server concern, so this pane and its export/import a
 
 The settings dialog's **Messages** pane shows the one thing about [client-to-client messaging](messaging.md) that cannot be worked out from the outside: which client processes are listening, and to which topic filters. A publish that reached nobody looks exactly like one that reached everybody, and the difference is almost always a filter that does not match or a token without the topic; both are on this screen at once.
 
-It also publishes. Type a topic and a message and the reply says how many client processes it reached, which is the fastest way to tell a wrong filter from a wrong topic — a publish that reaches nobody says so rather than reporting success. The *At least once* switch is `qos: 1`.
+It also publishes. Type a topic and a message and the reply says how many client processes it reached, which is the fastest way to tell a wrong filter from a wrong topic, a publish that reaches nobody says so rather than reporting success. The *At least once* switch is `qos: 1`.
 
 ## Finding a setting
 
-`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting is listed by name — matching its English name, its translated one, its environment key (`max_body_size`) and its group — **with its current value on the right**, marked when that value is an override rather than the environment default. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
+`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting is listed by name, matching its English name, its translated one, its environment key (`max_body_size`) and its group, **with its current value on the right**, marked when that value is an override rather than the environment default. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
 
 ## Also here
 
@@ -146,7 +146,7 @@ The *Config Builder* pane (sidebar → **Tools**) writes an `aperio.yaml` or an 
 
 The form is generated from the JSON Schema this server serves (`GET /aperio/api/config/schema/{client|server}`), which is derived from the very Rust types that parse these files. That is the point of building it this way: the page offers exactly the settings the running binary understands, so it cannot drift ahead of an older server or lag behind a newer one, and each field carries the setting's own documentation.
 
-The settings sit in collapsible sections, each showing how many of its fields are set, with `services:` and `tunnels:` first since they are what a file is usually about. The form is on the left and the document it produces on the right, updating as you type. A client file has one shape, `services:`; there is no longer a choice to make. Deprecated keys — the superseded spellings, and the top-level single-service keys on their way out — appear only when an imported file already uses them, so a blank file never suggests a key we want retired, and a file that does use one can still be edited and migrated here.
+The settings sit in collapsible sections, each showing how many of its fields are set, with `services:` and `tunnels:` first since they are what a file is usually about. The form is on the left and the document it produces on the right, updating as you type. A client file has one shape, `services:`; there is no longer a choice to make. Deprecated keys, the superseded spellings, and the top-level single-service keys on their way out, appear only when an imported file already uses them, so a blank file never suggests a key we want retired, and a file that does use one can still be edited and migrated here.
 
 A key with two spellings is offered in its full one. `subscribe:` accepts a bare filter (`- deploy/web`) or an object (`- {topic: deploy/web, run: …}`), and the form writes the object, since that is the shape that can hold the rest of the entry; the two mean the same thing to the client. An imported file keeps whichever spelling it already used.
 

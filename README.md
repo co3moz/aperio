@@ -61,23 +61,23 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 
 ## What it does with it
 
-| | |
-|---|---|
-| **Routing** | hostname and path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains, in-flight failover |
-| **Access** | scoped dynamic tokens (rate limits, quotas, IP pinning, expiry), visitor passwords, OIDC/SSO, share links, TOTP and passkeys for operators |
-| **Tenancy** | organizations with their own clients, tokens, users, hostname fences and quotas, and a super-admin who moves between them |
-| **Traffic control** | response caching with serve-stale, per-route rate limits, a small request firewall (`waf:`), maintenance mode, static routes and redirects |
-| **Operations** | live dashboard, request inspector with replay and cURL/HAR export, kill switch, config hot-reload, graceful drain, autoscaling hooks |
-| **Observability** | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox |
-| **Hardening** | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
+|                     |                                                                                                                                                        |
+| ---------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Routing**         | hostname and path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains, in-flight failover                                    |
+| **Access**          | scoped dynamic tokens (rate limits, quotas, IP pinning, expiry), visitor passwords, OIDC/SSO, share links, TOTP and passkeys for operators             |
+| **Tenancy**         | organizations with their own clients, tokens, users, hostname fences and quotas, and a super-admin who moves between them                              |
+| **Traffic control** | response caching with serve-stale, per-route rate limits, a small request firewall (`waf:`), maintenance mode, static routes and redirects             |
+| **Operations**      | live dashboard, request inspector with replay and cURL/HAR export, kill switch, config hot-reload, graceful drain, autoscaling hooks                   |
+| **Observability**   | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox                        |
+| **Hardening**       | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
 
-Throughput is not the interesting number for most deployments — the tunnel adds one hop, and the backend is usually what you are waiting for — but for scale: ~12k requests/second through a tunnel on loopback with a trivial backend and one keep-alive connection, on the same laptop as above.
+Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~12k requests/second through a tunnel on loopback with a trivial backend and one keep-alive connection, on the same laptop as above.
 
 ## Use it for
 
 - **Showing work in progress.** A localhost port on a real URL, with TLS in front and a password or a share link on it.
 - **Preview environments.** One ephemeral hostname per pull request, minted through the API, torn down when it merges. There is a [GitHub Action](docs/ephemeral-tunnels.md) for the whole flow.
-- **Publishing from where you cannot open ports.** A machine behind NAT or CGNAT — a home server, a customer's network, a device in the field — serving traffic through an outbound connection.
+- **Publishing from where you cannot open ports.** A machine behind NAT or CGNAT, a home server, a customer's network, a device in the field, serving traffic through an outbound connection.
 - **Reaching a private service in an incident.** A database or an SSH daemon that is exposed to nobody, bound locally from another machine for as long as you need it.
 - **Running it as infrastructure for other people.** Organizations, per-tenant quotas and hostname fences, per-token rate limits, and an audit trail of who did what.
 

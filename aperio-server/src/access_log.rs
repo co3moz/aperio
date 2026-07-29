@@ -58,7 +58,7 @@ pub(crate) async fn log_request_success(
       logs.pop_front();
     }
     // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
-    // which may be in a different timezone than the server — a naive local
+    // which may be in a different timezone than the server, a naive local
     // string would be re-interpreted in the browser's zone and drift.
     let timestamp = Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
     let entry = RequestLog {
@@ -125,7 +125,7 @@ pub(crate) async fn log_request_failure(
       logs.pop_front();
     }
     // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
-    // which may be in a different timezone than the server — a naive local
+    // which may be in a different timezone than the server, a naive local
     // string would be re-interpreted in the browser's zone and drift.
     let timestamp = Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
     let entry = RequestLog {

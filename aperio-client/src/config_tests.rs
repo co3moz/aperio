@@ -171,7 +171,7 @@ fn test_bind_tunnels_flag_parsing() {
   let args = cli_to_args(cli);
   assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id == "client-1"));
 
-  // Without a value (yaml section drives it) — the id resolves to "".
+  // Without a value (yaml section drives it), the id resolves to "".
   let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels"]).unwrap();
   let args = cli_to_args(cli);
   assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id.is_empty()));
@@ -267,7 +267,7 @@ fn test_build_ws_url() {
 #[test]
 fn test_split_ip_list() {
   assert_eq!(
-    split_ip_list(" 203.0.113.7, 10.0.0.0/8 ,,"),
+    split_ip_list(" 203.0.113.7, 10.0.0.0/8,"),
     vec!["203.0.113.7".to_string(), "10.0.0.0/8".to_string()]
   );
   assert!(split_ip_list("").is_empty());

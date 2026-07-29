@@ -20,7 +20,7 @@ bash ../tests/e2e.sh                    # full end-to-end suite (needs debug bin
 | `src/main.rs` | Entry point: CLI parsing, service startup, signal handling |
 | `src/config.rs` | Configuration from CLI / env / `aperio.yaml` (layered); target normalization (`normalize_target`) |
 | `src/service.rs` | Per-service lifecycle: connect, heartbeats, reconnect with backoff, backend health probes |
-| `src/protocol.rs` | `TunnelMessage` — the client↔server wire protocol (see [docs/tunnel-protocol.md](../docs/tunnel-protocol.md)) |
+| `src/protocol.rs` | `TunnelMessage`, the client↔server wire protocol (see [docs/tunnel-protocol.md](../docs/tunnel-protocol.md)) |
 | `src/proxy.rs`, `src/proxy/http.rs` | HTTP request forwarding to the local backend (reqwest), header rules, redirects, body streaming |
 | `src/proxy/ws.rs` | WebSocket upgrade pass-through to the backend |
 | `src/tcp.rs` | Raw TCP tunneling: `tcp_target` bridge and emergency-tunnel data path |
@@ -34,7 +34,7 @@ Unit tests live next to each module in `<module>_tests.rs`, included via
 
 ## Configuration
 
-The `aperio.yaml` schema types live in [`aperio-config`](../aperio-config/) —
+The `aperio.yaml` schema types live in [`aperio-config`](../aperio-config/),
 edit them there, not here. Every option follows the
 [one-name-three-surfaces standard](../docs/configuration.md#the-standard-one-name-three-surfaces):
 CLI `--kebab-case` ↔ yaml `snake_case` ↔ env `APERIO_SNAKE_CASE`.

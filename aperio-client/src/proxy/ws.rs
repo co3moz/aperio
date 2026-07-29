@@ -295,7 +295,7 @@ pub(crate) async fn handle_upgrade_request(
       }
     }
 
-    // Backend WS disconnected — send WsClose to server
+    // Backend WS disconnected, send WsClose to server
     let close_msg = TunnelMessage::WsClose {
       stream_id: stream_id_clone.clone(),
       code: 1000,

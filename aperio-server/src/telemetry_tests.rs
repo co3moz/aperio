@@ -227,7 +227,7 @@ fn resolve_target_notes_a_protocol_pinned_against_the_port() {
 fn resolve_target_falls_back_and_explains_an_unsupported_protocol() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let _env = EnvSnapshot::take();
-  // `http/json` is a real OTLP encoding, just not one this build carries — it
+  // `http/json` is a real OTLP encoding, just not one this build carries, it
   // must not be quietly treated as protobuf.
   set("APERIO_OTEL_PROTOCOL", "http/json");
   set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
@@ -559,7 +559,7 @@ fn init_installs_subscriber_across_all_branches() {
 
   // The global tracer provider must be the real one. `emit_phase_spans` builds
   // every phase child through `global::tracer`, and the default global provider
-  // is a noop that drops them without a word — the symptom is a trace that
+  // is a noop that drops them without a word, the symptom is a trace that
   // arrives with only its root `proxy.request` span and no breakdown at all.
   // A noop span carries the invalid (all-zero) span context; a real one does not.
   let probe_span = global::tracer("test").start("global-provider-probe");

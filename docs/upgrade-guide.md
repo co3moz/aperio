@@ -14,10 +14,10 @@ version: 0.5.0
 
 On startup the binary compares that against its own build and looks up every recorded change to the *configuration format* that landed in between. The behaviour is deliberately quiet:
 
-- **Nothing changed in that range** — the upgrade cannot affect this file, and nothing is printed. Silence is the signal.
-- **Something changed** — a warning names each change, the keys it touched, and what to do about it, then asks you to set `version:` to the new release once you have looked.
-- **A change with security consequences** — the binary **refuses to start**. A default that opens something previously closed, or an enforcement that silently stopped applying, is exactly the case where continuing quietly is worse than an outage you can see.
-- **No `version:` at all** — the check is off, and one informational line says so. Existing deployments keep working unchanged; adding the key is what buys the warning.
+- **Nothing changed in that range**, the upgrade cannot affect this file, and nothing is printed. Silence is the signal.
+- **Something changed**, a warning names each change, the keys it touched, and what to do about it, then asks you to set `version:` to the new release once you have looked.
+- **A change with security consequences**, the binary **refuses to start**. A default that opens something previously closed, or an enforcement that silently stopped applying, is exactly the case where continuing quietly is worse than an outage you can see.
+- **No `version:` at all**, the check is off, and one informational line says so. Existing deployments keep working unchanged; adding the key is what buys the warning.
 
 This is the safety net for `docker pull` on a Friday: an upgrade either behaves exactly as your file says, or tells you precisely which keys to look at, or stops. A rollback is covered too, a file declaring a version *newer* than the binary is called out, since it may use settings that binary has never heard of.
 

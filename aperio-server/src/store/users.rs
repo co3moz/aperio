@@ -10,7 +10,7 @@ use tracing::info;
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
-  /// Read-only: statistics, traffic, audit — every GET.
+  /// Read-only: statistics, traffic, audit, every GET.
   Viewer,
   /// Day-to-day operations: clients, tokens, webhooks, maintenance, shares.
   Operator,
@@ -44,7 +44,7 @@ pub struct StoredPasskey {
   /// User-chosen label ("YubiKey 5", "MacBook Touch ID", ...).
   pub name: String,
   pub created_at: u64,
-  /// The `webauthn_rs` Passkey, serialized as JSON (public key + counter —
+  /// The `webauthn_rs` Passkey, serialized as JSON (public key + counter,
   /// no secret material; the private key never leaves the authenticator).
   pub credential: String,
   /// The user opted this passkey into usernameless sign-in (discoverable
@@ -310,7 +310,7 @@ impl UserStore {
 
   /// Records a freshly accepted TOTP login step for replay prevention. Returns
   /// true (and persists) when `step` is strictly newer than the last accepted
-  /// one; false when the same or an older step was already used — the caller
+  /// one; false when the same or an older step was already used, the caller
   /// treats that as an invalid code so an intercepted code can't be replayed.
   pub fn totp_try_advance_step(&mut self, id: &str, step: i64) -> bool {
     let Some(user) = self.users.iter_mut().find(|u| u.id == id) else {

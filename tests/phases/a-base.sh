@@ -479,7 +479,7 @@ ACME_HOOK_ID="$(echo "$HOOK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 HOOKS_CHILD="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
 assert_contains "$HOOKS_CHILD" 'acme-hook' "the child org sees its own webhook"
 # A real named admin user, created inside the child org, is fully sandboxed to
-# it — the "two separate apps" test.
+# it, the "two separate apps" test.
 USER="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"username":"acme-admin","password":"acmepass123","role":"admin"}' \
   "$BASE/aperio/api/users")" || fail "child-org user creation failed"
@@ -494,7 +494,7 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$ACME_JAR" "$BASE/aperio/api/
 assert_status 403 "$CODE" "the child-org admin cannot manage organizations"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$ACME_JAR" "$BASE/aperio/api/export")"
 assert_status 403 "$CODE" "the child-org admin cannot export the server dump"
-# They see their own org's resources, pinned — no master data, no org switching.
+# They see their own org's resources, pinned, no master data, no org switching.
 TOKS_ACME="$(curl -s -b "$ACME_JAR" "$BASE/aperio/api/tokens")"
 assert_contains "$TOKS_ACME" 'acme-token' "the child-org admin sees its own token"
 USERS_ACME="$(curl -s -b "$ACME_JAR" "$BASE/aperio/api/users")"

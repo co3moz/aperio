@@ -149,7 +149,7 @@ export function RecordRow({
       {/* `basis-56` rather than auto width: a long value on the detail line (a
           webhook URL, a hostname list) would otherwise widen this column until
           the actions wrapped underneath it. Truncating the value is the better
-          trade — it has a `title` — and the buttons stay where they were on the
+          trade, it has a `title`, and the buttons stay where they were on the
           row above. */}
       <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium">{title}</div>
@@ -214,7 +214,7 @@ export function RecordSkeleton({ rows }: { rows: number }) {
  * These dialogs are built from labelled inputs and a footer button rather
  * than a real `<form>`, so nothing gives them the one behaviour every filled-in
  * form has: typing the last value and pressing Enter. Put it on the element
- * wrapping the fields. Textareas and buttons keep Enter for themselves — a
+ * wrapping the fields. Textareas and buttons keep Enter for themselves, a
  * newline and a click are what it means there.
  */
 export function submitOnEnter(run: () => void) {

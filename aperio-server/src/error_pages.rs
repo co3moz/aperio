@@ -12,7 +12,7 @@
 //!     503_page: ./pages/app-503.html
 //! ```
 //!
-//! Pages are read from disk when the section is (re)loaded — at startup and
+//! Pages are read from disk when the section is (re)loaded, at startup and
 //! on config hot-reload. An unreadable file or malformed section logs an
 //! error and keeps the global pages, so a bad edit never breaks proxying.
 
@@ -72,7 +72,7 @@ pub(crate) fn from_config_file() -> ErrorPages {
     Ok(rules) => rules,
     Err(err) => {
       tracing::error!(
-        "invalid `error_pages:` section in aperio-server.yaml: {err} — keeping the global error pages"
+        "invalid `error_pages:` section in aperio-server.yaml: {err}, keeping the global error pages"
       );
       return ErrorPages::default();
     }
@@ -95,7 +95,7 @@ pub(crate) fn from_config_file() -> ErrorPages {
         }
         Err(e) => {
           tracing::error!(
-            "Failed to read the {which} page for {hostname} from {path}: {e} — using the global page"
+            "Failed to read the {which} page for {hostname} from {path}: {e}, using the global page"
           );
           None
         }

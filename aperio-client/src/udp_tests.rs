@@ -278,7 +278,7 @@ async fn test_handle_udp_open_tunnel_closed_stops_relay() {
   ));
 
   // Prime the connected socket so the backend learns the relay's address,
-  // then bounce a datagram back — the relay tries to forward it to the
+  // then bounce a datagram back, the relay tries to forward it to the
   // closed tunnel and breaks.
   dg_tx.send(b"x".to_vec()).await.unwrap();
   let mut buf = [0u8; 16];

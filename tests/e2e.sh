@@ -3,32 +3,32 @@
 # backends, exercised over HTTP with curl. Organized in phases, each with its
 # own server configuration:
 #
-#   A. base        — health, 504, proxying, dashboard APIs, tunnels API,
+#   A. base, health, 504, proxying, dashboard APIs, tunnels API,
 #                    maintenance mode, settings API, access log, metrics,
 #                    request inspector & replay, webhooks API, audit API,
 #                    token API lifecycle (list/edit/revoke), client control
 #                    API (overrule + kill switch)
-#   B. auth        — visitor password: login redirect + share-link flow
-#   C. failover    — retry-wait re-dispatch after a mid-request client kill
-#   D. lb          — primary-standby tiers, then sticky sessions
-#   E. features    — positional-target CLI, check provenance & failure modes,
+#   B. auth, visitor password: login redirect + share-link flow
+#   C. failover, retry-wait re-dispatch after a mid-request client kill
+#   D. lb, primary-standby tiers, then sticky sessions
+#   E. features, positional-target CLI, check provenance & failure modes,
 #                    redirect following, multi-service client, ~/.aperio.yaml
 #                    layer, per-token rate limit
-#   F. ws          — WebSocket pass-through (upgrade + frame echo + close)
-#   G. tunnels     — emergency tunnels (tunnels: + --bind-tunnels) and the
+#   F. ws, WebSocket pass-through (upgrade + frame echo + close)
+#   G. tunnels, emergency tunnels (tunnels: + --bind-tunnels) and the
 #                    legacy tcp bridge
-#   H. subdomain   — same-level random subdomain pattern (*-suffix)
-#   M. multihost   — one service claiming several hostnames
-#   I. h2          — h2c:// backend (HTTP/2 prior knowledge) with gRPC-style
+#   H. subdomain, same-level random subdomain pattern (*-suffix)
+#   M. multihost, one service claiming several hostnames
+#   I. h2, h2c:// backend (HTTP/2 prior knowledge) with gRPC-style
 #                    response trailers relayed end to end
-#   J. sessions    — dashboard sessions survive a server restart
-#   K. cache       — response cache hits, ETag/304 conditional answers, and
+#   J. sessions, dashboard sessions survive a server restart
+#   K. cache, response cache hits, ETag/304 conditional answers, and
 #                    serve-stale for resilient services while offline
-#   L. health      — target_health probes: reporting, routing exclusion,
+#   L. health, target_health probes: reporting, routing exclusion,
 #                    recovery, and immediate first probe on a dead backend
-#   P. scaling     — autoscaling: a request cold starts a service from zero,
+#   P. scaling, autoscaling: a request cold starts a service from zero,
 #                    single flight, the records API, and the SSRF fence
-#   O. api-cli     — `aperio-client api ...`: share links, token lifecycle,
+#   O. api-cli, `aperio-client api ...`: share links, token lifecycle,
 #                    maintenance, tunnels, users/webhooks/cache, auth failures
 #
 # Usage: bash tests/e2e.sh

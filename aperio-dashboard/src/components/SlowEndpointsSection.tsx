@@ -26,7 +26,7 @@ interface SlowEndpoint {
 }
 
 /**
- * Top slowest endpoints by recent-window p95 latency — the "where is the
+ * Top slowest endpoints by recent-window p95 latency, the "where is the
  * time going" table. Fed by `/aperio/api/slow-endpoints` (a rolling
  * in-memory window per host|path).
  */
@@ -55,7 +55,7 @@ export function SlowEndpointsSection() {
         </Button>
       </SectionHeader>
       <p className="max-w-3xl text-sm text-muted-foreground">
-        {t('Recent-window latency per endpoint, worst p95 first — where the time is going right now.')}
+        {t('Recent-window latency per endpoint, worst p95 first, where the time is going right now.')}
       </p>
       <Card className="overflow-hidden py-0">
         <Table>
@@ -75,7 +75,7 @@ export function SlowEndpointsSection() {
               <SkeletonRows rows={4} cols={7} />
             ) : rows.length === 0 ? (
               <EmptyRow colSpan={7} icon={<TurtleIcon />}>
-                {t('Not enough recent traffic yet — the table needs a few requests per endpoint.')}
+                {t('Not enough recent traffic yet, the table needs a few requests per endpoint.')}
               </EmptyRow>
             ) : (
               rows.map((r) => (

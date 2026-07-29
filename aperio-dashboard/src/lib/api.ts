@@ -493,7 +493,7 @@ export interface DashboardUser {
 }
 
 export interface LiveSession {
-  /** Hashed-token id — usable for revocation, useless for hijacking. */
+  /** Hashed-token id, usable for revocation, useless for hijacking. */
   id: string
   username: string
   role: string
@@ -521,7 +521,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   // The session middleware answers expired sessions with a redirect to the
   // login page; navigate there instead of trying to parse HTML as JSON. The
   // server's redirect parameter points at the API endpoint that happened to
-  // hit the expiry — replace it with the dashboard page the user is actually
+  // hit the expiry, replace it with the dashboard page the user is actually
   // on, so a successful login lands back there instead of on raw JSON.
   if (res.redirected && new URL(res.url).pathname === '/aperio/auth') {
     const here = `${window.location.pathname}${window.location.search}`
@@ -568,7 +568,7 @@ export interface TopoExpose {
   served_by: string | null
 }
 
-/** A hostname/path a token may bind but that no live client currently serves —
+/** A hostname/path a token may bind but that no live client currently serves,
  * declared (granted) yet offline. */
 export interface TopoOffline {
   bind: string

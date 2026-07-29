@@ -31,7 +31,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 /// `aperio-server.yaml` written into the working directory.
 ///
 /// A plain mutex, held for the length of the test. It replaces nine copies of
-/// a hand-rolled lock file that broke any lock older than thirty seconds —
+/// a hand-rolled lock file that broke any lock older than thirty seconds,
 /// which, under a fully parallel run, is a lock a *live* test can be holding.
 /// When that fired, two tests edited the same environment at once and one of
 /// them failed for reasons that were nowhere in its own code. Everything that
@@ -53,7 +53,7 @@ pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 /// Every fixture used to make its own directory directly under the system
 /// temp dir and nothing ever removed them: a state fixture is a dozen stores,
 /// a run of this suite is a thousand tests, and the leftovers of a day's work
-/// filled a disk — which then surfaced as a test failing for something that
+/// filled a disk, which then surfaced as a test failing for something that
 /// had nothing to do with it. Now a run leaves exactly one directory, and the
 /// next run sweeps the ones before it.
 fn tmp(prefix: &str) -> String {
@@ -67,7 +67,7 @@ fn tmp(prefix: &str) -> String {
 /// Kept rather than deleted at the end: the harness has no reliable hook for
 /// "the last test finished", and the most recent run's files are the ones
 /// worth having when something failed. Anything older than an hour is another
-/// run's, and goes — including the dirs individual test modules still make
+/// run's, and goes, including the dirs individual test modules still make
 /// directly under the temp dir, which is why the sweep matches every
 /// `aperio-` name rather than only this one.
 pub(crate) fn test_temp_root() -> std::path::PathBuf {

@@ -44,7 +44,7 @@ use tcp::run_tcp_bridge;
 async fn main() {
   // Pin the process-wide rustls provider to ring. The dependency tree pulls
   // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
-  // unification), and with two providers rustls refuses to auto-select one —
+  // unification), and with two providers rustls refuses to auto-select one,
   // every wss:// dial would panic at connect time without this.
   let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -192,7 +192,7 @@ async fn main() {
   );
 
   // Static file mode: start one loopback server per served directory and
-  // point the target(s) at them. Listeners survive config reloads — a
+  // point the target(s) at them. Listeners survive config reloads, a
   // directory seen before reuses its server, a new one gets a fresh server.
   let mut serve_started: std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)> =
     std::collections::HashMap::new();
@@ -475,8 +475,8 @@ fn spawn_services(
     .collect()
 }
 
-/// Static file mode: rewrites every `serve:` directory — the top-level one
-/// (single-service mode) or per `services:` entry — into a loopback static
+/// Static file mode: rewrites every `serve:` directory, the top-level one
+/// (single-service mode) or per `services:` entry, into a loopback static
 /// server target. One server runs per distinct directory, shared across
 /// services and config reloads. Errors on conflicting backend settings.
 async fn apply_serve_mode(
@@ -494,7 +494,7 @@ async fn apply_serve_mode(
   if let Some(dir) = settings.serve.clone() {
     if settings.target.is_some() || settings.tcp_target.is_some() {
       return Err(
-        "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive — the serve directory IS the backend".to_string(),
+        "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive, the serve directory IS the backend".to_string(),
       );
     }
     if !settings.services.is_empty() {
@@ -518,7 +518,7 @@ async fn apply_serve_mode(
     let has = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
     if has(&entry.target) || has(&entry.tcp_target) {
       return Err(format!(
-        "CRITICAL ERROR: service '{}' sets serve together with target/tcp_target — the serve directory IS the backend",
+        "CRITICAL ERROR: service '{}' sets serve together with target/tcp_target, the serve directory IS the backend",
         entry
           .name
           .clone()
@@ -746,7 +746,7 @@ fn build_specs(
     }
   }
 
-  // Denied-visitor redirects must be absolute http(s) URLs — anything else
+  // Denied-visitor redirects must be absolute http(s) URLs, anything else
   // would silently degrade to stealth on the server.
   let validate_denied = |denied: Option<&String>, what: &str| -> Result<(), String> {
     if let Some(url) = denied {
@@ -1298,9 +1298,9 @@ fn log_spec(spec: &ServiceSpec) {
   info!("- Client ID: {}", spec.client_id);
   if spec.target.is_empty() {
     if spec.tunnels.is_empty() {
-      info!("- Target: (none — this connection carries messages)");
+      info!("- Target: (none, this connection carries messages)");
     } else {
-      info!("- Target: (none — tunnels only)");
+      info!("- Target: (none, tunnels only)");
     }
   } else {
     info!("- Target: {}", spec.target);
@@ -1353,7 +1353,7 @@ fn log_spec(spec: &ServiceSpec) {
   }
   for t in &spec.tunnels {
     info!(
-      "- Tunnel: {} ({}) — bindable by a peer client with this token and client id",
+      "- Tunnel: {} ({}), bindable by a peer client with this token and client id",
       t.target, t.protocol
     );
   }

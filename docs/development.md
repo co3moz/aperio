@@ -2,7 +2,7 @@
 
 ## Building from source
 
-Requires the Rust toolchain (2024 edition, **1.87+** — declared as `rust-version` in each crate, so an older toolchain says so instead of failing inside a dependency). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](../aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
+Requires the Rust toolchain (2024 edition, **1.87+**, declared as `rust-version` in each crate, so an older toolchain says so instead of failing inside a dependency). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](../aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
 
 ```bash
 cargo build --release -p aperio-server -p aperio-client
@@ -17,7 +17,7 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite (pure lib functions; scans `src/` only), which CI runs alongside the i18n check. `npm run test:e2e` runs the [Playwright](https://playwright.dev) shell smoke test against a static `vite preview` build (one-time `npx playwright install chromium` first); it is not wired into CI because full API-backed journeys need a running server.
 
-**Screenshots.** The images in `README.md` and [Dashboard](dashboard.md) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape — the first set went stale within two releases because refreshing them was a manual afternoon.
+**Screenshots.** The images in `README.md` and [Dashboard](dashboard.md) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape, the first set went stale within two releases because refreshing them was a manual afternoon.
 
 ## Tests & end-to-end suite
 

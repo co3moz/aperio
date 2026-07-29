@@ -101,8 +101,8 @@ async fn an_mqtt_client_subscribes_and_receives() {
 
 #[tokio::test]
 async fn a_higher_qos_is_granted_as_zero_rather_than_refused() {
-  // A library accepts the downgrade — that is what the granted-QoS field is
-  // for — and promising 1 would mean promising a redelivery this does not do.
+  // A library accepts the downgrade, that is what the granted-QoS field is
+  // for, and promising 1 would mean promising a redelivery this does not do.
   let bus = MessageBus::new(vec![]);
   let addr = start(bus).await;
   let mut client = connect(&addr).await;

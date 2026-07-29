@@ -11,8 +11,8 @@
 //! Two triggers share one state machine, because they are the same problem at
 //! different points on the curve:
 //!
-//! * **cold start (0 to 1)** — a request arrives for a bind no client serves.
-//! * **scale out (N to N+1)** — the connected pool is saturated.
+//! * **cold start (0 to 1)**, a request arrives for a bind no client serves.
+//! * **scale out (N to N+1)**, the connected pool is saturated.
 //!
 //! Scale *in* is deliberately absent: an idle client retires itself
 //! (`idle_timeout`), so the server never has to decide to kill anything.

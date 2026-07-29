@@ -1,12 +1,12 @@
 //! `aperio-server --print-config`: a read-only report of the effective
 //! configuration, printed without starting the server (no port is bound, no
 //! runtime is created). It answers "what is actually configured, and where did
-//! each value come from?" — the everyday question behind config sprawl.
+//! each value come from?", the everyday question behind config sprawl.
 //!
 //! Because [`crate::config_file::load`] has already folded every scalar
 //! `aperio-server.yaml` key into its `APERIO_*` environment variable by the
 //! time this runs, the *set* environment variables are the effective values.
-//! Each is attributed to its origin — the file or the real environment — and
+//! Each is attributed to its origin, the file or the real environment, and
 //! the persisted dashboard overrides (which win at runtime) are listed too.
 //! Unset knobs keep their built-in defaults; `--print-schema` lists the full
 //! catalogue with those defaults.
@@ -42,7 +42,7 @@ pub(crate) fn render() -> String {
     Some(p) => {
       let _ = writeln!(out, "config file : {} (not present)", p.display());
     }
-    None => out.push_str("config file : (none — using environment and defaults)\n"),
+    None => out.push_str("config file : (none, using environment and defaults)\n"),
   }
   let _ = writeln!(out, "data dir    : {data_dir}");
   out.push('\n');
@@ -65,7 +65,7 @@ pub(crate) fn render() -> String {
 
   let _ = writeln!(out, "Settings ({} set, the rest use defaults):", rows.len());
   if rows.is_empty() {
-    out.push_str("  (none set — every setting uses its built-in default)\n");
+    out.push_str("  (none set, every setting uses its built-in default)\n");
   }
   let width = rows.iter().map(|(k, ..)| k.len()).max().unwrap_or(0);
   for (k, v, source) in &rows {
@@ -93,7 +93,7 @@ pub(crate) fn render() -> String {
           map.iter().filter(|(_, v)| !v.is_null()).collect();
         let _ = writeln!(
           out,
-          "Dashboard overrides ({}) — these win over env/yaml at runtime:",
+          "Dashboard overrides ({}), these win over env/yaml at runtime:",
           settings_path.display()
         );
         if set.is_empty() {
@@ -129,7 +129,7 @@ pub(crate) fn render() -> String {
 }
 
 /// Prints the effective-configuration report and returns the process exit
-/// code (always 0 — printing the configuration cannot fail).
+/// code (always 0, printing the configuration cannot fail).
 pub(crate) fn run() -> i32 {
   print!("{}", render());
   0

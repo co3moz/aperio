@@ -99,7 +99,7 @@ pub(crate) fn gateway_timeout_response(
 /// Single-flight leadership over one cache key: held by the first request
 /// that misses the cache for a coalescable GET while followers wait. Drop
 /// removes the key from the in-flight table and (by dropping the watch
-/// sender) wakes every waiting follower — on all exit paths.
+/// sender) wakes every waiting follower, on all exit paths.
 struct CacheSingleFlight {
   state: Arc<AppState>,
   key: String,
@@ -116,7 +116,7 @@ impl Drop for CacheSingleFlight {
 
 /// Background stale-while-revalidate refresh: re-fetches one cacheable GET
 /// through the already-selected tunnel client and replaces the cache entry
-/// on a cacheable 200. Fire-and-forget — a failure leaves the stale entry
+/// on a cacheable 200. Fire-and-forget, a failure leaves the stale entry
 /// serving until its SWR window closes (the leader election retries).
 #[allow(clippy::too_many_arguments)]
 fn spawn_swr_revalidation(
@@ -278,7 +278,7 @@ fn login_redirect(login_path: &str, uri_str: &str) -> Response {
 /// 1. When a client declared a per-service visitor password for this route
 ///    (`route_visitor_auth`), it supersedes the server's own gate: the visitor
 ///    must hold a session valid for this host (a host-scoped login, or any
-///    global session) — or a share cookie/link that covers the route. The login
+///    global session), or a share cookie/link that covers the route. The login
 ///    always uses the password form (never OIDC), since the credentials are the
 ///    client's.
 /// 2. Otherwise the server's own gate applies: public routes skip it; a
@@ -292,7 +292,7 @@ pub(crate) async fn check_visitor_gate(
   let path = uri.path();
 
   // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
-  // bind, but a backend that resolves `..` serves `/b` — so such a path is
+  // bind, but a backend that resolves `..` serves `/b`, so such a path is
   // never public, never unlocks a client's per-service credentials or a share
   // scope (share checks reject it too), and when any gate could apply on this
   // host it requires a full (global) session.
@@ -413,7 +413,7 @@ pub(crate) async fn proxy_handler(
 
   // First-run convenience: on a fresh install (no client has ever connected,
   // no request ever proxied) a visit to the bare root is almost certainly the
-  // operator checking their new server — send them to the dashboard with a
+  // operator checking their new server, send them to the dashboard with a
   // temporary redirect. The moment a client connects or any traffic flows,
   // this never triggers again.
   if state.dashboard_enabled
@@ -475,7 +475,7 @@ fn cache_hit_response(
     .is_some_and(|(inm, tag)| crate::cache::if_none_match_matches(inm, tag));
 
   // Range requests (video scrubbing, resumable downloads) are satisfied
-  // straight from the cached full body — a 304 still wins, and an `If-Range`
+  // straight from the cached full body, a 304 still wins, and an `If-Range`
   // validator that no longer matches degrades to the full 200 per RFC 9110.
   let total_len = hit.body.len();
   let range_outcome = if not_modified || hit.status != 200 {
@@ -526,7 +526,7 @@ fn cache_hit_response(
   for (k, v) in hit.headers.iter() {
     let k_lower = k.to_ascii_lowercase();
     // A 304 carries only the metadata a client may need to update its own
-    // cache entry — never entity headers describing a body that isn't there.
+    // cache entry, never entity headers describing a body that isn't there.
     if not_modified
       && !matches!(
         k_lower.as_str(),
@@ -678,8 +678,8 @@ async fn proxy_http_request(
   // Client-declared visitor IP allowlists are enforced per candidate during
   // client selection below: the request dispatches to any candidate whose
   // own list admits the visitor, and a fully rejected visitor gets the
-  // winning `denied:` redirect — or a stealth answer identical to an
-  // unclaimed route — so blocked traffic still never enters the tunnel.
+  // winning `denied:` redirect, or a stealth answer identical to an
+  // unclaimed route, so blocked traffic still never enters the tunnel.
 
   // 3. Wait for connection if client is disconnected.
   // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
@@ -922,7 +922,7 @@ async fn proxy_http_request(
       } else {
         "No active client connection available"
       };
-      // A resilient cached answer (possibly stale) beats the 504 — but never
+      // A resilient cached answer (possibly stale) beats the 504, but never
       // for a denied visitor: serving cache would leak the route's existence.
       if !denied
         && let Some(resp) =
@@ -932,7 +932,7 @@ async fn proxy_http_request(
       }
       // Per-hostname fallback URL (`fallbacks:` section): redirect an
       // unclaimed hostname to a configured origin/status page instead of 504.
-      // Never for a denied visitor (stealth) — the redirect would leak the
+      // Never for a denied visitor (stealth), the redirect would leak the
       // route's existence.
       if !denied {
         let cfg = state.config();
@@ -1043,8 +1043,8 @@ async fn proxy_http_request(
   // Single-flight coalescing: the first cacheable miss for a key becomes the
   // leader (the guard below); concurrent identical misses wait for it and
   // re-check the cache instead of stampeding the backend on cache expiry.
-  // The guard is held until this handler returns — by then the leader's
-  // response is cached (or proved uncacheable) — and its Drop wakes waiters
+  // The guard is held until this handler returns, by then the leader's
+  // response is cached (or proved uncacheable), and its Drop wakes waiters
   // on every exit path, including errors and failover.
   let mut _cache_single_flight: Option<CacheSingleFlight> = None;
   if cache_eligible {
@@ -1128,7 +1128,7 @@ async fn proxy_http_request(
         return response;
       }
       // Followers wait at most once: if the leader's response turned out to
-      // be uncacheable there is nothing to coalesce onto — dispatch normally.
+      // be uncacheable there is nothing to coalesce onto, dispatch normally.
       if waited {
         break;
       }
@@ -1556,8 +1556,8 @@ async fn proxy_http_request(
       Some(mut tunnel_res) => {
         let response_received_at = Instant::now();
         // Server-side `headers.response` rewrite rules (aperio-server.yaml),
-        // applied before every consumer — the visitor response, the response
-        // cache and the inspector capture — so all views agree.
+        // applied before every consumer, the visitor response, the response
+        // cache and the inspector capture, so all views agree.
         tunnel_res.headers = state
           .config()
           .header_rules

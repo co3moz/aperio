@@ -102,7 +102,7 @@ export const GROUPS: GroupSpec[] = [
     description: 'Behavior of the tunnel links and automatic hostnames.',
     fields: [
       { key: 'tunnel_compression', label: 'Tunnel compression', kind: 'boolean', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
-      { key: 'random_subdomain_suffix', label: 'Random subdomain pattern', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled' },
+      { key: 'random_subdomain_suffix', label: 'Random subdomain pattern', kind: 'text', hint: 'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled' },
       { key: 'preview_noindex', label: 'Noindex preview hosts', kind: 'boolean', hint: 'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt' },
     ],
   },
@@ -147,7 +147,7 @@ export const GROUPS: GroupSpec[] = [
   },
 ]
 
-/** Every field, with the group it belongs to — what a search walks. */
+/** Every field, with the group it belongs to, what a search walks. */
 export const SETTING_FIELDS: { field: FieldSpec; group: GroupSpec }[] = GROUPS.flatMap((group) =>
   group.fields.map((field) => ({ field, group })),
 )

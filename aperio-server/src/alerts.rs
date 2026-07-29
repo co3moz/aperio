@@ -8,7 +8,7 @@
 //!   of failed (5xx) proxied requests over a sliding window
 //!   (`APERIO_ALERT_WINDOW`, default 300 s) crosses the threshold. Windows
 //!   with fewer than `APERIO_ALERT_MIN_REQUESTS` (default 20) requests never
-//!   alert — a single failure in a quiet minute is not an incident.
+//!   alert, a single failure in a quiet minute is not an incident.
 //! - **Client down** (`APERIO_ALERT_CLIENT_DOWN`, seconds, 0 = off): a
 //!   service entity that was seen connected stays down (or disappears) for
 //!   longer than the threshold.
@@ -16,7 +16,7 @@
 //! One `alert_triggered` fires per episode, and one `alert_resolved` when
 //! the condition clears (the error-rate rule resolves at 80% of the
 //! threshold, so a value hovering at the limit cannot flap). Alerts ride
-//! the existing webhook/audit pipeline — point a Slack/Discord webhook at
+//! the existing webhook/audit pipeline, point a Slack/Discord webhook at
 //! the `alert_triggered` event and it becomes a pager.
 
 use std::collections::HashMap;

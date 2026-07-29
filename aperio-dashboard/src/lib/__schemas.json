@@ -405,7 +405,7 @@
         ]
       },
       "response_timeout": {
-        "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it — a per-service override of the server's global\ngateway response timeout (defaults applied per service).",
+        "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it, a per-service override of the server's global\ngateway response timeout (defaults applied per service).",
         "type": [
           "integer",
           "null"
@@ -738,7 +738,7 @@
         "description": "One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older\nspelling, by a peer client's id).\n\nA bare port number is the short form of `{ port: <n> }`, since naming the\nlocal port is the only thing most entries do.",
         "anyOf": [
           {
-            "description": "`pg-main: 15432` — the local port, everything else defaulted.",
+            "description": "`pg-main: 15432`, the local port, everything else defaulted.",
             "type": "integer",
             "format": "uint16",
             "maximum": 65535,
@@ -996,7 +996,7 @@
         "type": "object",
         "properties": {
           "csp": {
-            "description": "`Content-Security-Policy` value to inject (no default — CSP is\napplication-specific).",
+            "description": "`Content-Security-Policy` value to inject (no default, CSP is\napplication-specific).",
             "type": [
               "string",
               "null"
@@ -1078,7 +1078,7 @@
         "description": "The Aperio server this client connects to: either a bare URL string, or a\n`{ url, token }` section that also carries the tunnel token.",
         "anyOf": [
           {
-            "description": "Server URL only — the token then comes from `token:` or the environment.",
+            "description": "Server URL only, the token then comes from `token:` or the environment.",
             "type": "string"
           },
           {
@@ -1422,7 +1422,7 @@
             ]
           },
           "response_timeout": {
-            "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it — a per-service override of the server's global\ngateway response timeout, for slow report/upload endpoints.",
+            "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it, a per-service override of the server's global\ngateway response timeout, for slow report/upload endpoints.",
             "type": [
               "integer",
               "null"
@@ -1595,7 +1595,7 @@
         "description": "One `subscribe:` entry.\n\nA bare filter is the short form: listen, and let whatever is attached to\nthe local face receive it. The object form is for a client that should\n*act* on the message itself.",
         "anyOf": [
           {
-            "description": "`- deploy/web` — listen and deliver, nothing else.",
+            "description": "`- deploy/web`, listen and deliver, nothing else.",
             "type": "string"
           },
           {
@@ -1605,7 +1605,7 @@
         ]
       },
       "TopHealthConfig": {
-        "description": "The top level's `health:` block.\n\nThe same fields as [`HealthConfig`] — a file written either way parses\nidentically — except that `endpoint` is on its way out here. The other\nchildren are real defaults: a `services:` entry that says nothing about\nits interval, timeout, threshold or boot wait inherits them. `endpoint` is\nnot, and never was: a probe path belongs to the backend it probes, so the\nresolver reads it strictly per entry and a top-level one is read by\nnothing at all once a `services:` list exists.",
+        "description": "The top level's `health:` block.\n\nThe same fields as [`HealthConfig`], a file written either way parses\nidentically, except that `endpoint` is on its way out here. The other\nchildren are real defaults: a `services:` entry that says nothing about\nits interval, timeout, threshold or boot wait inherits them. `endpoint` is\nnot, and never was: a probe path belongs to the backend it probes, so the\nresolver reads it strictly per entry and a top-level one is read by\nnothing at all once a `services:` list exists.",
         "type": "object",
         "properties": {
           "endpoint": {
@@ -1721,7 +1721,7 @@
             ]
           },
           "psk": {
-            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere —\nthe binder configures the same value in its `bind-tunnels` entry.",
+            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere, \nthe binder configures the same value in its `bind-tunnels` entry.",
             "type": [
               "string",
               "null"
@@ -3969,7 +3969,7 @@
             ]
           },
           "protocol": {
-            "description": "OTLP transport: `http` (protobuf over HTTP) or `grpc`. Unset picks `grpc`\nfor an endpoint on port 4317 and `http` everywhere else — a collector\nanswering the wrong protocol drops every span silently, so pin this when\nthe endpoint runs on a non-standard port.",
+            "description": "OTLP transport: `http` (protobuf over HTTP) or `grpc`. Unset picks `grpc`\nfor an endpoint on port 4317 and `http` everywhere else, a collector\nanswering the wrong protocol drops every span silently, so pin this when\nthe endpoint runs on a non-standard port.",
             "type": [
               "string",
               "null"

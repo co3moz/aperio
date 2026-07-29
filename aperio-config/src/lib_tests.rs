@@ -308,7 +308,7 @@ fn env_vars_read(crate_dir: &str) -> std::collections::BTreeSet<String> {
         continue;
       };
       // Direct reads, plus the client's `env_str`/`env_parse`/`env_bool`
-      // helpers — scanning only for `env::var` would find the helper's own
+      // helpers, scanning only for `env::var` would find the helper's own
       // parameter and silently pass the whole client crate.
       for pattern in ["env::var(\"", "env_str(\"", "env_parse(\"", "env_bool(\""] {
         for (i, _) in src.match_indices(pattern) {
@@ -414,7 +414,7 @@ fn every_environment_variable_has_a_yaml_key() {
     // the code got clean.
     assert!(
       read.len() > 20,
-      "only {} environment reads found in {crate_dir} — the scanner is broken",
+      "only {} environment reads found in {crate_dir}, the scanner is broken",
       read.len()
     );
     for var in read {
@@ -720,7 +720,7 @@ fn a_top_level_health_endpoint_counts_as_a_single_service_key() {
 fn the_top_level_health_block_still_parses_every_field() {
   // The top level has its own type now so `endpoint` can be marked withdrawn
   // there and not on a services: entry. Same fields, so a file written either
-  // way must load identically — a schema-only split must not become a parse
+  // way must load identically, a schema-only split must not become a parse
   // change.
   let cfg: FileConfig = serde_yaml::from_str(
     "health:\n  endpoint: /h\n  interval: 7\n  timeout: 3\n  threshold: 4\n  wait_for_backend: true\n",
@@ -763,7 +763,7 @@ fn schema_properties(schema: &serde_json::Value) -> Vec<(String, &serde_json::Va
   out
 }
 
-/// `object` / `array` / a `$ref` — a shape you cannot guess from the type.
+/// `object` / `array` / a `$ref`, a shape you cannot guess from the type.
 fn is_structured(prop: &serde_json::Value) -> bool {
   let named = |t: &serde_json::Value| matches!(t.as_str(), Some("object") | Some("array"));
   if prop.get("$ref").is_some() {
@@ -859,9 +859,9 @@ fn the_server_schema_documents_every_key() {
 ///
 /// An example that does not deserialize is worse than no example: an editor
 /// offers it as the shape to copy, and it produces a file the binary refuses.
-/// Three of them were wrong when this check was first written — `rate_limits`
+/// Three of them were wrong when this check was first written, `rate_limits`
 /// carried `max`/`refill` instead of `rps`, `fallbacks` a `respond` block
-/// instead of a `url`, `waf` a `contains` instead of a `regex` — all of them
+/// instead of a `url`, `waf` a `contains` instead of a `regex`, all of them
 /// written from memory of a neighbouring section and none of them caught by
 /// the type system, because an example is just JSON until someone parses it.
 fn assert_examples_parse<T: serde::de::DeserializeOwned>(label: &str, schema: serde_json::Value) {
@@ -898,7 +898,7 @@ fn assert_examples_parse<T: serde::de::DeserializeOwned>(label: &str, schema: se
 /// `assert_examples_parse` cannot see this: an example for a *nested* type is
 /// serialized into a document, and a struct without `deny_unknown_fields`
 /// accepts a key it has never heard of. So `routes:` shipped an example
-/// saying `status: 301` for a type whose field is `permanent: true` — the
+/// saying `status: 301` for a type whose field is `permanent: true`, the
 /// example parsed, and quietly produced a 302 for anyone who copied it.
 fn assert_example_keys_exist(label: &str, schema: &serde_json::Value) {
   let defs = &schema["$defs"];
@@ -1024,7 +1024,7 @@ fn a_filter_matches_the_way_mqtt_says_it_should() {
 #[test]
 fn a_bare_wildcard_does_not_sweep_up_server_events() {
   // Subscribing to everything must not silently enroll a client in
-  // infrastructure events it never asked to parse — the reason MQTT keeps `#`
+  // infrastructure events it never asked to parse, the reason MQTT keeps `#`
   // away from `$SYS`. Asking for them by name still works.
   assert!(!topic_matches("#", "$aperio/client/connected"));
   assert!(!topic_matches(

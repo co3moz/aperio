@@ -104,7 +104,7 @@ fn main() {
 
   // Pin the process-wide rustls provider to ring. The dependency tree pulls
   // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
-  // unification), and with two providers rustls refuses to auto-select one —
+  // unification), and with two providers rustls refuses to auto-select one,
   // the first outbound TLS call (webhooks, OIDC, OTLP) would panic without
   // this.
   let _ = rustls::crypto::ring::default_provider().install_default();
@@ -146,9 +146,9 @@ fn main() {
     std::process::exit(check_config::run());
   }
 
-  // `aperio-server --print-config` prints the effective configuration — which
+  // `aperio-server --print-config` prints the effective configuration, which
   // `APERIO_*` values are set and whether each came from the environment, the
-  // `aperio-server.yaml` file, or a persisted dashboard override — and exits
+  // `aperio-server.yaml` file, or a persisted dashboard override, and exits
   // without starting the server.
   if std::env::args().nth(1).as_deref() == Some("--print-config") {
     std::process::exit(print_config::run());
@@ -173,7 +173,7 @@ fn main() {
 ///
 /// This changes observability, not control flow. Under the default `unwind`
 /// strategy a panic still only unwinds its own task/connection (or is turned
-/// into a 500 by the catch-panic layer) — the process keeps running. But such a
+/// into a 500 by the catch-panic layer), the process keeps running. But such a
 /// contained panic is otherwise easy to miss: its `JoinHandle` is never
 /// awaited, so the only trace is an unstructured stderr line with no task
 /// context. Routing it through `tracing` puts it in the server's normal log
@@ -199,7 +199,7 @@ fn install_panic_logger() {
       panic_location = %location,
       panic_thread = %thread,
       panic_backtrace = %backtrace,
-      "panic caught — the task/connection is unwound; the process continues"
+      "panic caught, the task/connection is unwound; the process continues"
     );
   }));
 }
@@ -310,7 +310,7 @@ fn report_config_upgrade() {
 }
 
 /// `aperio-server --verify-audit`: verifies the tamper-evident hash chain of
-/// the audit log — the active `audit.jsonl` plus every rotated generation —
+/// the audit log, the active `audit.jsonl` plus every rotated generation,
 /// and returns the process exit code (0 = intact, 1 = a broken/tampered line
 /// was found). Each file is checked independently; its first line is a
 /// rotation boundary and is not checkable against a rotated-away predecessor.
@@ -347,14 +347,14 @@ fn verify_audit() -> i32 {
       Ok(Some(line)) => {
         broken += 1;
         println!(
-          "  FAIL  {} — hash chain breaks at line {}",
+          "  FAIL  {}, hash chain breaks at line {}",
           f.display(),
           line
         );
       }
       Err(e) => {
         broken += 1;
-        println!("  FAIL  {} — cannot read: {}", f.display(), e);
+        println!("  FAIL  {}, cannot read: {}", f.display(), e);
       }
     }
   }
@@ -475,7 +475,7 @@ async fn async_main() {
   // Max IP token bucket capacity burst (default: 100 requests)
   // Only a finite, strictly positive bucket size is meaningful: 0, a negative,
   // NaN or infinity would silently wedge the limiter (never/always throttling),
-  // so reject those and fall back to the default — mirroring the dashboard
+  // so reject those and fall back to the default, mirroring the dashboard
   // settings validation (`v > 0.0`).
   let ip_limit_max = std::env::var("APERIO_IP_LIMIT_MAX")
     .ok()
@@ -516,7 +516,7 @@ async fn async_main() {
   // XFF to the CDN edge address, e.g. APERIO_REAL_IP_HEADER=CF-Connecting-IP.
   // APERIO_TRUST_CF_HEADER=1 is shorthand for the common Cloudflare chain: it
   // resolves to APERIO_REAL_IP_HEADER=CF-Connecting-IP (an explicit
-  // APERIO_REAL_IP_HEADER still wins). Deliberately opt-in — any visitor can
+  // APERIO_REAL_IP_HEADER still wins). Deliberately opt-in, any visitor can
   // send that header, so trusting it automatically would let clients spoof
   // their IP for rate limiting, audit logs, and token IP allowlists on
   // deployments that are not actually behind Cloudflare.
@@ -530,7 +530,7 @@ async fn async_main() {
     .or_else(|| trust_cf_header.then(|| "cf-connecting-ip".to_string()));
   // Trusted proxy/CDN egress ranges (comma-separated IPs/CIDRs). When set,
   // the client IP is resolved by walking the X-Forwarded-For chain from the
-  // nearest hop backwards past trusted addresses — the CDN-agnostic model
+  // nearest hop backwards past trusted addresses, the CDN-agnostic model
   // that works for any proxy chain. Implies trust_proxy.
   let trusted_proxies = match std::env::var("APERIO_TRUSTED_PROXIES") {
     Ok(raw) => match crate::routing::parse_trusted_proxies(&raw) {
@@ -750,7 +750,7 @@ async fn async_main() {
         }
         Err(e) => {
           error!(
-            "Failed to read APERIO_504_PAGE {}: {} — using default 504 text",
+            "Failed to read APERIO_504_PAGE {}: {}, using default 504 text",
             path, e
           );
           None
@@ -777,7 +777,7 @@ async fn async_main() {
         }
         Err(e) => {
           error!(
-            "Failed to open APERIO_ACCESS_LOG {}: {} — access log file disabled",
+            "Failed to open APERIO_ACCESS_LOG {}: {}, access log file disabled",
             path, e
           );
           None
@@ -797,7 +797,7 @@ async fn async_main() {
         }
         Err(e) => {
           error!(
-            "Failed to read APERIO_503_PAGE {}: {} — using default 503 text",
+            "Failed to read APERIO_503_PAGE {}: {}, using default 503 text",
             path, e
           );
           None
@@ -1053,7 +1053,7 @@ async fn async_main() {
         Ok(o) => Some(o),
         Err(e) => {
           error!(
-            "Failed to parse {:?}: {} — ignoring persisted settings",
+            "Failed to parse {:?}: {}, ignoring persisted settings",
             settings_path, e
           );
           None
@@ -1464,7 +1464,7 @@ async fn async_main() {
     // Added after the session layer so it runs first (outermost): a blocked
     // source IP is rejected with 403 before any auth check. Registered before
     // the assets route below so public login assets stay reachable, and it
-    // wraps only the dashboard + /api routes — the login page, auth endpoints,
+    // wraps only the dashboard + /api routes, the login page, auth endpoints,
     // health and OIDC routes live on the root router and are never fenced, so
     // APERIO_SERVER_AUTH-protected proxied sites keep working from any address.
     let ip_state = state.clone();
@@ -1518,7 +1518,7 @@ async fn async_main() {
 
   // `/aperio/` is not the dashboard: nesting matches `/aperio` and
   // `/aperio/<something>`, so the trailing slash falls through to the proxy
-  // and a visitor gets whatever a tunnel client answers — a 504, or worse, a
+  // and a visitor gets whatever a tunnel client answers, a 504, or worse, a
   // stranger's site. It is the same address to everyone typing it, so it
   // redirects to the one that works, query string and all.
   app = app.route(
@@ -1592,7 +1592,7 @@ async fn async_main() {
   app = app.route("/aperio/tcp", get(tcp_ws_handler));
   app = app.route("/aperio/udp", get(udp_ws_handler));
   // Tunnel discovery for --bind-tunnels consumers: same token the client
-  // connected with (or master), explicit client id — never a listing.
+  // connected with (or master), explicit client id, never a listing.
   app = app.route("/aperio/tunnels", get(tunnels_discovery_handler));
   app = app.route("/aperio/tunnels/:client_id", get(tunnels_list_handler));
   app = app.route("/aperio/oidc/login", get(oidc_login_handler));
@@ -1876,7 +1876,7 @@ async fn async_main() {
 }
 
 /// Minimum dashboard role a route requires. User management and server
-/// settings can change who controls the server — admin only. Everything
+/// settings can change who controls the server, admin only. Everything
 /// else: reads for viewers, mutations for operators.
 fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users::Role {
   use crate::store::users::Role;
@@ -1887,18 +1887,18 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
   if path.starts_with("/api/users")
     || path == "/api/settings"
     // The dump contains token/password hashes and TOTP secrets, and an
-    // import replaces them — admin only, even for the GET.
+    // import replaces them, admin only, even for the GET.
     || path == "/api/export"
     || path == "/api/import"
     // Session management exposes who is signed in from which IP/UA and can
-    // end other admins' sessions — admin only, including the list.
+    // end other admins' sessions, admin only, including the list.
     || path == "/api/sessions"
     || path.starts_with("/api/sessions/")
     // Organization management is master-super-admin only (checked in the
     // handlers); require at least Admin at the routing layer.
     || path == "/api/orgs"
     || path.starts_with("/api/orgs/")
-    // Programmatic admin keys are powerful cross-org credentials — master
+    // Programmatic admin keys are powerful cross-org credentials, master
     // super-admin only (also checked in the handlers).
     || path == "/api/admin-keys"
     || path.starts_with("/api/admin-keys/")

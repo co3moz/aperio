@@ -7,11 +7,11 @@ COPY Cargo.toml Cargo.lock ./
 COPY aperio-client/Cargo.toml aperio-client/build.rs ./aperio-client/
 COPY aperio-server/Cargo.toml ./aperio-server/
 # aperio-config is a real dependency of the client and its build script, so its
-# full (tiny, rarely-changing) source is needed to compile — not just the manifest.
+# full (tiny, rarely-changing) source is needed to compile, not just the manifest.
 COPY aperio-config/Cargo.toml ./aperio-config/
 COPY aperio-config/src/ ./aperio-config/src/
 # tests/mock-h2 is a workspace member (e2e-only helper), so its manifest must
-# exist for the workspace to resolve — its code is never built here.
+# exist for the workspace to resolve, its code is never built here.
 COPY tests/mock-h2/Cargo.toml ./tests/mock-h2/
 
 RUN mkdir -p aperio-client/src && echo "fn main() {}" > aperio-client/src/main.rs

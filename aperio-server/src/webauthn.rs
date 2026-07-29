@@ -1,7 +1,7 @@
 //! WebAuthn (passkey) sign-in for dashboard users, built on `webauthn-rs`.
 //!
 //! Enabled by setting `APERIO_WEBAUTHN_ORIGIN` to the public URL the
-//! dashboard is reached at (e.g. `https://tunnel.example.com`) — the RP ID is
+//! dashboard is reached at (e.g. `https://tunnel.example.com`), the RP ID is
 //! its domain, and browsers refuse credentials for a mismatched origin, so it
 //! cannot be guessed. Registration is self-service for signed-in named users
 //! (`/aperio/api/me/passkeys/*`); sign-in is passwordless from the login page
@@ -600,7 +600,7 @@ pub(crate) async fn passkey_login_finish_handler(
 }
 
 /// Starts a usernameless (discoverable-credential) sign-in: no username is
-/// needed — the authenticator's account picker supplies the identity.
+/// needed, the authenticator's account picker supplies the identity.
 #[utoipa::path(post, path = "/aperio/auth/passkey/discoverable/start", tag = "auth",
   description = "Starts a usernameless passkey sign-in; the returned challenge lets the authenticator pick from its resident credentials.",
   responses((status = 200, description = "Request challenge", body = serde_json::Value), (status = 501, description = "Passkeys not configured")))]
@@ -723,7 +723,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
   let user_id = user_uuid.to_string();
 
   // Resolve the user and the exact passkey; the usernameless opt-in gates
-  // this path — a passkey registered without it stays username-first only.
+  // this path, a passkey registered without it stays username-first only.
   let (keys, allowed) = {
     let users = state.users.lock().await;
     match users.get(&user_id) {

@@ -21,7 +21,7 @@ export interface LiveData {
  * endpoint: `traffic` events append to the request log, `stats` events replace
  * the stats snapshot (pushed every 2s and once on connect). Seeds from the REST
  * endpoints and, if the stream can't be established, transparently falls back to
- * polling both — so nothing goes stale.
+ * polling both, so nothing goes stale.
  */
 export function useLiveData(): LiveData {
   const [logs, setLogs] = useState<RequestLog[] | null>(null)

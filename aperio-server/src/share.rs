@@ -31,7 +31,7 @@ pub(crate) struct ShareCreateRequest {
 }
 
 /// Generates a signed share link: a URL that grants temporary, scoped access
-/// to an auth-protected proxied site without a dashboard login. Stateless —
+/// to an auth-protected proxied site without a dashboard login. Stateless,
 /// the token is HMAC-signed and simply expires; there is nothing to list or
 /// revoke individually (rotating the master token invalidates all links).
 #[utoipa::path(post, path = "/aperio/api/share", tag = "dashboard",
@@ -171,7 +171,7 @@ const SHARE_MAX_TTL_SECS: u64 = 10 * 365 * 24 * 3600;
 
 /// Claims embedded in a share token. The token is
 /// `base64url(json).base64url(hmac_sha256)`, signed with a key derived from
-/// the master token — nothing is persisted server-side, so links survive
+/// the master token, nothing is persisted server-side, so links survive
 /// restarts and simply expire.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ShareClaims {
@@ -233,7 +233,7 @@ pub(crate) fn verify_share_token(token: &str, key: &[u8]) -> Option<ShareClaims>
 pub(crate) fn share_claims_cover(claims: &ShareClaims, host: Option<&str>, uri_path: &str) -> bool {
   // A traversal segment in the request path can widen the granted scope
   // (`/public/../admin` starts with `/public/`), so never treat such a path as
-  // covered — the request falls back to the normal login gate.
+  // covered, the request falls back to the normal login gate.
   if request_path_has_traversal(uri_path) {
     return false;
   }
@@ -264,11 +264,11 @@ fn share_token_from_cookies(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Checks share-link access for a request without a dashboard session:
-/// - `Some(None)` — a valid share cookie covers this request; proceed.
-/// - `Some(Some(response))` — a valid token arrived via the `aperio_share`
+/// - `Some(None)`, a valid share cookie covers this request; proceed.
+/// - `Some(Some(response))`, a valid token arrived via the `aperio_share`
 ///   query parameter (first click on a link): redirect to the clean URL,
 ///   setting the cookie for subsequent requests.
-/// - `None` — no valid share credential.
+/// - `None`, no valid share credential.
 pub(crate) fn check_share_access(
   state: &AppState,
   headers: &HeaderMap,

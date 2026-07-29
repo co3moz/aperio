@@ -24,7 +24,7 @@ pub(crate) mod webhooks;
 ///
 /// A file that turns out not to be a usable database is renamed aside as
 /// `aperio.db.corrupt.<epoch>` (preserving the bad data for recovery) and a
-/// fresh database is created — mirroring the old JSON stores' behavior.
+/// fresh database is created, mirroring the old JSON stores' behavior.
 pub(crate) fn open_db(data_dir: &str) -> Connection {
   let dir = PathBuf::from(data_dir);
   if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -36,14 +36,14 @@ pub(crate) fn open_db(data_dir: &str) -> Connection {
     Err(e) => {
       let backup = backup_corrupt(&path);
       error!(
-        "Failed to open store {:?}: {} — backed up to {:?}, starting with a fresh database",
+        "Failed to open store {:?}: {}, backed up to {:?}, starting with a fresh database",
         path, e, backup
       );
       try_open_db(&path).unwrap_or_else(|e| {
         // Nothing sane to do without a store; fall back to an in-memory
         // database so the server still runs (state lost on restart).
         error!(
-          "Could not recreate {:?}: {} — using a volatile in-memory store",
+          "Could not recreate {:?}: {}, using a volatile in-memory store",
           path, e
         );
         Connection::open_in_memory().expect("in-memory SQLite must open")
@@ -77,7 +77,7 @@ fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
 /// transaction, so a crash can never leave a half-written store.
 /// Writes `contents` to `path` atomically: write to a sibling `<path>.tmp`
 /// first, then rename it over the target. A crash or power loss mid-write
-/// leaves either the old file or the fully-written new one intact — never a
+/// leaves either the old file or the fully-written new one intact, never a
 /// truncated file (which for the tamper-evident audit log would be corruption).
 pub(crate) fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
   let mut tmp = path.as_os_str().to_owned();

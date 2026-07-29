@@ -1,7 +1,7 @@
 //! Right-to-erasure selective purge (`POST /aperio/api/purge`).
 //!
-//! Deletes persisted traffic records matching a selector — a request
-//! hostname, a token label, or a visitor IP — without wiping the whole
+//! Deletes persisted traffic records matching a selector, a request
+//! hostname, a token label, or a visitor IP, without wiping the whole
 //! store. Touched surfaces: the in-memory traffic log, the request
 //! inspector captures, the per-hostname/per-token statistics aggregates,
 //! per-route stage-latency windows, the response cache, and the structured
@@ -114,7 +114,7 @@ pub(crate) struct CachePurgeRequest {
   /// URI prefix whose cached entries should be dropped (e.g. `/assets/`).
   pub(crate) path_prefix: Option<String>,
   /// Surrogate tag (from a backend `Surrogate-Key` header) whose entries
-  /// should be dropped — CDN-style tag-based invalidation.
+  /// should be dropped, CDN-style tag-based invalidation.
   pub(crate) surrogate_key: Option<String>,
 }
 
@@ -134,7 +134,7 @@ pub(crate) async fn cache_stats_handler(
 }
 
 /// Purges response-cache entries by hostname and/or URI prefix (both absent
-/// = the whole cache). The next request re-fetches from the backend — the
+/// = the whole cache). The next request re-fetches from the backend, the
 /// tool for "I deployed, drop the old copies now" instead of waiting out
 /// max-age.
 #[utoipa::path(post, path = "/aperio/api/cache/purge", tag = "dashboard",
@@ -251,7 +251,7 @@ pub(crate) async fn purge_handler(
       .into_response();
   }
 
-  // In-memory traffic log (hostname only — entries carry no token/IP).
+  // In-memory traffic log (hostname only, entries carry no token/IP).
   let mut logs_removed = 0usize;
   if let Some(host) = hostname.as_deref() {
     let mut logs = state.recent_logs.lock().await;

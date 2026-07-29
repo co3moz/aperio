@@ -606,7 +606,7 @@ async fn sessions_list_filters_by_org_and_marks_current() {
   make_user(&state, "alice", Role::Admin, None).await; // master org
   make_user(&state, "carol", Role::Viewer, Some("org1")).await; // other org
 
-  // Own admin session (master org) — marked current.
+  // Own admin session (master org), marked current.
   let own = seed_session(&state, Role::Admin, None, None).await;
   // A master-org named-user session.
   seed_session(&state, Role::Admin, Some("alice"), None).await;

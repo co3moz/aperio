@@ -88,7 +88,7 @@ function tabFromUrl(): Page {
   return (t && LEGACY_TABS[t]) || 'overview'
 }
 
-// The settings dialog is not a destination, so it never appears in the URL —
+// The settings dialog is not a destination, so it never appears in the URL,
 // but links written while it was one still exist. They open it once, over the
 // overview, and the parameter is dropped on arrival so a reload does not put
 // the reader back in a settings screen they never navigated to.
@@ -135,7 +135,7 @@ const ACTIONS: {
 function describeSetting(payload: SettingsPayload, field: FieldSpec): string {
   const override = payload.overrides[field.key]
   const value = override ?? payload.defaults[field.key]
-  if (value === undefined || value === null || value === '') return '—'
+  if (value === undefined || value === null || value === '') return ', '
   const text =
     typeof value === 'boolean'
       ? value
@@ -194,7 +194,7 @@ export default function App() {
   // Navigate tabs through the URL so reloads/bookmarks land on the same tab and
   // the browser back button steps between them. A settings pane is the one
   // thing that does not travel that way: it opens over whatever is on screen
-  // and leaves the URL — and therefore the page underneath — untouched.
+  // and leaves the URL, and therefore the page underneath, untouched.
   const goto = useCallback((next: Page) => {
     if (isOverlayPage(next)) {
       setOverlay(next)
@@ -526,7 +526,7 @@ export default function App() {
             >
               <TriangleAlertIcon className="size-4 shrink-0" />
               {stats
-                ? t("Dashboard data isn't updating — the values shown may be stale.")
+                ? t("Dashboard data isn't updating, the values shown may be stale.")
                 : t('Cannot reach the server. Retrying automatically…')}
             </div>
           )}

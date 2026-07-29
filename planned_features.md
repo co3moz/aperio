@@ -9,8 +9,8 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
 - [ ] **#1 Auto-tune resource limits from the environment.** Derive sensible
   defaults for some capacity settings (e.g. `APERIO_MAX_CONCURRENT_REQUESTS`,
   `APERIO_MAX_WS_CONNECTIONS`, cache budget) from the container/host it runs in
-  — cgroup CPU/memory limits, Docker deploy constraints, available file
-  descriptors — instead of fixed constants. Needs care: an operator must always
+, cgroup CPU/memory limits, Docker deploy constraints, available file
+  descriptors, instead of fixed constants. Needs care: an operator must always
   be able to tell what value is in effect and why (surface it via
   `--print-config`), and an explicit env/yaml/dashboard value must always win
   over an auto-derived one, so behaviour is never surprising. Discuss scope
@@ -43,7 +43,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
 - [ ] **#4 Stream static-serve responses instead of reading whole files into
   memory.** In `--serve` mode, `handle` in `aperio-client/src/serve.rs` reads the
   entire resolved file into memory with `tokio::fs::read` on every request (even
-  HEAD), and `max_response_body_size` only bounds what the *tunnel* forwards —
+  HEAD), and `max_response_body_size` only bounds what the *tunnel* forwards,
   the file is already fully buffered in the serve process. Concurrent requests to
   a large served file can OOM the client. Stream the file (e.g. `ReaderStream` /
   chunked body, which means moving the response body off `Full<Bytes>` to a boxed
@@ -51,7 +51,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   reading the body. Low severity: opt-in feature, client-process-only DoS bounded
   by the size of files the operator chose to publish (a `dist/` of web assets is a
   non-issue). Also in scope: `serve.rs::resolve` uses blocking `std::fs::canonicalize`/
-  `is_file`/`is_dir` in the async `handle` path — those synchronous syscalls run on
+  `is_file`/`is_dir` in the async `handle` path, those synchronous syscalls run on
   a Tokio worker thread; move them to `tokio::fs` or `spawn_blocking` as part of the
   same rework. (From the 2026-07 static security review + a 2026-07 client review.)
 
@@ -66,7 +66,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   own `run_service`, which builds its own `backend_healthy`/`backend_probed`
   flags and spawns its own `probe_task` hitting the backend's `target_health`
   endpoint independently (`aperio-client/src/service.rs`). So `connections: N`
-  makes N independent probes and reports `backend_healthy` per connection — N×
+  makes N independent probes and reports `backend_healthy` per connection, N×
   the health-check load on the backend, and connections can disagree during a
   blip. Now that `connections` defaults to 2 this doubles the probe load by
   default. Move the probe out of `run_service` into `spawn_services`
@@ -78,7 +78,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
 - [x] **#10 Turn Topology into the full routing map (config + live), not a
   second Clients table.** shipped: a dedicated `GET /api/topology`
   (`aperio-server/src/api/topology.rs`) returns `{ clients, routes, exposes,
-  offline }`; `TopologySection.tsx` self-fetches it and renders — A: client-less
+  offline }`; `TopologySection.tsx` self-fetches it and renders, A: client-less
   static `routes:` and public `expose:` ports (master-only); B: dashed
   "declared but offline" nodes from token-granted binds no client serves
   (per-org); C: passive outlier ejection (`ejected` now on every client detail)
@@ -87,7 +87,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   Original note below.
 
   Today `TopologySection.tsx` derives its graph purely
-  from `stats.active_clients` — the same snapshot the Clients table renders — so
+  from `stats.active_clients`, the same snapshot the Clients table renders, so
   it only shows *connected* clients and adds nothing but live req/s edge labels.
   It should become the one view that shows *how a request is routed*, including
   routing that has no live tunnel client. Clean split: **Clients = who is
@@ -95,26 +95,26 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   dedicated `GET /api/topology` handler returning a typed
   `TopologyGraph { nodes, edges }` (org-scoped like the others), unioning the
   in-memory client registry with the config-side route registries. Three parts:
-  - **A — client-less route nodes.** Fold in the server-side route definitions
+  - **A, client-less route nodes.** Fold in the server-side route definitions
     that exist whether or not a client is connected: static routes
     (`static_routes.rs` `RouteRule`: redirect/respond), expose rules
     (`expose.rs` `ExposeRule`: public TCP port → tunnel key), and route rate
     limits (`route_limits.rs`) as an overlay. These have no `ClientDetail` today
     so Topology can't see them; they render as route nodes that terminate in a
     redirect/respond/expose sink instead of a backend.
-  - **B — "declared but offline" gap.** From each token's granted binds
+  - **B, "declared but offline" gap.** From each token's granted binds
     (`store/tokens.rs`: `hostnames`/`paths` a token *may* claim), emit a dim /
-    dashed route node when no active client currently claims that bind — the one
+    dashed route node when no active client currently claims that bind, the one
     thing a table structurally cannot show (there is no row for an absent
     client). This surfaces "the service that should be up but isn't" at a
     glance. Decision needed: derive expected binds from granted token scopes
     (broad) vs. an explicit "expected services" declaration (precise).
-  - **C — routing-health overlay.** Surface per-client routing state the graph
+  - **C, routing-health overlay.** Surface per-client routing state the graph
     is the natural home for and that no screen shows today: `ejected_until`
-    (passive outlier ejection — a client silently pulled from rotation right
+    (passive outlier ejection, a client silently pulled from rotation right
     now), `draining`, and load-balance fan-out (N clients on one hostname shown
     as a one-to-many group, not N unrelated rows). Colour nodes/edges by state.
-  Non-goal for now: per-connection **bytes**/**geo** edge weights — the server
+  Non-goal for now: per-connection **bytes**/**geo** edge weights, the server
   tracks bytes only in aggregate (`PersistentStats`), not per connection, so
   that needs new server-side counters and is out of scope. Ship A/B/C behind the
   new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
@@ -124,18 +124,18 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   `http1::handshake` for every request with no reuse. Under very high request
   rates that is per-request connect/handshake overhead (a keep-alive pool via
   `hyper-util`'s legacy client would amortize it). Low priority: Unix sockets
-  have no TCP `TIME_WAIT`, so FDs are released promptly — the reviewer's "EMFILE
+  have no TCP `TIME_WAIT`, so FDs are released promptly, the reviewer's "EMFILE
   / FD exhaustion" framing is overstated; this is an efficiency win, not a leak
   fix. (From a 2026-07 client review.)
 
 - [ ] **#9 Per-stream backpressure for tunneled WS/TCP delivery instead of
   drop-on-full.** The `try_send` fix (commit `2e5273b`) protects the tunnel read
-  loop — one stalled backend can no longer starve `Pong` and trip the liveness
-  watchdog — but it converts *transient* backpressure into stream death: when a
+  loop, one stalled backend can no longer starve `Pong` and trip the liveness
+  watchdog, but it converts *transient* backpressure into stream death: when a
   stream's 64-slot channel fills, the stream is dropped on the spot. WS/TCP are
   lossless protocols (the UDP analogy the fix borrowed is weak), so a healthy
-  but legitimately slow consumer — e.g. a large file piped over a tunneled TCP
-  stream whose backend socket applies flow control — can be killed by a burst
+  but legitimately slow consumer, e.g. a large file piped over a tunneled TCP
+  stream whose backend socket applies flow control, can be killed by a burst
   of server→client frames that momentarily outpaces the backend. Fix properly:
   per-stream backpressure that pauses reading *that stream's* frames without
   blocking the shared loop (e.g. buffer-and-park the stream with a bounded
@@ -157,18 +157,18 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   IPv4/IPv6 fallback are left entirely to the OS resolver. On the musl/Alpine
   client image this is unreliable: when a Cloudflare-fronted server hostname
   publishes AAAA but the host has no working internet IPv6, the client tries the
-  IPv6 address and fails (`ENETUNREACH`), and — unlike a glibc `curl` on the same
-  host — does not fall back to the reachable IPv4. musl does not honor
+  IPv6 address and fails (`ENETUNREACH`), and, unlike a glibc `curl` on the same
+  host, does not fall back to the reachable IPv4. musl does not honor
   `AI_ADDRCONFIG` the way glibc does, so even disabling IPv6 in the container
   (`net.ipv6.conf.all.disable_ipv6=1`) does not help: getaddrinfo still returns
   the AAAA and the client still tries it first (fails with `EADDRNOTAVAIL`). This
   caused a real outage (2026-07); the only reliable workarounds are DNS-side
   (drop AAAA / pin an IPv4 via `extra_hosts`), which is a footgun.
   Proposed fix (client-only):
-  - **Tier 1 — config escape hatch:** an `ip_family: auto | ipv4 | ipv6` field
+  - **Tier 1, config escape hatch:** an `ip_family: auto | ipv4 | ipv6` field
     (CLI `--ip-family`, env `APERIO_IP_FAMILY`). `ipv4` connects only to A
     records, deterministically dodging unreachable AAAA. ~small change.
-  - **Tier 2 — robust default (`auto`):** replace the single `TcpStream::connect`
+  - **Tier 2, robust default (`auto`):** replace the single `TcpStream::connect`
     with a shared connect helper that `lookup_host`s all addresses, applies the
     `ip_family` filter, and does Happy Eyeballs (RFC 8305: race IPv4/IPv6 with a
     small head-start, first to connect wins), with a per-address connect timeout.
@@ -184,13 +184,13 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   shipped: `telemetry::init` now spawns a detached thread that TCP-connects to
   the resolved endpoint host:port (`endpoint_host_port` parses host/port incl.
   IPv6 literals + scheme-default ports) and logs INFO on success / WARN on
-  failure ("… unreachable — trace spans will be dropped"). Blocking IO on a
+  failure ("… unreachable, trace spans will be dropped"). Blocking IO on a
   thread so it needs no Tokio runtime and never blocks startup. Original note
   below.
 
   With `APERIO_OTEL` on, the batch span exporter silently POSTs to
   `otel_endpoint`; any failure (wrong host/port, DNS, collector down, wrong
-  protocol/path) is invisible — spans just never arrive, and the only visible log
+  protocol/path) is invisible, spans just never arrive, and the only visible log
   is the harmless `BatchSpanProcessor.ExportingDueToTimer` heartbeat. In a 2026-07
   session this made a misconfig indistinguishable from "no traffic to trace":
   Jaeger stayed empty with no error. After building the provider in
@@ -198,8 +198,8 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   lightweight reachability probe to the resolved endpoint host:port (a short-
   timeout TCP connect, or an HTTP request to the `/v1/traces` path) and log a
   clear line: INFO on success ("OTLP endpoint <ep> reachable"), WARN on failure
-  ("OTLP endpoint <ep> unreachable: <err> — spans will be dropped"). Must NOT fail
-  startup — tracing is non-critical, so a bad collector must never take the server
+  ("OTLP endpoint <ep> unreachable: <err>, spans will be dropped"). Must NOT fail
+  startup, tracing is non-critical, so a bad collector must never take the server
   down; run the probe non-blocking (spawn it, or a single short-timeout connect
   before serving). Consider also surfacing the batch exporter's own runtime export
   errors (currently swallowed) and/or a periodic re-check. Note the probe only
@@ -209,7 +209,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
 
 - [ ] **#11 Supervise long-lived background loops so a panic restarts (or at
   least surfaces) instead of silently killing the loop.** Under the default
-  `unwind` strategy a panic only unwinds its own task, so the process survives —
+  `unwind` strategy a panic only unwinds its own task, so the process survives,
   but a bare `tokio::spawn`ed background loop (the stats/uptime tickers, the
   token-expiry sweep, accept loops, expose listeners in `main.rs`, and the
   per-connection writer tasks) that panics just *stops*, silently, with no
@@ -219,7 +219,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   Wrap the critical long-lived loops in a supervisor: a small helper that
   `tokio::spawn`s the loop, awaits its `JoinHandle`, and on a panic/early-exit
   logs it and respawns with a short backoff (a `JoinSet`-based supervisor, or a
-  `spawn_supervised(name, factory)` wrapper). Scope carefully — only genuinely
+  `spawn_supervised(name, factory)` wrapper). Scope carefully, only genuinely
   restartable, idempotent loops (tickers, accept loops); one-shot tasks and
   request-scoped work must stay as they are. Decide per loop whether a restart
   is safe or whether a panic there should instead be escalated to a graceful
@@ -378,7 +378,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   schema check, and delivery attempts record the response status in the
   delivery log. An Operator in a child organization can therefore use the
   server as a blind SSRF probe: point a webhook at an internal address, fire an
-  event, and read back from the delivery log whether the port answered — which
+  event, and read back from the delivery log whether the port answered, which
   maps the server's private network one port at a time. The reason this is not
   simply fixed by blocking private addresses is that internal receivers are the
   normal case: most deployments point webhooks at a service on the same
@@ -432,7 +432,7 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   `STREAM_RESUME_BYTES` (512 KiB) and `STREAM_BACKLOG_LIMIT` (16 MiB). Three
   follow-ups worth doing together: (1) expose the watermarks as settings (a
   `stream:` block / `APERIO_STREAM_*`, live-editable like the other scalars)
-  — shipped: `stream.pause_bytes` / `stream.resume_bytes` /
+, shipped: `stream.pause_bytes` / `stream.resume_bytes` /
   `stream.backlog_limit` with `StreamLimits::sanitized` repairing
   inconsistent trios; (2) and (3) remain;
   (2) an opt-in minimum-throughput guard for streamed HTTP responses, dropping

@@ -1,6 +1,6 @@
 # aperio-config
 
-Shared crate defining the Aperio configuration schemas — the exact serde
+Shared crate defining the Aperio configuration schemas, the exact serde
 types `aperio-client` deserializes its `aperio.yaml` into, a documented
 schema for the server's `aperio-server.yaml`, and a JSON Schema generator
 built on `schemars`.
@@ -8,17 +8,17 @@ built on `schemars`.
 The types live in their own crate so the client's build script can emit the
 editor-facing JSON Schema straight from them: the schema and the parser can
 never drift apart. Doc comments on fields become `description`s in the
-generated schema, so they double as the `aperio.yaml` reference — keep them to
+generated schema, so they double as the `aperio.yaml` reference, keep them to
 a single purposeful sentence and add `examples` where a value has a specific
 format.
 
 ## Layout
 
-- `src/lib.rs` — the schema types: `FileConfig`, `ServiceEntry` (public
+- `src/lib.rs`, the schema types: `FileConfig`, `ServiceEntry` (public
   services), `TunnelDecl` (private TCP/UDP tunnels), `BindTunnelEntry`,
   header-rule types, `schema_json()`; and `ServerFileConfig` (the
   `aperio-server.yaml` keys) with `server_schema_json()`.
-- `src/main.rs` — prints a JSON Schema to stdout:
+- `src/main.rs`, prints a JSON Schema to stdout:
 
 ```bash
 cargo run -p aperio-config            > aperio-client.schema.json

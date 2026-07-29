@@ -72,7 +72,7 @@ function Sparkline({ buckets }: { buckets: TrendBucket[] }) {
 
 /**
  * Per-route status trends: one bar per minute over the last 30 minutes,
- * colored by the worst status class seen in that minute — a glanceable
+ * colored by the worst status class seen in that minute, a glanceable
  * "which route started erroring, and when". Fed by `/aperio/api/route-trends`.
  */
 export function RouteTrendsSection() {
@@ -100,7 +100,7 @@ export function RouteTrendsSection() {
         </Button>
       </SectionHeader>
       <p className="max-w-3xl text-sm text-muted-foreground">
-        {t('One bar per minute over the last 30 minutes, colored by the worst status class — spot which route started erroring, and when.')}
+        {t('One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.')}
       </p>
       <Card className="overflow-x-auto py-0">
         <Table>

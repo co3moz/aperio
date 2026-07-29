@@ -1,6 +1,6 @@
 //! The routing map (`GET /api/topology`).
 //!
-//! Unlike the Clients table — which lists *connected* tunnel clients — this
+//! Unlike the Clients table, which lists *connected* tunnel clients, this
 //! endpoint answers "how is a request routed", including routing the server
 //! itself owns with no tunnel client behind it: the client-less static
 //! `routes:` (redirect / fixed response) and the experimental public `expose:`
@@ -31,7 +31,7 @@ pub(crate) struct TopoStaticRoute {
 }
 
 /// An experimental public TCP expose port (the `expose:` section). The shared
-/// key is never serialized — only whether a connected client currently serves it.
+/// key is never serialized, only whether a connected client currently serves it.
 #[derive(Serialize, utoipa::ToSchema)]
 pub(crate) struct TopoExpose {
   /// Public port the server listens on.
@@ -45,7 +45,7 @@ pub(crate) struct TopoExpose {
 }
 
 /// A hostname/path a token is permitted to bind, but which no live client
-/// currently serves — a service that is declared (granted) yet offline.
+/// currently serves, a service that is declared (granted) yet offline.
 #[derive(Serialize, utoipa::ToSchema)]
 pub(crate) struct TopoOffline {
   /// The granted bind (hostname or path prefix).
@@ -117,8 +117,8 @@ pub(crate) async fn topology_handler(
       })
       .collect();
 
-    // Match each expose key to a currently-serving client — mirroring
-    // `expose::find_declarer` — without ever leaking the key itself.
+    // Match each expose key to a currently-serving client, mirroring
+    // `expose::find_declarer`, without ever leaking the key itself.
     let threshold = cfg.client_down_threshold;
     let live = state.clients.lock().await;
     let exposes = crate::expose::configured_rules()

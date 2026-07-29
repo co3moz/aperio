@@ -1,7 +1,7 @@
 # cargo-fuzz targets for the tunnel wire protocol.
 #
 # Standalone workspace (the `[workspace]` table at the bottom) so the parent
-# workspace's `cargo build` / clippy / test never try to build it — fuzzing
+# workspace's `cargo build` / clippy / test never try to build it, fuzzing
 # needs a nightly toolchain and the libFuzzer runtime. Run with:
 #
 #   cargo +nightly fuzz run binary_frame

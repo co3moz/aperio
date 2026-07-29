@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 // Playwright e2e config for the dashboard. The tests run against a static
 // `vite preview` build, so they cover the shell (mount, routing, error/empty
 // states) without a live Aperio server. Run with `npm run test:e2e` after a
-// one-time `npx playwright install chromium`. Not wired into CI by default —
+// one-time `npx playwright install chromium`. Not wired into CI by default,
 // full API-backed flows need a running server + backend.
 export default defineConfig({
   testDir: './e2e',

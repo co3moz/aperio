@@ -102,7 +102,7 @@ pub async fn load_from_env() -> Option<OidcRuntime> {
   if redirect_url_override.is_none() {
     // Not fatal: deriving works, and requiring the key would break every
     // deployment that never set it. But it is worth saying out loud, because
-    // the failure it guards against is silent — the `Host` of the request that
+    // the failure it guards against is silent, the `Host` of the request that
     // starts a login decides where the provider returns the code.
     warn!(
       "OIDC: APERIO_OIDC_REDIRECT_URL is not set, so the callback URL is derived from each \

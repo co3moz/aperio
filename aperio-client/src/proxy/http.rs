@@ -67,8 +67,8 @@ pub(crate) fn same_site(a: &str, b: &str) -> bool {
 
 /// Redirect policy for backend requests: follows same-host scheme upgrades
 /// (`http://x` → `https://x`) and redirects within the same root domain, up
-/// to `max_hops` jumps and never downgrading https to http. Anything else —
-/// including the hop after the limit — is passed through to the visitor as a
+/// to `max_hops` jumps and never downgrading https to http. Anything else,
+/// including the hop after the limit, is passed through to the visitor as a
 /// regular redirect response, exactly like `Policy::none`.
 pub(crate) fn redirect_policy(max_hops: usize) -> reqwest::redirect::Policy {
   if max_hops == 0 {
@@ -340,7 +340,7 @@ pub(crate) async fn handle_incoming_request(
     }
 
     if k_lower == "host" {
-      // Never forwarded from here — the pass_hostname block below adds it
+      // Never forwarded from here, the pass_hostname block below adds it
       // exactly once (reqwest's .header() appends, so adding it in both
       // places produced a duplicate Host header). Without pass_hostname the
       // target authority is used instead.

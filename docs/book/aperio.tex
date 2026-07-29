@@ -9,9 +9,10 @@
 %      latexmk -pdf aperio.tex
 %      tectonic aperio.tex
 %
-%  Only standard packages are used, so a plain TeX Live or MacTeX
-%  installation is enough; nothing is downloaded at build time beyond
-%  what those distributions already ship.
+%  Packages come from a normal TeX Live / MacTeX installation (tcolorbox
+%  and pgf/TikZ included, so a *minimal* install is not enough); nothing
+%  is downloaded at build time beyond what those distributions ship.
+%  `tectonic aperio.tex` fetches what it needs on first run.
 %
 %  Conventions used throughout:
 %    - \code{}  inline literal (command, key, header, identifier)
@@ -23,7 +24,7 @@
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{lmodern}
-\usepackage[margin=2.6cm]{geometry}
+\usepackage[margin=2.6cm, headheight=14pt]{geometry}
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{booktabs}
@@ -32,15 +33,40 @@
 \usepackage{enumitem}
 \usepackage{fancyhdr}
 \usepackage{listings}
+\usepackage{titlesec}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shadows}
+\usepackage{tcolorbox}
+\tcbuselibrary{listings, skins, breakable}
 \usepackage[hidelinks]{hyperref}
 
 % --- Colours -------------------------------------------------------
+% The accent is the product's own: the dashboard's primary is
+% oklch(0.532 0.157 131.589), which is this green. A book that looks like
+% the thing it documents is doing part of the explaining for free.
 \definecolor{AperioGreen}{HTML}{4C9A2A}
-\definecolor{CodeBg}{HTML}{F5F5F5}
+\definecolor{AperioGreenLight}{HTML}{F2F8EA}
+\definecolor{CodeBg}{HTML}{F8F9FA}
+\definecolor{CodeFrame}{HTML}{CBD5E1}
+\definecolor{CodeHeaderBg}{HTML}{E9EEF3}
 \definecolor{CodeComment}{HTML}{6A737D}
 \definecolor{CodeString}{HTML}{032F62}
 \definecolor{CodeKey}{HTML}{005CC5}
+\definecolor{TextDark}{HTML}{212529}
 \definecolor{RuleGrey}{HTML}{BBBBBB}
+
+% --- Headings -------------------------------------------------------
+% Sans-serif and accented, against the serif body: a heading should be
+% findable while flicking through eighty pages of prose.
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\huge\bfseries\color{AperioGreen}}
+  {\chaptertitlename\ \thechapter}{10pt}{\Huge}
+\titleformat{\section}
+  {\normalfont\sffamily\Large\bfseries\color{TextDark}}
+  {\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\large\bfseries\color{TextDark}}
+  {\thesubsection}{1em}{}
 
 % --- Inline literals ------------------------------------------------
 % Every literal goes through \code so the styling is uniform. Underscores
@@ -50,7 +76,6 @@
 
 % --- Code listings --------------------------------------------------
 \lstdefinestyle{aperio}{
-  backgroundcolor=\color{CodeBg},
   basicstyle=\ttfamily\footnotesize,
   commentstyle=\color{CodeComment}\itshape,
   stringstyle=\color{CodeString},
@@ -79,7 +104,7 @@
 \lstdefinelanguage{aperiosh}{
   morecomment=[l]{\#},
   morestring=[b]",
-  morekeywords={curl,docker,aperio-client,aperio-server,export,printf,jq},
+  morekeywords={curl,docker,aperio-client,aperio-server,export,printf,jq,check},
   sensitive=true,
 }
 \lstdefinelanguage{aperiojson}{
@@ -88,26 +113,76 @@
   sensitive=true,
 }
 
-\newcommand{\yamlfile}[1]{\lstset{language=aperioyaml}}
+% --- Code cards -----------------------------------------------------
+% A titled box around a listing. The title carries the one thing a reader
+% has to know before reading a line of it: which side it runs on, or
+% which file it belongs in. The book's convention used to put that in a
+% comment on the first line, where it competed with the code.
+\newtcblisting{codecard}[2][aperiosh]{
+  enhanced,
+  breakable,
+  arc=4pt,
+  boxrule=0.8pt,
+  colframe=CodeFrame,
+  colback=CodeBg,
+  coltitle=TextDark,
+  fonttitle=\sffamily\bfseries\small,
+  colbacktitle=CodeHeaderBg,
+  title={#2},
+  attach boxed title to top left={xshift=10pt, yshift=-10pt},
+  boxed title style={arc=3pt, boxrule=0.5pt, colframe=CodeFrame,
+                     colback=CodeHeaderBg, boxsep=2pt, left=6pt, right=6pt},
+  top=14pt, bottom=8pt, left=8pt, right=8pt,
+  listing only,
+  listing options={style=aperio, language=#1, frame=none, xleftmargin=0pt,
+                   aboveskip=0pt, belowskip=0pt}
+}
 
 % --- Headers --------------------------------------------------------
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\nouppercase{\leftmark}}
-\fancyhead[R]{\small\thepage}
+\fancyhead[L]{\small\sffamily\nouppercase{\leftmark}}
+\fancyhead[R]{\small\sffamily\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
 % --- Admonitions ----------------------------------------------------
-% Deliberately built from plain primitives rather than tcolorbox, so the
-% book compiles on a minimal TeX installation.
-\newenvironment{aperionote}[1]
-  {\par\medskip\noindent\begin{minipage}{\linewidth}%
-   \color{AperioGreen}\rule{\linewidth}{0.6pt}\par\smallskip
-   \color{black}\textbf{#1.}\enspace\ignorespaces}
-  {\par\smallskip\color{AperioGreen}\rule{\linewidth}{0.6pt}%
-   \color{black}\end{minipage}\par\medskip}
+% Same interface as before (\begin{aperionote}{Title}), a box rather than
+% a pair of rules: a callout that is skimmed past is a callout wasted.
+\newtcolorbox{aperionote}[1]{
+  enhanced,
+  breakable,
+  colback=AperioGreenLight,
+  colframe=AperioGreen,
+  arc=4pt,
+  boxrule=0.8pt,
+  leftrule=4pt,
+  % The title sits inside the box rather than in a bar of its own: a
+  % coloured bar the width of the page reads as a section, and these are
+  % asides. `colbacktitle` matches the body so it is one block.
+  title={#1},
+  coltitle=AperioGreen,
+  colbacktitle=AperioGreenLight,
+  fonttitle=\sffamily\bfseries,
+  attach title to upper=\par\medskip,
+  top=8pt, bottom=8pt, left=10pt, right=10pt
+}
 
 \newcommand{\aperiokey}[1]{\subsubsection*{\code{#1}}}
+
+% --- Diagram styles -------------------------------------------------
+\tikzset{
+  sysnode/.style={draw=CodeFrame, fill=white, rectangle, rounded corners=6pt,
+                  inner sep=8pt, font=\sffamily\small, align=center,
+                  drop shadow={opacity=0.08}},
+  servernode/.style={draw=AperioGreen, fill=AperioGreenLight, rectangle,
+                     rounded corners=6pt, inner sep=8pt,
+                     font=\sffamily\bfseries\small, align=center,
+                     drop shadow={opacity=0.12}},
+  edgelabel/.style={font=\tiny\sffamily, align=center},
+  arrowstd/.style={-{Stealth[length=2.5mm]}, thick, draw=CodeComment},
+  arrowtunnel/.style={{Stealth[length=2.5mm]}-{Stealth[length=2.5mm]}, double,
+                      thick, draw=AperioGreen}
+}
 
 \title{\vspace{-1.5cm}\Huge\textbf{Aperio}\\[0.4cm]
        \LARGE The Complete Guide\\[0.8cm]
@@ -229,13 +304,21 @@ database, no message broker, and no agent to install on the visitor side.
 
 \section{The shape of a deployment}
 
-\begin{lstlisting}[language=aperiosh]
-        Public request                    Outbound WebSocket tunnel
-[ Visitor ] --------------> [ aperio-server ] <========================= [ aperio-client ] --> [ backend ]
-                                   |                                                            :3000
-                             dashboard, API,
-                             cache, routing
-\end{lstlisting}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=2.1cm]
+  \node[sysnode]                      (visitor) {\textbf{Visitor}\\[-2pt]\tiny public HTTP/HTTPS};
+  \node[servernode, right=of visitor] (server)  {\textbf{aperio-server}\\[-2pt]\tiny dashboard, API,\\[-3pt]\tiny cache, routing};
+  \node[sysnode, right=of server]     (client)  {\textbf{aperio-client}\\[-2pt]\tiny next to the service};
+  \node[sysnode, right=of client]     (backend) {\textbf{Backend}\\[-2pt]\tiny :3000};
+
+  \draw[arrowstd]    (visitor) -- node[edgelabel, above=2pt] {public\\request} (server);
+  \draw[arrowtunnel] (client)  -- node[edgelabel, above=2pt, text=AperioGreen] {outbound\\WebSocket tunnel} (server);
+  \draw[arrowstd]    (client)  -- node[edgelabel, above=2pt] {local\\request} (backend);
+\end{tikzpicture}
+\caption{The shape of every deployment: the only arrow that starts on the
+private side is the tunnel, and it points outward.}
+\end{figure}
 
 Three properties follow from this shape, and most of the rest of the book
 is a consequence of one of them:
@@ -366,10 +449,21 @@ never resurrect a stale view of who is serving what.
 
 Four actors, decreasing in trust from right to left:
 
-\begin{lstlisting}[language=aperiosh]
-   visitor  ---HTTP--->  server  <---outbound WS---  client  ---local--->  backend
- (untrusted)          (semi-trusted)               (trusted)            (trusted)
-\end{lstlisting}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.7cm]
+  \node[sysnode, draw=red!55, fill=red!4]              (visitor) {\textbf{Visitor}\\[-2pt]\tiny untrusted};
+  \node[sysnode, draw=orange!65, fill=orange!5, right=of visitor] (server) {\textbf{Server}\\[-2pt]\tiny semi-trusted};
+  \node[sysnode, draw=AperioGreen, fill=AperioGreenLight, right=of server] (client) {\textbf{Client}\\[-2pt]\tiny trusted};
+  \node[sysnode, draw=AperioGreen, fill=AperioGreenLight, right=of client] (backend) {\textbf{Backend}\\[-2pt]\tiny trusted};
+
+  \draw[arrowstd] (visitor) -- node[edgelabel, above=2pt] {HTTP} (server);
+  \draw[arrowstd] (client)  -- node[edgelabel, above=2pt] {outbound WS} (server);
+  \draw[arrowstd] (client)  -- node[edgelabel, above=2pt] {local} (backend);
+\end{tikzpicture}
+\caption{Four actors, decreasing in trust from right to left. The server is
+semi-trusted on purpose.}
+\end{figure}
 
 The server is \emph{semi}-trusted on purpose: it terminates visitor TLS
 and can see plaintext traffic, so a client that must not trust its server
@@ -382,14 +476,13 @@ the server is honest but that clients and visitors are not.
 
 \section{Run a server}
 
-\begin{lstlisting}[language=aperiosh]
-# on the public box
+\begin{codecard}[aperiosh]{On the public box}
 docker run -d --name aperio-server \
   -p 8080:8080 \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
   -v ./data:/app/data \
   ghcr.io/co3moz/aperio-server:latest
-\end{lstlisting}
+\end{codecard}
 
 The token is the master credential: it authenticates tunnel clients and
 doubles as the dashboard password. The volume holds the database, so
@@ -397,12 +490,11 @@ skipping it means losing every token and statistic on the next restart.
 
 \section{Connect a client}
 
-\begin{lstlisting}[language=aperiosh]
-# on the machine next to the service you are exposing
+\begin{codecard}[aperiosh]{On the machine next to the service you are exposing}
 aperio-client 3000 \
   --server-url https://tunnel.example.com \
   --server-token apr_xxxxxxxx
-\end{lstlisting}
+\end{codecard}
 
 The positional argument is deliberately forgiving: a bare port becomes
 \code{http://localhost:3000}, a bare hostname becomes \code{http://host},
@@ -412,10 +504,9 @@ and a full URL passes through untouched.
 
 Before debugging anything else, run the built-in diagnostic:
 
-\begin{lstlisting}[language=aperiosh]
-# on the machine next to the service you are exposing
+\begin{codecard}[aperiosh]{On the machine next to the service you are exposing}
 aperio-client check
-\end{lstlisting}
+\end{codecard}
 
 It resolves the configuration and reports \emph{which layer} supplied each
 value, probes the server's health endpoint, compares client and server
@@ -428,8 +519,7 @@ every local target. Exit code \code{0} means every hop is green. Most
 Command-line flags are fine for a demo; anything long-lived belongs in a
 file:
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -443,7 +533,7 @@ services:
 # Optional, but worth setting early. Top-level keys are the defaults every
 # entry inherits:
 max_concurrent: 8          # what one instance of the backend can take
-\end{lstlisting}
+\end{codecard}
 
 A file describes its backends under \code{services:}, even when there is
 one of them. Naming a single backend at the top level instead
@@ -476,12 +566,11 @@ flag, not a second setting.
 Settings that share a prefix are written as a \emph{block} in yaml, since
 a flat list of run-on names reads badly when they are one subject:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 cache:
   enabled: true
   max_bytes: 268435456
-\end{lstlisting}
+\end{codecard}
 
 The environment has no nesting, so the mapping stays mechanical in both
 directions: \code{<group>.<child>} is \code{APERIO\_<GROUP>\_<CHILD>}, and
@@ -545,20 +634,18 @@ a port or touching the data directory. It parses every numeric and
 enumerated value, checks the structured sections, and exits non-zero when
 anything is wrong:
 
-\begin{lstlisting}[language=aperiosh]
-# on the aperio-server host
+\begin{codecard}[aperiosh]{On the aperio-server host}
 aperio-server --check-config
-\end{lstlisting}
+\end{codecard}
 
 \code{--print-config} answers "what is in effect, and where did it come
 from?". Every \code{APERIO\_*} variable in force is listed and attributed
 to either the file or the real environment, secret-looking values are
 masked, and the persisted dashboard overrides are shown separately:
 
-\begin{lstlisting}[language=aperiosh]
-# on the aperio-server host
+\begin{codecard}[aperiosh]{On the aperio-server host}
 aperio-server --print-config
-\end{lstlisting}
+\end{codecard}
 
 A third, \code{--print-schema}, emits the machine-readable catalogue of
 every setting with its default, which is what the reference appendices of
@@ -616,15 +703,14 @@ Building the client emits JSON Schemas for both config files into
 \code{schemas/}, so an editor with the YAML extension gives completion and
 inline validation for every key in this book:
 
-\begin{lstlisting}[language=aperiojson]
-// .vscode/settings.json
+\begin{codecard}[aperiojson]{.vscode/settings.json}
 {
   "yaml.schemas": {
     "./schemas/aperio-client.schema.json": ["aperio.yaml", "**/aperio.yaml"],
     "./schemas/aperio-server.schema.json": ["aperio-server.yaml"]
   }
 }
-\end{lstlisting}
+\end{codecard}
 
 \chapter{Configuring the client}
 \label{ch:client-config}
@@ -654,14 +740,13 @@ hostname bind matches the \code{Host} header; a path bind matches a URL
 prefix. Both are validated against the token's permissions, so a client
 cannot claim what its credential does not allow.
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 services:
   - target: http://localhost:3000
     hostname: app.example.com   # or a list: [app.example.com, www.example.com]
     path: /api                  # optional prefix bind
     trim_bind: true             # strip /api before forwarding (default with a path bind)
-\end{lstlisting}
+\end{codecard}
 
 A bind belongs to the service it binds, which is why it is written on the
 entry rather than beside it.
@@ -671,8 +756,7 @@ entry rather than beside it.
 Add an entry per backend and the client opens one tunnel connection per
 entry, each with its own binds, health probe and limits:
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -688,7 +772,7 @@ services:
   - name: docs
     serve: ./site
     hostname: docs.example.com
-\end{lstlisting}
+\end{codecard}
 
 Per-entry keys override the top-level value entirely rather than merging,
 which keeps the mental model simple: a service either declares a setting
@@ -698,8 +782,7 @@ or inherits it.
 
 Two mechanisms, applied on the client side of the tunnel:
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 headers:
   request:                       # what the local backend receives
     add:
@@ -711,7 +794,7 @@ headers:
     remove: [Server, X-Powered-By]
 
 security_headers: true           # HSTS, X-Frame-Options, nosniff, Referrer-Policy
-\end{lstlisting}
+\end{codecard}
 
 \code{security\_headers} also takes a mapping when the standard preset is
 too much, and \code{false} on a service opts it out of a top-level
@@ -742,13 +825,12 @@ The four that matter most in production:
 
 \section{The minimum}
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 server_token: change-me-to-a-long-random-string   # env: APERIO_SERVER_TOKEN
 port: 8080                                        # env: PORT
 data_dir: /app/data                               # env: APERIO_DATA_DIR
 trust_proxy: true                                 # env: APERIO_TRUST_PROXY
-\end{lstlisting}
+\end{codecard}
 
 \code{trust\_proxy} deserves a sentence of its own: it tells the server to
 believe forwarded-for headers when resolving the visitor address. Enable
@@ -768,8 +850,7 @@ A hostname or path answered by the server itself, with no client involved.
 Useful for vanity redirects, a placeholder for a service that is not
 deployed yet, or a fixed \code{robots.txt}:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 routes:
   - hostname: old.example.com
     redirect: https://new.example.com
@@ -780,7 +861,7 @@ routes:
       status: 503
       content_type: text/html
       body: "<h1>Launching next week</h1>"
-\end{lstlisting}
+\end{codecard}
 
 Routes match before client routing; maintenance mode still wins over them.
 They serve operator-authored content, so the visitor gate does not apply.
@@ -790,37 +871,34 @@ They serve operator-authored content, so the visitor gate does not apply.
 Where a static route answers instead of a client, a fallback answers
 instead of a \code{504} when no client is currently serving a hostname:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 fallbacks:
   - hostname: app.example.com
     url: https://status.example.com
   - hostname: "*"
     url: https://www.example.com
     preserve_path: true
-\end{lstlisting}
+\end{codecard}
 
 \subsection{Route rate limits}
 
 Per-route caps, aggregated across all visitors, for endpoints that are
 expensive or attractive to attackers:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 rate_limits:
   - hostname: app.example.com
     path: /login
     rps: 5
     burst: 10
-\end{lstlisting}
+\end{codecard}
 
 \subsection{Request firewall}
 
 A small rule list evaluated before dispatch. Each rule matches a path
 regex, a set of methods, or a header regex:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 waf:
   - path: "^/\\.git"                 # block probes for an exposed repository
   - path: "^/admin"
@@ -828,17 +906,16 @@ waf:
   - header:
       name: user-agent
       regex: "(?i)sqlmap|nikto"
-\end{lstlisting}
+\end{codecard}
 
 \subsection{Per-hostname error pages}
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 error_pages:
   - hostname: app.example.com
     504_page: ./pages/app-504.html
     503_page: ./pages/app-503.html
-\end{lstlisting}
+\end{codecard}
 
 \section{Choosing limits}
 
@@ -905,11 +982,10 @@ The rules are deliberately boring:
 With a wildcard pattern configured, every connecting client is also
 assigned a generated hostname:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 random_subdomain: "*.example.com"    # env: APERIO_RANDOM_SUBDOMAIN
 preview_noindex: true                # env: APERIO_PREVIEW_NOINDEX
-\end{lstlisting}
+\end{codecard}
 
 The label is derived deterministically from the client's instance group
 and declared binds, so every parallel connection of one process converges
@@ -992,15 +1068,13 @@ the idempotency rules above deliberately do not apply to it.
 
 The cache never turns on by accident. It requires \emph{both}:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 cache: true                    # env: APERIO_CACHE
-\end{lstlisting}
+\end{codecard}
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 cache: true                    # per service, or top-level
-\end{lstlisting}
+\end{codecard}
 
 The operator enables the machinery; the service owner opts their service
 in. A service that opts in against a disabled cache is not silently
@@ -1032,11 +1106,10 @@ Four behaviours matter operationally:
 
 \section{Invalidation}
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, against the server's admin API
+\begin{codecard}[aperiosh]{From anywhere, against the server's admin API}
 aperio-client api cache purge --hostname app.example.com --path-prefix /assets/
 aperio-client api cache purge --surrogate-key build-7
-\end{lstlisting}
+\end{codecard}
 
 Surrogate keys come from a backend \code{Surrogate-Key} response header
 and give CDN-style tag invalidation: deploy, purge the tag, done.
@@ -1160,13 +1233,12 @@ The credential you should actually hand out. Each carries:
         alert. A token that should never be used is a cheap tripwire.
 \end{description}
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 aperio-client api token create --name ci \
   --hostname preview.example.com \
   --allowed-ip 10.0.0.0/8 \
   --expire 30d --max-rps 50
-\end{lstlisting}
+\end{codecard}
 
 \section{Rotation and refresh}
 
@@ -1176,20 +1248,18 @@ Two different operations that are often confused:
 permissions and limits. The old secret keeps working for a grace window so
 running clients can migrate without a hard cutover:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 aperio-client api token rotate <id> --grace 1h
-\end{lstlisting}
+\end{codecard}
 
 \textbf{Refresh} slides a TTL token's expiry forward by its original
 lifetime, and authenticates with the token secret itself rather than an
 admin credential. That is what lets a long-running CI job keep a
 short-lived token alive without holding anything more powerful:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere holding the token, e.g. the CI job that uses it
+\begin{codecard}[aperiosh]{From anywhere holding the token, e.g. the CI job that uses it}
 aperio-client api token refresh --secret apr_...
-\end{lstlisting}
+\end{codecard}
 
 \section{Token pinning}
 
@@ -1243,10 +1313,9 @@ A share link hands out temporary access without creating an account. The
 token is JWT-shaped, carries the hostname, an optional path prefix and an
 expiry, and is signed with a key derived from the master token:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 aperio-client api share --hostname app.example.com --path /docs --expire 1d
-\end{lstlisting}
+\end{codecard}
 
 The design is stateless by choice, and the trade-off is worth stating
 plainly: links survive restarts because there is no table to lose, but an
@@ -1301,10 +1370,9 @@ tokens, dashboard users, and proxied bytes per calendar month. They are
 enforced at the point of creation and, for the byte cap, on each proxied
 request against the current month's usage:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 aperio-client api org quota <id> --max-clients 10 --max-tokens 20 --max-bytes-month 0
-\end{lstlisting}
+\end{codecard}
 
 \section{The hostname allowlist}
 
@@ -1313,10 +1381,9 @@ it can claim. Without one, a token carrying \code{*} may bind any hostname
 on the server, so an organisation admin minting a wildcard token for their
 own tenant could claim another tenant's hostname:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
-\end{lstlisting}
+\end{codecard}
 
 Entries are an exact hostname or a subdomain wildcard (\code{*.acme.com}
 matches any depth of subdomain but not \code{acme.com} itself, so list
@@ -1494,13 +1561,12 @@ endpoint with the credential it expects.
 
 The CLI uses a programmatic admin key:
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 server:
   url: https://tunnel.example.com
   token: apr_...      # tunnel token, for exposing services
   api_key: apk_...    # admin key, for `aperio-client api ...`
-\end{lstlisting}
+\end{codecard}
 
 When no admin key is configured the tunnel token is sent instead. The
 server honours it only where the master token is a valid credential, that
@@ -1514,12 +1580,11 @@ stdout and the exit code is \code{0}; an authentication failure, a
 non-2xx status or a transport error prints to stderr and exits \code{1}.
 Logs go to stderr, so piping into \code{jq} is always safe:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere, with an admin key
+\begin{codecard}[aperiosh]{From anywhere, with an admin key}
 TUNNEL="$(aperio-client api tunnel create --name "pr-$PR" --expire 2h)"
 export APERIO_SERVER_TOKEN="$(printf '%s' "$TUNNEL" | jq -r .token)"
 echo "Preview: $(printf '%s' "$TUNNEL" | jq -r .url)"
-\end{lstlisting}
+\end{codecard}
 
 Lifetimes take human durations (\code{45s}, \code{30m}, \code{2h},
 \code{1d}, \code{2w}, \code{never}) and are validated before any request
@@ -1545,11 +1610,10 @@ secret never lands in shell history.
 
 \section{Metrics}
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 metrics: true                  # env: APERIO_METRICS
 metrics_token: a-long-secret   # env: APERIO_METRICS_TOKEN
-\end{lstlisting}
+\end{codecard}
 
 The endpoint is never public: without an explicit token one is generated
 and persisted on first start. Per-tenant counters carry \code{token} and
@@ -1558,13 +1622,12 @@ possible.
 
 \section{Tracing}
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 otel:
   enabled: true                       # env: APERIO_OTEL
   endpoint: http://otel-collector:4318 # env: APERIO_OTEL_ENDPOINT
   protocol: http                      # env: APERIO_OTEL_PROTOCOL, http | grpc
-\end{lstlisting}
+\end{codecard}
 
 Both OTLP transports are built in. \code{http} sends protobuf over HTTP
 and appends the \code{/v1/traces} signal path; \code{grpc} sends gRPC to
@@ -1604,13 +1667,12 @@ reject replays. Formats for Slack, Discord and Teams are built in.
 
 Two threshold rules turn that pipeline into a pager:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 alert_error_rate: 5        # env: APERIO_ALERT_ERROR_RATE
 alert_window: 300          # env: APERIO_ALERT_WINDOW
 alert_min_requests: 20     # env: APERIO_ALERT_MIN_REQUESTS
 alert_client_down: 120     # env: APERIO_ALERT_CLIENT_DOWN
-\end{lstlisting}
+\end{codecard}
 
 One \code{alert\_triggered} fires per episode and one
 \code{alert\_resolved} when it clears. The error rate resolves at 80\% of
@@ -1631,12 +1693,11 @@ network, so refusing private addresses by default would break working
 installations. It is therefore a policy the operator opts into, and there
 are two shapes of it:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 outbound:
   allowlist: [hooks.example.com, "*.corp.example", 10.1.0.0/16]
   block_private: false
-\end{lstlisting}
+\end{codecard}
 
 An allowlist is the stronger form and, once set, is the whole policy: a
 destination matches an entry, by exact host, by \code{*.suffix}, or by
@@ -1692,13 +1753,11 @@ incidents.
 
 \section{Declaring it}
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 scaling: true          # env: APERIO_SCALING
-\end{lstlisting}
+\end{codecard}
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client)
+\begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 scaling:
   url: https://api.provider.example/apps/web/scale
   secret: ${SCALE_SECRET}   # sent as Authorization: Bearer
@@ -1711,7 +1770,7 @@ scaling:
 
 idle_timeout: 5m
 max_concurrent: 10          # what makes saturation measurable
-\end{lstlisting}
+\end{codecard}
 
 The declaration is persisted server-side against the hostname and
 deliberately outlives the client process. That is the whole point of
@@ -1835,8 +1894,7 @@ A client can declare local services it does \emph{not} expose to the web,
 which another client may reach through the server. Each one carries a
 \textbf{name}, and that name is the handle everything else uses:
 
-\begin{lstlisting}[language=aperioyaml]
-# ./aperio.yaml (client), on the machine next to the private service
+\begin{codecard}[aperioyaml]{./aperio.yaml (client), on the machine next to the private service}
 tunnels:
   - name: mongo
     target: 127.0.0.1:27017     # MongoDB
@@ -1848,14 +1906,13 @@ tunnels:
   - name: dns
     target: 127.0.0.1:53
     protocol: tcp/udp           # one tunnel, both transports
-\end{lstlisting}
+\end{codecard}
 
-\begin{lstlisting}[language=aperiosh]
-# from any machine, with a token permitted to bind it
+\begin{codecard}[aperiosh]{From any machine, with a token permitted to bind it}
 aperio-client --bind-tunnels mongo \
   --server-url https://tunnel.example.com \
   --server-token apr_...
-\end{lstlisting}
+\end{codecard}
 
 Naming matters because the alternatives do not survive: the server-side
 connection id is a fresh UUID per connection, and a client suffixes its own
@@ -1911,12 +1968,11 @@ An \code{expose:} entry in \code{aperio-server.yaml} opens a public TCP
 port straight into a tunnel, with no binder peer, naming the tunnel and the
 organization whose client may claim it:
 
-\begin{lstlisting}[language=aperioyaml]
-# aperio-server.yaml
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
 expose:
   - port: 2222
     tunnel: bastion@ssh    # or: tunnel: ssh + org: bastion
-\end{lstlisting}
+\end{codecard}
 
 A tunnel name is unique inside an organization and nowhere else, which is
 why the organization is part of the claim; omitting it means the master
@@ -1936,10 +1992,9 @@ The programmatic tunnel API mints a short-lived, hostname-scoped token
 plus its hostname in one call, which is the building block for per-pull-request
 previews:
 
-\begin{lstlisting}[language=aperiosh]
-# from anywhere holding the master token, e.g. a CI job
+\begin{codecard}[aperiosh]{From anywhere holding the master token, e.g. a CI job}
 aperio-client api tunnel create --name pr-123 --expire 2h
-\end{lstlisting}
+\end{codecard}
 
 Omit the hostname to get a random subdomain. A GitHub Action wraps the
 whole flow: provision, run the client, post the URL on the pull request,
@@ -2032,8 +2087,7 @@ log names which. \\
 
 \section{Diagnostic commands}
 
-\begin{lstlisting}[language=aperiosh]
-# on the machine next to the service you are exposing
+\begin{codecard}[aperiosh]{On the machine next to the service you are exposing}
 aperio-client check
 
 # on the aperio-server host
@@ -2044,18 +2098,17 @@ aperio-server --print-config
 aperio-client api self-health
 aperio-client api topology
 aperio-client api audit verify
-\end{lstlisting}
+\end{codecard}
 
 \section{Fuzzing the protocol}
 
 The tunnel wire protocol is the main untrusted-input surface, and its
 parsers are fuzzed:
 
-\begin{lstlisting}[language=aperiosh]
-# in a checkout, with a nightly toolchain
+\begin{codecard}[aperiosh]{In a checkout, with a nightly toolchain}
 cargo +nightly fuzz run binary_frame
 cargo +nightly fuzz run tunnel_message
-\end{lstlisting}
+\end{codecard}
 
 The fuzz targets include the server's protocol module directly, which is
 why that module deliberately depends on nothing beyond serde: adding an
@@ -2497,9 +2550,9 @@ settings are required: the token, the server URL, and the target.
 \addlinespace[2pt]
 \code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback by default, with the same warning. \\
 \addlinespace[2pt]
-\code{LOG\_LEVEL} &  & , & Log verbosity. \\
+\code{LOG\_LEVEL} &  &, & Log verbosity. \\
 \addlinespace[2pt]
-\code{APERIO\_LOG\_FORMAT} &  & , & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). \\
+\code{APERIO\_LOG\_FORMAT} &  &, & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). \\
 \addlinespace[2pt]
 \bottomrule
 \end{longtable}
@@ -2686,11 +2739,10 @@ With a signing secret configured, deliveries carry
 recomputing the MAC over the exact received bytes and comparing in
 constant time, then reject timestamps older than a few minutes:
 
-\begin{lstlisting}[language=aperiosh]
-# in your webhook receiver, not in Aperio
+\begin{codecard}[aperiosh]{In your webhook receiver, not in Aperio}
 expected = hmac(secret, f"{ts}." + raw_body, sha256)
 ok = constant_time_eq(f"sha256={expected}", signature_header) and abs(now - ts) < 300
-\end{lstlisting}
+\end{codecard}
 
 \chapter{Glossary}
 \label{app:glossary}
@@ -2746,9 +2798,8 @@ them apart.
 
 Build it with any standard TeX distribution:
 
-\begin{lstlisting}[language=aperiosh]
-# in a checkout, from docs/book
+\begin{codecard}[aperiosh]{In a checkout, from docs/book}
 pdflatex aperio.tex && pdflatex aperio.tex    # twice, so the TOC resolves
-\end{lstlisting}
+\end{codecard}
 
 \end{document}

@@ -5,7 +5,7 @@ edition = "2024"
 # The minimum toolchain, so `cargo` says which version is missing instead of
 # failing somewhere inside a dependency. Edition 2024 needs 1.85; the code
 # reaches past it (`is_multiple_of`, stable in 1.87), which is what declaring
-# this turned up — the number in the docs said 1.85 and nothing checked.
+# this turned up, the number in the docs said 1.85 and nothing checked.
 rust-version = "1.87"
 
 [dependencies]
@@ -55,14 +55,14 @@ flate2 = "1"
 # reactor running") the moment a real span is exported, so nothing ever reaches
 # the collector. The blocking client owns an internal runtime and exports fine
 # from that thread.
-# NOTE 2: we deliberately do NOT enable otlp's `reqwest-rustls` feature — on
+# NOTE 2: we deliberately do NOT enable otlp's `reqwest-rustls` feature, on
 # reqwest 0.13 that resolves to the aws-lc-rs crypto provider, a heavy C/asm
 # build (aws-lc-sys) that dominates the Windows release build. Instead the
 # `reqwest_otlp` edge below pins reqwest's `rustls-no-provider`, which reuses the
 # process-wide ring CryptoProvider we install at startup (see main.rs) and the
-# same rustls-platform-verifier roots — no second crypto backend gets compiled.
+# same rustls-platform-verifier roots, no second crypto backend gets compiled.
 # NOTE 3: the gRPC side is `tls-ring` + `tls-roots`, never `tls-aws-lc`, for the
-# same reason as NOTE 2 — tonic then builds its rustls client on the ring
+# same reason as NOTE 2, tonic then builds its rustls client on the ring
 # provider the process already installed, and reads the platform's root store.
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
@@ -77,7 +77,7 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = [
 # Forces the reqwest 0.13 that opentelemetry-otlp pulls onto
 # `rustls-no-provider` (ring, not aws-lc-rs) and the blocking client. Also used
 # directly by the startup OTLP probe, which posts an empty export to check the
-# collector really speaks OTLP/HTTP — reusing the exporter's own client is what
+# collector really speaks OTLP/HTTP, reusing the exporter's own client is what
 # makes the probe test the path the exporter will actually take.
 reqwest_otlp = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider", "blocking"] }
 tracing-opentelemetry = "0.33"

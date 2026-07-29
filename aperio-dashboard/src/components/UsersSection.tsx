@@ -463,7 +463,7 @@ export function UsersSection() {
           <RecordSkeleton rows={3} />
         ) : users.length === 0 ? (
           <RecordEmpty icon={<KeyRoundIcon />}>
-            {t('No dashboard users yet — the master token and dashboard password still work.')}
+            {t('No dashboard users yet, the master token and dashboard password still work.')}
           </RecordEmpty>
         ) : (
           users.map((u) => (

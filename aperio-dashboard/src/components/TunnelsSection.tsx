@@ -19,7 +19,7 @@ import { useI18n } from '@/i18n'
  * The tunnel's full address: `<org>@<name>`.
  *
  * A name is unique inside an organization and nowhere else, so the bare one
- * is only an address by accident — and this list shows every organization at
+ * is only an address by accident, and this list shows every organization at
  * once when read from the master one. The same spelling is what `expose:` and
  * a `bind-tunnels:` key accept.
  */
@@ -40,7 +40,7 @@ function bindSnippet(tunnel: DeclaredTunnel): string {
 function localPortHint(tunnel: DeclaredTunnel): number {
   const declared = Number(tunnel.target.split(':').pop())
   if (Number.isFinite(declared) && declared >= 1024) return declared
-  // FNV-1a over the name, folded into 20000..29999 — the same derivation the
+  // FNV-1a over the name, folded into 20000..29999, the same derivation the
   // client uses, so the number shown is the number it will bind.
   let hash = 0xcbf29ce484222325n
   for (const byte of new TextEncoder().encode(tunnel.name)) {
@@ -155,7 +155,7 @@ export function TunnelsSection() {
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
-                  {tunnel.client_id ?? '—'}
+                  {tunnel.client_id ?? ', '}
                   {tunnel.token_name && (
                     <span className="ml-2 font-sans">{tunnel.token_name}</span>
                   )}

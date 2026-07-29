@@ -138,7 +138,7 @@ async fn enable_other_orgs_hostname_refused() {
     "c1".to_string(),
     mock_client(Some("example.com"), None, None, None),
   );
-  // Caller scoped to "acme" — a different org from the client's None.
+  // Caller scoped to "acme", a different org from the client's None.
   let headers = master_with_org(&state, "acme").await;
 
   let resp = maintenance_set_handler(

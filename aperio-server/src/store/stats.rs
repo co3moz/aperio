@@ -16,7 +16,7 @@ pub struct PeriodStats {
 /// Counters that survive server restarts, plus per-period breakdowns.
 #[derive(Serialize, Deserialize, Default, Clone, utoipa::ToSchema)]
 pub struct PersistentStats {
-  /// All-time totals — never reset.
+  /// All-time totals, never reset.
   pub total_requests: u64,
   pub total_success: u64,
   pub total_failed: u64,
@@ -458,7 +458,7 @@ impl StatsStore {
   }
 
   /// Retention: drops day-granularity period buckets older than `days` days
-  /// (global and per-org). Week/month/year buckets keep their built-in caps —
+  /// (global and per-org). Week/month/year buckets keep their built-in caps,
   /// they are coarse aggregates, not per-day records. Returns removed buckets.
   pub fn prune_day_buckets_older_than(&mut self, days: u64) -> usize {
     let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(days as i64);

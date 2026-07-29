@@ -3,8 +3,8 @@ import { createContext, useContext, useEffect } from 'react'
 /**
  * Where a form reports that it holds edits nobody has saved.
  *
- * Only the thing wrapping the form knows what "leaving" means — for the
- * settings dialog it is closing it or switching panes — so the form states the
+ * Only the thing wrapping the form knows what "leaving" means, for the
+ * settings dialog it is closing it or switching panes, so the form states the
  * fact and the wrapper decides what to do about it.
  */
 export const UnsavedContext = createContext<(dirty: boolean) => void>(() => {})

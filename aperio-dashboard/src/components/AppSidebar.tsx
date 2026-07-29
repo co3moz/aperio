@@ -90,7 +90,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'Traffic',
     pages: [
-      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time — table or console' },
+      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time, table or console' },
       { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
       { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map' },
     ],

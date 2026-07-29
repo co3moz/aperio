@@ -5,8 +5,8 @@
  * The schemas come from the running server (`GET /aperio/api/config/schema/…`)
  * and are generated from the same Rust types that parse the files, so the
  * builder never drifts from what the binary accepts. What this module does is
- * flatten schemars' output — `$ref` indirection, the `anyOf` that a nullable
- * or untagged field produces — into a flat list of fields the UI can render
+ * flatten schemars' output, `$ref` indirection, the `anyOf` that a nullable
+ * or untagged field produces, into a flat list of fields the UI can render
  * without knowing any of that.
  */
 
@@ -60,7 +60,7 @@ export interface Field {
   children?: Field[]
   /** Keys an entry of an `objectList` must carry. */
   required?: string[]
-  /** True for a key on its way out — a superseded spelling, or one being
+  /** True for a key on its way out, a superseded spelling, or one being
    *  withdrawn from the file format. Hidden unless an imported file actually
    *  uses it: offering it in a blank form would invite writing the very key
    *  we want people to stop writing. */

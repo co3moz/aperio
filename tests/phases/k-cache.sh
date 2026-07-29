@@ -56,7 +56,7 @@ sleep 1
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: plain.e2e.local" "$BASE/data")"
 assert_status 504 "$CODE" "non-resilient route fails closed while offline"
 
-# Resilient route: after the entry expires, it is still served — marked stale.
+# Resilient route: after the entry expires, it is still served, marked stale.
 kill "$RESILIENT_PID" 2>/dev/null || true
 sleep 2
 BODY_AND_HDRS="$(curl -s -D - -H "Host: cache.e2e.local" "$BASE/data")"
@@ -107,7 +107,7 @@ retry 15 curl -sf "http://127.0.0.1:${SF_BACKEND_PORT}/count" || fail "single-fl
 start_client singleflight "$SF_BACKEND_PORT" APERIO_HOSTNAME=sf.e2e.local APERIO_CACHE=1
 wait_routable sf.e2e.local /count
 # Five concurrent identical cacheable misses must reach the backend once.
-# Wait only on the curl PIDs — a bare `wait` would also block on the
+# Wait only on the curl PIDs, a bare `wait` would also block on the
 # long-lived backend and client background jobs of the sourcing shell.
 SF_PIDS=()
 for _ in 1 2 3 4 5; do
@@ -170,7 +170,7 @@ fi
 echo "  ok: the stale window served instantly while the entry refreshed in the background"
 
 step "Range requests served from cache"
-# Fresh entry for the range test (SWR backend serves v3 now — re-warm).
+# Fresh entry for the range test (SWR backend serves v3 now, re-warm).
 curl -sf -H 'Host: swr.e2e.local' "$BASE/rangefile" >/dev/null || fail "range warm-up failed"
 RANGE_RESP="$(curl -s -D - -r 0-3 -H 'Host: swr.e2e.local' "$BASE/rangefile")"
 assert_contains "$RANGE_RESP" "206" "a ranged GET on a cached entry answers 206"

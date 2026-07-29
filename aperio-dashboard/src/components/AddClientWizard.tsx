@@ -194,7 +194,7 @@ export function AddClientWizard() {
             </ToggleGroup>
             {tokenMode === 'existing' ? (
               <p className="text-xs text-muted-foreground">
-                {t('The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.', { placeholder: TOKEN_PLACEHOLDER })}
+                {t('The commands below use a {placeholder} placeholder, replace it with your master token or an existing dynamic token.', { placeholder: TOKEN_PLACEHOLDER })}
               </p>
             ) : mintedSecret ? (
               <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">

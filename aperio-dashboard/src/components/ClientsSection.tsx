@@ -70,7 +70,7 @@ function BindList({ binds, override }: { binds: string[]; override: string[] }) 
       </div>
     )
   }
-  if (binds.length === 0) return <span className="text-muted-foreground">—</span>
+  if (binds.length === 0) return <span className="text-muted-foreground">, </span>
   const [primary, ...rest] = binds
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -497,7 +497,7 @@ export function ClientsSection({
           <TableBody>
             {clients.length === 0 ? (
               <EmptyRow colSpan={8} icon={<PinIcon />}>
-                {t('No active client sessions — start a tunnel client to see it here')}
+                {t('No active client sessions, start a tunnel client to see it here')}
               </EmptyRow>
             ) : sorted.length === 0 ? (
               <EmptyRow colSpan={8} icon={<SearchIcon />}>
@@ -602,7 +602,7 @@ export function ClientsSection({
                         {c.protocol_mismatch && (
                           <HintBadge
                             tint="red"
-                            hint={t('Client speaks tunnel protocol v{proto}, server differs — update the older side', { proto: c.protocol ?? 0 })}
+                            hint={t('Client speaks tunnel protocol v{proto}, server differs, update the older side', { proto: c.protocol ?? 0 })}
                           >
                             proto v{c.protocol}
                           </HintBadge>
@@ -610,7 +610,7 @@ export function ClientsSection({
                         {c.instance_id_shared && (
                           <HintBadge
                             tint="amber"
-                            hint={t('Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id', { id: c.instance_id ?? '' })}
+                            hint={t('Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id', { id: c.instance_id ?? '' })}
                           >
                             {t('SHARED ID')}
                           </HintBadge>
@@ -618,7 +618,7 @@ export function ClientsSection({
                         {c.cache_ignored && (
                           <HintBadge
                             tint="amber"
-                            hint={t('This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag')}
+                            hint={t('This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag')}
                           >
                             {t('cache off')}
                           </HintBadge>

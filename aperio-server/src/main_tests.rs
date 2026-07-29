@@ -1512,7 +1512,7 @@ fn test_route_trends_minute_buckets() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// required_role — minimum dashboard role per route
+// required_role, minimum dashboard role per route
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1583,7 +1583,7 @@ fn test_required_role_reads_vs_mutations() {
 }
 
 // ---------------------------------------------------------------------------
-// observe_service_availability — per-entity uptime snapshot
+// observe_service_availability, per-entity uptime snapshot
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1677,7 +1677,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
 }
 
 // ---------------------------------------------------------------------------
-// bind_listener — plain and SO_REUSEPORT TCP binding
+// bind_listener, plain and SO_REUSEPORT TCP binding
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1711,7 +1711,7 @@ async fn test_bind_listener_plain_and_reuseport() {
 }
 
 // ---------------------------------------------------------------------------
-// verify_audit — the --verify-audit CLI over the audit hash chain
+// verify_audit, the --verify-audit CLI over the audit hash chain
 // ---------------------------------------------------------------------------
 
 /// Serializes the tests below that read/write the process-global

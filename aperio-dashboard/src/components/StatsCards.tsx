@@ -87,7 +87,7 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
         loading={loading}
         icon={<GaugeIcon />}
         title={t('Avg Response')}
-        value={s && s.persistent.total_requests > 0 ? `${s.avg_response_ms.toFixed(1)} ms` : '—'}
+        value={s && s.persistent.total_requests > 0 ? `${s.avg_response_ms.toFixed(1)} ms` : ', '}
         sub={
           s
             ? t('{count} lifetime requests • {bytes} sent', { count: s.persistent.total_requests, bytes: formatBytes(s.persistent.total_bytes_sent) })

@@ -29,13 +29,13 @@ so API calls have something to talk to. See
 | `src/main.tsx`, `src/App.tsx` | Dashboard entry: router, sidebar layout, page shell |
 | `src/auth.tsx`, `src/AuthApp.tsx` | Login page (`auth.html` is its separate Vite entry) |
 | `src/components/` | One file per dashboard section (see below) plus shared pieces |
-| `src/components/ui/` | Generated shadcn/ui primitives — customize via the shadcn workflow, avoid hand-editing |
+| `src/components/ui/` | Generated shadcn/ui primitives, customize via the shadcn workflow, avoid hand-editing |
 | `src/hooks/` | `useLiveData` (SSE `/api/stream`), `usePoll`, `use-mobile` |
 | `src/lib/api.ts` | Typed fetch wrapper for the server's REST API |
 | `src/lib/session.tsx` | Session context: username, role, sign-out |
 | `src/lib/format.ts`, `url.ts`, `utils.ts` | Formatting and URL-state helpers |
 | `src/i18n/` | Translations (English source strings live inline; `de`, `es`, `fr`, `ja`, `ru`, `tr`, `zh` override) |
-| `src/theme.tsx` | Hand-rolled light/dark theme toggle (no inline scripts — CSP is `self`-only) |
+| `src/theme.tsx` | Hand-rolled light/dark theme toggle (no inline scripts, CSP is `self`-only) |
 
 Sections in `src/components/`: `ClientsSection`, `TrafficSection`,
 `TrafficBreakdownSection`, `ActivityChart`, `StatsCards`, `TokensSection`,
@@ -49,5 +49,5 @@ Sections in `src/components/`: `ClientsSection`, `TrafficSection`,
   source string and translations for all 8 languages.
 - Data flows: live data via the SSE stream (`useLiveData`), the rest via
   `lib/api.ts`; filter state belongs in the URL (`lib/url.ts`).
-- The dashboard ships self-hosted fonts and no third-party requests — keep
+- The dashboard ships self-hosted fonts and no third-party requests, keep
   the CSP `self`-only (no CDN imports, no inline scripts).

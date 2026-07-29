@@ -251,7 +251,7 @@ pub(crate) struct OrgCustomNameRequest {
 /// The handle is not touched and is not touchable: an `expose:` rule, a
 /// binder's config and every `<org>@<tunnel>` written down elsewhere point at
 /// it, and none of those can be updated from this screen. Which is exactly
-/// why a display name exists — so the thing people read can change without
+/// why a display name exists, so the thing people read can change without
 /// the thing machines read moving underneath them.
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/custom-name", tag = "dashboard",
   description = "Sets an organization's display name; the handle it is addressed by never changes (master admin).",

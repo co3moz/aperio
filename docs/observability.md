@@ -40,13 +40,13 @@ otel:
   service_name: aperio-server         # env: APERIO_OTEL_SERVICE_NAME, optional
 ```
 
-Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and appends the `/v1/traces` signal path to the endpoint; `protocol: grpc` sends gRPC to the bare base URL. Left unset, the endpoint's port decides — 4317 is the conventional gRPC port, and anything else is treated as HTTP — so the common collector layouts work without saying anything. Pin it explicitly when the collector listens on a non-standard port: a collector answering the other protocol accepts the connection and drops every span, which is exactly the failure that looks like "tracing is enabled and nothing shows up". The startup probe tests the transport that was actually chosen and warns when the port contradicts it.
+Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and appends the `/v1/traces` signal path to the endpoint; `protocol: grpc` sends gRPC to the bare base URL. Left unset, the endpoint's port decides, 4317 is the conventional gRPC port, and anything else is treated as HTTP, so the common collector layouts work without saying anything. Pin it explicitly when the collector listens on a non-standard port: a collector answering the other protocol accepts the connection and drops every span, which is exactly the failure that looks like "tracing is enabled and nothing shows up". The startup probe tests the transport that was actually chosen and warns when the port contradicts it.
 
 The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
 
 **Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace, the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
 
-> **Note:** the exporter is compiled into every build (both transports), so enabling it is a configuration change, not a rebuild. It reuses the server's own rustls/ring TLS stack — no second crypto backend and no C toolchain are involved.
+> **Note:** the exporter is compiled into every build (both transports), so enabling it is a configuration change, not a rebuild. It reuses the server's own rustls/ring TLS stack, no second crypto backend and no C toolchain are involved.
 
 ## Alerting
 

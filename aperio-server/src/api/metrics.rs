@@ -458,7 +458,7 @@ pub(crate) async fn bandwidth_handler(
         serde_json::json!({ "label": label, "total_bytes": total, "buckets": buckets })
       })
       .collect();
-    // Biggest consumers first — the billing view's natural order.
+    // Biggest consumers first, the billing view's natural order.
     out.sort_by(|a, b| b["total_bytes"].as_u64().cmp(&a["total_bytes"].as_u64()));
     out
   };

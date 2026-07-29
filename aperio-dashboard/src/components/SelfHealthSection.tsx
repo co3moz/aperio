@@ -19,7 +19,7 @@ export function SelfHealthSection() {
     ? [
         [t('Uptime'), formatUptime(data.uptime_seconds)],
         [t('Clients'), String(data.connected_clients)],
-        [t('Memory (RSS)'), data.rss_bytes == null ? '—' : formatBytes(data.rss_bytes)],
+        [t('Memory (RSS)'), data.rss_bytes == null ? ', ' : formatBytes(data.rss_bytes)],
         [t('Store size'), formatBytes(data.store_bytes)],
       ]
     : []

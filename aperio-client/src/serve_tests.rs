@@ -33,7 +33,7 @@ fn rejects_traversal_out_of_the_root() {
   let root = setup();
   assert_eq!(resolve(&root, "/../secrets.txt"), None);
   assert_eq!(resolve(&root, "/assets/../../secrets.txt"), None);
-  // Encoded traversal decodes first — still rejected.
+  // Encoded traversal decodes first, still rejected.
   assert_eq!(resolve(&root, "/%2e%2e/secrets.txt"), None);
   assert_eq!(resolve(&root, "/..%2fsecrets.txt"), None);
   std::fs::remove_dir_all(&root).unwrap();
@@ -175,7 +175,7 @@ async fn spa_fallback_serves_index_for_navigations_only() {
   assert_eq!(resp.status(), 200);
   assert_eq!(resp.text().await.unwrap(), "");
 
-  // A non-HTML fetch (missing hashed asset) still 404s — no fallback.
+  // A non-HTML fetch (missing hashed asset) still 404s, no fallback.
   let resp = client
     .get(format!("{base}/missing.js"))
     .header("accept", "*/*")

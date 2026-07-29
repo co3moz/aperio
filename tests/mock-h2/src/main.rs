@@ -1,11 +1,11 @@
 //! E2E helper for the h2c tunnel path. Two modes:
 //!
-//! `mock-h2 server <port>` — cleartext HTTP/2 (prior knowledge) echo server:
+//! `mock-h2 server <port>`, cleartext HTTP/2 (prior knowledge) echo server:
 //! answers 200 with `content-type: application/grpc`, body
 //! `h2-echo:<request body>`, and trailers `grpc-status: 0`,
 //! `grpc-message: ok`.
 //!
-//! `mock-h2 client <url> [body]` — prior-knowledge h2c POST that prints
+//! `mock-h2 client <url> [body]`, prior-knowledge h2c POST that prints
 //! `status=<n>`, `body=<text>`, and `trailer <name>=<value>` lines, so a
 //! shell test can assert on trailer relay.
 

@@ -85,7 +85,7 @@ async fn get_environment_report_reflects_configured_flags() {
 }
 
 // ---------------------------------------------------------------------------
-// PUT /aperio/api/settings — auth guards
+// PUT /aperio/api/settings, auth guards
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -116,7 +116,7 @@ async fn put_forbidden_for_non_master() {
 }
 
 // ---------------------------------------------------------------------------
-// PUT /aperio/api/settings — success + persistence
+// PUT /aperio/api/settings, success + persistence
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -154,7 +154,7 @@ async fn put_applies_and_persists_valid_overrides() {
 }
 
 // ---------------------------------------------------------------------------
-// PUT /aperio/api/settings — validation error paths (via the handler, so the
+// PUT /aperio/api/settings, validation error paths (via the handler, so the
 // 400 mapping is exercised end to end).
 // ---------------------------------------------------------------------------
 
@@ -249,7 +249,7 @@ async fn put_rejects_zero_cache_max_bytes() {
 }
 
 // ---------------------------------------------------------------------------
-// apply_overrides_validated — accepted edge cases and swap_config side effects
+// apply_overrides_validated, accepted edge cases and swap_config side effects
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

@@ -178,7 +178,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
         } catch (e) {
           // The organization exists; only the caps failed to land. Say so
           // rather than reporting a failure that would send someone looking
-          // for an org that is already there — uncapped.
+          // for an org that is already there, uncapped.
           setError(
             t('Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.', {
               name: label,
@@ -208,7 +208,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
         <DialogHeader>
           <DialogTitle>{t('Create organization')}</DialogTitle>
           <DialogDescription>
-            {t('Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.')}
+            {t('Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
@@ -245,7 +245,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
               className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
-              {t('a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.', { example: `${name || 'acme'}@postgres` })}
+              {t('a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.', { example: `${name || 'acme'}@postgres` })}
             </p>
           </div>
           <div className="grid gap-2">
@@ -520,7 +520,7 @@ export function OrganizationsSection() {
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Organizations')}
-        description={t('Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.')}
+        description={t('Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.')}
       >
         <CreateOrgDialog onCreated={refresh} />
       </SectionHeader>

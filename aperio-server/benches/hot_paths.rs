@@ -1,6 +1,6 @@
 //! Micro-benchmarks for cache hot-path helpers. The cache module is
 //! self-contained (no `crate::` references), so it is included directly here
-//! and compiled into the bench binary — the same trick the fuzz targets use to
+//! and compiled into the bench binary, the same trick the fuzz targets use to
 //! reach a bin-crate's internals. Run with `cargo bench -p aperio-server`.
 
 // The included cache module exposes more than this bench exercises, and its

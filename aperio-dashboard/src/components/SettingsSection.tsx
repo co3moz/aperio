@@ -109,7 +109,7 @@ function BytesInput({
         {tooSmall
           ? t('Must be at least {min}', { min: formatBytes(min ?? 0) })
           : invalid
-            ? t('Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes')
+            ? t('Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes')
             : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
       </span>
     </div>
@@ -142,8 +142,8 @@ function EnvReference({ environment }: { environment?: EnvironmentReport }) {
     <div className="flex flex-col gap-4">
       <p className="text-xs text-muted-foreground">
           {docker
-            ? t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:')
-            : t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:')}
+            ? t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:')
+            : t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:')}
       </p>
         <pre className="overflow-x-auto rounded-2xl border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
           {docker

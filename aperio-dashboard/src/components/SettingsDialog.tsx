@@ -27,7 +27,7 @@ import type { Page } from './AppSidebar'
  * You open a setting, change it, and leave, which is what a dialog is for.
  * Webhooks and the webhook inbox come here because what you do with them is
  * configure and act on them, even though both carry a table of past
- * deliveries. The pages that only report — traffic, clients, breakdown — stay
+ * deliveries. The pages that only report, traffic, clients, breakdown, stay
  * full screen, and the ones that exist to diagnose live in Tools.
  */
 export const SETTINGS_PAGES = [

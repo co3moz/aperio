@@ -62,7 +62,7 @@ async function main() {
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    fail(`Tunnel provisioning failed: HTTP ${res.status} — ${await res.text()}`)
+    fail(`Tunnel provisioning failed: HTTP ${res.status}, ${await res.text()}`)
   }
   const tunnel = await res.json()
   console.log(`::add-mask::${tunnel.token}`)

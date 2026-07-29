@@ -85,12 +85,12 @@ jobs:
       # integration run into one report: `show-env` points CARGO_TARGET_DIR
       # at the instrumented build, which tests/e2e.sh picks up, and the
       # server/client write their profile data on the graceful SIGTERM
-      # exit — so the tunnel/proxy runtime paths count too. Reported, not
+      # exit, so the tunnel/proxy runtime paths count too. Reported, not
       # gated: the table lands in the job summary, the full HTML report as
       # a downloadable artifact.
       - name: Measure coverage (unit tests + e2e)
         # Test-only scaffolding (`*_tests.rs`, the shared `test_support.rs`
-        # fixture) is excluded from the report — it is not shipped code and
+        # fixture) is excluded from the report, it is not shipped code and
         # should not count towards or dilute the per-file coverage numbers.
         env:
           COV_IGNORE: (_tests|test_support)\.rs$
@@ -164,7 +164,7 @@ jobs:
 
       # Runs the criterion hot-path micro-benchmarks with a short measurement
       # window: it catches a bench that stops compiling and surfaces the timings
-      # in the job log. Reported, not gated — a hard regression threshold needs
+      # in the job log. Reported, not gated, a hard regression threshold needs
       # a persisted baseline, which is intentionally out of scope here.
       - name: Run benchmarks
         run: cargo bench -p aperio-server --bench hot_paths -- --warm-up-time 1 --measurement-time 2
@@ -195,7 +195,7 @@ jobs:
       # --target is pinned to the gnu triple on purpose: install-action has no
       # cargo-fuzz binary of its own and falls back to cargo-binstall, which
       # installs the *musl* build. cargo-fuzz then defaults the fuzz target to
-      # its own (musl) triple, which fails to build — musl std isn't installed
+      # its own (musl) triple, which fails to build, musl std isn't installed
       # and ASan is incompatible with statically linked libc. Forcing gnu
       # (dynamic libc, std already present) sidesteps both.
       - name: Fuzz decode_binary_frame
@@ -234,21 +234,21 @@ jobs:
   # Release-cache warming (Windows only).
   #
   # Every release target builds with vendored OpenSSL (a from-source C build),
-  # but only the windows-msvc job is slow enough — and on a costly-enough
-  # runner — for warming to pay off: on Linux/macOS the OpenSSL compile is
+  # but only the windows-msvc job is slow enough, and on a costly-enough
+  # runner, for warming to pay off: on Linux/macOS the OpenSSL compile is
   # quick, Linux runners are cheap, and macOS runners bill at ~10x so warming
   # them would cost more than the release build ever saves. So we warm just
   # Windows and let the other targets build cold (as they always did).
   #
   # GitHub scopes each cache to the ref that wrote it, and a tag build can only
-  # read its own + the default branch's caches, never another tag's — so
+  # read its own + the default branch's caches, never another tag's, so
   # v0.4.0 could never reuse v0.3.0's cache. These jobs populate the Windows
   # cache on the default branch instead, where every future release tag *can*
   # read it. rust-cache stores only compiled dependencies (not the workspace
   # crates), so the expensive vendored-OpenSSL artifact is exactly what persists.
   #
   # Cost control: the Windows build only spins up when Cargo.lock / a Cargo.toml
-  # actually changed — i.e. when the resolved dependency set, and thus the
+  # actually changed, i.e. when the resolved dependency set, and thus the
   # cache, could differ. Ordinary code-only pushes skip it after a ~15s check.
   # A second lookup-only probe inside the job skips the rebuild entirely if the
   # cache key is nonetheless unchanged.
@@ -321,7 +321,7 @@ jobs:
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo" -ErrorAction SilentlyContinue
           Add-MpPreference -ExclusionProcess "cl.exe","link.exe","rustc.exe","cargo.exe","nasm.exe","perl.exe" -ErrorAction SilentlyContinue
 
-      # Restores any partial cache and — the whole point — SAVES the fresh one
+      # Restores any partial cache and, the whole point, SAVES the fresh one
       # under the default-branch scope for release tag builds to reuse.
       - name: Restore & save dependency cache
         if: steps.probe.outputs.cache-hit != 'true'

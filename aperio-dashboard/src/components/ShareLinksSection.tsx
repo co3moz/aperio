@@ -45,7 +45,7 @@ const TTL_OPTIONS = [
 /**
  * Generates signed share links: a URL granting temporary access to an
  * auth-protected proxied site, scoped to a hostname (and optional path
- * prefix). Stateless on the server — links simply expire.
+ * prefix). Stateless on the server, links simply expire.
  */
 export function ShareLinksSection() {
   const { t } = useI18n()
@@ -83,7 +83,7 @@ export function ShareLinksSection() {
       <Card className="py-5">
         <CardContent className="flex flex-col gap-4 px-5">
           <p className="text-sm text-muted-foreground">
-            {t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.')}
+            {t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.')}
           </p>
           {canMutate && (
           <form onSubmit={create} className="flex flex-wrap items-center gap-2">

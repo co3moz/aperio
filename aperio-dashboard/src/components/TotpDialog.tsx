@@ -190,7 +190,7 @@ export function TotpDialog({
         ) : (
           <div className="grid gap-4">
             <p className="text-sm text-muted-foreground">
-              {t('Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.')}
+              {t('Two-factor authentication is now on. Store these single-use recovery codes somewhere safe, they are shown only once and let you sign in if you lose your authenticator.')}
             </p>
             <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/50 p-3 font-mono text-sm">
               {recoveryCodes.map((c) => (

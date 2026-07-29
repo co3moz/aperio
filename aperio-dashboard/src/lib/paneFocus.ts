@@ -3,8 +3,8 @@ import { createContext, useContext } from 'react'
 /**
  * What a pane should reveal the moment it opens.
  *
- * The command palette can name something finer than a pane — one setting out
- * of sixty, or the form for adding a user — and the pane is the only thing
+ * The command palette can name something finer than a pane, one setting out
+ * of sixty, or the form for adding a user, and the pane is the only thing
  * that knows how to get there. So the palette states the target and the pane
  * acts on it.
  *

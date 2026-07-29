@@ -1,7 +1,7 @@
 # Aperio Tunnel Action
 
 Exposes a port of your GitHub Actions runner to the public internet through an
-[Aperio](https://github.com/co3moz/aperio) tunnel — the building block for
+[Aperio](https://github.com/co3moz/aperio) tunnel, the building block for
 per-PR preview environments.
 
 The action calls `POST /aperio/api/tunnels` on your Aperio server to mint an
@@ -37,17 +37,17 @@ jobs:
         run: curl --fail ${{ steps.tunnel.outputs.url }}/health
 ```
 
-Omit `hostname` to get a random subdomain — requires
+Omit `hostname` to get a random subdomain, requires
 `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server.
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `server-url` | ✔ | — | Base URL of the Aperio server |
-| `server-token` | ✔ | — | Master token (store as a secret) used to provision the tunnel |
-| `port` | one of | — | Local port to expose (`http://127.0.0.1:<port>`) |
-| `target` | one of | — | Full target URL; overrides `port` |
+| `server-url` | ✔ |, | Base URL of the Aperio server |
+| `server-token` | ✔ |, | Master token (store as a secret) used to provision the tunnel |
+| `port` | one of |, | Local port to expose (`http://127.0.0.1:<port>`) |
+| `target` | one of |, | Full target URL; overrides `port` |
 | `hostname` | | random | Hostname to bind, e.g. `pr-123.example.com` |
 | `name` | | `<repo>-run-<id>` | Token label shown in the dashboard |
 | `ttl-seconds` | | `3600` | Token lifetime (safety net) |

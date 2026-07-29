@@ -64,7 +64,7 @@ export function useOrgName(): string {
 
   useEffect(() => {
     // Never issue the request as a non-super-admin: it is a guaranteed 403.
-    // Fetched once rather than polled — an org is renamed about as often as it
+    // Fetched once rather than polled, an org is renamed about as often as it
     // is created, and switching into one reloads the dashboard anyway.
     if (!masterAdmin || selectedOrg === 'master') return
     let live = true

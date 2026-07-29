@@ -1,6 +1,6 @@
 # E2E test helper: a minimal HTTP/2 cleartext (h2c) echo backend with gRPC
 # style response trailers, plus a prior-knowledge h2c client that prints
-# status, body, and trailers — used by tests/e2e.sh to exercise the h2c://
+# status, body, and trailers, used by tests/e2e.sh to exercise the h2c://
 # target path end to end. Never published or shipped.
 [package]
 name = "mock-h2"

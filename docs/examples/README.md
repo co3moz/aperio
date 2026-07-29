@@ -13,7 +13,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | --- | --- |
 | [simple](simple/) | The minimal pair: one client, one backend, one token. |
 | [multiple_services](multiple_services/) | One client exposing several backends, each with its own binds and tuning. |
-| [static_site](static_site/) | Publish local directories of static files (`serve:`), no backend — one site, or several on their own hostnames. |
+| [static_site](static_site/) | Publish local directories of static files (`serve:`), no backend, one site, or several on their own hostnames. |
 | [health_check](health_check/) | Backend health probes: a failing backend leaves rotation without dropping the tunnel, independently per service. |
 | [headers](headers/) | Header add/remove rules on the client and the server side, and per service. |
 | [load_balancing](load_balancing/) | Primary/standby failover tiers via `priority`, including a machine that is primary for some routes and standby for others. |

@@ -2,7 +2,7 @@
 //!
 //! These are the exact types `aperio-client` deserializes its config file into.
 //! They live in their own crate so the client's build script can emit a JSON
-//! Schema (`schemars`) straight from them — the editor schema and the parser can
+//! Schema (`schemars`) straight from them, the editor schema and the parser can
 //! never drift apart. The doc comments below become the `description` of each
 //! field in the generated schema, so they double as the `aperio.yaml` reference;
 //! keep them to a single purposeful sentence and add `examples` where the value
@@ -226,7 +226,7 @@ fn fold_latin(ch: char) -> Option<&'static str> {
 
 /// Turns any string into a valid name, for deriving one and for suggesting a
 /// correction. Not a validator: it always succeeds, and never silently stands
-/// in for a name the operator wrote — a suggestion is shown, and whoever is
+/// in for a name the operator wrote, a suggestion is shown, and whoever is
 /// naming the thing accepts or replaces it.
 pub fn slug(raw: &str) -> String {
   let mut out = String::new();
@@ -309,7 +309,7 @@ pub struct TunnelDecl {
   #[serde(default)]
   pub encrypt: bool,
   /// Pre-shared key mixed into the key derivation of an encrypted tunnel,
-  /// protecting against an actively hostile server. Never sent anywhere —
+  /// protecting against an actively hostile server. Never sent anywhere,
   /// the binder configures the same value in its `bind-tunnels` entry.
   #[serde(default, skip_serializing)]
   #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
@@ -391,7 +391,7 @@ pub struct SecurityHeaderOptions {
   /// `Referrer-Policy` value to inject.
   #[schemars(extend("examples" = ["strict-origin-when-cross-origin"]))]
   pub referrer_policy: Option<String>,
-  /// `Content-Security-Policy` value to inject (no default — CSP is
+  /// `Content-Security-Policy` value to inject (no default, CSP is
   /// application-specific).
   #[schemars(extend("examples" = ["default-src 'self'"]))]
   pub csp: Option<String>,
@@ -507,8 +507,8 @@ pub struct HealthConfig {
 
 /// The top level's `health:` block.
 ///
-/// The same fields as [`HealthConfig`] — a file written either way parses
-/// identically — except that `endpoint` is on its way out here. The other
+/// The same fields as [`HealthConfig`], a file written either way parses
+/// identically, except that `endpoint` is on its way out here. The other
 /// children are real defaults: a `services:` entry that says nothing about
 /// its interval, timeout, threshold or boot wait inherits them. `endpoint` is
 /// not, and never was: a probe path belongs to the backend it probes, so the
@@ -618,7 +618,7 @@ pub struct ScalingDecl {
 #[derive(Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ServerValue {
-  /// Server URL only — the token then comes from `token:` or the environment.
+  /// Server URL only, the token then comes from `token:` or the environment.
   Url(String),
   /// Server URL together with the tunnel token.
   Section {
@@ -732,7 +732,7 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = [1048576]))]
   pub max_request_body: Option<u64>,
   /// Seconds the server should wait for this service to answer a dispatched
-  /// request before failing it — a per-service override of the server's global
+  /// request before failing it, a per-service override of the server's global
   /// gateway response timeout, for slow report/upload endpoints.
   #[schemars(extend("examples" = [120]))]
   pub response_timeout: Option<u64>,
@@ -816,7 +816,7 @@ pub struct ServiceEntry {
 #[derive(Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum SubscribeValue {
-  /// `- deploy/web` — listen and deliver, nothing else.
+  /// `- deploy/web`, listen and deliver, nothing else.
   Filter(String),
   /// The full entry, for a subscription that runs something.
   Entry(SubscribeEntry),
@@ -875,7 +875,7 @@ pub struct SubscribeEntry {
 #[derive(Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum BindTunnelValue {
-  /// `pg_main: 15432` — the local port, everything else defaulted.
+  /// `pg_main: 15432`, the local port, everything else defaulted.
   Port(u16),
   /// The full entry.
   Entry(BindTunnelEntry),
@@ -983,7 +983,7 @@ pub struct FileConfig {
   #[schemars(extend("examples" = [1048576]))]
   pub max_request_body: Option<u64>,
   /// Seconds the server should wait for this service to answer a dispatched
-  /// request before failing it — a per-service override of the server's global
+  /// request before failing it, a per-service override of the server's global
   /// gateway response timeout (defaults applied per service).
   #[schemars(extend("examples" = [120]))]
   pub response_timeout: Option<u64>,
@@ -1483,7 +1483,7 @@ impl ServiceEntry {
 /// They are the file's spelling of the CLI's single-service shorthand, and
 /// they are on their way out of the file format: a config file is the place
 /// where a deployment is written down, and having two shapes for "what this
-/// client exposes" — one that only works when the other is absent — is a
+/// client exposes", one that only works when the other is absent, is a
 /// question nobody should have to answer. `services:` is the one shape.
 ///
 /// The shorthand itself is not going anywhere; it stays where it belongs, on
@@ -1761,7 +1761,7 @@ pub struct OtelGroup {
   #[schemars(extend("examples" = ["http://localhost:4318", "http://localhost:4317"]))]
   pub endpoint: Option<String>,
   /// OTLP transport: `http` (protobuf over HTTP) or `grpc`. Unset picks `grpc`
-  /// for an endpoint on port 4317 and `http` everywhere else — a collector
+  /// for an endpoint on port 4317 and `http` everywhere else, a collector
   /// answering the wrong protocol drops every span silently, so pin this when
   /// the endpoint runs on a non-standard port.
   #[schemars(extend("examples" = ["http", "grpc"]))]

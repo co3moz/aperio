@@ -120,7 +120,7 @@ async fn resolve_ordered(
 /// Opens a WebSocket (optionally TLS) connection to the server named in
 /// `request`, choosing the TCP address ourselves per the configured
 /// `ip_family` and falling back across every resolved address. TLS handling is
-/// unchanged from `connect_async` — the default webpki-roots connector is used.
+/// unchanged from `connect_async`, the default webpki-roots connector is used.
 pub(crate) async fn connect_ws<R>(
   request: R,
   config: Option<WebSocketConfig>,
@@ -213,7 +213,7 @@ mod tests {
   async fn resolve_ordered_filters_by_family() {
     // Literal addresses resolve without DNS; the target only needs to name
     // both families. lookup_host on an IP echoes it, so we exercise ordering
-    // by resolving a hostname is avoided — use loopback-style literals.
+    // by resolving a hostname is avoided, use loopback-style literals.
     let only_v4 = resolve_ordered("127.0.0.1", 443, IpFamily::V4)
       .await
       .unwrap();

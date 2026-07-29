@@ -148,8 +148,8 @@ async fn converse(
 
   // Whatever arrived in the same read as the CONNECT is already in the buffer
   // and would otherwise wait for the next packet to arrive before being
-  // looked at. A client that writes CONNECT and SUBSCRIBE together — one
-  // write, or two the kernel coalesced — would sit unsubscribed until its
+  // looked at. A client that writes CONNECT and SUBSCRIBE together, one
+  // write, or two the kernel coalesced, would sit unsubscribed until its
   // keep-alive ping woke the parser up.
   if drain_buffered(buf, bus, filters, writer).await? {
     return Ok(());
@@ -259,7 +259,7 @@ async fn handle(
               }
             }
             // Granted as QoS 0 whatever was asked for. A library accepts the
-            // downgrade — that is what the granted-QoS field is for — and
+            // downgrade, that is what the granted-QoS field is for, and
             // promising 1 would mean promising redelivery this does not do.
             codes.push(SubscribeReasonCode::Success(QoS::AtMostOnce));
           }

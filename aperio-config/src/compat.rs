@@ -11,7 +11,7 @@
 //!
 //! The point is to make a blind upgrade survivable: `docker pull` on a
 //! Friday should either behave exactly as before, or tell the operator
-//! precisely what to look at, or refuse — never silently do something
+//! precisely what to look at, or refuse, never silently do something
 //! different from what the file says.
 //!
 //! [`CONFIG_CHANGES`] is deliberately empty of history: it starts at the
@@ -238,7 +238,7 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     surface: ConfigSurface::Server,
     // The file claims the dashboard is behind its own password. It is not any
     // more, and an operator who believes otherwise has published an admin
-    // surface they think is gated — which is precisely what `Security` is for.
+    // surface they think is gated, which is precisely what `Security` is for.
     severity: ChangeSeverity::Security,
     applies: Applies::WhenSet,
     fields: &["dashboard_auth", "dashboard.auth"],
@@ -280,7 +280,7 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     surface: ConfigSurface::Client,
     // A name is an identifier now: a-z, 0-9 and `_`. A file that named a
     // service or a tunnel anything else no longer starts, which is the whole
-    // point — the alternative is two people writing what they think is the
+    // point, the alternative is two people writing what they think is the
     // same name (`Postgres`, `pg-main`, `pg_main`) and reaching different
     // things. Everything human moves to `custom_name:`, which is free text.
     severity: ChangeSeverity::Breaking,
@@ -296,7 +296,7 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     // a value browsers do not recognize is no longer sent as written: it
     // becomes the strict default. Someone whose `ALLOW-FROM ...` was ignored
     // by every browser had framing allowed in practice, and now has it
-    // denied — the same file, a different site.
+    // denied, the same file, a different site.
     severity: ChangeSeverity::Migration,
     applies: Applies::WhenSet,
     fields: &[
@@ -326,7 +326,7 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     // `token:` alone is read exactly as before. What changed is that the
     // right way to own a port is now the organization, because a token name
     // is not unique and a rule naming one can match a client of another
-    // organization — with the winner decided by hash map order. Worth a look
+    // organization, with the winner decided by hash map order. Worth a look
     // rather than a break, since nothing an operator wrote stopped working.
     severity: ChangeSeverity::Migration,
     applies: Applies::WhenSet,

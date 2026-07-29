@@ -2,7 +2,7 @@
 //! store, so signed-in users (password, TOTP, passkey, OIDC) survive a server
 //! restart instead of being bounced to the login page.
 //!
-//! Rows are keyed by the SHA-256 of the session cookie token — someone who
+//! Rows are keyed by the SHA-256 of the session cookie token, someone who
 //! can read `aperio.db` must not be able to lift live session cookies out of
 //! it. Every mutation persists immediately: sessions change on login/logout,
 //! not per request, so the write volume is negligible.
@@ -27,7 +27,7 @@ pub(crate) struct SessionInfo {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub(crate) user_agent: Option<String>,
   /// When `Some(host)`, the session only authorizes proxied traffic for that
-  /// exact request host — a login against a client-set visitor password. It
+  /// exact request host, a login against a client-set visitor password. It
   /// never authorizes the dashboard or other hosts. `None` = a full/global
   /// session (server password, dashboard password, master token, or OIDC).
   pub(crate) scope_host: Option<String>,
@@ -42,7 +42,7 @@ pub(crate) struct SessionInfo {
   #[serde(default)]
   pub(crate) selected_org: Option<String>,
   /// The organization this session is fixed to (per-org OIDC login). When set,
-  /// the session acts within this org and cannot switch or reach master — it
+  /// the session acts within this org and cannot switch or reach master, it
   /// is an org-scoped admin, not the super-admin. `None` for all other logins.
   #[serde(default)]
   pub(crate) bound_org: Option<String>,
@@ -69,7 +69,7 @@ pub(crate) fn session_user_agent(headers: &axum::http::HeaderMap) -> Option<Stri
     .filter(|v| !v.is_empty())
 }
 
-/// Hex SHA-256 of a session token — the only form ever written to disk.
+/// Hex SHA-256 of a session token, the only form ever written to disk.
 fn token_key(token: &str) -> String {
   use sha2::{Digest, Sha256};
   let mut hasher = Sha256::new();
@@ -205,7 +205,7 @@ impl SessionStore {
       .collect()
   }
 
-  /// True when `token` hashes to `key` — used to mark the caller's own
+  /// True when `token` hashes to `key`, used to mark the caller's own
   /// session in the list.
   pub(crate) fn token_matches_key(token: &str, key: &str) -> bool {
     token_key(token) == key

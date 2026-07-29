@@ -43,7 +43,7 @@ export function MessagesSection() {
         toast.warning(t('Published to "{topic}", but nothing is subscribed to it', { topic: out.topic }))
       } else {
         toast.success(
-          t('Published to "{topic}" — {count} client(s)', { topic: out.topic, count: out.clients }),
+          t('Published to "{topic}", {count} client(s)', { topic: out.topic, count: out.clients }),
         )
       }
       refresh()

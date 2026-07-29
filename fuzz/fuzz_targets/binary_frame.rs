@@ -1,5 +1,5 @@
 #![no_main]
-//! Fuzzes `decode_binary_frame` — the protocol v2 binary frame parser
+//! Fuzzes `decode_binary_frame`, the protocol v2 binary frame parser
 //! (`[tag][id_len][id bytes][payload]`), the primary tunnel corruption/attack
 //! surface. The parser must never panic on arbitrary bytes, and the decoded
 //! frame id must always satisfy the ID-prefix invariant `id.len() <= 255`

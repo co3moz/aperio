@@ -40,8 +40,8 @@ pub(crate) fn name_of(decl: &TunnelDecl) -> String {
 /// Splits the `<org>@<name>` spelling of a tunnel handle.
 ///
 /// A tunnel name is unique inside an organization and nowhere else, so
-/// wherever a name is written down without one — a server's `expose:`, a
-/// binder run with the master token — it is only unambiguous by accident.
+/// wherever a name is written down without one, a server's `expose:`, a
+/// binder run with the master token, it is only unambiguous by accident.
 /// Qualifying it says which organization is meant, and reads the way the
 /// dashboard shows it: `master@dns`, `payments@postgres`. An organization
 /// name cannot contain `@`, which is what keeps the split unambiguous.
@@ -55,7 +55,7 @@ pub(crate) fn split_qualified(raw: &str) -> (Option<&str>, &str) {
 /// The `org_id` clients of the organization named `name` carry.
 ///
 /// `master` (and the empty name) is the built-in organization, whose clients
-/// carry `None` — the same convention the rest of the admin API uses. An
+/// carry `None`, the same convention the rest of the admin API uses. An
 /// unknown name is an error rather than a silent match against everything:
 /// a typo in a server file must not open a port to whoever answers first.
 pub(crate) async fn org_id_for_name(
@@ -165,7 +165,7 @@ fn serviceable(handle: &ClientHandle, down_threshold: std::time::Duration) -> bo
 
 /// Does this connection belong to the process (or the connection) `selector`
 /// names? Matches the server-side connection id, the self-reported instance
-/// id, and the process-wide instance group — the last being the raw
+/// id, and the process-wide instance group, the last being the raw
 /// `client_id` from the configuration file, which is what an operator has.
 fn matches_client(id: &str, handle: &ClientHandle, selector: &str) -> bool {
   id == selector

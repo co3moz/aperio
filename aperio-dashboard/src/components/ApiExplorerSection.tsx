@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
-/* Minimal OpenAPI 3 shapes — only what the explorer renders. */
+/* Minimal OpenAPI 3 shapes, only what the explorer renders. */
 interface OpenApiParameter {
   name: string
   in: 'path' | 'query' | 'header' | 'cookie'
@@ -73,7 +73,7 @@ function OperationRow({ method, path, op }: Operation) {
       try {
         pretty = JSON.stringify(JSON.parse(text), null, 2)
       } catch {
-        /* not JSON — show as-is */
+        /* not JSON, show as-is */
       }
       setResult({ status: res.status, body: pretty.slice(0, 20_000) })
     } catch (e) {
@@ -171,7 +171,7 @@ function OperationRow({ method, path, op }: Operation) {
  * Embedded API explorer over the server's own `/aperio/api/openapi.json`:
  * operations grouped by tag, expandable into a description and an inline
  * try-it form that runs against this server with the dashboard session.
- * Fully self-contained — no external Swagger assets.
+ * Fully self-contained, no external Swagger assets.
  */
 export function ApiExplorerSection() {
   const { t } = useI18n()

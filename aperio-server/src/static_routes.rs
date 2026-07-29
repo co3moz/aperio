@@ -1,7 +1,7 @@
 //! Client-less routes (the `routes:` section of `aperio-server.yaml`).
 //!
 //! A route binds a hostname and/or path prefix directly to a server-produced
-//! answer — a redirect or a fixed response — without any tunnel client
+//! answer, a redirect or a fixed response, without any tunnel client
 //! involved. Typical uses: vanity redirects (`old.example.com` →
 //! `https://new.example.com`), a "coming soon" page on a hostname whose
 //! client is not deployed yet, or a fixed `/robots.txt`.

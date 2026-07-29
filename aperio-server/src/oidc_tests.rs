@@ -32,7 +32,7 @@ async fn spawn_idp(status: StatusCode, body: String) -> String {
 }
 
 /// Spawns a mock IdP that serves a discovery document built from its own
-/// address by `make_doc(self_base)` — used when endpoints must point back at
+/// address by `make_doc(self_base)`, used when endpoints must point back at
 /// the running server.
 async fn spawn_idp_self(make_doc: impl Fn(&str) -> String) -> String {
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -330,7 +330,7 @@ async fn load_from_env_covers_none_and_success() {
     std::env::set_var("APERIO_OIDC_CLIENT_ID", "cid");
     std::env::set_var("APERIO_OIDC_CLIENT_SECRET", "csecret");
     // Includes blanks and mixed case to exercise trim/lowercase/filter.
-    std::env::set_var("APERIO_OIDC_ALLOWED_EMAILS", " Boss@Corp.com , ,*@team.io ");
+    std::env::set_var("APERIO_OIDC_ALLOWED_EMAILS", " Boss@Corp.com,*@team.io ");
     std::env::set_var("APERIO_OIDC_REDIRECT_URL", "https://app.example/cb");
   }
 

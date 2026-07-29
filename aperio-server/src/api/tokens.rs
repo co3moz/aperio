@@ -140,7 +140,7 @@ type TokenPermLists = (Vec<String>, Vec<String>, Vec<String>);
 /// `max_tokens` quota, or `None` when it may mint another one.
 ///
 /// Every endpoint that mints a credential into the token store has to call
-/// this — the tunnel-provisioning endpoint mints real, if short-lived, tokens
+/// this, the tunnel-provisioning endpoint mints real, if short-lived, tokens
 /// into the same store, so an organization that skipped it could hold any
 /// number of credentials regardless of its cap. Call it while holding the
 /// store lock the insert will use: counting before taking the lock lets two
@@ -532,7 +532,7 @@ pub(crate) async fn tokens_update_handler(
 /// Refreshes a short-lived dynamic token: the caller presents the token
 /// secret itself (Bearer / x-auth-token) and, when the token was created with
 /// a TTL, its expiry slides forward by that same TTL. Registered outside the
-/// dashboard session middleware on purpose — the typical caller is a CI job
+/// dashboard session middleware on purpose, the typical caller is a CI job
 /// or long-running client that only holds the token, not a dashboard session.
 /// Tokens without a TTL are not refreshable (they never expire), and an
 /// already-expired token cannot resurrect itself.
@@ -692,7 +692,7 @@ pub(crate) async fn tokens_rotate_handler(
 }
 
 /// Revokes (deletes) a dynamic token and drops any tunnel connections that are
-/// currently using it — a revoked token could otherwise keep serving traffic
+/// currently using it, a revoked token could otherwise keep serving traffic
 /// until the client next reconnected (when it would be rejected anyway).
 #[utoipa::path(delete, path = "/aperio/api/tokens/{id}", tag = "tokens",
   description = "Revokes a token and immediately drops any tunnel connections using it.",

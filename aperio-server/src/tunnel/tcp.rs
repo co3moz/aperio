@@ -58,7 +58,7 @@ mod tests;
 /// frames = raw TCP bytes.
 ///
 /// With `?client=<id>&target=<host:port>` the stream is relayed to that
-/// specific client's declared tunnel target (`tunnels:` list) — requires
+/// specific client's declared tunnel target (`tunnels:` list), requires
 /// the same token the client connected with (master token excepted).
 /// Without parameters the legacy behavior applies: any TCP-enabled client's
 /// configured `tcp_target`.

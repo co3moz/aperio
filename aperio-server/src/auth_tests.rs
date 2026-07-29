@@ -119,7 +119,7 @@ fn session_cookie_parses_named_value_among_others() {
 fn a_prefixed_session_cookie_cannot_be_displaced_by_a_neighbour() {
   // The reason the prefix exists here. This server also serves other people's
   // sites, so a tenant on a sibling hostname can set a cookie for the parent
-  // domain — but only an unprefixed one, since `__Host-` is host-only by the
+  // domain, but only an unprefixed one, since `__Host-` is host-only by the
   // browser's own rule. The prefixed cookie therefore has to win, or the
   // attacker's session would quietly replace the operator's.
   let mut both = HeaderMap::new();

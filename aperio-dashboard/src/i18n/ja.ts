@@ -40,8 +40,8 @@ export const ja: Record<string, string> = {
   'Allowed source IPs / CIDRs': '許可する送信元IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     '申告された回線容量。サーバーはこれに合わせてこのクライアントへのフレーム送信を調整します',
-  'Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    '別のアクティブな接続が同じクライアントID（{id}）を報告しています — このIDによるbind-tunnelsやフェイルオーバー検索が曖昧になります。各クライアントに固有の--client-idを設定してください',
+  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
+    '別のアクティブな接続が同じクライアントID（{id}）を報告しています, このIDによるbind-tunnelsやフェイルオーバー検索が曖昧になります。各クライアントに固有の--client-idを設定してください',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio リバーストンネルシステム • サーバー稼働時間: {uptime}',
   Appearance: '外観',
@@ -64,16 +64,16 @@ export const ja: Record<string, string> = {
   Cancel: 'キャンセル',
   'Cannot reach the server. Retrying automatically…': 'サーバーに接続できません。自動的に再試行しています…',
   'Capacity & Health': '容量とヘルス',
-  'Captured transaction detail — bodies are capped at 64 KB.':
-    'キャプチャされたトランザクション詳細 — ボディは64 KBまでです。',
+  'Captured transaction detail, bodies are capped at 64 KB.':
+    'キャプチャされたトランザクション詳細, ボディは64 KBまでです。',
   'Change language': '言語を変更',
   Clear: 'クリア',
   'Click to inspect & replay': 'クリックで検査・再送',
   'Client ID': 'クライアントID',
   'Client down threshold (s)': 'クライアント停止しきい値（秒）',
   'Client is gracefully shutting down': 'クライアントは正常終了処理中です',
-  'Client speaks tunnel protocol v{proto}, server differs — update the older side':
-    'クライアントはトンネルプロトコルv{proto}を使用しており、サーバーと異なります — 古い側を更新してください',
+  'Client speaks tunnel protocol v{proto}, server differs, update the older side':
+    'クライアントはトンネルプロトコルv{proto}を使用しており、サーバーと異なります, 古い側を更新してください',
   'Client {id} disabled': 'クライアント{id}を無効化しました',
   'Client {id} enabled': 'クライアント{id}を有効化しました',
   Clients: 'クライアント',
@@ -91,7 +91,7 @@ export const ja: Record<string, string> = {
   Copy: 'コピー',
   'Copy an equivalent curl command': '同等のcurlコマンドをコピー',
   'Copy as cURL': 'cURLとしてコピー',
-  'Copy it now — it will NOT be shown again.': '今すぐコピーしてください — 二度と表示されません。',
+  'Copy it now, it will NOT be shown again.': '今すぐコピーしてください, 二度と表示されません。',
   'Could not revoke token "{name}"': 'トークン「{name}」を失効できませんでした',
   'Could not update client {id}': 'クライアント{id}を更新できませんでした',
   Create: '作成',
@@ -106,8 +106,8 @@ export const ja: Record<string, string> = {
   DOWN: '停止',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': '1日のトラフィック上限（MB、0 = 無制限、空 = 維持）',
   'Daily traffic quota (MB, empty = no quota)': '1日のトラフィック上限（MB、空 = 無制限）',
-  "Dashboard data isn't updating — the values shown may be stale.":
-    'ダッシュボードのデータが更新されていません — 表示中の値は古い可能性があります。',
+  "Dashboard data isn't updating, the values shown may be stale.":
+    'ダッシュボードのデータが更新されていません, 表示中の値は古い可能性があります。',
   'Dashboard/login language for visitors whose browser language is unsupported':
     'ブラウザの言語が未対応の訪問者向けのダッシュボード/ログイン言語',
   'Data Transferred': '転送データ量',
@@ -152,7 +152,7 @@ export const ja: Record<string, string> = {
   'Freeze the table while you inspect': '検査中はテーブルを固定',
   'Gateway & Requests': 'ゲートウェイとリクエスト',
   'Gateway timeout (s)': 'ゲートウェイタイムアウト（秒）',
-  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.':
+  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     '認証保護されたサイトへの一時アクセスを付与します。リンクにはホスト名（と任意のパス）に限定された署名付き期限付きトークンが含まれます。開くとCookieが設定され、クリーンなURLへリダイレクトされます。リンクはステートレスで、後から一覧できず、期限が切れるだけです。',
   'Go to {page}': '{page}へ移動',
   'Header consulted first for the visitor IP (behind CDN chains)':
@@ -185,7 +185,7 @@ export const ja: Record<string, string> = {
   'Live Request Activity': 'ライブリクエストアクティビティ',
   'Live Traffic': 'ライブトラフィック',
   'Route Trends': 'ルートトレンド',
-  'One bar per minute over the last 30 minutes, colored by the worst status class — spot which route started erroring, and when.': '直近 30 分を 1 分ごとのバーで表示、最悪のステータスクラスで着色 — どのルートがいつエラーを出し始めたか一目で分かります。',
+  'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': '直近 30 分を 1 分ごとのバーで表示、最悪のステータスクラスで着色, どのルートがいつエラーを出し始めたか一目で分かります。',
   'Last 30 minutes': '直近 30 分',
   'Error rate': 'エラー率',
   'No traffic in the last 30 minutes.': '直近 30 分のトラフィックはありません。',
@@ -193,21 +193,21 @@ export const ja: Record<string, string> = {
   'Bandwidth': '帯域',
   'Daily': '日次',
   'Monthly': '月次',
-  'Bytes through the tunnel per token and hostname — hover a cell for the sent/received split.': 'トークン・ホスト名ごとのトンネル通過バイト数 — セルにカーソルを合わせると送信/受信の内訳を表示。',
+  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'トークン・ホスト名ごとのトンネル通過バイト数, セルにカーソルを合わせると送信/受信の内訳を表示。',
   'No traffic recorded for this window yet.': 'この期間のトラフィックはまだ記録されていません。',
   'Total': '合計',
   'Slowest Endpoints': '最も遅いエンドポイント',
-  'Recent-window latency per endpoint, worst p95 first — where the time is going right now.': 'エンドポイントごとの直近レイテンシ、最悪の p95 から表示 — いま時間がどこに使われているか。',
+  'Recent-window latency per endpoint, worst p95 first, where the time is going right now.': 'エンドポイントごとの直近レイテンシ、最悪の p95 から表示, いま時間がどこに使われているか。',
   'Max': '最大',
-  'Not enough recent traffic yet — the table needs a few requests per endpoint.': 'まだトラフィックが不足しています — エンドポイントごとに数リクエスト必要です。',
+  'Not enough recent traffic yet, the table needs a few requests per endpoint.': 'まだトラフィックが不足しています, エンドポイントごとに数リクエスト必要です。',
   'Webhook Inbox': 'Webhook 受信箱',
   'Clear inbox': '受信箱を空にする',
-  'Services with webhook_inbox: true get every inbound POST persisted here — browse the payloads and re-fire any event to the connected client.': 'webhook_inbox: true のサービスの受信 POST はすべてここに保存されます — ペイロードを確認し、任意のイベントを接続中のクライアントへ再送信できます。',
+  'Services with webhook_inbox: true get every inbound POST persisted here, browse the payloads and re-fire any event to the connected client.': 'webhook_inbox: true のサービスの受信 POST はすべてここに保存されます, ペイロードを確認し、任意のイベントを接続中のクライアントへ再送信できます。',
   'Payload': 'ペイロード',
-  'No captured webhooks yet — opt a service in with webhook_inbox: true.': 'まだ Webhook はありません — webhook_inbox: true でサービスを有効化してください。',
+  'No captured webhooks yet, opt a service in with webhook_inbox: true.': 'まだ Webhook はありません, webhook_inbox: true でサービスを有効化してください。',
   'Re-fire to the connected client': '接続中のクライアントへ再送信',
   'Re-fire': '再送信',
-  'Re-fired — backend answered {status}': '再送信しました — バックエンドは {status} を返しました',
+  'Re-fired, backend answered {status}': '再送信しました, バックエンドは {status} を返しました',
   'Re-fire failed ({status})': '再送信に失敗しました（{status}）',
   'Headers': 'ヘッダー',
   '(no body)': '（ボディなし）',
@@ -250,8 +250,8 @@ export const ja: Record<string, string> = {
   'New connections with this token will be rejected.': 'このトークンでの新しい接続は拒否されます。',
   'New lifetime in seconds from now (0 = never, empty = keep)':
     '現在からの新しい有効期間（秒、0 = 無期限、空 = 維持）',
-  'No active client sessions — start a tunnel client to see it here':
-    'アクティブなクライアントセッションがありません — トンネルクライアントを起動するとここに表示されます',
+  'No active client sessions, start a tunnel client to see it here':
+    'アクティブなクライアントセッションがありません, トンネルクライアントを起動するとここに表示されます',
   'No active web socket client': 'アクティブなWebSocketクライアントがありません',
   'No attributed traffic yet': 'まだ帰属トラフィックがありません',
   'No audit events': '監査イベントがありません',
@@ -265,8 +265,8 @@ export const ja: Record<string, string> = {
   'No matching commands': '一致するコマンドがありません',
   'No requests matching filter': 'フィルタに一致するリクエストがありません',
   'No webhooks defined': 'Webhookは定義されていません',
-  'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'サイズとして無効です — 例: 10 MB、1.5 GB、またはバイト数',
+  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
+    'サイズとして無効です, 例: 10 MB、1.5 GB、またはバイト数',
   'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
     'OIDCシングルサインオン（issuer、クライアントID/シークレット、リダイレクトURL、スコープ）',
   'OK / Failed': '成功 / 失敗',
@@ -285,7 +285,7 @@ export const ja: Record<string, string> = {
   'Path bind (optional)': 'パスバインド（任意）',
   Paths: 'パス',
   Paused: '一時停止中',
-  'Paused — table frozen at {count} requests.': '一時停止中 — テーブルは{count}件で固定されています。',
+  'Paused, table frozen at {count} requests.': '一時停止中, テーブルは{count}件で固定されています。',
   'Payload bytes transferred': '転送ペイロードバイト数',
   'Per-hostname 503 switch': 'ホスト名ごとの503スイッチ',
   'Per-visitor-IP token bucket for proxied requests.':
@@ -334,10 +334,10 @@ export const ja: Record<string, string> = {
   'Search clients…': 'クライアントを検索…',
   'Search…': '検索…',
   'Security & Audit': 'セキュリティと監査',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:':
-    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはコンテナ内で動作しています — 変更するには:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:':
-    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはネイティブで動作しています — 変更するには:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
+    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはコンテナ内で動作しています, 変更するには:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
+    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはネイティブで動作しています, 変更するには:',
   'Send this request through the tunnel again': 'このリクエストを再度トンネル経由で送信',
   Sent: '送信',
   'Server Settings': 'サーバー設定',
@@ -415,7 +415,7 @@ export const ja: Record<string, string> = {
     '認証アプリでQRコードをスキャンし、表示された6桁のコードを入力して完了します。',
   'Verify & enable':
     '確認して有効化',
-  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe, they are shown only once and let you sign in if you lose your authenticator.':
     '二要素認証がオンになりました。この使い捨てリカバリーコードを安全な場所に保管してください。一度しか表示されず、認証アプリを失った場合のサインインに使えます。',
   'Done':
     '完了',
@@ -442,7 +442,7 @@ export const ja: Record<string, string> = {
   'down': '停止',
   'no data': 'データなし',
   'No availability history yet': '可用性の履歴はまだありません',
-  'Percentages cover observed time only — time while the server itself was offline is not counted against a service.': 'パーセンテージは観測された時間のみを対象とします。サーバー自体が停止していた時間はサービスの障害として数えられません。',
+  'Percentages cover observed time only, time while the server itself was offline is not counted against a service.': 'パーセンテージは観測された時間のみを対象とします。サーバー自体が停止していた時間はサービスの障害として数えられません。',
   'Last 7 days': '過去7日間',
   'Last 30 days': '過去30日間',
   'Last 60 days': '過去60日間',
@@ -472,8 +472,8 @@ export const ja: Record<string, string> = {
   'Temporary visitor access': '一時的な訪問者アクセス',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
     'クライアント自身のヘルスチェックがバックエンドの停止を報告しています。トンネル接続中はルーティングから除外されます',
-  'The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.':
-    '以下のコマンドは{placeholder}プレースホルダーを使用しています — マスタートークンまたは既存の動的トークンに置き換えてください。',
+  'The commands below use a {placeholder} placeholder, replace it with your master token or an existing dynamic token.':
+    '以下のコマンドは{placeholder}プレースホルダーを使用しています, マスタートークンまたは既存の動的トークンに置き換えてください。',
   "This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service":
     'このクライアントは自身が設定した訪問者ログインでサービスを保護し、このサービスについてサーバーの訪問者パスワードを上書きします',
   'This client serves its traffic without the visitor auth gate':
@@ -534,8 +534,8 @@ export const ja: Record<string, string> = {
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'このサービスにアクセスできる訪問者IP/CIDRは次のとおりです: {ips}',
   'e.g. 10 MB, 1 GB, 65536': '例: 10 MB、1 GB、65536',
-  'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
-    '例: example.com、*.example.com、*-test.example.com — * はランダムなラベルになります。空 = 無効',
+  'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
+    '例: example.com、*.example.com、*-test.example.com, * はランダムなラベルになります。空 = 無効',
   'master token': 'マスタートークン',
   'never expires': '無期限',
   override: 'オーバーライド',
@@ -567,7 +567,7 @@ export const ja: Record<string, string> = {
   'Delete user "{name}"?': 'ユーザー「{name}」を削除しますか？',
   'Edit user "{name}"': 'ユーザー「{name}」を編集',
   'New password (leave blank to keep)': '新しいパスワード（変更しない場合は空欄）',
-  'No dashboard users yet — the master token and dashboard password still work.': 'ダッシュボードユーザーはまだいません — マスタートークンとダッシュボードパスワードは引き続き使えます。',
+  'No dashboard users yet, the master token and dashboard password still work.': 'ダッシュボードユーザーはまだいません, マスタートークンとダッシュボードパスワードは引き続き使えます。',
   'Operator': 'オペレーター',
   'Password (min. 8 characters)': 'パスワード（8文字以上）',
   'Role': 'ロール',
@@ -582,7 +582,7 @@ export const ja: Record<string, string> = {
   'active': '有効',
   'disabled': '無効',
   'Export & Import': 'エクスポートとインポート',
-  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'トークン、Webhook、ユーザー、設定オーバーライドの論理 JSON ダンプ — アップグレードや移行のための保険です。統計とセッションは含まれません。',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides, a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'トークン、Webhook、ユーザー、設定オーバーライドの論理 JSON ダンプ, アップグレードや移行のための保険です。統計とセッションは含まれません。',
   'Download export': 'エクスポートをダウンロード',
   'Import dump…': 'ダンプをインポート…',
   'Import applied': 'インポートを適用しました',
@@ -643,26 +643,26 @@ export const ja: Record<string, string> = {
   'Organization': '組織',
   'New Organization': '新しい組織',
   'Create organization': '組織を作成',
-  'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': '組織を選択している間に作成したトークンとユーザーは、その組織のみに属します。メンバーが他の組織のクライアントやトークンを見ることはありません。',
+  'Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.': '組織を選択している間に作成したトークンとユーザーは、その組織のみに属します。メンバーが他の組織のクライアントやトークンを見ることはありません。',
   'Organization "{name}" created': '組織「{name}」を作成しました',
   'Organization "{name}" deleted': '組織「{name}」を削除しました',
   'Delete organization "{name}"?': '組織「{name}」を削除しますか？',
   'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.': 'この操作は元に戻せません。組織を削除できるのは、そのすべてのユーザーとトークンを削除した後のみです。',
-  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.': '分離されたテナント。サイドバーから組織に切り替えると、その組織固有のトークン・ユーザー・クライアントを管理できます。master 組織は暗黙的で、組織なしで作成されたものはすべて master に属します。',
+  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.': '分離されたテナント。サイドバーから組織に切り替えると、その組織固有のトークン・ユーザー・クライアントを管理できます。master 組織は暗黙的で、組織なしで作成されたものはすべて master に属します。',
   'No organizations yet': '組織がまだありません',
   'master': 'master',
   'Switch organization': '組織を切り替え',
   'This one client process holds {count} parallel connections to this service (connections: {count}); actions apply to all of them': 'このクライアントプロセス 1 つがこのサービスへ {count} 本の並列接続を保持しています（connections: {count}）。操作はすべての接続に適用されます。',
   'Table': 'テーブル',
   'Console': 'コンソール',
-  'Requests in real time — table or console': 'リアルタイムのリクエスト — テーブルまたはコンソール',
+  'Requests in real time, table or console': 'リアルタイムのリクエスト, テーブルまたはコンソール',
   'no client': 'クライアントなし',
   'offline': 'オフライン',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング — 静的なリダイレクト/レスポンスと公開 expose ポート — および、どのクライアントも提供していないトークン付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング, 静的なリダイレクト/レスポンスと公開 expose ポート, および、どのクライアントも提供していないトークン付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。',
   'ejected': '除外',
   'draining': 'ドレイン中',
   'cache off': 'キャッシュ無効',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
   'Add hostname': 'ホスト名を追加',
   'Hostname binds': 'ホスト名バインド',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -706,7 +706,7 @@ export const ja: Record<string, string> = {
   'unset (server default)': '未設定（サーバー既定）',
   'unit': '単位',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'このホスト名へのリクエストは、失敗させる代わりにサービス起動中は最大 {secs} 秒保留されます。',
-  'A scoped, revocable Bearer credential for automation — no master token needed.': '自動化向けの、範囲を限定した取り消し可能な Bearer 認証情報です。マスタートークンは不要です。',
+  'A scoped, revocable Bearer credential for automation, no master token needed.': '自動化向けの、範囲を限定した取り消し可能な Bearer 認証情報です。マスタートークンは不要です。',
   'Admin key "{name}" created': '管理キー「{name}」を作成しました',
   'Admin key "{name}" revoked': '管理キー「{name}」を失効しました',
   'Admin key created': '管理キーを作成しました',
@@ -719,7 +719,7 @@ export const ja: Record<string, string> = {
   'Client id': 'クライアント ID',
   'Client secret': 'クライアントシークレット',
   'Cold starts only: no scale-out ceiling is configured.': 'コールドスタートのみ：スケールアウトの上限は未設定です。',
-  'Copy it now — it is shown only once and cannot be retrieved later.': '今すぐコピーしてください。表示は一度きりで、後から取得できません。',
+  'Copy it now, it is shown only once and cannot be retrieved later.': '今すぐコピーしてください。表示は一度きりで、後から取得できません。',
   'Disarm': '解除',
   'Disarm autoscaling for "{host}"?': '「{host}」のオートスケーリングを解除しますか？',
   'Disarmed autoscaling for {host}': '{host} のオートスケーリングを解除しました',
@@ -865,7 +865,7 @@ export const ja: Record<string, string> = {
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': '組織「{name}」は作成されましたが、上限を保存できませんでした: {error}。「編集」から設定してください。',
   'Organization updated': '組織を更新しました',
   'Tools': 'ツール',
-  'Diagnose, inspect and generate — the things you reach for when something needs working out.': '診断・確認・生成 — 何かを解き明かす必要があるときに手に取るもの。',
+  'Diagnose, inspect and generate, the things you reach for when something needs working out.': '診断・確認・生成, 何かを解き明かす必要があるときに手に取るもの。',
   'Audit log, API explorer and config builder': '監査ログ、API エクスプローラー、設定ビルダー',
   'Settings & Tools': '設定とツール',
   'Noindex preview hosts': 'プレビューホストを noindex に',
@@ -883,7 +883,7 @@ export const ja: Record<string, string> = {
   '(binary body, {bytes} bytes, truncated)': '(バイナリ本文、{bytes} バイト、切り詰め)',
   '(binary payload)': '(バイナリペイロード)',
   '(empty)': '(空)',
-  '(streamed body — not captured)': '(ストリーミング本文 — 未取得)',
+  '(streamed body, not captured)': '(ストリーミング本文, 未取得)',
   '(truncated at 64 KB)': '(64 KB で切り詰め)',
   '(unable to decode body)': '(本文をデコードできません)',
   'Connected': '接続済み',
@@ -893,8 +893,8 @@ export const ja: Record<string, string> = {
   'TOTP QR code': 'TOTP QR コード',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '低速な訪問者のダウンロードをサーバーがどれだけバッファしてから、クライアントに生成の一時停止を要求するか。',
   'Service defaults': 'サービスの既定値',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
-  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
+  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
+  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'ルート上の正常なクライアントが順番に、均等にリクエストを受けます。既定値で、クライアントが入れ替え可能なときに選ぶものです。',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '最も低い優先度ティアのクライアントだけがトラフィックを受けます。その上のクライアントがすべて不健全・ドレイン中・不在になると上位ティアが引き継ぎ、1 つでも戻れば返します。ティアは各クライアントの priority（0 = プライマリ）から決まります。',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '訪問者は最初に応対したクライアントが健全な間ずっとそのクライアントを使い続けます。訪問者ごとの状態をメモリに持つバックエンド向けで、リクエスト単位ではなく訪問者単位で分散します。',
@@ -916,7 +916,7 @@ export const ja: Record<string, string> = {
   'Message': 'メッセージ',
   'At least once': '最低 1 回',
   'Held until each subscriber acknowledges it, and resent meanwhile. Nothing is stored for a client that is offline.': '各購読者が確認するまで保持され、その間は再送されます。オフラインのクライアントのために保存されるものはありません。',
-  'Published to "{topic}" — {count} client(s)': '「{topic}」に発行しました — {count} クライアント',
+  'Published to "{topic}", {count} client(s)': '「{topic}」に発行しました, {count} クライアント',
   'Published to "{topic}", but nothing is subscribed to it': '「{topic}」に発行しましたが、購読しているものはありません',
   'Messages': 'メッセージ',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'このクライアントが待ち受けるトピックと、同じマシン上のアプリケーションが送受信のために接続する場所。',
@@ -927,6 +927,6 @@ export const ja: Record<string, string> = {
   'Only what it is called. The handle {handle} is what addresses it and never changes.': '呼び名だけです。アドレスに使われるハンドル {handle} は変わりません。',
   'Service {name} (custom_name: {custom})': 'サービス {name}（custom_name: {custom}）',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'この組織の画面上の名前。どの言語でも記号でも使え、あとから変更できます。',
-  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z、0-9、_ のみ。組織のアドレスに使われるもので — {example}、サーバーの expose: ルール、API で — 作成後は変更できません。',
+  'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z、0-9、_ のみ。組織のアドレスに使われるもので, {example}、サーバーの expose: ルール、API で, 作成後は変更できません。',
   'Could not delete ({status})': '削除できませんでした（{status}）',
 }

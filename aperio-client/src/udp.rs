@@ -157,7 +157,7 @@ pub(crate) async fn run_udp_bind(
     Ok(s) => Arc::new(s),
     Err(e) => {
       error!(
-        "Failed to bind UDP {}:{}: {} — not binding",
+        "Failed to bind UDP {}:{}: {}, not binding",
         address, port, e
       );
       return;

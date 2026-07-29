@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 /// A dynamic API token created from the dashboard. The secret itself is never
-/// stored — only its SHA-256 hash. Permissions restrict which hostname/path
+/// stored, only its SHA-256 hash. Permissions restrict which hostname/path
 /// binds a client authenticated with this token may claim.
 #[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct ApiToken {
@@ -48,7 +48,7 @@ pub struct ApiToken {
   /// May this token bind the tunnels of *other* clients in the same
   /// organization? Defaults to false. Without it a binder needs the very
   /// credential the declaring client connected with, which is also the
-  /// credential that publishes services as that client — so reaching a
+  /// credential that publishes services as that client, so reaching a
   /// database for ten minutes meant handing over the ability to serve as
   /// them. This is the capability that separates the two.
   #[serde(default)]
@@ -83,7 +83,7 @@ pub struct ApiToken {
   pub prev_expires_at: Option<u64>,
   /// Trust-on-first-use device pin: the first client device key seen for this
   /// token (announced in the Ping). When token pinning is enabled, a later
-  /// connection that announces a different key is rejected — so a leaked token
+  /// connection that announces a different key is rejected, so a leaked token
   /// replayed from another machine cannot serve. Cleared on rotation.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub pinned_key: Option<String>,
@@ -96,7 +96,7 @@ pub enum PinOutcome {
   Pinned,
   /// The announced key matches the existing pin.
   Match,
-  /// The announced key differs from the existing pin — reject the connection.
+  /// The announced key differs from the existing pin, reject the connection.
   Mismatch,
 }
 
@@ -272,8 +272,8 @@ impl TokenStore {
 
   /// Removes a token by ID. Returns true when a token was actually removed
   /// *and durably persisted*. On a persist failure the in-memory removal is
-  /// reverted so memory matches disk — otherwise a "revoked" token would come
-  /// back on the next restart — and `false` is returned so the caller reports
+  /// reverted so memory matches disk, otherwise a "revoked" token would come
+  /// back on the next restart, and `false` is returned so the caller reports
   /// the failure rather than a false success.
   pub fn revoke(&mut self, id: &str) -> bool {
     let Some(pos) = self.tokens.iter().position(|t| t.id == id) else {
@@ -365,7 +365,7 @@ impl TokenStore {
   /// Slides the expiry of the (non-expired) token matching `secret` forward by
   /// its own creation TTL, so a short-lived token stays valid while its holder
   /// keeps using it. Returns the refreshed record. `None` when the secret is
-  /// unknown, already expired, or the token has no TTL (nothing to refresh —
+  /// unknown, already expired, or the token has no TTL (nothing to refresh,
   /// it never expires).
   pub fn refresh(&mut self, secret: &str) -> Option<ApiToken> {
     let hash = hash_token(secret);

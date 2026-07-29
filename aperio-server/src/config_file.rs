@@ -2,7 +2,7 @@
 //!
 //! The server has always been environment-driven; this module adds a file
 //! surface without changing any of the ~50 `std::env::var` call sites: at
-//! startup — before the async runtime spawns threads — every scalar top-level
+//! startup, before the async runtime spawns threads, every scalar top-level
 //! key of the file is materialized into its corresponding environment
 //! variable following the project naming standard (`max_body_size` →
 //! `APERIO_MAX_BODY_SIZE`, with `host`/`port`/`log_level` mapping to their
@@ -10,7 +10,7 @@
 //! over environment variables; dashboard overrides still sit on top of both.
 //!
 //! Mapping-valued keys (e.g. `headers`) are *not* turned into environment
-//! variables — they are kept as parsed YAML for feature code to read through
+//! variables, they are kept as parsed YAML for feature code to read through
 //! [`structured`].
 
 use std::sync::RwLock;
@@ -246,7 +246,7 @@ fn flat_key(key: &str) -> String {
 }
 
 /// The set of environment-variable names that [`load`] materialized from the
-/// current document — scalar keys and grouped-block children alike — i.e. the
+/// current document, scalar keys and grouped-block children alike, i.e. the
 /// `APERIO_*` variables whose value originated from `aperio-server.yaml`
 /// rather than the real environment. Used by `--print-config` to attribute
 /// each variable to its source; leaving the blocks out attributed
@@ -266,7 +266,7 @@ pub(crate) fn materialized_env_names() -> std::collections::BTreeSet<String> {
 }
 
 /// The structured (mapping / list-of-mapping) section keys of the current
-/// document — the keys [`load`] keeps as parsed YAML instead of turning into
+/// document, the keys [`load`] keeps as parsed YAML instead of turning into
 /// environment variables (`headers`, `routes`, `error_pages`, ...).
 pub(crate) fn structured_keys() -> Vec<String> {
   let mut keys = Vec::new();

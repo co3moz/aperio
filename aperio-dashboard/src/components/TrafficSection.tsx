@@ -380,7 +380,7 @@ export function TrafficSection({
         )}
         {paused && (
           <span className="text-xs text-amber-600 dark:text-amber-400">
-            {t('Paused — table frozen at {count} requests.', { count: frozen.length })}
+            {t('Paused, table frozen at {count} requests.', { count: frozen.length })}
           </span>
         )}
       </div>

@@ -48,7 +48,7 @@ fn keys(names: &[&str]) -> ConfigKeys {
   ConfigKeys::from_names(names.iter().map(|s| s.to_string()))
 }
 
-/// No document at all — an environment-only server, say.
+/// No document at all, an environment-only server, say.
 fn no_keys() -> ConfigKeys {
   ConfigKeys::default()
 }
@@ -371,7 +371,7 @@ fn the_single_service_deprecation_reaches_a_file_that_writes_one() {
 
 #[test]
 fn the_single_service_deprecation_is_silent_for_a_services_file() {
-  // A file already written the recommended way must hear nothing at all —
+  // A file already written the recommended way must hear nothing at all,
   // a warning nobody can act on is what teaches people to ignore warnings.
   let keys = ConfigKeys::from_names(["services".to_string(), "max_concurrent".to_string()]);
   let r = check_upgrade(

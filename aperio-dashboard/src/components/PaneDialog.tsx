@@ -46,7 +46,7 @@ export interface PaneSpec<Id extends string> {
  * what you were doing, and routing it made it replace that instead: the page
  * underneath was lost, the back button stepped through panes, and a reload
  * came back into a screen nobody asked to be on. So the page under it keeps
- * the URL, and a reload returns to it with the dialog closed — which is only
+ * the URL, and a reload returns to it with the dialog closed, which is only
  * safe because a pane holding unsaved edits says so and gets a confirmation
  * before it is thrown away.
  *
@@ -70,7 +70,7 @@ export function PaneDialog<Id extends string>({
   panes: PaneSpec<Id>[]
   role: Role
   masterAdmin: boolean
-  /** Something finer than a pane to reveal on open — see `PaneFocus`. */
+  /** Something finer than a pane to reveal on open, see `PaneFocus`. */
   focus?: PaneFocus | null
   /** Names the dialog for screen readers; the panes carry the visible titles. */
   title: string
@@ -87,7 +87,7 @@ export function PaneDialog<Id extends string>({
   )
   // The pane actually shown. A link (or a stale one) can name a pane this
   // role may not open, and falling back to the first *visible* one is the
-  // only answer that is not a blank panel — the nav highlighted the fallback
+  // only answer that is not a blank panel, the nav highlighted the fallback
   // while the body rendered nothing, because it was still asked for the pane
   // that was refused.
   const current = visible.find((p) => p.id === page) ?? visible[0]
@@ -142,7 +142,7 @@ export function PaneDialog<Id extends string>({
         {/* `min-w-0`: this is a grid item, whose automatic minimum size is its
             content's, so without it the nav plus the widest thing in a pane
             set the width and the dialog's `overflow-hidden` simply cut off
-            everything past its right edge — action buttons included. */}
+            everything past its right edge, action buttons included. */}
         <SidebarProvider className="min-h-0 min-w-0 items-start">
           <Sidebar collapsible="none" className="hidden w-52 shrink-0 bg-transparent md:flex">
             <SidebarContent>

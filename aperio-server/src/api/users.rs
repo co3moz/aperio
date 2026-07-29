@@ -330,7 +330,7 @@ pub(crate) struct TotpCodeRequest {
 
 /// Completes TOTP enrollment for the signed-in user.
 #[utoipa::path(post, path = "/aperio/api/me/totp/enable", tag = "users",
-  description = "Completes TOTP enrollment by verifying a code against the pending secret. Returns the single-use recovery codes — shown exactly once.",
+  description = "Completes TOTP enrollment by verifying a code against the pending secret. Returns the single-use recovery codes, shown exactly once.",
   request_body = TotpCodeRequest,
   responses((status = 200, description = "Recovery codes", body = serde_json::Value), (status = 400, description = "Invalid code or no enrollment in progress")))]
 pub(crate) async fn totp_enable_handler(
@@ -423,7 +423,7 @@ pub(crate) async fn totp_disable_handler(
 
 /// Admin reset: clears TOTP for a locked-out user.
 #[utoipa::path(delete, path = "/aperio/api/users/{id}/totp", tag = "users",
-  description = "Clears TOTP for a user (admin only) — the escape hatch when someone loses their authenticator and recovery codes.",
+  description = "Clears TOTP for a user (admin only), the escape hatch when someone loses their authenticator and recovery codes.",
   params(("id" = String, Path, description = "User id")),
   responses((status = 200, description = "Cleared"), (status = 404, description = "Unknown user")))]
 pub(crate) async fn totp_admin_reset_handler(
@@ -491,7 +491,7 @@ fn own_session_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Lists live sessions (admin): who is signed in from where. Ids are the
-/// SHA-256 of the session token — usable for revocation, useless for
+/// SHA-256 of the session token, usable for revocation, useless for
 /// hijacking.
 #[utoipa::path(get, path = "/aperio/api/sessions", tag = "users",
   description = "Live sessions with identity, IP, User-Agent and age; the caller's own session is marked.",

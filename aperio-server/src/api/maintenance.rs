@@ -77,7 +77,7 @@ pub(crate) async fn maintenance_set_handler(
   };
 
   let org = crate::auth::effective_org(&state, &headers).await;
-  // The `*` wildcard puts every hostname into maintenance — a server-wide
+  // The `*` wildcard puts every hostname into maintenance, a server-wide
   // switch reserved for the master organization.
   if hostname == "*" && org.is_some() {
     return (

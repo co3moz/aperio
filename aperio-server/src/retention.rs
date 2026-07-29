@@ -4,12 +4,12 @@
 //! Configuration (all in **days**, unset/0 = keep forever, the historical
 //! behavior):
 //!
-//! - `APERIO_RETENTION_CAPTURES`   — inspector captures and webhook inbox entries
-//! - `APERIO_RETENTION_ACCESS_LOG` — lines of the `APERIO_ACCESS_LOG` file
-//! - `APERIO_RETENTION_AUDIT`     — audit events (rotated generations whose
+//! - `APERIO_RETENTION_CAPTURES`, inspector captures and webhook inbox entries
+//! - `APERIO_RETENTION_ACCESS_LOG`, lines of the `APERIO_ACCESS_LOG` file
+//! - `APERIO_RETENTION_AUDIT`, audit events (rotated generations whose
 //!   newest event expired are deleted whole; the active file only loses its
 //!   leading prefix, keeping the hash chain verifiable)
-//! - `APERIO_RETENTION_STATS`     — day-granularity statistics buckets
+//! - `APERIO_RETENTION_STATS`, day-granularity statistics buckets
 //!   (week/month/year buckets keep their built-in caps)
 //!
 //! The pruner runs once at startup and then hourly. Each cycle that removes
@@ -170,9 +170,9 @@ fn db_size_bytes(data_dir: &std::path::Path) -> u64 {
 }
 
 /// One disk-guard cycle: warns as the cap nears (once per episode, with
-/// hysteresis) and, past the cap, prunes the lowest-priority persisted data —
+/// hysteresis) and, past the cap, prunes the lowest-priority persisted data,
 /// oldest webhook inbox entries, oldest webhook deliveries, oldest day-stat
-/// buckets — then vacuums so the file actually shrinks.
+/// buckets, then vacuums so the file actually shrinks.
 async fn disk_guard_cycle(state: &Arc<AppState>, cap: u64, data_dir: &std::path::Path) {
   use std::sync::atomic::Ordering;
   let size = db_size_bytes(data_dir);

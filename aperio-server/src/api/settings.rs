@@ -52,14 +52,14 @@ fn running_in_container() -> bool {
 }
 
 /// Read-only report of env-only flags for the dashboard reference table.
-/// Secrets are never included — only whether they are set.
+/// Secrets are never included, only whether they are set.
 fn environment_report(state: &Arc<AppState>) -> serde_json::Value {
   let c = state.config();
   let env_or = |key: &str, fallback: &str| std::env::var(key).unwrap_or_else(|_| fallback.into());
   let flags = serde_json::json!([
     { "key": "APERIO_TRUST_PROXY", "value": if c.trust_proxy { "on" } else { "off" } },
     { "key": "APERIO_TRUSTED_PROXIES",
-      "value": if c.trusted_proxies.is_empty() { "(unset — first XFF entry is trusted)".to_string() }
+      "value": if c.trusted_proxies.is_empty() { "(unset, first XFF entry is trusted)".to_string() }
                else { env_or("APERIO_TRUSTED_PROXIES", "") } },
     { "key": "APERIO_TRUST_CF_HEADER", "value": env_or("APERIO_TRUST_CF_HEADER", "off") },
     { "key": "APERIO_REAL_IP_HEADER",

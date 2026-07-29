@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 fn main() {
-  // Only regenerate when this script or the schema model changes — never on
+  // Only regenerate when this script or the schema model changes, never on
   // our own writes into schemas/, so there is no rebuild loop.
   println!("cargo:rerun-if-changed=build.rs");
   println!("cargo:rerun-if-changed=../aperio-config/src/lib.rs");

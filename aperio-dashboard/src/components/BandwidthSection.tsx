@@ -84,7 +84,7 @@ function BandwidthTable({
                       className="text-right font-mono text-xs tabular-nums"
                       title={`▲ ${formatBytes(b.bytes_sent)} · ▼ ${formatBytes(b.bytes_received)} · ${b.requests} req`}
                     >
-                      {total > 0 ? formatBytes(total) : <span className="text-muted-foreground">—</span>}
+                      {total > 0 ? formatBytes(total) : <span className="text-muted-foreground">, </span>}
                     </TableCell>
                   )
                 })}
@@ -102,7 +102,7 @@ function BandwidthTable({
 
 /**
  * Bandwidth accounting: bytes per token and per hostname bucketed per day or
- * month — the billing-style view of `/aperio/api/bandwidth`. Cell tooltips
+ * month, the billing-style view of `/aperio/api/bandwidth`. Cell tooltips
  * split each bucket into sent/received bytes and request counts.
  */
 export function BandwidthSection() {
@@ -142,7 +142,7 @@ export function BandwidthSection() {
         </Button>
       </SectionHeader>
       <p className="max-w-3xl text-sm text-muted-foreground">
-        {t('Bytes through the tunnel per token and hostname — hover a cell for the sent/received split.')}
+        {t('Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.')}
       </p>
       {report === null ? (
         <Card className="overflow-hidden py-0">

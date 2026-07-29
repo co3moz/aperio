@@ -2,7 +2,7 @@
 //! local target, with its own reconnect loop, heartbeat, backend health
 //! probe and forwarding state. The supervisor in `main` spawns one task per
 //! service and respawns them (with freshly resolved settings) when the
-//! configuration file changes — which is how every setting, not just a
+//! configuration file changes, which is how every setting, not just a
 //! subset, takes effect on hot-reload.
 
 use base64::prelude::*;
@@ -79,7 +79,7 @@ fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<Strin
       match write_res {
         Ok(()) => info!("Generated a new device key at {path} for token pinning"),
         Err(e) => warn!(
-          "Could not persist the device key to {path}: {e}. Running with an in-memory key that changes on every restart — if the server enforces token pinning it will reject this client after a restart. On a read-only or ephemeral filesystem, set a stable key via the APERIO_DEVICE_KEY environment variable instead of a file."
+          "Could not persist the device key to {path}: {e}. Running with an in-memory key that changes on every restart, if the server enforces token pinning it will reject this client after a restart. On a read-only or ephemeral filesystem, set a stable key via the APERIO_DEVICE_KEY environment variable instead of a file."
         ),
       }
       Some(key)
@@ -173,7 +173,7 @@ pub(crate) struct ServiceSpec {
   pub(crate) tcp_target: Option<String>,
   pub(crate) target_health: Option<String>,
   /// Hold the service out of routing until the backend first accepts a
-  /// connection (no-op when `target_health` is set — that gates startup too).
+  /// connection (no-op when `target_health` is set, that gates startup too).
   pub(crate) wait_for_backend: bool,
   pub(crate) health_interval: u64,
   pub(crate) health_timeout: u64,
@@ -404,7 +404,7 @@ impl BackendHealth {
   ///
   /// `healthy` implies `probed`: the gated service starts unhealthy and only a
   /// probe that passed, or a backend that accepted a connection, ever makes it
-  /// healthy — so being up *is* evidence something looked. Deriving it here
+  /// healthy, so being up *is* evidence something looked. Deriving it here
   /// rather than trusting the write order removes the window where a heartbeat
   /// woken between the two stores said "up, and nobody has checked", which is
   /// not a state that exists and which the dashboard renders as CHECKING for a
@@ -488,7 +488,7 @@ pub(crate) async fn run_service(
         // Before anything is announced. The heartbeat reads both flags
         // together, and the healthy-transition notify below wakes it: with
         // the store left until after, that heartbeat carried "healthy, never
-        // probed" — a pair that describes nothing, and the one the dashboard
+        // probed", a pair that describes nothing, and the one the dashboard
         // renders as CHECKING for a backend already probed and up. It
         // corrected itself on the next notify, which is exactly why it took a
         // one-in-many e2e run to see it.
@@ -500,7 +500,7 @@ pub(crate) async fn run_service(
           if !flag.swap(true, Ordering::SeqCst) {
             health_changed.notify_waiters();
             if first_result {
-              info!("Backend healthy: {} — now routable", health_url);
+              info!("Backend healthy: {}, now routable", health_url);
             } else {
               info!("Backend health restored: {}", health_url);
             }
@@ -510,7 +510,7 @@ pub(crate) async fn run_service(
           if consecutive_failures >= threshold && flag.swap(false, Ordering::SeqCst) {
             health_changed.notify_waiters();
             warn!(
-              "Backend health check failed {} consecutive time(s): {} — reporting unhealthy to the server (tunnel stays connected)",
+              "Backend health check failed {} consecutive time(s): {}, reporting unhealthy to the server (tunnel stays connected)",
               consecutive_failures, health_url
             );
           } else if first_result {
@@ -518,7 +518,7 @@ pub(crate) async fn run_service(
             // why the backend is not yet routable (the threshold warning above
             // only fires on a healthy→unhealthy transition).
             info!(
-              "Backend not healthy yet: {} — staying out of routing until a probe passes",
+              "Backend not healthy yet: {}, staying out of routing until a probe passes",
               health_url
             );
           }
@@ -565,7 +565,7 @@ pub(crate) async fn run_service(
           flag.store(true, Ordering::SeqCst);
           probed.store(true, Ordering::SeqCst);
           health_changed.notify_waiters();
-          info!("[{}] Backend is up ({}) — now routable", label, target);
+          info!("[{}] Backend is up ({}), now routable", label, target);
           break;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1066,7 +1066,7 @@ pub(crate) async fn run_service(
                                           } => {
                                               // Forward from tunnel → backend WS with a NON-BLOCKING
                                               // try_send: awaiting the send here would let one backend
-                                              // that stopped reading wedge the entire tunnel read loop —
+                                              // that stopped reading wedge the entire tunnel read loop,
                                               // which also carries Pong, so a stall would starve the
                                               // liveness watchdog and drop every stream on this
                                               // connection. Instead drop just this backed-up stream (its
@@ -1108,7 +1108,7 @@ pub(crate) async fn run_service(
                                           TunnelMessage::TcpOpen { stream_id, target } => {
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
-                                              // declared are ever dialed — a named target must be
+                                              // declared are ever dialed, a named target must be
                                               // in the tunnels: list, no target means the legacy
                                               // tcp_target.
                                               let resolved = match &target {
@@ -1367,7 +1367,7 @@ pub(crate) async fn run_service(
               let code = resp.status().as_u16();
               if code == 401 || code == 403 {
                 error!(
-                  "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token — it may be wrong, expired, or revoked.",
+                  "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token, it may be wrong, expired, or revoked.",
                   label, code
                 );
               } else {
@@ -1444,7 +1444,7 @@ pub(crate) async fn run_service(
 
 /// One connect-probe of the wait-for-backend gate: true when the backend
 /// accepts a TCP (or unix-socket) connection. Deliberately connection-level
-/// only — the gate answers "is anything listening yet", not "is it healthy"
+/// only, the gate answers "is anything listening yet", not "is it healthy"
 /// (that is `target_health`'s job).
 async fn backend_accepts_connections(target: &str) -> bool {
   let attempt = async {

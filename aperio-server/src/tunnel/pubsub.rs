@@ -12,8 +12,8 @@
 //! with a `services:` list holds one tunnel connection per service; keyed on
 //! the connection, one publish would arrive at that process N times and every
 //! subscriber would need a deduplication cache with a time window nobody can
-//! size correctly. Keyed on `instance_group` — the process identity the server
-//! already tracks for the dashboard and for random-hostname sharing — the
+//! size correctly. Keyed on `instance_group`, the process identity the server
+//! already tracks for the dashboard and for random-hostname sharing, the
 //! duplicate never exists.
 //!
 //! **Delivery is best-effort and bounded.** A message goes to the connections
@@ -322,7 +322,7 @@ pub(crate) async fn publish(
   }
 
   // At-least-once: remember it until the subscriber says it arrived. Only for
-  // the processes actually written to — one whose channel was full never got
+  // the processes actually written to, one whose channel was full never got
   // it, and holding a retry for it would be a queue for a client that is not
   // reading, which is what the bound above exists to refuse.
   if qos >= 1 {

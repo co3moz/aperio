@@ -508,8 +508,8 @@ async fn make_org(state: &Arc<AppState>, name: &str) -> String {
 
 #[tokio::test]
 async fn a_named_rule_matches_the_organization_that_owns_the_tunnel() {
-  // Two organizations, the same tunnel name, and — the case that made this
-  // necessary — the same token name in both. Matching on the token name alone
+  // Two organizations, the same tunnel name, and, the case that made this
+  // necessary, the same token name in both. Matching on the token name alone
   // made the winner a question of hash map order.
   let state = Arc::new(test_state());
   let payments = make_org(&state, "payments").await;

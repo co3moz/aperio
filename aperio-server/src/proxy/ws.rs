@@ -262,7 +262,7 @@ pub(crate) async fn handle_ws_proxy(
   // first (a Socket.IO open packet, MQTT over WebSocket, most chat protocols)
   // send immediately. The tunnel read loop delivers that answer to this task
   // and then carries straight on to the next frame, so registering here after
-  // awaiting the answer would still lose whatever arrived in between — this
+  // awaiting the answer would still lose whatever arrived in between, this
   // task may not have been scheduled yet. Registering up front removes the
   // window entirely; every early return below unregisters it again.
   let (relay_tx, relay_rx) = mpsc::channel::<WsStreamMessage>(64);

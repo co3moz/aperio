@@ -56,7 +56,7 @@ export function ToolsDialog({
       masterAdmin={masterAdmin}
       focus={focus}
       title={t('Tools')}
-      description={t('Diagnose, inspect and generate — the things you reach for when something needs working out.')}
+      description={t('Diagnose, inspect and generate, the things you reach for when something needs working out.')}
       // Wider than Settings, which holds forms: a request/response pair, a
       // signature table and a generated YAML file are all wide by nature, and
       // this is the width that stops them wrapping into uselessness.

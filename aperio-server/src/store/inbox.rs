@@ -119,7 +119,7 @@ impl InboxStore {
     self.entries.retain(|e| {
       chrono::DateTime::parse_from_rfc3339(&e.timestamp)
         .map(|dt| dt.timestamp() as u64 >= cutoff_ts)
-        // Unparseable timestamps are kept — never silently drop data on a
+        // Unparseable timestamps are kept, never silently drop data on a
         // parse quirk.
         .unwrap_or(true)
     });

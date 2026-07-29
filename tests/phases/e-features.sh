@@ -233,7 +233,7 @@ assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
 
 step "Per-candidate visitor IP allowlist (APERIO_ALLOWED_IPS)"
 # A client that only admits a TEST-NET address: the local visitor is fully
-# rejected and gets the stealth answer — indistinguishable from an
+# rejected and gets the stealth answer, indistinguishable from an
 # unclaimed route (504), not a route-revealing 403.
 start_client ipdeny "$BACKEND_PORT" APERIO_HOSTNAME=ipdeny.e2e.local APERIO_ALLOWED_IPS=203.0.113.7
 retry 20 sh -c "curl -s -o /dev/null -m 10 -w '%{http_code}' -H 'Host: ipdeny.e2e.local' '$BASE/hello' | grep -q 504" \

@@ -67,13 +67,13 @@ fail() {
 assert_contains() { # <haystack> <needle> <label>
   case "$1" in
     *"$2"*) echo "  ok: $3" ;;
-    *) fail "$3 — expected to contain '$2', got: $1" ;;
+    *) fail "$3, expected to contain '$2', got: $1" ;;
   esac
 }
 
 assert_status() { # <expected> <actual> <label>
   if [ "$1" != "$2" ]; then
-    fail "$3 — expected HTTP $1, got HTTP $2"
+    fail "$3, expected HTTP $1, got HTTP $2"
   fi
   echo "  ok: $3"
 }

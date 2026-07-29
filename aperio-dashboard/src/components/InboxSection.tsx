@@ -32,7 +32,7 @@ function decodeBody(b64: string | null, t: (key: string) => string): string {
 /**
  * Webhook inbox: inbound third-party webhooks persisted for services that
  * opted in with `webhook_inbox: true`. Each entry expands into its headers
- * and payload and can be re-fired to the currently connected client — the
+ * and payload and can be re-fired to the currently connected client, the
  * cure for "Stripe fired while my laptop was closed".
  */
 export function InboxSection() {
@@ -78,7 +78,7 @@ export function InboxSection() {
     setBusy(id)
     try {
       const body = await api.inboxRefire(id)
-      toast.success(t('Re-fired — backend answered {status}', { status: body.status }))
+      toast.success(t('Re-fired, backend answered {status}', { status: body.status }))
     } catch (e) {
       toast.error(
         t('Re-fire failed ({status})', { status: e instanceof ApiError ? e.status : 0 }),
@@ -124,7 +124,7 @@ export function InboxSection() {
 
       <p className="max-w-3xl text-sm text-muted-foreground">
         {t(
-          'Services with webhook_inbox: true get every inbound POST persisted here — browse the payloads and re-fire any event to the connected client.',
+          'Services with webhook_inbox: true get every inbound POST persisted here, browse the payloads and re-fire any event to the connected client.',
         )}
       </p>
 
@@ -133,7 +133,7 @@ export function InboxSection() {
           <RecordSkeleton rows={4} />
         ) : entries.length === 0 ? (
           <RecordEmpty icon={<InboxIcon />}>
-            {t('No captured webhooks yet — opt a service in with webhook_inbox: true.')}
+            {t('No captured webhooks yet, opt a service in with webhook_inbox: true.')}
           </RecordEmpty>
         ) : (
           entries.map((e) => (

@@ -6,7 +6,7 @@ import type { RequestLog } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
-// Rendered line cap — the console keeps only the newest window, like a terminal
+// Rendered line cap, the console keeps only the newest window, like a terminal
 // scrollback, so a busy tunnel cannot grow the DOM without bound.
 const MAX_LINES = 500
 

@@ -1,7 +1,7 @@
 //! OpenTelemetry (OTLP) trace export, opt-in via `APERIO_OTEL`.
 //!
 //! When enabled, every proxied request becomes a `proxy.request` span exported
-//! to a collector over OTLP — protobuf over HTTP by default, or gRPC when
+//! to a collector over OTLP, protobuf over HTTP by default, or gRPC when
 //! `otel.protocol` says so or the endpoint sits on the gRPC port. The incoming
 //! W3C `traceparent` header (if present) is adopted as the span's parent, and
 //! the span's own context is injected back into the headers forwarded through
@@ -84,7 +84,7 @@ struct OtlpTarget {
   endpoint: String,
   /// Why the protocol ended up as it did, when that is worth saying out loud:
   /// an unreadable setting, or a port that contradicts the chosen transport.
-  /// Logged by `init` after the subscriber exists — resolution happens before
+  /// Logged by `init` after the subscriber exists, resolution happens before
   /// it, so a `warn!` raised here would go nowhere.
   note: Option<String>,
 }
@@ -229,7 +229,7 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Best-effort startup check of the OTLP endpoint. Spans are exported
 /// asynchronously and a broken endpoint (wrong host/port, wrong protocol, DNS,
-/// collector down) is otherwise silent — every span is just dropped.
+/// collector down) is otherwise silent, every span is just dropped.
 ///
 /// Each transport is probed the way it is actually spoken, because a check
 /// that is merely *near* the real path is what produced the bug this replaced:
@@ -254,7 +254,7 @@ fn probe_http(endpoint: String) {
   let port = endpoint_host_port(&endpoint).map(|(_, port)| port);
   let hint = if port == Some(OTLP_GRPC_PORT) {
     concat!(
-      " — port 4317 is the OTLP/gRPC port and this endpoint is being spoken to ",
+      ", port 4317 is the OTLP/gRPC port and this endpoint is being spoken to ",
       "over OTLP/HTTP; set `otel.protocol: grpc`, or use the HTTP port 4318"
     )
   } else {
@@ -284,13 +284,13 @@ fn probe_http(endpoint: String) {
     // transport is right and something else (path, auth, collector config) is
     // not. Worth a warning, but a different one.
     Ok(res) => tracing::warn!(
-      "OTLP endpoint {} answered {} to a test export — traces may be dropped{}",
+      "OTLP endpoint {} answered {} to a test export, traces may be dropped{}",
       endpoint,
       res.status(),
       hint
     ),
     Err(e) => tracing::warn!(
-      "OTLP endpoint {} did not accept a test export ({}) — trace spans will be dropped{}",
+      "OTLP endpoint {} did not accept a test export ({}), trace spans will be dropped{}",
       endpoint,
       e,
       hint
@@ -329,7 +329,7 @@ fn probe_grpc(endpoint: String) {
   }
   let hint = if port == OTLP_HTTP_PORT {
     concat!(
-      " — port 4318 is the OTLP/HTTP port and this endpoint is being spoken to ",
+      ", port 4318 is the OTLP/HTTP port and this endpoint is being spoken to ",
       "over OTLP/gRPC; set `otel.protocol: http`, or use the gRPC port 4317"
     )
   } else {
@@ -341,12 +341,12 @@ fn probe_grpc(endpoint: String) {
       endpoint
     ),
     Ok(false) => tracing::warn!(
-      "OTLP endpoint {} answered without HTTP/2 — trace spans will be dropped{}",
+      "OTLP endpoint {} answered without HTTP/2, trace spans will be dropped{}",
       endpoint,
       hint
     ),
     Err(e) => tracing::warn!(
-      "OTLP endpoint {} did not complete an HTTP/2 handshake ({}) — trace spans will be dropped{}",
+      "OTLP endpoint {} did not complete an HTTP/2 handshake ({}), trace spans will be dropped{}",
       endpoint,
       e,
       hint
@@ -484,7 +484,7 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
       }
       OTEL_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
       // Surface an unreachable collector immediately instead of silently
-      // dropping every span. Detached thread with blocking IO — advisory only,
+      // dropping every span. Detached thread with blocking IO, advisory only,
       // never blocks startup and needs no Tokio runtime (export still runs).
       let (protocol, endpoint) = (target.protocol, target.endpoint.clone());
       std::thread::spawn(move || probe_target(protocol, endpoint));
@@ -590,7 +590,7 @@ pub(crate) fn record_status(span: &tracing::Span, status: u16) {
 ///
 /// The three top-level spans are real, observed boundaries; only the nested
 /// client/backend breakdown is estimated (and present only when the client
-/// reported its offsets — the buffered response path). `t0`'s wall clock is
+/// reported its offsets, the buffered response path). `t0`'s wall clock is
 /// recovered from the monotonic `start_time` so the children line up under the
 /// parent. No-op unless OTLP export is enabled.
 pub(crate) fn emit_phase_spans(

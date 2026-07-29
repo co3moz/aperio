@@ -232,7 +232,7 @@ fn run_invalid_scalars_and_enums_fail() {
 fn the_config_lock_holds_however_long_a_test_takes() {
   // The property the old lock did not have. It was a file whose age decided
   // whether it counted, and a holder that had not finished within thirty
-  // seconds had its lock taken away — so under a fully parallel run two tests
+  // seconds had its lock taken away, so under a fully parallel run two tests
   // could be inside at once, and one of them failed for something the other
   // one did to the environment. Held for a long moment here on purpose: it is
   // the *duration* that used to break it.

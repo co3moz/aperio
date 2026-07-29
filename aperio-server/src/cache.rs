@@ -110,7 +110,7 @@ pub(crate) struct CacheStats {
 
 /// Cache key for one request. Tracking query parameters (`utm_*`, `gclid`,
 /// `fbclid`, …) are stripped so a URL and its ad-tagged variants share one
-/// entry — they never change the response body.
+/// entry, they never change the response body.
 pub(crate) fn cache_key(host: Option<&str>, uri: &str) -> String {
   format!("{}|{}", host.unwrap_or(""), normalize_cache_uri(uri))
 }
@@ -128,7 +128,7 @@ fn is_tracking_param(name: &str) -> bool {
 
 /// Drops tracking parameters from a request URI for cache-key purposes,
 /// preserving the order of the remaining parameters. The URI sent to the
-/// backend is unaffected — only the cache key is normalized.
+/// backend is unaffected, only the cache key is normalized.
 fn normalize_cache_uri(uri: &str) -> String {
   let Some((path, query)) = uri.split_once('?') else {
     return uri.to_string();
@@ -478,7 +478,7 @@ pub(crate) enum RangeOutcome {
 }
 
 /// Evaluates a `Range` header value against a body of `len` bytes. Only
-/// single `bytes=` ranges are honored — multipart ranges and other units are
+/// single `bytes=` ranges are honored, multipart ranges and other units are
 /// answered with the full body, which RFC 9110 explicitly permits.
 pub(crate) fn evaluate_range(range: &str, len: usize) -> RangeOutcome {
   let Some(spec) = range.trim().strip_prefix("bytes=") else {

@@ -121,7 +121,7 @@ client.publish('deploy/web', 'v1.9.2')
 
 **MQTT exists only between your application and the client.** Nothing on the wire to the Aperio server speaks it, and the server never learns it was involved. That is the whole reason to carry the protocol: at the application boundary it buys a library in every language and no code to write, and on the wire it would buy a dependency and a second connection for something nobody would see.
 
-It is a translator, not a broker: every publish goes up to the server and every delivery comes down, so a local subscriber sees its own message only if the organization sends it back — which is exactly what a subscriber on another machine sees.
+It is a translator, not a broker: every publish goes up to the server and every delivery comes down, so a local subscriber sees its own message only if the organization sends it back, which is exactly what a subscriber on another machine sees.
 
 What your library gets, stated rather than discovered:
 
@@ -138,7 +138,7 @@ Both faces can run at once and share one subscription set, so a shell script on 
 
 ## Server events
 
-Everything the server already reports through webhooks is also published on the reserved `$aperio/` namespace, so a client can react to infrastructure without standing up an HTTP receiver for it. The topic is the event name with its underscores as levels, and the payload is the event's JSON — the same document a webhook would receive.
+Everything the server already reports through webhooks is also published on the reserved `$aperio/` namespace, so a client can react to infrastructure without standing up an HTTP receiver for it. The topic is the event name with its underscores as levels, and the payload is the event's JSON, the same document a webhook would receive.
 
 | Group | Topics |
 | --- | --- |
@@ -166,7 +166,7 @@ Messaging is a token capability, off unless the token carries it. A dynamic toke
 aperio-client api POST /tokens -d '{"name":"deploy-runner","topics":["deploy/#"]}'
 ```
 
-The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#` — otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything".
+The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#`, otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything".
 
 The master token is unrestricted, like everywhere else. An ephemeral tunnel token carries no topics: it is a guest of the organization for one hostname and has no business signalling the rest of it.
 

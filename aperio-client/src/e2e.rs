@@ -1,7 +1,7 @@
 //! End-to-end encryption for emergency tunnels (`encrypt: true`).
 //!
-//! The two *clients* of a bound tunnel — the binder (initiator) and the
-//! declaring client (responder) — run an ephemeral X25519 key exchange
+//! The two *clients* of a bound tunnel, the binder (initiator) and the
+//! declaring client (responder), run an ephemeral X25519 key exchange
 //! in-band as the first frame in each direction, then seal every relayed
 //! frame with ChaCha20-Poly1305. The aperio server only ever sees the
 //! handshake public keys and ciphertext.
@@ -9,7 +9,7 @@
 //! A passive server (or any relay) learns nothing. An *active* server could
 //! man-in-the-middle the plain exchange, so both sides may additionally
 //! configure a pre-shared key (`psk`): it is mixed into the HKDF salt, and a
-//! MITM without it derives different keys — the first sealed frame fails to
+//! MITM without it derives different keys, the first sealed frame fails to
 //! open and the stream dies instead of leaking data.
 
 use chacha20poly1305::aead::Aead;

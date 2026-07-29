@@ -2,7 +2,7 @@
 #
 # Runtime image for aperio-client. Like the server image, the binary is prebuilt
 # (musl-static) by the Release workflow's binary matrix and copied in per
-# platform — no compilation happens in this image. See aperio-server/Dockerfile
+# platform, no compilation happens in this image. See aperio-server/Dockerfile
 # for the full rationale.
 #
 # The build context must contain the prebuilt binaries at

@@ -50,7 +50,7 @@ export function formatUptime(seconds: number): string {
 /**
  * Parses a server timestamp to epoch milliseconds. Accepts unix seconds
  * (audit `ts`), RFC3339 strings (current servers, offset included), or the
- * legacy naive `%Y-%m-%d %H:%M:%S` form (interpreted in the browser's zone —
+ * legacy naive `%Y-%m-%d %H:%M:%S` form (interpreted in the browser's zone,
  * the best possible guess since it carries no offset). NaN when unparseable.
  */
 function parseTimestamp(input: string | number): number {
@@ -87,7 +87,7 @@ export function formatAbsoluteTime(input: string | number): string {
 }
 
 export function formatLastPing(secondsAgo: number | null): string {
-  if (secondsAgo === null || secondsAgo === undefined) return '—'
+  if (secondsAgo === null || secondsAgo === undefined) return ', '
   if (secondsAgo < 1) return 'now'
   return `${secondsAgo}s ago`
 }
@@ -112,7 +112,7 @@ export function decodeBodyPreview(
   streamed: boolean,
   t: (key: string, vars?: Record<string, string | number>) => string,
 ): string {
-  if (streamed) return t('(streamed body — not captured)')
+  if (streamed) return t('(streamed body, not captured)')
   if (!b64) return t('(empty)')
   try {
     const bin = atob(b64)

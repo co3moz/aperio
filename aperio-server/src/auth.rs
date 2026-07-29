@@ -128,7 +128,7 @@ impl LockoutTracker {
 /// a full (global) session, while a client-set per-service visitor password
 /// creates a session scoped to that host only (it never unlocks the dashboard
 /// or other hosts). A client override replaces the server's own visitor
-/// password for that route — the server password no longer works there (master
+/// password for that route, the server password no longer works there (master
 /// and dashboard credentials always do).
 #[utoipa::path(post, path = "/aperio/auth", tag = "auth",
   description = "Login form submission (form-encoded username/password). On success sets the aperio_session cookie and redirects. Rate-limited with an escalating per-IP lockout.",
@@ -176,7 +176,7 @@ pub(crate) async fn auth_login_handler(
 
   // The route the visitor was heading to selects which service's client-set
   // credentials apply. A dashboard login (redirect under /aperio) never uses a
-  // client override — the dashboard is always gated by server-level creds.
+  // client override, the dashboard is always gated by server-level creds.
   let redirect_path = query
     .get("redirect")
     .map(|r| safe_redirect_path(r).to_string())
@@ -238,7 +238,7 @@ pub(crate) async fn auth_login_handler(
                 .unwrap_or("");
               if code.is_empty() {
                 // The password was right; the second factor is simply
-                // missing. Signal the login page to ask for it — this is
+                // missing. Signal the login page to ask for it, this is
                 // not a lockout-worthy failure.
                 return Ok(
                   (
@@ -399,7 +399,7 @@ pub(crate) async fn auth_login_handler(
 /// `Domain`. That is what this deployment needs, because the server also
 /// serves other people's sites: a tenant on `evil.tunnel.example.com` can set
 /// a cookie for `.tunnel.example.com`, and without the prefix that cookie is
-/// indistinguishable from the dashboard's own — an operator could be walked
+/// indistinguishable from the dashboard's own, an operator could be walked
 /// into a session someone else chose.
 pub(crate) const SESSION_COOKIE_SECURE: &str = "__Host-aperio_session";
 /// The name used when the prefix cannot be: `__Host-` requires `Secure`, so a
@@ -419,7 +419,7 @@ pub(crate) fn session_cookie_name(secure: bool) -> &'static str {
 ///
 /// The prefixed name wins when both are there. That is the whole defence: a
 /// cookie set by a neighbouring host can only ever be the unprefixed one, so
-/// it cannot displace a session issued with the prefix — it is simply not
+/// it cannot displace a session issued with the prefix, it is simply not
 /// looked at. The unprefixed name is still accepted on its own, so sessions
 /// issued before this (and every plain-http deployment) keep working.
 fn session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -451,7 +451,7 @@ pub(crate) async fn auth_logout_handler(
     ""
   };
   // Both names, because logging out must clear whatever this browser is
-  // carrying — including a cookie issued before the prefix existed.
+  // carrying, including a cookie issued before the prefix existed.
   let expire =
     |name: &str| format!("{name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure_flag}");
   Response::builder()
@@ -771,9 +771,9 @@ pub(crate) fn constant_time_eq_str(a: &str, b: &str) -> bool {
 }
 
 /// Resolves the scope of the active `aperio_session` cookie:
-/// - `Some(None)` — a valid global session (dashboard + all proxied hosts).
-/// - `Some(Some(host))` — a valid session scoped to `host` only.
-/// - `None` — no valid session.
+/// - `Some(None)`, a valid global session (dashboard + all proxied hosts).
+/// - `Some(Some(host))`, a valid session scoped to `host` only.
+/// - `None`, no valid session.
 async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<String>> {
   // Lazy garbage collection of expired sessions (runs at most once per 5 minutes).
   {
@@ -816,7 +816,7 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
 ///
 /// Disabling an account has to strip its live sessions of all authority.
 /// `caller_org` resolves a named session through `find_by_username`, which
-/// skips disabled rows and so reports "no organization" — which
+/// skips disabled rows and so reports "no organization", which
 /// `is_master_admin` reads as the master org. Without this check a disabled
 /// sub-org admin would be *promoted* to master super-admin on their existing
 /// session.
@@ -831,7 +831,7 @@ async fn named_user_active(state: &AppState, username: Option<&str>) -> bool {
   }
 }
 
-/// Validates the `aperio_session` cookie for full (global) access — the
+/// Validates the `aperio_session` cookie for full (global) access, the
 /// dashboard, tunnel provisioning, and any proxied host. A host-scoped session
 /// (a client-set visitor password login) does NOT satisfy this.
 pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> bool {
@@ -1216,7 +1216,7 @@ pub(crate) async fn oidc_callback_handler(
     Ok(c) => c,
     Err(e) => {
       // Falling back to a default client would drop the 15s timeout, letting
-      // the token/userinfo calls hang indefinitely — fail cleanly instead.
+      // the token/userinfo calls hang indefinitely, fail cleanly instead.
       error!("Failed to build the OIDC HTTP client: {}", e);
       return (StatusCode::INTERNAL_SERVER_ERROR, "OIDC client init failed").into_response();
     }

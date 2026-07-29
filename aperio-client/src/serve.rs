@@ -3,7 +3,7 @@
 //!
 //! Instead of forwarding to an existing backend, the client spins up a tiny
 //! loopback HTTP server rooted at the given directory and exposes *that*
-//! through the tunnel — one command to publish a `dist/` folder or share a
+//! through the tunnel, one command to publish a `dist/` folder or share a
 //! directory of files, no backend required. The listener binds
 //! `127.0.0.1:0`, so nothing on the machine can reach it except this
 //! process, and every regular tunnel feature (binds, auth, cache, header
@@ -42,7 +42,7 @@ fn file_stream(file: tokio::fs::File, len: u64) -> ServeBody {
 pub(crate) struct ServeOptions {
   /// When true, a navigation request (Accept: text/html) that resolves to no
   /// file is answered with the root `index.html` (status 200) so a client-side
-  /// router owns the route — the standard single-page-app deployment.
+  /// router owns the route, the standard single-page-app deployment.
   pub(crate) spa: bool,
   /// Pre-read HTML served (status 404) for not-found requests that the SPA
   /// fallback does not cover.

@@ -40,8 +40,8 @@ export const de: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Erlaubte Quell-IPs / CIDRs',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Gemeldete Leitungskapazität; der Server taktet Frames an diesen Client entsprechend',
-  'Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}) — bind-tunnels- und Failover-Abfragen über diese ID sind mehrdeutig; geben Sie jedem Client eine eigene --client-id',
+  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}), bind-tunnels- und Failover-Abfragen über diese ID sind mehrdeutig; geben Sie jedem Client eine eigene --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Reverse-Tunneling-System • Server-Laufzeit: {uptime}',
   Appearance: 'Darstellung',
@@ -65,16 +65,16 @@ export const de: Record<string, string> = {
   Cancel: 'Abbrechen',
   'Cannot reach the server. Retrying automatically…': 'Server nicht erreichbar. Automatischer neuer Versuch…',
   'Capacity & Health': 'Kapazität & Zustand',
-  'Captured transaction detail — bodies are capped at 64 KB.':
-    'Erfasste Transaktionsdetails — Bodies sind auf 64 KB begrenzt.',
+  'Captured transaction detail, bodies are capped at 64 KB.':
+    'Erfasste Transaktionsdetails, Bodies sind auf 64 KB begrenzt.',
   'Change language': 'Sprache ändern',
   Clear: 'Zurücksetzen',
   'Click to inspect & replay': 'Klicken zum Inspizieren & Wiederholen',
   'Client ID': 'Client-ID',
   'Client down threshold (s)': 'Client-Ausfallschwelle (s)',
   'Client is gracefully shutting down': 'Client fährt kontrolliert herunter',
-  'Client speaks tunnel protocol v{proto}, server differs — update the older side':
-    'Client spricht Tunnelprotokoll v{proto}, der Server weicht ab — aktualisieren Sie die ältere Seite',
+  'Client speaks tunnel protocol v{proto}, server differs, update the older side':
+    'Client spricht Tunnelprotokoll v{proto}, der Server weicht ab, aktualisieren Sie die ältere Seite',
   'Client {id} disabled': 'Client {id} deaktiviert',
   'Client {id} enabled': 'Client {id} aktiviert',
   Clients: 'Clients',
@@ -93,7 +93,7 @@ export const de: Record<string, string> = {
   Copy: 'Kopieren',
   'Copy an equivalent curl command': 'Äquivalenten curl-Befehl kopieren',
   'Copy as cURL': 'Als cURL kopieren',
-  'Copy it now — it will NOT be shown again.': 'Jetzt kopieren — es wird NICHT erneut angezeigt.',
+  'Copy it now, it will NOT be shown again.': 'Jetzt kopieren, es wird NICHT erneut angezeigt.',
   'Could not revoke token "{name}"': 'Token „{name}“ konnte nicht widerrufen werden',
   'Could not update client {id}': 'Client {id} konnte nicht aktualisiert werden',
   Create: 'Erstellen',
@@ -108,8 +108,8 @@ export const de: Record<string, string> = {
   DOWN: 'AUSGEFALLEN',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Tägliches Traffic-Kontingent (MB, 0 = keins, leer = behalten)',
   'Daily traffic quota (MB, empty = no quota)': 'Tägliches Traffic-Kontingent (MB, leer = keins)',
-  "Dashboard data isn't updating — the values shown may be stale.":
-    'Dashboard-Daten aktualisieren sich nicht — die Werte könnten veraltet sein.',
+  "Dashboard data isn't updating, the values shown may be stale.":
+    'Dashboard-Daten aktualisieren sich nicht, die Werte könnten veraltet sein.',
   'Dashboard/login language for visitors whose browser language is unsupported':
     'Dashboard-/Login-Sprache für Besucher mit nicht unterstützter Browsersprache',
   'Data Transferred': 'Übertragene Daten',
@@ -154,8 +154,8 @@ export const de: Record<string, string> = {
   'Freeze the table while you inspect': 'Tabelle zum Inspizieren einfrieren',
   'Gateway & Requests': 'Gateway & Anfragen',
   'Gateway timeout (s)': 'Gateway-Timeout (s)',
-  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.':
-    'Gewähren Sie jemandem befristeten Zugriff auf eine geschützte Seite: Der Link trägt einen signierten, ablaufenden Token, gebunden an den Hostname (und optionalen Pfad). Beim Öffnen wird ein Cookie gesetzt und zur sauberen URL weitergeleitet. Links sind zustandslos — sie können später nicht aufgelistet werden, sie laufen einfach ab.',
+  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
+    'Gewähren Sie jemandem befristeten Zugriff auf eine geschützte Seite: Der Link trägt einen signierten, ablaufenden Token, gebunden an den Hostname (und optionalen Pfad). Beim Öffnen wird ein Cookie gesetzt und zur sauberen URL weitergeleitet. Links sind zustandslos, sie können später nicht aufgelistet werden, sie laufen einfach ab.',
   'Go to {page}': 'Zu {page} wechseln',
   'Header consulted first for the visitor IP (behind CDN chains)':
     'Header, der zuerst für die Besucher-IP herangezogen wird (hinter CDN-Ketten)',
@@ -188,7 +188,7 @@ export const de: Record<string, string> = {
   'Live Request Activity': 'Live-Anfrageaktivität',
   'Live Traffic': 'Live-Traffic',
   'Route Trends': 'Routen-Trends',
-  'One bar per minute over the last 30 minutes, colored by the worst status class — spot which route started erroring, and when.': 'Ein Balken pro Minute der letzten 30 Minuten, gefärbt nach der schlechtesten Statusklasse — erkennen, welche Route wann zu fehlern begann.',
+  'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Ein Balken pro Minute der letzten 30 Minuten, gefärbt nach der schlechtesten Statusklasse, erkennen, welche Route wann zu fehlern begann.',
   'Last 30 minutes': 'Letzte 30 Minuten',
   'Error rate': 'Fehlerrate',
   'No traffic in the last 30 minutes.': 'Kein Traffic in den letzten 30 Minuten.',
@@ -196,21 +196,21 @@ export const de: Record<string, string> = {
   'Bandwidth': 'Bandbreite',
   'Daily': 'Täglich',
   'Monthly': 'Monatlich',
-  'Bytes through the tunnel per token and hostname — hover a cell for the sent/received split.': 'Bytes durch den Tunnel je Token und Hostname — Zelle für die Sende-/Empfangsaufteilung überfahren.',
+  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'Bytes durch den Tunnel je Token und Hostname, Zelle für die Sende-/Empfangsaufteilung überfahren.',
   'No traffic recorded for this window yet.': 'Für dieses Fenster ist noch kein Traffic erfasst.',
   'Total': 'Gesamt',
   'Slowest Endpoints': 'Langsamste Endpunkte',
-  'Recent-window latency per endpoint, worst p95 first — where the time is going right now.': 'Latenz je Endpunkt im jüngsten Fenster, schlechtestes p95 zuerst — wohin die Zeit gerade geht.',
+  'Recent-window latency per endpoint, worst p95 first, where the time is going right now.': 'Latenz je Endpunkt im jüngsten Fenster, schlechtestes p95 zuerst, wohin die Zeit gerade geht.',
   'Max': 'Max',
-  'Not enough recent traffic yet — the table needs a few requests per endpoint.': 'Noch nicht genug Traffic — die Tabelle braucht einige Anfragen pro Endpunkt.',
+  'Not enough recent traffic yet, the table needs a few requests per endpoint.': 'Noch nicht genug Traffic, die Tabelle braucht einige Anfragen pro Endpunkt.',
   'Webhook Inbox': 'Webhook-Posteingang',
   'Clear inbox': 'Posteingang leeren',
-  'Services with webhook_inbox: true get every inbound POST persisted here — browse the payloads and re-fire any event to the connected client.': 'Dienste mit webhook_inbox: true bekommen jeden eingehenden POST hier persistiert — Payloads durchsehen und jedes Event erneut an den verbundenen Client senden.',
+  'Services with webhook_inbox: true get every inbound POST persisted here, browse the payloads and re-fire any event to the connected client.': 'Dienste mit webhook_inbox: true bekommen jeden eingehenden POST hier persistiert, Payloads durchsehen und jedes Event erneut an den verbundenen Client senden.',
   'Payload': 'Payload',
-  'No captured webhooks yet — opt a service in with webhook_inbox: true.': 'Noch keine erfassten Webhooks — einen Dienst mit webhook_inbox: true aktivieren.',
+  'No captured webhooks yet, opt a service in with webhook_inbox: true.': 'Noch keine erfassten Webhooks, einen Dienst mit webhook_inbox: true aktivieren.',
   'Re-fire to the connected client': 'Erneut an den verbundenen Client senden',
   'Re-fire': 'Erneut senden',
-  'Re-fired — backend answered {status}': 'Erneut gesendet — Backend antwortete {status}',
+  'Re-fired, backend answered {status}': 'Erneut gesendet, Backend antwortete {status}',
   'Re-fire failed ({status})': 'Erneutes Senden fehlgeschlagen ({status})',
   'Headers': 'Header',
   '(no body)': '(kein Body)',
@@ -253,8 +253,8 @@ export const de: Record<string, string> = {
   'New connections with this token will be rejected.': 'Neue Verbindungen mit diesem Token werden abgelehnt.',
   'New lifetime in seconds from now (0 = never, empty = keep)':
     'Neue Lebensdauer ab jetzt in Sekunden (0 = nie, leer = behalten)',
-  'No active client sessions — start a tunnel client to see it here':
-    'Keine aktiven Client-Sitzungen — starten Sie einen Tunnel-Client, um ihn hier zu sehen',
+  'No active client sessions, start a tunnel client to see it here':
+    'Keine aktiven Client-Sitzungen, starten Sie einen Tunnel-Client, um ihn hier zu sehen',
   'No active web socket client': 'Kein aktiver WebSocket-Client',
   'No attributed traffic yet': 'Noch kein zugeordneter Traffic',
   'No audit events': 'Keine Audit-Ereignisse',
@@ -268,8 +268,8 @@ export const de: Record<string, string> = {
   'No matching commands': 'Keine passenden Befehle',
   'No requests matching filter': 'Keine Anfragen entsprechen dem Filter',
   'No webhooks defined': 'Keine Webhooks definiert',
-  'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Keine gültige Größe — z. B. 10 MB, 1.5 GB oder Bytes verwenden',
+  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
+    'Keine gültige Größe, z. B. 10 MB, 1.5 GB oder Bytes verwenden',
   'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
     'OIDC-Single-Sign-on (Issuer, Client-ID/Secret, Redirect-URL, Scopes)',
   'OK / Failed': 'OK / Fehler',
@@ -288,7 +288,7 @@ export const de: Record<string, string> = {
   'Path bind (optional)': 'Pfad-Binding (optional)',
   Paths: 'Pfade',
   Paused: 'Pausiert',
-  'Paused — table frozen at {count} requests.': 'Pausiert — Tabelle bei {count} Anfragen eingefroren.',
+  'Paused, table frozen at {count} requests.': 'Pausiert, Tabelle bei {count} Anfragen eingefroren.',
   'Payload bytes transferred': 'Übertragene Nutzdaten-Bytes',
   'Per-hostname 503 switch': '503-Schalter pro Hostname',
   'Per-visitor-IP token bucket for proxied requests.':
@@ -338,10 +338,10 @@ export const de: Record<string, string> = {
   'Search clients…': 'Clients suchen…',
   'Search…': 'Suchen…',
   'Security & Audit': 'Sicherheit & Audit',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:':
-    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft in einem Container — zum Ändern:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:':
-    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft nativ — zum Ändern:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
+    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft in einem Container, zum Ändern:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
+    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft nativ, zum Ändern:',
   'Send this request through the tunnel again': 'Diese Anfrage erneut durch den Tunnel senden',
   Sent: 'Gesendet',
   'Server Settings': 'Servereinstellungen',
@@ -372,7 +372,7 @@ export const de: Record<string, string> = {
   'Passkeys':
     'Passkeys',
   'Sign in without a password using YubiKeys, Touch ID / Face ID, or your password manager.':
-    'Melde dich ohne Passwort an — mit YubiKeys, Touch ID / Face ID oder deinem Passwort-Manager.',
+    'Melde dich ohne Passwort an, mit YubiKeys, Touch ID / Face ID oder deinem Passwort-Manager.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Der eingebaute Admin „aperio“ meldet sich mit dem Master-Token oder Dashboard-Passwort an und kann keine Passkeys registrieren. Lege stattdessen einen benannten Benutzer an.',
   'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
@@ -419,8 +419,8 @@ export const de: Record<string, string> = {
     'Scanne den QR-Code mit deiner Authenticator-App und gib zum Abschluss den angezeigten 6-stelligen Code ein.',
   'Verify & enable':
     'Bestätigen & aktivieren',
-  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
-    'Zwei-Faktor-Authentifizierung ist jetzt an. Bewahre diese einmal verwendbaren Wiederherstellungscodes sicher auf — sie werden nur einmal angezeigt und ermöglichen die Anmeldung, falls du deinen Authenticator verlierst.',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe, they are shown only once and let you sign in if you lose your authenticator.':
+    'Zwei-Faktor-Authentifizierung ist jetzt an. Bewahre diese einmal verwendbaren Wiederherstellungscodes sicher auf, sie werden nur einmal angezeigt und ermöglichen die Anmeldung, falls du deinen Authenticator verlierst.',
   'Done':
     'Fertig',
   'Two-factor authentication disabled':
@@ -446,7 +446,7 @@ export const de: Record<string, string> = {
   'down': 'offline',
   'no data': 'keine Daten',
   'No availability history yet': 'Noch keine Verfügbarkeitshistorie',
-  'Percentages cover observed time only — time while the server itself was offline is not counted against a service.': 'Prozentwerte umfassen nur die beobachtete Zeit — Zeit, in der der Server selbst offline war, wird keinem Dienst angelastet.',
+  'Percentages cover observed time only, time while the server itself was offline is not counted against a service.': 'Prozentwerte umfassen nur die beobachtete Zeit, Zeit, in der der Server selbst offline war, wird keinem Dienst angelastet.',
   'Last 7 days': 'Letzte 7 Tage',
   'Last 30 days': 'Letzte 30 Tage',
   'Last 60 days': 'Letzte 60 Tage',
@@ -476,8 +476,8 @@ export const de: Record<string, string> = {
   'Temporary visitor access': 'Befristeter Besucherzugriff',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
     'Die eigene Health-Probe des Clients meldet sein Backend als ausgefallen; vom Routing ausgeschlossen, während der Tunnel verbunden bleibt',
-  'The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.':
-    'Die Befehle unten verwenden den Platzhalter {placeholder} — ersetzen Sie ihn durch Ihren Master-Token oder einen bestehenden dynamischen Token.',
+  'The commands below use a {placeholder} placeholder, replace it with your master token or an existing dynamic token.':
+    'Die Befehle unten verwenden den Platzhalter {placeholder}, ersetzen Sie ihn durch Ihren Master-Token oder einen bestehenden dynamischen Token.',
   "This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service":
     'Dieser Client schützt seinen Dienst mit einem selbst gesetzten Besucher-Login und übersteuert dafür das Besucher-Passwort des Servers',
   'This client serves its traffic without the visitor auth gate':
@@ -538,8 +538,8 @@ export const de: Record<string, string> = {
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Nur diese Besucher-IPs/CIDRs erreichen diesen Dienst: {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'z. B. 10 MB, 1 GB, 65536',
-  'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
-    'z. B. example.com, *.example.com oder *-test.example.com — * wird ein zufälliges Label; leer = deaktiviert',
+  'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
+    'z. B. example.com, *.example.com oder *-test.example.com, * wird ein zufälliges Label; leer = deaktiviert',
   'master token': 'Master-Token',
   'never expires': 'läuft nie ab',
   override: 'Override',
@@ -571,7 +571,7 @@ export const de: Record<string, string> = {
   'Delete user "{name}"?': 'Benutzer „{name}“ löschen?',
   'Edit user "{name}"': 'Benutzer „{name}“ bearbeiten',
   'New password (leave blank to keep)': 'Neues Passwort (leer lassen zum Behalten)',
-  'No dashboard users yet — the master token and dashboard password still work.': 'Noch keine Dashboard-Benutzer — Master-Token und Dashboard-Passwort funktionieren weiterhin.',
+  'No dashboard users yet, the master token and dashboard password still work.': 'Noch keine Dashboard-Benutzer, Master-Token und Dashboard-Passwort funktionieren weiterhin.',
   'Operator': 'Operator',
   'Password (min. 8 characters)': 'Passwort (mind. 8 Zeichen)',
   'Role': 'Rolle',
@@ -586,7 +586,7 @@ export const de: Record<string, string> = {
   'active': 'aktiv',
   'disabled': 'deaktiviert',
   'Export & Import': 'Export & Import',
-  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Ein logischer JSON-Dump von Tokens, Webhooks, Benutzern und Einstellungs-Overrides — eine Absicherung für Upgrades und Migrationen. Statistiken und Sitzungen sind nicht enthalten.',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides, a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Ein logischer JSON-Dump von Tokens, Webhooks, Benutzern und Einstellungs-Overrides, eine Absicherung für Upgrades und Migrationen. Statistiken und Sitzungen sind nicht enthalten.',
   'Download export': 'Export herunterladen',
   'Import dump…': 'Dump importieren…',
   'Import applied': 'Import angewendet',
@@ -647,26 +647,26 @@ export const de: Record<string, string> = {
   'Organization': 'Organisation',
   'New Organization': 'Neue Organisation',
   'Create organization': 'Organisation erstellen',
-  'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Tokens und Benutzer, die Sie bei ausgewählter Organisation erstellen, gehören nur zu dieser – ihre Mitglieder sehen niemals die Clients oder Tokens einer anderen Organisation.',
+  'Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.': 'Tokens und Benutzer, die Sie bei ausgewählter Organisation erstellen, gehören nur zu dieser – ihre Mitglieder sehen niemals die Clients oder Tokens einer anderen Organisation.',
   'Organization "{name}" created': 'Organisation „{name}“ erstellt',
   'Organization "{name}" deleted': 'Organisation „{name}“ gelöscht',
   'Delete organization "{name}"?': 'Organisation „{name}“ löschen?',
   'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.': 'Dies kann nicht rückgängig gemacht werden. Eine Organisation kann erst gelöscht werden, wenn alle ihre Benutzer und Tokens entfernt wurden.',
-  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.': 'Isolierte Mandanten. Wechseln Sie über die Seitenleiste in eine Organisation, um deren eigene Tokens, Benutzer und Clients zu verwalten. Die Master-Organisation ist implizit – alles, was ohne Organisation erstellt wird, gehört zu ihr.',
+  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.': 'Isolierte Mandanten. Wechseln Sie über die Seitenleiste in eine Organisation, um deren eigene Tokens, Benutzer und Clients zu verwalten. Die Master-Organisation ist implizit – alles, was ohne Organisation erstellt wird, gehört zu ihr.',
   'No organizations yet': 'Noch keine Organisationen',
   'master': 'master',
   'Switch organization': 'Organisation wechseln',
   'This one client process holds {count} parallel connections to this service (connections: {count}); actions apply to all of them': 'Dieser eine Client-Prozess hält {count} parallele Verbindungen zu diesem Dienst (connections: {count}); Aktionen gelten für alle.',
   'Table': 'Tabelle',
   'Console': 'Konsole',
-  'Requests in real time — table or console': 'Anfragen in Echtzeit – Tabelle oder Konsole',
+  'Requests in real time, table or console': 'Anfragen in Echtzeit – Tabelle oder Konsole',
   'no client': 'kein Client',
   'offline': 'offline',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient.',
   'ejected': 'ausgeschlossen',
   'draining': 'wird geleert',
   'cache off': 'Cache aus',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
   'Add hostname': 'Hostname hinzufügen',
   'Hostname binds': 'Hostname-Bindings',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -685,7 +685,7 @@ export const de: Record<string, string> = {
   'applied by the server': 'vom Server angewendet',
   "Show this connection's effective configuration": 'Effektive Konfiguration dieser Verbindung anzeigen',
   'Config Builder': 'Konfigurations-Builder',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Stellen Sie aus den Einstellungen, die dieser Server versteht, eine aperio.yaml oder aperio-server.yaml zusammen — oder öffnen und bearbeiten Sie eine vorhandene.',
+  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Stellen Sie aus den Einstellungen, die dieser Server versteht, eine aperio.yaml oder aperio-server.yaml zusammen, oder öffnen und bearbeiten Sie eine vorhandene.',
   'Which file?': 'Welche Datei?',
   'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Die Client-Datei konfiguriert einen Tunnel-Client und was er veröffentlicht; die Server-Datei den Aperio-Server selbst.',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': 'Leere Felder werden gar nicht erst in die Datei geschrieben, der Server behält also seinen eigenen Standardwert.',
@@ -710,7 +710,7 @@ export const de: Record<string, string> = {
   'unset (server default)': 'nicht gesetzt (Server-Standard)',
   'unit': 'Einheit',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Eine Anfrage an diesen Hostnamen wird bis zu {secs}s gehalten, während der Dienst startet, statt fehlzuschlagen.',
-  'A scoped, revocable Bearer credential for automation — no master token needed.': 'Ein eingegrenztes, widerrufbares Bearer-Credential für Automatisierung — ohne Master-Token.',
+  'A scoped, revocable Bearer credential for automation, no master token needed.': 'Ein eingegrenztes, widerrufbares Bearer-Credential für Automatisierung, ohne Master-Token.',
   'Admin key "{name}" created': 'Admin-Schlüssel „{name}“ erstellt',
   'Admin key "{name}" revoked': 'Admin-Schlüssel „{name}“ widerrufen',
   'Admin key created': 'Admin-Schlüssel erstellt',
@@ -723,7 +723,7 @@ export const de: Record<string, string> = {
   'Client id': 'Client-ID',
   'Client secret': 'Client-Secret',
   'Cold starts only: no scale-out ceiling is configured.': 'Nur Kaltstarts: keine Obergrenze fürs Skalieren konfiguriert.',
-  'Copy it now — it is shown only once and cannot be retrieved later.': 'Jetzt kopieren — es wird nur einmal angezeigt und lässt sich später nicht abrufen.',
+  'Copy it now, it is shown only once and cannot be retrieved later.': 'Jetzt kopieren, es wird nur einmal angezeigt und lässt sich später nicht abrufen.',
   'Disarm': 'Deaktivieren',
   'Disarm autoscaling for "{host}"?': 'Autoscaling für „{host}“ deaktivieren?',
   'Disarmed autoscaling for {host}': 'Autoscaling für {host} deaktiviert',
@@ -786,7 +786,7 @@ export const de: Record<string, string> = {
   'Must be at least {min}': 'Mindestens {min}',
   'Need more than this? ': 'Brauchen Sie mehr? ',
   'Open the config builder': 'Konfigurations-Builder öffnen',
-  ' to set every option, add services and tunnels, and export the file.': ' — dort setzen Sie jede Option, fügen Dienste und Tunnel hinzu und exportieren die Datei.',
+  ' to set every option, add services and tunnels, and export the file.': ', dort setzen Sie jede Option, fügen Dienste und Tunnel hinzu und exportieren die Datei.',
   'File': 'Datei',
   'New entry name': 'Name des neuen Eintrags',
   'none configured': 'nicht konfiguriert',
@@ -869,7 +869,7 @@ export const de: Record<string, string> = {
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': 'Organisation „{name}“ wurde angelegt, ihre Limits konnten aber nicht gespeichert werden: {error}. Setze sie über „Bearbeiten“.',
   'Organization updated': 'Organisation aktualisiert',
   'Tools': 'Werkzeuge',
-  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Diagnostizieren, prüfen und erzeugen — das, wonach man greift, wenn etwas geklärt werden muss.',
+  'Diagnose, inspect and generate, the things you reach for when something needs working out.': 'Diagnostizieren, prüfen und erzeugen, das, wonach man greift, wenn etwas geklärt werden muss.',
   'Audit log, API explorer and config builder': 'Audit-Log, API-Explorer und Konfigurations-Generator',
   'Settings & Tools': 'Einstellungen & Werkzeuge',
   'Noindex preview hosts': 'Vorschau-Hosts auf noindex',
@@ -887,7 +887,7 @@ export const de: Record<string, string> = {
   '(binary body, {bytes} bytes, truncated)': '(binärer Body, {bytes} Bytes, gekürzt)',
   '(binary payload)': '(binäre Nutzlast)',
   '(empty)': '(leer)',
-  '(streamed body — not captured)': '(gestreamter Body — nicht erfasst)',
+  '(streamed body, not captured)': '(gestreamter Body, nicht erfasst)',
   '(truncated at 64 KB)': '(bei 64 KB gekürzt)',
   '(unable to decode body)': '(Body nicht dekodierbar)',
   'Connected': 'Verbunden',
@@ -897,12 +897,12 @@ export const de: Record<string, string> = {
   'TOTP QR code': 'TOTP-QR-Code',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Wie viel vom Download eines langsamen Besuchers der Server puffert, bevor er den Client bittet, die Erzeugung zu pausieren.',
   'Service defaults': 'Service-Standards',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'Gilt für jeden Eintrag unter services: und ist pro Eintrag überschreibbar. Die Schlüssel, die ein einzelnes Backend auf oberster Ebene benennen, sind hier veraltet — sie wirkten immer nur ohne services:-Liste — und erscheinen nur für eine Datei, die sie bereits schreibt.',
-  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` benennen einen einzelnen Dienst auf oberster Ebene, und diese Datei hat zusätzlich eine services:-Liste — der Client liest die Liste und ignoriert sie. Verschiebe sie in den Eintrag, zu dem sie gehören.',
+  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Gilt für jeden Eintrag unter services: und ist pro Eintrag überschreibbar. Die Schlüssel, die ein einzelnes Backend auf oberster Ebene benennen, sind hier veraltet, sie wirkten immer nur ohne services:-Liste, und erscheinen nur für eine Datei, die sie bereits schreibt.',
+  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` benennen einen einzelnen Dienst auf oberster Ebene, und diese Datei hat zusätzlich eine services:-Liste, der Client liest die Liste und ignoriert sie. Verschiebe sie in den Eintrag, zu dem sie gehören.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Jeder gesunde Client der Route nimmt reihum gleich viele Anfragen. Der Standard, und das Richtige, wenn die Clients austauschbar sind.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Nur die Clients der niedrigsten Prioritätsstufe erhalten Verkehr; eine höhere Stufe übernimmt, sobald jeder Client darüber ungesund, im Drain oder weg ist, und gibt zurück, sobald einer wiederkommt. Die Stufen kommen aus der priority jedes Clients (0 = primär).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Ein Besucher behält den Client, der ihn zuerst bedient hat, solange dieser gesund bleibt. Für Backends, die Zustand pro Besucher im Speicher halten; der Pool verteilt nach Besucher statt nach Anfrage.',
-  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': 'Der Besucher bekommt den Fehler. Nichts wird wiederholt — die einzig sichere Antwort, wenn eine Anfrage nicht zweimal laufen darf.',
+  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': 'Der Besucher bekommt den Fehler. Nichts wird wiederholt, die einzig sichere Antwort, wenn eine Anfrage nicht zweimal laufen darf.',
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': 'Erneut an einen anderen gesunden Client derselben Route senden, falls es einen gibt. Es wird nicht gewartet.',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': 'Die Anfrage halten, während derselbe Client sich neu verbindet, bis zum Failover-Fenster. Für eine Route mit einem einzigen Client, wo es kein Ziel zum Ausweichen gibt.',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Erst einen anderen Client versuchen; hat die Route keinen, auf die Rückkehr eines Clients warten. Das nachsichtigste Verhalten und das langsamste beim Aufgeben.',
@@ -914,13 +914,13 @@ export const de: Record<string, string> = {
   'unnamed client': 'unbenannter Client',
   '{count} connection(s)': '{count} Verbindung(en)',
   'Publish': 'Veröffentlichen',
-  'Sends a message to this organization. The reply says how many client processes it reached, which is the quickest way to tell a wrong filter from a wrong topic.': 'Sendet eine Nachricht an diese Organisation. Die Antwort nennt, wie viele Client-Prozesse sie erreicht hat — der schnellste Weg, einen falschen Filter von einem falschen Topic zu unterscheiden.',
+  'Sends a message to this organization. The reply says how many client processes it reached, which is the quickest way to tell a wrong filter from a wrong topic.': 'Sendet eine Nachricht an diese Organisation. Die Antwort nennt, wie viele Client-Prozesse sie erreicht hat, der schnellste Weg, einen falschen Filter von einem falschen Topic zu unterscheiden.',
   'Topic': 'Topic',
   'A topic, not a filter: `+` and `#` belong to subscriptions.': 'Ein Topic, kein Filter: `+` und `#` gehören zu Abonnements.',
   'Message': 'Nachricht',
   'At least once': 'Mindestens einmal',
   'Held until each subscriber acknowledges it, and resent meanwhile. Nothing is stored for a client that is offline.': 'Wird gehalten, bis jeder Abonnent sie bestätigt, und in der Zwischenzeit erneut gesendet. Für einen Client, der offline ist, wird nichts gespeichert.',
-  'Published to "{topic}" — {count} client(s)': 'An „{topic}“ veröffentlicht — {count} Client(s)',
+  'Published to "{topic}", {count} client(s)': 'An „{topic}“ veröffentlicht, {count} Client(s)',
   'Published to "{topic}", but nothing is subscribed to it': 'An „{topic}“ veröffentlicht, aber nichts hat es abonniert',
   'Messages': 'Nachrichten',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics, auf die dieser Client hört, und wo eine Anwendung auf derselben Maschine andockt, um zu senden und zu empfangen.',
@@ -931,6 +931,6 @@ export const de: Record<string, string> = {
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Nur wie sie heißt. Die Kennung {handle} adressiert sie und ändert sich nie.',
   'Service {name} (custom_name: {custom})': 'Dienst {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Wie diese Organisation auf dem Bildschirm heißt. Jede Sprache, jede Zeichensetzung, später änderbar.',
-  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 und _ . Damit wird die Organisation adressiert — in {example}, in der expose:-Regel eines Servers und in der API — deshalb steht sie nach dem Anlegen fest.',
+  'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 und _ . Damit wird die Organisation adressiert, in {example}, in der expose:-Regel eines Servers und in der API, deshalb steht sie nach dem Anlegen fest.',
   'Could not delete ({status})': 'Löschen fehlgeschlagen ({status})',
 }

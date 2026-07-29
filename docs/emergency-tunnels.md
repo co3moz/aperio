@@ -140,7 +140,7 @@ expose:
 
 Omitting the organization means the master one. The same `<org>@<name>` spelling works as a `bind-tunnels:` key, so a binder that can see two organizations can say which `postgres` it means.
 
-`token:` was the earlier way to say this and still works, unchanged, for the files that use it. It is the weaker one: a token name is not unique, nothing stops two organizations from each having one called `ci`, and a rule naming it could match a client of either — with which of them got the port coming down to the order of a hash map. Prefer `org:`.
+`token:` was the earlier way to say this and still works, unchanged, for the files that use it. It is the weaker one: a token name is not unique, nothing stops two organizations from each having one called `ci`, and a rule naming it could match a client of either, with which of them got the port coming down to the order of a hash map. Prefer `org:`.
 
 The older spelling, a shared secret repeated in both files, still works:
 

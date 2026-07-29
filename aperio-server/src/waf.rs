@@ -6,7 +6,7 @@
 //! header match); a rule with a `max_body` is a size limit instead of a plain
 //! deny. Matching a deny rule answers `403 Forbidden`; exceeding a `max_body`
 //! rule answers `413 Payload Too Large`. This is a coarse first line of
-//! defense — path/method/header/body-size filtering — not a full WAF; pair it
+//! defense, path/method/header/body-size filtering, not a full WAF; pair it
 //! with per-IP, per-token and per-route rate limiting.
 //!
 //! ```yaml
@@ -98,7 +98,7 @@ impl WafRules {
   }
 
   /// The description of the first deny rule (no `max_body`) that matches the
-  /// request, if any — the caller answers 403. Evaluated before the body is
+  /// request, if any, the caller answers 403. Evaluated before the body is
   /// read, so header/method/path attacks are rejected early.
   pub(crate) fn deny_reason(&self, method: &str, path: &str, headers: &HeaderMap) -> Option<&str> {
     self
@@ -109,7 +109,7 @@ impl WafRules {
   }
 
   /// The description of the first `max_body` rule the request matches *and*
-  /// exceeds, if any — the caller answers 413. Evaluated after the body length
+  /// exceeds, if any, the caller answers 413. Evaluated after the body length
   /// is known.
   pub(crate) fn body_reason(
     &self,
@@ -138,7 +138,7 @@ pub(crate) fn from_config_file() -> WafRules {
   let raw: Vec<WafRuleRaw> = match serde_yaml::from_value(section) {
     Ok(rules) => rules,
     Err(err) => {
-      tracing::error!("invalid `waf:` section in aperio-server.yaml: {err} — WAF disabled");
+      tracing::error!("invalid `waf:` section in aperio-server.yaml: {err}, WAF disabled");
       return WafRules::default();
     }
   };

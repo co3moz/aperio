@@ -40,8 +40,8 @@ export const tr: Record<string, string> = {
   'Allowed source IPs / CIDRs': "İzinli kaynak IP'ler / CIDR'lar",
   'Announced link capacity; the server paces frames to this client accordingly':
     'Bildirilen hat kapasitesi; sunucu bu istemciye kareleri buna göre gönderir',
-  'Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor — bu kimlikle yapılan bind-tunnels ve failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
+  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
+    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor, bu kimlikle yapılan bind-tunnels ve failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Ters Tünelleme Sistemi • Sunucu Çalışma Süresi: {uptime}',
   Appearance: 'Görünüm',
@@ -65,16 +65,16 @@ export const tr: Record<string, string> = {
   Cancel: 'İptal',
   'Cannot reach the server. Retrying automatically…': 'Sunucuya ulaşılamıyor. Otomatik yeniden deneniyor…',
   'Capacity & Health': 'Kapasite ve Sağlık',
-  'Captured transaction detail — bodies are capped at 64 KB.':
-    "Yakalanan işlem detayı — gövdeler 64 KB'de sınırlıdır.",
+  'Captured transaction detail, bodies are capped at 64 KB.':
+    "Yakalanan işlem detayı, gövdeler 64 KB'de sınırlıdır.",
   'Change language': 'Dili değiştir',
   Clear: 'Temizle',
   'Click to inspect & replay': 'İncelemek ve tekrar oynatmak için tıklayın',
   'Client ID': 'İstemci Kimliği',
   'Client down threshold (s)': 'İstemci kapalı eşiği (sn)',
   'Client is gracefully shutting down': 'İstemci düzgün bir şekilde kapanıyor',
-  'Client speaks tunnel protocol v{proto}, server differs — update the older side':
-    'İstemci tünel protokolü v{proto} konuşuyor, sunucu farklı — eski tarafı güncelleyin',
+  'Client speaks tunnel protocol v{proto}, server differs, update the older side':
+    'İstemci tünel protokolü v{proto} konuşuyor, sunucu farklı, eski tarafı güncelleyin',
   'Client {id} disabled': 'İstemci {id} devre dışı bırakıldı',
   'Client {id} enabled': 'İstemci {id} etkinleştirildi',
   Clients: 'İstemciler',
@@ -93,7 +93,7 @@ export const tr: Record<string, string> = {
   Copy: 'Kopyala',
   'Copy an equivalent curl command': 'Eşdeğer curl komutunu kopyala',
   'Copy as cURL': 'cURL olarak kopyala',
-  'Copy it now — it will NOT be shown again.': 'Şimdi kopyalayın — bir daha GÖSTERİLMEYECEK.',
+  'Copy it now, it will NOT be shown again.': 'Şimdi kopyalayın, bir daha GÖSTERİLMEYECEK.',
   'Could not revoke token "{name}"': '"{name}" token\'ı iptal edilemedi',
   'Could not update client {id}': 'İstemci {id} güncellenemedi',
   Create: 'Oluştur',
@@ -108,8 +108,8 @@ export const tr: Record<string, string> = {
   DOWN: 'KAPALI',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Günlük trafik kotası (MB, 0 = kota yok, boş = koru)',
   'Daily traffic quota (MB, empty = no quota)': 'Günlük trafik kotası (MB, boş = kota yok)',
-  "Dashboard data isn't updating — the values shown may be stale.":
-    'Panel verileri güncellenmiyor — gösterilen değerler bayat olabilir.',
+  "Dashboard data isn't updating, the values shown may be stale.":
+    'Panel verileri güncellenmiyor, gösterilen değerler bayat olabilir.',
   'Dashboard/login language for visitors whose browser language is unsupported':
     'Tarayıcı dili desteklenmeyen ziyaretçiler için panel/giriş dili',
   'Data Transferred': 'Aktarılan Veri',
@@ -154,8 +154,8 @@ export const tr: Record<string, string> = {
   'Freeze the table while you inspect': 'İncelerken tabloyu dondur',
   'Gateway & Requests': 'Ağ Geçidi ve İstekler',
   'Gateway timeout (s)': 'Ağ geçidi zaman aşımı (sn)',
-  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.':
-    "Birine kimlik korumalı bir siteye geçici erişim verin: bağlantı, alan adına (ve isteğe bağlı path'e) kapsamlı, imzalı ve süreli bir token taşır. Açıldığında bir çerez ayarlar ve temiz URL'ye yönlendirir. Bağlantılar durumsuzdur — sonradan listelenemez, sadece süreleri dolar.",
+  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
+    "Birine kimlik korumalı bir siteye geçici erişim verin: bağlantı, alan adına (ve isteğe bağlı path'e) kapsamlı, imzalı ve süreli bir token taşır. Açıldığında bir çerez ayarlar ve temiz URL'ye yönlendirir. Bağlantılar durumsuzdur, sonradan listelenemez, sadece süreleri dolar.",
   'Go to {page}': "{page} sayfasına git",
   'Header consulted first for the visitor IP (behind CDN chains)':
     "Ziyaretçi IP'si için önce bakılan başlık (CDN zincirleri arkasında)",
@@ -187,7 +187,7 @@ export const tr: Record<string, string> = {
   'Live Request Activity': 'Canlı İstek Aktivitesi',
   'Live Traffic': 'Canlı Trafik',
   'Route Trends': 'Rota Trendleri',
-  'One bar per minute over the last 30 minutes, colored by the worst status class — spot which route started erroring, and when.': 'Son 30 dakikada dakika başına bir çubuk, en kötü durum sınıfına göre renkli — hangi rotanın ne zaman hata vermeye başladığını görün.',
+  'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Son 30 dakikada dakika başına bir çubuk, en kötü durum sınıfına göre renkli, hangi rotanın ne zaman hata vermeye başladığını görün.',
   'Last 30 minutes': 'Son 30 dakika',
   'Error rate': 'Hata oranı',
   'No traffic in the last 30 minutes.': 'Son 30 dakikada trafik yok.',
@@ -195,21 +195,21 @@ export const tr: Record<string, string> = {
   'Bandwidth': 'Bant Genişliği',
   'Daily': 'Günlük',
   'Monthly': 'Aylık',
-  'Bytes through the tunnel per token and hostname — hover a cell for the sent/received split.': 'Token ve sunucu adı başına tünelden geçen baytlar — gönderilen/alınan dağılımı için hücrenin üzerine gelin.',
+  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'Token ve sunucu adı başına tünelden geçen baytlar, gönderilen/alınan dağılımı için hücrenin üzerine gelin.',
   'No traffic recorded for this window yet.': 'Bu pencere için henüz trafik kaydı yok.',
   'Total': 'Toplam',
   'Slowest Endpoints': 'En Yavaş Uç Noktalar',
-  'Recent-window latency per endpoint, worst p95 first — where the time is going right now.': 'Uç nokta başına yakın-pencere gecikmesi, en kötü p95 önce — zamanın şu an nereye gittiği.',
+  'Recent-window latency per endpoint, worst p95 first, where the time is going right now.': 'Uç nokta başına yakın-pencere gecikmesi, en kötü p95 önce, zamanın şu an nereye gittiği.',
   'Max': 'Maks',
-  'Not enough recent traffic yet — the table needs a few requests per endpoint.': 'Henüz yeterli trafik yok — tablo uç nokta başına birkaç istek gerektirir.',
+  'Not enough recent traffic yet, the table needs a few requests per endpoint.': 'Henüz yeterli trafik yok, tablo uç nokta başına birkaç istek gerektirir.',
   'Webhook Inbox': 'Webhook Gelen Kutusu',
   'Clear inbox': 'Gelen kutusunu temizle',
-  'Services with webhook_inbox: true get every inbound POST persisted here — browse the payloads and re-fire any event to the connected client.': 'webhook_inbox: true olan servislerin tüm gelen POST istekleri burada saklanır — yükleri inceleyin ve herhangi bir olayı bağlı istemciye yeniden ateşleyin.',
+  'Services with webhook_inbox: true get every inbound POST persisted here, browse the payloads and re-fire any event to the connected client.': 'webhook_inbox: true olan servislerin tüm gelen POST istekleri burada saklanır, yükleri inceleyin ve herhangi bir olayı bağlı istemciye yeniden ateşleyin.',
   'Payload': 'Yük',
-  'No captured webhooks yet — opt a service in with webhook_inbox: true.': 'Henüz yakalanan webhook yok — bir servisi webhook_inbox: true ile dahil edin.',
+  'No captured webhooks yet, opt a service in with webhook_inbox: true.': 'Henüz yakalanan webhook yok, bir servisi webhook_inbox: true ile dahil edin.',
   'Re-fire to the connected client': 'Bağlı istemciye yeniden ateşle',
   'Re-fire': 'Yeniden ateşle',
-  'Re-fired — backend answered {status}': 'Yeniden ateşlendi — backend {status} yanıtladı',
+  'Re-fired, backend answered {status}': 'Yeniden ateşlendi, backend {status} yanıtladı',
   'Re-fire failed ({status})': 'Yeniden ateşleme başarısız ({status})',
   'Headers': 'Başlıklar',
   '(no body)': '(gövde yok)',
@@ -252,8 +252,8 @@ export const tr: Record<string, string> = {
   'New connections with this token will be rejected.': 'Bu token ile yeni bağlantılar reddedilecek.',
   'New lifetime in seconds from now (0 = never, empty = keep)':
     'Şu andan itibaren yeni ömür, saniye (0 = süresiz, boş = koru)',
-  'No active client sessions — start a tunnel client to see it here':
-    'Aktif istemci oturumu yok — burada görmek için bir tünel istemcisi başlatın',
+  'No active client sessions, start a tunnel client to see it here':
+    'Aktif istemci oturumu yok, burada görmek için bir tünel istemcisi başlatın',
   'No active web socket client': 'Aktif websocket istemcisi yok',
   'No attributed traffic yet': 'Henüz ilişkilendirilmiş trafik yok',
   'No audit events': 'Denetim olayı yok',
@@ -267,8 +267,8 @@ export const tr: Record<string, string> = {
   'No matching commands': 'Eşleşen komut yok',
   'No requests matching filter': 'Filtreyle eşleşen istek yok',
   'No webhooks defined': 'Tanımlı webhook yok',
-  'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Geçerli bir boyut değil — örn. 10 MB, 1.5 GB veya düz bayt kullanın',
+  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
+    'Geçerli bir boyut değil, örn. 10 MB, 1.5 GB veya düz bayt kullanın',
   'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
     "OIDC tek oturum açma (issuer, istemci kimliği/gizli anahtarı, yönlendirme URL'si, kapsamlar)",
   'OK / Failed': 'Başarılı / Hatalı',
@@ -287,7 +287,7 @@ export const tr: Record<string, string> = {
   'Path bind (optional)': 'Path bağlama (isteğe bağlı)',
   Paths: "Path'ler",
   Paused: 'Duraklatıldı',
-  'Paused — table frozen at {count} requests.': 'Duraklatıldı — tablo {count} istekte donduruldu.',
+  'Paused, table frozen at {count} requests.': 'Duraklatıldı, tablo {count} istekte donduruldu.',
   'Payload bytes transferred': 'Aktarılan yük baytları',
   'Per-hostname 503 switch': 'Alan adı başına 503 anahtarı',
   'Per-visitor-IP token bucket for proxied requests.':
@@ -336,10 +336,10 @@ export const tr: Record<string, string> = {
   'Search clients…': 'İstemci ara…',
   'Search…': 'Ara…',
   'Security & Audit': 'Güvenlik ve Denetim',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:':
-    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu bir container içinde çalışıyor — birini değiştirmek için:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:':
-    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu doğrudan (native) çalışıyor — birini değiştirmek için:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
+    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu bir container içinde çalışıyor, birini değiştirmek için:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
+    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu doğrudan (native) çalışıyor, birini değiştirmek için:',
   'Send this request through the tunnel again': 'Bu isteği tünelden tekrar gönder',
   Sent: 'Gönderilen',
   'Server Settings': 'Sunucu Ayarları',
@@ -417,8 +417,8 @@ export const tr: Record<string, string> = {
     'QR kodu kimlik doğrulayıcı uygulamanızla tarayın, ardından bitirmek için gösterdiği 6 haneli kodu girin.',
   'Verify & enable':
     'Doğrula ve etkinleştir',
-  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
-    'İki faktörlü doğrulama artık açık. Bu tek kullanımlık kurtarma kodlarını güvenli bir yerde saklayın — yalnızca bir kez gösterilirler ve doğrulayıcınızı kaybederseniz giriş yapmanızı sağlarlar.',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe, they are shown only once and let you sign in if you lose your authenticator.':
+    'İki faktörlü doğrulama artık açık. Bu tek kullanımlık kurtarma kodlarını güvenli bir yerde saklayın, yalnızca bir kez gösterilirler ve doğrulayıcınızı kaybederseniz giriş yapmanızı sağlarlar.',
   'Done':
     'Tamam',
   'Two-factor authentication disabled':
@@ -444,7 +444,7 @@ export const tr: Record<string, string> = {
   'down': 'kapalı',
   'no data': 'veri yok',
   'No availability history yet': 'Henüz erişilebilirlik geçmişi yok',
-  'Percentages cover observed time only — time while the server itself was offline is not counted against a service.': 'Yüzdeler yalnızca gözlemlenen süreyi kapsar — sunucunun kendisinin kapalı olduğu süre bir servisin aleyhine sayılmaz.',
+  'Percentages cover observed time only, time while the server itself was offline is not counted against a service.': 'Yüzdeler yalnızca gözlemlenen süreyi kapsar, sunucunun kendisinin kapalı olduğu süre bir servisin aleyhine sayılmaz.',
   'Last 7 days': 'Son 7 gün',
   'Last 30 days': 'Son 30 gün',
   'Last 60 days': 'Son 60 gün',
@@ -474,8 +474,8 @@ export const tr: Record<string, string> = {
   'Temporary visitor access': 'Geçici ziyaretçi erişimi',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
     "İstemcinin kendi sağlık denetimi backend'ini kapalı bildiriyor; tünel bağlı kalırken yönlendirmeden çıkarıldı",
-  'The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.':
-    'Aşağıdaki komutlar {placeholder} yer tutucusunu kullanır — master token veya mevcut bir dinamik token ile değiştirin.',
+  'The commands below use a {placeholder} placeholder, replace it with your master token or an existing dynamic token.':
+    'Aşağıdaki komutlar {placeholder} yer tutucusunu kullanır, master token veya mevcut bir dinamik token ile değiştirin.',
   "This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service":
     'Bu istemci servisini kendi belirlediği bir ziyaretçi girişinin arkasına alır; bu servis için sunucunun kendi ziyaretçi parolasını geçersiz kılar',
   'This client serves its traffic without the visitor auth gate':
@@ -536,8 +536,8 @@ export const tr: Record<string, string> = {
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Bu servise yalnızca şu ziyaretçi IP/CIDR adresleri erişebilir: {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'örn. 10 MB, 1 GB, 65536',
-  'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
-    'örn. example.com, *.example.com veya *-test.example.com — * rastgele bir etikete dönüşür; boş = kapalı',
+  'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
+    'örn. example.com, *.example.com veya *-test.example.com, * rastgele bir etikete dönüşür; boş = kapalı',
   'master token': 'master token',
   'never expires': 'süresiz',
   override: 'geçersiz kılındı',
@@ -569,7 +569,7 @@ export const tr: Record<string, string> = {
   'Delete user "{name}"?': '"{name}" kullanıcısı silinsin mi?',
   'Edit user "{name}"': '"{name}" kullanıcısını düzenle',
   'New password (leave blank to keep)': 'Yeni parola (korumak için boş bırakın)',
-  'No dashboard users yet — the master token and dashboard password still work.': 'Henüz panel kullanıcısı yok — master token ve panel parolası hâlâ çalışır.',
+  'No dashboard users yet, the master token and dashboard password still work.': 'Henüz panel kullanıcısı yok, master token ve panel parolası hâlâ çalışır.',
   'Operator': 'Operatör',
   'Password (min. 8 characters)': 'Parola (en az 8 karakter)',
   'Role': 'Rol',
@@ -584,7 +584,7 @@ export const tr: Record<string, string> = {
   'active': 'etkin',
   'disabled': 'devre dışı',
   'Export & Import': 'Dışa & İçe Aktarma',
-  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Token, webhook, kullanıcı ve ayar geçersiz kılmalarının mantıksal JSON dökümü — yükseltme ve taşımalar için bir güvence. İstatistikler ve oturumlar dahil değildir.',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides, a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Token, webhook, kullanıcı ve ayar geçersiz kılmalarının mantıksal JSON dökümü, yükseltme ve taşımalar için bir güvence. İstatistikler ve oturumlar dahil değildir.',
   'Download export': 'Dökümü indir',
   'Import dump…': 'Döküm içe aktar…',
   'Import applied': 'İçe aktarma uygulandı',
@@ -645,15 +645,15 @@ export const tr: Record<string, string> = {
   'Organization': 'Organizasyon',
   'New Organization': 'Yeni Organizasyon',
   'Create organization': 'Organizasyon oluştur',
-  'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.':
-    'Bir organizasyon seçiliyken oluşturduğunuz token ve kullanıcılar yalnızca ona aittir — üyeleri asla başka bir organizasyonun clientlerini veya tokenlarını görmez.',
+  'Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.':
+    'Bir organizasyon seçiliyken oluşturduğunuz token ve kullanıcılar yalnızca ona aittir, üyeleri asla başka bir organizasyonun clientlerini veya tokenlarını görmez.',
   'Organization "{name}" created': '"{name}" organizasyonu oluşturuldu',
   'Organization "{name}" deleted': '"{name}" organizasyonu silindi',
   'Delete organization "{name}"?': '"{name}" organizasyonu silinsin mi?',
   'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.':
     'Bu geri alınamaz. Bir organizasyon ancak tüm kullanıcıları ve tokenları kaldırıldıktan sonra silinebilir.',
-  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.':
-    'İzole kiracılar. Kendi token, kullanıcı ve clientlerini yönetmek için kenar çubuğundan bir organizasyona geçin. Master organizasyon örtüktür — organizasyon olmadan oluşturulan her şey ona aittir.',
+  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.':
+    'İzole kiracılar. Kendi token, kullanıcı ve clientlerini yönetmek için kenar çubuğundan bir organizasyona geçin. Master organizasyon örtüktür, organizasyon olmadan oluşturulan her şey ona aittir.',
   'No organizations yet': 'Henüz organizasyon yok',
   'master': 'master',
   'Switch organization': 'Organizasyon değiştir',
@@ -661,14 +661,14 @@ export const tr: Record<string, string> = {
     'Bu tek client süreci bu servise {count} paralel bağlantı tutuyor (connections: {count}); işlemler hepsine uygulanır',
   'Table': 'Tablo',
   'Console': 'Konsol',
-  'Requests in real time — table or console': 'Gerçek zamanlı istekler — tablo veya konsol',
+  'Requests in real time, table or console': 'Gerçek zamanlı istekler, tablo veya konsol',
   'no client': 'istemci yok',
   'offline': 'çevrimdışı',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi — statik yönlendirmeler/yanıtlar ve genel expose portları — ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok.',
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok — sunucu önbelleğini aç veya bayrağı kaldır.',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok, sunucu önbelleğini aç veya bayrağı kaldır.',
   'Add hostname': 'Alan adı ekle',
   'Hostname binds': 'Alan adı bağlamaları',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -712,7 +712,7 @@ export const tr: Record<string, string> = {
   'unset (server default)': 'ayarlanmamış (sunucu varsayılanı)',
   'unit': 'birim',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Bu hostname için gelen istek, servis başlarken hata vermek yerine en fazla {secs} sn bekletilir.',
-  'A scoped, revocable Bearer credential for automation — no master token needed.': 'Otomasyon için kapsamlı ve iptal edilebilir bir Bearer kimlik bilgisi — ana token gerekmez.',
+  'A scoped, revocable Bearer credential for automation, no master token needed.': 'Otomasyon için kapsamlı ve iptal edilebilir bir Bearer kimlik bilgisi, ana token gerekmez.',
   'Admin key "{name}" created': '"{name}" yönetici anahtarı oluşturuldu',
   'Admin key "{name}" revoked': '"{name}" yönetici anahtarı iptal edildi',
   'Admin key created': 'Yönetici anahtarı oluşturuldu',
@@ -725,7 +725,7 @@ export const tr: Record<string, string> = {
   'Client id': 'İstemci kimliği',
   'Client secret': 'İstemci gizli anahtarı',
   'Cold starts only: no scale-out ceiling is configured.': 'Yalnızca soğuk başlatma: ölçeklenme tavanı tanımlı değil.',
-  'Copy it now — it is shown only once and cannot be retrieved later.': 'Şimdi kopyalayın — yalnızca bir kez gösterilir ve sonradan alınamaz.',
+  'Copy it now, it is shown only once and cannot be retrieved later.': 'Şimdi kopyalayın, yalnızca bir kez gösterilir ve sonradan alınamaz.',
   'Disarm': 'Devre dışı bırak',
   'Disarm autoscaling for "{host}"?': '"{host}" için otomatik ölçekleme kapatılsın mı?',
   'Disarmed autoscaling for {host}': '{host} için otomatik ölçekleme kapatıldı',
@@ -788,7 +788,7 @@ export const tr: Record<string, string> = {
   'Must be at least {min}': 'En az {min} olmalı',
   'Need more than this? ': 'Daha fazlası mı gerekiyor? ',
   'Open the config builder': 'Yapılandırma oluşturucuyu aç',
-  ' to set every option, add services and tunnels, and export the file.': ' — tüm seçenekleri ayarlayın, servis ve tünel ekleyin, dosyayı dışa aktarın.',
+  ' to set every option, add services and tunnels, and export the file.': ', tüm seçenekleri ayarlayın, servis ve tünel ekleyin, dosyayı dışa aktarın.',
   'File': 'Dosya',
   'New entry name': 'Yeni kayıt adı',
   'none configured': 'yapılandırılmamış',
@@ -871,7 +871,7 @@ export const tr: Record<string, string> = {
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': '"{name}" organizasyonu oluşturuldu ancak sınırları kaydedilemedi: {error}. Sınırları Düzenle ile ayarlayın.',
   'Organization updated': 'Organizasyon güncellendi',
   'Tools': 'Araçlar',
-  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Teşhis, inceleme ve üretme — bir şeyin çözülmesi gerektiğinde başvurduğunuz şeyler.',
+  'Diagnose, inspect and generate, the things you reach for when something needs working out.': 'Teşhis, inceleme ve üretme, bir şeyin çözülmesi gerektiğinde başvurduğunuz şeyler.',
   'Audit log, API explorer and config builder': 'Denetim kaydı, API gezgini ve yapılandırma oluşturucu',
   'Settings & Tools': 'Ayarlar ve Araçlar',
   'Noindex preview hosts': 'Önizleme hostlarında noindex',
@@ -889,7 +889,7 @@ export const tr: Record<string, string> = {
   '(binary body, {bytes} bytes, truncated)': '(ikili gövde, {bytes} bayt, kırpıldı)',
   '(binary payload)': '(ikili yük)',
   '(empty)': '(boş)',
-  '(streamed body — not captured)': '(akıtılan gövde — yakalanmadı)',
+  '(streamed body, not captured)': '(akıtılan gövde, yakalanmadı)',
   '(truncated at 64 KB)': '(64 KB\'de kırpıldı)',
   '(unable to decode body)': '(gövde çözülemedi)',
   'Connected': 'Bağlı',
@@ -899,8 +899,8 @@ export const tr: Record<string, string> = {
   'TOTP QR code': 'TOTP QR kodu',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Yavaş bir ziyaretçinin indirmesinin ne kadarını sunucunun, istemciden üretimi duraklatmasını istemeden önce tamponladığı.',
   'Service defaults': 'Servis varsayılanları',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'services: altındaki her girdiye uygulanır ve girdi başına geçersiz kılınabilir. Üst düzeyde tek bir arka ucu adlandıran anahtarlar burada kullanımdan kaldırıldı — zaten yalnızca services: listesi yokken işe yarıyorlardı — ve yalnızca bunları hâlihazırda yazan bir dosya için görünürler.',
-  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` üst düzeyde tek bir servisi adlandırıyor ve bu dosyada ayrıca bir services: listesi var — istemci listeyi okur, bunları yok sayar. Ait oldukları girdinin içine taşıyın.',
+  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: altındaki her girdiye uygulanır ve girdi başına geçersiz kılınabilir. Üst düzeyde tek bir arka ucu adlandıran anahtarlar burada kullanımdan kaldırıldı, zaten yalnızca services: listesi yokken işe yarıyorlardı, ve yalnızca bunları hâlihazırda yazan bir dosya için görünürler.',
+  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` üst düzeyde tek bir servisi adlandırıyor ve bu dosyada ayrıca bir services: listesi var, istemci listeyi okur, bunları yok sayar. Ait oldukları girdinin içine taşıyın.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Rotanın sağlıklı her istemcisi sırayla ve eşit olarak istek alır. Varsayılan; istemciler birbirinin yerine geçebiliyorsa istediğiniz budur.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Yalnızca en düşük öncelik katmanındaki istemciler trafik alır; üstündeki her istemci sağlıksız, boşaltılıyor ya da yokken bir üst katman devralır, biri döndüğünde geri verir. Katmanlar her istemcinin priority değerinden gelir (0 = birincil).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Bir ziyaretçi, kendisine ilk hizmet veren istemciyi o istemci sağlıklı kaldığı sürece korur. Ziyaretçi başına durumu bellekte tutan arka uçlar için; havuz istek başına değil ziyaretçi başına dağıtır.',
@@ -922,7 +922,7 @@ export const tr: Record<string, string> = {
   'Message': 'Mesaj',
   'At least once': 'En az bir kez',
   'Held until each subscriber acknowledges it, and resent meanwhile. Nothing is stored for a client that is offline.': 'Her abone onaylayana kadar tutulur ve bu arada yeniden gönderilir. Çevrimdışı bir client için hiçbir şey saklanmaz.',
-  'Published to "{topic}" — {count} client(s)': '"{topic}" konusuna yayınlandı — {count} client',
+  'Published to "{topic}", {count} client(s)': '"{topic}" konusuna yayınlandı, {count} client',
   'Published to "{topic}", but nothing is subscribed to it': '"{topic}" konusuna yayınlandı ama buna abone olan yok',
   'Messages': 'Mesajlar',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Bu client\'ın dinlediği topic\'ler ve aynı makinedeki bir uygulamanın gönderip almak için bağlandığı yer.',
@@ -933,6 +933,6 @@ export const tr: Record<string, string> = {
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Yalnızca nasıl anıldığı. Onu adresleyen {handle} kimliği hiç değişmez.',
   'Service {name} (custom_name: {custom})': 'Servis {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Bu organizasyonun ekranda görünen adı. Herhangi bir dil, herhangi bir noktalama; sonradan değiştirilebilir.',
-  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 ve _ . Organizasyonu adresleyen şey budur — {example} içinde, bir sunucunun expose: kuralında ve API içinde — bu yüzden oluşturulduktan sonra sabittir.',
+  'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 ve _ . Organizasyonu adresleyen şey budur, {example} içinde, bir sunucunun expose: kuralında ve API içinde, bu yüzden oluşturulduktan sonra sabittir.',
   'Could not delete ({status})': 'Silinemedi ({status})',
 }

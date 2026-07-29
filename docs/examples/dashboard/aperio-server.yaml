@@ -4,7 +4,7 @@ port: 8080
 
 # The dashboard is built in at /aperio. You sign in as user "aperio" with the
 # master token above. To let anyone else in without sharing it, create a named
-# dashboard user (Users page) or give them their own organization — there is no
+# dashboard user (Users page) or give them their own organization, there is no
 # second server-wide password.
 
 # Fence the admin surface (the dashboard + /aperio/api/*) to your operator

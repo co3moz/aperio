@@ -15,7 +15,7 @@ import { api, type UptimeEntry } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
 function pct(value: number | null): string {
-  if (value === null) return '—'
+  if (value === null) return ', '
   return `${value >= 99.995 ? '100' : value.toFixed(2)}%`
 }
 
@@ -115,7 +115,7 @@ export function UptimeSection() {
         </Table>
       </Card>
       <p className="text-xs text-muted-foreground">
-        {t('Percentages cover observed time only — time while the server itself was offline is not counted against a service.')}
+        {t('Percentages cover observed time only, time while the server itself was offline is not counted against a service.')}
       </p>
     </section>
   )

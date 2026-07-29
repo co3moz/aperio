@@ -2,17 +2,17 @@
 
 End-to-end integration suite. It starts a real `aperio-server`, several
 `aperio-client` processes, and stdlib-only Python mock backends, then
-exercises the system over HTTP with curl — phase by phase, each phase with
+exercises the system over HTTP with curl, phase by phase, each phase with
 its own server configuration.
 
 ## Layout
 
-- `e2e.sh` — the runner: sources the harness, then each phase file in order.
-- `lib/harness.sh` — shared configuration, process lifecycle (`start_server` /
+- `e2e.sh`, the runner: sources the harness, then each phase file in order.
+- `lib/harness.sh`, shared configuration, process lifecycle (`start_server` /
   `start_client` / `stop_server`), assertion helpers (`assert_status`,
   `assert_contains`, `retry`, ...), and mock backends. Sourced, never run.
-- `phases/<letter>-<name>.sh` — one file per phase, sourced after the harness.
-- `mock-h2/` — the HTTP/2 (`h2c`) echo backend and client used by phase I.
+- `phases/<letter>-<name>.sh`, one file per phase, sourced after the harness.
+- `mock-h2/`, the HTTP/2 (`h2c`) echo backend and client used by phase I.
 
 | Phase | File | Covers |
 | --- | --- | --- |
@@ -44,7 +44,7 @@ Requires bash, curl, and Python 3 on `PATH`. Binaries can be overridden with
 `APERIO_SERVER_BIN` / `APERIO_CLIENT_BIN`. Ports 18100+ must be free.
 
 CI runs this suite on every push/PR and merges its coverage into the
-`cargo-llvm-cov` report — most tunnel/proxy runtime paths are covered here
+`cargo-llvm-cov` report, most tunnel/proxy runtime paths are covered here
 rather than by unit tests, so **new features should add an e2e phase or
 extend an existing one**. Unit tests, by contrast, live in the crates next to
 their modules (`<module>_tests.rs`).

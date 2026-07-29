@@ -28,7 +28,7 @@ Debug builds read `aperio-dashboard/dist/` from disk at runtime, so a
 | `src/proxy.rs`, `src/proxy/ws.rs` | Visitor request → tunnel dispatch (HTTP + WebSocket pass-through) |
 | `src/tunnel/ws.rs` | Client tunnel WebSocket endpoint: heartbeats, protocol negotiation, health verdicts |
 | `src/tunnel/tcp.rs` | Emergency TCP tunnels and the UDP relay endpoint |
-| `src/protocol.rs` | `TunnelMessage` wire protocol (server copy — keep in sync with the client; see [docs/tunnel-protocol.md](../docs/tunnel-protocol.md)) |
+| `src/protocol.rs` | `TunnelMessage` wire protocol (server copy, keep in sync with the client; see [docs/tunnel-protocol.md](../docs/tunnel-protocol.md)) |
 | `src/auth.rs` | Dashboard/visitor auth: sessions, login lockout, IP/CIDR helpers |
 | `src/oidc.rs` | OIDC / SSO protection for proxied traffic and dashboard login |
 | `src/share.rs` | Signed share links |

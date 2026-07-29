@@ -6,7 +6,7 @@
 One machine finishes a build and says so; every machine of the organization that cares hears about it and acts. No broker to run, no port to open, no inbound anything: the message travels on the tunnel connection each client already holds.
 
 - `aperio.yaml` is the **reacting** side. It subscribes to `deploy/#`, runs `./deploy.sh` for `deploy/web`, and opens both local faces so an application on the same machine can join in.
-- `aperio-publisher.yaml` is the **publishing** side. It exposes no service at all — a client whose whole job is to send is a complete configuration — and publishes through its own local face.
+- `aperio-publisher.yaml` is the **publishing** side. It exposes no service at all, a client whose whole job is to send is a complete configuration, and publishes through its own local face.
 
 Publishing needs no client at all if you have an admin credential:
 

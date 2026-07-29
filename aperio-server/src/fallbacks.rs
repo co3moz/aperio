@@ -3,7 +3,7 @@
 //!
 //! When no client is connected to serve a hostname the visitor would normally
 //! get a `504`. A fallback turns that into a graceful redirect (default `302`,
-//! or `301` with `permanent: true`) to an origin/status URL instead — a
+//! or `301` with `permanent: true`) to an origin/status URL instead, a
 //! maintenance page, a static origin, a "come back soon" site. A `*` hostname
 //! is the catch-all applied to any otherwise-unclaimed host.
 //!
@@ -75,7 +75,7 @@ pub(crate) fn from_config_file() -> Fallbacks {
   let raw: Vec<FallbackRuleRaw> = match serde_yaml::from_value(section) {
     Ok(rules) => rules,
     Err(err) => {
-      tracing::error!("invalid `fallbacks:` section in aperio-server.yaml: {err} — disabled");
+      tracing::error!("invalid `fallbacks:` section in aperio-server.yaml: {err}, disabled");
       return Fallbacks::default();
     }
   };

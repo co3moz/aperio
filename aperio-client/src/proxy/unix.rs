@@ -1,7 +1,7 @@
 //! HTTP forwarding to Unix domain socket targets (`unix:///var/run/app.sock`).
 //!
 //! Built directly on hyper: reqwest cannot dial Unix sockets. Each request
-//! opens a fresh connection to the socket and speaks HTTP/1.1 over it —
+//! opens a fresh connection to the socket and speaks HTTP/1.1 over it,
 //! matching how local backends behind a socket (gunicorn, php-fpm-style
 //! bridges, systemd socket activation) expect to be driven. Unix targets are
 //! HTTP-only: WebSocket upgrades are answered with 502.
@@ -114,7 +114,7 @@ pub(crate) async fn handle_incoming_request_unix(
     let k_lower = k.to_lowercase();
     // Strip the hop-by-hop framing headers transfer-encoding / trailer so a
     // visitor-supplied `transfer-encoding: chunked` cannot collide with hyper's
-    // own http1 framing — the same request-smuggling guard as http.rs and
+    // own http1 framing, the same request-smuggling guard as http.rs and
     // h2.rs. content-length is kept so content-length-only backends still get a
     // framed body (dropping it would force chunked on streamed uploads).
     if k_lower == "connection"

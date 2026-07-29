@@ -51,7 +51,7 @@ function CreatedKeyDialog({ secret, onClose }: { secret: string | null; onClose:
         <DialogHeader>
           <DialogTitle>{t('Admin key created')}</DialogTitle>
           <DialogDescription>
-            {t('Copy it now — it is shown only once and cannot be retrieved later.')}
+            {t('Copy it now, it is shown only once and cannot be retrieved later.')}
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">
@@ -120,7 +120,7 @@ function CreateAdminKeyDialog({
         <DialogHeader>
           <DialogTitle>{t('New admin key')}</DialogTitle>
           <DialogDescription>
-            {t('A scoped, revocable Bearer credential for automation — no master token needed.')}
+            {t('A scoped, revocable Bearer credential for automation, no master token needed.')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

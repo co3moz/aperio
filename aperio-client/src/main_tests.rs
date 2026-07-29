@@ -59,7 +59,7 @@ fn base_settings() -> ClientSettings {
 
 #[test]
 fn test_build_specs_tunnels_only() {
-  // A client may run with only a tunnels: list — nothing exposed, the
+  // A client may run with only a tunnels: list, nothing exposed, the
   // connection exists so a peer can bind the declared tunnels.
   let mut settings = base_settings();
   settings.target = None;
@@ -455,7 +455,7 @@ async fn test_apply_serve_mode_conflicts() {
     "got: {err}"
   );
 
-  // The top-level serve still refuses a services: list — it drives
+  // The top-level serve still refuses a services: list, it drives
   // single-service mode; per-service serving lives on the entries.
   let mut settings = base_settings();
   settings.target = None;

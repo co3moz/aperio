@@ -502,7 +502,7 @@ async fn metrics_report_the_messaging_counters() {
   //
   // The receivers are kept alive deliberately: `mock_client` drops its own,
   // which closes the channel, and a delivery to a closed channel is counted
-  // as dropped rather than delivered — which is correct, and not what this
+  // as dropped rather than delivered, which is correct, and not what this
   // test is about.
   let mut keep_alive = Vec::new();
   for (id, filters) in [

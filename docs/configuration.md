@@ -139,7 +139,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `--bind-tunnels`. | random UUID per run |
 | `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `APERIO_TOKEN_PINNING`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
 | `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
-| `APERIO_CUSTOM_NAME` |  | `custom_name` | What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will — nothing addresses it. `name:` is the handle that does, and it is an identifier (`a-z`, `0-9`, `_`). Per `services:` entry via `custom_name:`, and available on a `tunnels:` entry too. |  |
+| `APERIO_CUSTOM_NAME` |  | `custom_name` | What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will, nothing addresses it. `name:` is the handle that does, and it is an identifier (`a-z`, `0-9`, `_`). Per `services:` entry via `custom_name:`, and available on a `tunnels:` entry too. |  |
 | `APERIO_TARGET_HEALTH` |  | `health.endpoint` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. |  |
 | `APERIO_WAIT_FOR_BACKEND` |  | `health.wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `target_health`, which gates startup *and* tracks health continuously. Per `services:` entry via `wait_for_backend:`. | `0` |
 | `APERIO_HEALTH_INTERVAL` |  | `health.interval` | Seconds between backend health probes. | `10` |
@@ -184,7 +184,7 @@ health_interval: 10
 
 **A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint`) is deprecated: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. The rest of the `health:` block stays where it is: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. They all still work exactly as before and **will be removed in 0.7.0**; a client that finds one says so at startup, and a file declaring `version:` gets the same notice through the [upgrade report](upgrade-guide.md). Migrating is mechanical: indent them under one `services:` entry.
 
-Single-service mode itself is not going away — it moves to where a one-liner belongs, the command line and the environment:
+Single-service mode itself is not going away, it moves to where a one-liner belongs, the command line and the environment:
 
 ```bash
 # the positional target is single-service mode
@@ -272,7 +272,7 @@ security_headers:
   hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
   hsts_max_age: 31536000      # optional, default 63072000 (2 years)
   frame_options: SAMEORIGIN   # X-Frame-Options: SAMEORIGIN or DENY (anything
-                              # else is sent as DENY — a browser acts on those
+                              # else is sent as DENY, a browser acts on those
                               # two and ignores a typo, which would leave a
                               # header that only looks like protection)
   nosniff: true               # X-Content-Type-Options: nosniff
@@ -439,11 +439,11 @@ headers:
 
 ### Names
 
-Everything Aperio addresses by name — an organization, a service, a tunnel — carries a **handle**: `a-z`, `0-9` and `_`, at most 64 characters. Nothing else, and deliberately so. A handle is written in one file and read in another, typed into a command line and joined with other handles to form an address (`payments@postgres`), so every character outside that set is a way for two people to write down what they think is the same name and be wrong: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`.
+Everything Aperio addresses by name, an organization, a service, a tunnel, carries a **handle**: `a-z`, `0-9` and `_`, at most 64 characters. Nothing else, and deliberately so. A handle is written in one file and read in another, typed into a command line and joined with other handles to form an address (`payments@postgres`), so every character outside that set is a way for two people to write down what they think is the same name and be wrong: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`.
 
 What is left out stays available as *syntax around* a name rather than inside one: `@` already separates an organization from a tunnel, and `-`, `.` and `*` are reserved for whatever an address needs to say next.
 
-Anything a person should read goes in `custom_name:` instead — free text, any language, any punctuation, changeable at any time, because nothing addresses it. Services and tunnels take it in `aperio.yaml`; an organization takes it when it is created and can be renamed from the dashboard afterwards. The handle never changes, since an `expose:` rule and a binder's config on another machine point at it.
+Anything a person should read goes in `custom_name:` instead, free text, any language, any punctuation, changeable at any time, because nothing addresses it. Services and tunnels take it in `aperio.yaml`; an organization takes it when it is created and can be renamed from the dashboard afterwards. The handle never changes, since an `expose:` rule and a binder's config on another machine point at it.
 
 ```yaml
 services:

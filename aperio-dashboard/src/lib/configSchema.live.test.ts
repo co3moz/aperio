@@ -85,7 +85,7 @@ describe('the single-service keys on their way out', () => {
     const entry = find(clientFields, 'services')?.children ?? []
     // `target_health` is excluded: on an entry it is still flagged, as the old
     // flat spelling of `health.endpoint`. That is a different complaint with a
-    // different answer, and the answer — the block — is checked right below.
+    // different answer, and the answer, the block, is checked right below.
     for (const key of SINGLE.filter((k) => k !== 'target_health')) {
       expect(find(entry, key)?.deprecated, key).toBeFalsy()
     }

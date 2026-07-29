@@ -15,7 +15,7 @@ import { useHasRole } from '@/lib/session'
 /**
  * Per-hostname maintenance switch: listed hostnames answer with the 503
  * maintenance page even while their tunnel clients stay connected. `*`
- * covers every hostname. In-memory only — a server restart clears it.
+ * covers every hostname. In-memory only, a server restart clears it.
  */
 export function MaintenanceSection() {
   const { t } = useI18n()

@@ -38,7 +38,7 @@ pub(crate) async fn audit_handler(
 
 /// Verifies the tamper-evident hash chain of the audit log (active file plus
 /// rotated generations). Returns `{ok, broken: [{file, line}]}`. Not org-scoped
-/// — the audit files are server-global, so this is an admin-only integrity
+///, the audit files are server-global, so this is an admin-only integrity
 /// check surfaced from the dashboard.
 #[utoipa::path(get, path = "/aperio/api/audit/verify", tag = "dashboard",
   description = "Verifies the audit log hash chain across all files; reports any broken line (master admin only).",
@@ -86,7 +86,7 @@ pub(crate) struct WebhookCreateRequest {
   pub(crate) format: Option<String>,
 }
 
-/// Lists webhook definitions. The signing secret itself is never returned —
+/// Lists webhook definitions. The signing secret itself is never returned,
 /// only whether one is set.
 #[utoipa::path(get, path = "/aperio/api/webhooks", tag = "webhooks",
   description = "Lists webhook definitions (signing secrets are never exposed, only a signed flag).",

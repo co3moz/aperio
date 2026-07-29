@@ -37,7 +37,7 @@ const TUNNEL_MAX_TTL_SECS: u64 = 7 * 24 * 3_600;
 
 /// Authorizes programmatic tunnel API calls: the master server token
 /// presented as `Authorization: Bearer` / `x-auth-token`, or a dashboard
-/// session (or admin key) of at least the Operator role — minting a tunnel
+/// session (or admin key) of at least the Operator role, minting a tunnel
 /// credential is an operator-level action, so a read-only Viewer is refused.
 /// Header auth makes the endpoint usable from CI without a browser login flow.
 async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
@@ -69,7 +69,7 @@ pub(crate) async fn tunnels_declared_handler(
 }
 
 /// Provisions an ephemeral tunnel: mints a short-lived, hostname-scoped
-/// dynamic token and returns it together with the hostname (once — the
+/// dynamic token and returns it together with the hostname (once, the
 /// secret is never shown again). Designed for automation such as per-PR
 /// preview environments.
 #[utoipa::path(post, path = "/aperio/api/tunnels", tag = "tunnels",
@@ -258,7 +258,7 @@ pub(crate) async fn tunnels_create_handler(
 }
 
 /// Tears down a provisioned tunnel by revoking its ephemeral token and
-/// dropping any live connections using it (mirroring dynamic-token revoke —
+/// dropping any live connections using it (mirroring dynamic-token revoke,
 /// the tunnel would otherwise keep serving until its client reconnected).
 /// Same authentication as tunnel creation so CI jobs can clean up after
 /// themselves.

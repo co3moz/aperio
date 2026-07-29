@@ -9,9 +9,9 @@
 //! Configuration (backups are inert unless both the interval and directory are
 //! set):
 //!
-//! - `APERIO_BACKUP_INTERVAL` — seconds between snapshots (0/unset = disabled)
-//! - `APERIO_BACKUP_DIR`      — directory the snapshots are written to
-//! - `APERIO_BACKUP_KEEP`     — snapshots to retain (default 7; 0 = keep all)
+//! - `APERIO_BACKUP_INTERVAL`, seconds between snapshots (0/unset = disabled)
+//! - `APERIO_BACKUP_DIR`, directory the snapshots are written to
+//! - `APERIO_BACKUP_KEEP`, snapshots to retain (default 7; 0 = keep all)
 //!
 //! Each snapshot records a `db_backup` audit event.
 
@@ -74,7 +74,7 @@ fn write_snapshot(db_path: &Path, dir: &Path) -> Result<(PathBuf, u64), String> 
   let ts = crate::store::tokens::now_secs();
   let target = dir.join(format!("{SNAP_PREFIX}{ts}{SNAP_SUFFIX}"));
   // `VACUUM INTO` produces a single compacted database with no WAL/SHM
-  // sidecars — a clean, self-contained snapshot. A read lock is enough, so it
+  // sidecars, a clean, self-contained snapshot. A read lock is enough, so it
   // is safe alongside the live connections in WAL mode.
   let conn = rusqlite::Connection::open(db_path).map_err(|e| format!("cannot open store: {e}"))?;
   conn

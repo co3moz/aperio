@@ -67,7 +67,7 @@ jobs:
           Add-MpPreference -ExclusionProcess "cl.exe","link.exe","rustc.exe","cargo.exe","nasm.exe","perl.exe" -ErrorAction SilentlyContinue
 
       # Restore-only. The cache this reads is populated by ci.yml's
-      # `warm-release-cache` job, which runs on the default branch — the only
+      # `warm-release-cache` job, which runs on the default branch, the only
       # scope every release tag can read (a tag can restore its own and the
       # default-branch caches, never another tag's). `shared-key` (not `key`)
       # drops rust-cache's per-job-id component so the key matches the warm
@@ -81,7 +81,7 @@ jobs:
 
       # vendored-openssl: webauthn-rs pulls in openssl, and the release
       # matrix cross-compiles (x86_64 on arm64 macs, musl static) where no
-      # system OpenSSL exists for the target — build it from source instead.
+      # system OpenSSL exists for the target, build it from source instead.
       - name: Build release binaries
         run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }} --features aperio-server/vendored-openssl
 
@@ -110,7 +110,7 @@ jobs:
         with:
           name: pkg-${{ matrix.target }}
           path: dist-pkg/*
-          # Only needed for the release job in this same run — keep storage low.
+          # Only needed for the release job in this same run, keep storage low.
           retention-days: 1
 
   schema:
@@ -143,7 +143,7 @@ jobs:
           retention-days: 1
 
   # Publish the multi-arch (amd64+arm64) images straight from the musl-static
-  # binaries the `build` matrix already produced — the Dockerfiles just copy the
+  # binaries the `build` matrix already produced, the Dockerfiles just copy the
   # right binary in, so nothing is compiled twice. One buildx build per image
   # emits the multi-arch manifest directly (the COPY-only images make the small
   # cross-arch emulation for `apk add ca-certificates` negligible).

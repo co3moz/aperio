@@ -164,7 +164,7 @@ pub(crate) fn random_subdomain_hostname(pattern: &str) -> String {
 /// Deterministic variant of [`random_subdomain_hostname`]: the label is derived
 /// from `seed` (a stable per-instance + declared-bind key) so every parallel
 /// connection of the same client process independently produces the *same*
-/// random hostname — no coordination, no race — instead of each minting a
+/// random hostname, no coordination, no race, instead of each minting a
 /// distinct name.
 pub(crate) fn random_subdomain_hostname_seeded(pattern: &str, seed: &str) -> String {
   use sha2::{Digest, Sha256};
@@ -301,7 +301,7 @@ pub(crate) fn select_client_pool(
   };
 
   // Passive outlier ejection: drop clients currently ejected after repeated
-  // dispatch failures — but only if a non-ejected candidate remains for this
+  // dispatch failures, but only if a non-ejected candidate remains for this
   // route, so a route whose whole pool is struggling still fails open rather
   // than returning no route at all. When the feature is disabled no client is
   // ever ejected, so this is a no-op. Independent of the `/health` probe above.
@@ -382,7 +382,7 @@ pub(crate) struct SelectedClient {
   pub(crate) service_name: Option<String>,
 }
 
-/// Returns the pool member matching an affinity value — either a client's
+/// Returns the pool member matching an affinity value, either a client's
 /// self-reported instance ID (survives reconnects) or its connection ID.
 pub(crate) fn find_affinity_match(
   pool: &[String],
@@ -514,7 +514,7 @@ pub(crate) async fn route_exists(
 
 /// True when the route for this host/path is served exclusively by clients
 /// that declared themselves public (with a token permitting it): the visitor
-/// auth gate is skipped. An empty or mixed pool keeps the gate — a request
+/// auth gate is skipped. An empty or mixed pool keeps the gate, a request
 /// must never leak past auth because one pool member happens to be public.
 pub(crate) async fn route_is_public(
   state: &AppState,
@@ -523,7 +523,7 @@ pub(crate) async fn route_is_public(
 ) -> bool {
   // A traversal segment can widen the matched scope (`/public/../admin`
   // matches a `/public` path bind) and a backend that resolves `..` would then
-  // serve the sibling path without the gate — never treat such a path as
+  // serve the sibling path without the gate, never treat such a path as
   // public; it falls back to the normal login gate.
   if request_path_has_traversal(uri_path) {
     return false;
@@ -546,7 +546,7 @@ pub(crate) async fn route_is_public(
 
 /// Per-candidate visitor-IP eligibility of a routed pool: each candidate is
 /// filtered by its *own* `allowed_ips` (a candidate without a list admits
-/// everyone), and the request dispatches to any passing candidate — union
+/// everyone), and the request dispatches to any passing candidate, union
 /// semantics. Note this is fail-open by design: one unrestricted client
 /// joining a route opens it; route-wide lockdown belongs to the token-level
 /// IP allowlist.
@@ -611,7 +611,7 @@ pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
 /// Resolves the client-declared visitor credentials for a route, if any.
 ///
 /// Returns `Some("user:password")` only when the serving pool is non-empty and
-/// *every* client in it declares the *same* override — mirroring the "all
+/// *every* client in it declares the *same* override, mirroring the "all
 /// members must agree" rule of [`route_is_public`], so a request can never be
 /// gated by (or leak past) an override that only some pool members set. Returns
 /// `None` (use the server's own gate) when the pool is empty, mixed, declares
@@ -695,7 +695,7 @@ pub(crate) async fn wait_for_candidate(
     .await
     {
       PickOutcome::Selected(client) => return Some(*client),
-      // Denied: the connected candidates reject this visitor — waiting out
+      // Denied: the connected candidates reject this visitor, waiting out
       // the failover window would not change that.
       PickOutcome::Denied(_) => return None,
       PickOutcome::NoRoute => {}
@@ -725,7 +725,7 @@ pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
 ///
 /// Two modes (both only under `trust_proxy`):
 ///
-/// **Trusted-proxy chain** (`trusted_proxies` non-empty — the recommended,
+/// **Trusted-proxy chain** (`trusted_proxies` non-empty, the recommended,
 /// CDN-agnostic model, same as nginx `real_ip` / Express `trust proxy`): the
 /// `X-Forwarded-For` chain plus the direct socket peer is walked from the
 /// nearest hop backwards, skipping addresses inside the trusted ranges; the
@@ -742,10 +742,10 @@ pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
 ///    `CF-Connecting-IP` via the APERIO_TRUST_CF_HEADER opt-in). Never
 ///    consulted automatically: any visitor can send such a header, and an
 ///    intermediate proxy that was never told about it will pass it through
-///    untouched — trusting it implicitly would let clients spoof their IP for
+///    untouched, trusting it implicitly would let clients spoof their IP for
 ///    rate limiting, audit logs, and token IP allowlists. When the configured
 ///    header is Cloudflare's and `X-Forwarded-For` starts with a *different*
-///    address, an intermediate proxy has rewritten XFF —
+///    address, an intermediate proxy has rewritten XFF,
 ///    [`warn_if_xff_rewritten`] flags that misconfiguration once so the
 ///    operator can fix the chain.
 /// 2. The first `X-Forwarded-For` entry.
@@ -826,7 +826,7 @@ fn extract_via_trusted_chain(
     return peer;
   }
   // A configured header (e.g. CF-Connecting-IP when the inner proxy rewrites
-  // XFF) wins over the walk — but only from a trusted peer, checked above.
+  // XFF) wins over the walk, but only from a trusted peer, checked above.
   if let Some(parsed) = real_ip_header_value(headers, real_ip_header) {
     return parsed;
   }
@@ -907,7 +907,7 @@ fn warn_if_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) {
       .unwrap_or("");
     warn!(
       "Behind Cloudflare (CF-Connecting-IP={cf_ip}) but X-Forwarded-For ({xff}) does not start \
-       with the real client — an intermediate proxy is rewriting X-Forwarded-For to its own peer. \
+       with the real client, an intermediate proxy is rewriting X-Forwarded-For to its own peer. \
        Using the Cloudflare header for the client IP; check your reverse-proxy chain so forwarded \
        headers are trusted and preserved (e.g. Traefik forwardedHeaders / nginx real_ip), or set \
        APERIO_REAL_IP_HEADER explicitly."

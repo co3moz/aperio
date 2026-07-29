@@ -7,8 +7,8 @@
  * corner, the sidebar, the whole visual language moved on while the files sat
  * there. So this is a script rather than a note about how to do it.
  *
- * It brings up a throwaway instance — server on a temp data directory, a demo
- * backend, one client that declares a service and a tunnel — drives some
+ * It brings up a throwaway instance, server on a temp data directory, a demo
+ * backend, one client that declares a service and a tunnel, drives some
  * traffic through it so the screens have something real to show, and captures
  * each page with Playwright at 2x. Nothing outside the temp directory is
  * touched, and everything is stopped afterwards, whether it succeeded or not.
@@ -45,7 +45,7 @@ const VIEWPORT = { width: 1440, height: 900 }
 const SCALE = 2
 
 const children = []
-/** The run's temp directory, removed in the `finally` — including after a
+/** The run's temp directory, removed in the `finally`, including after a
  *  failure, which is when the leftovers used to pile up. */
 let workDir = null
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -207,7 +207,7 @@ tunnels:
     deviceScaleFactor: SCALE,
     colorScheme: 'dark',
     // The docs show the English UI. Without an explicit choice the app reads
-    // the browser's languages, so setting the locale is the whole of it — no
+    // the browser's languages, so setting the locale is the whole of it, no
     // click, no reload, and no seeded storage to go stale when the key moves.
     locale: 'en-US',
   })
@@ -261,7 +261,7 @@ async function login() {
  * One request through the proxy, as a visitor of `api.example.com` makes it.
  *
  * `node:http` rather than `fetch`: the visitor's identity here *is* the `Host`
- * header, and fetch drops it — a forbidden header name. Every request went to
+ * header, and fetch drops it, a forbidden header name. Every request went to
  * the dashboard's own host instead, the traffic screens stayed empty, and the
  * capture looked like a working run of an idle system.
  */

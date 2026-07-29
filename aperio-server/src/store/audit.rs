@@ -114,7 +114,7 @@ impl AuditLog {
     }
     if let Ok(Some(broken)) = verify_chain(&path) {
       warn!(
-        "Audit log hash chain broken at line {} of {:?} — the file may have been tampered with",
+        "Audit log hash chain broken at line {} of {:?}, the file may have been tampered with",
         broken, path
       );
     }
@@ -259,7 +259,7 @@ impl AuditLog {
   /// Retention: drops events older than `cutoff_ts` (unix seconds). Rotated
   /// generations whose newest event is older than the cutoff are deleted
   /// whole; in the active file only the leading *prefix* of old lines is
-  /// removed — the hash chain stays verifiable because a file's first line
+  /// removed, the hash chain stays verifiable because a file's first line
   /// is never checkable against a predecessor anyway. Returns removed lines
   /// (rotated files count their line totals).
   pub fn prune_older_than(&mut self, cutoff_ts: u64) -> usize {
@@ -338,7 +338,7 @@ pub fn verify_chain(path: &std::path::Path) -> std::io::Result<Option<usize>> {
       match prev_line {
         Some(p) if ev.prev != line_hash(p) => return Ok(Some(idx + 1)),
         // First line of the file: genesis for a fresh log, or the hash of a
-        // rotated-away predecessor — not checkable from this file alone.
+        // rotated-away predecessor, not checkable from this file alone.
         None => {}
         _ => {}
       }

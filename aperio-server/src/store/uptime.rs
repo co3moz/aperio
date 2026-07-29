@@ -15,7 +15,7 @@ pub enum Availability {
   /// At least one tunnel connection is healthy and its backend probe passes.
   Up,
   /// Connected, but every connection reports an unhealthy backend (or is
-  /// draining/disabled) — reachable tunnel, unserved traffic.
+  /// draining/disabled), reachable tunnel, unserved traffic.
   Degraded,
   /// No live tunnel connection.
   Down,

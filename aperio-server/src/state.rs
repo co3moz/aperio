@@ -109,7 +109,7 @@ pub(crate) struct ClientDetail {
   pub(crate) cache_ignored: bool,
   /// Client-process instance id self-reported via Ping (`--client-id`).
   pub(crate) instance_id: Option<String>,
-  /// True when another live connection reports the same instance id — a
+  /// True when another live connection reports the same instance id, a
   /// misconfiguration warning surfaced in the dashboard (`--bind-tunnels`
   /// and failover `wait` lookups become ambiguous).
   pub(crate) instance_id_shared: bool,
@@ -918,7 +918,7 @@ pub(crate) struct TunnelResponse {
 /// t0 = the server first receiving the request. Client-side stages are
 /// measured on the client's own monotonic clock and anchored here by
 /// splitting the unaccounted tunnel transit evenly between the two
-/// directions — clocks are never mixed, and the estimate is flagged.
+/// directions, clocks are never mixed, and the estimate is flagged.
 #[derive(Serialize, Clone, Copy)]
 pub(crate) struct RequestTimeline {
   /// A connected client was available (end of any wait-for-client). Measured;
@@ -1500,7 +1500,7 @@ pub(crate) struct AppState {
   /// enforcing the token's optional `max_rps`.
   pub(crate) token_rate: Mutex<HashMap<String, RateLimitState>>,
   /// Per-token daily byte usage: token id → (day key, bytes). In-memory
-  /// only — a restart resets the current day's usage.
+  /// only, a restart resets the current day's usage.
   pub(crate) token_daily_bytes: Mutex<HashMap<String, (String, u64)>>,
   /// Source IPs a dynamic token has connected from (token id → set of IPs).
   /// In-memory only; drives the `token_new_ip` alert when a token connects
@@ -1668,7 +1668,7 @@ impl AppState {
   pub(crate) fn config(&self) -> Arc<ServerConfig> {
     // Recover from a poisoned lock rather than panicking: config() is on
     // essentially every proxied request, so a single panic under the write
-    // lock must not turn into a total outage — the stored config is a valid
+    // lock must not turn into a total outage, the stored config is a valid
     // Arc regardless of who poisoned the lock.
     self
       .config_store
@@ -1718,7 +1718,7 @@ impl AppState {
   }
 
   /// Records an audit event scoped to a specific organization (`None` = the
-  /// implicit master org). Use when the event belongs to a child org — e.g. a
+  /// implicit master org). Use when the event belongs to a child org, e.g. a
   /// client of that org connecting, or a token of that org being created.
   pub(crate) async fn audit_in(
     &self,
@@ -1870,7 +1870,7 @@ impl AppState {
   /// bind checks stay a pure in-memory comparison. Without this, tightening
   /// the fence only took effect the next time each client happened to
   /// reconnect, while the endpoint's own documentation promised it applied at
-  /// once — so a hostname an operator had just revoked kept being served,
+  /// once, so a hostname an operator had just revoked kept being served,
   /// potentially for as long as the client stayed up.
   pub(crate) async fn apply_org_hostnames(&self, org_id: &str, hostnames: &[String]) -> usize {
     let mut dropped = 0usize;
@@ -1985,7 +1985,7 @@ impl AppState {
   }
 
   // The token and user org quotas are enforced atomically inside their create
-  // handlers (api/tokens.rs, api/users.rs) — the cap count and the insert run
+  // handlers (api/tokens.rs, api/users.rs), the cap count and the insert run
   // under one held store lock so concurrent creates can't overshoot the cap.
 
   /// Enforces the org's `max_clients` quota against currently-connected

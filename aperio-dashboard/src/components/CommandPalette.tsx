@@ -21,7 +21,7 @@ export interface Command {
   group?: string
   /** Shown right-aligned: what this thing currently *is*, not what it does. */
   detail?: string
-  /** Extra words that should match it — a setting's key, its group's name. */
+  /** Extra words that should match it, a setting's key, its group's name. */
   keywords?: string
   run: () => void
 }

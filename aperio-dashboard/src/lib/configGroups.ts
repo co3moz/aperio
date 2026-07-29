@@ -44,7 +44,7 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   {
     title: 'Service defaults',
     description:
-      'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.',
+      'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.',
     keys: [
       'target',
       'serve',
@@ -244,7 +244,7 @@ export const SERVER_GROUPS: GroupSpec[] = [
  * else goes behind a nested "More settings" accordion, which is what keeps a
  * section with thirty keys readable.
  *
- * Applies at any depth — the same table orders the fields of a `services:`
+ * Applies at any depth, the same table orders the fields of a `services:`
  * entry, where schema order is alphabetical and therefore useless.
  */
 export const ESSENTIAL_KEYS: string[] = [

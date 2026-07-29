@@ -10,7 +10,7 @@ use tracing::warn;
 /// aperio-server; bumped on breaking changes to `TunnelMessage`.
 /// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
 /// chunk frames instead of base64+JSON for body data.
-/// v3: per-stream flow control (StreamPause/StreamResume) — the server
+/// v3: per-stream flow control (StreamPause/StreamResume), the server
 /// pauses a producer whose visitor reads slower than it sends.
 pub(crate) const PROTOCOL_VERSION: u32 = 4;
 
@@ -79,7 +79,7 @@ pub(crate) use aperio_config::{ScalingDecl, TunnelDecl};
 /// Client-side stage durations of one proxied request, in microseconds from
 /// the moment the client received the tunnel request. Attached to buffered
 /// `Response` messages so the server can assemble a request timeline;
-/// additive — older peers simply omit it.
+/// additive, older peers simply omit it.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ClientTimings {
   /// The backend request left the client.
@@ -203,7 +203,7 @@ pub(crate) enum TunnelMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_request_body: Option<u64>,
     /// How long, in seconds, the server should wait for this service to answer
-    /// a dispatched request before failing it — a per-service override of the
+    /// a dispatched request before failing it, a per-service override of the
     /// server's global gateway response timeout (None = use the global value).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     response_timeout: Option<u64>,

@@ -6,7 +6,7 @@ use tracing::warn;
 /// (in logs and on the dashboard) instead of failing in obscure ways.
 /// v2: streamed request bodies (RequestStart/Chunk/End) and raw binary
 /// chunk frames instead of base64+JSON for body data.
-/// v3: per-stream flow control (StreamPause/StreamResume) — the server
+/// v3: per-stream flow control (StreamPause/StreamResume), the server
 /// pauses a producer whose visitor reads slower than it sends.
 pub const PROTOCOL_VERSION: u32 = 4;
 
@@ -125,7 +125,7 @@ pub struct ConfigNote {
 
 /// One tunnel declared by a client (`tunnels:` list in its aperio.yaml): a
 /// normally unexposed local service that a peer client may reach through
-/// the server with `--bind-tunnels` — same token, explicit client id.
+/// the server with `--bind-tunnels`, same token, explicit client id.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TunnelDecl {
   /// Handle this tunnel is addressed by, unique within the organization.
@@ -151,7 +151,7 @@ pub struct TunnelDecl {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub idle_timeout: Option<u64>,
   /// Public-expose key (experimental): matches this tunnel to an `expose:`
-  /// entry of aperio-server.yaml. A shared secret — deserialized from the
+  /// entry of aperio-server.yaml. A shared secret, deserialized from the
   /// client's Ping but never re-serialized (tunnel discovery must not leak
   /// it to same-token binders).
   #[serde(default, skip_serializing)]
@@ -161,7 +161,7 @@ pub struct TunnelDecl {
 /// Client-side stage durations of one proxied request, in microseconds from
 /// the moment the client received the tunnel request. Attached to buffered
 /// `Response` messages so the server can assemble a request timeline;
-/// additive — older peers simply omit it.
+/// additive, older peers simply omit it.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ClientTimings {
   /// The backend request left the client.

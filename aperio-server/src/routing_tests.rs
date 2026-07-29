@@ -305,7 +305,7 @@ fn client_ip_cloudflare_only_when_configured() {
   );
 
   // Without that configuration the header is NOT trusted: any visitor can send
-  // CF-Connecting-IP, and a non-Cloudflare proxy passes it through untouched —
+  // CF-Connecting-IP, and a non-Cloudflare proxy passes it through untouched,
   // trusting it implicitly would let clients spoof rate limiting, audit logs,
   // and token IP allowlists. XFF (set by the trusted proxy) wins instead.
   assert_eq!(
@@ -388,7 +388,7 @@ fn client_ip_trusted_chain_walk() {
     ip("10.0.0.2")
   );
 
-  // A configured real-IP header wins over the walk — but only when the direct
+  // A configured real-IP header wins over the walk, but only when the direct
   // peer is trusted.
   let mut cf = HeaderMap::new();
   cf.insert("true-client-ip", "203.0.113.99".parse().unwrap());
@@ -728,7 +728,7 @@ fn test_filter_pool_by_ip_denied_picks_most_primary_redirect() {
   let visitor: IpAddr = "127.0.0.1".parse().unwrap();
 
   // Two rejecting candidates: the standby declares a redirect, the primary
-  // does too — the most-primary (lowest tier) declaring entry wins.
+  // does too, the most-primary (lowest tier) declaring entry wins.
   let mut primary = base_handle();
   primary.allowed_ips = vec!["203.0.113.7".to_string()];
   primary.priority = 0;

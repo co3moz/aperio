@@ -13,8 +13,8 @@
 //! once.
 //!
 //! `token:` was the earlier way to say the same thing and still works. It is
-//! the weaker one: a token name is not unique — nothing stops two
-//! organizations from each having a token called `ci` — so a rule naming one
+//! the weaker one: a token name is not unique, nothing stops two
+//! organizations from each having a token called `ci`, so a rule naming one
 //! could match a client of either, and which of them got the port came down
 //! to the order of a hash map. An organization is the boundary the rest of
 //! the system already enforces, and its name is unique by construction.
@@ -192,7 +192,7 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
 }
 
 /// Parses the `expose:` rules for read-only display (the topology map),
-/// returning an empty list on any error instead of exiting — unlike
+/// returning an empty list on any error instead of exiting, unlike
 /// `from_config_file`, which runs at startup where a malformed section must
 /// fail fast. Reads the already-parsed, in-memory config document.
 pub(crate) fn configured_rules() -> Vec<ExposeRule> {
@@ -310,7 +310,7 @@ async fn find_declarer(
 }
 
 /// Relays bytes between a public TCP socket and the declaring client's
-/// tunnel — the raw-socket sibling of `relay_tcp_consumer`.
+/// tunnel, the raw-socket sibling of `relay_tcp_consumer`.
 async fn relay_public_tcp(
   state: Arc<AppState>,
   socket: tokio::net::TcpStream,
@@ -425,7 +425,7 @@ async fn relay_public_tcp(
   tokio::select! {
     _ = &mut up_task => {
       // The visitor stopped sending, which for a TCP client usually means it
-      // finished its request and is now waiting for the answer — not that it
+      // finished its request and is now waiting for the answer, not that it
       // is done with the connection. Aborting the download here discarded
       // whatever the backend had already sent. Let it drain instead, bounded
       // so a client that never closes its side cannot hold the stream open.

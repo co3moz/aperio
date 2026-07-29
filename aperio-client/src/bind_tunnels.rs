@@ -152,7 +152,7 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
       let claim = (transport, binding.port);
       if let Some(other) = claimed.get(&claim) {
         error!(
-          "Local {} port {} is already used by {}; give {} its own `port:` — not binding",
+          "Local {} port {} is already used by {}; give {} its own `port:`, not binding",
           transport, binding.port, other, binding.label
         );
         continue;
@@ -444,7 +444,7 @@ async fn spawn_listener(server: &str, binding: &Binding, transport: &str) -> boo
       if binding.psk.is_some() {
         " (with PSK)"
       } else {
-        " (no PSK — an actively hostile server could MITM; configure a psk on both sides)"
+        " (no PSK, an actively hostile server could MITM; configure a psk on both sides)"
       }
     );
   } else if binding.psk.is_some() {
@@ -459,7 +459,7 @@ async fn spawn_listener(server: &str, binding: &Binding, transport: &str) -> boo
     Ok(l) => l,
     Err(e) => {
       error!(
-        "Failed to bind {}:{} for {}: {} — not binding",
+        "Failed to bind {}:{} for {}: {}, not binding",
         binding.address, binding.port, binding.label, e
       );
       return false;

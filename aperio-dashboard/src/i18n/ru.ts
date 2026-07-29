@@ -40,8 +40,8 @@ export const ru: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Разрешённые исходные IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Заявленная пропускная способность; сервер дозирует кадры этому клиенту соответственно',
-  'Another live connection reports the same client id ({id}) — bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Другое активное подключение сообщает тот же id клиента ({id}) — поиск bind-tunnels и failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
+  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Другое активное подключение сообщает тот же id клиента ({id}), поиск bind-tunnels и failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Система обратных туннелей Aperio • Аптайм сервера: {uptime}',
   Appearance: 'Оформление',
@@ -65,16 +65,16 @@ export const ru: Record<string, string> = {
   Cancel: 'Отмена',
   'Cannot reach the server. Retrying automatically…': 'Сервер недоступен. Автоматическая повторная попытка…',
   'Capacity & Health': 'Ёмкость и состояние',
-  'Captured transaction detail — bodies are capped at 64 KB.':
-    'Детали захваченной транзакции — тела ограничены 64 КБ.',
+  'Captured transaction detail, bodies are capped at 64 KB.':
+    'Детали захваченной транзакции, тела ограничены 64 КБ.',
   'Change language': 'Сменить язык',
   Clear: 'Сбросить',
   'Click to inspect & replay': 'Нажмите для просмотра и повтора',
   'Client ID': 'ID клиента',
   'Client down threshold (s)': 'Порог недоступности клиента (с)',
   'Client is gracefully shutting down': 'Клиент корректно завершает работу',
-  'Client speaks tunnel protocol v{proto}, server differs — update the older side':
-    'Клиент использует протокол туннеля v{proto}, сервер отличается — обновите более старую сторону',
+  'Client speaks tunnel protocol v{proto}, server differs, update the older side':
+    'Клиент использует протокол туннеля v{proto}, сервер отличается, обновите более старую сторону',
   'Client {id} disabled': 'Клиент {id} отключён',
   'Client {id} enabled': 'Клиент {id} включён',
   Clients: 'Клиенты',
@@ -93,7 +93,7 @@ export const ru: Record<string, string> = {
   Copy: 'Копировать',
   'Copy an equivalent curl command': 'Скопировать эквивалентную команду curl',
   'Copy as cURL': 'Скопировать как cURL',
-  'Copy it now — it will NOT be shown again.': 'Скопируйте сейчас — он больше НЕ будет показан.',
+  'Copy it now, it will NOT be shown again.': 'Скопируйте сейчас, он больше НЕ будет показан.',
   'Could not revoke token "{name}"': 'Не удалось отозвать токен «{name}»',
   'Could not update client {id}': 'Не удалось обновить клиента {id}',
   Create: 'Создать',
@@ -108,8 +108,8 @@ export const ru: Record<string, string> = {
   DOWN: 'НЕДОСТУПЕН',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Дневная квота трафика (МБ, 0 = без квоты, пусто = сохранить)',
   'Daily traffic quota (MB, empty = no quota)': 'Дневная квота трафика (МБ, пусто = без квоты)',
-  "Dashboard data isn't updating — the values shown may be stale.":
-    'Данные панели не обновляются — показанные значения могут быть устаревшими.',
+  "Dashboard data isn't updating, the values shown may be stale.":
+    'Данные панели не обновляются, показанные значения могут быть устаревшими.',
   'Dashboard/login language for visitors whose browser language is unsupported':
     'Язык панели/входа для посетителей с неподдерживаемым языком браузера',
   'Data Transferred': 'Передано данных',
@@ -154,8 +154,8 @@ export const ru: Record<string, string> = {
   'Freeze the table while you inspect': 'Заморозить таблицу на время просмотра',
   'Gateway & Requests': 'Шлюз и запросы',
   'Gateway timeout (s)': 'Тайм-аут шлюза (с)',
-  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless — they cannot be listed later, they simply expire.':
-    'Дайте кому-то временный доступ к защищённому сайту: ссылка несёт подписанный истекающий токен, ограниченный хостом (и необязательным путём). При открытии ставится cookie и происходит переход на чистый URL. Ссылки не имеют состояния — их нельзя перечислить позже, они просто истекают.',
+  'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
+    'Дайте кому-то временный доступ к защищённому сайту: ссылка несёт подписанный истекающий токен, ограниченный хостом (и необязательным путём). При открытии ставится cookie и происходит переход на чистый URL. Ссылки не имеют состояния, их нельзя перечислить позже, они просто истекают.',
   'Go to {page}': 'Перейти: {page}',
   'Header consulted first for the visitor IP (behind CDN chains)':
     'Заголовок, проверяемый первым для IP посетителя (за цепочками CDN)',
@@ -187,7 +187,7 @@ export const ru: Record<string, string> = {
   'Live Request Activity': 'Активность запросов в реальном времени',
   'Live Traffic': 'Живой трафик',
   'Route Trends': 'Тренды маршрутов',
-  'One bar per minute over the last 30 minutes, colored by the worst status class — spot which route started erroring, and when.': 'Один столбик на минуту за последние 30 минут, цвет — по худшему классу статуса: видно, какой маршрут и когда начал ошибаться.',
+  'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Один столбик на минуту за последние 30 минут, цвет, по худшему классу статуса: видно, какой маршрут и когда начал ошибаться.',
   'Last 30 minutes': 'Последние 30 минут',
   'Error rate': 'Доля ошибок',
   'No traffic in the last 30 minutes.': 'Нет трафика за последние 30 минут.',
@@ -195,21 +195,21 @@ export const ru: Record<string, string> = {
   'Bandwidth': 'Трафик',
   'Daily': 'По дням',
   'Monthly': 'По месяцам',
-  'Bytes through the tunnel per token and hostname — hover a cell for the sent/received split.': 'Байты через туннель по токенам и хостам — наведите на ячейку для разбивки отправлено/получено.',
+  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'Байты через туннель по токенам и хостам, наведите на ячейку для разбивки отправлено/получено.',
   'No traffic recorded for this window yet.': 'За это окно трафик ещё не записан.',
   'Total': 'Итого',
   'Slowest Endpoints': 'Самые медленные эндпоинты',
-  'Recent-window latency per endpoint, worst p95 first — where the time is going right now.': 'Задержка по эндпоинтам за недавнее окно, худший p95 первым — куда уходит время сейчас.',
+  'Recent-window latency per endpoint, worst p95 first, where the time is going right now.': 'Задержка по эндпоинтам за недавнее окно, худший p95 первым, куда уходит время сейчас.',
   'Max': 'Макс',
-  'Not enough recent traffic yet — the table needs a few requests per endpoint.': 'Пока недостаточно трафика — таблице нужно несколько запросов на эндпоинт.',
+  'Not enough recent traffic yet, the table needs a few requests per endpoint.': 'Пока недостаточно трафика, таблице нужно несколько запросов на эндпоинт.',
   'Webhook Inbox': 'Входящие вебхуки',
   'Clear inbox': 'Очистить входящие',
-  'Services with webhook_inbox: true get every inbound POST persisted here — browse the payloads and re-fire any event to the connected client.': 'Для сервисов с webhook_inbox: true каждый входящий POST сохраняется здесь — просматривайте полезные нагрузки и повторно отправляйте события подключённому клиенту.',
+  'Services with webhook_inbox: true get every inbound POST persisted here, browse the payloads and re-fire any event to the connected client.': 'Для сервисов с webhook_inbox: true каждый входящий POST сохраняется здесь, просматривайте полезные нагрузки и повторно отправляйте события подключённому клиенту.',
   'Payload': 'Нагрузка',
-  'No captured webhooks yet — opt a service in with webhook_inbox: true.': 'Пока нет сохранённых вебхуков — включите сервис через webhook_inbox: true.',
+  'No captured webhooks yet, opt a service in with webhook_inbox: true.': 'Пока нет сохранённых вебхуков, включите сервис через webhook_inbox: true.',
   'Re-fire to the connected client': 'Повторно отправить подключённому клиенту',
   'Re-fire': 'Повторить',
-  'Re-fired — backend answered {status}': 'Отправлено повторно — бэкенд ответил {status}',
+  'Re-fired, backend answered {status}': 'Отправлено повторно, бэкенд ответил {status}',
   'Re-fire failed ({status})': 'Повторная отправка не удалась ({status})',
   'Headers': 'Заголовки',
   '(no body)': '(нет тела)',
@@ -252,8 +252,8 @@ export const ru: Record<string, string> = {
   'New connections with this token will be rejected.': 'Новые подключения с этим токеном будут отклонены.',
   'New lifetime in seconds from now (0 = never, empty = keep)':
     'Новое время жизни в секундах с этого момента (0 = никогда, пусто = сохранить)',
-  'No active client sessions — start a tunnel client to see it here':
-    'Нет активных клиентских сессий — запустите туннельный клиент, чтобы увидеть его здесь',
+  'No active client sessions, start a tunnel client to see it here':
+    'Нет активных клиентских сессий, запустите туннельный клиент, чтобы увидеть его здесь',
   'No active web socket client': 'Нет активного websocket-клиента',
   'No attributed traffic yet': 'Атрибутированного трафика пока нет',
   'No audit events': 'Нет событий аудита',
@@ -267,8 +267,8 @@ export const ru: Record<string, string> = {
   'No matching commands': 'Нет подходящих команд',
   'No requests matching filter': 'Нет запросов по фильтру',
   'No webhooks defined': 'Вебхуки не заданы',
-  'Not a size — use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Не размер — используйте, например, 10 MB, 1.5 GB или байты',
+  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
+    'Не размер, используйте, например, 10 MB, 1.5 GB или байты',
   'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
     'Единый вход OIDC (issuer, id/секрет клиента, redirect URL, scopes)',
   'OK / Failed': 'OK / Ошибки',
@@ -287,7 +287,7 @@ export const ru: Record<string, string> = {
   'Path bind (optional)': 'Привязка пути (необязательно)',
   Paths: 'Пути',
   Paused: 'Пауза',
-  'Paused — table frozen at {count} requests.': 'Пауза — таблица заморожена на {count} запросах.',
+  'Paused, table frozen at {count} requests.': 'Пауза, таблица заморожена на {count} запросах.',
   'Payload bytes transferred': 'Передано байт полезной нагрузки',
   'Per-hostname 503 switch': 'Переключатель 503 для каждого хоста',
   'Per-visitor-IP token bucket for proxied requests.':
@@ -336,10 +336,10 @@ export const ru: Record<string, string> = {
   'Search clients…': 'Поиск клиентов…',
   'Search…': 'Поиск…',
   'Security & Audit': 'Безопасность и аудит',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container — to change one:':
-    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает в контейнере — чтобы изменить:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively — to change one:':
-    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает нативно — чтобы изменить:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
+    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает в контейнере, чтобы изменить:',
+  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
+    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает нативно, чтобы изменить:',
   'Send this request through the tunnel again': 'Отправить этот запрос через туннель снова',
   Sent: 'Отправлено',
   'Server Settings': 'Настройки сервера',
@@ -374,7 +374,7 @@ export const ru: Record<string, string> = {
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Встроенный администратор «aperio» входит по мастер-токену или паролю панели и не может регистрировать passkey. Создайте именованного пользователя.',
   'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Вход по passkey не настроен на этом сервере. Укажите APERIO_WEBAUTHN_ORIGIN — публичный URL панели.',
+    'Вход по passkey не настроен на этом сервере. Укажите APERIO_WEBAUTHN_ORIGIN, публичный URL панели.',
   'This browser does not support WebAuthn.':
     'Этот браузер не поддерживает WebAuthn.',
   'No passkeys registered yet.':
@@ -417,8 +417,8 @@ export const ru: Record<string, string> = {
     'Отсканируйте QR-код приложением-аутентификатором и введите показанный 6-значный код, чтобы завершить.',
   'Verify & enable':
     'Подтвердить и включить',
-  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe — they are shown only once and let you sign in if you lose your authenticator.':
-    'Двухфакторная аутентификация включена. Сохраните эти одноразовые коды восстановления в надёжном месте — они показываются только один раз и позволят войти, если вы потеряете аутентификатор.',
+  'Two-factor authentication is now on. Store these single-use recovery codes somewhere safe, they are shown only once and let you sign in if you lose your authenticator.':
+    'Двухфакторная аутентификация включена. Сохраните эти одноразовые коды восстановления в надёжном месте, они показываются только один раз и позволят войти, если вы потеряете аутентификатор.',
   'Done':
     'Готово',
   'Two-factor authentication disabled':
@@ -444,7 +444,7 @@ export const ru: Record<string, string> = {
   'down': 'недоступен',
   'no data': 'нет данных',
   'No availability history yet': 'Истории доступности пока нет',
-  'Percentages cover observed time only — time while the server itself was offline is not counted against a service.': 'Проценты учитывают только наблюдаемое время — время, когда сам сервер был выключен, сервису не засчитывается.',
+  'Percentages cover observed time only, time while the server itself was offline is not counted against a service.': 'Проценты учитывают только наблюдаемое время, время, когда сам сервер был выключен, сервису не засчитывается.',
   'Last 7 days': 'Последние 7 дней',
   'Last 30 days': 'Последние 30 дней',
   'Last 60 days': 'Последние 60 дней',
@@ -474,8 +474,8 @@ export const ru: Record<string, string> = {
   'Temporary visitor access': 'Временный доступ посетителей',
   "The client's own health probe reports its backend as down; excluded from routing while the tunnel stays connected":
     'Проверка здоровья самого клиента сообщает, что его бэкенд недоступен; исключён из маршрутизации, пока туннель подключён',
-  'The commands below use a {placeholder} placeholder — replace it with your master token or an existing dynamic token.':
-    'Команды ниже используют заполнитель {placeholder} — замените его мастер-токеном или существующим динамическим токеном.',
+  'The commands below use a {placeholder} placeholder, replace it with your master token or an existing dynamic token.':
+    'Команды ниже используют заполнитель {placeholder}, замените его мастер-токеном или существующим динамическим токеном.',
   "This client gates its service behind a client-set visitor login, overriding the server's own visitor password for this service":
     'Этот клиент закрывает свой сервис собственным входом для посетителей, переопределяя пароль посетителей сервера для этого сервиса',
   'This client serves its traffic without the visitor auth gate':
@@ -492,7 +492,7 @@ export const ru: Record<string, string> = {
   'Token "{name}" updated': 'Токен «{name}» обновлён',
   'Token created': 'Токен создан',
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
-    'Токен выпущен и встроен ниже. Его область — {scope}; после закрытия окна он больше не будет показан.',
+    'Токен выпущен и встроен ниже. Его область, {scope}; после закрытия окна он больше не будет показан.',
   'Token name is required': 'Требуется имя токена',
   'Token required to scrape the metrics endpoint': 'Токен для чтения endpoint метрик',
   'Total Requests': 'Всего запросов',
@@ -536,8 +536,8 @@ export const ru: Record<string, string> = {
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Только эти IP/CIDR посетителей могут обращаться к этому сервису: {ips}',
   'e.g. 10 MB, 1 GB, 65536': 'напр. 10 MB, 1 GB, 65536',
-  'e.g. example.com, *.example.com or *-test.example.com — * becomes a random label; empty = disabled':
-    'напр. example.com, *.example.com или *-test.example.com — * становится случайной меткой; пусто = отключено',
+  'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
+    'напр. example.com, *.example.com или *-test.example.com, * становится случайной меткой; пусто = отключено',
   'master token': 'мастер-токен',
   'never expires': 'не истекает',
   override: 'переопределено',
@@ -569,7 +569,7 @@ export const ru: Record<string, string> = {
   'Delete user "{name}"?': 'Удалить пользователя «{name}»?',
   'Edit user "{name}"': 'Изменить пользователя «{name}»',
   'New password (leave blank to keep)': 'Новый пароль (оставьте пустым, чтобы сохранить)',
-  'No dashboard users yet — the master token and dashboard password still work.': 'Пользователей панели пока нет — мастер-токен и пароль панели по-прежнему работают.',
+  'No dashboard users yet, the master token and dashboard password still work.': 'Пользователей панели пока нет, мастер-токен и пароль панели по-прежнему работают.',
   'Operator': 'Оператор',
   'Password (min. 8 characters)': 'Пароль (не менее 8 символов)',
   'Role': 'Роль',
@@ -584,7 +584,7 @@ export const ru: Record<string, string> = {
   'active': 'активен',
   'disabled': 'отключён',
   'Export & Import': 'Экспорт и импорт',
-  'A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Логический JSON-дамп токенов, вебхуков, пользователей и переопределений настроек — подстраховка при обновлениях и переносах. Статистика и сессии не включены.',
+  'A logical JSON dump of tokens, webhooks, users and settings overrides, a failsafe for upgrades and migrations. Statistics and sessions are not included.': 'Логический JSON-дамп токенов, вебхуков, пользователей и переопределений настроек, подстраховка при обновлениях и переносах. Статистика и сессии не включены.',
   'Download export': 'Скачать экспорт',
   'Import dump…': 'Импортировать дамп…',
   'Import applied': 'Импорт применён',
@@ -645,26 +645,26 @@ export const ru: Record<string, string> = {
   'Organization': 'Организация',
   'New Organization': 'Новая организация',
   'Create organization': 'Создать организацию',
-  'Tokens and users you create while an organization is selected belong only to it — its members never see another org’s clients or tokens.': 'Токены и пользователи, созданные при выбранной организации, принадлежат только ей — её участники никогда не видят клиентов или токены другой организации.',
+  'Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.': 'Токены и пользователи, созданные при выбранной организации, принадлежат только ей, её участники никогда не видят клиентов или токены другой организации.',
   'Organization "{name}" created': 'Организация «{name}» создана',
   'Organization "{name}" deleted': 'Организация «{name}» удалена',
   'Delete organization "{name}"?': 'Удалить организацию «{name}»?',
   'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.': 'Это действие необратимо. Организацию можно удалить только после удаления всех её пользователей и токенов.',
-  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit — everything created without an organization belongs to it.': 'Изолированные арендаторы. Переключитесь в организацию на боковой панели, чтобы управлять её собственными токенами, пользователями и клиентами. Организация master подразумевается неявно — всё, созданное без организации, принадлежит ей.',
+  'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.': 'Изолированные арендаторы. Переключитесь в организацию на боковой панели, чтобы управлять её собственными токенами, пользователями и клиентами. Организация master подразумевается неявно, всё, созданное без организации, принадлежит ей.',
   'No organizations yet': 'Организаций пока нет',
   'master': 'master',
   'Switch organization': 'Сменить организацию',
   'This one client process holds {count} parallel connections to this service (connections: {count}); actions apply to all of them': 'Один этот клиентский процесс держит {count} параллельных подключений к этому сервису (connections: {count}); действия применяются ко всем.',
   'Table': 'Таблица',
   'Console': 'Консоль',
-  'Requests in real time — table or console': 'Запросы в реальном времени — таблица или консоль',
+  'Requests in real time, table or console': 'Запросы в реальном времени, таблица или консоль',
   'no client': 'нет клиента',
   'offline': 'офлайн',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера — статические перенаправления/ответы и публичные expose-порты — и пунктирные узлы для выданных токену маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера, статические перенаправления/ответы и публичные expose-порты, и пунктирные узлы для выданных токену маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента.',
   'ejected': 'исключён',
   'draining': 'завершает работу',
   'cache off': 'кэш выкл',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect — enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует — включите кэш сервера или уберите флаг.',
+  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует, включите кэш сервера или уберите флаг.',
   'Add hostname': 'Добавить хост',
   'Hostname binds': 'Привязки хостов',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -685,7 +685,7 @@ export const ru: Record<string, string> = {
   'Config Builder': 'Конструктор конфигурации',
   'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Соберите aperio.yaml или aperio-server.yaml из настроек, которые понимает этот сервер, либо откройте существующий файл и отредактируйте его.',
   'Which file?': 'Какой файл?',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Клиентский файл настраивает туннельный клиент и то, что он публикует; серверный — сам сервер Aperio.',
+  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Клиентский файл настраивает туннельный клиент и то, что он публикует; серверный, сам сервер Aperio.',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': 'Пустые поля вообще не попадают в файл, поэтому сервер сохраняет собственное значение по умолчанию.',
   'Import YAML': 'Импорт YAML',
   'Export YAML': 'Экспорт YAML',
@@ -708,7 +708,7 @@ export const ru: Record<string, string> = {
   'unset (server default)': 'не задано (значение сервера)',
   'unit': 'единица',
   'A request for this hostname is held for up to {secs}s while the service starts, instead of failing.': 'Запрос к этому хосту удерживается до {secs} с, пока сервис запускается, вместо ошибки.',
-  'A scoped, revocable Bearer credential for automation — no master token needed.': 'Ограниченный и отзываемый Bearer-ключ для автоматизации — мастер-токен не нужен.',
+  'A scoped, revocable Bearer credential for automation, no master token needed.': 'Ограниченный и отзываемый Bearer-ключ для автоматизации, мастер-токен не нужен.',
   'Admin key "{name}" created': 'Админ-ключ «{name}» создан',
   'Admin key "{name}" revoked': 'Админ-ключ «{name}» отозван',
   'Admin key created': 'Админ-ключ создан',
@@ -721,7 +721,7 @@ export const ru: Record<string, string> = {
   'Client id': 'ID клиента',
   'Client secret': 'Секрет клиента',
   'Cold starts only: no scale-out ceiling is configured.': 'Только холодный старт: потолок масштабирования не задан.',
-  'Copy it now — it is shown only once and cannot be retrieved later.': 'Скопируйте сейчас — показывается только один раз и позже недоступно.',
+  'Copy it now, it is shown only once and cannot be retrieved later.': 'Скопируйте сейчас, показывается только один раз и позже недоступно.',
   'Disarm': 'Отключить',
   'Disarm autoscaling for "{host}"?': 'Отключить автомасштабирование для «{host}»?',
   'Disarmed autoscaling for {host}': 'Автомасштабирование для {host} отключено',
@@ -784,7 +784,7 @@ export const ru: Record<string, string> = {
   'Must be at least {min}': 'Не менее {min}',
   'Need more than this? ': 'Нужно больше? ',
   'Open the config builder': 'Открыть конструктор конфигурации',
-  ' to set every option, add services and tunnels, and export the file.': ' — задайте все параметры, добавьте сервисы и туннели и выгрузите файл.',
+  ' to set every option, add services and tunnels, and export the file.': ', задайте все параметры, добавьте сервисы и туннели и выгрузите файл.',
   'File': 'Файл',
   'New entry name': 'Имя новой записи',
   'none configured': 'не настроено',
@@ -811,7 +811,7 @@ export const ru: Record<string, string> = {
   'Server connection': 'Подключение к серверу',
   'Which Aperio server this client dials, and how it identifies itself.': 'К какому серверу Aperio подключается этот клиент и как он себя идентифицирует.',
   'Services': 'Сервисы',
-  'Each entry is one exposed backend with its own bind and tuning.': 'Каждая запись — это опубликованный бэкенд со своей привязкой и настройками.',
+  'Each entry is one exposed backend with its own bind and tuning.': 'Каждая запись, это опубликованный бэкенд со своей привязкой и настройками.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Приватные TCP/UDP-сервисы, которые другой клиент может привязать локально, и узлы, которые привязывает этот клиент.',
   'Access control': 'Контроль доступа',
   'Who may reach the exposed service.': 'Кто может обращаться к опубликованному сервису.',
@@ -867,7 +867,7 @@ export const ru: Record<string, string> = {
   'Organization "{name}" was created, but its limits could not be saved: {error}. Set them with Edit.': 'Организация «{name}» создана, но её лимиты сохранить не удалось: {error}. Задайте их через «Изменить».',
   'Organization updated': 'Организация обновлена',
   'Tools': 'Инструменты',
-  'Diagnose, inspect and generate — the things you reach for when something needs working out.': 'Диагностика, разбор и генерация — то, к чему обращаются, когда нужно в чём-то разобраться.',
+  'Diagnose, inspect and generate, the things you reach for when something needs working out.': 'Диагностика, разбор и генерация, то, к чему обращаются, когда нужно в чём-то разобраться.',
   'Audit log, API explorer and config builder': 'Журнал аудита, обозреватель API и генератор конфигурации',
   'Settings & Tools': 'Настройки и инструменты',
   'Noindex preview hosts': 'Хосты предпросмотра с noindex',
@@ -885,7 +885,7 @@ export const ru: Record<string, string> = {
   '(binary body, {bytes} bytes, truncated)': '(двоичное тело, {bytes} байт, усечено)',
   '(binary payload)': '(двоичные данные)',
   '(empty)': '(пусто)',
-  '(streamed body — not captured)': '(потоковое тело — не сохранено)',
+  '(streamed body, not captured)': '(потоковое тело, не сохранено)',
   '(truncated at 64 KB)': '(усечено на 64 КБ)',
   '(unable to decode body)': '(тело не удалось декодировать)',
   'Connected': 'Подключено',
@@ -895,15 +895,15 @@ export const ru: Record<string, string> = {
   'TOTP QR code': 'QR-код TOTP',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Какую часть загрузки медленного посетителя сервер буферизует, прежде чем попросить клиента приостановить её создание.',
   'Service defaults': 'Значения по умолчанию для сервисов',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'Применяются к каждой записи в services: и переопределяются в записи. Ключи, задающие один бэкенд на верхнем уровне, здесь устарели — они и работали только при отсутствии списка services: — и показываются лишь для файла, который их уже пишет.',
-  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` задают один сервис на верхнем уровне, а в файле есть ещё и список services: — клиент читает список и игнорирует их. Перенесите их в ту запись, к которой они относятся.',
+  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Применяются к каждой записи в services: и переопределяются в записи. Ключи, задающие один бэкенд на верхнем уровне, здесь устарели, они и работали только при отсутствии списка services:, и показываются лишь для файла, который их уже пишет.',
+  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` задают один сервис на верхнем уровне, а в файле есть ещё и список services:, клиент читает список и игнорирует их. Перенесите их в ту запись, к которой они относятся.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Каждый исправный клиент маршрута берёт запросы по очереди, поровну. Значение по умолчанию и то, что нужно, когда клиенты взаимозаменяемы.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Трафик получают только клиенты самого низкого приоритетного уровня; уровень выше принимает нагрузку, когда все клиенты над ним неисправны, выводятся или исчезли, и отдаёт её обратно, когда один возвращается. Уровни берутся из priority каждого клиента (0 = основной).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Посетитель остаётся на том клиенте, который обслужил его первым, пока тот исправен. Для бэкендов, хранящих состояние посетителя в памяти; пул распределяет по посетителям, а не по запросам.',
-  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': 'Посетитель получает ошибку. Ничего не повторяется — единственный безопасный ответ, если запрос нельзя выполнить дважды.',
+  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': 'Посетитель получает ошибку. Ничего не повторяется, единственный безопасный ответ, если запрос нельзя выполнить дважды.',
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': 'Переотправить другому исправному клиенту того же маршрута, если он есть. Ожидания нет.',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': 'Удерживать запрос, пока тот же клиент переподключается, в пределах окна failover. Для маршрута с одним клиентом, где переключаться не на кого.',
-  'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Сначала попробовать другого клиента; если у маршрута его нет — дождаться возвращения. Самый снисходительный и самый медленный в отказе.',
+  'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Сначала попробовать другого клиента; если у маршрута его нет, дождаться возвращения. Самый снисходительный и самый медленный в отказе.',
   'Message topics (comma separated, empty = no messaging)': 'Топики сообщений (через запятую, пусто = обмен сообщениями запрещён)',
   '{count} topic(s)': '{count} топик(ов)',
   'Subscribers': 'Подписчики',
@@ -912,13 +912,13 @@ export const ru: Record<string, string> = {
   'unnamed client': 'клиент без имени',
   '{count} connection(s)': '{count} соединени(й)',
   'Publish': 'Опубликовать',
-  'Sends a message to this organization. The reply says how many client processes it reached, which is the quickest way to tell a wrong filter from a wrong topic.': 'Отправляет сообщение этой организации. В ответе — до скольких клиентских процессов оно дошло: самый быстрый способ отличить неверный фильтр от неверного топика.',
+  'Sends a message to this organization. The reply says how many client processes it reached, which is the quickest way to tell a wrong filter from a wrong topic.': 'Отправляет сообщение этой организации. В ответе, до скольких клиентских процессов оно дошло: самый быстрый способ отличить неверный фильтр от неверного топика.',
   'Topic': 'Топик',
   'A topic, not a filter: `+` and `#` belong to subscriptions.': 'Топик, а не фильтр: `+` и `#` относятся к подпискам.',
   'Message': 'Сообщение',
   'At least once': 'Как минимум один раз',
   'Held until each subscriber acknowledges it, and resent meanwhile. Nothing is stored for a client that is offline.': 'Удерживается, пока каждый подписчик не подтвердит, и до тех пор пересылается. Для клиента не в сети ничего не сохраняется.',
-  'Published to "{topic}" — {count} client(s)': 'Опубликовано в «{topic}» — {count} клиент(ов)',
+  'Published to "{topic}", {count} client(s)': 'Опубликовано в «{topic}», {count} клиент(ов)',
   'Published to "{topic}", but nothing is subscribed to it': 'Опубликовано в «{topic}», но на него никто не подписан',
   'Messages': 'Сообщения',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Топики, которые слушает этот клиент, и куда подключается приложение на той же машине, чтобы отправлять и получать.',
@@ -929,6 +929,6 @@ export const ru: Record<string, string> = {
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Только то, как её называют. Идентификатор {handle} адресует её и никогда не меняется.',
   'Service {name} (custom_name: {custom})': 'Сервис {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Как эта организация называется на экране. Любой язык, любая пунктуация, изменяемо позже.',
-  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 и _ . Именно это адресует организацию — в {example}, в правиле expose: сервера и в API — поэтому после создания оно не меняется.',
+  'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 и _ . Именно это адресует организацию, в {example}, в правиле expose: сервера и в API, поэтому после создания оно не меняется.',
   'Could not delete ({status})': 'Не удалось удалить ({status})',
 }

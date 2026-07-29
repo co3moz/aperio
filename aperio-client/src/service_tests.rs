@@ -1055,8 +1055,8 @@ async fn mark_request_activity_stamps_the_idle_clock() {
 
   shared.mark_request_activity();
 
-  // Every inbound work item calls this — streamed uploads, WebSocket
-  // upgrades and raw TCP/UDP opens as well as buffered requests — so a client
+  // Every inbound work item calls this, streamed uploads, WebSocket
+  // upgrades and raw TCP/UDP opens as well as buffered requests, so a client
   // busy with any of them cannot decide it is idle and shut down mid-traffic.
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)

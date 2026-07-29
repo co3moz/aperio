@@ -147,7 +147,7 @@ async fn tcp_echo_port() -> u16 {
 }
 
 /// A loopback TCP backend that echoes the first read, then closes the
-/// connection — so the backend->tunnel task observes EOF and emits TcpClose.
+/// connection, so the backend->tunnel task observes EOF and emits TcpClose.
 async fn tcp_echo_once_port() -> u16 {
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
   let port = listener.local_addr().unwrap().port();
@@ -189,7 +189,7 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
 }
 
 /// A registered stream handle whose channels are unrelated to the ones driven
-/// by the test — it exists only so the module's `remove()` has an entry.
+/// by the test, it exists only so the module's `remove()` has an entry.
 fn dummy_handle() -> TcpStreamHandle {
   let (tx, _rx) = mpsc::channel::<Vec<u8>>(1);
   let (abort_tx, _abort_rx) = mpsc::channel::<()>(1);

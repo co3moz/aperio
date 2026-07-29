@@ -91,7 +91,7 @@ pub(crate) fn from_config_file() -> RouteLimits {
     Ok(rules) => rules,
     Err(err) => {
       tracing::error!(
-        "invalid `rate_limits:` section in aperio-server.yaml: {err} — per-route rate limiting disabled"
+        "invalid `rate_limits:` section in aperio-server.yaml: {err}, per-route rate limiting disabled"
       );
       return RouteLimits::default();
     }

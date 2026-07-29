@@ -1,7 +1,7 @@
 //! OpenAPI 3.1 specification for the admin/auth API, generated from the
 //! `#[utoipa::path]` annotations on the handlers. Served (behind the
 //! dashboard session, like every admin endpoint) at
-//! `GET /aperio/api/openapi.json` — point Swagger UI, Bruno, or a codegen
+//! `GET /aperio/api/openapi.json`, point Swagger UI, Bruno, or a codegen
 //! at it.
 
 use axum::Json;

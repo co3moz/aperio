@@ -52,7 +52,7 @@ nothing is stored, no matter the flags.
 **Negative caching** is the one exception, and it is off by default.
 `cache_negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) holds `404` and `410`
 answers for a few seconds without asking the backend's permission, because a
-hot missing URL — a scanner, a broken link on a busy page — otherwise reaches
+hot missing URL, a scanner, a broken link on a busy page, otherwise reaches
 the backend on every request to be told nothing is there each time. Keep it
 short: it is the one setting here that can serve a "not found" for a resource
 that has since appeared. A response carrying `Vary`, `Set-Cookie` or a

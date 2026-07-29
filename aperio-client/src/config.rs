@@ -3,14 +3,14 @@
 //!
 //! Sources from lowest to highest precedence:
 //!
-//! 1. `~/.aperio.yaml` — user-level defaults shared across projects
+//! 1. `~/.aperio.yaml`, user-level defaults shared across projects
 //! 2. environment variables
 //! 3. `./aperio.yaml` (or the `--config` path)
 //! 4. CLI arguments
 //!
 //! Naming is mechanical across the three surfaces: CLI `--server-token` ↔
 //! yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. Each setting has exactly
-//! one canonical env name (no `APERIO_CLIENT_*` scoping aliases) — `client_id`
+//! one canonical env name (no `APERIO_CLIENT_*` scoping aliases), `client_id`
 //! keeps `APERIO_CLIENT_ID` because "client" is part of the concept, not a
 //! redundant prefix.
 
@@ -58,7 +58,7 @@ pub(crate) fn parse_bandwidth(raw: &str) -> Option<u64> {
 #[command(
   name = "aperio-client",
   version,
-  about = "Aperio tunnel client — expose a local service through an Aperio server",
+  about = "Aperio tunnel client, expose a local service through an Aperio server",
   after_help = "Precedence: CLI arguments > ./aperio.yaml > environment variables > ~/.aperio.yaml\n\n\
 Examples:\n  \
 aperio-client                          run from config file / environment (Docker mode)\n  \
@@ -269,7 +269,7 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
       ("describe", "them")
     };
     warn!(
-      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.7.0 — move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
+      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.7.0, move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
       path,
       single.join("`, `")
     );
@@ -323,7 +323,7 @@ fn home_config_path() -> Option<PathBuf> {
   std::env::var_os(var).map(|home| PathBuf::from(home).join(".aperio.yaml"))
 }
 
-/// Loads `~/.aperio.yaml` — the lowest-precedence layer, shared across
+/// Loads `~/.aperio.yaml`, the lowest-precedence layer, shared across
 /// projects (typically holding `server.url` and `server.token`). Missing is
 /// fine; an unparseable file is skipped with a warning rather than being
 /// fatal, since it may belong to another aperio version.
@@ -504,7 +504,7 @@ fn source_of<T>(cli: bool, local: Option<&T>, env: Option<&T>, home: Option<&T>)
   }
 }
 
-/// Reports which layer each core setting came from — the diagnostic
+/// Reports which layer each core setting came from, the diagnostic
 /// counterpart of [`resolve_settings`], used by `aperio-client check`.
 pub(crate) fn resolve_sources(
   cli: &CliArgs,
@@ -558,7 +558,7 @@ fn layered<T>(cli: Option<T>, local: Option<T>, env: Option<T>, home: Option<T>)
 ///
 /// Read separately from `FileConfig`: the typed struct cannot say whether a
 /// key was written or merely defaulted, and that difference is the whole point
-/// here. Both layers count — a key inherited from `~/.aperio.yaml` is as set
+/// here. Both layers count, a key inherited from `~/.aperio.yaml` is as set
 /// as one written next to the binary.
 pub(crate) fn config_keys(explicit_config: Option<&str>) -> aperio_config::compat::ConfigKeys {
   let read = |path: &str| -> Option<serde_yaml::Mapping> {

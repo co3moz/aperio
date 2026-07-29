@@ -437,7 +437,7 @@ fn data_entries(data: &serde_json::Value) -> Vec<(String, String)> {
       serde_json::Value::String(s) => s.clone(),
       other => other.to_string(),
     };
-    if s.is_empty() { "—".to_string() } else { s }
+    if s.is_empty() { ", ".to_string() } else { s }
   };
   match data.as_object() {
     Some(map) => map.iter().map(|(k, v)| (k.clone(), stringify(v))).collect(),

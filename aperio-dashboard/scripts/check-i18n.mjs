@@ -5,16 +5,16 @@
 // that appears in the source, and a missing entry falls back to English. Some
 // keys are translated dynamically (`t(field.label)` over a constant), so the
 // reference set is every string literal in the source, not only `t('...')`
-// arguments — a dict key is "used" when its English string appears anywhere in
+// arguments, a dict key is "used" when its English string appears anywhere in
 // the source. Source is parsed with the TypeScript compiler (not regex) so a
 // stray apostrophe in a comment or JSX text can never desync extraction.
 //
 // The script audits every dictionary in src/i18n:
 //
-//   - untranslated `t('...')` strings             (FATAL — ships English)
-//   - duplicate keys within a dictionary file      (FATAL — silent overwrite)
-//   - stale keys whose English string is gone      (FATAL — dead translation)
-//   - key-set parity across languages              (info — dynamic keys only)
+//   - untranslated `t('...')` strings             (FATAL, ships English)
+//   - duplicate keys within a dictionary file      (FATAL, silent overwrite)
+//   - stale keys whose English string is gone      (FATAL, dead translation)
+//   - key-set parity across languages              (info, dynamic keys only)
 //
 // The first check is the one that catches a forgotten translation. Parity
 // alone cannot: when *every* language misses a new string they agree with each
@@ -104,7 +104,7 @@ function tableStrings(file, properties) {
     // A map of option → what that option does. The *values* are the prose;
     // the keys are the setting's accepted values and are never translated. A
     // list of names would otherwise be checked while the sentences explaining
-    // them shipped in English — the same shape as the gap that hid the
+    // them shipped in English, the same shape as the gap that hid the
     // settings labels themselves.
     if (
       ts.isPropertyAssignment(node) &&
@@ -130,7 +130,7 @@ function tableStrings(file, properties) {
 /**
  * Strings the source explicitly asks to translate: the first argument of every
  * `t('...')` call, when it is a plain literal. Unlike [`referenceKeys`] this is
- * a *requirement* — a key here that a dictionary lacks renders as English.
+ * a *requirement*, a key here that a dictionary lacks renders as English.
  *
  * Dynamic calls (`t(field.label)`) cannot be resolved statically and are not
  * required; they are still covered by the parity check, which reports when one
@@ -197,7 +197,7 @@ function dictKeys(lang) {
   const duplicates = new Set()
   const visit = (node) => {
     // Keys that need no quotes are written without them (`Cancel: '…'`), so
-    // reading only string literals would miss them — and then report a key the
+    // reading only string literals would miss them, and then report a key the
     // file already has as untranslated, which is how a duplicate gets added.
     if (
       ts.isPropertyAssignment(node) &&

@@ -136,7 +136,7 @@ pub(crate) async fn inbox_delete_handler(
 
 /// Re-fires an inbox entry to the local client, using the same routing rules
 /// as live traffic (so it lands on whichever client currently serves the
-/// entry's host/path — the point of the inbox: replay an event the backend
+/// entry's host/path, the point of the inbox: replay an event the backend
 /// missed or mishandled the first time).
 #[utoipa::path(post, path = "/aperio/api/inbox/{id}/refire", tag = "dashboard",
   description = "Re-dispatches a stored webhook to the currently connected client for its route.",

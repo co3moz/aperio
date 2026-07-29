@@ -72,7 +72,7 @@ type Kind = 'client' | 'server'
 /**
  * The keys that name one service at the top level of a client file.
  *
- * Deprecated, and read by nothing once a `services:` list exists — the client
+ * Deprecated, and read by nothing once a `services:` list exists, the client
  * drops them silently. The form can construct exactly that combination now
  * that it no longer forces a choice of shape, so it has to say so.
  */
@@ -117,7 +117,7 @@ function sectionsFor(
   const claimed = new Set<string>()
   const usable = (f: Field) =>
     !hidden.has(f.key) &&
-    // A deprecated spelling is only shown when the imported file uses it —
+    // A deprecated spelling is only shown when the imported file uses it,
     // otherwise the form would invite writing the key we want retired.
     (!f.deprecated || getAt(doc, f.path) !== undefined)
 
@@ -160,7 +160,7 @@ function sectionsFor(
  * that already exists.
  *
  * The form is generated from the JSON Schema the server serves, which is
- * derived from the very Rust types that parse these files — so every setting
+ * derived from the very Rust types that parse these files, so every setting
  * the running binary understands appears here, and nothing that does not.
  * Anything the form cannot render (a map of maps, say) is preserved verbatim
  * through import and export rather than dropped, so the builder is safe to
@@ -198,7 +198,7 @@ export function ConfigBuilderSection() {
     if (!schema) return []
     // Nothing is hidden by mode any more: a client file has one shape,
     // `services:`. The single-service keys are marked deprecated in the
-    // schema, so they surface only for a file that already writes them —
+    // schema, so they surface only for a file that already writes them,
     // which is exactly what someone migrating such a file needs.
     return sectionsFor(
       fieldsOf(schema, schema),
@@ -209,7 +209,7 @@ export function ConfigBuilderSection() {
   }, [schema, kind, doc])
 
   // Both shapes at once: the list is what runs, so the top-level keys are dead
-  // weight the file still claims. Only for a client file — the server has no
+  // weight the file still claims. Only for a client file, the server has no
   // such pair.
   const shadowed = useMemo(
     () =>
@@ -298,7 +298,7 @@ export function ConfigBuilderSection() {
       {error && <p className="text-sm text-destructive">{error}</p>}
       {shadowed.length > 0 && (
         <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          {t('`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.', {
+          {t('`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.', {
             keys: shadowed.join('`, `'),
           })}
         </p>
@@ -718,7 +718,7 @@ function ObjectListField({
 
 /**
  * The escape hatch for a shape the schema does not describe well enough to
- * build a form from — `headers.request`, say, whose value is an open map of
+ * build a form from, `headers.request`, say, whose value is an open map of
  * rules. Rather than telling the operator it cannot be edited here, the
  * subtree is opened as YAML in a dialog: still editable, still validated on
  * the way back in, and untouched if they change nothing.

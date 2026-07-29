@@ -30,11 +30,11 @@ pub(crate) struct ServerConfig {
   /// comma-separated list of IPs or CIDRs). When set (and `trust_proxy` is on),
   /// the real client IP is resolved by walking the `X-Forwarded-For` chain plus
   /// the direct socket peer from right to left and taking the first address
-  /// that is NOT one of these — the standard "trust proxy" model that works for
+  /// that is NOT one of these, the standard "trust proxy" model that works for
   /// any CDN/proxy chain, not just Cloudflare. Empty = legacy behavior (first
   /// XFF entry).
   pub(crate) trusted_proxies: Vec<(IpAddr, u32)>,
-  /// Source IPs/CIDRs allowed to reach the admin surface — the `/aperio`
+  /// Source IPs/CIDRs allowed to reach the admin surface, the `/aperio`
   /// dashboard and `/aperio/api/*` endpoints (APERIO_ADMIN_ALLOWED_IPS, a
   /// comma-separated list of IPs or CIDRs). Empty = no network restriction.
   /// The login page and its auth endpoints stay reachable from any address so
@@ -119,7 +119,7 @@ pub(crate) struct ServerConfig {
   /// re-dispatched to another client instead of being returned to the visitor.
   /// This is a *server-side* retry, distinct from `failover_mode` (which
   /// governs connection-loss behavior): it triggers on an actual error
-  /// response, not a dropped connection. It reuses the failover budget —
+  /// response, not a dropped connection. It reuses the failover budget,
   /// bounded by `failover_max_jumps`, and honoring method retryability
   /// (`failover_all_methods`). Streamed responses/requests are never retried,
   /// since bytes may already have reached the visitor.
@@ -206,7 +206,7 @@ pub(crate) struct ServerConfig {
   /// Trust-on-first-use token pinning (`APERIO_TOKEN_PINNING`). When on, the
   /// first client device key announced for a dynamic token is pinned, and a
   /// later connection with a different (or missing) key for that token is
-  /// rejected — so a leaked token replayed from another machine cannot serve.
+  /// rejected, so a leaked token replayed from another machine cannot serve.
   /// This effectively binds a pinned token to a single client device; moving
   /// the token to another box means carrying its device key (or rotating the
   /// token, which clears the pin). Env-only.
@@ -285,7 +285,7 @@ pub(crate) struct SettingsOverrides {
 /// settings, parsed straight from the file for hot-reload. Field names are
 /// the yaml keys; each maps onto a [`SettingsOverrides`] field. Keys with a
 /// non-trivial transform (`random_subdomain` normalization, `504_page`/
-/// `503_page` file loading) are intentionally excluded — they need a restart.
+/// `503_page` file loading) are intentionally excluded, they need a restart.
 #[derive(serde::Deserialize, Default)]
 struct FileSettings {
   gateway_timeout: Option<u64>,

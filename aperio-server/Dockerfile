@@ -18,7 +18,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY aperio-server/Cargo.toml aperio-server/build.rs ./aperio-server/
 COPY aperio-client/Cargo.toml ./aperio-client/
 # aperio-config and tests/mock-h2 are workspace members, so their manifests
-# must exist for the workspace to resolve — even though aperio-server does
+# must exist for the workspace to resolve, even though aperio-server does
 # not depend on either.
 COPY aperio-config/Cargo.toml ./aperio-config/
 COPY tests/mock-h2/Cargo.toml ./tests/mock-h2/

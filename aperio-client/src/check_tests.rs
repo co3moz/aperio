@@ -249,7 +249,7 @@ fn tempdir(tag: &str) -> String {
   p.to_string_lossy().into_owned()
 }
 
-/// Builds the settings/sources for a scenario and runs `run_check` — which
+/// Builds the settings/sources for a scenario and runs `run_check`, which
 /// exits the process, so this never returns.
 async fn drive(scenario: &str) -> ! {
   let mut s = base_settings();
@@ -336,7 +336,7 @@ async fn drive(scenario: &str) -> ! {
     "shadowed" => {
       // A file that names one service at the top level *and* carries a
       // services: list. The runtime ignores the top-level one, so the check
-      // has to report on the entry — and say the others are being ignored.
+      // has to report on the entry, and say the others are being ignored.
       // The two are arranged so the answer is unambiguous: the top-level
       // target is reachable and the entry's is not, so probing the wrong one
       // would pass.

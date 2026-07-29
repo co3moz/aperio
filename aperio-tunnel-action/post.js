@@ -1,5 +1,5 @@
 // Cleanup for the Aperio tunnel action: stops the client container and
-// revokes the ephemeral token. Best-effort — the token has a TTL anyway.
+// revokes the ephemeral token. Best-effort, the token has a TTL anyway.
 'use strict'
 
 const { execFileSync } = require('node:child_process')

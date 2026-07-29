@@ -6,19 +6,19 @@ use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValu
 use crate::config::{ClientSettings, SettingsSources, build_http_url, build_ws_url};
 use crate::protocol::PROTOCOL_VERSION;
 
-/// `aperio-client check`: diagnoses configuration and connectivity — config
+/// `aperio-client check`: diagnoses configuration and connectivity, config
 /// resolution (with the layer each value came from), server reachability and
 /// version skew, token validity, local targets and the health endpoint.
 /// Exits 0 when everything passes, 1 otherwise.
 pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSources) -> ! {
   println!(
-    "aperio-client {} — configuration & connectivity check\n",
+    "aperio-client {}, configuration & connectivity check\n",
     env!("CARGO_PKG_VERSION")
   );
 
   let mut failures = 0u32;
   let pass = |label: &str, detail: String| println!("  ok    {label}: {detail}");
-  // Not a failure — the client starts and serves — but the file says something
+  // Not a failure, the client starts and serves, but the file says something
   // it will not do, which is exactly what this command exists to surface.
   let warn = |label: &str, detail: String| println!("  warn  {label}: {detail}");
   let fail = |label: &str, detail: String, failures: &mut u32| {
@@ -58,7 +58,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       &mut failures,
     ),
   }
-  // Visitor-auth overrides must be "user:password" — a value without the
+  // Visitor-auth overrides must be "user:password", a value without the
   // colon separator would be silently unusable at login time.
   let auth_probes: Vec<(String, &String)> = settings
     .visitor_auth
@@ -88,7 +88,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // `services:` list wins over a single service named at the top level, unless
   // that target came from the command line, where the positional argument is
   // deliberately an override. Getting this backwards made the whole section a
-  // lie for a file that had both — it named, and probed, the one backend the
+  // lie for a file that had both, it named, and probed, the one backend the
   // client was going to ignore.
   let cli_target = matches!(sources.target, Some(crate::config::Source::Cli));
   let services_win = !settings.services.is_empty() && !cli_target;
@@ -109,7 +109,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       warn(
         "single-service keys",
         format!(
-          "`{}` are ignored while a services: list exists — the entries below are what runs. Move them into an entry (they are deprecated and removed in 0.7.0 anyway).",
+          "`{}` are ignored while a services: list exists, the entries below are what runs. Move them into an entry (they are deprecated and removed in 0.7.0 anyway).",
           shadowed.join("`, `")
         ),
       );
@@ -135,7 +135,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     _ if !settings.tunnels.is_empty() => pass(
       "target",
       format!(
-        "none — {} tunnel(s) declared (from ./aperio.yaml)",
+        "none, {} tunnel(s) declared (from ./aperio.yaml)",
         settings.tunnels.len()
       ),
     ),
@@ -146,7 +146,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     _ if !settings.bind_tunnels.is_empty() => pass(
       "target",
       format!(
-        "none — binds {} tunnel(s) (from ./aperio.yaml)",
+        "none, binds {} tunnel(s) (from ./aperio.yaml)",
         settings.bind_tunnels.len()
       ),
     ),
@@ -159,7 +159,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       pass(
         "target",
         format!(
-          "none — messaging only, {} subscription(s) (from ./aperio.yaml)",
+          "none, messaging only, {} subscription(s) (from ./aperio.yaml)",
           settings.subscribe.len()
         ),
       )
@@ -210,7 +210,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
             Some(p) => fail(
               "protocol",
               format!(
-                "server speaks v{p}, this client speaks v{PROTOCOL_VERSION} — update the older side"
+                "server speaks v{p}, this client speaks v{PROTOCOL_VERSION}, update the older side"
               ),
               &mut failures,
             ),

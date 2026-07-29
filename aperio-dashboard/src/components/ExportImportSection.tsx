@@ -48,7 +48,7 @@ export function ExportImportSection() {
     <section className="flex flex-col gap-4">
       <SectionHeader
         title={t('Export & Import')}
-        description={t('A logical JSON dump of tokens, webhooks, users and settings overrides — a failsafe for upgrades and migrations. Statistics and sessions are not included.')}
+        description={t('A logical JSON dump of tokens, webhooks, users and settings overrides, a failsafe for upgrades and migrations. Statistics and sessions are not included.')}
       />
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={() => { window.location.href = '/aperio/api/export' }}>

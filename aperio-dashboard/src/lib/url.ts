@@ -7,7 +7,7 @@ export function readParams(): URLSearchParams {
 
 /**
  * Writes `params` back to the address bar. `push` adds a history entry (so the
- * browser back button steps through it — used for tab navigation); otherwise it
+ * browser back button steps through it, used for tab navigation); otherwise it
  * replaces the current entry (used for filter typing, which shouldn't spam
  * history).
  */

@@ -2,14 +2,14 @@
 //!
 //! The dump is a single JSON document with everything needed to rebuild a
 //! server's persisted state on another instance or after an upgrade gone
-//! wrong: dynamic tokens (hashes only — plaintext secrets are never stored),
+//! wrong: dynamic tokens (hashes only, plaintext secrets are never stored),
 //! webhooks, dashboard users (password hashes, TOTP secrets, passkeys) and
 //! the dashboard settings overrides. Being a *logical* dump, it survives
 //! schema changes that a raw `aperio.db` copy would not: unknown fields are
 //! dropped, missing ones take their defaults.
 //!
 //! Not included: statistics/uptime history, audit log, sessions (everyone
-//! signs in again) — the dump is a config failsafe, not a full backup.
+//! signs in again), the dump is a config failsafe, not a full backup.
 //! Admin-only in both directions; an import *replaces* the stores.
 
 use axum::{
@@ -43,7 +43,7 @@ pub(crate) async fn export_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  // The dump spans every organization's tokens, users, webhooks, and orgs —
+  // The dump spans every organization's tokens, users, webhooks, and orgs,
   // a whole-server backup, restricted to the master super-admin.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
     return resp;
@@ -133,7 +133,7 @@ pub(crate) async fn import_handler(
   headers: HeaderMap,
   Json(dump): Json<ImportDump>,
 ) -> Response {
-  // Import replaces every organization's stores — master super-admin only.
+  // Import replaces every organization's stores, master super-admin only.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
     return resp;
   }

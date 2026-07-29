@@ -38,7 +38,7 @@ type ScalingBindCtx = (Vec<String>, Option<String>, Option<String>, Option<Strin
 #[path = "ws_tests.rs"]
 mod tests;
 
-/// Removes a stream from `map`, but only if `client_id` owns it — the check
+/// Removes a stream from `map`, but only if `client_id` owns it, the check
 /// and the removal happen under a single lock.
 ///
 /// The frame handlers used to remove first and put the handle back when the
@@ -91,7 +91,7 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
         stats.total_bytes_transferred += len;
         drop(stats);
         // Attribute streamed bytes to the sending client's organization and to
-        // the serving token's daily byte quota — a streamed response body would
+        // the serving token's daily byte quota, a streamed response body would
         // otherwise escape the quota that a buffered response is charged for.
         let (org, token_id) = {
           let clients = state.clients.lock().await;
@@ -193,7 +193,7 @@ pub(crate) async fn ws_handler(
 
   // Process-wide instance group (the client's raw `client_id` base): groups a
   // process's parallel connections in the dashboard and shares one random
-  // hostname across them. Optional — older clients omit it.
+  // hostname across them. Optional, older clients omit it.
   let instance_group = headers
     .get("x-aperio-instance")
     .and_then(|v| v.to_str().ok())
@@ -345,7 +345,7 @@ pub(crate) async fn handle_socket(
 
   // Token-granted binds apply immediately, before the first Ping. When the
   // random subdomain feature is on, the random hostname is added on top of
-  // any token-granted hostnames — the client serves both.
+  // any token-granted hostnames, the client serves both.
   let mut assigned_hostnames = perms.granted_hostnames();
   let random_hostname = state
     .config()
@@ -927,7 +927,7 @@ pub(crate) async fn handle_socket(
                     let permits = (n as usize).min(Semaphore::MAX_PERMITS);
                     handle.inflight_limiter = Some(Arc::new(Semaphore::new(permits)));
                     info!(
-                      "Client {} announced concurrency limit: {} — excess requests will be queued",
+                      "Client {} announced concurrency limit: {}, excess requests will be queued",
                       client_id, n
                     );
                   }
@@ -942,7 +942,7 @@ pub(crate) async fn handle_socket(
                     }
                   }
                   // The service asked to be cached but the server's cache is
-                  // off, so the opt-in silently does nothing — warn once so the
+                  // off, so the opt-in silently does nothing, warn once so the
                   // operator can enable APERIO_CACHE (or the owner can drop the
                   // flag). Surfaced in the dashboard as a badge too.
                   if cache && !state.config().cache_enabled && !handle.cache_ignored_warned {
@@ -1210,7 +1210,7 @@ pub(crate) async fn handle_socket(
                 match verdict {
                   Some(crate::store::tokens::PinOutcome::Mismatch) => {
                     warn!(
-                      "Token pinning: client {} presented token '{}' without a matching device key — rejecting the connection",
+                      "Token pinning: client {} presented token '{}' without a matching device key, rejecting the connection",
                       client_id, token_name
                     );
                     state
@@ -1361,7 +1361,7 @@ pub(crate) async fn handle_socket(
               is_text,
             } => {
               // Relay WebSocket frame to the public WS via the registered
-              // channel — but only if this client owns the stream, matching the
+              // channel, but only if this client owns the stream, matching the
               // ownership check every other stream type performs. Clone the
               // sender out of the lock so `ws_streams` is never held across the
               // bounded, awaited send: a slow public WS consumer applying

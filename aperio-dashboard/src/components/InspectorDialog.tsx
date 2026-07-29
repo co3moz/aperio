@@ -240,7 +240,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
             )}
           </div>
           <DialogDescription>
-            {t('Captured transaction detail — bodies are capped at 64 KB.')}
+            {t('Captured transaction detail, bodies are capped at 64 KB.')}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">

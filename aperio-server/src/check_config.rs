@@ -3,8 +3,8 @@
 //!
 //! Runs after `config_file::load()` materialized `aperio-server.yaml` into
 //! the environment, so the exact same layered view the server would boot
-//! with is validated — file keys, environment variables, and the structured
-//! sections — without binding a port or touching the data directory.
+//! with is validated, file keys, environment variables, and the structured
+//! sections, without binding a port or touching the data directory.
 //! Prints one line per finding and exits 0 (valid) or 1 (errors found).
 
 /// Local mirror of an `error_pages:` entry for lint-time validation (the
@@ -121,7 +121,7 @@ fn lint_route_shadowing(r: &mut Report, routes: &[crate::static_routes::RouteRul
       };
       if host_covers && path_covers {
         r.warn(&format!(
-          "route #{} (host={}, path={}) is unreachable — route #{} (host={}, path={}) always matches it first",
+          "route #{} (host={}, path={}) is unreachable, route #{} (host={}, path={}) always matches it first",
           j + 1,
           desc(bh),
           desc(bp),
@@ -141,7 +141,7 @@ pub(crate) fn run() -> i32 {
 
   match crate::config_file::watched_path() {
     Some(path) => println!("Checking configuration ({})", path.display()),
-    None => println!("Checking configuration (no aperio-server.yaml — environment only)"),
+    None => println!("Checking configuration (no aperio-server.yaml, environment only)"),
   }
 
   // --- Upgrade safety ---
@@ -179,7 +179,7 @@ pub(crate) fn run() -> i32 {
   match env("APERIO_SERVER_TOKEN") {
     Some(t) if t.trim().len() >= 16 => r.ok("APERIO_SERVER_TOKEN is set"),
     Some(_) => {
-      r.warn("APERIO_SERVER_TOKEN is set but short (< 16 chars) — consider a longer secret")
+      r.warn("APERIO_SERVER_TOKEN is set but short (< 16 chars), consider a longer secret")
     }
     None => r.fail("APERIO_SERVER_TOKEN is not set (the server refuses to start without it)"),
   }
@@ -249,7 +249,7 @@ pub(crate) fn run() -> i32 {
     }
   } else if env("APERIO_SCALING_ALLOW_HTTP").is_some() || env("APERIO_SCALING_RECORD_TTL").is_some()
   {
-    r.warn("APERIO_SCALING_* set without APERIO_SCALING — autoscaling stays disabled");
+    r.warn("APERIO_SCALING_* set without APERIO_SCALING, autoscaling stays disabled");
   }
 
   // --- Edge integration: the token is the on/off switch, so the other keys
@@ -275,19 +275,19 @@ pub(crate) fn run() -> i32 {
             url.trim()
           )),
           None => r.warn(
-            "APERIO_EDGE_SERVICE_URL is not set — /aperio/api/edge/traefik answers 503 without it (the Caddy ask endpoint still works)",
+            "APERIO_EDGE_SERVICE_URL is not set, /aperio/api/edge/traefik answers 503 without it (the Caddy ask endpoint still works)",
           ),
         }
         if env("APERIO_EDGE_INCLUDE_OFFLINE")
           .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         {
           r.warn(
-            "APERIO_EDGE_INCLUDE_OFFLINE publishes hostnames no client is serving — a tenant can provoke a certificate request for any hostname its token permits",
+            "APERIO_EDGE_INCLUDE_OFFLINE publishes hostnames no client is serving, a tenant can provoke a certificate request for any hostname its token permits",
           );
         }
       }
       (None, false) => r.warn(&format!(
-        "{} set without APERIO_EDGE_TOKEN — the edge endpoints stay disabled",
+        "{} set without APERIO_EDGE_TOKEN, the edge endpoints stay disabled",
         configured.join(", ")
       )),
       (None, true) => {}
@@ -372,7 +372,7 @@ pub(crate) fn run() -> i32 {
           }
           if rule.org.is_none() && prefix.is_none() && rule.token.is_some() {
             r.warn(&format!(
-              "`expose:` entry #{}: `token:` is superseded by `org:` — a token name is not unique, so this rule can match a client of another organization; write `org: <name>` or `tunnel: <org>@{bare}`",
+              "`expose:` entry #{}: `token:` is superseded by `org:`, a token name is not unique, so this rule can match a client of another organization; write `org: <name>` or `tunnel: <org>@{bare}`",
               i + 1
             ));
           }

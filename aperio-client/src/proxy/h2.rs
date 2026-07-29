@@ -1,5 +1,5 @@
 //! HTTP/2 forwarding for `h2c://` (prior-knowledge cleartext) and `h2://`
-//! (TLS + ALPN) targets — the path gRPC backends need. Built directly on
+//! (TLS + ALPN) targets, the path gRPC backends need. Built directly on
 //! hyper because reqwest does not expose response trailers, and gRPC carries
 //! its status (`grpc-status`) in the trailers.
 
@@ -131,7 +131,7 @@ pub(crate) async fn handle_incoming_request_h2(
   let headers = ctx.request_headers.apply(headers);
   for (k, v) in headers.iter() {
     let k_lower = k.to_lowercase();
-    // Connection-specific headers are forbidden in HTTP/2 — except
+    // Connection-specific headers are forbidden in HTTP/2, except
     // `te: trailers`, which gRPC requires end-to-end.
     if k_lower == "connection"
       || k_lower == "keep-alive"

@@ -197,7 +197,7 @@ pub(crate) async fn uptime_handler(
   // one-off/experimental connection that errored and was closed leaves an
   // uptime record whose `last_seen` (only advanced while up/degraded) stops
   // advancing, so it drops out of the view once stale, while a service that
-  // was up recently — or is up now — stays. The record itself lingers in the
+  // was up recently, or is up now, stays. The record itself lingers in the
   // store until its own 30-day GC.
   const HIDE_STALE_DOWN_SECS: u64 = 24 * 60 * 60;
   let now = crate::store::sessions::now_secs();
@@ -241,7 +241,7 @@ pub(crate) async fn uptime_handler(
       }
     })
     .collect();
-  // Most-recently-active first (by last successful ping), then by name — so
+  // Most-recently-active first (by last successful ping), then by name, so
   // live/recently-up services lead and stale ones sink to the bottom.
   entries.sort_by(|a, b| {
     b.last_seen
@@ -554,7 +554,7 @@ pub(crate) async fn client_override_handler(
   };
 
   // Org isolation: a caller may only overrule a client of their effective org.
-  // A cross-org (or unknown) client is indistinguishable — both 404 — so a
+  // A cross-org (or unknown) client is indistinguishable, both 404, so a
   // client's existence never leaks across orgs.
   let org = crate::auth::effective_org(&state, &headers).await;
   // Organization fence: an overrule is the one place a bind is set without a

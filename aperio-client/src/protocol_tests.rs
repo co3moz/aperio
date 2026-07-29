@@ -31,7 +31,7 @@ fn test_compress_roundtrip() {
   let text = "hello tunnel ".repeat(100);
   let compressed = compress_frame(&text);
   assert!(compressed.len() < text.len());
-  // zlib streams start with 0x78 — the property that keeps them
+  // zlib streams start with 0x78, the property that keeps them
   // distinguishable from v2 binary chunk frames.
   assert_eq!(compressed[0], 0x78);
   assert_eq!(

@@ -287,7 +287,7 @@ pub(crate) async fn run_tcp_bridge(local_port: u16, server: &str, token: &str) {
 /// peer client / declared tunnel target). Returns when either side closes.
 ///
 /// With `encrypt`, an end-to-end X25519 handshake with the declaring client
-/// runs first and every relayed frame is AEAD-sealed — the server only sees
+/// runs first and every relayed frame is AEAD-sealed, the server only sees
 /// ciphertext. `psk` (when both sides configure the same one) protects the
 /// exchange against an actively hostile server.
 pub(crate) async fn bridge_connection(

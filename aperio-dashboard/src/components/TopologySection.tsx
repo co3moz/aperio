@@ -253,7 +253,7 @@ export function TopologySection() {
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Topology')}
-        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns — static redirects/responses and public expose ports — and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.')}
+        description={t('How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.')}
       />
       <Card className="overflow-x-auto p-4">
         {empty ? (

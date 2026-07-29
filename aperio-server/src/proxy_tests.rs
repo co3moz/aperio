@@ -552,7 +552,7 @@ async fn handler_response_timeout_returns_504() {
   cfg.gateway_response_timeout = std::time::Duration::from_millis(50);
   let state = connected(cfg);
   mark_connected(&state).await;
-  // Live receiver, but no responder — the request times out.
+  // Live receiver, but no responder, the request times out.
   let _rx = insert_live_client(&state, "c1").await;
   let resp = run(state, get("/slow")).await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
