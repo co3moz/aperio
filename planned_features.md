@@ -446,13 +446,13 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   2026-07 flow-control fix discussion.)
 
 - [x] **#19 Pub/sub between the clients of an organization, over the tunnel
-  that already exists.** shipped, except QoS 1: three `TunnelMessage`
+  that already exists.** shipped: four `TunnelMessage`
   variants, per-organization routing keyed on `instance_group`,
   `POST /aperio/api/publish`, `subscribe:`/`messages_listen:`/
   `messages_mqtt_listen:` on the client, a token `topics` capability, and the
-  server's events mirrored onto `$aperio/`. Still open: QoS 1 with a send
-  window (protocol v4 has no ack frame yet), which the entry below describes.
-  Original note follows.
+  server's events mirrored onto `$aperio/`, and QoS 1 with a bounded send
+  window plus client-side duplicate suppression. Offline delivery stays out of
+  scope, as the entry below argues. Original note follows.
 
   Original: Clients can be reached from outside and can reach a
   private service through a peer, but they have no way to *signal each other*.

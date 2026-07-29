@@ -22,6 +22,11 @@ pub(crate) struct PublishRequest {
   /// The message, Base64-encoded, for anything that is not text.
   #[serde(default)]
   pub(crate) payload_base64: Option<String>,
+  /// `0` (the default) sends once. `1` keeps the message until each
+  /// subscriber acknowledges it, resending meanwhile, for as long as the
+  /// server's acknowledgement window lasts.
+  #[serde(default)]
+  pub(crate) qos: u8,
 }
 
 /// Publishes a message to the subscribers of the caller's organization.
@@ -78,6 +83,7 @@ pub(crate) async fn publish_handler(
     &payload.topic,
     &bytes,
     pubsub::Publisher::Api(&actor),
+    payload.qos,
   )
   .await
   {
@@ -112,6 +118,7 @@ pub(crate) async fn publish_handler(
 
   Json(serde_json::json!({
     "topic": payload.topic,
+    "qos": payload.qos.min(1),
     "clients": delivered.processes,
     "connections": delivered.connections,
   }))

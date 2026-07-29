@@ -26,6 +26,8 @@ The answer says how far it went: `{"topic":"deploy/web","clients":3,"connections
 
 Use `payload_base64` instead of `payload` for anything that is not text. The ceiling is 256 KB; a message is a signal, and moving data is what tunnels are for.
 
+Add `"qos": 1` for at-least-once. See [Delivery](#delivery) for what that does and does not promise.
+
 ## Subscribing
 
 In the client's `aperio.yaml`:
@@ -143,9 +145,19 @@ Note the convention differs from `hostnames` and `paths`, where an empty list me
 
 A refused subscription is reported by name in the client's log rather than dropped, so a token missing a topic looks like a missing permission and not like a message that never arrived.
 
+## Delivery
+
+`qos: 0`, the default, sends the message to whoever is connected and forgets it. That is the right choice for most signals: a client that was not there did not miss anything it can still act on.
+
+`qos: 1` is at-least-once. The server keeps the message until each subscriber acknowledges it and resends every 3 seconds meanwhile, giving up after 30. The subscriber remembers the ids it has seen for a minute and a half, so a redelivery caused by a lost acknowledgement is dropped rather than handed to your application twice.
+
+The window is the whole of the promise, and it is deliberately short: it covers a connection that died between the write and the acknowledgement, not a subscriber that is away. A client that is offline when you publish does not receive the message later, at any QoS. `qos: 2` is treated as 1, because there is no store-and-forward here to build exactly-once on and granting a level the machinery does not have is worse than saying what it does.
+
+A subscriber that stops acknowledging altogether holds at most 256 messages before the oldest are dropped, so one stuck client cannot grow the server's memory.
+
 ## What this is not
 
-- **There is no delivery guarantee.** A message reaches the clients connected when it is published. Nothing is stored for one that is away, and a client that reconnects does not receive what it missed. That is deliberate: this serves reacting to something happening now, and replaying an hour-old event to a machine that just came back is a bug rather than a service.
+- **Nothing is stored for a client that is away**, at any QoS. A client that reconnects does not receive what it missed. That is deliberate: this serves reacting to something happening now, and replaying an hour-old event at a machine that just came back is a bug rather than a service.
 - **A message never crosses an organization**, and the master organization is not a superset of its children.
 - **A slow subscriber misses messages rather than slowing everyone down.** The server drops its copy when its connection is not keeping up; the local face says so with a `: missed N message(s)` comment in the stream.
 

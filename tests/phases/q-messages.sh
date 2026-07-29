@@ -153,4 +153,31 @@ retry 20 grep -q "message topic=deploy/mqtt payload=over-the-tunnel" "$MQTT_OUT"
 echo "  ok: an MQTT client publishes on one machine and another receives it"
 kill "$MQTT_PID" 2>/dev/null || true
 
+step "A QoS 1 message is acknowledged, so it arrives once and stops"
+# The resend logic itself is pinned deterministically in the unit tests by
+# ageing the timestamps. What only an end-to-end run can show is that the
+# acknowledgement actually comes back: if it did not, the server would resend
+# every few seconds and the subscriber would see the message again and again.
+QOS_OUT="$LOG_DIR/messages-qos1.txt"
+curl -sN --max-time 12 "http://127.0.0.1:${MSG_FACE_PORT}/subscribe?topic=deploy%2F%23" \
+  >"$QOS_OUT" 2>&1 &
+QOS_PID=$!
+sleep 1
+
+QOS_PUBLISHED="$(curl -s -b "$MJAR" -X POST "$BASE/aperio/api/publish" \
+  -H 'content-type: application/json' \
+  -d '{"topic":"deploy/once","payload":"exactly","qos":1}')"
+echo "$QOS_PUBLISHED" | grep -q '"qos":1' \
+  || fail "the publish should report the qos it was accepted at, got: $QOS_PUBLISHED"
+
+retry 20 grep -q "event: deploy/once" "$QOS_OUT" || fail "the QoS 1 message never arrived"
+# Well past two retry timeouts: a missing acknowledgement would have produced
+# more copies by now.
+sleep 8
+COPIES="$(grep -c 'event: deploy/once' "$QOS_OUT")"
+[ "$COPIES" = "1" ] \
+  || fail "acknowledged once, so it should have arrived once; got $COPIES copies"
+echo "  ok: a QoS 1 message is acknowledged and stops being resent"
+kill "$QOS_PID" 2>/dev/null || true
+
 kill "$MSG_BACKEND_PID" 2>/dev/null || true

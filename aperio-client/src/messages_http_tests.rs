@@ -205,3 +205,14 @@ async fn the_face_refuses_what_the_server_would_drop() {
     "nothing should have been put on the tunnel"
   );
 }
+
+#[tokio::test]
+async fn a_redelivery_is_recognized_and_not_handed_out_twice() {
+  // The other half of at-least-once. The server resends when an
+  // acknowledgement is lost, and acting on a deploy trigger twice is worse
+  // than acting on it late.
+  let bus = MessageBus::new(vec![]);
+  assert!(!bus.is_duplicate("m-1").await, "the first sighting");
+  assert!(bus.is_duplicate("m-1").await, "the same message again");
+  assert!(!bus.is_duplicate("m-2").await, "a different message");
+}

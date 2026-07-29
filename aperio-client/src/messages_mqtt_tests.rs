@@ -298,3 +298,88 @@ async fn a_session_that_does_not_start_with_connect_is_closed() {
     "the connection should be closed without a response"
   );
 }
+
+#[tokio::test]
+async fn a_qos_one_publish_is_acknowledged_and_travels_at_least_once() {
+  // Without PUBACK a well-behaved library holds the message and retries it
+  // forever, which is what this face did before it understood QoS at all.
+  let bus = MessageBus::new(vec![]);
+  let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(4);
+  bus.attach("svc", tx).await;
+  let addr = start(bus).await;
+  let mut client = connect(&addr).await;
+
+  send(&mut client, |b| {
+    let mut publish = Publish::new("deploy/web", QoS::AtLeastOnce, "v2");
+    publish.pkid = 7;
+    publish.write(b).unwrap();
+  })
+  .await;
+
+  match read_packet(&mut client).await {
+    Some(Packet::PubAck(ack)) => assert_eq!(ack.pkid, 7, "the packet id it asked about"),
+    other => panic!("expected PUBACK, got {other:?}"),
+  }
+
+  let Message::Text(json) = rx.recv().await.unwrap() else {
+    panic!("expected a text frame")
+  };
+  let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+  assert_eq!(
+    parsed["qos"], 1,
+    "the QoS the application asked for travels"
+  );
+}
+
+#[tokio::test]
+async fn a_qos_zero_publish_is_not_acknowledged() {
+  // Answering one would be a protocol error: there is no packet id to answer.
+  let bus = MessageBus::new(vec![]);
+  let (tx, _rx) = tokio::sync::mpsc::channel::<Message>(4);
+  bus.attach("svc", tx).await;
+  let addr = start(bus).await;
+  let mut client = connect(&addr).await;
+
+  send(&mut client, |b| {
+    Publish::new("deploy/web", QoS::AtMostOnce, "v2")
+      .write(b)
+      .unwrap();
+  })
+  .await;
+  send(&mut client, |b| {
+    mqttbytes::v4::PingReq.write(b).unwrap();
+  })
+  .await;
+  // The PINGRESP arriving first proves nothing was sent in between.
+  assert!(matches!(
+    read_packet(&mut client).await,
+    Some(Packet::PingResp)
+  ));
+}
+
+#[tokio::test]
+async fn a_refused_publish_is_still_acknowledged() {
+  // MQTT 3.1.1 has no way to say "no" to one publish. Never answering would
+  // leave the application retrying a message that will be refused every time,
+  // so it is acknowledged and the reason goes to the log.
+  let bus = MessageBus::new(vec![]);
+  let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(4);
+  bus.attach("svc", tx).await;
+  let addr = start(bus).await;
+  let mut client = connect(&addr).await;
+
+  send(&mut client, |b| {
+    let mut publish = Publish::new("$aperio/forged", QoS::AtLeastOnce, "x");
+    publish.pkid = 3;
+    publish.write(b).unwrap();
+  })
+  .await;
+  match read_packet(&mut client).await {
+    Some(Packet::PubAck(ack)) => assert_eq!(ack.pkid, 3),
+    other => panic!("expected PUBACK, got {other:?}"),
+  }
+  assert!(
+    rx.try_recv().is_err(),
+    "the reserved namespace is still refused"
+  );
+}

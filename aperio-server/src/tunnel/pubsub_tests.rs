@@ -67,7 +67,7 @@ async fn a_message_reaches_the_subscribers_of_a_topic() {
   let mut all = subscriber(&state, "c-all", Some("p-all"), None, &["deploy/#"]).await;
   let mut other = subscriber(&state, "c-other", Some("p-other"), None, &["metrics/+"]).await;
 
-  let out = publish(&state, None, "deploy/web", b"go", Publisher::Server)
+  let out = publish(&state, None, "deploy/web", b"go", Publisher::Server, 0)
     .await
     .unwrap();
   assert_eq!(out.processes, 2);
@@ -93,7 +93,7 @@ async fn one_process_receives_one_copy_however_many_connections_it_holds() {
   let mut b = subscriber(&state, "conn-2", Some("one-process"), None, &["fleet/#"]).await;
   let mut c = subscriber(&state, "conn-3", Some("one-process"), None, &["fleet/#"]).await;
 
-  let out = publish(&state, None, "fleet/drain", b"", Publisher::Server)
+  let out = publish(&state, None, "fleet/drain", b"", Publisher::Server, 0)
     .await
     .unwrap();
   assert_eq!(out.processes, 1, "one process, one delivery");
@@ -112,7 +112,7 @@ async fn a_connection_without_an_instance_group_still_receives() {
   // silently excluding it from every message.
   let state = Arc::new(test_state());
   let mut old = subscriber(&state, "legacy", None, None, &["#"]).await;
-  let out = publish(&state, None, "anything", b"x", Publisher::Server)
+  let out = publish(&state, None, "anything", b"x", Publisher::Server, 0)
     .await
     .unwrap();
   assert_eq!(out.processes, 1);
@@ -126,9 +126,16 @@ async fn a_message_never_crosses_an_organization() {
   let mut globex = subscriber(&state, "c-globex", Some("p-globex"), Some("globex"), &["#"]).await;
   let mut master = subscriber(&state, "c-master", Some("p-master"), None, &["#"]).await;
 
-  let out = publish(&state, Some("acme"), "deploy/web", b"go", Publisher::Server)
-    .await
-    .unwrap();
+  let out = publish(
+    &state,
+    Some("acme"),
+    "deploy/web",
+    b"go",
+    Publisher::Server,
+    0,
+  )
+  .await
+  .unwrap();
   assert_eq!(out.processes, 1);
   assert!(delivered(&mut acme).is_some());
   assert!(delivered(&mut globex).is_none(), "another organization");
@@ -150,6 +157,7 @@ async fn the_reserved_namespace_is_the_servers_alone() {
     "$aperio/client/connected",
     b"{}",
     Publisher::Client("c"),
+    0,
   )
   .await;
   assert!(refused.is_err(), "a client published into $aperio/");
@@ -162,6 +170,7 @@ async fn the_reserved_namespace_is_the_servers_alone() {
     "$aperio/client/connected",
     b"{}",
     Publisher::Server,
+    0,
   )
   .await
   .unwrap();
@@ -181,11 +190,12 @@ async fn a_bare_wildcard_subscriber_does_not_receive_server_events() {
     "$aperio/client/connected",
     b"{}",
     Publisher::Server,
+    0,
   )
   .await
   .unwrap();
   assert!(delivered(&mut everything).is_none());
-  publish(&state, None, "ordinary/topic", b"{}", Publisher::Server)
+  publish(&state, None, "ordinary/topic", b"{}", Publisher::Server, 0)
     .await
     .unwrap();
   assert!(delivered(&mut everything).is_some());
@@ -198,12 +208,12 @@ async fn publishing_to_a_filter_is_refused() {
   let state = Arc::new(test_state());
   let _sub = subscriber(&state, "c", Some("p"), None, &["deploy/web"]).await;
   assert!(
-    publish(&state, None, "deploy/#", b"", Publisher::Server)
+    publish(&state, None, "deploy/#", b"", Publisher::Server, 0)
       .await
       .is_err()
   );
   assert!(
-    publish(&state, None, "", b"", Publisher::Server)
+    publish(&state, None, "", b"", Publisher::Server, 0)
       .await
       .is_err()
   );
@@ -215,7 +225,7 @@ async fn an_oversized_payload_is_refused_rather_than_relayed() {
   let mut sub = subscriber(&state, "c", Some("p"), None, &["#"]).await;
   let big = vec![b'x'; MAX_PAYLOAD_BYTES + 1];
   assert!(
-    publish(&state, None, "bulk", &big, Publisher::Server)
+    publish(&state, None, "bulk", &big, Publisher::Server, 0)
       .await
       .is_err()
   );
@@ -246,7 +256,7 @@ async fn unusable_filters_are_reported_and_the_rest_still_apply() {
   )
   .await;
   assert_eq!(refused.len(), 2, "{refused:?}");
-  publish(&state, None, "deploy/web", b"go", Publisher::Server)
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 0)
     .await
     .unwrap();
   assert!(
@@ -261,11 +271,11 @@ async fn unsubscribing_stops_delivery() {
   let mut sub = subscriber(&state, "c", Some("p"), None, &["deploy/web", "deploy/api"]).await;
   set_subscriptions(&state, "c", vec!["deploy/web".to_string()], false).await;
 
-  publish(&state, None, "deploy/web", b"", Publisher::Server)
+  publish(&state, None, "deploy/web", b"", Publisher::Server, 0)
     .await
     .unwrap();
   assert!(delivered(&mut sub).is_none(), "unsubscribed");
-  publish(&state, None, "deploy/api", b"", Publisher::Server)
+  publish(&state, None, "deploy/api", b"", Publisher::Server, 0)
     .await
     .unwrap();
   assert!(delivered(&mut sub).is_some(), "the other filter remains");
@@ -307,7 +317,7 @@ async fn a_slow_subscriber_does_not_hold_up_the_others() {
     .insert("stuck".to_string(), stuck);
   let mut healthy = subscriber(&state, "ok", Some("ok"), None, &["#"]).await;
 
-  let out = publish(&state, None, "deploy/web", b"go", Publisher::Server)
+  let out = publish(&state, None, "deploy/web", b"go", Publisher::Server, 0)
     .await
     .unwrap();
   assert_eq!(out.processes, 2, "both matched");
@@ -433,4 +443,163 @@ async fn a_subscription_outside_the_token_is_refused_by_name() {
 
   let clients = state.clients.lock().await;
   assert_eq!(clients["c"].subscriptions, vec!["deploy/web".to_string()]);
+}
+
+/// The frames a subscriber's channel is holding, decoded.
+fn drain(rx: &mut Receiver<Message>) -> Vec<(String, Option<String>, u64)> {
+  let mut out = Vec::new();
+  while let Ok(Message::Text(text)) = rx.try_recv() {
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    out.push((
+      parsed["topic"].as_str().unwrap_or_default().to_string(),
+      parsed["id"].as_str().map(str::to_string),
+      parsed["qos"].as_u64().unwrap_or(0),
+    ));
+  }
+  out
+}
+
+#[tokio::test]
+async fn a_qos_one_message_is_resent_until_it_is_acknowledged() {
+  let state = Arc::new(test_state());
+  let mut sub = subscriber(&state, "c", Some("p"), None, &["deploy/#"]).await;
+
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 1)
+    .await
+    .unwrap();
+  let first = drain(&mut sub);
+  assert_eq!(first.len(), 1);
+  assert_eq!(first[0].2, 1, "the delivery carries the qos it was sent at");
+  let id = first[0].1.clone().expect("a qos 1 delivery is identified");
+
+  // Nothing is due yet, so a sweep changes nothing.
+  assert_eq!(sweep_pending(&state).await, (0, 0));
+  assert!(drain(&mut sub).is_empty());
+
+  // Age it past the retry timeout by hand rather than sleeping for it.
+  {
+    let mut pending = state.pending_messages.lock().await;
+    for message in pending.get_mut("p").expect("held for the process") {
+      message.last_sent -= ACK_TIMEOUT;
+    }
+  }
+  let (resent, abandoned) = sweep_pending(&state).await;
+  assert_eq!((resent, abandoned), (1, 0));
+  let again = drain(&mut sub);
+  assert_eq!(again.len(), 1, "it was sent a second time");
+  assert_eq!(again[0].1.as_deref(), Some(id.as_str()), "the same message");
+
+  // The acknowledgement stops it.
+  acknowledge(&state, "c", &id).await;
+  assert!(
+    !state.pending_messages.lock().await.contains_key("p"),
+    "nothing is held once it is acknowledged"
+  );
+  {
+    let mut pending = state.pending_messages.lock().await;
+    pending.remove("p");
+  }
+  assert_eq!(sweep_pending(&state).await, (0, 0));
+  assert!(drain(&mut sub).is_empty());
+}
+
+#[tokio::test]
+async fn a_qos_zero_message_is_never_held() {
+  // The default costs nothing: no bookkeeping, no resend, no memory.
+  let state = Arc::new(test_state());
+  let mut sub = subscriber(&state, "c", Some("p"), None, &["deploy/#"]).await;
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 0)
+    .await
+    .unwrap();
+  assert_eq!(drain(&mut sub).len(), 1);
+  assert!(state.pending_messages.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn an_unacknowledged_message_is_given_up_on_rather_than_kept() {
+  // The window is the whole of the promise: it covers a connection that died
+  // between the write and the acknowledgement, not a subscriber that is away.
+  let state = Arc::new(test_state());
+  let mut sub = subscriber(&state, "c", Some("p"), None, &["deploy/#"]).await;
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 1)
+    .await
+    .unwrap();
+  drain(&mut sub);
+
+  {
+    let mut pending = state.pending_messages.lock().await;
+    for message in pending.get_mut("p").unwrap() {
+      message.first_sent -= MAX_ACK_WAIT;
+      message.last_sent -= MAX_ACK_WAIT;
+    }
+  }
+  let (_, abandoned) = sweep_pending(&state).await;
+  assert_eq!(abandoned, 1);
+  assert!(
+    state.pending_messages.lock().await.is_empty(),
+    "the queue is emptied rather than growing forever"
+  );
+}
+
+#[tokio::test]
+async fn a_client_that_stops_acknowledging_costs_a_bounded_amount() {
+  let state = Arc::new(test_state());
+  // A generous channel so the sends themselves are not what limits this.
+  let (tx, _rx) = tokio::sync::mpsc::channel::<Message>(MAX_PENDING_PER_PROCESS * 2);
+  let mut handle = mock_client(None, None, None, None);
+  handle.tx = tx;
+  handle.instance_group = Some("p".to_string());
+  handle.subscriptions = vec!["#".to_string()];
+  state.clients.lock().await.insert("c".to_string(), handle);
+
+  for i in 0..(MAX_PENDING_PER_PROCESS + 50) {
+    publish(
+      &state,
+      None,
+      &format!("deploy/{i}"),
+      b"x",
+      Publisher::Server,
+      1,
+    )
+    .await
+    .unwrap();
+  }
+  let held = state.pending_messages.lock().await["p"].len();
+  assert_eq!(held, MAX_PENDING_PER_PROCESS, "capped, not unbounded");
+}
+
+#[tokio::test]
+async fn an_acknowledgement_counts_from_any_connection_of_the_process() {
+  // The delivery goes out on one connection of a multi-service client and the
+  // acknowledgement may come back on another. It is the same subscriber.
+  let state = Arc::new(test_state());
+  let mut first = subscriber(&state, "conn-1", Some("shared"), None, &["deploy/#"]).await;
+  let mut second = subscriber(&state, "conn-2", Some("shared"), None, &["deploy/#"]).await;
+
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 1)
+    .await
+    .unwrap();
+  // Which of the process's connections carried it is the server's choice and
+  // is not fixed: the client map is a HashMap, so asserting on one of them
+  // would pass or fail by iteration order.
+  let mut sent = drain(&mut first);
+  sent.extend(drain(&mut second));
+  assert_eq!(sent.len(), 1, "one process, one delivery");
+  let id = sent[0].1.clone().expect("a qos 1 delivery is identified");
+
+  acknowledge(&state, "conn-2", &id).await;
+  assert!(
+    !state.pending_messages.lock().await.contains_key("shared"),
+    "an acknowledgement on a sibling connection counts"
+  );
+}
+
+#[tokio::test]
+async fn a_qos_above_one_is_delivered_as_one_rather_than_promised() {
+  let state = Arc::new(test_state());
+  let mut sub = subscriber(&state, "c", Some("p"), None, &["deploy/#"]).await;
+  publish(&state, None, "deploy/web", b"go", Publisher::Server, 2)
+    .await
+    .unwrap();
+  assert_eq!(drain(&mut sub)[0].2, 1);
 }

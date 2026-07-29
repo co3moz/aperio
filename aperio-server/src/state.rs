@@ -1430,6 +1430,11 @@ pub(crate) struct ConnectionState {
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 pub(crate) struct AppState {
   pub(crate) clients: Mutex<HashMap<String, ClientHandle>>,
+  /// QoS 1 messages handed to a client process and not yet acknowledged,
+  /// keyed by that process. Bounded in count and in age: it covers a
+  /// connection that died between the write and the acknowledgement, not a
+  /// subscriber that is away.
+  pub(crate) pending_messages: Mutex<HashMap<String, Vec<crate::tunnel::pubsub::Pending>>>,
   pub(crate) client_connected: watch::Sender<bool>,
   /// Persisted autoscaling records, armed per bind.
   pub(crate) scaling_store: Mutex<crate::store::scaling::ScalingStore>,
@@ -1814,6 +1819,9 @@ impl AppState {
       &topic,
       &payload,
       crate::tunnel::pubsub::Publisher::Server,
+      // Server events are a stream of what is happening now. A client that
+      // was not connected did not miss anything it can act on.
+      0,
     )
     .await;
   }

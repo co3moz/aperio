@@ -11,7 +11,9 @@
 //! to one, while a connection that never subscribed would leave the process
 //! deaf the moment its sibling dropped.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use aperio_config::topic_matches;
 use tokio::sync::{Mutex, broadcast, mpsc};
@@ -25,6 +27,17 @@ use crate::protocol::TunnelMessage;
 /// reading must cost memory that stops growing, not memory that grows until
 /// the process dies.
 const DELIVERY_BACKLOG: usize = 256;
+
+/// How long a message id is remembered so a redelivery can be recognized.
+///
+/// Seconds, not days. A redelivery only happens because an acknowledgement
+/// was lost while the connection was up, and the server gives up after its
+/// own short window; remembering longer would be storage for a case that
+/// cannot happen.
+const SEEN_TTL: Duration = Duration::from_secs(90);
+
+/// Most ids remembered at once, so a flood cannot grow this without bound.
+const SEEN_MAX: usize = 4096;
 
 /// One message that arrived for this process.
 #[derive(Clone, Debug)]
@@ -46,6 +59,9 @@ pub(crate) struct MessageBus {
   /// same server, so any will do, and trying the next covers the window where
   /// one has dropped but has not been removed yet.
   writers: Mutex<Vec<(String, mpsc::Sender<Message>)>>,
+  /// Ids delivered recently, so an at-least-once redelivery is recognized
+  /// rather than handed to the application twice.
+  seen: Mutex<VecDeque<(String, Instant)>>,
 }
 
 impl MessageBus {
@@ -55,6 +71,7 @@ impl MessageBus {
       filters: Mutex::new(filters),
       incoming,
       writers: Mutex::new(Vec::new()),
+      seen: Mutex::new(VecDeque::new()),
     })
   }
 
@@ -118,6 +135,45 @@ impl MessageBus {
     }
   }
 
+  /// Has this message already been handed out? Records it if not.
+  ///
+  /// The other half of at-least-once: the server resends when an
+  /// acknowledgement does not come back, and without this the application
+  /// would act on the same event twice, which for something like a deploy
+  /// trigger is worse than the message arriving late.
+  pub(crate) async fn is_duplicate(&self, id: &str) -> bool {
+    let now = Instant::now();
+    let mut seen = self.seen.lock().await;
+    while seen
+      .front()
+      .is_some_and(|(_, at)| now.duration_since(*at) > SEEN_TTL)
+    {
+      seen.pop_front();
+    }
+    if seen.iter().any(|(known, _)| known == id) {
+      return true;
+    }
+    if seen.len() >= SEEN_MAX {
+      seen.pop_front();
+    }
+    seen.push_back((id.to_string(), now));
+    false
+  }
+
+  /// Acknowledges a QoS 1 delivery, so the server stops resending it.
+  pub(crate) async fn acknowledge(&self, id: &str) {
+    let Ok(json) = serde_json::to_string(&TunnelMessage::PublishAck { id: id.to_string() }) else {
+      return;
+    };
+    let writers: Vec<_> = self.writers.lock().await.clone();
+    for (_, tx) in writers {
+      if tx.send(Message::Text(json.clone())).await.is_ok() {
+        return;
+      }
+    }
+    warn!("Could not acknowledge message {id}: no tunnel connection took it");
+  }
+
   /// Hands a delivery to the local listeners. Dropped silently when nothing
   /// in this process is listening, which is the normal case for a client that
   /// only publishes.
@@ -127,6 +183,17 @@ impl MessageBus {
 
   /// Publishes over any live tunnel connection.
   pub(crate) async fn publish(&self, topic: &str, payload: &[u8]) -> Result<(), String> {
+    self.publish_at(topic, payload, 0).await
+  }
+
+  /// Publishes at a chosen quality of service. `1` asks the server to keep
+  /// the message until every subscriber acknowledges it.
+  pub(crate) async fn publish_at(
+    &self,
+    topic: &str,
+    payload: &[u8],
+    qos: u8,
+  ) -> Result<(), String> {
     // Everything the client can know, it decides here. Handing the frame to
     // the tunnel and letting the server drop it would answer "accepted" to a
     // local application for a message that never went anywhere, with the
@@ -144,6 +211,7 @@ impl MessageBus {
       topic: topic.to_string(),
       payload: BASE64_STANDARD.encode(payload),
       id: None,
+      qos,
     };
     let json = serde_json::to_string(&frame).map_err(|e| e.to_string())?;
     let writers: Vec<_> = self.writers.lock().await.clone();

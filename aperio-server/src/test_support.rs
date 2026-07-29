@@ -148,6 +148,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
   let (client_connected_tx, _) = watch::channel(false);
   AppState {
     clients: Mutex::new(HashMap::new()),
+    pending_messages: Mutex::new(HashMap::new()),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {
       connected: false,

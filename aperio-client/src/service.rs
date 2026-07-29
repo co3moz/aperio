@@ -1233,15 +1233,31 @@ pub(crate) async fn run_service(
                                                   label, topic, reason
                                               );
                                           }
-                                          TunnelMessage::Publish { topic, payload, id } => {
+                                          TunnelMessage::Publish { topic, payload, id, qos } => {
                                               use base64::prelude::*;
                                               match BASE64_STANDARD.decode(&payload) {
                                                   Ok(bytes) => {
+                                                      // Acknowledged before anything else, and
+                                                      // whether or not this is a duplicate: the
+                                                      // server resends until it hears back, and a
+                                                      // redelivery it already sent needs answering
+                                                      // too or it comes round again.
+                                                      if qos >= 1 && let Some(id) = &id {
+                                                          shared.messages.acknowledge(id).await;
+                                                      }
+                                                      // At-least-once means the same message can
+                                                      // arrive twice when an acknowledgement is
+                                                      // lost. Acting on a deploy trigger twice is
+                                                      // worse than acting on it late.
+                                                      let duplicate = match &id {
+                                                          Some(id) => shared.messages.is_duplicate(id).await,
+                                                          None => false,
+                                                      };
                                                       // A filter removed since the server was told
                                                       // still delivers for a moment; dropping here
                                                       // keeps a local subscriber from seeing a
                                                       // topic it no longer asked for.
-                                                      if shared.messages.wants(&topic).await {
+                                                      if !duplicate && shared.messages.wants(&topic).await {
                                                           shared.messages.deliver(crate::pubsub::Delivery {
                                                               topic,
                                                               payload: bytes,

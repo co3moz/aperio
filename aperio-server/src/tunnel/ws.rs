@@ -751,7 +751,15 @@ pub(crate) async fn handle_socket(
             TunnelMessage::Unsubscribe { topics } => {
               crate::tunnel::pubsub::set_subscriptions(&state, &client_id, topics, false).await;
             }
-            TunnelMessage::Publish { topic, payload, .. } => {
+            TunnelMessage::PublishAck { id } => {
+              crate::tunnel::pubsub::acknowledge(&state, &client_id, &id).await;
+            }
+            TunnelMessage::Publish {
+              topic,
+              payload,
+              qos,
+              ..
+            } => {
               if !crate::tunnel::pubsub::may_use_topic(&perms, &topic) {
                 warn!(
                   "Client {client_id} may not publish to '{topic}': the token does not carry it"
@@ -772,6 +780,7 @@ pub(crate) async fn handle_socket(
                 &topic,
                 &bytes,
                 crate::tunnel::pubsub::Publisher::Client(&client_id),
+                qos,
               )
               .await
               {

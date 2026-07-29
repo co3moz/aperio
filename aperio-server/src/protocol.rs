@@ -52,6 +52,12 @@ pub(crate) fn decode_binary_frame(data: &[u8]) -> Option<(u8, &str, &[u8])> {
 }
 
 /// Serde default for fields that must be true when absent (older peers).
+/// Keeps `qos: 0` off the wire, which is what every message that does not
+/// ask for more is.
+fn is_zero(value: &u8) -> bool {
+  *value == 0
+}
+
 fn default_true() -> bool {
   true
 }
@@ -446,7 +452,16 @@ pub enum TunnelMessage {
     payload: String,
     #[serde(default)]
     id: Option<String>,
+    /// 0 = send once and forget. 1 = the server keeps it until the subscriber
+    /// acknowledges it, and resends it meanwhile. Absent = 0, which is what a
+    /// peer that predates the field means.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    qos: u8,
   },
+  /// Client → server: message `id` arrived. Only sent for a delivery that
+  /// carried `qos: 1`; without it the server keeps resending until the
+  /// message ages out.
+  PublishAck { id: String },
 }
 
 /// Compresses a tunnel text frame into a zlib binary frame.

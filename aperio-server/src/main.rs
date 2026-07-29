@@ -1107,6 +1107,7 @@ async fn async_main() {
 
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
+    pending_messages: Mutex::new(HashMap::new()),
     client_connected: client_connected_tx,
     dashboard_enabled,
     shutdown: shutdown_tx,
@@ -1821,6 +1822,9 @@ async fn async_main() {
       std::process::exit(1);
     }
   };
+  // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
+  // that waited out the window.
+  crate::tunnel::pubsub::run_ack_sweeper(shutdown_state.clone());
 
   info!(
     "Aperio Server v{} listening on {}:{} with connection info tracing enabled{}",

@@ -21,8 +21,9 @@
 //!
 //! | Feature | Answer |
 //! | --- | --- |
-//! | QoS 0 | as asked |
-//! | QoS 1, 2 | granted as 0; the tunnel is ordered and reliable, but nothing is stored for an absent subscriber, so promising more would be a lie |
+//! | Publishing at QoS 0 or 1 | as asked. A QoS 1 PUBLISH is answered with PUBACK once the message is on its way, and travels at-least-once to the other clients |
+//! | Publishing at QoS 2 | treated as 1; there is no store-and-forward here to build exactly-once on |
+//! | Subscribing | granted QoS 0. Delivery to a local application over loopback does not need MQTT's own retry on top of the tunnel's |
 //! | Retained | never stored, never delivered |
 //! | Clean session | always; a session does not outlive the connection |
 //! | Will | accepted in CONNECT and never published |
@@ -33,7 +34,8 @@ use std::sync::Arc;
 use bytes::BytesMut;
 use mqttbytes::QoS;
 use mqttbytes::v4::{
-  ConnAck, ConnectReturnCode, Packet, PingResp, Publish, SubAck, SubscribeReasonCode, UnsubAck,
+  ConnAck, ConnectReturnCode, Packet, PingResp, PubAck, Publish, SubAck, SubscribeReasonCode,
+  UnsubAck,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -175,13 +177,27 @@ async fn handle(
 ) -> Result<bool, String> {
   match packet {
     Packet::Publish(publish) => {
-      // QoS 1 and 2 were granted as 0 at subscribe time and are treated the
-      // same on the way up: the message goes out, and no PUBACK is owed
-      // because the client was told 0.
-      if let Err(why) = bus.publish(&publish.topic, &publish.payload).await {
-        // There is no MQTT way to refuse one publish on a QoS 0 connection,
-        // so the reason goes to the log rather than nowhere.
+      // The QoS the application asked for travels with the message: a QoS 1
+      // publish is held by the server until every subscriber acknowledges it.
+      let qos = match publish.qos {
+        QoS::AtMostOnce => 0,
+        _ => 1,
+      };
+      let outcome = bus.publish_at(&publish.topic, &publish.payload, qos).await;
+      if let Err(why) = &outcome {
         warn!("MQTT publish to '{}' refused: {}", publish.topic, why);
+      }
+      // PUBACK is owed for QoS 1 and is not optional: without it a
+      // well-behaved library holds the message and retries it forever, which
+      // is what this face did before it understood QoS at all.
+      //
+      // Sent even when the publish was refused. MQTT 3.1.1 has no way to say
+      // "no" to one publish, and never answering would leave the application
+      // retrying a message that will be refused every time; the reason is in
+      // the log, where a refusal can actually be read.
+      if publish.qos == QoS::AtLeastOnce {
+        let ack = PubAck::new(publish.pkid);
+        write_packet(writer, |b| ack.write(b)).await?;
       }
       Ok(false)
     }

@@ -23,6 +23,7 @@
 //! hour-old event to a machine that just came back is a bug, not a service.
 
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use aperio_config::{RESERVED_TOPIC_PREFIX, topic_matches};
 
@@ -33,6 +34,23 @@ use crate::state::{AppState, ClientPerms};
 /// string and a linear match per publish; the cap is here so a loop in someone
 /// else's code cannot turn into unbounded server memory.
 pub(crate) const MAX_FILTERS_PER_CLIENT: usize = 64;
+
+/// How long the server waits for an acknowledgement before sending a QoS 1
+/// message again.
+pub(crate) const ACK_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How long a QoS 1 message may go unacknowledged before it is given up on.
+///
+/// This is the whole of "at least once" here, and the number says so: the
+/// window covers a connection that died between the write and the
+/// acknowledgement, not a subscriber that is away. Storing for an absent
+/// client is a different feature, and replaying a half-hour-old event at a
+/// machine that just came back is a bug rather than a service.
+pub(crate) const MAX_ACK_WAIT: Duration = Duration::from_secs(30);
+
+/// Un-acknowledged messages held for one client process. Bounded so a
+/// subscriber that stopped acknowledging costs memory that stops growing.
+pub(crate) const MAX_PENDING_PER_PROCESS: usize = 256;
 
 /// Largest payload accepted, before Base64. Big enough for an event with
 /// context, small enough that a publish is never a way to move bulk data:
@@ -65,6 +83,18 @@ impl Publisher<'_> {
   fn may_use_reserved(&self) -> bool {
     matches!(self, Publisher::Server)
   }
+}
+
+/// One QoS 1 delivery waiting to be acknowledged.
+pub(crate) struct Pending {
+  pub(crate) id: String,
+  pub(crate) topic: String,
+  /// The encoded frame, kept whole so a resend is a write rather than a
+  /// re-serialization.
+  pub(crate) frame: String,
+  pub(crate) first_sent: Instant,
+  pub(crate) last_sent: Instant,
+  pub(crate) attempts: u32,
 }
 
 /// What a publish did, for the caller to report.
@@ -172,6 +202,7 @@ pub(crate) async fn publish(
   topic: &str,
   payload: &[u8],
   publisher: Publisher<'_>,
+  qos: u8,
 ) -> Result<Delivery, String> {
   aperio_config::validate_topic(topic)?;
   if topic.starts_with(RESERVED_TOPIC_PREFIX) && !publisher.may_use_reserved() {
@@ -187,6 +218,10 @@ pub(crate) async fn publish(
   }
 
   let id = uuid::Uuid::new_v4().to_string();
+  // Anything above 1 is delivered as 1. There is no store-and-forward here to
+  // build exactly-once on, and granting a level the machinery does not have
+  // is worse than saying what it does.
+  let qos = qos.min(1);
   let frame = TunnelMessage::Publish {
     topic: topic.to_string(),
     payload: {
@@ -194,6 +229,7 @@ pub(crate) async fn publish(
       BASE64_STANDARD.encode(payload)
     },
     id: Some(id.clone()),
+    qos,
   };
   let text = match serde_json::to_string(&frame) {
     Ok(t) => t,
@@ -204,6 +240,7 @@ pub(crate) async fn publish(
   // sent outside it: a send can block on a slow client's channel, and holding
   // the client map while that happens stalls every other connection.
   let targets: Vec<(
+    String,
     String,
     tokio::sync::mpsc::Sender<axum::extract::ws::Message>,
   )> = {
@@ -224,8 +261,8 @@ pub(crate) async fn publish(
         .instance_group
         .clone()
         .unwrap_or_else(|| connection_id.clone());
-      if seen.insert(process) {
-        out.push((connection_id.clone(), handle.tx.clone()));
+      if seen.insert(process.clone()) {
+        out.push((process, connection_id.clone(), handle.tx.clone()));
       }
     }
     out
@@ -233,20 +270,51 @@ pub(crate) async fn publish(
 
   let processes = targets.len();
   let mut connections = 0usize;
-  for (connection_id, tx) in targets {
+  let mut delivered_to: Vec<String> = Vec::new();
+  for (process, connection_id, tx) in targets {
     // `try_send`, not `send`: a subscriber whose channel is full is a
     // subscriber that is not keeping up, and blocking the publisher on it
     // would let one slow client stall the fan-out for everyone.
     match tx.try_send(axum::extract::ws::Message::Text(text.clone())) {
-      Ok(()) => connections += 1,
+      Ok(()) => {
+        connections += 1;
+        delivered_to.push(process);
+      }
       Err(e) => {
         tracing::warn!("Dropping message {id} for client {connection_id}: {e}");
       }
     }
   }
 
+  // At-least-once: remember it until the subscriber says it arrived. Only for
+  // the processes actually written to — one whose channel was full never got
+  // it, and holding a retry for it would be a queue for a client that is not
+  // reading, which is what the bound above exists to refuse.
+  if qos >= 1 {
+    let now = Instant::now();
+    let mut pending = state.pending_messages.lock().await;
+    for process in delivered_to {
+      let queue = pending.entry(process).or_default();
+      if queue.len() >= MAX_PENDING_PER_PROCESS {
+        let dropped = queue.remove(0);
+        tracing::warn!(
+          "Message {} to a client that is not acknowledging was dropped at the {MAX_PENDING_PER_PROCESS}-message limit",
+          dropped.id
+        );
+      }
+      queue.push(Pending {
+        id: id.clone(),
+        topic: topic.to_string(),
+        frame: text.clone(),
+        first_sent: now,
+        last_sent: now,
+        attempts: 1,
+      });
+    }
+  }
+
   tracing::debug!(
-    "Published {id} on '{topic}' to {processes} process(es) ({} bytes, {})",
+    "Published {id} on '{topic}' (qos {qos}) to {processes} process(es) ({} bytes, {})",
     payload.len(),
     publisher.label()
   );
@@ -254,6 +322,123 @@ pub(crate) async fn publish(
     processes,
     connections,
   })
+}
+
+/// Records that `id` arrived at the process behind `connection_id`.
+///
+/// Keyed on the process, not the connection: the acknowledgement may come
+/// back on a different one of that process's connections than the delivery
+/// went out on, and it is the same subscriber either way.
+pub(crate) async fn acknowledge(state: &AppState, connection_id: &str, id: &str) {
+  let process = {
+    let clients = state.clients.lock().await;
+    let Some(handle) = clients.get(connection_id) else {
+      return;
+    };
+    handle
+      .instance_group
+      .clone()
+      .unwrap_or_else(|| connection_id.to_string())
+  };
+  let mut pending = state.pending_messages.lock().await;
+  if let Some(queue) = pending.get_mut(&process) {
+    queue.retain(|p| p.id != id);
+    if queue.is_empty() {
+      pending.remove(&process);
+    }
+  }
+}
+
+/// Resends what has gone unacknowledged, and gives up on what has waited too
+/// long. Called on a timer by [`run_ack_sweeper`].
+///
+/// Returns how many were resent and how many were abandoned, for the test to
+/// assert on rather than for the caller to use.
+pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
+  let now = Instant::now();
+  // Which processes have work due, decided under the pending lock alone. The
+  // client map is locked afterwards, never both at once: two locks taken in
+  // different orders in different places is how a deadlock gets written.
+  let due: Vec<(String, Vec<(String, String)>)> = {
+    let mut pending = state.pending_messages.lock().await;
+    let mut out = Vec::new();
+    for (process, queue) in pending.iter_mut() {
+      let mut resend = Vec::new();
+      for message in queue.iter_mut() {
+        if now.duration_since(message.last_sent) < ACK_TIMEOUT {
+          continue;
+        }
+        message.last_sent = now;
+        message.attempts += 1;
+        resend.push((message.id.clone(), message.frame.clone()));
+      }
+      if !resend.is_empty() {
+        out.push((process.clone(), resend));
+      }
+    }
+    out
+  };
+
+  let mut resent = 0usize;
+  for (process, messages) in due {
+    // Any live connection of that process will do; they all reach it.
+    let target = {
+      let clients = state.clients.lock().await;
+      clients
+        .values()
+        .find(|h| {
+          h.instance_group
+            .as_deref()
+            .is_some_and(|group| group == process)
+        })
+        .map(|h| h.tx.clone())
+        .or_else(|| clients.get(&process).map(|h| h.tx.clone()))
+    };
+    let Some(tx) = target else {
+      continue;
+    };
+    for (id, frame) in messages {
+      if tx.try_send(axum::extract::ws::Message::Text(frame)).is_ok() {
+        resent += 1;
+        tracing::debug!("Resent message {id} to a client that has not acknowledged it");
+      }
+    }
+  }
+
+  // Give up on anything past the window, and on a process with no live
+  // connection at all: nothing is stored for a subscriber that is away.
+  let mut abandoned = 0usize;
+  {
+    let mut pending = state.pending_messages.lock().await;
+    pending.retain(|_, queue| {
+      queue.retain(|message| {
+        let expired = now.duration_since(message.first_sent) >= MAX_ACK_WAIT;
+        if expired {
+          abandoned += 1;
+          tracing::warn!(
+            "Giving up on message {} to '{}' after {} attempt(s) with no acknowledgement",
+            message.id,
+            message.topic,
+            message.attempts
+          );
+        }
+        !expired
+      });
+      !queue.is_empty()
+    });
+  }
+  (resent, abandoned)
+}
+
+/// Runs [`sweep_pending`] until the process ends.
+pub(crate) fn run_ack_sweeper(state: std::sync::Arc<AppState>) {
+  tokio::spawn(async move {
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+      tick.tick().await;
+      sweep_pending(&state).await;
+    }
+  });
 }
 
 #[cfg(test)]

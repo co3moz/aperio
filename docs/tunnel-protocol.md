@@ -16,7 +16,7 @@ One trade-off: streamed uploads cannot fail over or be replayed from the request
 
 ## Messages between clients (v4)
 
-The current `PROTOCOL_VERSION` is **4**, which adds four frames carrying messages between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, and `SubscribeRefused` says which filter was not accepted and why.
+The current `PROTOCOL_VERSION` is **4**, which adds four frames carrying messages between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, `PublishAck` acknowledges a `qos: 1` delivery so the server stops resending it, and `SubscribeRefused` says which filter was not accepted and why.
 
 They ride the connection that already exists, so nothing new is dialled and the message is authenticated by the token the client connected with. The server keys subscriptions on the client *process* rather than the connection, so a client running several services receives one copy rather than one per service. See [Messages Between Clients](messaging.md) for the whole shape.
 
