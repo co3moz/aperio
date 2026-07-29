@@ -89,7 +89,7 @@ event: deploy/web
 data: djEuOS4y
 ```
 
-`event:` is the topic the message was published on, `data:` is the payload in Base64 (a payload is bytes and an SSE field is a line), and `id:` is the server's message id, the same across every delivery of one publish. Subscribing this way is enough: the filter does not have to be in the config file, the client tells the server about it when you attach.
+`event:` is the topic the message was published on, `data:` is the payload in Base64 (a payload is bytes and an SSE field is a line), and `id:` is the server's message id, the same across every delivery of one publish. Subscribing this way is enough: the filter does not have to be in the config file, the client tells the server about it when you attach, and gives it back when you leave, so a session of `curl -N` on one topic after another does not spend the client's filter budget on subscriptions nobody holds. A filter from `subscribe:` is the client's for as long as it runs, however many local subscribers come and go.
 
 Publishing works the same way, without an admin credential, because the client's own token is what carries it:
 

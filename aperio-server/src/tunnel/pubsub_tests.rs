@@ -485,6 +485,16 @@ async fn a_qos_one_message_is_resent_until_it_is_acknowledged() {
   }
   let (resent, abandoned) = sweep_pending(&state).await;
   assert_eq!((resent, abandoned), (1, 0));
+  // Asserted where the metrics endpoint reads it, not only on the return
+  // value: the counter was rendered and never incremented, so the endpoint
+  // reported no resends at all while resends were happening.
+  assert_eq!(
+    state
+      .message_metrics
+      .resent
+      .load(std::sync::atomic::Ordering::Relaxed),
+    1
+  );
   let again = drain(&mut sub);
   assert_eq!(again.len(), 1, "it was sent a second time");
   assert_eq!(again[0].1.as_deref(), Some(id.as_str()), "the same message");

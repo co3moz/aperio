@@ -439,6 +439,14 @@ pub enum TunnelMessage {
   /// the client sees a subscription that silently never delivers, which is
   /// indistinguishable from a topic nobody publishes on.
   SubscribeRefused { topic: String, reason: String },
+  /// Server → client: this publish went nowhere, and why.
+  ///
+  /// The same reasoning as `SubscribeRefused`, for the other direction. A
+  /// publish the token's topics do not cover is dropped, and the local
+  /// application has already been told the message was accepted; without this
+  /// the only trace is a line in the server's log, on a machine the person
+  /// debugging usually cannot read.
+  PublishRefused { topic: String, reason: String },
   /// Either direction: one message on `topic`.
   ///
   /// Client → server publishes it to the organization; server → client is a

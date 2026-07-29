@@ -118,6 +118,15 @@ grep -q "event: secrets/rotate" "$SCOPED_OUT" \
   && fail "a token received a topic outside its scope"
 retry 20 grep -q "Not subscribed to 'secrets/#'" "$LOG_DIR/client-$PHASE-msgscoped.log" \
   || fail "the client should be told which filter was refused, and why"
+
+# The other direction. The local face answers 202 the moment the message is on
+# the tunnel, so a refusal that only reached the server's log would leave the
+# publishing side believing it had sent something.
+curl -s -o /dev/null -X POST \
+  "http://127.0.0.1:${SCOPED_FACE_PORT}/publish?topic=secrets%2Frotate" --data 'no'
+retry 20 grep -q "published on 'secrets/rotate' went nowhere" \
+  "$LOG_DIR/client-$PHASE-msgscoped.log" \
+  || fail "the client should be told its publish was refused, and why"
 echo "  ok: a scoped token is fenced to the topics it carries"
 
 kill "$SCOPED_PID" 2>/dev/null || true

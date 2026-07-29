@@ -1241,6 +1241,12 @@ pub(crate) async fn run_service(
                                                   label, topic, reason
                                               );
                                           }
+                                          TunnelMessage::PublishRefused { topic, reason } => {
+                                              warn!(
+                                                  "[{}] The message published on '{}' went nowhere: {}",
+                                                  label, topic, reason
+                                              );
+                                          }
                                           TunnelMessage::Publish { topic, payload, id, qos } => {
                                               use base64::prelude::*;
                                               match BASE64_STANDARD.decode(&payload) {

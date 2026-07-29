@@ -99,6 +99,35 @@ async fn a_subscriber_receives_matching_messages_as_events() {
 }
 
 #[tokio::test]
+async fn a_subscriber_that_leaves_gives_its_filter_back() {
+  // The server caps how many filters one client may hold, so a face that only
+  // ever added them would walk a long-lived client into that limit: sixty-five
+  // runs of `curl -N` on different topics and the next one is refused.
+  let bus = MessageBus::new(vec![]);
+  let addr = start(bus.clone()).await;
+
+  let mut stream = TcpStream::connect(&addr).await.unwrap();
+  stream
+    .write_all(b"GET /subscribe?topic=build%2F%23 HTTP/1.1\r\nHost: x\r\n\r\n")
+    .await
+    .unwrap();
+  let mut reader = BufReader::new(stream);
+  let mut line = String::new();
+  reader.read_line(&mut line).await.unwrap();
+  assert!(line.starts_with("HTTP/1.1 200"), "{line}");
+  assert!(bus.wants("build/now").await);
+
+  drop(reader);
+  for _ in 0..40 {
+    if !bus.wants("build/now").await {
+      return;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+  }
+  panic!("the filter outlived the subscriber that asked for it");
+}
+
+#[tokio::test]
 async fn publishing_without_a_tunnel_says_so_instead_of_dropping_it() {
   // A local application must not believe a message went out when no
   // connection existed to carry it.

@@ -435,6 +435,10 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
     for (id, frame) in messages {
       if tx.try_send(axum::extract::ws::Message::Text(frame)).is_ok() {
         resent += 1;
+        state
+          .message_metrics
+          .resent
+          .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         tracing::debug!("Resent message {id} to a client that has not acknowledged it");
       }
     }

@@ -100,6 +100,14 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **`aperio_messages_resent_total` counted nothing.** The counter was rendered on the metrics endpoint and never incremented, so a QoS 1 subscriber that was not acknowledging looked exactly like one that was: the resends were happening, the graph said zero. The other messaging counters were unaffected.
+
+- **A message published on a topic the token does not carry now says so.** The refusal was only in the server's log, while the local face had already answered `202` to the application that sent it, so the publishing side had no way to learn its message went nowhere. It comes back as `PublishRefused` with the reason, matching what a refused *subscription* has always reported.
+
+- **A local subscriber's topic filter is given back when it leaves.** Attaching to either local face added a filter for the life of the process, so sixty-five runs of `curl -N` on different topics walked a long-running client into the server's per-client filter limit and the next subscription was refused for no reason the operator could see. A filter is now held for as long as something holds it, and released when the last local subscriber goes; one from `subscribe:` is still the client's for as long as it runs. An idle subscriber that disconnects is also noticed immediately rather than at the next message, which on a quiet topic never came.
+
+- **An MQTT SUBSCRIBE sent together with the CONNECT is answered.** Everything that arrived in the same read as the CONNECT was left in the buffer and not looked at again until more bytes turned up, so a client that writes both at once — or two writes the kernel coalesced — sat unsubscribed until its keep-alive ping happened to wake the parser.
+
 - **A client that only sends and receives messages can start.** `subscribe:` or a local message face with no `services:`, `target:` or `tunnels:` was refused with "the target is required", so a publish-only client had to invent a service it does not have. A connection that carries messages is as good a reason to exist as one that carries a peer's tunnels, which was already allowed; `check` agrees, and the log line for such a connection no longer calls it "tunnels only" when it has none.
 
 - **`aperio-client check` accepts a binder as a complete configuration.** A file made only of `bind-tunnels:` opens local listeners onto tunnels another client declared and exposes nothing of its own, which is exactly what a binder is for; the check called it a missing target, and the message it printed did not even name the section the file is made of.

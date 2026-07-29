@@ -147,9 +147,24 @@ async fn subscribe(
 ) -> Result<(), String> {
   // Tell the server about the filter if this process was not already asking
   // for it, so `curl -N` works without the filter being in the config file.
-  if bus.add_filter(&filter).await {
+  if bus.hold_filter(&filter).await {
     bus.resubscribe_all().await;
   }
+  let outcome = stream_to(&mut stream, &bus, &filter).await;
+  // Given back however this ended, so a run of `curl -N` on different topics
+  // does not walk the process into the server's filter limit.
+  if bus.release_filter(&filter).await {
+    bus.unsubscribe_everywhere(&filter).await;
+  }
+  outcome
+}
+
+/// The stream itself, from the response header until the subscriber leaves.
+async fn stream_to(
+  stream: &mut TcpStream,
+  bus: &Arc<MessageBus>,
+  filter: &str,
+) -> Result<(), String> {
   let mut rx = bus.listen();
   stream
     .write_all(
@@ -159,22 +174,40 @@ async fn subscribe(
     .map_err(|e| e.to_string())?;
   debug!("Local subscriber attached to '{filter}'");
 
+  let mut discard = [0u8; 256];
   loop {
-    let delivery = match rx.recv().await {
-      Ok(d) => d,
-      // Lagged: this subscriber stopped reading long enough to fall out of
-      // the buffer. Saying so is better than a silent gap.
-      Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-        let note = format!(": missed {n} message(s)\n\n");
-        stream
-          .write_all(note.as_bytes())
-          .await
-          .map_err(|e| e.to_string())?;
-        continue;
+    let delivery = tokio::select! {
+      // The socket, only to notice it closing. A subscriber that leaves
+      // between two messages would otherwise not be noticed until the next
+      // write failed, and on a quiet topic that is never: it would hold its
+      // filter for the life of the process.
+      read = stream.read(&mut discard) => {
+        match read {
+          Ok(0) | Err(_) => {
+            debug!("Local subscriber for '{filter}' closed the connection");
+            return Ok(());
+          }
+          // Anything an SSE client sends on this connection is not a request;
+          // the stream is one-way by definition.
+          Ok(_) => continue,
+        }
       }
-      Err(_) => return Ok(()),
+      delivery = rx.recv() => match delivery {
+        Ok(d) => d,
+        // Lagged: this subscriber stopped reading long enough to fall out of
+        // the buffer. Saying so is better than a silent gap.
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+          let note = format!(": missed {n} message(s)\n\n");
+          stream
+            .write_all(note.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+          continue;
+        }
+        Err(_) => return Ok(()),
+      },
     };
-    if !topic_matches(&filter, &delivery.topic) {
+    if !topic_matches(filter, &delivery.topic) {
       continue;
     }
     // The payload is arbitrary bytes and an SSE field is a line, so it goes

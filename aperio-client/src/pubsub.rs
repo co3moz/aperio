@@ -48,10 +48,23 @@ pub(crate) struct Delivery {
   pub(crate) id: Option<String>,
 }
 
+/// One filter this process is asking the server for.
+struct Filter {
+  pattern: String,
+  /// True for a filter from `subscribe:`, which is held for the life of the
+  /// process however many local subscribers come and go.
+  from_config: bool,
+  /// Local subscribers currently holding it: SSE connections and MQTT
+  /// sessions. A filter that only they asked for is given back when the last
+  /// one leaves, since the server caps how many one client may hold and a
+  /// face that only ever adds would eventually stop being able to subscribe.
+  holders: usize,
+}
+
 /// Process-wide message bus.
 pub(crate) struct MessageBus {
   /// Filters this process wants, from the config and from local subscribers.
-  filters: Mutex<Vec<String>>,
+  filters: Mutex<Vec<Filter>>,
   /// Fan-out to whoever is listening inside this process.
   incoming: broadcast::Sender<Delivery>,
   /// Writers of the live tunnel connections, in the order they came up. A
@@ -68,7 +81,16 @@ impl MessageBus {
   pub(crate) fn new(filters: Vec<String>) -> Arc<Self> {
     let (incoming, _) = broadcast::channel(DELIVERY_BACKLOG);
     Arc::new(MessageBus {
-      filters: Mutex::new(filters),
+      filters: Mutex::new(
+        filters
+          .into_iter()
+          .map(|pattern| Filter {
+            pattern,
+            from_config: true,
+            holders: 0,
+          })
+          .collect(),
+      ),
       incoming,
       writers: Mutex::new(Vec::new()),
       seen: Mutex::new(VecDeque::new()),
@@ -76,18 +98,62 @@ impl MessageBus {
   }
 
   pub(crate) async fn filters(&self) -> Vec<String> {
-    self.filters.lock().await.clone()
+    self
+      .filters
+      .lock()
+      .await
+      .iter()
+      .map(|f| f.pattern.clone())
+      .collect()
   }
 
-  /// Adds a filter and returns whether it was new, so the caller knows
-  /// whether the connections have to be told.
-  pub(crate) async fn add_filter(&self, filter: &str) -> bool {
+  /// Takes a local subscriber's hold on a filter. Returns whether the process
+  /// was not already asking for it, so the caller knows whether the
+  /// connections have to be told.
+  pub(crate) async fn hold_filter(&self, filter: &str) -> bool {
     let mut filters = self.filters.lock().await;
-    if filters.iter().any(|f| f == filter) {
+    if let Some(existing) = filters.iter_mut().find(|f| f.pattern == filter) {
+      existing.holders += 1;
       return false;
     }
-    filters.push(filter.to_string());
+    filters.push(Filter {
+      pattern: filter.to_string(),
+      from_config: false,
+      holders: 1,
+    });
     true
+  }
+
+  /// Gives a hold back. Returns whether the process has stopped wanting the
+  /// filter altogether, in which case the server should be told: the server
+  /// caps how many filters one client may hold, so a face that only ever adds
+  /// would eventually be refused a subscription it could have had.
+  pub(crate) async fn release_filter(&self, filter: &str) -> bool {
+    let mut filters = self.filters.lock().await;
+    let Some(index) = filters.iter().position(|f| f.pattern == filter) else {
+      return false;
+    };
+    let entry = &mut filters[index];
+    entry.holders = entry.holders.saturating_sub(1);
+    if entry.holders > 0 || entry.from_config {
+      return false;
+    }
+    filters.remove(index);
+    true
+  }
+
+  /// Tells every live connection to stop delivering `filter`.
+  pub(crate) async fn unsubscribe_everywhere(&self, filter: &str) {
+    let Ok(json) = serde_json::to_string(&TunnelMessage::Unsubscribe {
+      topics: vec![filter.to_string()],
+    }) else {
+      return;
+    };
+    let writers: Vec<_> = self.writers.lock().await.clone();
+    for (_, tx) in writers {
+      let _ = tx.send(Message::Text(json.clone())).await;
+    }
+    debug!("Dropped topic filter '{filter}': no local subscriber holds it");
   }
 
   /// Listens for deliveries. Each listener gets its own cursor, so a slow one
@@ -235,6 +301,6 @@ impl MessageBus {
       .lock()
       .await
       .iter()
-      .any(|f| topic_matches(f, topic))
+      .any(|f| topic_matches(&f.pattern, topic))
   }
 }

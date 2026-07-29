@@ -122,9 +122,38 @@ async fn session(stream: TcpStream, bus: Arc<MessageBus>) -> Result<(), String> 
   debug!("MQTT client connected");
 
   // Filters this connection asked for. Kept per connection so one
-  // application's subscriptions do not silently widen another's.
+  // application's subscriptions do not silently widen another's, and given
+  // back to the bus when the session ends.
   let mut filters: Vec<String> = Vec::new();
+  let outcome = converse(&mut reader, &mut writer, &mut buf, &bus, &mut filters).await;
+  for filter in &filters {
+    if bus.release_filter(filter).await {
+      bus.unsubscribe_everywhere(filter).await;
+    }
+  }
+  outcome
+}
+
+/// The session proper, from CONNACK to disconnect. Split out so a session that
+/// ends any of the ways it can still gives its filters back.
+async fn converse(
+  reader: &mut tokio::net::tcp::OwnedReadHalf,
+  writer: &mut tokio::net::tcp::OwnedWriteHalf,
+  buf: &mut BytesMut,
+  bus: &Arc<MessageBus>,
+  filters: &mut Vec<String>,
+) -> Result<(), String> {
+  let mut chunk = [0u8; 8192];
   let mut deliveries = bus.listen();
+
+  // Whatever arrived in the same read as the CONNECT is already in the buffer
+  // and would otherwise wait for the next packet to arrive before being
+  // looked at. A client that writes CONNECT and SUBSCRIBE together — one
+  // write, or two the kernel coalesced — would sit unsubscribed until its
+  // keep-alive ping woke the parser up.
+  if drain_buffered(buf, bus, filters, writer).await? {
+    return Ok(());
+  }
 
   loop {
     tokio::select! {
@@ -137,7 +166,7 @@ async fn session(stream: TcpStream, bus: Arc<MessageBus>) -> Result<(), String> 
               continue;
             }
             let publish = Publish::new(&delivery.topic, QoS::AtMostOnce, delivery.payload);
-            write_packet(&mut writer, |b| publish.write(b)).await?;
+            write_packet(writer, |b| publish.write(b)).await?;
           }
           Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
             warn!("MQTT client fell behind; {n} message(s) were not delivered to it");
@@ -152,16 +181,29 @@ async fn session(stream: TcpStream, bus: Arc<MessageBus>) -> Result<(), String> 
           return Ok(());
         }
         buf.extend_from_slice(&chunk[..n]);
-        loop {
-          match mqttbytes::v4::read(&mut buf, MAX_PACKET_BYTES) {
-            Err(mqttbytes::Error::InsufficientBytes(_)) => break,
-            Err(e) => return Err(format!("malformed packet: {e}")),
-            Ok(packet) => {
-              if handle(packet, &bus, &mut filters, &mut writer).await? {
-                return Ok(());
-              }
-            }
-          }
+        if drain_buffered(buf, bus, filters, writer).await? {
+          return Ok(());
+        }
+      }
+    }
+  }
+}
+
+/// Acts on every complete packet sitting in `buf`. Returns true when the
+/// session should end.
+async fn drain_buffered(
+  buf: &mut BytesMut,
+  bus: &Arc<MessageBus>,
+  filters: &mut Vec<String>,
+  writer: &mut tokio::net::tcp::OwnedWriteHalf,
+) -> Result<bool, String> {
+  loop {
+    match mqttbytes::v4::read(buf, MAX_PACKET_BYTES) {
+      Err(mqttbytes::Error::InsufficientBytes(_)) => return Ok(false),
+      Err(e) => return Err(format!("malformed packet: {e}")),
+      Ok(packet) => {
+        if handle(packet, bus, filters, writer).await? {
+          return Ok(true);
         }
       }
     }
@@ -206,12 +248,15 @@ async fn handle(
       for filter in &subscribe.filters {
         match aperio_config::validate_topic_filter(&filter.path) {
           Ok(()) => {
+            // One hold per connection per filter, so a client that
+            // subscribes to the same thing twice does not leave a hold behind
+            // when it goes.
             if !filters.iter().any(|f| f == &filter.path) {
               filters.push(filter.path.clone());
-            }
-            // Tell the server too, if this process was not already asking.
-            if bus.add_filter(&filter.path).await {
-              bus.resubscribe_all().await;
+              // Tell the server too, if this process was not already asking.
+              if bus.hold_filter(&filter.path).await {
+                bus.resubscribe_all().await;
+              }
             }
             // Granted as QoS 0 whatever was asked for. A library accepts the
             // downgrade — that is what the granted-QoS field is for — and
@@ -229,11 +274,23 @@ async fn handle(
       Ok(false)
     }
     Packet::Unsubscribe(unsubscribe) => {
-      // Only this connection stops receiving them. The process may still hold
-      // the filter for its config or for another local subscriber, and the
-      // server is not told: an unsubscribe here is not authority over what
-      // the whole process listens to.
+      // Only this connection stops receiving them. The process may still want
+      // the filter for its config or for another local subscriber, in which
+      // case the server is not told: an unsubscribe here is not authority
+      // over what the whole process listens to. When nothing else holds it,
+      // it is given back, so the filter limit is not spent on a subscription
+      // no one has any more.
+      let dropped: Vec<String> = filters
+        .iter()
+        .filter(|f| unsubscribe.topics.contains(f))
+        .cloned()
+        .collect();
       filters.retain(|f| !unsubscribe.topics.contains(f));
+      for filter in dropped {
+        if bus.release_filter(&filter).await {
+          bus.unsubscribe_everywhere(&filter).await;
+        }
+      }
       let ack = UnsubAck::new(unsubscribe.pkid);
       write_packet(writer, |b| ack.write(b)).await?;
       Ok(false)

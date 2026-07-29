@@ -760,31 +760,39 @@ pub(crate) async fn handle_socket(
               qos,
               ..
             } => {
-              if !crate::tunnel::pubsub::may_use_topic(&perms, &topic) {
-                warn!(
-                  "Client {client_id} may not publish to '{topic}': the token does not carry it"
-                );
-                continue;
-              }
-              use base64::prelude::*;
-              let bytes = match BASE64_STANDARD.decode(&payload) {
-                Ok(b) => b,
-                Err(e) => {
-                  warn!("Client {client_id} published an undecodable payload: {e}");
-                  continue;
+              // Every refusal is reported back, not only logged: the local
+              // application that sent this was told the message was accepted
+              // the moment it reached the client, so the server's log is the
+              // only other place the truth exists.
+              let refusal = if !crate::tunnel::pubsub::may_use_topic(&perms, &topic) {
+                Some(
+                  "the token does not carry this topic; add it to the token's topics".to_string(),
+                )
+              } else {
+                use base64::prelude::*;
+                match BASE64_STANDARD.decode(&payload) {
+                  Err(e) => Some(format!("the payload is not valid Base64: {e}")),
+                  Ok(bytes) => crate::tunnel::pubsub::publish(
+                    &state,
+                    perms.org_id.as_deref(),
+                    &topic,
+                    &bytes,
+                    crate::tunnel::pubsub::Publisher::Client(&client_id),
+                    qos,
+                  )
+                  .await
+                  .err(),
                 }
               };
-              if let Err(why) = crate::tunnel::pubsub::publish(
-                &state,
-                perms.org_id.as_deref(),
-                &topic,
-                &bytes,
-                crate::tunnel::pubsub::Publisher::Client(&client_id),
-                qos,
-              )
-              .await
-              {
+              if let Some(why) = refusal {
                 warn!("Client {client_id} cannot publish to '{topic}': {why}");
+                let notice = TunnelMessage::PublishRefused { topic, reason: why };
+                if let Ok(json) = serde_json::to_string(&notice) {
+                  let clients = state.clients.lock().await;
+                  if let Some(handle) = clients.get(&client_id) {
+                    let _ = handle.tx.try_send(Message::Text(json));
+                  }
+                }
               }
             }
             TunnelMessage::Draining {} => {

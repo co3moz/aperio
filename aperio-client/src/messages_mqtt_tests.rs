@@ -227,7 +227,10 @@ async fn a_delivery_only_reaches_the_connections_that_asked_for_it() {
 
 #[tokio::test]
 async fn unsubscribing_stops_this_connection_only() {
-  let bus = MessageBus::new(vec![]);
+  // `deploy/#` is in the config too, so the process wants it whatever this
+  // connection does: an unsubscribe here is not authority over what the whole
+  // client listens to.
+  let bus = MessageBus::new(vec!["deploy/#".to_string()]);
   let addr = start(bus.clone()).await;
   let mut client = connect(&addr).await;
 
@@ -262,9 +265,61 @@ async fn unsubscribing_stops_this_connection_only() {
     Some(Packet::Publish(p)) => assert_eq!(p.topic, "metrics/cpu", "the unsubscribed one arrived"),
     other => panic!("expected the metrics message, got {other:?}"),
   }
-  // The process still holds `deploy/#` for anything else attached to it: an
-  // unsubscribe here is not authority over what the whole client listens to.
-  assert!(bus.wants("deploy/web").await);
+  assert!(
+    bus.wants("deploy/web").await,
+    "the config still asks for it"
+  );
+}
+
+#[tokio::test]
+async fn a_filter_nobody_holds_any_more_is_given_back() {
+  // The server caps how many filters one client may hold. A face that only
+  // ever added them would spend that budget on subscriptions no application
+  // has any more, and then be refused one it needs.
+  let bus = MessageBus::new(vec![]);
+  let addr = start(bus.clone()).await;
+  let mut client = connect(&addr).await;
+
+  send(&mut client, |b| {
+    Subscribe::new("metrics/#", QoS::AtMostOnce)
+      .write(b)
+      .unwrap();
+  })
+  .await;
+  read_packet(&mut client).await;
+  assert_eq!(bus.filters().await, vec!["metrics/#".to_string()]);
+
+  send(&mut client, |b| {
+    Unsubscribe::new("metrics/#").write(b).unwrap();
+  })
+  .await;
+  read_packet(&mut client).await;
+  assert!(
+    bus.filters().await.is_empty(),
+    "nothing holds it, so the process stops asking for it"
+  );
+}
+
+#[tokio::test]
+async fn a_session_that_ends_gives_its_filters_back() {
+  let bus = MessageBus::new(vec![]);
+  let addr = start(bus.clone()).await;
+  let mut client = connect(&addr).await;
+  send(&mut client, |b| {
+    Subscribe::new("build/#", QoS::AtMostOnce).write(b).unwrap();
+  })
+  .await;
+  read_packet(&mut client).await;
+  assert_eq!(bus.filters().await, vec!["build/#".to_string()]);
+
+  drop(client);
+  for _ in 0..40 {
+    if bus.filters().await.is_empty() {
+      return;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+  }
+  panic!("the filter outlived the session that asked for it");
 }
 
 #[tokio::test]
@@ -382,4 +437,53 @@ async fn a_refused_publish_is_still_acknowledged() {
     rx.try_recv().is_err(),
     "the reserved namespace is still refused"
   );
+}
+
+#[tokio::test]
+async fn a_subscribe_sent_with_the_connect_is_answered() {
+  // One write carrying CONNECT and SUBSCRIBE, which is also what the kernel
+  // produces when a client writes them back to back. The packets after the
+  // CONNECT were left in the buffer and nothing looked at them again until
+  // more bytes arrived, so the client sat unsubscribed until its keep-alive.
+  let bus = MessageBus::new(vec![]);
+  let addr = start(bus.clone()).await;
+  let mut stream = TcpStream::connect(&addr).await.unwrap();
+  let mut out = BytesMut::new();
+  Connect::new("pipelined").write(&mut out).unwrap();
+  Subscribe::new("deploy/#", QoS::AtMostOnce)
+    .write(&mut out)
+    .unwrap();
+  stream.write_all(&out).await.unwrap();
+
+  // One buffer across both reads: the answers may arrive in a single read,
+  // and a fresh buffer per packet would throw the second one away.
+  let mut buf = BytesMut::new();
+  assert!(matches!(
+    read_packet_buffered(&mut stream, &mut buf).await,
+    Some(Packet::ConnAck(_))
+  ));
+  let second = read_packet_buffered(&mut stream, &mut buf).await;
+  assert!(
+    matches!(second, Some(Packet::SubAck(_))),
+    "the subscribe was never acted on: {second:?}"
+  );
+  assert_eq!(bus.filters().await, vec!["deploy/#".to_string()]);
+}
+
+/// Reads one packet, keeping whatever else arrived with it in `buf`.
+async fn read_packet_buffered(stream: &mut TcpStream, buf: &mut BytesMut) -> Option<Packet> {
+  let mut chunk = [0u8; 4096];
+  loop {
+    if let Ok(packet) = mqttbytes::v4::read(buf, MAX_PACKET_BYTES) {
+      return Some(packet);
+    }
+    let n = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+      .await
+      .ok()?
+      .ok()?;
+    if n == 0 {
+      return None;
+    }
+    buf.extend_from_slice(&chunk[..n]);
+  }
 }
