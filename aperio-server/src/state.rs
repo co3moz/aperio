@@ -632,6 +632,10 @@ pub(crate) struct ClientHandle {
   /// the dashboard and to share one random hostname across them. `None` for
   /// clients that do not send the header.
   pub(crate) instance_group: Option<String>,
+  /// Topic filters this connection has subscribed to. Held per connection
+  /// because that is what the client re-sends after a reconnect, and reduced
+  /// to one delivery per client *process* at publish time.
+  pub(crate) subscriptions: Vec<String>,
   /// Announced downstream link capacity in bytes/second (0 = unlimited).
   /// Shared with the connection's writer task, which paces outgoing frames.
   pub(crate) bandwidth_bps: Arc<AtomicU64>,
@@ -1772,10 +1776,40 @@ impl AppState {
     webhooks::dispatch(
       subs,
       event,
-      data,
+      data.clone(),
       self.webhook_deliveries.clone(),
       self.config().outbound_policy.clone(),
     );
+    self.publish_event_topic(event, data, org).await;
+  }
+
+  /// Mirrors a server event onto its `$aperio/` topic, so a client can react
+  /// to infrastructure the same way it reacts to anything else.
+  ///
+  /// The events already existed and already fed webhooks; putting them on
+  /// topics is what lets a client hear about a peer connecting without
+  /// standing up an HTTP receiver for it. `client_draining` becomes
+  /// `$aperio/client/draining`: the underscore separates a level, the way a
+  /// topic reads.
+  ///
+  /// Nothing is spent when nobody is listening: `publish` walks the client map
+  /// and finds no subscriber, and a bare `#` deliberately does not match this
+  /// namespace, so a client debugging with a wildcard is not enrolled in it.
+  async fn publish_event_topic(&self, event: &str, data: serde_json::Value, org: Option<String>) {
+    let topic = format!(
+      "{}{}",
+      aperio_config::RESERVED_TOPIC_PREFIX,
+      event.replace('_', "/")
+    );
+    let payload = serde_json::to_vec(&data).unwrap_or_default();
+    let _ = crate::tunnel::pubsub::publish(
+      self,
+      org.as_deref(),
+      &topic,
+      &payload,
+      crate::tunnel::pubsub::Publisher::Server,
+    )
+    .await;
   }
 
   /// Force-disconnects every live tunnel connection authenticated with the

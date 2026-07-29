@@ -406,6 +406,7 @@ pub(crate) async fn handle_socket(
         priority: 0,
         reported_instance_id: None,
         instance_group: instance_group.clone(),
+        subscriptions: Vec::new(),
         bandwidth_bps: bandwidth_bps.clone(),
         service_name: None,
         public: false,
@@ -728,6 +729,37 @@ pub(crate) async fn handle_socket(
             TunnelMessage::CompressionAck {} => {
               info!("Client {} acknowledged tunnel compression", client_id);
               compress_out.store(true, Ordering::SeqCst);
+            }
+            TunnelMessage::Subscribe { topics } => {
+              let refused =
+                crate::tunnel::pubsub::set_subscriptions(&state, &client_id, topics, true).await;
+              for (topic, why) in refused {
+                warn!("Client {client_id} cannot subscribe to '{topic}': {why}");
+              }
+            }
+            TunnelMessage::Unsubscribe { topics } => {
+              crate::tunnel::pubsub::set_subscriptions(&state, &client_id, topics, false).await;
+            }
+            TunnelMessage::Publish { topic, payload, .. } => {
+              use base64::prelude::*;
+              let bytes = match BASE64_STANDARD.decode(&payload) {
+                Ok(b) => b,
+                Err(e) => {
+                  warn!("Client {client_id} published an undecodable payload: {e}");
+                  continue;
+                }
+              };
+              if let Err(why) = crate::tunnel::pubsub::publish(
+                &state,
+                perms.org_id.as_deref(),
+                &topic,
+                &bytes,
+                crate::tunnel::pubsub::Publisher::Client(&client_id),
+              )
+              .await
+              {
+                warn!("Client {client_id} cannot publish to '{topic}': {why}");
+              }
             }
             TunnelMessage::Draining {} => {
               info!(

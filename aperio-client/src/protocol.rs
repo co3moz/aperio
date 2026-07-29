@@ -12,7 +12,7 @@ use tracing::warn;
 /// chunk frames instead of base64+JSON for body data.
 /// v3: per-stream flow control (StreamPause/StreamResume) — the server
 /// pauses a producer whose visitor reads slower than it sends.
-pub(crate) const PROTOCOL_VERSION: u32 = 3;
+pub(crate) const PROTOCOL_VERSION: u32 = 4;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -359,6 +359,28 @@ pub(crate) enum TunnelMessage {
   StreamPause { id: String },
   /// Server → client (v3): stream `id`'s backlog drained; resume producing.
   StreamResume { id: String },
+  /// Client → server: subscribe this client *process* to topic filters. The
+  /// server keys subscriptions on the process (`instance_group`), not on the
+  /// connection, so a client running several services does not receive one
+  /// copy per connection. Re-sent on every reconnect; the server holds no
+  /// subscription for a connection that is gone.
+  Subscribe { topics: Vec<String> },
+  /// Client → server: drop these filters again.
+  Unsubscribe { topics: Vec<String> },
+  /// Either direction: one message on `topic`.
+  ///
+  /// Client → server publishes it to the organization; server → client is a
+  /// delivery to a matching subscriber. `id` is assigned by the server and is
+  /// the same across every delivery of one publish, so a subscriber can tell
+  /// a redelivery from a new message.
+  Publish {
+    topic: String,
+    /// Base64, like every other payload on this wire: a message is bytes, and
+    /// the tunnel frame is text.
+    payload: String,
+    #[serde(default)]
+    id: Option<String>,
+  },
 }
 
 /// Compresses a tunnel text frame into a zlib binary frame.

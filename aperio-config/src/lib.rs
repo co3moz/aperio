@@ -22,6 +22,88 @@ fn default_tcp() -> String {
 /// The combined declaration: one tunnel reachable over both transports.
 pub const PROTOCOL_BOTH: &str = "tcp/udp";
 
+/// Does the topic filter `filter` match the concrete topic `topic`?
+///
+/// MQTT's filter syntax, because it is the one people already know and the
+/// local MQTT face will eventually have to honour it exactly: `+` matches one
+/// level, `#` matches the rest and is only legal last. Levels are separated by
+/// `/`, and a filter with neither wildcard is an exact match.
+///
+/// Lives here rather than in the server because both ends need the same
+/// answer: the server routes with it, and the client matches deliveries
+/// against what each locally attached subscriber asked for.
+pub fn topic_matches(filter: &str, topic: &str) -> bool {
+  // `$`-prefixed topics are the server's own namespace. A leading wildcard
+  // must not sweep them up, the way MQTT keeps `#` away from `$SYS`:
+  // subscribing to everything should not silently enroll you in infrastructure
+  // events you did not ask to parse.
+  if topic.starts_with('$') && !filter.starts_with('$') {
+    return false;
+  }
+  let mut f = filter.split('/');
+  let mut t = topic.split('/');
+  loop {
+    match (f.next(), t.next()) {
+      (Some("#"), Some(_)) => return true,
+      // `a/#` also matches `a` itself, as MQTT specifies: the parent is part
+      // of what the subtree filter selects.
+      (Some("#"), None) => return true,
+      (Some("+"), Some(_)) => continue,
+      (Some(fl), Some(tl)) if fl == tl => continue,
+      (None, None) => return true,
+      _ => return false,
+    }
+  }
+}
+
+/// Is `filter` a usable topic filter? Rejects the shapes that would otherwise
+/// match nothing and look like a typo working.
+pub fn validate_topic_filter(filter: &str) -> Result<(), String> {
+  if filter.is_empty() {
+    return Err("a topic filter cannot be empty".to_string());
+  }
+  if filter.len() > 512 {
+    return Err(format!("topic filter is too long ({} > 512)", filter.len()));
+  }
+  let levels: Vec<&str> = filter.split('/').collect();
+  for (i, level) in levels.iter().enumerate() {
+    if level.contains('#') && *level != "#" {
+      return Err(format!(
+        "`#` must be a level of its own, not part of `{level}`"
+      ));
+    }
+    if level.contains('+') && *level != "+" {
+      return Err(format!(
+        "`+` must be a level of its own, not part of `{level}`"
+      ));
+    }
+    if *level == "#" && i + 1 != levels.len() {
+      return Err("`#` is only allowed as the last level of a filter".to_string());
+    }
+  }
+  Ok(())
+}
+
+/// Is `topic` usable as a published topic? Wildcards are for filters only:
+/// publishing to `a/#` would otherwise look like a broadcast and reach nobody.
+pub fn validate_topic(topic: &str) -> Result<(), String> {
+  if topic.is_empty() {
+    return Err("a topic cannot be empty".to_string());
+  }
+  if topic.len() > 512 {
+    return Err(format!("topic is too long ({} > 512)", topic.len()));
+  }
+  if topic.contains('#') || topic.contains('+') {
+    return Err("a published topic cannot contain `#` or `+`; those are filter syntax".to_string());
+  }
+  Ok(())
+}
+
+/// The namespace the server publishes its own events under, closed to clients
+/// the way MQTT reserves `$SYS`. A client may subscribe to it and may not
+/// publish into it, so an infrastructure event always means what it says.
+pub const RESERVED_TOPIC_PREFIX: &str = "$aperio/";
+
 /// Does a declared `protocol` serve `want` (`tcp` or `udp`)?
 ///
 /// A tunnel may declare `tcp/udp`, which is one tunnel with one name and one

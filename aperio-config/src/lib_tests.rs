@@ -835,3 +835,59 @@ fn the_server_schema_examples_are_valid_config() {
     serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Topic filters.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_filter_matches_the_way_mqtt_says_it_should() {
+  assert!(topic_matches("deploy/web", "deploy/web"));
+  assert!(!topic_matches("deploy/web", "deploy/api"));
+  // `+` is exactly one level, not a substring and not several.
+  assert!(topic_matches("deploy/+", "deploy/web"));
+  assert!(!topic_matches("deploy/+", "deploy/web/eu"));
+  assert!(!topic_matches("deploy/+", "deploy"));
+  assert!(topic_matches("+/web", "deploy/web"));
+  // `#` is the rest of the tree, including the parent level itself.
+  assert!(topic_matches("deploy/#", "deploy/web/eu"));
+  assert!(topic_matches("deploy/#", "deploy"));
+  assert!(topic_matches("#", "anything/at/all"));
+  // A wildcard is a level, never part of one: `dep+` is a literal.
+  assert!(!topic_matches("dep+", "deploy"));
+  assert!(topic_matches("dep+", "dep+"));
+}
+
+#[test]
+fn a_bare_wildcard_does_not_sweep_up_server_events() {
+  // Subscribing to everything must not silently enroll a client in
+  // infrastructure events it never asked to parse — the reason MQTT keeps `#`
+  // away from `$SYS`. Asking for them by name still works.
+  assert!(!topic_matches("#", "$aperio/client/connected"));
+  assert!(!topic_matches(
+    "+/client/connected",
+    "$aperio/client/connected"
+  ));
+  assert!(topic_matches("$aperio/#", "$aperio/client/connected"));
+  assert!(topic_matches(
+    "$aperio/client/+",
+    "$aperio/client/connected"
+  ));
+}
+
+#[test]
+fn filters_and_topics_reject_what_would_silently_match_nothing() {
+  assert!(validate_topic_filter("deploy/+/eu").is_ok());
+  assert!(validate_topic_filter("deploy/#").is_ok());
+  assert!(validate_topic_filter("").is_err());
+  // A `#` that is not the last level matches nothing and reads like it works.
+  assert!(validate_topic_filter("deploy/#/eu").is_err());
+  assert!(validate_topic_filter("dep#loy").is_err());
+  assert!(validate_topic_filter("dep+loy").is_err());
+
+  assert!(validate_topic("deploy/web").is_ok());
+  assert!(validate_topic("").is_err());
+  // Publishing to a filter looks like a broadcast and reaches nobody.
+  assert!(validate_topic("deploy/#").is_err());
+  assert!(validate_topic("deploy/+").is_err());
+}
