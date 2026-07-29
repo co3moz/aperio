@@ -194,4 +194,5 @@ The settings dialog's **Messages** pane lists the client processes currently sub
 
 ## Runnable examples
 
+- [`messaging`](examples/messaging/): a reacting side and a publishing side, with both local faces and a `run:` command
 - [`mqtt`](examples/mqtt/): the other shape, an MQTT broker of your own carried by a tunnel, for when you want a broker's semantics (retained messages, QoS, offline sessions).

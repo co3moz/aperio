@@ -1,0 +1,14 @@
+# Publishing side: run this wherever the event happens (a CI runner, the
+# machine that finished a build). It exposes nothing and only sends.
+server:
+  url: https://tunnel.example.com
+  # Give this side its own token, scoped to the topics it may use:
+  #   aperio-client api POST /tokens \
+  #     -d '{"name":"ci","hostnames":["*"],"topics":["deploy/#"]}'
+  token: apr_messaging_publisher_change_me
+
+# A client that publishes needs no service and no bind. It holds one tunnel
+# connection so a publish has something to travel on.
+services: []
+
+messages_listen: 127.0.0.1:1888

@@ -1,0 +1,3 @@
+server:
+  token: apr_messaging_change_me
+port: 8080

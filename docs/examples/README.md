@@ -21,6 +21,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [failover](failover/) | In-flight failover: re-dispatch requests when a client dies mid-request. |
 | [cache](cache/) | Server-side GET response cache, opted in per service. |
 | [resilience](resilience/) | Serve cached (even stale) responses while no healthy client is connected. |
+| [messaging](messaging/) | Clients signalling each other over the tunnel they already hold: subscribe, publish, and run a command on receipt. |
 | [emergency_tunnels](emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `bind-tunnels:`). |
 | [encrypted_tunnels](encrypted_tunnels/) | End-to-end encrypted tunnels with a pre-shared key. |
 | [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |

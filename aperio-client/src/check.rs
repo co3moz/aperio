@@ -150,9 +150,24 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
         settings.bind_tunnels.len()
       ),
     ),
+    // A client that only sends and receives messages exposes nothing either,
+    // and is as complete a configuration as a binder.
+    _ if !settings.subscribe.is_empty()
+      || settings.messages_listen.is_some()
+      || settings.messages_mqtt_listen.is_some() =>
+    {
+      pass(
+        "target",
+        format!(
+          "none — messaging only, {} subscription(s) (from ./aperio.yaml)",
+          settings.subscribe.len()
+        ),
+      )
+    }
     _ => fail(
       "target",
-      "missing (--target / APERIO_TARGET / yaml: services:, tunnels: or bind-tunnels:)".to_string(),
+      "missing (--target / APERIO_TARGET / yaml: services:, tunnels:, bind-tunnels: or subscribe:)"
+        .to_string(),
       &mut failures,
     ),
   }

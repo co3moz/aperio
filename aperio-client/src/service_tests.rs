@@ -203,8 +203,19 @@ fn test_label_variants() {
   // No name, non-empty target: labels by target.
   spec.name = None;
   assert_eq!(spec.label(), "http://localhost:3000");
-  // No name, empty target (tunnels-only client): a placeholder label.
+  // No name, empty target: the placeholder says which of the two reasons a
+  // connection with no service exists for, rather than guessing at one.
   spec.target = String::new();
+  assert_eq!(spec.label(), "(no service)");
+  spec.tunnels = vec![aperio_config::TunnelDecl {
+    name: None,
+    target: "127.0.0.1:5432".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    psk: None,
+    idle_timeout: None,
+    expose: None,
+  }];
   assert_eq!(spec.label(), "(tunnels only)");
 }
 

@@ -213,7 +213,15 @@ impl ServiceSpec {
   pub(crate) fn label(&self) -> String {
     self.name.clone().unwrap_or_else(|| {
       if self.target.is_empty() {
-        "(tunnels only)".to_string()
+        // A connection that serves no HTTP target. It exists for the tunnels
+        // a peer binds, for the messages this client carries, or both;
+        // naming one of them would be a guess in the log line where the
+        // reader is trying to work out what this connection is for.
+        if self.tunnels.is_empty() {
+          "(no service)".to_string()
+        } else {
+          "(tunnels only)".to_string()
+        }
       } else {
         self.target.clone()
       }

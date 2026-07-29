@@ -829,15 +829,20 @@ fn build_specs(
         settings.services.len()
       );
     }
-    // A client may run with only a tunnels: list (nothing exposed): the
-    // connection then serves no HTTP target and exists purely so a peer
-    // can bind the declared tunnels in an emergency.
+    // A client may run with nothing exposed at all. The connection then
+    // serves no HTTP target and exists purely to carry something else: the
+    // `tunnels:` a peer binds in an emergency, or the messages this client
+    // publishes and subscribes to. Refusing to start would mean a
+    // publish-only client had to invent a service it does not have.
+    let carries_messages = !settings.subscribe.is_empty()
+      || settings.messages_listen.is_some()
+      || settings.messages_mqtt_listen.is_some();
     let target = match settings.target.clone() {
       Some(t) => t,
-      None if !tunnels.is_empty() => String::new(),
+      None if !tunnels.is_empty() || carries_messages => String::new(),
       None => {
         return Err(
-          "CRITICAL ERROR: the target is required (positional argument, APERIO_TARGET, yaml: target, or a services:/tunnels: list)!".to_string(),
+          "CRITICAL ERROR: there is nothing for this client to do (give a positional target, APERIO_TARGET, or a services:/tunnels:/subscribe: list)!".to_string(),
         );
       }
     };
@@ -1267,7 +1272,11 @@ fn log_spec(spec: &ServiceSpec) {
   }
   info!("- Client ID: {}", spec.client_id);
   if spec.target.is_empty() {
-    info!("- Target: (none — tunnels only)");
+    if spec.tunnels.is_empty() {
+      info!("- Target: (none — this connection carries messages)");
+    } else {
+      info!("- Target: (none — tunnels only)");
+    }
   } else {
     info!("- Target: {}", spec.target);
   }

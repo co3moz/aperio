@@ -966,11 +966,19 @@ fn test_validate_tunnels_encrypt_and_expose() {
 #[test]
 fn test_build_specs_requires_target() {
   init_tracing();
-  // No target, no tunnels, no services → the target is mandatory.
+  // Nothing to expose, nothing to tunnel, nothing to carry: there is no
+  // reason for the process to exist and it says so instead of connecting.
   let mut settings = base_settings();
   settings.target = None;
   let err = build_specs(&settings, "id", false).unwrap_err();
-  assert!(err.contains("target is required"), "got: {err}");
+  assert!(err.contains("nothing for this client to do"), "got: {err}");
+
+  // Messaging alone is reason enough, the same way a tunnels: list is: the
+  // connection serves no HTTP target and exists to carry something else.
+  settings.messages_listen = Some("127.0.0.1:1888".to_string());
+  let specs = build_specs(&settings, "id", false).expect("a publish-only client is complete");
+  assert_eq!(specs.len(), 1);
+  assert!(specs[0].target.is_empty());
 }
 
 #[test]

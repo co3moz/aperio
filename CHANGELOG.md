@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **A runnable messaging example.** [`messaging`](docs/examples/messaging/) is the pair: a reacting side that subscribes, runs a command on `deploy/web` and opens both local faces, and a publishing side that exposes nothing at all. It states the two things worth knowing before using `run:` in anger — that it is a remote-execution primitive and how to scope the publishing token to one subtree — and what the delivery does not promise.
+
 - **Clients of an organization can send each other messages.** They could be reached from outside and could reach a private service through a peer, but had no way to signal each other; the workaround was running an MQTT broker behind a tunnel and binding it everywhere. A client now subscribes to topic filters over the tunnel connection it already holds, and `POST /aperio/api/publish` (or a publish from another client) fans the message out to every subscriber in the same organization. MQTT's filter syntax, since it is the one people know: `+` is one level, `#` is the rest. Full documentation in [Messages Between Clients](docs/messaging.md).
 
   Two properties are worth knowing up front. **Delivery is per client process, not per connection**: a client with a `services:` list holds one connection per service, and it receives one copy, not one per service. And **nothing is stored** for a client that is away: a message reaches whoever is connected when it is published, because the case this serves is reacting to something happening now, and replaying an hour-old event to a machine that just came back is a bug rather than a service.
@@ -95,6 +97,8 @@ project follows semantic versioning per release tag.
 - **A `bind-tunnels:` entry can be just a port, and a privileged local port no longer means no listener.** `pg-main: 15432` is the whole entry for most bindings. The local port still defaults to the declared target's port; when that port is privileged (below 1024) or the target has none to parse, which used to skip the tunnel outright, a port derived from the tunnel name is used instead, stable across restarts so whatever connects to it never needs reconfiguring. A listener can be moved off loopback with `address:`, which warns, since it puts a deliberately unexposed service on the network.
 
 ### Fixed
+
+- **A client that only sends and receives messages can start.** `subscribe:` or a local message face with no `services:`, `target:` or `tunnels:` was refused with "the target is required", so a publish-only client had to invent a service it does not have. A connection that carries messages is as good a reason to exist as one that carries a peer's tunnels, which was already allowed; `check` agrees, and the log line for such a connection no longer calls it "tunnels only" when it has none.
 
 - **`aperio-client check` accepts a binder as a complete configuration.** A file made only of `bind-tunnels:` opens local listeners onto tunnels another client declared and exposes nothing of its own, which is exactly what a binder is for; the check called it a missing target, and the message it printed did not even name the section the file is made of.
 
