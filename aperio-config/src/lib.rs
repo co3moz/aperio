@@ -291,6 +291,52 @@ pub struct HealthConfig {
   pub wait_for_backend: Option<bool>,
 }
 
+/// The top level's `health:` block.
+///
+/// The same fields as [`HealthConfig`] — a file written either way parses
+/// identically — except that `endpoint` is on its way out here. The other
+/// children are real defaults: a `services:` entry that says nothing about
+/// its interval, timeout, threshold or boot wait inherits them. `endpoint` is
+/// not, and never was: a probe path belongs to the backend it probes, so the
+/// resolver reads it strictly per entry and a top-level one is read by
+/// nothing at all once a `services:` list exists.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopHealthConfig {
+  /// **Deprecated in a config file, removed in 0.7.0.** Endpoint to probe.
+  /// Write it on the `services:` entry whose backend it probes; at the top
+  /// level it is read only by a file that has no `services:` list.
+  #[schemars(extend("examples" = ["/health"], "deprecated" = true))]
+  pub endpoint: Option<String>,
+  /// Seconds between probes. Applies to every `services:` entry that does not
+  /// set its own.
+  #[schemars(extend("examples" = [10]))]
+  pub interval: Option<u64>,
+  /// Seconds to wait for each probe before counting it as failed. Applies to
+  /// every `services:` entry that does not set its own.
+  #[schemars(extend("examples" = [5]))]
+  pub timeout: Option<u64>,
+  /// Failed probes in a row before the backend is reported unhealthy. Applies
+  /// to every `services:` entry that does not set its own.
+  #[schemars(extend("examples" = [3]))]
+  pub threshold: Option<u32>,
+  /// Hold the service out of routing until the backend first accepts a
+  /// connection, avoiding connection-refused errors while it boots. Applies
+  /// to every `services:` entry that does not set its own.
+  pub wait_for_backend: Option<bool>,
+}
+
+impl TopHealthConfig {
+  /// True when nothing in the block was set (an empty `health:` mapping).
+  pub fn is_empty(&self) -> bool {
+    self.endpoint.is_none()
+      && self.interval.is_none()
+      && self.timeout.is_none()
+      && self.threshold.is_none()
+      && self.wait_for_backend.is_none()
+  }
+}
+
 impl HealthConfig {
   /// True when nothing in the block was set (an empty `health:` mapping).
   pub fn is_empty(&self) -> bool {
@@ -655,10 +701,11 @@ pub struct FileConfig {
   /// Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,
   /// `wait_for_backend`). Preferred over the flat `target_health` / `health_*`
   /// keys, which still work; `services:` entries may override it per service.
-  pub health: Option<HealthConfig>,
-  /// Backend health endpoint to probe; a failing backend leaves rotation
-  /// without dropping the tunnel. Deprecated spelling of `health.endpoint`.
-  #[schemars(extend("examples" = ["/health"]))]
+  pub health: Option<TopHealthConfig>,
+  /// **Deprecated in a config file, removed in 0.7.0.** Backend health
+  /// endpoint to probe; also the old flat spelling of `health.endpoint`.
+  /// Write it on the `services:` entry whose backend it probes.
+  #[schemars(extend("examples" = ["/health"], "deprecated" = true))]
   pub target_health: Option<String>,
   /// Hold the service out of routing until the backend first accepts a
   /// connection, avoiding connection-refused errors while it boots
@@ -1075,7 +1122,14 @@ impl ServiceEntry {
 ///
 /// The shorthand itself is not going anywhere; it stays where it belongs, on
 /// the command line and in the environment, where a one-liner is the point.
-pub const SINGLE_SERVICE_KEYS: &[&str] = &["target", "serve", "hostname", "path", "tcp_target"];
+pub const SINGLE_SERVICE_KEYS: &[&str] = &[
+  "target",
+  "serve",
+  "hostname",
+  "path",
+  "tcp_target",
+  "target_health",
+];
 
 impl FileConfig {
   /// Which single-service keys this file writes, in the order above.
@@ -1092,6 +1146,16 @@ impl FileConfig {
       ("hostname", self.hostname.is_some()),
       ("path", set(&self.path)),
       ("tcp_target", set(&self.tcp_target)),
+      // Both spellings, since folding has not run yet and either is the same
+      // claim: a probe path for a service named at the top level.
+      (
+        "target_health",
+        set(&self.target_health)
+          || self
+            .health
+            .as_ref()
+            .is_some_and(|h| h.endpoint.as_deref().is_some_and(|e| !e.trim().is_empty())),
+      ),
     ]
     .into_iter()
     .filter(|(_, present)| *present)

@@ -207,9 +207,17 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     // there is still nothing to fix.
     severity: ChangeSeverity::Migration,
     applies: Applies::WhenSet,
-    fields: &["target", "serve", "hostname", "path", "tcp_target"],
+    fields: &[
+      "target",
+      "serve",
+      "hostname",
+      "path",
+      "tcp_target",
+      "target_health",
+      "health.endpoint",
+    ],
     summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.7.0 a config file will only accept `services:`. Single-service mode is unaffected on the command line and in the environment.",
-    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:` into one `services:` entry. The file behaves the same either way until 0.7.0.",
+    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` (or `health.endpoint`) into one `services:` entry. The file behaves the same either way until 0.7.0.",
   },
   ConfigChange {
     version: "0.6.0",

@@ -53,7 +53,7 @@ describe('the single-service keys on their way out', () => {
   // where a deployment is written down: two shapes for "what this client
   // exposes" is a question nobody should have to answer. The shorthand stays
   // on the CLI and in the environment, where a one-liner is the point.
-  const SINGLE = ['target', 'serve', 'hostname', 'path', 'tcp_target']
+  const SINGLE = ['target', 'serve', 'hostname', 'path', 'tcp_target', 'target_health']
 
   it('is marked deprecated in the schema the form reads', () => {
     for (const key of SINGLE) {
@@ -70,12 +70,27 @@ describe('the single-service keys on their way out', () => {
     }
   })
 
+  it('flags the block spelling of the probe path, but not its siblings', () => {
+    // `health.interval` and friends are genuine per-entry defaults; only the
+    // endpoint is read by nothing once a services: list exists.
+    const health = find(clientFields, 'health')?.children ?? []
+    expect(find(health, 'endpoint')?.deprecated).toBe(true)
+    for (const key of ['interval', 'timeout', 'threshold', 'wait_for_backend']) {
+      expect(find(health, key)?.deprecated, key).toBeFalsy()
+    }
+  })
+
   it('still names the same key on a services entry, undeprecated', () => {
     // The replacement has to be reachable, or the advice is empty.
     const entry = find(clientFields, 'services')?.children ?? []
-    for (const key of SINGLE) {
+    // `target_health` is excluded: on an entry it is still flagged, as the old
+    // flat spelling of `health.endpoint`. That is a different complaint with a
+    // different answer, and the answer — the block — is checked right below.
+    for (const key of SINGLE.filter((k) => k !== 'target_health')) {
       expect(find(entry, key)?.deprecated, key).toBeFalsy()
     }
+    const entryHealth = find(entry, 'health')?.children ?? []
+    expect(find(entryHealth, 'endpoint')?.deprecated).toBeFalsy()
   })
 })
 

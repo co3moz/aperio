@@ -124,7 +124,7 @@
         "description": "Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,\n`wait_for_backend`). Preferred over the flat `target_health` / `health_*`\nkeys, which still work; `services:` entries may override it per service.",
         "anyOf": [
           {
-            "$ref": "#/$defs/HealthConfig"
+            "$ref": "#/$defs/TopHealthConfig"
           },
           {
             "type": "null"
@@ -430,11 +430,12 @@
         ]
       },
       "target_health": {
-        "description": "Backend health endpoint to probe; a failing backend leaves rotation\nwithout dropping the tunnel. Deprecated spelling of `health.endpoint`.",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Backend health\nendpoint to probe; also the old flat spelling of `health.endpoint`.\nWrite it on the `services:` entry whose backend it probes.",
         "type": [
           "string",
           "null"
         ],
+        "deprecated": true,
         "examples": [
           "/health"
         ]
@@ -1289,6 +1290,67 @@
             ]
           }
         }
+      },
+      "TopHealthConfig": {
+        "description": "The top level's `health:` block.\n\nThe same fields as [`HealthConfig`] — a file written either way parses\nidentically — except that `endpoint` is on its way out here. The other\nchildren are real defaults: a `services:` entry that says nothing about\nits interval, timeout, threshold or boot wait inherits them. `endpoint` is\nnot, and never was: a probe path belongs to the backend it probes, so the\nresolver reads it strictly per entry and a top-level one is read by\nnothing at all once a `services:` list exists.",
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "description": "**Deprecated in a config file, removed in 0.7.0.** Endpoint to probe.\nWrite it on the `services:` entry whose backend it probes; at the top\nlevel it is read only by a file that has no `services:` list.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "deprecated": true,
+            "examples": [
+              "/health"
+            ]
+          },
+          "interval": {
+            "description": "Seconds between probes. Applies to every `services:` entry that does not\nset its own.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              10
+            ],
+            "minimum": 0
+          },
+          "threshold": {
+            "description": "Failed probes in a row before the backend is reported unhealthy. Applies\nto every `services:` entry that does not set its own.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              3
+            ],
+            "minimum": 0
+          },
+          "timeout": {
+            "description": "Seconds to wait for each probe before counting it as failed. Applies to\nevery `services:` entry that does not set its own.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "wait_for_backend": {
+            "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots. Applies\nto every `services:` entry that does not set its own.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "TunnelDecl": {
         "description": "A private local service (e.g. a database or SSH) this client makes reachable\nto a peer running `--bind-tunnels`, without ever exposing it to the public web.",

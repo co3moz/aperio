@@ -610,7 +610,58 @@ fn the_schema_marks_the_single_service_keys_deprecated() {
       "`{key}` must be marked deprecated in the emitted schema"
     );
   }
+  // The block spelling of the same claim, and only its `endpoint`: the other
+  // children stay top-level defaults, so flagging them would be wrong.
+  let defs = schema["$defs"].as_object().unwrap();
+  let top = defs["TopHealthConfig"]["properties"].as_object().unwrap();
+  assert_eq!(
+    top["endpoint"].get("deprecated"),
+    Some(&serde_json::Value::Bool(true))
+  );
+  assert_eq!(top["interval"].get("deprecated"), None);
+  // And never on a services: entry, which is where it is now supposed to go.
+  let entry = defs["HealthConfig"]["properties"].as_object().unwrap();
+  assert_eq!(entry["endpoint"].get("deprecated"), None);
   // A key that is still the right way to write something must not be.
   assert_eq!(props["services"].get("deprecated"), None);
   assert_eq!(props["trim_bind"].get("deprecated"), None);
+}
+
+#[test]
+fn a_top_level_health_endpoint_counts_as_a_single_service_key() {
+  // Both spellings, and only the endpoint: the rest of the block is a real
+  // per-entry default and reporting it would be advice to delete a working key.
+  let block: FileConfig =
+    serde_yaml::from_str("health:\n  endpoint: /health\n  interval: 30\n").unwrap();
+  assert_eq!(block.single_service_keys(), vec!["target_health"]);
+
+  let flat: FileConfig = serde_yaml::from_str("target_health: /health\n").unwrap();
+  assert_eq!(flat.single_service_keys(), vec!["target_health"]);
+
+  let defaults_only: FileConfig =
+    serde_yaml::from_str("health:\n  interval: 30\n  wait_for_backend: true\n").unwrap();
+  assert!(defaults_only.single_service_keys().is_empty());
+}
+
+#[test]
+fn the_top_level_health_block_still_parses_every_field() {
+  // The top level has its own type now so `endpoint` can be marked withdrawn
+  // there and not on a services: entry. Same fields, so a file written either
+  // way must load identically — a schema-only split must not become a parse
+  // change.
+  let cfg: FileConfig = serde_yaml::from_str(
+    "health:\n  endpoint: /h\n  interval: 7\n  timeout: 3\n  threshold: 4\n  wait_for_backend: true\n",
+  )
+  .unwrap();
+  let health = cfg.health.clone().unwrap();
+  assert_eq!(health.endpoint.as_deref(), Some("/h"));
+  assert_eq!(health.interval, Some(7));
+  assert_eq!(health.timeout, Some(3));
+  assert_eq!(health.threshold, Some(4));
+  assert_eq!(health.wait_for_backend, Some(true));
+
+  let mut folded = cfg;
+  folded.fold_groups();
+  assert_eq!(folded.target_health.as_deref(), Some("/h"));
+  assert_eq!(folded.health_interval, Some(7));
 }
