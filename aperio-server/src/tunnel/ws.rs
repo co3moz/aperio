@@ -735,12 +735,29 @@ pub(crate) async fn handle_socket(
                 crate::tunnel::pubsub::set_subscriptions(&state, &client_id, topics, true).await;
               for (topic, why) in refused {
                 warn!("Client {client_id} cannot subscribe to '{topic}': {why}");
+                // Tell the client too. A refusal only the server can see
+                // leaves the other operator watching a subscription that
+                // never delivers, which looks exactly like a topic nobody
+                // publishes on.
+                let notice = TunnelMessage::SubscribeRefused { topic, reason: why };
+                if let Ok(json) = serde_json::to_string(&notice) {
+                  let clients = state.clients.lock().await;
+                  if let Some(handle) = clients.get(&client_id) {
+                    let _ = handle.tx.try_send(Message::Text(json));
+                  }
+                }
               }
             }
             TunnelMessage::Unsubscribe { topics } => {
               crate::tunnel::pubsub::set_subscriptions(&state, &client_id, topics, false).await;
             }
             TunnelMessage::Publish { topic, payload, .. } => {
+              if !crate::tunnel::pubsub::may_use_topic(&perms, &topic) {
+                warn!(
+                  "Client {client_id} may not publish to '{topic}': the token does not carry it"
+                );
+                continue;
+              }
               use base64::prelude::*;
               let bytes = match BASE64_STANDARD.decode(&payload) {
                 Ok(b) => b,

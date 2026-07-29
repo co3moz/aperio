@@ -81,4 +81,45 @@ retry 20 grep -q "event: \$aperio/token/created" "$EVENTS_OUT" \
 echo "  ok: server events are published on \$aperio/"
 
 kill "$SSE_PID" "$EVENTS_PID" 2>/dev/null || true
+
+step "A token may only use the topics it carries"
+# A dynamic token scoped to one subtree: it may subscribe there and nowhere
+# else, and the refusal is named rather than silent.
+SCOPED_TOKEN="$(curl -s -b "$MJAR" -X POST "$BASE/aperio/api/tokens" \
+  -H 'content-type: application/json' \
+  -d '{"name":"e2e-scoped","hostnames":["*"],"paths":["*"],"topics":["deploy/#"]}' \
+  | "$PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
+[ -n "$SCOPED_TOKEN" ] || fail "could not mint a scoped token"
+
+SCOPED_FACE_PORT=18892
+start_client msgscoped "$MSG_BACKEND_PORT" \
+  APERIO_SERVER_TOKEN="$SCOPED_TOKEN" \
+  APERIO_HOSTNAME=msgscoped.e2e.local \
+  APERIO_SUBSCRIBE='deploy/#,secrets/#' \
+  APERIO_MESSAGES_LISTEN="127.0.0.1:${SCOPED_FACE_PORT}"
+wait_routable msgscoped.e2e.local /hello
+retry 20 curl -sf -o /dev/null "http://127.0.0.1:${SCOPED_FACE_PORT}/" \
+  || fail "the scoped client's message face did not come up"
+
+SCOPED_OUT="$LOG_DIR/messages-scoped.txt"
+curl -sN --max-time 10 "http://127.0.0.1:${SCOPED_FACE_PORT}/subscribe?topic=deploy%2F%23" \
+  >"$SCOPED_OUT" 2>&1 &
+SCOPED_PID=$!
+sleep 1
+
+curl -s -o /dev/null -b "$MJAR" -X POST "$BASE/aperio/api/publish" \
+  -H 'content-type: application/json' -d '{"topic":"deploy/scoped","payload":"yes"}'
+curl -s -o /dev/null -b "$MJAR" -X POST "$BASE/aperio/api/publish" \
+  -H 'content-type: application/json' -d '{"topic":"secrets/rotate","payload":"no"}'
+
+retry 20 grep -q "event: deploy/scoped" "$SCOPED_OUT" \
+  || fail "the scoped token did not receive the topic it carries"
+grep -q "event: secrets/rotate" "$SCOPED_OUT" \
+  && fail "a token received a topic outside its scope"
+retry 20 grep -q "Not subscribed to 'secrets/#'" "$LOG_DIR/client-$PHASE-msgscoped.log" \
+  || fail "the client should be told which filter was refused, and why"
+echo "  ok: a scoped token is fenced to the topics it carries"
+
+kill "$SCOPED_PID" 2>/dev/null || true
+
 kill "$MSG_BACKEND_PID" 2>/dev/null || true

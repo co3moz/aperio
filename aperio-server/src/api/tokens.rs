@@ -29,6 +29,7 @@ pub(crate) struct TokenView {
   pub(crate) daily_max_bytes: Option<u64>,
   pub(crate) allow_public: bool,
   pub(crate) allow_bind: bool,
+  pub(crate) topics: Vec<String>,
   pub(crate) canary: bool,
 }
 
@@ -60,6 +61,7 @@ pub(crate) async fn tokens_list_handler(
       daily_max_bytes: t.daily_max_bytes,
       allow_public: t.allow_public,
       allow_bind: t.allow_bind,
+      topics: t.topics.clone(),
       canary: t.canary,
     })
     .collect();
@@ -94,6 +96,11 @@ pub(crate) struct TokenCreateRequest {
   /// same organization? Defaults to false.
   #[serde(default)]
   pub(crate) allow_bind: bool,
+  /// Topic filters this token may publish to and subscribe to, for messages
+  /// between the clients of its organization. Empty (the default) = no
+  /// messaging; `["#"]` = everything the organization can see.
+  #[serde(default)]
+  pub(crate) topics: Vec<String>,
   /// Mark this token as a canary/decoy: any successful auth with it fires a
   /// `canary_tripped` alert. Defaults to false.
   #[serde(default)]
@@ -119,6 +126,9 @@ pub(crate) struct TokenUpdateRequest {
   /// Absent = keep; true/false sets whether this token may bind other
   /// clients' tunnels in its organization.
   pub(crate) allow_bind: Option<bool>,
+  /// Replaces the token's topic filters. `[]` withdraws messaging entirely.
+  #[serde(default)]
+  pub(crate) topics: Option<Vec<String>>,
   /// Absent = keep; true/false toggles the canary/decoy flag.
   pub(crate) canary: Option<bool>,
 }
@@ -153,6 +163,28 @@ pub(crate) fn org_token_quota_reached(
     )
       .into_response()
   })
+}
+
+/// Checks a token's topic filters. A filter that cannot match anything is a
+/// typo that looks like it works, so it is refused at mint time rather than
+/// discovered when a message quietly never arrives.
+fn validate_topics(topics: &[String]) -> Result<Vec<String>, String> {
+  let mut out = Vec::new();
+  for raw in topics {
+    let filter = raw.trim();
+    if filter.is_empty() {
+      continue;
+    }
+    // `*` is what the hostname and path lists spell "everything" as, and
+    // someone will write it here out of habit. Accept it as `#` rather than
+    // minting a token whose one filter matches a topic literally named `*`.
+    let filter = if filter == "*" { "#" } else { filter };
+    aperio_config::validate_topic_filter(filter)?;
+    if !out.iter().any(|f| f == filter) {
+      out.push(filter.to_string());
+    }
+  }
+  Ok(out)
 }
 
 /// Validates and normalizes token permission lists. Returns an error message
@@ -247,6 +279,11 @@ pub(crate) async fn tokens_create_handler(
     return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
   }
 
+  let topics = match validate_topics(&payload.topics) {
+    Ok(v) => v,
+    Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+  };
+
   // New tokens belong to the caller's currently effective organization.
   let org = crate::auth::effective_org(&state, &headers).await;
   // Organization fence: a permission outside the org's hostname allowlist is
@@ -279,6 +316,7 @@ pub(crate) async fn tokens_create_handler(
       payload.allow_bind,
       payload.canary,
       org,
+      topics,
     )
   };
   info!(
@@ -422,6 +460,11 @@ pub(crate) async fn tokens_update_handler(
     return (StatusCode::BAD_REQUEST, "max_rps must be a positive number").into_response();
   }
 
+  let topics = match payload.topics.as_deref().map(validate_topics).transpose() {
+    Ok(v) => v,
+    Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+  };
+
   // Organization fence, same rule as at creation: an edit can never widen a
   // token beyond the hostnames its org may claim.
   if payload.hostnames.is_some() {
@@ -450,6 +493,7 @@ pub(crate) async fn tokens_update_handler(
     payload.allow_public,
     payload.allow_bind,
     payload.canary,
+    topics,
   );
 
   match updated {

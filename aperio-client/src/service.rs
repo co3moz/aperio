@@ -1227,6 +1227,12 @@ pub(crate) async fn run_service(
                                                   debug!("Closed TCP stream {}", stream_id);
                                               }
                                           }
+                                          TunnelMessage::SubscribeRefused { topic, reason } => {
+                                              warn!(
+                                                  "[{}] Not subscribed to '{}': {}",
+                                                  label, topic, reason
+                                              );
+                                          }
                                           TunnelMessage::Publish { topic, payload, id } => {
                                               use base64::prelude::*;
                                               match BASE64_STANDARD.decode(&payload) {

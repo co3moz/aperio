@@ -906,4 +906,6 @@ export const de: Record<string, string> = {
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': 'Erneut an einen anderen gesunden Client derselben Route senden, falls es einen gibt. Es wird nicht gewartet.',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': 'Die Anfrage halten, während derselbe Client sich neu verbindet, bis zum Failover-Fenster. Für eine Route mit einem einzigen Client, wo es kein Ziel zum Ausweichen gibt.',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Erst einen anderen Client versuchen; hat die Route keinen, auf die Rückkehr eines Clients warten. Das nachsichtigste Verhalten und das langsamste beim Aufgeben.',
+  'Message topics (comma separated, empty = no messaging)': 'Nachrichten-Topics (kommagetrennt, leer = keine Nachrichten)',
+  '{count} topic(s)': '{count} Topic(s)',
 }

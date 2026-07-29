@@ -253,6 +253,7 @@ async fn delete_is_org_scoped() {
     false,
     false,
     Some("other".to_string()),
+    Vec::new(),
   );
   // A master-admin session (master org) cannot see the foreign token.
   let headers = admin_headers(&state).await;

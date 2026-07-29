@@ -27,7 +27,7 @@ use std::collections::HashSet;
 use aperio_config::{RESERVED_TOPIC_PREFIX, topic_matches};
 
 use crate::protocol::TunnelMessage;
-use crate::state::AppState;
+use crate::state::{AppState, ClientPerms};
 
 /// Most filters one client process may hold at once. A subscription costs a
 /// string and a linear match per publish; the cap is here so a loop in someone
@@ -76,6 +76,44 @@ pub(crate) struct Delivery {
   pub(crate) connections: usize,
 }
 
+/// May a token holding `perms` use `filter` at all?
+///
+/// One rule for both directions. Publishing to a topic and subscribing to it
+/// are the same access to the same conversation: a token that may read
+/// `deploy/#` may signal on it, and a token that may do neither cannot do
+/// either by asking the other way round.
+///
+/// A subscription filter is permitted when the token's own filters *cover*
+/// it. `deploy/#` covers `deploy/web`, and does not cover `#`: otherwise
+/// subscribing to everything would be a way around a scope that named one
+/// subtree.
+pub(crate) fn may_use_topic(perms: &ClientPerms, filter: &str) -> bool {
+  if perms.master {
+    return true;
+  }
+  perms.topics.iter().any(|granted| covers(granted, filter))
+}
+
+/// Does the filter `granted` permit everything `asked` could match?
+///
+/// Level by level: a granted `#` swallows the rest, a granted `+` accepts one
+/// concrete level or another `+` but not a `#`, and a literal matches only
+/// itself. Anything the asked filter could reach beyond the granted one makes
+/// it a widening, which is refused.
+fn covers(granted: &str, asked: &str) -> bool {
+  let mut g = granted.split('/');
+  let mut a = asked.split('/');
+  loop {
+    match (g.next(), a.next()) {
+      (Some("#"), _) => return true,
+      (Some("+"), Some(level)) if level != "#" => continue,
+      (Some(gl), Some(al)) if gl == al => continue,
+      (None, None) => return true,
+      _ => return false,
+    }
+  }
+}
+
 /// Replaces this connection's filters, rejecting the ones that are not usable.
 ///
 /// Returns the filters that were refused, so the client can be told rather
@@ -99,6 +137,13 @@ pub(crate) async fn set_subscriptions(
     }
     if let Err(why) = aperio_config::validate_topic_filter(&topic) {
       refused.push((topic, why));
+      continue;
+    }
+    if !may_use_topic(&handle.perms, &topic) {
+      refused.push((
+        topic,
+        "the token does not carry this topic; add it to the token's topics".to_string(),
+      ));
       continue;
     }
     if handle.subscriptions.contains(&topic) {

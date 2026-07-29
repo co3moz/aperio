@@ -908,4 +908,6 @@ export const tr: Record<string, string> = {
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': 'Varsa aynı rotanın başka bir sağlıklı istemcisine yeniden gönderilir. Beklenmez.',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': 'Aynı istemci yeniden bağlanırken istek, failover penceresi kadar tutulur. Devredilecek başka istemcisi olmayan tek istemcili rotalar için.',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Önce başka bir istemci denenir; rotanın başka istemcisi yoksa birinin dönmesi beklenir. En bağışlayıcı ve pes etmesi en yavaş olanı.',
+  'Message topics (comma separated, empty = no messaging)': 'Mesaj topic\'leri (virgülle ayrılmış, boş = mesajlaşma yok)',
+  '{count} topic(s)': '{count} topic',
 }

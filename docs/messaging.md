@@ -92,6 +92,22 @@ subscribe:
 
 Two rules keep the namespace meaningful. A client cannot publish into it, so a `$aperio/` message always came from the server. And a bare `#` does **not** match it, so subscribing to everything while debugging does not enroll you in infrastructure events you never asked to parse; ask for them by name.
 
+## Who may use which topics
+
+Messaging is a token capability, off unless the token carries it. A dynamic token has a **topics** list of filters, and one rule covers both directions: a token that may subscribe to `deploy/#` may publish on it, and a token with an empty list can do neither.
+
+```bash
+aperio-client api POST /tokens -d '{"name":"deploy-runner","topics":["deploy/#"]}'
+```
+
+The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#` — otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything".
+
+The master token is unrestricted, like everywhere else. An ephemeral tunnel token carries no topics: it is a guest of the organization for one hostname and has no business signalling the rest of it.
+
+Note the convention differs from `hostnames` and `paths`, where an empty list means unrestricted. That is deliberate: those fence a capability every token already had, while this one is new, and a new capability that switches itself on for every token predating it is how a permission model stops meaning anything.
+
+A refused subscription is reported by name in the client's log rather than dropped, so a token missing a topic looks like a missing permission and not like a message that never arrived.
+
 ## What this is not
 
 - **There is no delivery guarantee.** A message reaches the clients connected when it is published. Nothing is stored for one that is away, and a client that reconnects does not receive what it missed. That is deliberate: this serves reacting to something happening now, and replaying an hour-old event to a machine that just came back is a bug rather than a service.

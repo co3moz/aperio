@@ -904,4 +904,6 @@ export const es: Record<string, string> = {
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': 'Reenviar a otro cliente sano de la misma ruta, si lo hay. No se espera.',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': 'Retener la petición mientras el mismo cliente se reconecta, hasta agotar la ventana de failover. Para una ruta con un solo cliente, donde no hay a quién ceder el relevo.',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'Probar primero con otro cliente; si la ruta no tiene ninguno, esperar a que vuelva uno. Lo más indulgente y lo más lento en rendirse.',
+  'Message topics (comma separated, empty = no messaging)': 'Topics de mensajes (separados por comas, vacío = sin mensajería)',
+  '{count} topic(s)': '{count} topic(s)',
 }

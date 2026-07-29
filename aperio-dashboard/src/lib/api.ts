@@ -181,6 +181,8 @@ export interface TokenView {
   daily_max_bytes: number | null
   allow_public: boolean
   allow_bind: boolean
+  /** Topic filters this token may publish to and subscribe to. */
+  topics: string[]
   canary: boolean
 }
 
@@ -212,6 +214,7 @@ export interface TokenCreatePayload {
   daily_max_bytes?: number
   allow_public?: boolean
   allow_bind?: boolean
+  topics?: string[]
   canary?: boolean
 }
 
@@ -224,6 +227,7 @@ export interface TokenUpdatePayload {
   daily_max_bytes?: number
   allow_public?: boolean
   allow_bind?: boolean
+  topics?: string[]
   canary?: boolean
 }
 

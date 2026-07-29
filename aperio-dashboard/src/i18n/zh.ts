@@ -885,4 +885,6 @@ export const zh: Record<string, string> = {
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': '改派给同一路由上另一个健康的客户端（若有）。不等待。',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': '在同一客户端重连期间保留该请求，最长不超过 failover 窗口。适用于只有一个客户端、无处可切的路由。',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': '先试另一个客户端；若该路由没有，则等待一个回来。最宽容，也最慢放弃。',
+  'Message topics (comma separated, empty = no messaging)': '消息主题（逗号分隔，留空 = 不允许消息）',
+  '{count} topic(s)': '{count} 个主题',
 }

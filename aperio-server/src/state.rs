@@ -720,6 +720,11 @@ pub(crate) struct ClientPerms {
   pub(crate) allow_public: bool,
   /// May this token bind another client's tunnels within its organization?
   pub(crate) allow_bind: bool,
+  /// Topic filters this token may publish to and subscribe to. Empty = no
+  /// messaging at all, which is the default for a token that never asked for
+  /// it: a capability that switches itself on for everything predating it is
+  /// how a permission model stops meaning anything.
+  pub(crate) topics: Vec<String>,
   /// Organization this token (and therefore this client) belongs to
   /// (None = master).
   pub(crate) org_id: Option<String>,
@@ -741,6 +746,7 @@ impl ClientPerms {
       token_id: None,
       allow_public: true,
       allow_bind: true,
+      topics: vec!["#".to_string()],
       org_id: None,
       org_hostnames: Vec::new(),
     }

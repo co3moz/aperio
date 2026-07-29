@@ -53,6 +53,17 @@ pub struct ApiToken {
   /// them. This is the capability that separates the two.
   #[serde(default)]
   pub allow_bind: bool,
+  /// Topic filters this token may publish to and subscribe to, for messages
+  /// between the clients of its organization. Empty = messaging is not
+  /// permitted, `#` = everything the organization can see.
+  ///
+  /// Note the convention differs from `hostnames`/`paths` above, where empty
+  /// means unrestricted. It is deliberate: those fence a capability every
+  /// token already had, while this one is new, and a new capability that
+  /// switches itself on for every token that predates it is how a permission
+  /// model quietly stops meaning anything.
+  #[serde(default)]
+  pub topics: Vec<String>,
   /// Marks this token as a canary/decoy: it is never meant to be used, so any
   /// successful authentication with it is a strong breach signal. Presenting a
   /// canary token emits a `canary_tripped` webhook + audit event.
@@ -162,6 +173,12 @@ impl TokenStore {
     allow_bind: bool,
     canary: bool,
     org_id: Option<String>,
+    // Appended rather than filed beside `hostnames`/`paths` where it belongs
+    // semantically: this signature is ten positional arguments long, and
+    // inserting one in the middle is how `canary` once ended up in
+    // `allow_bind`. The compiler names every call site for an added argument;
+    // it cannot see a shifted one.
+    topics: Vec<String>,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -183,6 +200,7 @@ impl TokenStore {
       daily_max_bytes,
       allow_public,
       allow_bind,
+      topics,
       canary,
       org_id,
       prev_token_hash: None,
@@ -210,6 +228,7 @@ impl TokenStore {
     allow_public: Option<bool>,
     allow_bind: Option<bool>,
     canary: Option<bool>,
+    topics: Option<Vec<String>>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -239,6 +258,9 @@ impl TokenStore {
     }
     if let Some(b) = allow_bind {
       token.allow_bind = b;
+    }
+    if let Some(t) = topics {
+      token.topics = t;
     }
     if let Some(c) = canary {
       token.canary = c;
@@ -405,6 +427,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
     assert!(secret.starts_with("apr_"));
     assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -467,6 +490,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
     let first_expiry = record.expires_at.unwrap();
 
@@ -491,6 +515,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
     assert!(store.refresh(&forever).is_none());
 
@@ -507,6 +532,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
     assert!(store.refresh(&dead).is_none());
 
@@ -529,6 +555,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
 
     // Rotation with a grace window: both secrets verify to the same record.
@@ -572,6 +599,7 @@ mod tests {
       false,
       true,
       None,
+      Vec::new(),
     );
     assert!(record.canary);
 
@@ -594,6 +622,7 @@ mod tests {
         None,
         None,
         Some(false),
+        None,
       )
       .unwrap();
     assert!(!updated.canary);
@@ -617,6 +646,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
 
     // First key pins; the same key matches; a different key is a mismatch.
@@ -658,6 +688,7 @@ mod tests {
       false,
       false,
       None,
+      Vec::new(),
     );
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());

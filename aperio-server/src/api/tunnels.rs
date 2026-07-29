@@ -211,6 +211,8 @@ pub(crate) async fn tunnels_create_handler(
       false,
       false,
       org,
+      // Nor sending messages to the organization it is briefly a guest of.
+      Vec::new(),
     )
   };
   info!(

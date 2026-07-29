@@ -67,6 +67,8 @@ interface TokenFormState {
   dailyMaxMb: string
   allowPublic: boolean
   allowBind: boolean
+  /** Comma-separated topic filters; empty means messaging is not permitted. */
+  topics: string
   canary: boolean
 }
 
@@ -81,6 +83,7 @@ function formFromToken(tok: TokenView | null): TokenFormState {
     dailyMaxMb: tok?.daily_max_bytes != null ? String(tok.daily_max_bytes / (1024 * 1024)) : '',
     allowPublic: tok?.allow_public ?? false,
     allowBind: tok?.allow_bind ?? false,
+    topics: (tok?.topics ?? []).join(', '),
     canary: tok?.canary ?? false,
   }
 }
@@ -142,6 +145,7 @@ function TokenFormDialog({
           ...(Number.isNaN(dailyBytes) || dailyBytes < 0 ? {} : { daily_max_bytes: dailyBytes }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
+          topics: splitList(form.topics),
           canary: form.canary,
         })
         onSaved()
@@ -161,6 +165,7 @@ function TokenFormDialog({
           ...(Number.isNaN(dailyBytes) || dailyBytes <= 0 ? {} : { daily_max_bytes: dailyBytes }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
+          topics: splitList(form.topics),
           canary: form.canary,
         })
         onSaved()
@@ -234,6 +239,11 @@ function TokenFormDialog({
           {field(t('Allowed hostnames (comma separated, * = all)'), 'hostnames', '*')}
           {field(t('Allowed path binds (comma separated, * = all)'), 'paths', '*')}
           {field(t('Allowed source IPs / CIDRs'), 'ips', '0.0.0.0/0')}
+          {field(
+            t('Message topics (comma separated, empty = no messaging)'),
+            'topics',
+            'deploy/#, $aperio/client/+',
+          )}
           {field(
             editing
               ? t('New lifetime in seconds from now (0 = never, empty = keep)')
@@ -423,6 +433,11 @@ export function TokensSection() {
                       )}
                       {tok.allow_public && <TintBadge tint="green">{t('public ok')}</TintBadge>}
                       {tok.allow_bind && <TintBadge tint="blue">{t('may bind')}</TintBadge>}
+                      {tok.topics.length > 0 && (
+                        <TintBadge tint="blue">
+                          {t('{count} topic(s)', { count: tok.topics.length })}
+                        </TintBadge>
+                      )}
                       {tok.canary && <TintBadge tint="red">{t('canary')}</TintBadge>}
                       {tok.max_rps == null &&
                         tok.daily_max_bytes == null &&

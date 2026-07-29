@@ -362,3 +362,75 @@ async fn a_server_event_stays_inside_its_organization() {
   assert!(delivered(&mut acme).is_some());
   assert!(delivered(&mut other).is_none());
 }
+
+/// A non-master token scoped to `topics`.
+fn scoped(topics: &[&str]) -> ClientPerms {
+  ClientPerms {
+    master: false,
+    token_id: Some("t".to_string()),
+    topics: topics.iter().map(|s| s.to_string()).collect(),
+    ..ClientPerms::master()
+  }
+}
+
+#[test]
+fn a_token_may_only_use_the_topics_it_carries() {
+  // One rule for both directions: publishing to a topic and subscribing to it
+  // are the same access to the same conversation.
+  let scope = scoped(&["deploy/#", "metrics/cpu"]);
+  assert!(may_use_topic(&scope, "deploy/web"));
+  assert!(may_use_topic(&scope, "deploy/web/eu"));
+  assert!(may_use_topic(&scope, "deploy/#"));
+  assert!(may_use_topic(&scope, "metrics/cpu"));
+  assert!(!may_use_topic(&scope, "metrics/memory"));
+  assert!(!may_use_topic(&scope, "secrets/rotate"));
+
+  // Subscribing to everything must not be a way around a scope that named
+  // one subtree.
+  assert!(!may_use_topic(&scope, "#"));
+  assert!(!may_use_topic(&scope, "+/web"));
+  // A `+` inside the granted subtree is fine: it cannot reach outside it.
+  assert!(may_use_topic(&scope, "deploy/+"));
+
+  // Empty means no messaging at all, which is what a token that never asked
+  // for the capability carries.
+  assert!(!may_use_topic(&scoped(&[]), "anything"));
+  // And the master token is unrestricted, as it is everywhere else.
+  assert!(may_use_topic(&ClientPerms::master(), "#"));
+}
+
+#[test]
+fn a_granted_wildcard_covers_what_it_should_and_no_more() {
+  let one_level = scoped(&["deploy/+/eu"]);
+  assert!(may_use_topic(&one_level, "deploy/web/eu"));
+  assert!(may_use_topic(&one_level, "deploy/+/eu"));
+  assert!(!may_use_topic(&one_level, "deploy/web/us"));
+  // `#` in the asked position would reach past the single level granted.
+  assert!(!may_use_topic(&one_level, "deploy/#"));
+  assert!(!may_use_topic(&one_level, "deploy/#/eu"));
+}
+
+#[tokio::test]
+async fn a_subscription_outside_the_token_is_refused_by_name() {
+  // Silently dropping the filter would leave the client believing it is
+  // subscribed and waiting for messages that never come.
+  let state = Arc::new(test_state());
+  let mut handle = mock_client(None, None, None, None);
+  handle.instance_group = Some("p".to_string());
+  handle.perms = scoped(&["deploy/#"]);
+  state.clients.lock().await.insert("c".to_string(), handle);
+
+  let refused = set_subscriptions(
+    &state,
+    "c",
+    vec!["deploy/web".to_string(), "secrets/#".to_string()],
+    true,
+  )
+  .await;
+  assert_eq!(refused.len(), 1, "{refused:?}");
+  assert_eq!(refused[0].0, "secrets/#");
+  assert!(refused[0].1.contains("token"), "{refused:?}");
+
+  let clients = state.clients.lock().await;
+  assert_eq!(clients["c"].subscriptions, vec!["deploy/web".to_string()]);
+}

@@ -427,6 +427,12 @@ pub enum TunnelMessage {
   Subscribe { topics: Vec<String> },
   /// Client → server: drop these filters again.
   Unsubscribe { topics: Vec<String> },
+  /// Server → client: a `Subscribe` filter was not accepted, and why.
+  ///
+  /// Without it the refusal is only in the server's log, and the operator of
+  /// the client sees a subscription that silently never delivers, which is
+  /// indistinguishable from a topic nobody publishes on.
+  SubscribeRefused { topic: String, reason: String },
   /// Either direction: one message on `topic`.
   ///
   /// Client → server publishes it to the organization; server → client is a

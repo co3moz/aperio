@@ -902,4 +902,6 @@ export const ja: Record<string, string> = {
   'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': '同じルートの別の正常なクライアントに再ディスパッチします（あれば）。待機はしません。',
   'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': '同じクライアントが再接続する間、フェイルオーバー期間まではリクエストを保持します。切り替え先のない単一クライアントのルート向けです。',
   'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'まず別のクライアントを試し、ルートに他がなければ復帰を待ちます。最も寛容で、最も諦めが遅い設定です。',
+  'Message topics (comma separated, empty = no messaging)': 'メッセージトピック（カンマ区切り、空 = メッセージ不可）',
+  '{count} topic(s)': '{count} 個のトピック',
 }

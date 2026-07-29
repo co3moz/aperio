@@ -14,9 +14,17 @@ Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket fr
 
 One trade-off: streamed uploads cannot fail over or be replayed from the request inspector, because the body is consumed as it is forwarded.
 
+## Messages between clients (v4)
+
+The current `PROTOCOL_VERSION` is **4**, which adds four frames carrying messages between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, and `SubscribeRefused` says which filter was not accepted and why.
+
+They ride the connection that already exists, so nothing new is dialled and the message is authenticated by the token the client connected with. The server keys subscriptions on the client *process* rather than the connection, so a client running several services receives one copy rather than one per service. See [Messages Between Clients](messaging.md) for the whole shape.
+
+An older client is unaffected: it never sends `Subscribe`, so it never receives a `Publish`, and the two server-to-client frames are ignored the way every unknown message is.
+
 ## Per-stream flow control
 
-The current `PROTOCOL_VERSION` is **3**, which adds flow control to everything that streams: response bodies, proxied WebSockets and raw TCP relays.
+`PROTOCOL_VERSION` **3** added flow control to everything that streams: response bodies, proxied WebSockets and raw TCP relays.
 
 The problem it solves is a visitor who reads slower than the backend produces. A tunnel connection has a single read loop shared by every request and stream on it, so the server must never block on one consumer — but it also cannot buffer without bound, and dropping the stream would cut a perfectly healthy download. So the server pushes back on the *producer* instead:
 
