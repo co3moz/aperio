@@ -85,6 +85,38 @@ pub(crate) async fn metrics_handler(
   drop(clients);
   let persistent = state.persistent_stats.lock().await.snapshot();
   let pending = state.pending_requests.lock().await.len();
+  // Subscribers are counted per client *process*, the way every other
+  // per-client view counts them: a client running three services is one
+  // subscriber, not three.
+  //
+  // Filters are counted per process too, and deduplicated: every connection
+  // of a client sends the whole set, so counting them raw would report four
+  // subscriptions for a client that asked for two, which is an artifact of
+  // how the set is kept rather than anything an operator asked about.
+  let (subscribers, subscriptions) = {
+    let clients = state.clients.lock().await;
+    let mut per_process: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
+      std::collections::HashMap::new();
+    for (id, handle) in clients.iter() {
+      if handle.subscriptions.is_empty() {
+        continue;
+      }
+      let process = handle.instance_group.as_deref().unwrap_or(id.as_str());
+      per_process
+        .entry(process)
+        .or_default()
+        .extend(handle.subscriptions.iter().map(String::as_str));
+    }
+    let filters: usize = per_process.values().map(|f| f.len()).sum();
+    (per_process.len(), filters)
+  };
+  let awaiting_ack: usize = state
+    .pending_messages
+    .lock()
+    .await
+    .values()
+    .map(Vec::len)
+    .sum();
   let ws_streams = state.ws_streams.lock().await.len();
   let uptime = state.server_start_time.elapsed().as_secs();
 
@@ -121,6 +153,64 @@ pub(crate) async fn metrics_handler(
   out.push_str("# HELP aperio_ws_streams_active Active proxied WebSocket streams.\n");
   out.push_str("# TYPE aperio_ws_streams_active gauge\n");
   out.push_str(&format!("aperio_ws_streams_active {}\n", ws_streams));
+  // Messaging between the clients of an organization. `dropped` is the one
+  // to alert on: it means a subscriber's connection was not keeping up and
+  // messages did not reach it.
+  let messages = &state.message_metrics;
+  for (name, help, kind, value) in [
+    (
+      "aperio_messages_published_total",
+      "Messages accepted for publication between clients.",
+      "counter",
+      messages.published.load(Ordering::Relaxed),
+    ),
+    (
+      "aperio_messages_delivered_total",
+      "Message deliveries handed to a client process (one publish to three subscribers counts three).",
+      "counter",
+      messages.delivered.load(Ordering::Relaxed),
+    ),
+    (
+      "aperio_messages_dropped_total",
+      "Message deliveries dropped because a subscriber was not keeping up.",
+      "counter",
+      messages.dropped.load(Ordering::Relaxed),
+    ),
+    (
+      "aperio_messages_resent_total",
+      "QoS 1 deliveries sent again because no acknowledgement came back.",
+      "counter",
+      messages.resent.load(Ordering::Relaxed),
+    ),
+    (
+      "aperio_messages_abandoned_total",
+      "QoS 1 messages given up on after the acknowledgement window elapsed.",
+      "counter",
+      messages.abandoned.load(Ordering::Relaxed),
+    ),
+    (
+      "aperio_message_subscribers",
+      "Client processes holding at least one subscription.",
+      "gauge",
+      subscribers as u64,
+    ),
+    (
+      "aperio_message_subscriptions",
+      "Distinct topic filters subscribed to, summed over client processes.",
+      "gauge",
+      subscriptions as u64,
+    ),
+    (
+      "aperio_messages_awaiting_ack",
+      "QoS 1 deliveries held while their acknowledgement is outstanding.",
+      "gauge",
+      awaiting_ack as u64,
+    ),
+  ] {
+    out.push_str(&format!(
+      "# HELP {name} {help}\n# TYPE {name} {kind}\n{name} {value}\n"
+    ));
+  }
   out.push_str("# HELP aperio_uptime_seconds Server uptime in seconds.\n");
   out.push_str("# TYPE aperio_uptime_seconds gauge\n");
   out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));

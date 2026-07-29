@@ -186,6 +186,12 @@ A subscriber that stops acknowledging altogether holds at most 256 messages befo
 
 The settings dialog's **Messages** pane lists the client processes currently subscribed and the filters they asked for, and publishes a message with a topic, a body and the QoS switch. It is the quickest way to answer "why did nothing happen": the subscriber list and the reached-client count together tell a wrong filter from a wrong topic from a token that does not carry it.
 
+## Watching it
+
+The [Prometheus endpoint](observability.md#prometheus-metrics) counts what the messaging path does: `aperio_messages_published_total`, `aperio_messages_delivered_total`, `aperio_messages_dropped_total`, `aperio_messages_resent_total`, `aperio_messages_abandoned_total`, and the gauges `aperio_message_subscribers`, `aperio_message_subscriptions`, `aperio_messages_awaiting_ack`.
+
+`dropped` is the one worth an alert. It counts a delivery that could not be written because the subscriber's connection was not keeping up, which means that client silently missed a message; nothing else in the system will tell you. `abandoned` is its QoS 1 counterpart: a message that was resent until the window ran out and was then given up on.
+
 ## What this is not
 
 - **Nothing is stored for a client that is away**, at any QoS. A client that reconnects does not receive what it missed. That is deliberate: this serves reacting to something happening now, and replaying an hour-old event at a machine that just came back is a bug rather than a service.

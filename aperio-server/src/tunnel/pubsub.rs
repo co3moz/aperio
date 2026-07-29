@@ -85,6 +85,28 @@ impl Publisher<'_> {
   }
 }
 
+/// What the messaging path has done, for the metrics endpoint.
+///
+/// Atomics rather than a counter behind the stats mutex: a publish already
+/// takes the client-map lock to find its subscribers, and adding a second
+/// contended lock to the same path to count what it did would be paying for
+/// the observation in the thing observed.
+#[derive(Default)]
+pub(crate) struct MessageMetrics {
+  /// Messages accepted for publication, whatever they reached.
+  pub(crate) published: std::sync::atomic::AtomicU64,
+  /// Deliveries handed to a client process. One publish to three subscribers
+  /// counts three.
+  pub(crate) delivered: std::sync::atomic::AtomicU64,
+  /// Deliveries dropped because a subscriber's connection was not keeping up.
+  /// The number to alert on: it means a client is missing messages.
+  pub(crate) dropped: std::sync::atomic::AtomicU64,
+  /// QoS 1 deliveries sent again because no acknowledgement came back.
+  pub(crate) resent: std::sync::atomic::AtomicU64,
+  /// QoS 1 messages given up on after the acknowledgement window.
+  pub(crate) abandoned: std::sync::atomic::AtomicU64,
+}
+
 /// One QoS 1 delivery waiting to be acknowledged.
 pub(crate) struct Pending {
   pub(crate) id: String,
@@ -268,6 +290,11 @@ pub(crate) async fn publish(
     out
   };
 
+  use std::sync::atomic::Ordering as AtomicOrdering;
+  state
+    .message_metrics
+    .published
+    .fetch_add(1, AtomicOrdering::Relaxed);
   let processes = targets.len();
   let mut connections = 0usize;
   let mut delivered_to: Vec<String> = Vec::new();
@@ -278,9 +305,17 @@ pub(crate) async fn publish(
     match tx.try_send(axum::extract::ws::Message::Text(text.clone())) {
       Ok(()) => {
         connections += 1;
+        state
+          .message_metrics
+          .delivered
+          .fetch_add(1, AtomicOrdering::Relaxed);
         delivered_to.push(process);
       }
       Err(e) => {
+        state
+          .message_metrics
+          .dropped
+          .fetch_add(1, AtomicOrdering::Relaxed);
         tracing::warn!("Dropping message {id} for client {connection_id}: {e}");
       }
     }
@@ -415,6 +450,10 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
         let expired = now.duration_since(message.first_sent) >= MAX_ACK_WAIT;
         if expired {
           abandoned += 1;
+          state
+            .message_metrics
+            .abandoned
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
           tracing::warn!(
             "Giving up on message {} to '{}' after {} attempt(s) with no acknowledgement",
             message.id,

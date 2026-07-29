@@ -95,6 +95,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
   Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
     pending_messages: Mutex::new(HashMap::new()),
+    message_metrics: Default::default(),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {
       connected: false,
@@ -490,4 +491,114 @@ async fn bandwidth_month_with_count() {
   let json = body_json(resp).await;
   assert_eq!(json["unit"], "month");
   assert_eq!(json["periods"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn metrics_report_the_messaging_counters() {
+  let state = build_state(test_config(None));
+  // A subscriber holding two connections for one process: the gauges count
+  // the process once and its filters as many times as they exist.
+  //
+  // The receivers are kept alive deliberately: `mock_client` drops its own,
+  // which closes the channel, and a delivery to a closed channel is counted
+  // as dropped rather than delivered — which is correct, and not what this
+  // test is about.
+  let mut keep_alive = Vec::new();
+  for (id, filters) in [
+    ("conn-1", vec!["deploy/#".to_string()]),
+    ("conn-2", vec!["deploy/#".to_string(), "ops/+".to_string()]),
+  ] {
+    let (tx, rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(8);
+    keep_alive.push(rx);
+    let mut handle = mock_client();
+    handle.tx = tx;
+    handle.instance_group = Some("one-process".to_string());
+    handle.subscriptions = filters;
+    state.clients.lock().await.insert(id.to_string(), handle);
+  }
+  // A connection with no subscription must not count as a subscriber.
+  state
+    .clients
+    .lock()
+    .await
+    .insert("quiet".to_string(), mock_client());
+
+  crate::tunnel::pubsub::publish(
+    &state,
+    None,
+    "deploy/web",
+    b"go",
+    crate::tunnel::pubsub::Publisher::Server,
+    1,
+  )
+  .await
+  .unwrap();
+
+  let resp = metrics_handler(
+    State(state.clone()),
+    axum::extract::Query(HashMap::new()),
+    HeaderMap::new(),
+  )
+  .await;
+  let body = body_string(resp).await;
+  assert!(body.contains("aperio_messages_published_total 1"), "{body}");
+  assert!(body.contains("aperio_messages_delivered_total 1"), "{body}");
+  assert!(body.contains("aperio_messages_dropped_total 0"), "{body}");
+  assert!(body.contains("aperio_message_subscribers 1"), "{body}");
+  // Two connections of one process asking for `deploy/#` is one subscription,
+  // not two: every connection sends the whole set, and counting the copies
+  // would report a number nobody asked for.
+  assert!(body.contains("aperio_message_subscriptions 2"), "{body}");
+  // The QoS 1 delivery is held until it is acknowledged.
+  assert!(body.contains("aperio_messages_awaiting_ack 1"), "{body}");
+  // Every family carries its HELP and TYPE, or Prometheus rejects the scrape.
+  assert!(
+    body.contains("# TYPE aperio_messages_published_total counter"),
+    "{body}"
+  );
+  assert!(
+    body.contains("# TYPE aperio_message_subscribers gauge"),
+    "{body}"
+  );
+}
+
+#[tokio::test]
+async fn a_dropped_delivery_is_counted_because_it_is_the_one_to_alert_on() {
+  let state = build_state(test_config(None));
+  // A subscriber whose channel is already full: the delivery cannot be
+  // written and the client silently misses the message. The counter is how
+  // an operator finds out.
+  let (tx, _rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(1);
+  tx.try_send(axum::extract::ws::Message::Text("occupied".into()))
+    .unwrap();
+  let mut stuck = mock_client();
+  stuck.tx = tx;
+  stuck.instance_group = Some("stuck".to_string());
+  stuck.subscriptions = vec!["#".to_string()];
+  state
+    .clients
+    .lock()
+    .await
+    .insert("stuck".to_string(), stuck);
+
+  crate::tunnel::pubsub::publish(
+    &state,
+    None,
+    "deploy/web",
+    b"go",
+    crate::tunnel::pubsub::Publisher::Server,
+    0,
+  )
+  .await
+  .unwrap();
+
+  let resp = metrics_handler(
+    State(state.clone()),
+    axum::extract::Query(HashMap::new()),
+    HeaderMap::new(),
+  )
+  .await;
+  let body = body_string(resp).await;
+  assert!(body.contains("aperio_messages_dropped_total 1"), "{body}");
+  assert!(body.contains("aperio_messages_delivered_total 0"), "{body}");
 }

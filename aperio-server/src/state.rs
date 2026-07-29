@@ -1435,6 +1435,8 @@ pub(crate) struct AppState {
   /// connection that died between the write and the acknowledgement, not a
   /// subscriber that is away.
   pub(crate) pending_messages: Mutex<HashMap<String, Vec<crate::tunnel::pubsub::Pending>>>,
+  /// Counters for the messaging path, rendered by the metrics endpoint.
+  pub(crate) message_metrics: crate::tunnel::pubsub::MessageMetrics,
   pub(crate) client_connected: watch::Sender<bool>,
   /// Persisted autoscaling records, armed per bind.
   pub(crate) scaling_store: Mutex<crate::store::scaling::ScalingStore>,

@@ -1108,6 +1108,7 @@ async fn async_main() {
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
     pending_messages: Mutex::new(HashMap::new()),
+    message_metrics: Default::default(),
     client_connected: client_connected_tx,
     dashboard_enabled,
     shutdown: shutdown_tx,

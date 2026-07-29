@@ -4,7 +4,7 @@
 PHASE="messages"
 
 step "Publish reaches a subscriber, once per client process"
-start_server
+start_server APERIO_METRICS=1 APERIO_METRICS_TOKEN=e2e-scrape
 MSG_BACKEND_PORT=18113
 start_backend "$MSG_BACKEND_PORT"
 MSG_BACKEND_PID=$!
@@ -232,5 +232,23 @@ retry 20 test -f "$RUN_DIR/payload" || fail "the subscription did not run its co
 [ ! -f "$RUN_DIR/PWNED" ] \
   || fail "the payload was interpreted by the shell"
 echo "  ok: a subscription runs a command, and the payload stays data"
+
+step "The messaging counters reach the metrics endpoint"
+SCRAPE="$LOG_DIR/messages-metrics.txt"
+curl -sf "$BASE/aperio/metrics?token=e2e-scrape" >"$SCRAPE" || fail "the metrics endpoint refused the scrape"
+# Every family needs its HELP and TYPE or Prometheus rejects the whole scrape.
+for FAMILY in aperio_messages_published_total aperio_messages_delivered_total \
+              aperio_messages_dropped_total aperio_message_subscribers \
+              aperio_messages_awaiting_ack; do
+  grep -q "^# TYPE $FAMILY " "$SCRAPE" || fail "$FAMILY has no TYPE line"
+  grep -q "^$FAMILY " "$SCRAPE" || fail "$FAMILY has no sample"
+done
+# The phase published a good deal by now, and every one of those publishes
+# reached the subscriber that is still connected.
+PUBLISHED="$(grep '^aperio_messages_published_total ' "$SCRAPE" | awk '{print $2}')"
+DELIVERED="$(grep '^aperio_messages_delivered_total ' "$SCRAPE" | awk '{print $2}')"
+[ "$PUBLISHED" -gt 0 ] || fail "nothing was counted as published"
+[ "$DELIVERED" -gt 0 ] || fail "nothing was counted as delivered"
+echo "  ok: the messaging counters are scrapeable ($PUBLISHED published, $DELIVERED delivered)"
 
 kill "$MSG_BACKEND_PID" 2>/dev/null || true
