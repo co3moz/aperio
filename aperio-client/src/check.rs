@@ -139,9 +139,20 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
         settings.tunnels.len()
       ),
     ),
+    // A binder exposes nothing: it exists to open local listeners onto tunnels
+    // someone else declared. Reporting a missing target for one was wrong
+    // twice over, since the message did not even mention the section the file
+    // is made of.
+    _ if !settings.bind_tunnels.is_empty() => pass(
+      "target",
+      format!(
+        "none — binds {} tunnel(s) (from ./aperio.yaml)",
+        settings.bind_tunnels.len()
+      ),
+    ),
     _ => fail(
       "target",
-      "missing (--target / APERIO_TARGET / yaml: services: or tunnels: list)".to_string(),
+      "missing (--target / APERIO_TARGET / yaml: services:, tunnels: or bind-tunnels:)".to_string(),
       &mut failures,
     ),
   }

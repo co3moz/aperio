@@ -344,6 +344,18 @@ async fn drive(scenario: &str) -> ! {
         ..Default::default()
       }];
     }
+    "binder" => {
+      // A file made only of `bind-tunnels:` is a binder: it exposes nothing
+      // and exists to open local listeners onto tunnels someone else
+      // declared. `check` used to call that a missing target.
+      let port = spawn_mock(MockCfg::default());
+      s.server = Some(format!("http://127.0.0.1:{port}"));
+      s.token = Some("t".to_string());
+      s.bind_tunnels.insert(
+        "pg-main".to_string(),
+        aperio_config::BindTunnelValue::Port(15432),
+      );
+    }
     "tunnels" => {
       let port = spawn_mock(MockCfg::default());
       s.tcp_target = Some("127.0.0.1:1".to_string()); // connection refused
@@ -493,6 +505,17 @@ fn a_services_list_wins_over_a_top_level_target() {
   );
   // And the entry it probed is the unreachable one, so the run fails.
   assert_eq!(code, 1);
+}
+
+#[test]
+fn a_binder_only_file_is_a_complete_configuration() {
+  let (code, out) = run_scenario_output("binder");
+  assert!(
+    out.contains("binds 1 tunnel(s)"),
+    "should report what it binds, got:\n{out}"
+  );
+  assert!(!out.contains("FAIL  target"), "got:\n{out}");
+  assert_eq!(code, 0, "nothing in this file is wrong:\n{out}");
 }
 
 #[test]

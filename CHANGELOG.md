@@ -72,6 +72,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **`aperio-client check` accepts a binder as a complete configuration.** A file made only of `bind-tunnels:` opens local listeners onto tunnels another client declared and exposes nothing of its own, which is exactly what a binder is for; the check called it a missing target, and the message it printed did not even name the section the file is made of.
+
 - **A backend that had just passed its first probe could be reported as "still checking".** The client announced the healthy verdict and recorded that a probe had completed as two separate steps, so a heartbeat sent in between carried "up, and nobody has looked" — a pair that describes nothing, and the one the dashboard draws as CHECKING rather than routable. The next heartbeat corrected it, which is why it took a one-in-many end-to-end run to see it at all. The two are read together in one place now, and being healthy is itself taken as evidence a probe completed, so the contradictory pair can no longer be constructed.
 
 - **`aperio-client check` reported on the backend the client was about to ignore.** In a file that named one service at the top level *and* carried a `services:` list, the check named the top-level target and probed it, while the runtime does the opposite — the list wins. So the one command whose job is "will this configuration work" answered for the wrong machine and never touched the one that would serve traffic. It now mirrors the runtime exactly (a positional CLI target still overrides the list, as it always did) and warns, naming the keys that are being ignored.
