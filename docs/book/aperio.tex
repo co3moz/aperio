@@ -434,13 +434,24 @@ server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
 
-target: http://localhost:3000
-hostname: app.example.com
+services:
+  - target: http://localhost:3000
+    hostname: app.example.com
+    health:
+      endpoint: /health    # hold the service out of routing until it answers
 
-# Optional, but worth setting early:
+# Optional, but worth setting early. Top-level keys are the defaults every
+# entry inherits:
 max_concurrent: 8          # what one instance of the backend can take
-target_health: /health     # hold the service out of routing until it answers
 \end{lstlisting}
+
+A file describes its backends under \code{services:}, even when there is
+one of them. Naming a single backend at the top level instead
+(\code{target:}, \code{serve:}, \code{hostname:}, \code{path:},
+\code{tcp\_target:}, \code{target\_health:}) still works and is
+deprecated: it is removed in 0.7.0, and until then a client that finds it
+says so at startup. Single-service mode itself is unaffected where it
+belongs, on the command line and in the environment.
 
 The file is watched: editing it re-resolves the whole configuration and
 respawns the services, so every setting takes effect without a restart.
@@ -645,16 +656,20 @@ cannot claim what its credential does not allow.
 
 \begin{lstlisting}[language=aperioyaml]
 # ./aperio.yaml (client)
-hostname: app.example.com     # or a list: [app.example.com, www.example.com]
-path: /api                    # optional prefix bind
-trim_bind: true               # strip /api before forwarding (default when a path bind is set)
+services:
+  - target: http://localhost:3000
+    hostname: app.example.com   # or a list: [app.example.com, www.example.com]
+    path: /api                  # optional prefix bind
+    trim_bind: true             # strip /api before forwarding (default with a path bind)
 \end{lstlisting}
+
+A bind belongs to the service it binds, which is why it is written on the
+entry rather than beside it.
 
 \section{Several services from one process}
 
-Replace \code{target} with \code{services:} and the client opens one
-tunnel connection per entry, each with its own binds, health probe and
-limits:
+Add an entry per backend and the client opens one tunnel connection per
+entry, each with its own binds, health probe and limits:
 
 \begin{lstlisting}[language=aperioyaml]
 # ./aperio.yaml (client)

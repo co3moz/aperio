@@ -111,4 +111,4 @@ An organization can bring its own identity provider. Configure its issuer, clien
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_organizations`](examples/s_organizations/): multi-tenancy: create, select, mint a scoped token
+- [`organizations`](examples/organizations/): multi-tenancy: create, select, mint a scoped token

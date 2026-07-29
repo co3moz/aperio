@@ -84,5 +84,4 @@ The practical consequence is that a served directory exposes exactly the files u
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_static_site`](examples/s_static_site/): publish one directory
-- [`m_static_site`](examples/m_static_site/): several directories, and static next to proxied services
+- [`static_site`](examples/static_site/): serve local directories, one or several

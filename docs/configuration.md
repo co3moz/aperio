@@ -670,9 +670,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_simple`](examples/s_simple/): minimal one-target pair
-- [`m_services`](examples/m_services/): several backends from one client
-- [`s_headers`](examples/s_headers/): header add/remove rules
-- [`m_headers`](examples/m_headers/): per-service header rules
-- [`s_static_site`](examples/s_static_site/): serve a static directory
-- [`m_static_site`](examples/m_static_site/): two static sites, one client
+- [`simple`](examples/simple/): minimal one-target pair
+- [`multiple_services`](examples/multiple_services/): several backends from one client
+- [`headers`](examples/headers/): header rules on both sides, and per service
+- [`static_site`](examples/static_site/): serve local directories, one or several

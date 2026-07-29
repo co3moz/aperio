@@ -139,6 +139,6 @@ controls in place.
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_emergency_tunnels_2`](examples/s_emergency_tunnels_2/): end-to-end encrypted tunnels
-- [`s_allowed_ips`](examples/s_allowed_ips/): restrict to visitor IPs
-- [`s_behind_proxy`](examples/s_behind_proxy/): behind a reverse proxy / CDN
+- [`encrypted_tunnels`](examples/encrypted_tunnels/): end-to-end encrypted tunnels
+- [`allowed_ips`](examples/allowed_ips/): per-service visitor IP allowlists
+- [`behind_proxy`](examples/behind_proxy/): behind a reverse proxy / CDN

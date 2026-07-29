@@ -68,8 +68,7 @@ at all, a bad backend is still better than a guaranteed error.
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_load_balancing`](examples/s_load_balancing/): primary/standby tiers
-- [`m_load_balancing`](examples/m_load_balancing/): per-service priority tiers
-- [`s_load_balancing_2`](examples/s_load_balancing_2/): sticky sessions
-- [`s_random_subdomain`](examples/s_random_subdomain/): preview subdomains
-- [`s_routes`](examples/s_routes/): client-less routes
+- [`load_balancing`](examples/load_balancing/): primary/standby tiers, per service
+- [`sticky_sessions`](examples/sticky_sessions/): sticky sessions
+- [`random_subdomain`](examples/random_subdomain/): preview subdomains
+- [`routes`](examples/routes/): client-less routes

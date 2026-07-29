@@ -151,4 +151,4 @@ Everything the dashboard does goes through a REST API under `/aperio/api/`, and 
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_dashboard`](examples/s_dashboard/): separate password, IP fencing, headless off
+- [`dashboard`](examples/dashboard/): separate password, IP fencing, headless off

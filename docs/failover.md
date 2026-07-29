@@ -61,4 +61,4 @@ loop forever.
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_failover`](examples/s_failover/): in-flight failover
+- [`failover`](examples/failover/): in-flight failover

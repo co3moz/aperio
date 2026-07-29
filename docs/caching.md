@@ -106,7 +106,5 @@ trade-offs in [Performance Tuning](performance-tuning.md).
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_cache`](examples/s_cache/): server-side GET cache
-- [`m_cache`](examples/m_cache/): per-service cache opt-in
-- [`s_resilience`](examples/s_resilience/): serve stale while offline
-- [`m_resilience`](examples/m_resilience/): per-service serve-stale
+- [`cache`](examples/cache/): server-side GET cache, opted in per service
+- [`resilience`](examples/resilience/): serve stale while offline, per service

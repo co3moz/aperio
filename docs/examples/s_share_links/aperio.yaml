@@ -1,7 +1,0 @@
-server:
-  url: https://tunnel.example.com
-  token: apr_share_change_me
-
-# The gated site visitors reach with a share link.
-target: http://localhost:3000
-hostname: app.example.com

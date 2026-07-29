@@ -155,4 +155,4 @@ Selectors (at least one required): `hostname` (a request hostname), `token` (a t
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_observability`](examples/s_observability/): metrics, traces, alerts
+- [`observability`](examples/observability/): metrics, traces, alerts

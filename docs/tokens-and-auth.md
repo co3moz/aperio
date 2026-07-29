@@ -117,7 +117,6 @@ The whole token lifecycle is scriptable: `aperio-client api token create|list|up
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_oidc`](examples/s_oidc/): SSO login in front
-- [`m_visitor_auth`](examples/m_visitor_auth/): visitor login gates
-- [`s_allowed_ips`](examples/s_allowed_ips/): restrict to visitor IPs
-- [`m_allowed_ips`](examples/m_allowed_ips/): per-service IP allowlists
+- [`oidc`](examples/oidc/): SSO login in front
+- [`visitor_auth`](examples/visitor_auth/): visitor login gates
+- [`allowed_ips`](examples/allowed_ips/): per-service visitor IP allowlists

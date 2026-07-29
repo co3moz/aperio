@@ -106,5 +106,4 @@ warning webhook. See [Observability](observability.md).
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_tuning`](examples/s_tuning/): capacity knobs
-- [`m_tuning`](examples/m_tuning/): per-service capacity knobs
+- [`tuning`](examples/tuning/): capacity knobs, shared and per service

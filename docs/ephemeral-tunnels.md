@@ -55,4 +55,4 @@ Preview URLs are public by default, and crawlers do find them. With `APERIO_PREV
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_random_subdomain`](examples/s_random_subdomain/): preview subdomains
+- [`random_subdomain`](examples/random_subdomain/): preview subdomains

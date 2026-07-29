@@ -99,6 +99,6 @@ defend.
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_behind_proxy`](examples/s_behind_proxy/): behind a reverse proxy / CDN
-- [`s_oidc`](examples/s_oidc/): SSO login in front
-- [`s_allowed_ips`](examples/s_allowed_ips/): restrict to visitor IPs
+- [`behind_proxy`](examples/behind_proxy/): behind a reverse proxy / CDN
+- [`oidc`](examples/oidc/): SSO login in front
+- [`allowed_ips`](examples/allowed_ips/): per-service visitor IP allowlists

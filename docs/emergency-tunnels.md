@@ -157,6 +157,6 @@ Deliberate limits: the connection goes to the **first** healthy client that matc
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_emergency_tunnels`](examples/s_emergency_tunnels/): break-glass TCP tunnels
-- [`s_emergency_tunnels_2`](examples/s_emergency_tunnels_2/): end-to-end encrypted tunnels
-- [`s_public_expose`](examples/s_public_expose/): raw public TCP port
+- [`emergency_tunnels`](examples/emergency_tunnels/): break-glass TCP tunnels
+- [`encrypted_tunnels`](examples/encrypted_tunnels/): end-to-end encrypted tunnels
+- [`public_expose`](examples/public_expose/): raw public TCP port

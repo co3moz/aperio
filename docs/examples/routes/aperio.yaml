@@ -1,0 +1,7 @@
+server:
+  url: https://tunnel.example.com
+  token: apr_routes_change_me
+
+services:
+  - target: http://localhost:3000
+    hostname: new.example.com

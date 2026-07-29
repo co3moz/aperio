@@ -28,6 +28,8 @@ project follows semantic versioning per release tag.
 
   **Single-service mode itself is not going away.** It moves to where a one-liner belongs: the positional CLI target and `--serve`/`--hostname`/`--path`, and the `APERIO_TARGET` family in the environment. Those are unchanged and will stay.
 
+- **The examples are one folder per scenario, all written the recommended way.** The `s_`/`m_` split named the shape a file happened to use — single-service or a `services:` list — which stopped being a distinction worth a folder the moment there was one shape. The nine pairs that existed (`s_cache` and `m_cache`, `s_headers` and `m_headers`, …) are merged into one example that shows the feature with several services, since one entry is the same thing with less of it, and the prefixes are gone: `simple`, `cache`, `headers`, `emergency_tunnels`. Two folders that only had a number to tell them apart are named for what they show — `sticky_sessions` and `encrypted_tunnels`. Every client file now describes its backends under `services:`, and every link in the documentation was moved with them.
+
 - **The config builder writes one shape.** The *Single service* / *Services list* choice is gone, since there is no longer a choice to make. The single-service keys are marked deprecated in the emitted schema, so a blank form does not offer them, and an imported file that uses them still shows them — which is what someone migrating such a file needs.
 
 

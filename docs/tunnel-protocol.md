@@ -59,6 +59,5 @@ Total memory is bounded by `APERIO_CACHE_MAX_BYTES` (yaml `cache_max_bytes`) (de
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_grpc`](examples/s_grpc/): gRPC over h2c
-- [`m_grpc`](examples/m_grpc/): gRPC + HTTP in one client
-- [`s_headers`](examples/s_headers/): header add/remove rules
+- [`grpc`](examples/grpc/): a gRPC backend over `h2c://`, alongside HTTP
+- [`headers`](examples/headers/): header rules on both sides, and per service

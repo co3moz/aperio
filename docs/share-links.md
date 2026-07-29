@@ -36,4 +36,4 @@ Every link creation is recorded in the audit log as `share_created` and emitted 
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_share_links`](examples/s_share_links/): temporary visitor access to a gated site
+- [`share_links`](examples/share_links/): temporary visitor access to a gated site

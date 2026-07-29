@@ -1,9 +1,0 @@
-server:
-  url: https://tunnel.example.com
-  # A dynamic token minted while the "Acme" organization was selected (see the
-  # README). The client, and all of its traffic, is then attributed to Acme,
-  # never to master. Swap this for a master token to run under master instead.
-  token: apr_acme_scoped_token_change_me
-
-target: http://localhost:3000
-hostname: app.acme.example.com

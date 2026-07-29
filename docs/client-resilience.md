@@ -58,5 +58,4 @@ Backends often answer `http://` targets with a redirect to `https://`, or bounce
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_health_check`](examples/s_health_check/): backend health probe
-- [`m_health_check`](examples/m_health_check/): per-service health probes
+- [`health_check`](examples/health_check/): independent backend probes per service

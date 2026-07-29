@@ -62,4 +62,4 @@ A single client process can expose several targets, put a `services:` list in `a
 
 Copy-and-adapt config pairs for this topic:
 
-- [`s_simple`](examples/s_simple/): minimal one-target pair
+- [`simple`](examples/simple/): minimal one-target pair
