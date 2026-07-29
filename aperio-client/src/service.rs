@@ -384,6 +384,21 @@ impl BackendHealth {
       changed: Arc::new(tokio::sync::Notify::new()),
     }
   }
+
+  /// The pair a heartbeat reports, read through one place so the two can never
+  /// be sampled apart.
+  ///
+  /// `healthy` implies `probed`: the gated service starts unhealthy and only a
+  /// probe that passed, or a backend that accepted a connection, ever makes it
+  /// healthy — so being up *is* evidence something looked. Deriving it here
+  /// rather than trusting the write order removes the window where a heartbeat
+  /// woken between the two stores said "up, and nobody has checked", which is
+  /// not a state that exists and which the dashboard renders as CHECKING for a
+  /// backend that is already serving.
+  pub(crate) fn report(&self) -> (bool, bool) {
+    let healthy = self.healthy.load(Ordering::SeqCst);
+    (healthy, healthy || self.probed.load(Ordering::SeqCst))
+  }
 }
 
 /// Runs one tunnel service until the process shuts down or `cancel` fires
@@ -456,6 +471,16 @@ pub(crate) async fn run_service(
           probe_client.get(&health_url).send().await,
           Ok(resp) if resp.status().is_success()
         );
+        // Before anything is announced. The heartbeat reads both flags
+        // together, and the healthy-transition notify below wakes it: with
+        // the store left until after, that heartbeat carried "healthy, never
+        // probed" — a pair that describes nothing, and the one the dashboard
+        // renders as CHECKING for a backend already probed and up. It
+        // corrected itself on the next notify, which is exactly why it took a
+        // one-in-many e2e run to see it.
+        if first_result {
+          probed.store(true, Ordering::SeqCst);
+        }
         if ok {
           consecutive_failures = 0;
           if !flag.swap(true, Ordering::SeqCst) {
@@ -485,7 +510,6 @@ pub(crate) async fn run_service(
           }
         }
         if first_result {
-          probed.store(true, Ordering::SeqCst);
           health_changed.notify_waiters();
         }
         first_result = false;
@@ -668,8 +692,11 @@ pub(crate) async fn run_service(
             let hostname_bind_ping = spec.hostnames.first().cloned();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
-            let backend_healthy_ping = backend_healthy.clone();
-            let backend_probed_ping = backend_probed.clone();
+            let health_ping = BackendHealth {
+              healthy: backend_healthy.clone(),
+              probed: backend_probed.clone(),
+              changed: health_changed.clone(),
+            };
             let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
@@ -719,6 +746,8 @@ pub(crate) async fn run_service(
                   break;
                 }
 
+                // One read, so the pair in this heartbeat is one observation.
+                let reported_health = health_ping.report();
                 let ping_msg = TunnelMessage::Ping {
                   client_id: client_id_ping.clone(),
                   timestamp: std::time::SystemTime::now()
@@ -732,8 +761,8 @@ pub(crate) async fn run_service(
                   tcp: tcp_enabled_ping,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
-                  backend_healthy: backend_healthy_ping.load(Ordering::SeqCst),
-                  backend_probed: backend_probed_ping.load(Ordering::SeqCst),
+                  backend_healthy: reported_health.0,
+                  backend_probed: reported_health.1,
                   priority,
                   bandwidth_bps,
                   service: service_name_ping.clone(),

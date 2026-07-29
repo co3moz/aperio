@@ -886,6 +886,49 @@ async fn test_run_service_health_probe_healthy() {
     .unwrap();
 }
 
+#[test]
+fn a_heartbeat_never_reports_healthy_but_unprobed() {
+  // `healthy && !probed` says the backend is up and that nobody has looked.
+  // It is not a state that exists, but it was reachable: the probe announced
+  // the healthy transition and set `probed` after, so a heartbeat woken in
+  // between sent exactly that, and the dashboard showed CHECKING for a backend
+  // already serving. One e2e run in many caught it, which is the wrong way to
+  // find out.
+  //
+  // The window is two instructions wide, so this pins the property instead of
+  // trying to observe the race: the pair is derived in one place, and being
+  // healthy is itself evidence a probe completed.
+  let mut spec = test_spec("ws://127.0.0.1:9/", "http://127.0.0.1:9");
+  spec.target_health = Some("/healthz".to_string());
+  let health = BackendHealth::for_spec(&spec);
+  assert_eq!(
+    health.report(),
+    (false, false),
+    "gated: down, not yet probed"
+  );
+
+  // Exactly the interleaving the probe used to expose.
+  health.healthy.store(true, Ordering::SeqCst);
+  assert_eq!(
+    health.report(),
+    (true, true),
+    "healthy must never be reported without probed"
+  );
+
+  health.probed.store(true, Ordering::SeqCst);
+  assert_eq!(health.report(), (true, true));
+
+  // Unhealthy after a probe stays honest in the other direction: down, and
+  // known to be down, which is what the dashboard draws as DOWN not CHECKING.
+  health.healthy.store(false, Ordering::SeqCst);
+  assert_eq!(health.report(), (false, true));
+
+  // An ungated service is up and probed from the start; nothing to report but
+  // the truth.
+  let plain = BackendHealth::for_spec(&test_spec("ws://127.0.0.1:9/", "http://127.0.0.1:9"));
+  assert_eq!(plain.report(), (true, true));
+}
+
 #[tokio::test]
 async fn test_run_service_health_probe_absolute_url_unhealthy() {
   init_tracing();
