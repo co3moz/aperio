@@ -113,6 +113,12 @@ The settings sit in one accordion, grouped by what they govern. The full descrip
 
 Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 
+## Messages
+
+The settings dialog's **Messages** pane shows the one thing about [client-to-client messaging](messaging.md) that cannot be worked out from the outside: which client processes are listening, and to which topic filters. A publish that reached nobody looks exactly like one that reached everybody, and the difference is almost always a filter that does not match or a token without the topic; both are on this screen at once.
+
+It also publishes. Type a topic and a message and the reply says how many client processes it reached, which is the fastest way to tell a wrong filter from a wrong topic — a publish that reaches nobody says so rather than reporting success. The *At least once* switch is `qos: 1`.
+
 ## Finding a setting
 
 `Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting is listed by name — matching its English name, its translated one, its environment key (`max_body_size`) and its group — **with its current value on the right**, marked when that value is an override rather than the environment default. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.

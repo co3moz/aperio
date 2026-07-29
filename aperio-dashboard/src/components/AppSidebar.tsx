@@ -60,6 +60,7 @@ export type Page =
   | 'settings'
   | 'export'
   | 'webhooks'
+  | 'messages'
   | 'audit'
   | 'users'
   | 'organizations'

@@ -231,6 +231,15 @@ export interface TokenUpdatePayload {
   canary?: boolean
 }
 
+/** One client process listening for messages, and what it asked for. */
+export interface Subscriber {
+  instance_group: string | null
+  service: string | null
+  token_name: string | null
+  connections: number
+  topics: string[]
+}
+
 export interface Webhook {
   id: string
   name: string
@@ -683,6 +692,12 @@ export const api = {
     ),
   setMaintenance: (hostname: string, enabled: boolean) =>
     mutate('/maintenance', json('POST', { hostname, enabled })),
+  subscribers: () => request<Subscriber[]>('/subscribers'),
+  publish: (payload: { topic: string; payload?: string; qos?: number }) =>
+    request<{ topic: string; qos: number; clients: number; connections: number }>(
+      '/publish',
+      json('POST', payload),
+    ),
   orgs: () => request<Organization[]>('/orgs'),
   createOrg: (name: string, hostnames: string[] = []) =>
     request<{ id: string; name: string; hostnames: string[] }>(

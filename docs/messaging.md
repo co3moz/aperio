@@ -136,16 +136,18 @@ Both faces can run at once and share one subscription set, so a shell script on 
 
 ## Server events
 
-Everything the server already reports through webhooks is also published on the reserved `$aperio/` namespace, with the event name's underscores as topic levels:
+Everything the server already reports through webhooks is also published on the reserved `$aperio/` namespace, so a client can react to infrastructure without standing up an HTTP receiver for it. The topic is the event name with its underscores as levels, and the payload is the event's JSON — the same document a webhook would receive.
 
-| Event | Topic |
+| Group | Topics |
 | --- | --- |
-| `client_connected` | `$aperio/client/connected` |
-| `client_draining` | `$aperio/client/draining` |
-| `token_created` | `$aperio/token/created` |
-| `tunnel_bound` | `$aperio/tunnel/bound` |
+| Clients | `$aperio/client/connected`, `$aperio/client/disconnected`, `$aperio/client/draining` |
+| Tokens | `$aperio/token/created`, `$aperio/token/revoked`, `$aperio/token/rotated`, `$aperio/token/expiring`, `$aperio/token/new/ip`, `$aperio/token/pin/mismatch`, `$aperio/canary/tripped` |
+| Tunnels and shares | `$aperio/tunnel/created`, `$aperio/tunnel/deleted`, `$aperio/share/created` |
+| Operations | `$aperio/maintenance/on`, `$aperio/maintenance/off`, `$aperio/settings/updated`, `$aperio/import/applied`, `$aperio/user/created` |
+| Capacity and alerting | `$aperio/alert/triggered`, `$aperio/alert/resolved`, `$aperio/scaling/requested`, `$aperio/org/usage`, `$aperio/disk/usage/warning` |
+| Housekeeping | `$aperio/db/backup`, `$aperio/disk/pruned` |
 
-The payload is the event's JSON, the same document a webhook would receive. So a client can react to infrastructure without standing up an HTTP receiver for it:
+The list is the webhook event list, mechanically transformed; [Observability](observability.md#webhooks) is where the events themselves and their payloads are documented, and anything added there appears here without a second decision. Note what the transformation does to a multi-word name: `token_new_ip` becomes `$aperio/token/new/ip`, so `$aperio/token/#` catches every token event and `$aperio/token/new/+` is not a thing to reach for.
 
 ```yaml
 subscribe:
@@ -179,6 +181,10 @@ A refused subscription is reported by name in the client's log rather than dropp
 The window is the whole of the promise, and it is deliberately short: it covers a connection that died between the write and the acknowledgement, not a subscriber that is away. A client that is offline when you publish does not receive the message later, at any QoS. `qos: 2` is treated as 1, because there is no store-and-forward here to build exactly-once on and granting a level the machinery does not have is worse than saying what it does.
 
 A subscriber that stops acknowledging altogether holds at most 256 messages before the oldest are dropped, so one stuck client cannot grow the server's memory.
+
+## From the dashboard
+
+The settings dialog's **Messages** pane lists the client processes currently subscribed and the filters they asked for, and publishes a message with a topic, a body and the QoS switch. It is the quickest way to answer "why did nothing happen": the subscriber list and the reached-client count together tell a wrong filter from a wrong topic from a token that does not carry it.
 
 ## What this is not
 

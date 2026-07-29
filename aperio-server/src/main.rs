@@ -1243,6 +1243,10 @@ async fn async_main() {
         axum::routing::post(crate::api::publish::publish_handler),
       )
       .route(
+        "/api/subscribers",
+        get(crate::api::publish::subscribers_handler),
+      )
+      .route(
         "/api/cache/stats",
         get(crate::api::purge::cache_stats_handler),
       )

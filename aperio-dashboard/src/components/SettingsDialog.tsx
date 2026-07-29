@@ -1,5 +1,6 @@
 import {
   ArrowDownUpIcon,
+  RadioTowerIcon,
   Building2Icon,
   InboxIcon,
   Settings2Icon,
@@ -9,6 +10,7 @@ import {
 import { AdminKeysSection } from './AdminKeysSection'
 import { ExportImportSection } from './ExportImportSection'
 import { InboxSection } from './InboxSection'
+import { MessagesSection } from './MessagesSection'
 import { OrganizationsSection } from './OrganizationsSection'
 import { SettingsSection } from './SettingsSection'
 import { UsersSection } from './UsersSection'
@@ -35,6 +37,7 @@ export const SETTINGS_PAGES = [
   'users',
   'webhooks',
   'inbox',
+  'messages',
 ] as const
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number]
@@ -56,6 +59,7 @@ export const SETTINGS_PANES: PaneSpec<SettingsPage>[] = [
   { id: 'users', label: 'Users', icon: UsersIcon, minRole: 'admin' },
   { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, minRole: 'viewer' },
   { id: 'inbox', label: 'Webhook Inbox', icon: InboxIcon, minRole: 'viewer' },
+  { id: 'messages', label: 'Messages', icon: RadioTowerIcon, minRole: 'viewer' },
 ]
 
 export function SettingsDialog({
@@ -100,6 +104,7 @@ export function SettingsDialog({
           )}
           {current === 'webhooks' && <WebhooksSection />}
           {current === 'inbox' && <InboxSection />}
+          {current === 'messages' && <MessagesSection />}
         </>
       )}
     </PaneDialog>

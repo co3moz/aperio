@@ -4,7 +4,7 @@ use axum::{
   http::HeaderMap,
   response::{IntoResponse, Response},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -123,4 +123,68 @@ pub(crate) async fn publish_handler(
     "connections": delivered.connections,
   }))
   .into_response()
+}
+
+/// What one client process is listening to.
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct SubscriberView {
+  /// The client process, as the dashboard groups connections elsewhere.
+  pub(crate) instance_group: Option<String>,
+  /// Its display name, when its connections announced one.
+  pub(crate) service: Option<String>,
+  /// The token it connected with, for reading a scope against a subscription.
+  pub(crate) token_name: Option<String>,
+  /// Connections of that process holding a subscription.
+  pub(crate) connections: usize,
+  /// The filters it asked for, deduplicated across those connections.
+  pub(crate) topics: Vec<String>,
+}
+
+/// Lists who in this organization is listening, and to what.
+///
+/// The one thing about messaging that cannot be worked out from the outside.
+/// A publish that reaches nobody looks exactly like a publish that reached
+/// everybody, and the difference is usually a filter that does not match or a
+/// token without the topic.
+#[utoipa::path(get, path = "/aperio/api/subscribers", tag = "dashboard",
+  description = "Lists the client processes subscribed to messages in this organization, and their topic filters.",
+  responses((status = 200, description = "Subscribers and their filters", body = serde_json::Value)))]
+pub(crate) async fn subscribers_handler(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+) -> Json<Vec<SubscriberView>> {
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let clients = state.clients.lock().await;
+  // Grouped by process, like every other per-client view: one client running
+  // three services is one subscriber, not three.
+  let mut by_process: std::collections::BTreeMap<String, SubscriberView> =
+    std::collections::BTreeMap::new();
+  for (connection_id, handle) in clients.iter() {
+    if handle.perms.org_id.as_deref() != org.as_deref() || handle.subscriptions.is_empty() {
+      continue;
+    }
+    let key = handle
+      .instance_group
+      .clone()
+      .unwrap_or_else(|| connection_id.clone());
+    let entry = by_process
+      .entry(key.clone())
+      .or_insert_with(|| SubscriberView {
+        instance_group: handle.instance_group.clone(),
+        service: handle.service_name.clone(),
+        token_name: handle.perms.token_name.clone(),
+        connections: 0,
+        topics: Vec::new(),
+      });
+    entry.connections += 1;
+    for topic in &handle.subscriptions {
+      if !entry.topics.iter().any(|t| t == topic) {
+        entry.topics.push(topic.clone());
+      }
+    }
+  }
+  for view in by_process.values_mut() {
+    view.topics.sort();
+  }
+  Json(by_process.into_values().collect())
 }
