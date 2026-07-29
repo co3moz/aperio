@@ -2453,6 +2453,12 @@ settings are required: the token, the server URL, and the target.
 \addlinespace[2pt]
 \code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). \\
 \addlinespace[2pt]
+\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (see \emph{Messages Between Clients}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
+\addlinespace[2pt]
+\code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
+\addlinespace[2pt]
+\code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback by default, with the same warning. \\
+\addlinespace[2pt]
 \code{LOG\_LEVEL} &  & , & Log verbosity. \\
 \addlinespace[2pt]
 \code{APERIO\_LOG\_FORMAT} &  & , & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). \\

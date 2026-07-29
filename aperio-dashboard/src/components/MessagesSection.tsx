@@ -69,9 +69,12 @@ export function MessagesSection() {
               {t('Nothing is subscribed. A client subscribes with subscribe: in its config, or by attaching to its local message face.')}
             </RecordEmpty>
           ) : (
-            subscribers.map((s) => (
+            subscribers.map((s, i) => (
               <RecordRow
-                key={s.instance_group ?? s.service ?? Math.random()}
+                // Index as the last resort, not a random key: a random one
+                // changes on every poll, so React throws the row away and
+                // rebuilds it every five seconds.
+                key={s.instance_group ?? s.service ?? `row-${i}`}
                 title={
                   <>
                     {s.service ?? s.instance_group ?? t('unnamed client')}
