@@ -99,6 +99,7 @@ fn key_rule(key: &str) -> ExposeRule {
     protocol: "tcp".to_string(),
     port: 5000,
     tunnel: None,
+    org: None,
     token: None,
     key: Some(key.to_string()),
   }
@@ -110,6 +111,7 @@ fn named_rule(tunnel: &str, token: Option<&str>) -> ExposeRule {
     protocol: "tcp".to_string(),
     port: 5000,
     tunnel: Some(tunnel.to_string()),
+    org: None,
     token: token.map(str::to_string),
     key: None,
   }
@@ -401,6 +403,7 @@ async fn spawn_listeners_accepts_and_relays_a_connection() {
       protocol: "tcp".to_string(),
       port,
       tunnel: None,
+      org: None,
       token: None,
       key: Some("spawnkey123".to_string()),
     }],
@@ -498,6 +501,126 @@ async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
       .is_none(),
     "a named token's tunnel needs the rule to name that token"
   );
+}
+
+/// A rule that claims the port for an organization, by name.
+fn org_rule(tunnel: &str, org: Option<&str>) -> ExposeRule {
+  ExposeRule {
+    protocol: "tcp".to_string(),
+    port: 5000,
+    tunnel: Some(tunnel.to_string()),
+    org: org.map(str::to_string),
+    token: None,
+    key: None,
+  }
+}
+
+/// Creates an organization and returns its id.
+async fn make_org(state: &Arc<AppState>, name: &str) -> String {
+  state
+    .org_store
+    .lock()
+    .await
+    .create(name, Vec::new())
+    .expect("the organization is created")
+    .id
+}
+
+#[tokio::test]
+async fn a_named_rule_matches_the_organization_that_owns_the_tunnel() {
+  // Two organizations, the same tunnel name, and — the case that made this
+  // necessary — the same token name in both. Matching on the token name alone
+  // made the winner a question of hash map order.
+  let state = Arc::new(test_state());
+  let payments = make_org(&state, "payments").await;
+  let billing = make_org(&state, "billing").await;
+  insert_client(&state, "payments-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.token_name = Some("ci".to_string());
+    c.perms.org_id = Some(payments.clone());
+  })
+  .await;
+  insert_client(&state, "billing-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.token_name = Some("ci".to_string());
+    c.perms.org_id = Some(billing);
+  })
+  .await;
+
+  for rule in [
+    org_rule("postgres", Some("payments")),
+    // The same claim written as the prefix instead of the key.
+    org_rule("payments@postgres", None),
+  ] {
+    let (cid, _tx, _target) = find_declarer(&state, &rule)
+      .await
+      .expect("the owning organization's client is found");
+    assert_eq!(cid, "payments-client", "{}", rule.qualified_name());
+  }
+}
+
+#[tokio::test]
+async fn a_named_rule_with_no_organization_is_the_master_one() {
+  let state = Arc::new(test_state());
+  let payments = make_org(&state, "payments").await;
+  insert_client(&state, "payments-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.org_id = Some(payments);
+  })
+  .await;
+  assert!(
+    find_declarer(&state, &org_rule("postgres", Some("master")))
+      .await
+      .is_none(),
+    "a child organization's tunnel is not the master organization's"
+  );
+
+  insert_client(&state, "master-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.org_id = None;
+  })
+  .await;
+  let (cid, _tx, _target) = find_declarer(&state, &org_rule("postgres", Some("master")))
+    .await
+    .expect("the master organization's client is found");
+  assert_eq!(cid, "master-client");
+}
+
+#[tokio::test]
+async fn a_rule_naming_an_organization_that_does_not_exist_matches_nothing() {
+  // Not "match whoever answers first": a typo in a server file must not open
+  // a public port to another organization's tunnel of the same name.
+  let state = Arc::new(test_state());
+  let payments = make_org(&state, "payments").await;
+  insert_client(&state, "payments-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.org_id = Some(payments);
+  })
+  .await;
+  assert!(
+    find_declarer(&state, &org_rule("postgres", Some("paymnets")))
+      .await
+      .is_none()
+  );
+}
+
+#[tokio::test]
+async fn a_token_rule_written_before_organizations_still_matches_as_it_did() {
+  // The compatibility that makes the change safe to upgrade into: `token:`
+  // with no organization has always meant "whoever holds this token", and a
+  // file that says it keeps matching the client it always matched.
+  let state = Arc::new(test_state());
+  let payments = make_org(&state, "payments").await;
+  insert_client(&state, "payments-client", |c| {
+    c.tunnels = vec![named_tunnel("postgres")];
+    c.perms.token_name = Some("bastion-host".to_string());
+    c.perms.org_id = Some(payments);
+  })
+  .await;
+  let (cid, _tx, _target) = find_declarer(&state, &named_rule("postgres", Some("bastion-host")))
+    .await
+    .expect("the token rule still matches across organizations");
+  assert_eq!(cid, "payments-client");
 }
 
 #[tokio::test]

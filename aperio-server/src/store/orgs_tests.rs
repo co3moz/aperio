@@ -17,6 +17,9 @@ fn test_create_unique_and_reserved() {
   assert!(store.create("acme", Vec::new()).is_err());
   assert!(store.create("master", Vec::new()).is_err());
   assert!(store.create("  ", Vec::new()).is_err());
+  // `@` is what separates the organization from the tunnel in `<org>@<name>`,
+  // so a name carrying one would make that spelling ambiguous.
+  assert!(store.create("acme@corp", Vec::new()).is_err());
 
   // Survives a reload.
   let reloaded = OrgStore::load(&dir);

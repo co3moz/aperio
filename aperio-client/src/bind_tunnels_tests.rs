@@ -71,7 +71,16 @@ fn view(name: &str, target: &str, protocol: &str) -> TunnelView {
     available: true,
     encrypt: false,
     idle_timeout: None,
+    org: None,
     discovered_with: None,
+  }
+}
+
+/// The same, owned by a named organization.
+fn view_in(org: &str, name: &str, target: &str) -> TunnelView {
+  TunnelView {
+    org: Some(org.to_string()),
+    ..view(name, target, "tcp")
   }
 }
 
@@ -601,4 +610,61 @@ fn a_client_id_key_does_not_reach_a_different_peer() {
   )
   .unwrap();
   assert!(planned.is_empty(), "a different uuid must not match");
+}
+
+#[test]
+fn an_org_qualified_key_binds_that_organizations_tunnel() {
+  // A binder that can see two organizations sees the same name twice; the
+  // qualifier is how a file says which one it means, and it is the spelling
+  // the dashboard shows and the server's `expose:` accepts.
+  let visible = vec![
+    view_in("payments", "postgres", "127.0.0.1:5432"),
+    view_in("billing", "postgres", "127.0.0.1:5433"),
+  ];
+  let mut map = HashMap::new();
+  map.insert("billing@postgres".to_string(), BindTunnelValue::Port(15433));
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .expect("the qualified key resolves");
+  assert_eq!(planned.len(), 1);
+  assert_eq!(planned[0].decl.target, "127.0.0.1:5433");
+  assert_eq!(planned[0].port, 15433);
+}
+
+#[test]
+fn a_qualified_key_naming_the_wrong_organization_binds_nothing() {
+  // An entry that cannot be resolved is reported and skipped rather than
+  // taking the run down, as every unresolvable key is; what matters here is
+  // that it does not quietly fall back to the same name in another
+  // organization.
+  let visible = vec![view_in("payments", "postgres", "127.0.0.1:5432")];
+  let mut map = HashMap::new();
+  map.insert("billing@postgres".to_string(), BindTunnelValue::Port(15433));
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .expect("an unresolvable entry is skipped, not fatal");
+  assert!(planned.is_empty(), "{planned:?}");
+}
+
+#[test]
+fn master_is_the_qualifier_for_the_built_in_organization() {
+  let visible = vec![view("postgres", "127.0.0.1:5432", "tcp")];
+  let mut map = HashMap::new();
+  map.insert("master@postgres".to_string(), BindTunnelValue::Port(15432));
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .expect("master@ resolves the unowned tunnel");
+  assert_eq!(planned.len(), 1);
 }

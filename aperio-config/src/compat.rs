@@ -276,6 +276,21 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     action: "Nothing to do for an entry keyed by a client id. Check the startup log for the local ports chosen, and prefer naming tunnels (`name:` on the declaration) over addressing peers by id.",
   },
   ConfigChange {
+    version: "0.7.0",
+    surface: ConfigSurface::Server,
+    // The rule still parses and still matches the client it always matched:
+    // `token:` alone is read exactly as before. What changed is that the
+    // right way to own a port is now the organization, because a token name
+    // is not unique and a rule naming one can match a client of another
+    // organization — with the winner decided by hash map order. Worth a look
+    // rather than a break, since nothing an operator wrote stopped working.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["expose", "expose.token"],
+    summary: "An `expose:` port is claimed by organization (`org:`, or `tunnel: <org>@<name>`); `token:` still works but cannot be unambiguous, since a token name may exist in several organizations.",
+    action: "Replace `token: <name>` with `org: <name>` (or fold it into `tunnel: <org>@<name>`) on each entry. Only entries that rely on a token name shared across organizations behave differently today.",
+  },
+  ConfigChange {
     version: "0.6.0",
     surface: ConfigSurface::Client,
     // Nothing the operator wrote stopped working; something that never worked

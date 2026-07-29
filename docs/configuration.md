@@ -433,7 +433,7 @@ headers:
 
 #### Public TCP expose (`expose:`, experimental)
 
-A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the token whose client may claim it (`tunnel:` + `token:`); the older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
+A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the organization whose client may claim it (`tunnel:` + `org:`, or the one-line `tunnel: <org>@<name>`); omitting the organization means the master one. `token:` is the earlier spelling and still works, but a token name is not unique across organizations, so a rule naming one can match a client of another. The older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works too. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
 
 ```yaml
 # aperio-server.yaml

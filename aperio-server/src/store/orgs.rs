@@ -158,6 +158,12 @@ impl OrgStore {
     if name.eq_ignore_ascii_case("master") {
       return Err("\"master\" is reserved for the built-in organization".into());
     }
+    // `@` separates the organization from the tunnel in `<org>@<name>`, which
+    // is how an exposed port and the dashboard both name a tunnel. A name
+    // carrying one would make that spelling mean two things.
+    if name.contains('@') {
+      return Err("an organization name cannot contain '@' (it separates the organization from the tunnel in payments@postgres)".into());
+    }
     if self.orgs.iter().any(|o| o.name.eq_ignore_ascii_case(name)) {
       return Err(format!("an organization named \"{name}\" already exists"));
     }

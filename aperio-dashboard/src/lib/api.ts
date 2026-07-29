@@ -564,6 +564,8 @@ export interface TopologyGraph {
 export interface DeclaredTunnel {
   /** Handle a binder addresses, unique within the organization. */
   name: string
+  /** Organization that owns it; absent for the master organization. */
+  org?: string | null
   /** `tcp`, `udp`, or `tcp/udp` for a tunnel that serves both. */
   protocol: string
   /** Address the declaring client dials locally. */

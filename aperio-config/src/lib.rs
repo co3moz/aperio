@@ -1123,16 +1123,26 @@ pub struct ExposeEntry {
   #[schemars(extend("examples" = [2222]))]
   pub port: u16,
   /// Name of the tunnel this port is relayed into. Preferred over `key`:
-  /// the claim is settled by identity (which token declared the tunnel)
-  /// rather than by a secret copied into two files.
+  /// the claim is settled by identity (which organization declared the
+  /// tunnel) rather than by a secret copied into two files. May be written
+  /// as `<org>@<name>`, e.g. `payments@postgres`, which says the same thing
+  /// as a separate `org:` and reads the way the dashboard shows it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["ssh-bastion"]))]
+  #[schemars(extend("examples" = ["ssh-bastion", "payments@postgres"]))]
   pub tunnel: Option<String>,
-  /// Name of the token whose client may claim this port. Unset accepts only
-  /// tunnels declared with the master token, so a named token is what lets an
-  /// organization own an exposed port; revoking it closes the port's source.
+  /// Name of the organization whose client may claim this port. A tunnel name
+  /// is unique inside an organization and nowhere else, so this is what makes
+  /// the claim unambiguous. Unset (with no `<org>@` prefix and no `token`)
+  /// means the master organization.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["bastion-host"]))]
+  #[schemars(extend("examples" = ["payments"]))]
+  pub org: Option<String>,
+  /// Name of the token whose client may claim this port. Superseded by `org`:
+  /// a token name is not unique across organizations, so a rule naming one
+  /// can match a client of another organization, and which one gets the port
+  /// is not defined. Still honored; write `org` instead.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["bastion-host"], "deprecated" = true))]
   pub token: Option<String>,
   /// Deprecated spelling: a shared secret the client's tunnel declaration
   /// repeats as `expose: <key>`. Still honored, but it names no owner, cannot

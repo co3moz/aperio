@@ -5,12 +5,22 @@
 //! equivalent of a `--bind-tunnels` peer, with the server itself as the
 //! binder.
 //!
-//! Two ways to say which tunnel. `tunnel:` names it and `token:` says whose
-//! it is, so the claim is settled by identity: revoking the token closes the
-//! port's source, the audit log names an owner, and another client in the
-//! same organization cannot take the name first and receive the traffic. The
-//! older `key:` is a shared secret repeated in the client's declaration; it
-//! still works, but it names no owner and cannot be revoked.
+//! Two ways to say which tunnel. `tunnel:` names it and `org:` says whose it
+//! is, so the claim is settled by identity: another organization cannot take
+//! the name first and receive the traffic, and `payments@postgres` in the
+//! file reads the way the dashboard shows it. `org:` may be written as the
+//! `<org>@<name>` prefix of `tunnel:` instead, which is the same thing said
+//! once.
+//!
+//! `token:` was the earlier way to say the same thing and still works. It is
+//! the weaker one: a token name is not unique — nothing stops two
+//! organizations from each having a token called `ci` — so a rule naming one
+//! could match a client of either, and which of them got the port came down
+//! to the order of a hash map. An organization is the boundary the rest of
+//! the system already enforces, and its name is unique by construction.
+//!
+//! The older `key:` is a shared secret repeated in the client's declaration;
+//! it still works, but it names no owner and cannot be revoked.
 //!
 //! Deliberate limits: exactly one serving client per connection (the first
 //! healthy declarer wins), no load balancing, TCP only (a public UDP port is
@@ -38,8 +48,12 @@ pub(crate) struct ExposeRule {
   /// Name of the tunnel this port relays into.
   #[serde(default)]
   pub(crate) tunnel: Option<String>,
-  /// Name of the token whose client may claim the port. `None` accepts only
-  /// tunnels declared with the master token.
+  /// Name of the organization whose client may claim the port. `None` (with
+  /// no `token:` and no `<org>@` prefix either) is the master organization.
+  #[serde(default)]
+  pub(crate) org: Option<String>,
+  /// Name of the token whose client may claim the port. Superseded by `org:`,
+  /// which cannot be ambiguous; kept working for the files that use it.
   #[serde(default)]
   pub(crate) token: Option<String>,
   /// Deprecated shared secret a client's tunnel declaration must repeat
@@ -52,9 +66,34 @@ impl ExposeRule {
   /// How this rule is written in logs and audit entries.
   pub(crate) fn label(&self) -> String {
     match (&self.tunnel, &self.key) {
-      (Some(name), _) => format!("tunnel {name}"),
+      (Some(_), _) => format!("tunnel {}", self.qualified_name()),
       (None, Some(_)) => "a key-matched tunnel".to_string(),
       (None, None) => "nothing".to_string(),
+    }
+  }
+
+  /// The tunnel as `<org>@<name>`, however the rule spells it: the prefix on
+  /// `tunnel:`, a separate `org:`, or neither (the master organization).
+  pub(crate) fn qualified_name(&self) -> String {
+    let raw = self.tunnel.as_deref().unwrap_or_default();
+    let (_, name) = crate::tunnel::registry::split_qualified(raw);
+    match (self.explicit_org(), self.token.as_deref()) {
+      (Some(org), _) => format!("{org}@{name}"),
+      // Nothing to qualify it with: a token-matched rule can be claimed from
+      // any organization, which is the reason `org:` exists.
+      (None, Some(token)) => format!("{name} (token {token})"),
+      (None, None) => format!("master@{name}"),
+    }
+  }
+
+  /// The organization this rule names, if it names one at all: the `<org>@`
+  /// prefix or the `org:` key. `None` means the rule predates `org:` and is
+  /// matched the old way, by token name.
+  fn explicit_org(&self) -> Option<&str> {
+    let raw = self.tunnel.as_deref().unwrap_or_default();
+    match crate::tunnel::registry::split_qualified(raw) {
+      (Some(org), _) => Some(org),
+      (None, _) => self.org.as_deref().map(str::trim).filter(|o| !o.is_empty()),
     }
   }
 }
@@ -88,9 +127,28 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
     }
     match (&rule.tunnel, &rule.key) {
       (Some(name), _) => {
-        if let Err(e) = aperio_config::validate_tunnel_name(name) {
+        let (prefix, bare) = crate::tunnel::registry::split_qualified(name);
+        if let Err(e) = aperio_config::validate_tunnel_name(bare) {
           error!("expose entry #{}: {e}", i + 1);
           std::process::exit(1);
+        }
+        // Two organizations named in one rule is a contradiction, not a
+        // precedence question: the operator meant one of them and the file
+        // does not say which.
+        if let (Some(prefix), Some(org)) = (prefix, rule.org.as_deref())
+          && !prefix.eq_ignore_ascii_case(org.trim())
+        {
+          error!(
+            "expose entry #{}: `tunnel: {prefix}@{bare}` and `org: {org}` name different organizations",
+            i + 1
+          );
+          std::process::exit(1);
+        }
+        if rule.token.is_some() {
+          warn!(
+            "expose entry #{}: `token:` is superseded by `org:` (a token name is not unique, so a rule naming one can match a client of another organization); write `org: <name>` or `tunnel: <org>@{bare}` instead",
+            i + 1
+          );
         }
       }
       // A port with neither is a listener nothing can ever answer, which is
@@ -178,6 +236,27 @@ async fn find_declarer(
   state: &Arc<AppState>,
   rule: &ExposeRule,
 ) -> Option<(String, mpsc::Sender<axum::extract::ws::Message>, String)> {
+  // Which organization may claim this port, resolved before the client map is
+  // locked. An unknown name matches nothing at all: a typo in a server file
+  // must not widen a port to whoever answers first.
+  //
+  // Only when the rule actually names one. A file written before `org:`
+  // existed says `token:` alone, and that has always meant "whoever holds
+  // this token, wherever they are"; changing what those files match would be
+  // a silent outage on upgrade, so the older rule is left exactly as it was.
+  let org_id = match rule.explicit_org() {
+    Some(name) => match crate::tunnel::registry::org_id_for_name(state, name).await {
+      Ok(id) => Some(id),
+      Err(why) => {
+        warn!(
+          "public expose: {} names an organization that does not exist ({why})",
+          rule.label()
+        );
+        return None;
+      }
+    },
+    None => None,
+  };
   let clients = state.clients.lock().await;
   for (cid, c) in clients.iter() {
     if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
@@ -190,12 +269,25 @@ async fn find_declarer(
         return false;
       }
       match &rule.tunnel {
-        // Identity: the right name, declared by a client holding the named
-        // token. Without a `token:` only the master token qualifies, so an
-        // organization's port always names the token that owns it.
+        // Identity: the right name, declared by a client of the named
+        // organization. A `token:` still narrows it further, so a file
+        // written before `org:` existed keeps meaning what it meant.
         Some(name) => {
-          crate::tunnel::registry::name_of(d) == name.trim()
-            && c.perms.token_name.as_deref() == rule.token.as_deref().map(str::trim)
+          let (_, bare) = crate::tunnel::registry::split_qualified(name);
+          if crate::tunnel::registry::name_of(d) != bare {
+            return false;
+          }
+          match (&org_id, rule.token.as_deref().map(str::trim)) {
+            // The organization is the claim; a `token:` alongside it narrows
+            // the claim further rather than replacing it.
+            (Some(org), Some(token)) => {
+              c.perms.org_id == *org && c.perms.token_name.as_deref() == Some(token)
+            }
+            (Some(org), None) => c.perms.org_id == *org,
+            // The older rule, unchanged: the named token, or the master token
+            // when the rule names none.
+            (None, token) => c.perms.token_name.as_deref() == token,
+          }
         }
         // The deprecated shared secret.
         None => d.expose.as_deref() == rule.key.as_deref(),

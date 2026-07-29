@@ -352,8 +352,23 @@ pub(crate) fn run() -> i32 {
       }
       match (&rule.tunnel, &rule.key) {
         (Some(name), _) => {
-          if let Err(e) = aperio_config::validate_tunnel_name(name) {
+          let (prefix, bare) = crate::tunnel::registry::split_qualified(name);
+          if let Err(e) = aperio_config::validate_tunnel_name(bare) {
             r.fail(&format!("`expose:` entry #{}: {e}", i + 1));
+          }
+          if let (Some(prefix), Some(org)) = (prefix, rule.org.as_deref())
+            && !prefix.eq_ignore_ascii_case(org.trim())
+          {
+            r.fail(&format!(
+              "`expose:` entry #{}: `tunnel: {prefix}@{bare}` and `org: {org}` name different organizations",
+              i + 1
+            ));
+          }
+          if rule.org.is_none() && prefix.is_none() && rule.token.is_some() {
+            r.warn(&format!(
+              "`expose:` entry #{}: `token:` is superseded by `org:` — a token name is not unique, so this rule can match a client of another organization; write `org: <name>` or `tunnel: <org>@{bare}`",
+              i + 1
+            ));
           }
         }
         (None, None) => r.fail(&format!(

@@ -49,6 +49,10 @@ pub(crate) struct TunnelView {
   pub(crate) encrypt: bool,
   #[serde(default)]
   pub(crate) idle_timeout: Option<u64>,
+  /// Organization that owns it, by name; absent for the master organization
+  /// and for a server too old to report it.
+  #[serde(default)]
+  pub(crate) org: Option<String>,
   /// The token this view was discovered with, so a binding uses the
   /// credential that could actually see it. Client-side only.
   #[serde(skip)]
@@ -239,6 +243,29 @@ fn resolve_key(
   out: &mut Vec<Binding>,
 ) -> Result<(), String> {
   let key = key.trim();
+  // `<org>@<name>` addresses one organization's tunnel. A name is unique
+  // inside an organization and nowhere else, so a binder that can see two of
+  // them needs a way to say which; a bare name still works and matches the
+  // one tunnel of that name it can see.
+  if let Some((org, name)) = key.split_once('@') {
+    let (org, name) = (org.trim(), name.trim());
+    let found = visible.iter().find(|v| {
+      v.name == name
+        && match &v.org {
+          Some(owner) => owner.eq_ignore_ascii_case(org),
+          None => org.eq_ignore_ascii_case("master"),
+        }
+    });
+    return match found {
+      Some(view) => {
+        out.push(binding_for_view(view, entry, fallback_token)?);
+        Ok(())
+      }
+      None => Err(format!(
+        "`{key}` is not a tunnel this token may bind: no `{name}` in the organization `{org}`."
+      )),
+    };
+  }
   if let Some(view) = visible.iter().find(|v| v.name == key) {
     out.push(binding_for_view(view, entry, fallback_token)?);
     return Ok(());

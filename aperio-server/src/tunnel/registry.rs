@@ -36,6 +36,46 @@ pub(crate) fn name_of(decl: &TunnelDecl) -> String {
   })
 }
 
+/// Splits the `<org>@<name>` spelling of a tunnel handle.
+///
+/// A tunnel name is unique inside an organization and nowhere else, so
+/// wherever a name is written down without one — a server's `expose:`, a
+/// binder run with the master token — it is only unambiguous by accident.
+/// Qualifying it says which organization is meant, and reads the way the
+/// dashboard shows it: `master@dns`, `payments@postgres`. An organization
+/// name cannot contain `@`, which is what keeps the split unambiguous.
+pub(crate) fn split_qualified(raw: &str) -> (Option<&str>, &str) {
+  match raw.trim().split_once('@') {
+    Some((org, name)) => (Some(org.trim()), name.trim()),
+    None => (None, raw.trim()),
+  }
+}
+
+/// The `org_id` clients of the organization named `name` carry.
+///
+/// `master` (and the empty name) is the built-in organization, whose clients
+/// carry `None` — the same convention the rest of the admin API uses. An
+/// unknown name is an error rather than a silent match against everything:
+/// a typo in a server file must not open a port to whoever answers first.
+pub(crate) async fn org_id_for_name(
+  state: &Arc<AppState>,
+  name: &str,
+) -> Result<Option<String>, String> {
+  let name = name.trim();
+  if name.is_empty() || name.eq_ignore_ascii_case("master") {
+    return Ok(None);
+  }
+  state
+    .org_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .find(|o| o.name.eq_ignore_ascii_case(name))
+    .map(|o| Some(o.id.clone()))
+    .ok_or_else(|| format!("no organization named '{name}'"))
+}
+
 /// Why a tunnel could not be resolved. Each variant is a distinct answer to
 /// "why did nothing happen", which is the whole point of separating them:
 /// the previous code collapsed several of these into one 404.
@@ -86,6 +126,10 @@ pub(crate) struct TunnelView {
   pub(crate) idle_timeout: Option<u64>,
   /// Name of the token the declaring client connected with (None = master).
   pub(crate) token_name: Option<String>,
+  /// Organization that owns it, by name. `None` is the master organization.
+  /// A tunnel name is unique inside an organization and nowhere else, so this
+  /// is what makes `payments@postgres` a complete address.
+  pub(crate) org: Option<String>,
 }
 
 /// May a consumer authenticated as `consumer` bind a tunnel declared by a
@@ -150,13 +194,33 @@ pub(crate) async fn resolve(
   perms: &ClientPerms,
   selector: Selector<'_>,
 ) -> Result<Resolved, Rejection> {
+  // `<org>@<name>` narrows the search to one organization before anything is
+  // matched. Resolved here, before the client map is locked, since it reads a
+  // different store.
+  let mut qualifier = None;
+  if let Selector::Name(raw) = selector
+    && let (Some(org), _) = split_qualified(raw)
+  {
+    match org_id_for_name(state, org).await {
+      Ok(id) => qualifier = Some(id),
+      Err(_) => return Err(Rejection::Unknown),
+    }
+  }
   let down_threshold = state.config().client_down_threshold;
   let clients = state.clients.lock().await;
 
   let mut seen = Rejection::Unknown;
   for (cid, handle) in clients.iter() {
+    if let Some(org_id) = &qualifier
+      && handle.perms.org_id != *org_id
+    {
+      continue;
+    }
     let decl = match selector {
-      Selector::Name(name) => handle.tunnels.iter().find(|d| name_of(d) == name.trim()),
+      Selector::Name(name) => {
+        let (_, name) = split_qualified(name);
+        handle.tunnels.iter().find(|d| name_of(d) == name)
+      }
       Selector::ClientTarget {
         client,
         target,
@@ -211,6 +275,15 @@ pub(crate) async fn visible(state: &Arc<AppState>, perms: &ClientPerms) -> Vec<T
 /// so they are paths to one tunnel rather than several tunnels.
 async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) -> Vec<TunnelView> {
   let down_threshold = state.config().client_down_threshold;
+  // Read before the client map is locked, and once rather than per tunnel.
+  let org_names: std::collections::HashMap<String, String> = state
+    .org_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .map(|o| (o.id.clone(), o.name.clone()))
+    .collect();
   let clients = state.clients.lock().await;
   let mut out: Vec<TunnelView> = Vec::new();
   for handle in clients.values() {
@@ -220,7 +293,14 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
     let usable = serviceable(handle, down_threshold);
     for decl in &handle.tunnels {
       let name = name_of(decl);
-      if let Some(existing) = out.iter_mut().find(|v| v.name == name) {
+      let org = handle
+        .perms
+        .org_id
+        .as_deref()
+        .and_then(|id| org_names.get(id).cloned());
+      // Two organizations may each declare `postgres`; they are two tunnels,
+      // not two paths to one, so the entry is keyed by both.
+      if let Some(existing) = out.iter_mut().find(|v| v.name == name && v.org == org) {
         existing.paths += 1;
         existing.available |= usable;
         continue;
@@ -240,10 +320,11 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
         encrypt: decl.encrypt,
         idle_timeout: decl.idle_timeout,
         token_name: handle.perms.token_name.clone(),
+        org,
       });
     }
   }
-  out.sort_by(|a, b| a.name.cmp(&b.name));
+  out.sort_by(|a, b| (&a.org, &a.name).cmp(&(&b.org, &b.name)));
   out
 }
 

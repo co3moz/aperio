@@ -1881,18 +1881,26 @@ against an actively hostile server.
 
 An \code{expose:} entry in \code{aperio-server.yaml} opens a public TCP
 port straight into a tunnel, with no binder peer, naming the tunnel and the
-token whose client may claim it:
+organization whose client may claim it:
 
 \begin{lstlisting}[language=aperioyaml]
 # aperio-server.yaml
 expose:
   - port: 2222
-    tunnel: ssh
-    token: bastion-host
+    tunnel: bastion@ssh    # or: tunnel: ssh + org: bastion
 \end{lstlisting}
 
-Revoking that token closes the port's source. The older shared-secret form
-(\code{key:} on both sides) still works but names no owner.
+A tunnel name is unique inside an organization and nowhere else, which is
+why the organization is part of the claim; omitting it means the master
+organization. The same \code{<org>@<name>} spelling works as a
+\code{bind-tunnels:} key and is how the dashboard shows a tunnel, so one
+address form reads everywhere. An organization name may not contain
+\code{@}, which is what keeps it unambiguous.
+
+\code{token:} was the earlier spelling and still works unchanged. It is
+weaker: a token name is not unique across organizations, so a rule naming
+one can match a client of another. The older shared-secret form
+(\code{key:} on both sides) still works too but names no owner.
 
 \section{PR preview tunnels}
 

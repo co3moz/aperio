@@ -122,7 +122,7 @@ expose:
   - protocol: tcp
     port: 2222
     tunnel: ssh                   # the tunnel's name
-    token: bastion-host           # the token whose client may claim it
+    org: bastion                  # the organization whose client may claim it
 
 # client aperio.yaml
 tunnels:
@@ -130,7 +130,17 @@ tunnels:
     target: 127.0.0.1:22
 ```
 
-The claim is settled by **identity**: the port accepts the named tunnel only from a client authenticated with the named token. Revoking that token closes the port's source, the audit trail names an owner, and another client in the same organization cannot take the name first and receive the traffic. Omitting `token:` accepts only tunnels declared with the master token, so a named token is what lets an organization own an exposed port.
+The claim is settled by **identity**: the port accepts the named tunnel only from a client of the named organization. A tunnel name is unique inside an organization and nowhere else, which is exactly why the organization has to be part of the claim. `org:` may also be written as a prefix on the name, which says the same thing once and reads the way the dashboard shows it:
+
+```yaml
+expose:
+  - port: 2222
+    tunnel: bastion@ssh
+```
+
+Omitting the organization means the master one. The same `<org>@<name>` spelling works as a `bind-tunnels:` key, so a binder that can see two organizations can say which `postgres` it means.
+
+`token:` was the earlier way to say this and still works, unchanged, for the files that use it. It is the weaker one: a token name is not unique, nothing stops two organizations from each having one called `ci`, and a rule naming it could match a client of either — with which of them got the port coming down to the order of a hash map. Prefer `org:`.
 
 The older spelling, a shared secret repeated in both files, still works:
 
@@ -144,7 +154,7 @@ tunnels:
     expose: a-long-random-shared-secret
 ```
 
-It names no owner and cannot be revoked, which is why `tunnel:` + `token:` is preferred. The key travels only inside the tunnel handshake and is never revealed through tunnel discovery.
+It names no owner and cannot be revoked, which is why `tunnel:` + `org:` is preferred. The key travels only inside the tunnel handshake and is never revealed through tunnel discovery.
 
 Deliberate limits: the connection goes to the **first** healthy client that matches (no load balancing), TCP only (a public UDP port is an amplification surface and a separate decision), and `encrypt: true` tunnels are excluded, since a raw public socket cannot run the client-side handshake. Remember the exposed port is **public**: anyone who can reach it talks straight to your backend, so keep the real authentication (SSH keys, database passwords) on the backend itself.
 

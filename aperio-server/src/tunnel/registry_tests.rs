@@ -110,6 +110,60 @@ async fn a_name_resolves_without_any_client_id() {
 }
 
 #[tokio::test]
+async fn an_org_qualified_name_picks_that_organizations_tunnel() {
+  // A tunnel name is unique inside an organization and nowhere else. A master
+  // binder can see both, so without the qualifier which one it reaches comes
+  // down to the order of a hash map.
+  let state = Arc::new(test_state());
+  let payments = state
+    .org_store
+    .lock()
+    .await
+    .create("payments", Vec::new())
+    .unwrap()
+    .id;
+  insert(&state, "conn-master", |c| {
+    c.tunnels = vec![decl("pg-main", "tcp")];
+  })
+  .await;
+  insert(&state, "conn-payments", |c| {
+    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.perms.org_id = Some(payments);
+  })
+  .await;
+
+  let found = resolve(
+    &state,
+    &ClientPerms::master(),
+    Selector::Name("payments@pg-main"),
+  )
+  .await
+  .expect("resolved inside the named organization");
+  assert_eq!(found.client_id, "conn-payments");
+
+  let found = resolve(
+    &state,
+    &ClientPerms::master(),
+    Selector::Name("master@pg-main"),
+  )
+  .await
+  .expect("`master` is the built-in organization");
+  assert_eq!(found.client_id, "conn-master");
+
+  // An organization that does not exist resolves to nothing rather than to
+  // whichever client happens to carry the name.
+  assert!(
+    resolve(
+      &state,
+      &ClientPerms::master(),
+      Selector::Name("paymnets@pg-main")
+    )
+    .await
+    .is_err()
+  );
+}
+
+#[tokio::test]
 async fn a_draining_path_is_skipped_for_a_healthy_sibling() {
   // Both connections belong to one process and announce the same tunnel.
   // Answering "unavailable" because the first one happens to be draining is

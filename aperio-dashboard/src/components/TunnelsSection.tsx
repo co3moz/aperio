@@ -15,9 +15,21 @@ import {
 import { api, type DeclaredTunnel } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
+/**
+ * The tunnel's full address: `<org>@<name>`.
+ *
+ * A name is unique inside an organization and nowhere else, so the bare one
+ * is only an address by accident — and this list shows every organization at
+ * once when read from the master one. The same spelling is what `expose:` and
+ * a `bind-tunnels:` key accept.
+ */
+function qualified(tunnel: DeclaredTunnel): string {
+  return `${tunnel.org ?? 'master'}@${tunnel.name}`
+}
+
 /** The `bind-tunnels:` block that binds one tunnel, ready to paste. */
 function bindSnippet(tunnel: DeclaredTunnel): string {
-  return ['bind-tunnels:', `  ${tunnel.name}: ${localPortHint(tunnel)}`, ''].join('\n')
+  return ['bind-tunnels:', `  ${qualified(tunnel)}: ${localPortHint(tunnel)}`, ''].join('\n')
 }
 
 /**
@@ -106,14 +118,17 @@ export function TunnelsSection() {
               </EmptyRow>
             )}
             {tunnels?.map((tunnel) => (
-              <TableRow key={tunnel.name}>
+              <TableRow key={qualified(tunnel)}>
                 <TableCell className="font-mono text-xs">
                   <div className="flex items-center gap-2">
                     {/* The dot is the availability signal: a tunnel nothing
                         can serve right now is still worth listing, but it
                         should not look bindable. */}
                     <StatusDot active={tunnel.available} />
-                    {tunnel.name}
+                    <span>
+                      <span className="text-muted-foreground">{tunnel.org ?? 'master'}@</span>
+                      {tunnel.name}
+                    </span>
                     {tunnel.encrypt && <TintBadge tint="blue">{t('encrypted')}</TintBadge>}
                   </div>
                 </TableCell>
