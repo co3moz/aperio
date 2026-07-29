@@ -181,3 +181,27 @@ fn a_topic_survives_the_query_string() {
   // A stray `%` is not an escape and must not eat the rest of the string.
   assert_eq!(percent_decode("100%"), "100%");
 }
+
+#[tokio::test]
+async fn the_face_refuses_what_the_server_would_drop() {
+  // Handing the frame to the tunnel and letting the server reject it would
+  // answer 202 to a local application for a message that never went
+  // anywhere, with the reason in a log the application cannot read. The e2e
+  // caught exactly that.
+  let bus = MessageBus::new(vec![]);
+  let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(4);
+  bus.attach("svc", tx).await;
+  let addr = start(bus).await;
+
+  let r = request(
+    &addr,
+    "POST /publish?topic=%24aperio%2Fforged HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\nx",
+  )
+  .await;
+  assert!(r.starts_with("HTTP/1.1 400"), "{r}");
+  assert!(r.contains("namespace"), "{r}");
+  assert!(
+    rx.try_recv().is_err(),
+    "nothing should have been put on the tunnel"
+  );
+}

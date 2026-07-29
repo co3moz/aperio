@@ -445,8 +445,15 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   service's concurrency budget takes a botnet rather than one host. (From the
   2026-07 flow-control fix discussion.)
 
-- [ ] **#19 Pub/sub between the clients of an organization, over the tunnel
-  that already exists.** Clients can be reached from outside and can reach a
+- [x] **#19 Pub/sub between the clients of an organization, over the tunnel
+  that already exists.** shipped (core + SSE face): three `TunnelMessage`
+  variants, per-organization routing keyed on `instance_group`,
+  `POST /aperio/api/publish`, `subscribe:` and `messages_listen:` on the
+  client, and the server's events mirrored onto `$aperio/`. Still open from
+  the plan below: the local MQTT listener (face 2), QoS 1 with a send window,
+  and the token capability with a topic prefix. Original note follows.
+
+  Original: Clients can be reached from outside and can reach a
   private service through a peer, but they have no way to *signal each other*.
   The workaround today is an MQTT broker exposed as a `tunnels:` entry and
   bound by every consumer: three moving parts, and a message crosses the tunnel

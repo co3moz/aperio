@@ -36,8 +36,9 @@ pub(crate) const MAX_FILTERS_PER_CLIENT: usize = 64;
 
 /// Largest payload accepted, before Base64. Big enough for an event with
 /// context, small enough that a publish is never a way to move bulk data:
-/// that is what tunnels are for.
-pub(crate) const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
+/// that is what tunnels are for. Shared with the client so it can refuse the
+/// same thing rather than reporting success for a message about to be dropped.
+pub(crate) const MAX_PAYLOAD_BYTES: usize = aperio_config::MAX_MESSAGE_BYTES;
 
 /// Where a published message came from, for the audit line and for the
 /// reserved-namespace rule.

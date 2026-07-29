@@ -104,6 +104,23 @@ pub fn validate_topic(topic: &str) -> Result<(), String> {
 /// publish into it, so an infrastructure event always means what it says.
 pub const RESERVED_TOPIC_PREFIX: &str = "$aperio/";
 
+/// Largest message payload, before Base64. Shared by both ends so a client
+/// can refuse what the server would refuse, instead of answering "accepted"
+/// for something that is about to be dropped where nobody is looking.
+pub const MAX_MESSAGE_BYTES: usize = 256 * 1024;
+
+/// Is this a topic a *client* may publish on? Rejects a filter, and the
+/// server's own namespace, which a client may listen to but never write to.
+pub fn validate_publish_topic(topic: &str) -> Result<(), String> {
+  validate_topic(topic)?;
+  if topic.starts_with(RESERVED_TOPIC_PREFIX) {
+    return Err(format!(
+      "`{RESERVED_TOPIC_PREFIX}` is the server's own namespace and cannot be published into"
+    ));
+  }
+  Ok(())
+}
+
 /// Does a declared `protocol` serve `want` (`tcp` or `udp`)?
 ///
 /// A tunnel may declare `tcp/udp`, which is one tunnel with one name and one

@@ -70,11 +70,12 @@ phase_file() { # <selector>
     "m"|"multihost") echo "$HERE/phases/m-multihost.sh" ;;
     "o"|"api-cli") echo "$HERE/phases/o-api-cli.sh" ;;
     "p"|"scaling") echo "$HERE/phases/p-scaling.sh" ;;
+    "q"|"messages") echo "$HERE/phases/q-messages.sh" ;;
     *) echo ""; return 1 ;;
   esac
 }
 
-ALL_PHASES=("a-base.sh" "b-auth.sh" "c-failover.sh" "d-lb.sh" "e-features.sh" "f-ws.sh" "g-tunnels.sh" "h-subdomain.sh" "i-h2.sh" "j-sessions.sh" "k-cache.sh" "l-health.sh" "m-multihost.sh" "n-config.sh" "o-api-cli.sh" "p-scaling.sh")
+ALL_PHASES=("a-base.sh" "b-auth.sh" "c-failover.sh" "d-lb.sh" "e-features.sh" "f-ws.sh" "g-tunnels.sh" "h-subdomain.sh" "i-h2.sh" "j-sessions.sh" "k-cache.sh" "l-health.sh" "m-multihost.sh" "n-config.sh" "o-api-cli.sh" "p-scaling.sh" "q-messages.sh")
 
 if [ "$#" -gt 0 ]; then
   SELECTED=()

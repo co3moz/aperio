@@ -127,7 +127,18 @@ impl MessageBus {
 
   /// Publishes over any live tunnel connection.
   pub(crate) async fn publish(&self, topic: &str, payload: &[u8]) -> Result<(), String> {
-    aperio_config::validate_topic(topic)?;
+    // Everything the client can know, it decides here. Handing the frame to
+    // the tunnel and letting the server drop it would answer "accepted" to a
+    // local application for a message that never went anywhere, with the
+    // reason in a log the application cannot see.
+    aperio_config::validate_publish_topic(topic)?;
+    if payload.len() > aperio_config::MAX_MESSAGE_BYTES {
+      return Err(format!(
+        "payload is {} bytes, over the {}-byte limit",
+        payload.len(),
+        aperio_config::MAX_MESSAGE_BYTES
+      ));
+    }
     use base64::prelude::*;
     let frame = TunnelMessage::Publish {
       topic: topic.to_string(),
