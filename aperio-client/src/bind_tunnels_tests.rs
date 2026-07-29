@@ -668,3 +668,34 @@ fn master_is_the_qualifier_for_the_built_in_organization() {
   .expect("master@ resolves the unowned tunnel");
   assert_eq!(planned.len(), 1);
 }
+
+#[test]
+fn a_bare_name_that_two_organizations_carry_is_refused_rather_than_guessed() {
+  // The whole point of the qualifier. Binding the first match would put a
+  // local port on another organization's database and say nothing.
+  let visible = vec![
+    view_in("payments", "postgres", "127.0.0.1:5432"),
+    view_in("billing", "postgres", "127.0.0.1:5433"),
+  ];
+  let mut map = HashMap::new();
+  map.insert("postgres".to_string(), BindTunnelValue::Port(15432));
+  let planned = plan(
+    &settings_with(Some("apr_t"), map),
+    "",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .expect("an unresolvable entry is skipped, not fatal");
+  assert!(planned.is_empty(), "{planned:?}");
+
+  // The same key given explicitly on the command line reports why.
+  let err = plan(
+    &settings_with(Some("apr_t"), HashMap::new()),
+    "postgres",
+    &visible,
+    &Some("apr_t".to_string()),
+  )
+  .expect_err("an explicit key cannot be guessed at either");
+  assert!(err.contains("payments@postgres"), "{err}");
+  assert!(err.contains("billing@postgres"), "{err}");
+}

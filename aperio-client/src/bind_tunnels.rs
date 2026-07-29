@@ -266,7 +266,22 @@ fn resolve_key(
       )),
     };
   }
-  if let Some(view) = visible.iter().find(|v| v.name == key) {
+  let by_name: Vec<&TunnelView> = visible.iter().filter(|v| v.name == key).collect();
+  // A bare name is an address only while it means one thing. A token that can
+  // see two organizations sees `postgres` twice, and binding whichever came
+  // back first would put the local port on someone else's database without
+  // saying so.
+  if by_name.len() > 1 {
+    let options: Vec<String> = by_name
+      .iter()
+      .map(|v| format!("{}@{}", v.org.as_deref().unwrap_or("master"), v.name))
+      .collect();
+    return Err(format!(
+      "`{key}` names a tunnel in more than one organization; write one of {}.",
+      options.join(", ")
+    ));
+  }
+  if let Some(view) = by_name.first() {
     out.push(binding_for_view(view, entry, fallback_token)?);
     return Ok(());
   }

@@ -260,8 +260,16 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
   // some of those keys into others.
   let single = cfg.single_service_keys();
   if !single.is_empty() {
+    // One key or several: "`hostname` describe a single service" is what the
+    // operator actually reads most of the time, since a file usually carries
+    // one of these.
+    let (verb, subject) = if single.len() == 1 {
+      ("describes", "it")
+    } else {
+      ("describe", "them")
+    };
     warn!(
-      "{}: `{}` describe a single service at the top level. A config file will only accept `services:` from 0.7.0 — move them into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
+      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.7.0 — move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
       path,
       single.join("`, `")
     );
