@@ -2,9 +2,8 @@
 //!
 //! [`render`] reads process-global state (the `APERIO_*` environment and the
 //! retained config document) and the filesystem (`settings.json`), so every
-//! test serializes on the same cross-thread file lock used by
-//! `config_file_tests` / `check_config_tests` and restores the environment on
-//! drop.
+//! test takes the same process-wide config lock as `config_file_tests` /
+//! `check_config_tests` and restores the environment on drop.
 
 use super::*;
 
@@ -19,48 +18,24 @@ const KEYS: &[&str] = &[
   "APERIO_RANDOM_SUBDOMAIN",
 ];
 
-/// Holds the shared config-file lock (same path as the sibling config test
+/// Holds the process-wide config lock (shared with the sibling config test
 /// modules), snapshots + clears the relevant env vars, and restores them on
 /// drop.
 struct EnvGuard {
-  lock: std::path::PathBuf,
+  /// Held for the length of the test: everything that touches the global
+  /// config document or the `APERIO_*` environment takes the same lock.
+  _lock: std::sync::MutexGuard<'static, ()>,
   saved: Vec<(&'static str, Option<String>)>,
 }
 
 impl EnvGuard {
   fn acquire() -> Self {
-    let lock = std::env::temp_dir().join("aperio-cfgfile-test.lock");
-    let start = std::time::Instant::now();
-    loop {
-      match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&lock)
-      {
-        Ok(_) => break,
-        Err(_) => {
-          if let Ok(md) = std::fs::metadata(&lock)
-            && md
-              .modified()
-              .ok()
-              .and_then(|m| m.elapsed().ok())
-              .is_some_and(|e| e.as_secs() > 30)
-          {
-            let _ = std::fs::remove_file(&lock);
-          }
-          assert!(
-            start.elapsed().as_secs() < 120,
-            "config-file test lock timeout"
-          );
-          std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-      }
-    }
+    let lock = crate::test_support::config_lock();
     let saved = KEYS.iter().map(|k| (*k, std::env::var(k).ok())).collect();
     for k in KEYS {
       unsafe { std::env::remove_var(k) };
     }
-    EnvGuard { lock, saved }
+    EnvGuard { _lock: lock, saved }
   }
 }
 
@@ -72,14 +47,14 @@ impl Drop for EnvGuard {
         None => unsafe { std::env::remove_var(k) },
       }
     }
-    let _ = std::fs::remove_file(&self.lock);
   }
 }
 
 /// Writes `yaml` to a fresh temp file, points `APERIO_SERVER_CONFIG` at it and
 /// loads it so the document/env are populated. Returns the file path.
 fn load_config(yaml: &str) -> std::path::PathBuf {
-  let file = std::env::temp_dir().join(format!("aperio-printcfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("printcfg-{}.yaml", uuid::Uuid::new_v4()));
   std::fs::write(&file, yaml).unwrap();
   unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
   crate::config_file::load();
@@ -88,7 +63,8 @@ fn load_config(yaml: &str) -> std::path::PathBuf {
 
 /// Points `APERIO_DATA_DIR` at a fresh temp dir and returns it.
 fn fresh_data_dir() -> std::path::PathBuf {
-  let dir = std::env::temp_dir().join(format!("aperio-printcfg-data-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("printcfg-data-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   unsafe { std::env::set_var("APERIO_DATA_DIR", dir.to_str().unwrap()) };
   dir
@@ -191,7 +167,8 @@ fn reports_missing_explicit_config_file() {
   let _g = EnvGuard::acquire();
   let _data = fresh_data_dir();
   // Explicit path that does not exist.
-  let missing = std::env::temp_dir().join(format!("aperio-absent-{}.yaml", uuid::Uuid::new_v4()));
+  let missing =
+    crate::test_support::test_temp_root().join(format!("absent-{}.yaml", uuid::Uuid::new_v4()));
   unsafe { std::env::set_var("APERIO_SERVER_CONFIG", missing.to_str().unwrap()) };
 
   let out = render();

@@ -140,8 +140,8 @@ mod tests {
   use super::*;
 
   fn temp_dir() -> String {
-    std::env::temp_dir()
-      .join(format!("aperio-adminkeys-test-{}", uuid::Uuid::new_v4()))
+    crate::test_support::test_temp_root()
+      .join(format!("adminkeys-test-{}", uuid::Uuid::new_v4()))
       .to_string_lossy()
       .to_string()
   }

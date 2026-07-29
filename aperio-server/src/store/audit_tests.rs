@@ -1,7 +1,8 @@
 use super::*;
 
 fn temp_dir() -> (PathBuf, String) {
-  let dir = std::env::temp_dir().join(format!("aperio-audit-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("audit-test-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let s = dir.to_string_lossy().to_string();
   (dir, s)
@@ -172,7 +173,8 @@ fn test_rotation_zero_files_truncates() {
 
 #[test]
 fn test_prune_older_than_keeps_chain_verifiable() {
-  let dir = std::env::temp_dir().join(format!("aperio-audit-prune-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("audit-prune-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   let dir_str = dir.to_string_lossy().to_string();
 

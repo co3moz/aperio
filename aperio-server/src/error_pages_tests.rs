@@ -7,41 +7,14 @@ fn pages_with(rules: Vec<CompiledRule>) -> ErrorPages {
 /// Serializes tests that touch the process-global config document / default
 /// `aperio-server.yaml`. Loads `yaml` as the default document, runs `f`.
 fn with_config(yaml: &str, f: impl FnOnce()) {
-  let lock = std::env::temp_dir().join("aperio-cfgfile-test.lock");
-  let start = std::time::Instant::now();
-  loop {
-    match std::fs::OpenOptions::new()
-      .write(true)
-      .create_new(true)
-      .open(&lock)
-    {
-      Ok(_) => break,
-      Err(_) => {
-        if let Ok(md) = std::fs::metadata(&lock)
-          && md
-            .modified()
-            .ok()
-            .and_then(|m| m.elapsed().ok())
-            .is_some_and(|e| e.as_secs() > 30)
-        {
-          let _ = std::fs::remove_file(&lock);
-        }
-        assert!(
-          start.elapsed().as_secs() < 120,
-          "config-file test lock timeout"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(5));
-      }
-    }
-  }
-  struct Cleanup(std::path::PathBuf);
+  let _lock = crate::test_support::config_lock();
+  struct Cleanup;
   impl Drop for Cleanup {
     fn drop(&mut self) {
       let _ = std::fs::remove_file("aperio-server.yaml");
-      let _ = std::fs::remove_file(&self.0);
     }
   }
-  let _cleanup = Cleanup(lock);
+  let _cleanup = Cleanup;
   std::fs::write("aperio-server.yaml", yaml).unwrap();
   crate::config_file::reload().unwrap();
   f();
@@ -49,7 +22,8 @@ fn with_config(yaml: &str, f: impl FnOnce()) {
 
 /// Writes an HTML file into a fresh temp path and returns it.
 fn tmp_html(contents: &str) -> std::path::PathBuf {
-  let p = std::env::temp_dir().join(format!("aperio-errpage-{}.html", uuid::Uuid::new_v4()));
+  let p =
+    crate::test_support::test_temp_root().join(format!("errpage-{}.html", uuid::Uuid::new_v4()));
   std::fs::write(&p, contents).unwrap();
   p
 }

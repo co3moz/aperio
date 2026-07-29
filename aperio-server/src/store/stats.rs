@@ -631,7 +631,8 @@ mod tests {
 
   #[test]
   fn test_record_and_reload() {
-    let dir = std::env::temp_dir().join(format!("aperio-stats-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("stats-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 
@@ -712,7 +713,8 @@ mod tests {
 
   #[test]
   fn test_purge_hostname_and_token() {
-    let dir = std::env::temp_dir().join(format!("aperio-stats-purge-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("stats-purge-{}", uuid::Uuid::new_v4()));
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = StatsStore::load(&dir_str);
     store.record_request_labeled(
@@ -760,7 +762,8 @@ mod tests {
 
   #[test]
   fn test_bandwidth_period_labels() {
-    let dir = std::env::temp_dir().join(format!("aperio-stats-bw-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("stats-bw-{}", uuid::Uuid::new_v4()));
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = StatsStore::load(&dir_str);
     store.record_request_labeled(

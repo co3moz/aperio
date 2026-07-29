@@ -32,39 +32,14 @@ fn env_value_renders_scalars_and_lists() {
   assert_eq!(env_value(&Value::Null), None);
 }
 
-/// Acquires the process-wide config-file test lock, serializing every test that
+/// Acquires the process-wide config lock, serializing every test that
 /// mutates the global document, the `APERIO_SERVER_CONFIG` env var, or the
 /// default `aperio-server.yaml` path.
-struct CfgGuard(std::path::PathBuf);
+/// The lock is the point of the struct; holding it is all field 0 does.
+struct CfgGuard(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
 impl CfgGuard {
   fn lock() -> Self {
-    let lock = std::env::temp_dir().join("aperio-cfgfile-test.lock");
-    let start = std::time::Instant::now();
-    loop {
-      match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&lock)
-      {
-        Ok(_) => return CfgGuard(lock),
-        Err(_) => {
-          if let Ok(md) = std::fs::metadata(&lock)
-            && md
-              .modified()
-              .ok()
-              .and_then(|m| m.elapsed().ok())
-              .is_some_and(|e| e.as_secs() > 30)
-          {
-            let _ = std::fs::remove_file(&lock);
-          }
-          assert!(
-            start.elapsed().as_secs() < 120,
-            "config-file test lock timeout"
-          );
-          std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-      }
-    }
+    CfgGuard(crate::test_support::config_lock())
   }
 }
 impl Drop for CfgGuard {
@@ -73,7 +48,6 @@ impl Drop for CfgGuard {
     // process-wide lock so no other config-file test races us.
     unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
     let _ = std::fs::remove_file("aperio-server.yaml");
-    let _ = std::fs::remove_file(&self.0);
   }
 }
 
@@ -107,7 +81,8 @@ fn config_path_resolves_explicit_and_default() {
 #[test]
 fn load_materializes_scalars_and_keeps_structured_sections() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   // A mix of every value shape the loader has to handle.
   std::fs::write(
     &file,
@@ -152,7 +127,8 @@ fn load_materializes_scalars_and_keeps_structured_sections() {
 #[test]
 fn load_flattens_grouped_blocks_into_env_vars() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   for name in [
     "APERIO_ALERT_ERROR_RATE",
     "APERIO_ALERT_WINDOW",
@@ -207,7 +183,8 @@ fn load_flattens_grouped_blocks_into_env_vars() {
 #[test]
 fn load_gives_the_block_precedence_over_flat_keys() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   for name in ["APERIO_CACHE_MAX_BYTES", "APERIO_FAILOVER_WINDOW"] {
     unsafe { std::env::remove_var(name) };
   }
@@ -236,7 +213,8 @@ fn load_gives_the_block_precedence_over_flat_keys() {
 #[test]
 fn grouped_blocks_survive_into_the_hot_reload_layer() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   // A document mixing flat keys, grouped blocks and a structured section:
   // the hot-reload settings layer must see all of the live-editable values.
   // Deserializing the raw document instead of the flattened one failed on
@@ -294,7 +272,8 @@ fn grouped_blocks_survive_into_the_hot_reload_layer() {
 #[test]
 fn load_leaves_an_unknown_mapping_alone() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   unsafe { std::env::remove_var("APERIO_MYSTERY_A") };
   // Only the groups in the shared table flatten: anything else stays a
   // structured section, so a new feature block (or a typo) is never turned
@@ -372,7 +351,8 @@ fn reload_handles_valid_null_and_error_documents() {
 #[test]
 fn a_removed_setting_is_still_materialized_so_the_guard_can_see_it() {
   let _g = CfgGuard::lock();
-  let file = std::env::temp_dir().join(format!("aperio-cfg-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
   unsafe { std::env::remove_var("APERIO_DASHBOARD_AUTH") };
   // `dashboard_auth` and `dashboard.auth` were both removed from the schema,
   // but the loader is generic: an unknown scalar key still becomes its

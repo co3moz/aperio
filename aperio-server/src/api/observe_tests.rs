@@ -48,7 +48,8 @@ fn csv_field_quotes_and_escapes_special_characters() {
 
 #[test]
 fn store_bytes_sums_present_db_sidecars_and_ignores_missing() {
-  let dir = std::env::temp_dir().join(format!("aperio-observe-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("observe-test-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   // Empty directory: nothing to count.
   assert_eq!(store_bytes(&dir), 0);

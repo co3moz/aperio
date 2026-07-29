@@ -206,7 +206,8 @@ async fn run_cycle_prunes_captures_and_inbox() {
 #[tokio::test]
 async fn run_cycle_prunes_access_log() {
   let _g = EnvGuard::new(&[("APERIO_RETENTION_ACCESS_LOG", "1")]);
-  let dir = std::env::temp_dir().join(format!("aperio-accesslog-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("accesslog-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let path = dir.join("access.log");
   let old_line = format!("{{\"ts\":\"{}\",\"path\":\"/old\"}}", ts_old());
@@ -237,7 +238,8 @@ async fn run_cycle_prunes_access_log() {
 #[tokio::test]
 async fn run_cycle_access_log_keeps_everything_when_recent() {
   let _g = EnvGuard::new(&[("APERIO_RETENTION_ACCESS_LOG", "1")]);
-  let dir = std::env::temp_dir().join(format!("aperio-accesslog2-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("accesslog2-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let path = dir.join("access.log");
   std::fs::write(&path, format!("{{\"ts\":\"{}\"}}\n", ts_now())).unwrap();
@@ -268,12 +270,14 @@ async fn prune_access_log_returns_zero_without_a_configured_file() {
     std::fs::OpenOptions::new()
       .create(true)
       .append(true)
-      .open(std::env::temp_dir().join(format!("aperio-al-handle-{}", uuid::Uuid::new_v4())))
+      .open(
+        crate::test_support::test_temp_root().join(format!("al-handle-{}", uuid::Uuid::new_v4())),
+      )
       .unwrap(),
   ));
   state2.access_log_path = Some(
-    std::env::temp_dir()
-      .join(format!("aperio-missing-{}.log", uuid::Uuid::new_v4()))
+    crate::test_support::test_temp_root()
+      .join(format!("missing-{}.log", uuid::Uuid::new_v4()))
       .to_string_lossy()
       .into_owned(),
   );
@@ -283,7 +287,7 @@ async fn prune_access_log_returns_zero_without_a_configured_file() {
 #[tokio::test]
 async fn run_cycle_prunes_audit() {
   let _g = EnvGuard::new(&[("APERIO_RETENTION_AUDIT", "1")]);
-  let dir = std::env::temp_dir().join(format!("aperio-audit-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("audit-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let n = now();
   let old1 = format!(
@@ -346,7 +350,7 @@ fn db_max_bytes_parses_and_filters() {
 
 #[test]
 fn db_size_sums_the_sqlite_sidecars() {
-  let dir = std::env::temp_dir().join(format!("aperio-dbsize-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("dbsize-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   assert_eq!(db_size_bytes(&dir), 0);
   std::fs::write(dir.join("aperio.db"), vec![0u8; 100]).unwrap();
@@ -362,7 +366,7 @@ fn db_size_sums_the_sqlite_sidecars() {
 #[tokio::test]
 async fn disk_guard_below_reset_ratio_clears_warning_and_returns() {
   DISK_WARNED.store(true, Ordering::SeqCst);
-  let dir = std::env::temp_dir().join(format!("aperio-dg-low-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("dg-low-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   std::fs::write(dir.join("aperio.db"), vec![0u8; 10]).unwrap();
   let state = std::sync::Arc::new(test_state());
@@ -386,7 +390,7 @@ async fn disk_guard_below_reset_ratio_clears_warning_and_returns() {
 #[tokio::test]
 async fn disk_guard_warns_once_near_the_cap() {
   DISK_WARNED.store(false, Ordering::SeqCst);
-  let dir = std::env::temp_dir().join(format!("aperio-dg-warn-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("dg-warn-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   // 950 of a 1000 cap → past the 0.9 warn ratio but still under the cap.
   std::fs::write(dir.join("aperio.db"), vec![0u8; 950]).unwrap();
@@ -409,7 +413,7 @@ async fn disk_guard_warns_once_near_the_cap() {
 #[tokio::test]
 async fn disk_guard_prunes_over_the_cap() {
   DISK_WARNED.store(false, Ordering::SeqCst);
-  let dir = std::env::temp_dir().join(format!("aperio-dg-over-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("dg-over-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   std::fs::write(dir.join("aperio.db"), vec![0u8; 500]).unwrap();
   let state = std::sync::Arc::new(test_state());

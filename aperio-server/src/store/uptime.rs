@@ -239,7 +239,8 @@ mod tests {
 
   #[test]
   fn test_tick_accrues_by_previous_status() {
-    let dir = std::env::temp_dir().join(format!("aperio-uptime-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("uptime-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 
@@ -300,7 +301,8 @@ mod tests {
 
   #[test]
   fn test_degraded_and_prune() {
-    let dir = std::env::temp_dir().join(format!("aperio-uptime-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("uptime-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 

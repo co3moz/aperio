@@ -2,7 +2,8 @@ use super::*;
 use crate::store::users::Role;
 
 fn temp_dir() -> String {
-  let dir = std::env::temp_dir().join(format!("aperio-sessions-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("sessions-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   dir.to_string_lossy().to_string()
 }

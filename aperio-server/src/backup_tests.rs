@@ -48,7 +48,8 @@ fn set(k: &str, v: &str) {
 }
 
 fn temp_dir() -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("aperio-backup-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("backup-test-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   dir
 }
@@ -183,7 +184,7 @@ fn prune_keeps_newest_and_respects_keep_zero() {
 
 #[test]
 fn prune_on_missing_dir_is_a_noop() {
-  let dir = std::env::temp_dir().join(format!("aperio-missing-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("missing-{}", uuid::Uuid::new_v4()));
   // read_dir errors -> flattened to empty -> nothing removed.
   assert_eq!(prune_snapshots(&dir, 3), 0);
 }

@@ -178,7 +178,8 @@ mod tests {
 
   #[test]
   fn test_insert_list_delete_persist() {
-    let dir = std::env::temp_dir().join(format!("aperio-inbox-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("inbox-test-{}", uuid::Uuid::new_v4()));
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = InboxStore::load(&dir_str);
     store.insert(entry("a", None));
@@ -206,7 +207,8 @@ mod tests {
 
   #[test]
   fn test_prune_older_than() {
-    let dir = std::env::temp_dir().join(format!("aperio-inbox-prune-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("inbox-prune-{}", uuid::Uuid::new_v4()));
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = InboxStore::load(&dir_str);
     let mut old_entry = entry("old", None);
@@ -227,7 +229,8 @@ mod tests {
 
   #[test]
   fn test_truncate_oldest() {
-    let dir = std::env::temp_dir().join(format!("aperio-inbox-trunc-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("inbox-trunc-{}", uuid::Uuid::new_v4()));
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = InboxStore::load(&dir_str);
     for i in 0..5 {

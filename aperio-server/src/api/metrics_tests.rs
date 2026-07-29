@@ -81,8 +81,10 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
 }
 
 fn tmp_dir(kind: &str) -> String {
-  let dir = std::env::temp_dir().join(format!(
-    "aperio-metrics-test-{}-{}",
+  // Under the run's own root, like the shared fixtures: this builds a whole
+  // state's worth of stores per call, which is a dozen directories a time.
+  let dir = crate::test_support::test_temp_root().join(format!(
+    "metrics-{}-{}",
     kind,
     uuid::Uuid::new_v4()
   ));
@@ -114,10 +116,8 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: std::env::temp_dir().join(format!(
-      "aperio-metrics-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    settings_path: crate::test_support::test_temp_root()
+      .join(format!("metrics-settings-{}.json", uuid::Uuid::new_v4())),
     dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),

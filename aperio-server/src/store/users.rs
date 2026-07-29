@@ -428,7 +428,8 @@ mod tests {
   use super::*;
 
   fn temp_dir() -> String {
-    let dir = std::env::temp_dir().join(format!("aperio-users-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("users-test-{}", uuid::Uuid::new_v4()));
     dir.to_string_lossy().to_string()
   }
 

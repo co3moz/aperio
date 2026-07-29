@@ -14,47 +14,25 @@ use std::time::Duration;
 // ExposeRule / from_config_file
 // --------------------------------------------------------------------------
 
-/// Holds the cross-thread config-file lock (shared by path with the other
-/// config-touching test modules) so the global document is not raced.
-struct CfgLock(std::path::PathBuf);
+/// Holds the process-wide config lock (shared with the other config-touching
+/// test modules) so the global document is not raced.
+/// The lock is the point of the struct; holding it is all field 0 does.
+struct CfgLock(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
 impl CfgLock {
   fn acquire() -> Self {
-    let lock = std::env::temp_dir().join("aperio-cfgfile-test.lock");
-    let start = std::time::Instant::now();
-    loop {
-      match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&lock)
-      {
-        Ok(_) => return CfgLock(lock),
-        Err(_) => {
-          if let Ok(md) = std::fs::metadata(&lock)
-            && md
-              .modified()
-              .ok()
-              .and_then(|m| m.elapsed().ok())
-              .is_some_and(|e| e.as_secs() > 30)
-          {
-            let _ = std::fs::remove_file(&lock);
-          }
-          assert!(start.elapsed().as_secs() < 120, "cfg lock timeout");
-          std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-      }
-    }
+    CfgLock(crate::test_support::config_lock())
   }
 }
 impl Drop for CfgLock {
   fn drop(&mut self) {
     unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
     let _ = std::fs::remove_file("aperio-server.yaml");
-    let _ = std::fs::remove_file(&self.0);
   }
 }
 
 fn load_config(yaml: &str) {
-  let file = std::env::temp_dir().join(format!("aperio-expose-{}.yaml", uuid::Uuid::new_v4()));
+  let file =
+    crate::test_support::test_temp_root().join(format!("expose-{}.yaml", uuid::Uuid::new_v4()));
   std::fs::write(&file, yaml).unwrap();
   unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
   crate::config_file::load();

@@ -405,7 +405,8 @@ mod tests {
   use super::*;
 
   fn temp_dir() -> String {
-    let dir = std::env::temp_dir().join(format!("aperio-tokens-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("tokens-test-{}", uuid::Uuid::new_v4()));
     dir.to_string_lossy().to_string()
   }
 

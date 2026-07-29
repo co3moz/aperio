@@ -142,10 +142,8 @@ async fn test_rate_limiting() {
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: std::env::temp_dir().join(format!(
-      "aperio-test-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    settings_path: crate::test_support::test_temp_root()
+      .join(format!("settings-{}.json", uuid::Uuid::new_v4())),
     dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
@@ -301,10 +299,8 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: std::env::temp_dir().join(format!(
-      "aperio-test-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    settings_path: crate::test_support::test_temp_root()
+      .join(format!("settings-{}.json", uuid::Uuid::new_v4())),
     dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
@@ -480,10 +476,8 @@ async fn test_proxy_handler_success() {
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: std::env::temp_dir().join(format!(
-      "aperio-test-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    settings_path: crate::test_support::test_temp_root()
+      .join(format!("settings-{}.json", uuid::Uuid::new_v4())),
     dashboard_enabled: true,
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
@@ -776,51 +770,59 @@ fn test_extract_client_ip_untrusted_ignores_headers() {
 const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
 fn test_user_store() -> crate::store::users::UserStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-users-{}", uuid::Uuid::new_v4()));
+  let dir = crate::test_support::test_temp_root().join(format!("users-{}", uuid::Uuid::new_v4()));
   crate::store::users::UserStore::load(&dir.to_string_lossy())
 }
 
 fn test_inbox_store() -> crate::store::inbox::InboxStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-inbox-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-inbox-{}", uuid::Uuid::new_v4()));
   crate::store::inbox::InboxStore::load(&dir.to_string_lossy())
 }
 
 fn test_token_store() -> TokenStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-store-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-store-{}", uuid::Uuid::new_v4()));
   TokenStore::load(&dir.to_string_lossy())
 }
 
 fn test_admin_key_store() -> crate::store::admin_keys::AdminKeyStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-adminkeys-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-adminkeys-{}", uuid::Uuid::new_v4()));
   crate::store::admin_keys::AdminKeyStore::load(&dir.to_string_lossy())
 }
 
 fn test_audit_log() -> AuditLog {
-  let dir = std::env::temp_dir().join(format!("aperio-test-audit-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-audit-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3)
 }
 
 fn test_stats_store() -> StatsStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-stats-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-stats-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   StatsStore::load(&dir.to_string_lossy())
 }
 
 fn test_webhook_store() -> WebhookStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-hooks-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
 }
 
 fn test_org_store() -> crate::store::orgs::OrgStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-orgs-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-orgs-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::orgs::OrgStore::load(&dir.to_string_lossy())
 }
 
 fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {
-  let dir = std::env::temp_dir().join(format!("aperio-test-deliveries-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-deliveries-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
     &dir.to_string_lossy(),
@@ -828,13 +830,15 @@ fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryL
 }
 
 fn test_session_store() -> crate::store::sessions::SessionStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-sessions-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-sessions-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::sessions::SessionStore::load(&dir.to_string_lossy())
 }
 
 fn test_uptime_store() -> crate::store::uptime::UptimeStore {
-  let dir = std::env::temp_dir().join(format!("aperio-test-uptime-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("test-uptime-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::uptime::UptimeStore::load(&dir.to_string_lossy())
 }
@@ -1728,7 +1732,8 @@ fn test_verify_audit_intact_and_missing() {
   let prev = std::env::var("APERIO_DATA_DIR").ok();
 
   // A freshly written, well-formed audit log verifies intact → exit 0.
-  let dir = std::env::temp_dir().join(format!("aperio-verify-ok-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("verify-ok-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   {
     let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
@@ -1739,7 +1744,8 @@ fn test_verify_audit_intact_and_missing() {
   assert_eq!(verify_audit(), 0);
 
   // A directory with no audit log → nothing to verify → exit 0.
-  let empty = std::env::temp_dir().join(format!("aperio-verify-empty-{}", uuid::Uuid::new_v4()));
+  let empty =
+    crate::test_support::test_temp_root().join(format!("verify-empty-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&empty).unwrap();
   unsafe { std::env::set_var("APERIO_DATA_DIR", &empty) };
   assert_eq!(verify_audit(), 0);
@@ -1753,7 +1759,8 @@ fn test_verify_audit_detects_tampering_across_generations() {
   let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
   let prev = std::env::var("APERIO_DATA_DIR").ok();
 
-  let dir = std::env::temp_dir().join(format!("aperio-verify-bad-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("verify-bad-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   {
     let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
@@ -1782,7 +1789,8 @@ fn test_verify_audit_reports_unreadable_file() {
 
   // An audit.jsonl that is actually a directory cannot be read as a file, so
   // the verifier reports it as unreadable (the `Err` arm) → exit 1.
-  let dir = std::env::temp_dir().join(format!("aperio-verify-unread-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("verify-unread-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(dir.join("audit.jsonl")).unwrap();
   unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
   assert_eq!(verify_audit(), 1);

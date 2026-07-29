@@ -26,12 +26,78 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc, watch};
 
 /// Generous health threshold so mock clients (which never ping) stay eligible.
+/// Serializes every test that touches process-global configuration state: the
+/// parsed `aperio-server.yaml` document, the `APERIO_*` environment, and the
+/// `aperio-server.yaml` written into the working directory.
+///
+/// A plain mutex, held for the length of the test. It replaces nine copies of
+/// a hand-rolled lock file that broke any lock older than thirty seconds —
+/// which, under a fully parallel run, is a lock a *live* test can be holding.
+/// When that fired, two tests edited the same environment at once and one of
+/// them failed for reasons that were nowhere in its own code. Everything that
+/// needs this lives in one test binary, so a file was never the right shape
+/// for it in the first place.
+///
+/// Poisoning is recovered rather than propagated: one panicking test should
+/// fail alone, not turn every later test into a second failure. The state it
+/// guards is re-established by the next acquirer anyway.
+pub(crate) fn config_lock() -> std::sync::MutexGuard<'static, ()> {
+  static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+  LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
+/// A throwaway store directory, under one root per test process.
+///
+/// Every fixture used to make its own directory directly under the system
+/// temp dir and nothing ever removed them: a state fixture is a dozen stores,
+/// a run of this suite is a thousand tests, and the leftovers of a day's work
+/// filled a disk — which then surfaced as a test failing for something that
+/// had nothing to do with it. Now a run leaves exactly one directory, and the
+/// next run sweeps the ones before it.
 fn tmp(prefix: &str) -> String {
-  let dir = std::env::temp_dir().join(format!("aperio-test-{prefix}-{}", uuid::Uuid::new_v4()));
+  let dir = test_temp_root().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   dir.to_string_lossy().into_owned()
+}
+
+/// This process's temp root, created once, and the sweep of older ones.
+///
+/// Kept rather than deleted at the end: the harness has no reliable hook for
+/// "the last test finished", and the most recent run's files are the ones
+/// worth having when something failed. Anything older than an hour is another
+/// run's, and goes — including the dirs individual test modules still make
+/// directly under the temp dir, which is why the sweep matches every
+/// `aperio-` name rather than only this one.
+pub(crate) fn test_temp_root() -> std::path::PathBuf {
+  static ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+  ROOT
+    .get_or_init(|| {
+      let base = std::env::temp_dir();
+      let root = base.join(format!("aperio-test-{}", std::process::id()));
+      let _ = std::fs::create_dir_all(&root);
+      if let Ok(entries) = std::fs::read_dir(&base) {
+        for entry in entries.flatten() {
+          let name = entry.file_name();
+          let name = name.to_string_lossy();
+          if !name.starts_with("aperio-") || entry.path() == root {
+            continue;
+          }
+          let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|m| m.elapsed().ok())
+            .is_some_and(|age| age.as_secs() > 3600);
+          if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+          }
+        }
+      }
+      root
+    })
+    .clone()
 }
 
 pub(crate) fn test_user_store() -> crate::store::users::UserStore {
@@ -168,7 +234,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: std::env::temp_dir().join(format!(
+    settings_path: test_temp_root().join(format!(
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),

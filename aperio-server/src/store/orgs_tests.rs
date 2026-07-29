@@ -1,7 +1,8 @@
 use super::*;
 
 fn temp_dir() -> String {
-  let dir = std::env::temp_dir().join(format!("aperio-orgs-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("orgs-test-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   dir.to_string_lossy().to_string()
 }

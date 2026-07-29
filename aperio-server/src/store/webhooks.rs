@@ -586,7 +586,8 @@ mod tests {
 
   #[test]
   fn test_store_and_subscription() {
-    let dir = std::env::temp_dir().join(format!("aperio-webhooks-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("webhooks-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 
@@ -645,7 +646,8 @@ mod tests {
     assert_eq!(WebhookFormat::parse(""), Some(WebhookFormat::Generic));
     assert_eq!(WebhookFormat::parse("telegram"), None);
 
-    let dir = std::env::temp_dir().join(format!("aperio-webhooks-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("webhooks-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
     let mut store = WebhookStore::load(&dir_str);
@@ -750,7 +752,8 @@ mod tests {
 
   #[test]
   fn test_delivery_log_records_and_caps() {
-    let dir = std::env::temp_dir().join(format!("aperio-deliveries-test-{}", uuid::Uuid::new_v4()));
+    let dir = crate::test_support::test_temp_root()
+      .join(format!("deliveries-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 
@@ -807,7 +810,8 @@ mod tests {
 
   #[test]
   fn test_secret_persists_across_reload() {
-    let dir = std::env::temp_dir().join(format!("aperio-webhooks-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+      crate::test_support::test_temp_root().join(format!("webhooks-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 

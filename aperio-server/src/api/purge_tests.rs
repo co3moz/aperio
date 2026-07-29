@@ -427,7 +427,8 @@ async fn purge_rewrites_access_log() {
   let mut state = test_state();
   // Point the access log at a temp file with mixed matching/non-matching and
   // malformed lines.
-  let path = std::env::temp_dir().join(format!("aperio-purge-log-{}.jsonl", uuid::Uuid::new_v4()));
+  let path =
+    crate::test_support::test_temp_root().join(format!("purge-log-{}.jsonl", uuid::Uuid::new_v4()));
   let contents = concat!(
     "{\"host\":\"a.com\",\"token\":\"t1\"}\n",
     "{\"host\":\"b.com\",\"token\":\"t2\"}\n",
@@ -474,7 +475,8 @@ async fn purge_rewrites_access_log() {
 #[tokio::test]
 async fn purge_access_log_no_match_leaves_file_intact() {
   let mut state = test_state();
-  let path = std::env::temp_dir().join(format!("aperio-purge-log-{}.jsonl", uuid::Uuid::new_v4()));
+  let path =
+    crate::test_support::test_temp_root().join(format!("purge-log-{}.jsonl", uuid::Uuid::new_v4()));
   let contents = "{\"host\":\"b.com\",\"token\":\"t2\"}\n";
   std::fs::write(&path, contents).unwrap();
   state.access_log_path = Some(path.to_string_lossy().into_owned());

@@ -2,7 +2,8 @@ use super::*;
 
 /// A unique, freshly-created temp directory returned as (PathBuf, String).
 fn temp_dir() -> (PathBuf, String) {
-  let dir = std::env::temp_dir().join(format!("aperio-store-test-{}", uuid::Uuid::new_v4()));
+  let dir =
+    crate::test_support::test_temp_root().join(format!("store-test-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let s = dir.to_string_lossy().to_string();
   (dir, s)
