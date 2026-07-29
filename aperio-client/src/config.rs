@@ -256,6 +256,16 @@ fn cli_to_args(cli: Cli) -> CliArgs {
 /// resolver reads, and warns about any deprecated flat key it still uses so
 /// the operator can move the file over without reading a changelog.
 fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
+  // Before folding: this reports what the *file* writes, and folding rewrites
+  // some of those keys into others.
+  let single = cfg.single_service_keys();
+  if !single.is_empty() {
+    warn!(
+      "{}: `{}` describe a single service at the top level. A config file will only accept `services:` from 0.7.0 — move them into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
+      path,
+      single.join("`, `")
+    );
+  }
   for key in cfg.fold_groups() {
     warn!(
       "{}: `{}` is deprecated; write it as `{}` instead (the old key still works)",

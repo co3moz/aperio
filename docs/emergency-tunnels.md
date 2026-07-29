@@ -14,7 +14,8 @@ On the machine next to the private service, the client's `aperio.yaml` gains a `
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
-target: http://localhost:3000     # optional, a client may declare only tunnels
+services:                         # optional, a client may declare only tunnels
+  - target: http://localhost:3000
 tunnels:
   - name: mongo                   # the handle binders address
     target: 127.0.0.1:27017       # MongoDB, never exposed

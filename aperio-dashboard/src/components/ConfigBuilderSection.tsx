@@ -59,9 +59,7 @@ import {
 } from '@/lib/configSchema'
 import {
   CLIENT_GROUPS,
-  MULTI_ONLY_KEYS,
   SERVER_GROUPS,
-  SINGLE_ONLY_KEYS,
   essentialRank,
   isEssential,
   type GroupSpec,
@@ -70,9 +68,6 @@ import { useI18n } from '@/i18n'
 import { toast } from 'sonner'
 
 type Kind = 'client' | 'server'
-/** Single-service mode is the CLI shorthand; a file being written by hand is
- *  almost always the multi-service shape, so that is the default here. */
-type ClientMode = 'multi' | 'single'
 type Doc = Record<string, unknown>
 
 /** How many of a section's fields the document actually sets, so a collapsed
@@ -165,7 +160,6 @@ function sectionsFor(
 export function ConfigBuilderSection() {
   const { t } = useI18n()
   const [kind, setKind] = useState<Kind>('client')
-  const [clientMode, setClientMode] = useState<ClientMode>('multi')
   const [schemas, setSchemas] = useState<Partial<Record<Kind, JsonSchema>>>({})
   const [docs, setDocs] = useState<Record<Kind, Doc>>({ client: {}, server: {} })
   const [error, setError] = useState<string | null>(null)
@@ -193,20 +187,17 @@ export function ConfigBuilderSection() {
 
   const sections = useMemo(() => {
     if (!schema) return []
-    const hidden = new Set<string>(
-      kind === 'client'
-        ? clientMode === 'multi'
-          ? SINGLE_ONLY_KEYS
-          : MULTI_ONLY_KEYS
-        : [],
-    )
+    // Nothing is hidden by mode any more: a client file has one shape,
+    // `services:`. The single-service keys are marked deprecated in the
+    // schema, so they surface only for a file that already writes them —
+    // which is exactly what someone migrating such a file needs.
     return sectionsFor(
       fieldsOf(schema, schema),
       kind === 'client' ? CLIENT_GROUPS : SERVER_GROUPS,
-      hidden,
+      new Set<string>(),
       doc,
     )
-  }, [schema, kind, clientMode, doc])
+  }, [schema, kind, doc])
 
   const update = useCallback(
     (path: string, value: unknown) =>
@@ -281,33 +272,6 @@ export function ConfigBuilderSection() {
                 : t('Configures the Aperio server itself.')}
             </p>
           </div>
-          {kind === 'client' && (
-            <div className="flex flex-col gap-2">
-              <Label>{t('Shape')}</Label>
-              <ToggleGroup
-                variant="outline"
-                spacing={0}
-                value={[clientMode]}
-                multiple={false}
-                onValueChange={(v: string[]) => {
-                  const next = v[0]
-                  if (next === 'multi' || next === 'single') setClientMode(next)
-                }}
-              >
-                <ToggleGroupItem value="multi">{t('Services list')}</ToggleGroupItem>
-                <ToggleGroupItem value="single">{t('Single service')}</ToggleGroupItem>
-              </ToggleGroup>
-              <p className="max-w-md text-xs text-muted-foreground">
-                {clientMode === 'multi'
-                  ? t(
-                      'One entry per exposed backend. This is the shape to write by hand; the two are mutually exclusive, so the single-service keys are hidden.',
-                    )
-                  : t(
-                      'The CLI shorthand: one backend configured at the top level, with no services: list.',
-                    )}
-              </p>
-            </div>
-          )}
         </CardContent>
       </Card>
 

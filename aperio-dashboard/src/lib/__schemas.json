@@ -168,7 +168,7 @@
         "minimum": 0
       },
       "hostname": {
-        "description": "Public hostname(s) to claim for this client's traffic: a single string\nor a list.",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Public hostname(s)\nto claim for this client's traffic. A bind belongs to the service it\nbinds, so write it on the `services:` entry; `--hostname` and\n`APERIO_HOSTNAME` are unaffected.",
         "anyOf": [
           {
             "$ref": "#/$defs/Hostnames"
@@ -177,6 +177,7 @@
             "type": "null"
           }
         ],
+        "deprecated": true,
         "examples": [
           "app.example.com",
           [
@@ -296,11 +297,12 @@
         ]
       },
       "path": {
-        "description": "Public path prefix to claim for this client's traffic.",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Public path prefix\nto claim for this client's traffic. Write it on the `services:` entry\nit binds; `--path` and `APERIO_PATH` are unaffected.",
         "type": [
           "string",
           "null"
         ],
+        "deprecated": true,
         "examples": [
           "/api"
         ]
@@ -366,11 +368,12 @@
         ]
       },
       "serve": {
-        "description": "Serve a local directory of static files instead of forwarding to a\nbackend (mutually exclusive with `target`); directories serve their\n`index.html`.",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Serve a local\ndirectory of static files instead of forwarding to a backend. Write it\nas a `services:` entry's `serve:`; the CLI's `--serve` and\n`APERIO_SERVE` are unaffected.",
         "type": [
           "string",
           "null"
         ],
+        "deprecated": true,
         "examples": [
           "./dist"
         ]
@@ -414,11 +417,12 @@
         }
       },
       "target": {
-        "description": "Local backend to expose (single-service mode; use `services` for\nseveral). `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Local backend to\nexpose. Write it as a `services:` entry instead; single-service mode\nstays available as the CLI's positional target and `APERIO_TARGET`.\n`h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
         "type": [
           "string",
           "null"
         ],
+        "deprecated": true,
         "examples": [
           "http://localhost:3000",
           "3000",
@@ -436,11 +440,12 @@
         ]
       },
       "tcp_target": {
-        "description": "Raw TCP backend to expose instead of HTTP (experimental).",
+        "description": "**Deprecated in a config file, removed in 0.7.0.** Raw TCP backend to\nexpose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;\n`--tcp-target` and `APERIO_TCP_TARGET` are unaffected.",
         "type": [
           "string",
           "null"
         ],
+        "deprecated": true,
         "examples": [
           "127.0.0.1:5432"
         ]

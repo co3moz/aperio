@@ -594,21 +594,28 @@ pub struct FileConfig {
   /// top level still authenticates rather than being silently ignored.
   #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// Local backend to expose (single-service mode; use `services` for
-  /// several). `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"]))]
+  /// **Deprecated in a config file, removed in 0.7.0.** Local backend to
+  /// expose. Write it as a `services:` entry instead; single-service mode
+  /// stays available as the CLI's positional target and `APERIO_TARGET`.
+  /// `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"], "deprecated" = true))]
   pub target: Option<String>,
-  /// Serve a local directory of static files instead of forwarding to a
-  /// backend (mutually exclusive with `target`); directories serve their
-  /// `index.html`.
-  #[schemars(extend("examples" = ["./dist"]))]
+  /// **Deprecated in a config file, removed in 0.7.0.** Serve a local
+  /// directory of static files instead of forwarding to a backend. Write it
+  /// as a `services:` entry's `serve:`; the CLI's `--serve` and
+  /// `APERIO_SERVE` are unaffected.
+  #[schemars(extend("examples" = ["./dist"], "deprecated" = true))]
   pub serve: Option<String>,
-  /// Public hostname(s) to claim for this client's traffic: a single string
-  /// or a list.
-  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
+  /// **Deprecated in a config file, removed in 0.7.0.** Public hostname(s)
+  /// to claim for this client's traffic. A bind belongs to the service it
+  /// binds, so write it on the `services:` entry; `--hostname` and
+  /// `APERIO_HOSTNAME` are unaffected.
+  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]], "deprecated" = true))]
   pub hostname: Option<Hostnames>,
-  /// Public path prefix to claim for this client's traffic.
-  #[schemars(extend("examples" = ["/api"]))]
+  /// **Deprecated in a config file, removed in 0.7.0.** Public path prefix
+  /// to claim for this client's traffic. Write it on the `services:` entry
+  /// it binds; `--path` and `APERIO_PATH` are unaffected.
+  #[schemars(extend("examples" = ["/api"], "deprecated" = true))]
   pub path: Option<String>,
   /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
   pub trim_bind: Option<bool>,
@@ -640,8 +647,10 @@ pub struct FileConfig {
   /// Largest single tunnel frame, in bytes, the client will accept.
   #[schemars(extend("examples" = [33554432]))]
   pub max_message_size: Option<usize>,
-  /// Raw TCP backend to expose instead of HTTP (experimental).
-  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
+  /// **Deprecated in a config file, removed in 0.7.0.** Raw TCP backend to
+  /// expose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;
+  /// `--tcp-target` and `APERIO_TCP_TARGET` are unaffected.
+  #[schemars(extend("examples" = ["127.0.0.1:5432"], "deprecated" = true))]
   pub tcp_target: Option<String>,
   /// Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,
   /// `wait_for_backend`). Preferred over the flat `target_health` / `health_*`
@@ -1056,7 +1065,40 @@ impl ServiceEntry {
   }
 }
 
+/// The yaml keys that describe a *single* service at the top level.
+///
+/// They are the file's spelling of the CLI's single-service shorthand, and
+/// they are on their way out of the file format: a config file is the place
+/// where a deployment is written down, and having two shapes for "what this
+/// client exposes" — one that only works when the other is absent — is a
+/// question nobody should have to answer. `services:` is the one shape.
+///
+/// The shorthand itself is not going anywhere; it stays where it belongs, on
+/// the command line and in the environment, where a one-liner is the point.
+pub const SINGLE_SERVICE_KEYS: &[&str] = &["target", "serve", "hostname", "path", "tcp_target"];
+
 impl FileConfig {
+  /// Which single-service keys this file writes, in the order above.
+  ///
+  /// Call before [`FileConfig::fold_groups`] and before any layering: what is
+  /// being reported is what the *file* says, not what the resolved settings
+  /// ended up as, and a value that came from the CLI or the environment is
+  /// not this file's problem.
+  pub fn single_service_keys(&self) -> Vec<&'static str> {
+    let set = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+    [
+      ("target", set(&self.target)),
+      ("serve", set(&self.serve)),
+      ("hostname", self.hostname.is_some()),
+      ("path", set(&self.path)),
+      ("tcp_target", set(&self.tcp_target)),
+    ]
+    .into_iter()
+    .filter(|(_, present)| *present)
+    .map(|(key, _)| key)
+    .collect()
+  }
+
   /// Rewrites every grouped block into the flat fields the resolver reads,
   /// top level and per `services:` entry, and reports the deprecated flat
   /// keys the file still uses. Call once per parse, before resolving.

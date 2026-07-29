@@ -48,6 +48,37 @@ describe('the client schema through the builder', () => {
   })
 })
 
+describe('the single-service keys on their way out', () => {
+  // They only ever worked in a file with no `services:` list, and a file is
+  // where a deployment is written down: two shapes for "what this client
+  // exposes" is a question nobody should have to answer. The shorthand stays
+  // on the CLI and in the environment, where a one-liner is the point.
+  const SINGLE = ['target', 'serve', 'hostname', 'path', 'tcp_target']
+
+  it('is marked deprecated in the schema the form reads', () => {
+    for (const key of SINGLE) {
+      expect(find(clientFields, key)?.deprecated, key).toBe(true)
+    }
+  })
+
+  it('leaves the keys that are genuinely per-entry fallbacks alone', () => {
+    // These stay top-level in the multi-service shape: the client falls back
+    // to them per entry, so flagging them would tell people to remove a key
+    // that still does its job.
+    for (const key of ['trim_bind', 'pass_hostname', 'serve_spa', 'serve_404', 'services']) {
+      expect(find(clientFields, key)?.deprecated, key).toBeFalsy()
+    }
+  })
+
+  it('still names the same key on a services entry, undeprecated', () => {
+    // The replacement has to be reachable, or the advice is empty.
+    const entry = find(clientFields, 'services')?.children ?? []
+    for (const key of SINGLE) {
+      expect(find(entry, key)?.deprecated, key).toBeFalsy()
+    }
+  })
+})
+
 describe('the server schema through the builder', () => {
   it('offers the identity form of an expose entry', () => {
     const expose = find(serverFields, 'expose')

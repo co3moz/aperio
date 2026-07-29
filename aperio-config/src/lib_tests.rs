@@ -541,3 +541,76 @@ fn a_combined_derived_name_stays_addressable() {
   assert_eq!(name, "192-168-3-100-53-tcp-udp");
   assert!(validate_tunnel_name(&name).is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// Single-service keys in a config file (deprecated; removed in 0.7.0).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_file_reports_the_single_service_keys_it_writes() {
+  let cfg: FileConfig = serde_yaml::from_str(
+    r#"
+server:
+  url: wss://tunnel.example.com
+  token: apr_x
+target: http://localhost:3000
+hostname: app.example.com
+path: /api
+"#,
+  )
+  .unwrap();
+  // In file order, so the warning reads the way the file does.
+  assert_eq!(
+    cfg.single_service_keys(),
+    vec!["target", "hostname", "path"]
+  );
+}
+
+#[test]
+fn a_services_file_reports_nothing() {
+  // The keys that stay legitimately top-level in the multi-service shape are
+  // per-entry *fallbacks*, so none of them may trip the deprecation warning.
+  let cfg: FileConfig = serde_yaml::from_str(
+    r#"
+server:
+  url: wss://tunnel.example.com
+  token: apr_x
+max_concurrent: 8
+trim_bind: true
+pass_hostname: true
+serve_spa: true
+services:
+  - target: http://localhost:3000
+    hostname: app.example.com
+"#,
+  )
+  .unwrap();
+  assert!(cfg.single_service_keys().is_empty());
+}
+
+#[test]
+fn an_empty_single_service_key_is_not_written() {
+  // `target: ""` is how a value gets cleared in a templated file; reporting
+  // it would tell someone to migrate a key they already removed.
+  let cfg: FileConfig = serde_yaml::from_str("target: \"  \"\nserve: \"\"\n").unwrap();
+  assert!(cfg.single_service_keys().is_empty());
+}
+
+#[test]
+fn the_schema_marks_the_single_service_keys_deprecated() {
+  // The dashboard's config builder hides a deprecated key unless an imported
+  // file already writes it, and editors grey it out. Both read this flag, so
+  // the form stops offering the shape we want retired.
+  let schema = serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap();
+  let props = schema["properties"].as_object().unwrap();
+  for key in SINGLE_SERVICE_KEYS {
+    assert_eq!(
+      props[*key].get("deprecated"),
+      Some(&serde_json::Value::Bool(true)),
+      "`{key}` must be marked deprecated in the emitted schema"
+    );
+  }
+  // A key that is still the right way to write something must not be.
+  assert_eq!(props["services"].get("deprecated"), None);
+  assert_eq!(props["trim_bind"].get("deprecated"), None);
+}

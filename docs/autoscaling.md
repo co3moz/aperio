@@ -27,8 +27,9 @@ Then declare it on the client, in `aperio.yaml`:
 server:
   url: https://tunnel.example.com
   token: apr_...
-target: http://localhost:3000
-hostname: app.example.com
+services:
+  - target: http://localhost:3000
+    hostname: app.example.com
 
 scaling:
   url: https://api.provider.example/apps/web/scale

@@ -26,6 +26,8 @@ export interface JsonSchema {
   oneOf?: JsonSchema[]
   required?: string[]
   additionalProperties?: JsonSchema | boolean
+  /** Standard JSON Schema: this key still works but should not be written. */
+  deprecated?: boolean
 }
 
 /** How a field is edited. */
@@ -58,10 +60,10 @@ export interface Field {
   children?: Field[]
   /** Keys an entry of an `objectList` must carry. */
   required?: string[]
-  /** True for a key the schema documents as a deprecated spelling of another.
-   *  Hidden unless an imported file actually uses it: offering both spellings
-   *  in a blank form would invite writing the one we want people to stop
-   *  writing. */
+  /** True for a key on its way out — a superseded spelling, or one being
+   *  withdrawn from the file format. Hidden unless an imported file actually
+   *  uses it: offering it in a blank form would invite writing the very key
+   *  we want people to stop writing. */
   deprecated?: boolean
 }
 
@@ -147,10 +149,18 @@ export function fieldsOf(
       ? examples.map((e) => String(e)).join(', ')
       : undefined
     const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
-    // The schema documents superseded keys as "Deprecated spelling of `x`",
-    // sometimes after a sentence of their own, so the phrase is matched
-    // anywhere rather than only at the start.
-    const deprecated = /deprecated spelling of/i.test(description ?? '')
+    // Two ways a key can be on its way out. JSON Schema's own `deprecated`
+    // keyword is the authoritative one and is what the Rust types emit for a
+    // key being withdrawn outright; the phrase match stays for the superseded
+    // spellings, documented as "Deprecated spelling of `x`" and never flagged.
+    // Read from the property itself as well as the collapsed branch, for the
+    // same reason the description is: on a key whose type is an `anyOf` (a
+    // hostname is a string or a list of them), collapsing walks into one
+    // branch and the flag stays behind on the outer node.
+    const deprecated =
+      outer.deprecated === true ||
+      schema.deprecated === true ||
+      /deprecated spelling of/i.test(description ?? '')
 
     if (type === 'array') {
       const item = collapse(schema.items ?? {}, root)

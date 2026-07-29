@@ -197,6 +197,21 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    version: "0.6.1",
+    surface: ConfigSurface::Client,
+    // Announced one release early, on purpose. Nothing is ignored yet and
+    // nothing is renamed: a file written this way still starts and still
+    // behaves identically, which is why this is a Migration and not Breaking.
+    // The point of saying it now is that the removal lands in 0.7.0, and an
+    // operator who only ever reads this report should hear about it while
+    // there is still nothing to fix.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["target", "serve", "hostname", "path", "tcp_target"],
+    summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.7.0 a config file will only accept `services:`. Single-service mode is unaffected on the command line and in the environment.",
+    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:` into one `services:` entry. The file behaves the same either way until 0.7.0.",
+  },
+  ConfigChange {
     version: "0.6.0",
     surface: ConfigSurface::Server,
     // Nothing is ignored and nothing is renamed: the endpoint is read the way

@@ -344,3 +344,47 @@ fn config_keys_flattens_one_level_of_blocks() {
   assert!(!k.contains("auth"), "a child is not addressable on its own");
   assert!(ConfigKeys::default().is_empty());
 }
+
+#[test]
+fn the_single_service_deprecation_reaches_a_file_that_writes_one() {
+  // The real table, not a fixture: this is the entry an operator upgrading
+  // past 0.6.0 with a single-service file has to be told about, and the point
+  // of announcing it a release early is that they hear it while there is
+  // still nothing to fix.
+  let keys = ConfigKeys::from_names(["target".to_string(), "hostname".to_string()]);
+  let r = check_upgrade(
+    Some("0.6.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CONFIG_CHANGES,
+    &keys,
+  )
+  .unwrap();
+  assert!(
+    r.affected_fields().contains(&"target"),
+    "{:?}",
+    r.affected_fields()
+  );
+  // Nothing may refuse the start: the file still behaves exactly as it did.
+  assert!(!r.must_refuse());
+}
+
+#[test]
+fn the_single_service_deprecation_is_silent_for_a_services_file() {
+  // A file already written the recommended way must hear nothing at all —
+  // a warning nobody can act on is what teaches people to ignore warnings.
+  let keys = ConfigKeys::from_names(["services".to_string(), "max_concurrent".to_string()]);
+  let r = check_upgrade(
+    Some("0.6.0"),
+    "0.7.0",
+    ConfigSurface::Client,
+    CONFIG_CHANGES,
+    &keys,
+  )
+  .unwrap();
+  assert!(
+    r.changes.is_empty(),
+    "reported {:?}",
+    r.changes.iter().map(|c| c.fields).collect::<Vec<_>>()
+  );
+}

@@ -163,24 +163,46 @@ server:
 
 ```yaml
 # ./aperio.yaml, per-project service description
-target: http://localhost:3000
+services:
+  - target: http://localhost:3000
+    # optional
+    hostname: app.example.com
+    path: /api
+    trim_bind: true
+    pass_hostname: false
+    max_concurrent: 8
+    target_health: /health   # probe the backend; report unhealthy without dropping the tunnel
 
-# optional
-hostname: app.example.com
-path: /api
-trim_bind: true
-pass_hostname: false
-max_concurrent: 8
-priority: 0                # 0 = primary, higher = standby tier
-target_health: /health     # probe the backend; report unhealthy without dropping the tunnel
+# top-level keys are the defaults every entry falls back to
+priority: 0                  # 0 = primary, higher = standby tier
 health_interval: 10
+```
+
+**A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`) is deprecated: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. They still work exactly as before and **will be removed in 0.7.0**; a client that finds one says so at startup, and a file declaring `version:` gets the same notice through the [upgrade report](upgrade-guide.md). Migrating is mechanical: indent them under one `services:` entry.
+
+Single-service mode itself is not going away — it moves to where a one-liner belongs, the command line and the environment:
+
+```bash
+# the positional target is single-service mode
+aperio-client http://localhost:3000 \
+  --server-url https://tunnel.example.com --server-token apr_xxxxxxxxxxxxxxxx \
+  --hostname app.example.com --path /api
+```
+
+```bash
+# the same thing, for a container or a unit file
+APERIO_SERVER_URL=https://tunnel.example.com
+APERIO_SERVER_TOKEN=apr_xxxxxxxxxxxxxxxx
+APERIO_TARGET=http://localhost:3000
+APERIO_HOSTNAME=app.example.com
+APERIO_PATH=/api
 ```
 
 The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
 
 ### Multiple services
 
-One client process can expose several targets: replace the single `target` with a `services:` list, and the client opens one tunnel connection per entry, each with its own binds, health probe, and knobs:
+One client process can expose several targets: add an entry per backend to `services:`, and the client opens one tunnel connection per entry, each with its own binds, health probe, and knobs:
 
 ```yaml
 # ./aperio.yaml (client)

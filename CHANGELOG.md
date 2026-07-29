@@ -24,6 +24,13 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level of `aperio.yaml` — `target:`, `serve:`, `hostname:`, `path:`, `tcp_target:` — is deprecated and **will be removed in 0.7.0**. Those keys only ever did anything in a file *without* a `services:` list, so a reader had to work out which of two shapes they were looking at before they could read anything else, and a key written into the wrong shape did nothing at all. Nothing changes yet: a file written that way still starts and behaves identically. A client that finds one says so at startup, naming the keys, and a file declaring `version:` gets the same notice through the upgrade report on the next upgrade. Migrating is mechanical — indent them under one `services:` entry.
+
+  **Single-service mode itself is not going away.** It moves to where a one-liner belongs: the positional CLI target and `--serve`/`--hostname`/`--path`, and the `APERIO_TARGET` family in the environment. Those are unchanged and will stay.
+
+- **The config builder writes one shape.** The *Single service* / *Services list* choice is gone, since there is no longer a choice to make. The single-service keys are marked deprecated in the emitted schema, so a blank form does not offer them, and an imported file that uses them still shows them — which is what someone migrating such a file needs.
+
+
 - **The dashboard docs say what the settings screen can actually do.** They described it in one paragraph of "almost every runtime setting", which is true and useless: it does not say which ones, and it does not say what is deliberately absent. [The dashboard guide](docs/dashboard.md) now lists every group with the settings behind it and the environment names they correspond to, states the two that reach connected clients immediately, and names the security- and startup-critical flags that never become dashboard overrides and why. The book carries the same material. The Tools dialog and the palette's settings search are documented alongside.
 
 - **`APERIO_SCALING_ALLOW_PRIVATE` is documented.** The flag existed and was enforced — an autoscaling endpoint resolving to a private, loopback or link-local address is refused without it — but appeared in neither reference table, so the only way to learn about it was to hit the error.

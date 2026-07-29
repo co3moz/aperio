@@ -36,18 +36,19 @@ export const CLIENT_GROUPS: GroupSpec[] = [
     keys: ['tunnels', 'bind-tunnels'],
   },
   {
-    title: 'Exposed service',
-    description: 'The single backend this client exposes and where it is bound.',
+    title: 'Service defaults',
+    description:
+      'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.',
     keys: [
       'target',
       'serve',
-      'serve_spa',
-      'serve_404',
       'hostname',
       'path',
+      'tcp_target',
+      'serve_spa',
+      'serve_404',
       'trim_bind',
       'pass_hostname',
-      'tcp_target',
     ],
   },
   {
@@ -226,30 +227,6 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: ['config_hot_reload', 'reuseport', 'backup', 'expose', 'tunnel_compression'],
   },
 ]
-
-/**
- * Top-level keys hidden in each client mode.
- *
- * `serve:`/`target:` at the top level *are* single-service mode and the client
- * refuses to start with both them and a `services:` list, so showing both at
- * once would offer a configuration that cannot run. The tuning keys stay
- * visible in either mode: in multi-service mode they are the per-entry
- * fallbacks.
- */
-export const SINGLE_ONLY_KEYS = [
-  'target',
-  'serve',
-  'serve_spa',
-  'serve_404',
-  'hostname',
-  'path',
-  'trim_bind',
-  'pass_hostname',
-  'tcp_target',
-]
-
-/** The one key that only makes sense with several services. */
-export const MULTI_ONLY_KEYS = ['services']
 
 /**
  * How early a key has to be decided when describing a deployment.
