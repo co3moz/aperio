@@ -18,6 +18,9 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
 
   let mut failures = 0u32;
   let pass = |label: &str, detail: String| println!("  ok    {label}: {detail}");
+  // Not a failure — the client starts and serves — but the file says something
+  // it will not do, which is exactly what this command exists to surface.
+  let warn = |label: &str, detail: String| println!("  warn  {label}: {detail}");
   let fail = |label: &str, detail: String, failures: &mut u32| {
     *failures += 1;
     println!("  FAIL  {label}: {detail}");
@@ -81,32 +84,64 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   }
 
+  // Which shape actually drives the client, mirroring `build_specs`: a
+  // `services:` list wins over a single service named at the top level, unless
+  // that target came from the command line, where the positional argument is
+  // deliberately an override. Getting this backwards made the whole section a
+  // lie for a file that had both — it named, and probed, the one backend the
+  // client was going to ignore.
+  let cli_target = matches!(sources.target, Some(crate::config::Source::Cli));
+  let services_win = !settings.services.is_empty() && !cli_target;
+  if services_win {
+    let shadowed: Vec<&str> = [
+      ("target", target.is_some()),
+      ("serve", settings.serve.is_some()),
+      ("hostname", !settings.hostnames.is_empty()),
+      ("path", settings.path.is_some()),
+      ("tcp_target", settings.tcp_target.is_some()),
+      ("target_health", target_health.is_some()),
+    ]
+    .into_iter()
+    .filter(|(_, set)| *set)
+    .map(|(key, _)| key)
+    .collect();
+    if !shadowed.is_empty() {
+      warn(
+        "single-service keys",
+        format!(
+          "`{}` are ignored while a services: list exists — the entries below are what runs. Move them into an entry (they are deprecated and removed in 0.7.0 anyway).",
+          shadowed.join("`, `")
+        ),
+      );
+    }
+  }
+
   match &target {
-    Some(t) => pass("target", format!("{}{}", t, from(sources.target))),
-    None if settings.serve.is_some() => pass(
+    Some(t) if !services_win => pass("target", format!("{}{}", t, from(sources.target))),
+    _ if settings.serve.is_some() && !services_win => pass(
       "target",
       format!(
         "static directory '{}' (serve mode)",
         settings.serve.as_deref().unwrap_or_default()
       ),
     ),
-    None if !settings.services.is_empty() => pass(
+    _ if services_win => pass(
       "target",
       format!(
         "{} service(s) configured (from ./aperio.yaml)",
         settings.services.len()
       ),
     ),
-    None if !settings.tunnels.is_empty() => pass(
+    _ if !settings.tunnels.is_empty() => pass(
       "target",
       format!(
         "none — {} tunnel(s) declared (from ./aperio.yaml)",
         settings.tunnels.len()
       ),
     ),
-    None => fail(
+    _ => fail(
       "target",
-      "missing (--target / APERIO_TARGET / yaml: target / services: or tunnels: list)".to_string(),
+      "missing (--target / APERIO_TARGET / yaml: services: or tunnels: list)".to_string(),
       &mut failures,
     ),
   }
@@ -240,9 +275,9 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   };
   let mut probes: Vec<(String, String, Option<String>)> = Vec::new();
-  if let Some(t) = &target {
+  if let Some(t) = target.as_ref().filter(|_| !services_win) {
     probes.push(("target".to_string(), t.clone(), target_health.clone()));
-  } else if let Some(dir) = &settings.serve {
+  } else if let Some(dir) = settings.serve.as_ref().filter(|_| !services_win) {
     check_serve_dir("target", dir, &mut failures);
   } else {
     for (i, entry) in settings.services.iter().enumerate() {

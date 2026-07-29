@@ -328,6 +328,22 @@ async fn drive(scenario: &str) -> ! {
         },
       ];
     }
+    "shadowed" => {
+      // A file that names one service at the top level *and* carries a
+      // services: list. The runtime ignores the top-level one, so the check
+      // has to report on the entry — and say the others are being ignored.
+      // The two are arranged so the answer is unambiguous: the top-level
+      // target is reachable and the entry's is not, so probing the wrong one
+      // would pass.
+      let port = spawn_mock(MockCfg::default());
+      s.target = Some(format!("http://127.0.0.1:{port}"));
+      s.hostnames = vec!["ignored.example.com".to_string()];
+      s.services = vec![ServiceEntry {
+        name: Some("real".to_string()),
+        target: Some("http://127.0.0.1:1".to_string()),
+        ..Default::default()
+      }];
+    }
     "tunnels" => {
       let port = spawn_mock(MockCfg::default());
       s.tcp_target = Some("127.0.0.1:1".to_string()); // connection refused
@@ -407,6 +423,22 @@ fn check_driver() {
 
 // --- Parent tests: spawn the driver child and assert the exit code ---------
 
+/// Runs a scenario and returns its exit code together with what it printed,
+/// for the checks whose whole point is *which* line came out.
+fn run_scenario_output(scenario: &str) -> (i32, String) {
+  let exe = std::env::current_exe().unwrap();
+  let out = std::process::Command::new(exe)
+    .args(["check::tests::check_driver", "--exact", "--nocapture"])
+    .env("APERIO_CHECK_SCENARIO", scenario)
+    .stderr(std::process::Stdio::null())
+    .output()
+    .unwrap();
+  (
+    out.status.code().unwrap_or(-1),
+    String::from_utf8_lossy(&out.stdout).into_owned(),
+  )
+}
+
 fn run_scenario(scenario: &str) -> i32 {
   let exe = std::env::current_exe().unwrap();
   let status = std::process::Command::new(exe)
@@ -437,6 +469,30 @@ fn serve_mode_target_and_dir() {
 #[test]
 fn services_mode_probes_each_entry() {
   assert_eq!(run_scenario("services"), 1);
+}
+
+#[test]
+fn a_services_list_wins_over_a_top_level_target() {
+  // The bug this pins: the check named and probed the top-level target, which
+  // is the one backend the client is going to ignore, and never touched the
+  // entry that actually serves traffic. "Everything is fine" about the wrong
+  // machine is worse than no answer.
+  let (code, out) = run_scenario_output("shadowed");
+  assert!(
+    out.contains("1 service(s) configured"),
+    "should report the services list, got:\n{out}"
+  );
+  assert!(
+    out.contains("warn  single-service keys"),
+    "should say the top-level keys are ignored, got:\n{out}"
+  );
+  assert!(out.contains("`target`, `hostname`"), "got:\n{out}");
+  assert!(
+    out.contains("service 'real'"),
+    "should probe the entry, got:\n{out}"
+  );
+  // And the entry it probed is the unreachable one, so the run fails.
+  assert_eq!(code, 1);
 }
 
 #[test]

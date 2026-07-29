@@ -84,6 +84,11 @@ export function PaneDialog<Id extends string>({
   const visible = panes.filter(
     (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
   )
+  // The pane actually shown. A link (or a stale one) can name a pane this
+  // role may not open, and falling back to the first *visible* one is the
+  // only answer that is not a blank panel — the nav highlighted the fallback
+  // while the body rendered nothing, because it was still asked for the pane
+  // that was refused.
   const current = visible.find((p) => p.id === page) ?? visible[0]
 
   const [dirty, setDirty] = useState(false)
@@ -167,7 +172,9 @@ export function PaneDialog<Id extends string>({
               {current && t(current.label)}
             </h2>
             <PaneFocusContext.Provider value={focus ?? null}>
-              <UnsavedContext.Provider value={setDirty}>{children(page)}</UnsavedContext.Provider>
+              <UnsavedContext.Provider value={setDirty}>
+                {current && children(current.id)}
+              </UnsavedContext.Provider>
             </PaneFocusContext.Provider>
           </main>
         </SidebarProvider>

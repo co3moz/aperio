@@ -68,6 +68,15 @@ import { useI18n } from '@/i18n'
 import { toast } from 'sonner'
 
 type Kind = 'client' | 'server'
+
+/**
+ * The keys that name one service at the top level of a client file.
+ *
+ * Deprecated, and read by nothing once a `services:` list exists — the client
+ * drops them silently. The form can construct exactly that combination now
+ * that it no longer forces a choice of shape, so it has to say so.
+ */
+const SINGLE_SERVICE_KEYS = ['target', 'serve', 'hostname', 'path', 'tcp_target', 'target_health']
 type Doc = Record<string, unknown>
 
 /** How many of a section's fields the document actually sets, so a collapsed
@@ -199,6 +208,17 @@ export function ConfigBuilderSection() {
     )
   }, [schema, kind, doc])
 
+  // Both shapes at once: the list is what runs, so the top-level keys are dead
+  // weight the file still claims. Only for a client file — the server has no
+  // such pair.
+  const shadowed = useMemo(
+    () =>
+      kind === 'client' && Array.isArray((doc as { services?: unknown[] }).services)
+        ? SINGLE_SERVICE_KEYS.filter((k) => doc[k] !== undefined && doc[k] !== '')
+        : [],
+    [kind, doc],
+  )
+
   const update = useCallback(
     (path: string, value: unknown) =>
       setDocs((prev) => ({ ...prev, [kind]: setAt(prev[kind], path, value) })),
@@ -276,6 +296,13 @@ export function ConfigBuilderSection() {
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {shadowed.length > 0 && (
+        <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          {t('`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.', {
+            keys: shadowed.join('`, `'),
+          })}
+        </p>
+      )}
       {!schema && !error && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner /> {t('Loading…')}

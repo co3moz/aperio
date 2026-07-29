@@ -753,6 +753,31 @@ fn build_specs(
       .collect()
   };
 
+  if !settings.services.is_empty() && !cli_target_given {
+    // The services: list wins, and the keys that describe a single service at
+    // the top level are read by nothing. Saying so is the point: they were
+    // written to have an effect, they have none, and until now the client
+    // dropped them without a word.
+    let shadowed: Vec<&str> = [
+      ("target", settings.target.is_some()),
+      ("serve", settings.serve.is_some()),
+      ("hostname", !settings.hostnames.is_empty()),
+      ("path", settings.path.is_some()),
+      ("tcp_target", settings.tcp_target.is_some()),
+      ("target_health", settings.target_health.is_some()),
+    ]
+    .into_iter()
+    .filter(|(_, set)| *set)
+    .map(|(key, _)| key)
+    .collect();
+    if !shadowed.is_empty() {
+      warn!(
+        "Ignoring the top-level `{}`: a services: list is present and it is what runs. Move them into the entry they belong to.",
+        shadowed.join("`, `")
+      );
+    }
+  }
+
   if settings.services.is_empty() || cli_target_given {
     if cli_target_given && !settings.services.is_empty() {
       warn!(

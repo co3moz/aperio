@@ -877,4 +877,5 @@ export const zh: Record<string, string> = {
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '在请求客户端暂停生成之前，服务器为速度较慢的访问者缓冲多少下载内容。',
   'Service defaults': '服务默认值',
   'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': '应用于 services: 下的每个条目，可按条目覆盖。在顶层指定单个后端的键在这里已废弃——它们本来也只有在没有 services: 列表时才生效——只有已经写了它们的文件才会显示。',
+  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` 在顶层指定了单个服务，而该文件同时还有 services: 列表——客户端读取列表并忽略它们。请把它们移到所属的条目中。',
 }

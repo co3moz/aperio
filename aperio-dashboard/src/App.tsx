@@ -312,9 +312,15 @@ export default function App() {
   )
   // Only the super-admin may read the settings, so only they get them in the
   // palette; for anyone else the request is a guaranteed 403.
+  //
+  // Re-read every time the palette opens, rather than once per tab. The values
+  // are the reason to show them at all, and one that was true when the tab
+  // loaded is worse than none: change a setting in the dialog next door and
+  // the palette would go on quoting the old one until a reload. Tied to the
+  // opening rather than a poll because that is the only moment it matters.
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null)
   useEffect(() => {
-    if (!masterAdmin || role !== 'admin') return
+    if (!paletteOpen || !masterAdmin || role !== 'admin') return
     let live = true
     api
       .settings()
@@ -323,7 +329,7 @@ export default function App() {
     return () => {
       live = false
     }
-  }, [masterAdmin, role])
+  }, [paletteOpen, masterAdmin, role])
 
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.

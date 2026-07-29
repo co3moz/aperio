@@ -894,4 +894,5 @@ export const ja: Record<string, string> = {
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '低速な訪問者のダウンロードをサーバーがどれだけバッファしてから、クライアントに生成の一時停止を要求するか。',
   'Service defaults': 'サービスの既定値',
   'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
+  '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
 }
