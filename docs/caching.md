@@ -49,6 +49,15 @@ they advertise:
 Nothing is cached implicitly, if your backend never sends `Cache-Control`,
 nothing is stored, no matter the flags.
 
+**Negative caching** is the one exception, and it is off by default.
+`cache_negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) holds `404` and `410`
+answers for a few seconds without asking the backend's permission, because a
+hot missing URL — a scanner, a broken link on a busy page — otherwise reaches
+the backend on every request to be told nothing is there each time. Keep it
+short: it is the one setting here that can serve a "not found" for a resource
+that has since appeared. A response carrying `Vary`, `Set-Cookie` or a
+`no-store`/`no-cache`/`private` `Cache-Control` is still never stored.
+
 ## What you get on a hit
 
 - Hits carry `x-aperio-cache: hit` and an `Age` header.
@@ -96,6 +105,7 @@ in `aperio-server.yaml`, client keys in `aperio.yaml` (per `services:` entry).
 | `cache_max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
 | `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |
 | `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
+| `cache_negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
 
 The full option reference lives in [Configuration](configuration.md); the
 end-to-end request path is in

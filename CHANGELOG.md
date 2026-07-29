@@ -123,6 +123,11 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **`referrer_policy:` is sent as one of the values a browser acts on**, like `frame_options:` before it: anything else falls back to `strict-origin-when-cross-origin` instead of going out as written, so a typo is a policy rather than a header that quietly does nothing.
+
+- **The settings pane says when it failed to load**, instead of rendering as an empty screen; a webhook inbox entry that cannot be deleted says so, instead of reappearing on the next refresh as though the button had not worked. The webhook URL field is a URL field, so a malformed address is caught before the round trip.
+
+
 - **A handful of small things a code read turned up.** Deleting an organization now clears it from the sessions that had it selected, instead of leaving an admin on screens that are empty for a reason nothing states. An `expose:` entry with `port: 0` is refused rather than binding whatever the OS hands out, which nothing could then reach. `frame_options:` is sent as `SAMEORIGIN` or `DENY` and nothing else, since a browser acts on those two and silently ignores a typo — a header that looks like protection and is not. A binary tunnel frame whose id will not fit its one-byte length prefix is refused instead of wrapping the length and putting every frame after it out of step. The idle-retire check re-reads its counters after deciding, so a request that starts in the microseconds between two atomic loads cannot be retired out from under. In the dashboard, the OIDC client secret field opts out of password-manager autofill, a corrupt sparkline entry in local storage is discarded rather than spreading `NaN`, and `1,500 MB` is refused rather than read as 1.5 MB — a thousandfold difference nobody should have guessed at.
 
 

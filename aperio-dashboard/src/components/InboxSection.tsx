@@ -88,14 +88,20 @@ export function InboxSection() {
     }
   }
 
+  // A delete that fails quietly is followed by a reload showing the entry
+  // still there, which reads as the button not working rather than as the
+  // request being refused.
+  const report = (e: unknown) =>
+    toast.error(t('Could not delete ({status})', { status: e instanceof ApiError ? e.status : 0 }))
+
   const remove = async (id: string) => {
-    await api.inboxDelete(id).catch(() => {})
+    await api.inboxDelete(id).catch(report)
     if (openId === id) setOpenId(null)
     reload()
   }
 
   const clearAll = async () => {
-    await api.inboxClear().catch(() => {})
+    await api.inboxClear().catch(report)
     setOpenId(null)
     reload()
   }

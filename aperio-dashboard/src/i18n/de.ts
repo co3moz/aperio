@@ -932,4 +932,5 @@ export const de: Record<string, string> = {
   'Service {name} (custom_name: {custom})': 'Dienst {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Wie diese Organisation auf dem Bildschirm heißt. Jede Sprache, jede Zeichensetzung, später änderbar.',
   'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 und _ . Damit wird die Organisation adressiert — in {example}, in der expose:-Regel eines Servers und in der API — deshalb steht sie nach dem Anlegen fest.',
+  'Could not delete ({status})': 'Löschen fehlgeschlagen ({status})',
 }

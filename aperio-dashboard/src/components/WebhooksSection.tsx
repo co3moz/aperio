@@ -120,9 +120,11 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
             <Label htmlFor="wh-url">{t('URL')}</Label>
             <Input
               id="wh-url"
+              type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/hooks/aperio"
+              autoComplete="off"
             />
           </div>
           <div className="grid gap-2">

@@ -930,4 +930,5 @@ export const ru: Record<string, string> = {
   'Service {name} (custom_name: {custom})': 'Сервис {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Как эта организация называется на экране. Любой язык, любая пунктуация, изменяемо позже.',
   'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 и _ . Именно это адресует организацию — в {example}, в правиле expose: сервера и в API — поэтому после создания оно не меняется.',
+  'Could not delete ({status})': 'Не удалось удалить ({status})',
 }

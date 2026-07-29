@@ -243,7 +243,12 @@ export function SettingsSection() {
         setOverrides({ ...payload.overrides })
         setDirty(false)
       })
-      .catch(() => {})
+      .catch((e) => {
+        // `if (!data) return null` below means a failed load renders an empty
+        // pane. Saying so is the difference between "there is nothing here"
+        // and "this did not load".
+        setMessage({ ok: false, text: e instanceof ApiError ? e.message : String(e) })
+      })
   }
   useEffect(load, [])
 

@@ -911,4 +911,5 @@ export const zh: Record<string, string> = {
   'Service {name} (custom_name: {custom})': '服务 {name}（custom_name: {custom}）',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': '该组织在界面上的名称。任何语言、任何标点，之后可以修改。',
   'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z、0-9 和 _ 。这是组织的寻址方式 — 出现在 {example}、服务器的 expose: 规则和 API 中 — 因此创建后不可更改。',
+  'Could not delete ({status})': '删除失败（{status}）',
 }

@@ -438,12 +438,32 @@ impl SecurityHeaders {
         if opts.nosniff.unwrap_or(false) {
           out.push(("X-Content-Type-Options".to_string(), "nosniff".to_string()));
         }
+        // Same reasoning as `X-Frame-Options`: a browser acts on this list and
+        // ignores anything else, so a typo is a header that looks like a
+        // policy and is not. An unrecognized value falls back to the default
+        // rather than going out as written.
         if let Some(v) = opts
           .referrer_policy
           .as_ref()
           .filter(|v| !v.trim().is_empty())
         {
-          out.push(("Referrer-Policy".to_string(), v.trim().to_string()));
+          const KNOWN: &[&str] = &[
+            "no-referrer",
+            "no-referrer-when-downgrade",
+            "origin",
+            "origin-when-cross-origin",
+            "same-origin",
+            "strict-origin",
+            "strict-origin-when-cross-origin",
+            "unsafe-url",
+          ];
+          let asked = v.trim().to_ascii_lowercase();
+          let value = KNOWN
+            .iter()
+            .find(|known| **known == asked)
+            .copied()
+            .unwrap_or("strict-origin-when-cross-origin");
+          out.push(("Referrer-Policy".to_string(), value.to_string()));
         }
         if let Some(v) = opts.csp.as_ref().filter(|v| !v.trim().is_empty()) {
           out.push(("Content-Security-Policy".to_string(), v.trim().to_string()));
@@ -1207,7 +1227,7 @@ impl FileConfig {
 /// aperio-client build script and the release workflow.
 pub fn schema_json() -> String {
   let schema = schemars::schema_for!(FileConfig);
-  serde_json::to_string_pretty(&schema).unwrap_or_default()
+  serde_json::to_string_pretty(&schema).expect("the config schema must serialize")
 }
 
 /// One `expose:` entry of `aperio-server.yaml`: a raw public TCP port the
@@ -2435,7 +2455,7 @@ pub fn format_bandwidth(bps: u64) -> String {
 /// The `aperio-server.yaml` JSON Schema as pretty JSON.
 pub fn server_schema_json() -> String {
   let schema = schemars::schema_for!(ServerFileConfig);
-  serde_json::to_string_pretty(&schema).unwrap_or_default()
+  serde_json::to_string_pretty(&schema).expect("the config schema must serialize")
 }
 
 #[cfg(test)]

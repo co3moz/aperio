@@ -930,4 +930,5 @@ export const fr: Record<string, string> = {
   'Service {name} (custom_name: {custom})': 'Service {name} (custom_name: {custom})',
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Le nom de cette organisation à l’écran. Toute langue, toute ponctuation, modifiable plus tard.',
   'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 et _ . C’est ce qui adresse l’organisation — dans {example}, dans la règle expose: d’un serveur et dans l’API — il est donc figé à la création.',
+  'Could not delete ({status})': 'Suppression impossible ({status})',
 }
