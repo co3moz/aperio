@@ -920,4 +920,6 @@ export const ja: Record<string, string> = {
   'Published to "{topic}", but nothing is subscribed to it': '「{topic}」に発行しましたが、購読しているものはありません',
   'Messages': 'メッセージ',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'このクライアントが待ち受けるトピックと、同じマシン上のアプリケーションが送受信のために接続する場所。',
+  'Cold start & scale-out records': 'コールドスタートとスケールアウトの記録',
+  'Private services reachable with --bind-tunnels': '--bind-tunnels で到達できるプライベートサービス',
 }

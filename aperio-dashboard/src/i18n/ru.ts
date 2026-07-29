@@ -922,4 +922,6 @@ export const ru: Record<string, string> = {
   'Published to "{topic}", but nothing is subscribed to it': 'Опубликовано в «{topic}», но на него никто не подписан',
   'Messages': 'Сообщения',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Топики, которые слушает этот клиент, и куда подключается приложение на той же машине, чтобы отправлять и получать.',
+  'Cold start & scale-out records': 'Записи о холодном старте и масштабировании',
+  'Private services reachable with --bind-tunnels': 'Приватные сервисы, доступные через --bind-tunnels',
 }

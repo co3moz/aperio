@@ -172,6 +172,13 @@ function requiredKeys() {
   for (const [file, properties] of [
     [join(SRC, 'lib', 'configGroups.ts'), ['title', 'description']],
     [join(SRC, 'lib', 'settingsCatalog.ts'), ['title', 'description', 'label', 'hint', 'optionHints']],
+    // The sidebar's own page table. Its `label`s were translated by accident,
+    // because the same words appear in a literal `t()` somewhere else; the
+    // `hint`s appear nowhere else, so the line under every page title shipped
+    // in English in all seven languages.
+    [join(SRC, 'components', 'AppSidebar.tsx'), ['label', 'hint']],
+    [join(SRC, 'components', 'SettingsDialog.tsx'), ['label']],
+    [join(SRC, 'components', 'ToolsDialog.tsx'), ['label']],
   ]) {
     for (const key of tableStrings(file, properties)) keys.add(key)
   }

@@ -903,4 +903,6 @@ export const zh: Record<string, string> = {
   'Published to "{topic}", but nothing is subscribed to it': '已发布到“{topic}”，但没有任何订阅',
   'Messages': '消息',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': '该客户端监听的主题，以及同一台机器上的应用接入收发消息的位置。',
+  'Cold start & scale-out records': '冷启动与扩容记录',
+  'Private services reachable with --bind-tunnels': '通过 --bind-tunnels 访问的私有服务',
 }
