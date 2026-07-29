@@ -126,7 +126,7 @@ Click a feature for the details.
 
 - [Metrics, traces & logs](docs/observability.md), Prometheus, OpenTelemetry, webhooks, access and audit logs.
 
-Full index: **[docs/](docs/README.md)**. Prefer one long read? [**The Complete Guide**](docs/book/aperio.tex) is a single-file LaTeX book covering all of it in one narrative, with generated reference tables for every setting, endpoint and protocol message. Build it with `tectonic aperio.tex`.
+Full index: **[docs/](docs/README.md)**. Prefer one long read? [**The Complete Guide**](docs/book/aperio.tex) is a single-file LaTeX book covering all of it in one narrative, with generated reference tables for every setting, endpoint and protocol message. Every release carries it built: [aperio-guide.pdf](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf).
 
 ## Security
 

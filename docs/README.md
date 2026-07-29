@@ -2,7 +2,7 @@
 
 Short, focused articles on each part of the product. For the project overview and quick start, see the [main README](../README.md).
 
-Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file LaTeX book covering everything below in one narrative, plus generated reference tables for every setting, endpoint and protocol message. Build it with `tectonic aperio.tex`, or `pdflatex aperio.tex` twice so the table of contents resolves (it needs a full TeX Live rather than a minimal one: tcolorbox and TikZ do the typesetting).
+Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file LaTeX book covering everything below in one narrative, plus generated reference tables for every setting, endpoint and protocol message. Every release carries it built: [**aperio-guide.pdf**](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf). To build it yourself, `tectonic aperio.tex`, or `pdflatex aperio.tex` twice so the table of contents resolves (it needs a full TeX Live rather than a minimal one: tcolorbox and TikZ do the typesetting).
 
 ## Getting Started
 

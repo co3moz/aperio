@@ -62,6 +62,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **Every release carries the guide as a PDF.** `aperio-guide.<tag>.pdf` is attached alongside the binaries and the config schemas, with a stable `aperio-guide.pdf` so `releases/latest/download/aperio-guide.pdf` always serves the current one. The job refuses to build when the version on the book's title page disagrees with the tag, because a PDF that is wrong on its cover is worse than one that was never published.
+
 - **The book carries the product's own mark and wordmark.** The title page is the lockup exported from the dashboard's artwork and its Michroma webfont (`npm run export:brand`), rather than the name set in whatever face TeX defaults to. Chapter titles are set in the body's dark with only the label above them in the accent, since a heading is for finding a place, not for showing a colour; the reference appendices draw a hairline between rows, which is the difference between a table you can read across and a wall of paragraphs; and the colophon is gone.
 
 - **The book is typeset rather than merely compiled.** `docs/book/aperio.tex` now uses the product's own green for headings and callouts, puts every example in a titled card that names which side it runs on (the convention used to be a comment on the first line, competing with the code), and draws the deployment shape and the trust boundaries as real diagrams instead of ASCII art. It needs a full TeX Live rather than a minimal one, since tcolorbox and TikZ are doing that work; `tectonic aperio.tex` fetches what it needs on its own.

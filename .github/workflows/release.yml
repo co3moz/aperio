@@ -142,6 +142,68 @@ jobs:
           path: dist-pkg/*
           retention-days: 1
 
+  # The Complete Guide as a PDF, attached to every release. Built with
+  # Tectonic: one static binary, no TeX distribution to install (Ubuntu has no
+  # `tectonic` package, and a full TeX Live is a multi-gigabyte image to pull
+  # for one document). It fetches the packages the book uses on first run and
+  # caches them, so a repeat release is a download of nothing.
+  book:
+    name: Build the guide (PDF)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Tectonic
+        env:
+          TECTONIC_VERSION: 0.17.0
+        run: |
+          curl -fsSL -o tectonic.tar.gz \
+            "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          tar -xzf tectonic.tar.gz
+          sudo install -m 0755 tectonic /usr/local/bin/tectonic
+          tectonic --version
+
+      # The TeX package bundle, not the build output: without this every
+      # release re-downloads a few hundred files to typeset the same book.
+      - name: Cache the Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
+          restore-keys: tectonic-${{ runner.os }}-
+
+      # The version on the title page is written by hand during the release
+      # bump (see docs/development.md). Publishing a PDF that disagrees with
+      # the tag on its cover is worse than not publishing one, so it is a
+      # build failure rather than something to notice later.
+      - name: Check the book's version matches the tag
+        run: |
+          declared="$(grep -o 'Version [0-9][0-9.]*' docs/book/aperio.tex | head -1 | cut -d' ' -f2)"
+          expected="${GITHUB_REF_NAME#v}"
+          if [ "${declared}" != "${expected}" ]; then
+            echo "::error::docs/book/aperio.tex says Version ${declared}, the tag says ${expected}"
+            exit 1
+          fi
+
+      # Two names, like the config schema above: a versioned one to link to a
+      # specific release, and a stable one so
+      # releases/latest/download/aperio-guide.pdf always serves the current
+      # book.
+      - name: Build the guide
+        run: |
+          mkdir -p dist-pkg
+          tectonic -X compile docs/book/aperio.tex --outdir dist-pkg
+          mv dist-pkg/aperio.pdf "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf"
+          cp "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf" dist-pkg/aperio-guide.pdf
+
+      - name: Upload the guide
+        uses: actions/upload-artifact@v4
+        with:
+          name: guide-pdf
+          path: dist-pkg/*.pdf
+          retention-days: 1
+
   # Publish the multi-arch (amd64+arm64) images straight from the musl-static
   # binaries the `build` matrix already produced, the Dockerfiles just copy the
   # right binary in, so nothing is compiled twice. One buildx build per image
@@ -223,7 +285,7 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build, schema]
+    needs: [build, schema, book]
     steps:
       # `actions/download-artifact` intermittently fails ("Artifact download
       # failed after 5 retries") on GitHub's artifact backend. Pull the run's
