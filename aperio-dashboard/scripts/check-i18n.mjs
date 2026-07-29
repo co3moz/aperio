@@ -90,15 +90,33 @@ function referenceKeys() {
 function tableStrings(file, properties) {
   const out = new Set()
   const sf = parse(file, readFileSync(file, 'utf8'))
+  const literal = (node) =>
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
   const visit = (node) => {
     if (
       ts.isPropertyAssignment(node) &&
       ts.isIdentifier(node.name) &&
       properties.includes(node.name.text) &&
-      (ts.isStringLiteral(node.initializer) ||
-        ts.isNoSubstitutionTemplateLiteral(node.initializer))
+      literal(node.initializer)
     ) {
       out.add(node.initializer.text)
+    }
+    // A map of option → what that option does. The *values* are the prose;
+    // the keys are the setting's accepted values and are never translated. A
+    // list of names would otherwise be checked while the sentences explaining
+    // them shipped in English — the same shape as the gap that hid the
+    // settings labels themselves.
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      properties.includes(node.name.text) &&
+      ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      for (const prop of node.initializer.properties) {
+        if (ts.isPropertyAssignment(prop) && literal(prop.initializer)) {
+          out.add(prop.initializer.text)
+        }
+      }
     }
     ts.forEachChild(node, visit)
   }
@@ -153,7 +171,7 @@ function requiredKeys() {
   // but nothing ever demanded a translation for them.
   for (const [file, properties] of [
     [join(SRC, 'lib', 'configGroups.ts'), ['title', 'description']],
-    [join(SRC, 'lib', 'settingsCatalog.ts'), ['title', 'description', 'label', 'hint']],
+    [join(SRC, 'lib', 'settingsCatalog.ts'), ['title', 'description', 'label', 'hint', 'optionHints']],
   ]) {
     for (const key of tableStrings(file, properties)) keys.add(key)
   }

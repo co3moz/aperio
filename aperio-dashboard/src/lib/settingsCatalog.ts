@@ -13,6 +13,11 @@ export interface FieldSpec {
   label: string
   kind: FieldKind
   options?: string[]
+  /** What each option actually makes the server do, shown under the picker
+   *  once it is chosen. A list of words is not a choice: `sticky` and
+   *  `round-robin` name themselves, and say nothing about what happens to a
+   *  request, which is the thing being decided. */
+  optionHints?: Record<string, string>
   hint?: string
   /** Smallest accepted value; the server rejects anything below it, so the
    *  field says so rather than letting the save come back a 400. */
@@ -49,9 +54,36 @@ export const GROUPS: GroupSpec[] = [
     title: 'Routing & Failover',
     description: 'How requests pick a client and what happens when one is lost mid-request.',
     fields: [
-      { key: 'lb_strategy', label: 'Load balancing', kind: 'select', options: ['round-robin', 'primary-standby', 'sticky'], hint: 'Strategy for picking a client from the routed pool' },
+      {
+        key: 'lb_strategy',
+        label: 'Load balancing',
+        kind: 'select',
+        options: ['round-robin', 'primary-standby', 'sticky'],
+        hint: 'Strategy for picking a client from the routed pool',
+        optionHints: {
+          'round-robin':
+            'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.',
+          'primary-standby':
+            'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).',
+          sticky:
+            'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.',
+        },
+      },
       { key: 'require_hostname_bind', label: 'Require hostname bind', kind: 'boolean', hint: 'Strict multi-tenant mode: unbound clients never receive traffic' },
-      { key: 'failover_mode', label: 'In-flight failover', kind: 'select', options: ['fail', 'retry', 'wait', 'retry-wait'], hint: 'Reaction when the serving client drops mid-request' },
+      {
+        key: 'failover_mode',
+        label: 'In-flight failover',
+        kind: 'select',
+        options: ['fail', 'retry', 'wait', 'retry-wait'],
+        hint: 'Reaction when the serving client drops mid-request',
+        optionHints: {
+          fail: 'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.',
+          retry: 'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.',
+          wait: 'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.',
+          'retry-wait':
+            'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.',
+        },
+      },
       { key: 'failover_max_jumps', label: 'Failover max jumps', kind: 'number', hint: 'Re-dispatch attempts per request' },
       { key: 'failover_window_secs', label: 'Failover window (s)', kind: 'number', hint: 'Total time budget across all jumps' },
       { key: 'failover_all_methods', label: 'Failover non-idempotent methods', kind: 'boolean', hint: 'POST/PATCH may reach a backend twice when enabled' },

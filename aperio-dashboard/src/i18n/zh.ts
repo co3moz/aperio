@@ -878,4 +878,11 @@ export const zh: Record<string, string> = {
   'Service defaults': '服务默认值',
   'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': '应用于 services: 下的每个条目，可按条目覆盖。在顶层指定单个后端的键在这里已废弃——它们本来也只有在没有 services: 列表时才生效——只有已经写了它们的文件才会显示。',
   '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` 在顶层指定了单个服务，而该文件同时还有 services: 列表——客户端读取列表并忽略它们。请把它们移到所属的条目中。',
+  'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': '路由上每个健康的客户端轮流均分请求。默认值，客户端可互换时就用它。',
+  'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '只有优先级最低一档的客户端接收流量；当其上的所有客户端都不健康、正在排空或已离线时，更高一档接管，有一个恢复后再交还。档位来自各客户端的 priority（0 = 主）。',
+  'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '只要首次为访客服务的客户端保持健康，该访客就一直用它。适用于在内存中保存按访客状态的后端；按访客而非按请求分摊。',
+  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': '访客收到错误。不做任何重试——如果一个请求不能执行两次，这是唯一安全的做法。',
+  'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': '改派给同一路由上另一个健康的客户端（若有）。不等待。',
+  'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': '在同一客户端重连期间保留该请求，最长不超过 failover 窗口。适用于只有一个客户端、无处可切的路由。',
+  'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': '先试另一个客户端；若该路由没有，则等待一个回来。最宽容，也最慢放弃。',
 }

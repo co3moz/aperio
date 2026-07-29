@@ -895,4 +895,11 @@ export const ja: Record<string, string> = {
   'Service defaults': 'サービスの既定値',
   'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
   '`{keys}` name one service at the top level, and this file also has a services: list — the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
+  'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'ルート上の正常なクライアントが順番に、均等にリクエストを受けます。既定値で、クライアントが入れ替え可能なときに選ぶものです。',
+  'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '最も低い優先度ティアのクライアントだけがトラフィックを受けます。その上のクライアントがすべて不健全・ドレイン中・不在になると上位ティアが引き継ぎ、1 つでも戻れば返します。ティアは各クライアントの priority（0 = プライマリ）から決まります。',
+  'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '訪問者は最初に応対したクライアントが健全な間ずっとそのクライアントを使い続けます。訪問者ごとの状態をメモリに持つバックエンド向けで、リクエスト単位ではなく訪問者単位で分散します。',
+  'The visitor gets the error. Nothing is retried, which is the only safe answer if a request may not run twice.': '訪問者にエラーが返ります。再試行はしません。リクエストを二度実行してはいけない場合、これが唯一安全な答えです。',
+  'Re-dispatch to another healthy client of the same route, if there is one. Nothing waits.': '同じルートの別の正常なクライアントに再ディスパッチします（あれば）。待機はしません。',
+  'Hold the request while the same client reconnects, up to the failover window. For a single-client route, where there is nothing to fail over to.': '同じクライアントが再接続する間、フェイルオーバー期間まではリクエストを保持します。切り替え先のない単一クライアントのルート向けです。',
+  'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.': 'まず別のクライアントを試し、ルートに他がなければ復帰を待ちます。最も寛容で、最も諦めが遅い設定です。',
 }

@@ -299,21 +299,34 @@ export function SettingsSection() {
     switch (f.kind) {
       case 'boolean':
         return <Switch checked={Boolean(value)} onCheckedChange={(v) => setField(f.key, v)} />
-      case 'select':
+      case 'select': {
+        const chosen = String(value ?? '')
+        const explain = f.optionHints?.[chosen]
         return (
-          <Select value={String(value ?? '')} onValueChange={(v) => setField(f.key, v as string)}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(f.options ?? []).map((o) => (
-                <SelectItem key={o} value={o}>
-                  {o}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-1.5">
+            <Select value={chosen} onValueChange={(v) => setField(f.key, v as string)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(f.options ?? []).map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* What the chosen option does, under the picker. The option names
+                are identifiers, not sentences: `sticky` says nothing about what
+                happens to a request, which is the thing being decided. */}
+            {explain && (
+              <p className="rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                {t(explain)}
+              </p>
+            )}
+          </div>
         )
+      }
       case 'number':
         return (
           <Input

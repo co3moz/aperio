@@ -22,6 +22,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **A load-balancing or failover choice says what it will do.** The two pickers offered a list of identifiers — `sticky`, `retry-wait` — and a one-line hint about the setting, not about the option. Nothing on the screen said what actually happens to a request under each, which is the thing being decided. The chosen option now carries a sentence of its own under the picker: who receives traffic under each strategy, and what becomes of a request whose client dies mid-flight.
+
 - **Export & Import is its own settings pane.** It sat in the server-settings form as one more collapsible group, next to gateway timeouts and rate limits, which is not what it is: it is not a setting, it moves every token, webhook, user and settings override at once, and importing overwrites all of them. It has its own entry in the settings dialog now, beside Server Settings rather than inside it.
 
 
