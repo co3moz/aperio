@@ -429,6 +429,10 @@ pub(crate) struct ClientSettings {
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// `bind-tunnels:` entries (local config file only).
   pub(crate) bind_tunnels: HashMap<String, aperio_config::BindTunnelValue>,
+  /// Topic filters this process subscribes to (process-wide, not per service).
+  pub(crate) subscribe: Vec<String>,
+  /// Local address the message face listens on (None = no local listener).
+  pub(crate) messages_listen: Option<String>,
   /// Static-file mode: SPA history fallback (process-wide).
   pub(crate) serve_spa: bool,
   /// Static-file mode: custom 404 page path (process-wide).
@@ -1015,6 +1019,20 @@ pub(crate) fn resolve_settings(
       .clone()
       .or_else(|| home.bind_tunnels.clone())
       .unwrap_or_default(),
+    subscribe: layered(
+      None,
+      local.subscribe.clone(),
+      env_str("APERIO_SUBSCRIBE").map(|v| split_ip_list(&v)),
+      home.subscribe.clone(),
+    )
+    .unwrap_or_default(),
+    messages_listen: layered(
+      None,
+      local.messages_listen.clone(),
+      env_str("APERIO_MESSAGES_LISTEN"),
+      home.messages_listen.clone(),
+    )
+    .and_then(nonempty),
   })
 }
 

@@ -331,6 +331,16 @@
         ],
         "minimum": 0
       },
+      "messages_listen": {
+        "description": "Local address the message face listens on, so an application on this\nmachine can subscribe (SSE) and publish (POST) without speaking the\ntunnel protocol. Unset = no local listener.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "127.0.0.1:1888"
+        ]
+      },
       "pass_hostname": {
         "description": "Forward the visitor's original Host header to the backend instead of the target's.",
         "type": [
@@ -503,6 +513,22 @@
         ],
         "items": {
           "$ref": "#/$defs/ServiceEntry"
+        }
+      },
+      "subscribe": {
+        "description": "Topic filters this client subscribes to, for messages from the other\nclients of its organization. MQTT filter syntax: `+` is one level, `#`\nis the rest. `$aperio/...` carries the server's own events.",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "deploy/web",
+            "$aperio/client/#"
+          ]
+        ],
+        "items": {
+          "type": "string"
         }
       },
       "target": {

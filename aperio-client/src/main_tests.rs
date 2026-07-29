@@ -50,6 +50,8 @@ fn base_settings() -> ClientSettings {
     client_id: None,
     tunnels: Vec::new(),
     bind_tunnels: std::collections::HashMap::new(),
+    subscribe: Vec::new(),
+    messages_listen: None,
   }
 }
 
@@ -1044,6 +1046,7 @@ async fn test_spawn_services_derives_connection_ids() {
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(Vec::new()),
   };
   let running = spawn_services(&specs, &shared);
   // One spec with connections: 3 → three service tasks.

@@ -55,6 +55,8 @@ fn settings_with(
     client_id: None,
     tunnels: Vec::new(),
     bind_tunnels,
+    subscribe: Vec::new(),
+    messages_listen: None,
   }
 }
 

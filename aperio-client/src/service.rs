@@ -236,6 +236,10 @@ pub(crate) struct Shared {
   /// idle clock only starts after the first request, so a client that was
   /// just cold-started cannot retire before it is ever used.
   pub(crate) last_request_at: Arc<AtomicU64>,
+  /// Process-wide message bus: the topic filters this client subscribes to,
+  /// the live connections a publish can go out on, and the fan-out to
+  /// whatever is attached locally.
+  pub(crate) messages: Arc<crate::pubsub::MessageBus>,
 }
 
 impl Shared {
@@ -684,6 +688,19 @@ pub(crate) async fn run_service(
             });
 
             // Spawn task for heartbeat (Ping every 5 seconds & liveness check)
+            // Every connection subscribes with the full filter set. The
+            // server collapses the copies to one per client process, and a
+            // connection that never subscribed would leave the process deaf
+            // the moment its sibling dropped.
+            {
+              let bus = shared.messages.clone();
+              let tx = tx_write.clone();
+              let label = label.clone();
+              tokio::spawn(async move {
+                bus.attach(&label, tx.clone()).await;
+                bus.subscribe_on(&tx).await;
+              });
+            }
             let tx_ping = tx_write.clone();
             let tcp_enabled_ping = spec.tcp_target.is_some();
             let client_id_ping = spec.client_id.clone();
@@ -1210,6 +1227,25 @@ pub(crate) async fn run_service(
                                                   debug!("Closed TCP stream {}", stream_id);
                                               }
                                           }
+                                          TunnelMessage::Publish { topic, payload, id } => {
+                                              use base64::prelude::*;
+                                              match BASE64_STANDARD.decode(&payload) {
+                                                  Ok(bytes) => {
+                                                      // A filter removed since the server was told
+                                                      // still delivers for a moment; dropping here
+                                                      // keeps a local subscriber from seeing a
+                                                      // topic it no longer asked for.
+                                                      if shared.messages.wants(&topic).await {
+                                                          shared.messages.deliver(crate::pubsub::Delivery {
+                                                              topic,
+                                                              payload: bytes,
+                                                              id,
+                                                          });
+                                                      }
+                                                  }
+                                                  Err(e) => warn!("Undecodable message payload on '{}': {}", topic, e),
+                                              }
+                                          }
                                           TunnelMessage::StreamPause { id } => {
                                               // Server flow control (v3): the visitor of this
                                               // stream reads slower than we produce. An unknown
@@ -1310,6 +1346,11 @@ pub(crate) async fn run_service(
         error!("WebSocket configuration request building error: {}", e);
       }
     }
+
+    // This connection's writer is gone: take it out of the bus so a publish
+    // is not handed to a dead channel, and so "no tunnel connection is up"
+    // stays a true statement when every one of them has dropped.
+    shared.messages.detach(&label).await;
 
     exit_if_shutting_down(&shared).await;
     if *cancel.borrow() {

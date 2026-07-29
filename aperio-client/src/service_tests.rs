@@ -97,6 +97,7 @@ fn test_shared() -> Shared {
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(Vec::new()),
   }
 }
 

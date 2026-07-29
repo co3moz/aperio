@@ -223,6 +223,8 @@ fn base_settings() -> ClientSettings {
     client_id: None,
     tunnels: Vec::new(),
     bind_tunnels: HashMap::new(),
+    subscribe: Vec::new(),
+    messages_listen: None,
   }
 }
 

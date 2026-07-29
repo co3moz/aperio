@@ -11,8 +11,10 @@ mod config;
 mod dial;
 mod e2e;
 mod flow;
+mod messages_http;
 mod protocol;
 mod proxy;
+mod pubsub;
 mod serve;
 mod service;
 mod tcp;
@@ -217,7 +219,19 @@ async fn main() {
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     // 0 = nothing served yet, which keeps the idle clock stopped.
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(settings.subscribe.clone()),
   };
+
+  // The local face, if the operator asked for one. Started before the
+  // services so an application attaching immediately does not race the first
+  // connection: the bus exists either way, and a publish before any tunnel is
+  // up is refused with a reason rather than silently dropped.
+  if let Some(addr) = settings.messages_listen.clone()
+    && let Err(e) = crate::messages_http::serve(&addr, shared.messages.clone()).await
+  {
+    error!("CRITICAL ERROR: {}", e);
+    std::process::exit(1);
+  }
   {
     let shutting_down = shared.shutting_down.clone();
     let shutdown_notify = shared.shutdown_notify.clone();

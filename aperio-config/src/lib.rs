@@ -843,6 +843,16 @@ pub struct FileConfig {
   /// How many backend redirects to follow transparently before passing one through.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
+  /// Topic filters this client subscribes to, for messages from the other
+  /// clients of its organization. MQTT filter syntax: `+` is one level, `#`
+  /// is the rest. `$aperio/...` carries the server's own events.
+  #[schemars(extend("examples" = [["deploy/web", "$aperio/client/#"]]))]
+  pub subscribe: Option<Vec<String>>,
+  /// Local address the message face listens on, so an application on this
+  /// machine can subscribe (SSE) and publish (POST) without speaking the
+  /// tunnel protocol. Unset = no local listener.
+  #[schemars(extend("examples" = ["127.0.0.1:1888"]))]
+  pub messages_listen: Option<String>,
   /// Expose several backends from one client, each on its own tunnel connection
   /// (replaces the single top-level `target`).
   #[schemars(extend("examples" = [[
