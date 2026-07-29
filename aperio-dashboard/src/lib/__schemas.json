@@ -51,13 +51,25 @@
         ],
         "additionalProperties": {
           "$ref": "#/$defs/BindTunnelValue"
-        }
+        },
+        "examples": [
+          {
+            "dns": {
+              "port": 15353,
+              "token": "apr_binder_token"
+            },
+            "pg-main": 15432
+          }
+        ]
       },
       "cache": {
         "description": "Let the server cache GET responses (per their `Cache-Control`);\neffective only when the server enables APERIO_CACHE.",
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "client_id": {
@@ -97,6 +109,9 @@
         "type": [
           "string",
           "null"
+        ],
+        "examples": [
+          "9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"
         ]
       },
       "device_key_file": {
@@ -118,6 +133,26 @@
           {
             "type": "null"
           }
+        ],
+        "examples": [
+          {
+            "request": {
+              "add": {
+                "X-Forwarded-Env": "staging"
+              },
+              "remove": [
+                "X-Internal-Debug"
+              ]
+            },
+            "response": {
+              "add": {
+                "X-Served-By": "aperio"
+              },
+              "remove": [
+                "X-Powered-By"
+              ]
+            }
+          }
         ]
       },
       "health": {
@@ -128,6 +163,13 @@
           },
           {
             "type": "null"
+          }
+        ],
+        "examples": [
+          {
+            "interval": 10,
+            "threshold": 2,
+            "timeout": 5
           }
         ]
       },
@@ -294,6 +336,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          false
         ]
       },
       "path": {
@@ -324,6 +369,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "resilience": {
@@ -331,6 +379,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "response_timeout": {
@@ -354,6 +405,14 @@
           {
             "type": "null"
           }
+        ],
+        "examples": [
+          {
+            "cold_start": "45s",
+            "max": 8,
+            "min": 1,
+            "url": "https://api.provider.example/apps/web/scale"
+          }
         ]
       },
       "security_headers": {
@@ -364,6 +423,13 @@
           },
           {
             "type": "null"
+          }
+        ],
+        "examples": [
+          true,
+          {
+            "frame_options": "SAMEORIGIN",
+            "hsts": true
           }
         ]
       },
@@ -393,6 +459,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "server": {
@@ -404,6 +473,12 @@
           {
             "type": "null"
           }
+        ],
+        "examples": [
+          {
+            "token": "apr_xxxxxxxxxxxxxxxx",
+            "url": "https://tunnel.example.com"
+          }
         ]
       },
       "services": {
@@ -411,6 +486,20 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "hostname": "app.example.com",
+              "name": "web",
+              "target": "http://localhost:3000"
+            },
+            {
+              "hostname": "api.example.com",
+              "name": "api",
+              "target": "http://localhost:4000"
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/ServiceEntry"
@@ -478,6 +567,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "tunnels": {
@@ -485,6 +577,19 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "name": "pg-main",
+              "target": "127.0.0.1:5432"
+            },
+            {
+              "name": "dns",
+              "protocol": "tcp/udp",
+              "target": "127.0.0.1:53"
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/TunnelDecl"
@@ -505,6 +610,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "webhook_inbox": {
@@ -512,6 +620,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       }
     },
@@ -539,7 +650,13 @@
               "maximum": 65535,
               "minimum": 0
             },
-            "default": {}
+            "default": {},
+            "examples": [
+              {
+                "pg-main": 15432,
+                "redis": 16379
+              }
+            ]
           },
           "port": {
             "description": "Local port for this tunnel. Unset reuses the declared target's port when\nit is free and unprivileged, and otherwise picks a stable port derived\nfrom the tunnel's name (logged at startup).",
@@ -559,6 +676,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "a-long-shared-secret-both-sides-hold"
             ]
           },
           "token": {
@@ -636,6 +756,16 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              {
+                "add": {
+                  "X-Forwarded-Env": "staging"
+                },
+                "remove": [
+                  "X-Internal-Debug"
+                ]
+              }
             ]
           },
           "response": {
@@ -646,6 +776,16 @@
               },
               {
                 "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "add": {
+                  "X-Served-By": "aperio"
+                },
+                "remove": [
+                  "X-Powered-By"
+                ]
               }
             ]
           }
@@ -706,6 +846,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           }
         },
@@ -770,6 +913,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "${SCALE_SECRET}"
             ]
           },
           "target_utilization": {
@@ -835,6 +981,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "hsts_max_age": {
@@ -854,6 +1003,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "referrer_policy": {
@@ -989,6 +1141,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "connections": {
@@ -1022,6 +1177,26 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              {
+                "request": {
+                  "add": {
+                    "X-Forwarded-Env": "staging"
+                  },
+                  "remove": [
+                    "X-Internal-Debug"
+                  ]
+                },
+                "response": {
+                  "add": {
+                    "X-Served-By": "aperio"
+                  },
+                  "remove": [
+                    "X-Powered-By"
+                  ]
+                }
+              }
             ]
           },
           "health": {
@@ -1032,6 +1207,13 @@
               },
               {
                 "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "endpoint": "/health",
+                "interval": 10,
+                "threshold": 2
               }
             ]
           },
@@ -1152,6 +1334,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "path": {
@@ -1181,6 +1366,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "resilience": {
@@ -1188,6 +1376,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "response_timeout": {
@@ -1210,6 +1401,13 @@
               },
               {
                 "type": "null"
+              }
+            ],
+            "examples": [
+              true,
+              {
+                "frame_options": "SAMEORIGIN",
+                "hsts": true
               }
             ]
           },
@@ -1273,6 +1471,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "wait_for_backend": {
@@ -1280,6 +1481,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "webhook_inbox": {
@@ -1287,6 +1491,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           }
         }
@@ -1347,6 +1554,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           }
         },
@@ -1410,6 +1620,9 @@
               "string",
               "null"
             ],
+            "examples": [
+              "a-long-shared-secret-both-sides-hold"
+            ],
             "writeOnly": true
           },
           "target": {
@@ -1437,6 +1650,9 @@
         "type": [
           "string",
           "null"
+        ],
+        "examples": [
+          "./pages/503.html"
         ]
       },
       "504_page": {
@@ -1444,6 +1660,9 @@
         "type": [
           "string",
           "null"
+        ],
+        "examples": [
+          "./pages/504.html"
         ]
       },
       "access_log": {
@@ -1451,6 +1670,9 @@
         "type": [
           "string",
           "null"
+        ],
+        "examples": [
+          "/app/data/access.jsonl"
         ]
       },
       "admin_allowed_ips": {
@@ -1478,7 +1700,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "client_down": 1,
+            "error_rate": 0.25,
+            "min_requests": 20,
+            "window": 300
+          }
+        ]
       },
       "alert_client_down": {
         "description": "Deprecated spelling of `alert.client_down` (env: APERIO_ALERT_CLIENT_DOWN).",
@@ -1525,7 +1755,13 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "max_files": 3,
+            "max_size": 10485760
+          }
+        ]
       },
       "audit_max_files": {
         "description": "Deprecated spelling of `audit.max_files` (env: APERIO_AUDIT_MAX_FILES).",
@@ -1555,13 +1791,23 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "dir": "/app/data/backups",
+            "interval": 86400,
+            "keep": 7
+          }
+        ]
       },
       "backup_dir": {
         "description": "Flat spelling of `backup.dir` (env: APERIO_BACKUP_DIR).",
         "type": [
           "string",
           "null"
+        ],
+        "examples": [
+          "/app/data/backups"
         ]
       },
       "backup_interval": {
@@ -1571,6 +1817,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          86400
+        ],
         "minimum": 0
       },
       "backup_keep": {
@@ -1580,6 +1829,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          7
+        ],
         "minimum": 0
       },
       "cache": {
@@ -1592,7 +1844,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          true,
+          {
+            "enabled": true,
+            "max_bytes": 67108864,
+            "max_stale": 3600
+          }
+        ]
       },
       "cache_max_bytes": {
         "description": "Deprecated spelling of `cache.max_bytes` (env: APERIO_CACHE_MAX_BYTES).",
@@ -1619,6 +1879,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          10
+        ],
         "minimum": 0
       },
       "client_down_threshold": {
@@ -1628,6 +1891,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          15
+        ],
         "minimum": 0
       },
       "config_hot_reload": {
@@ -1635,6 +1901,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "dashboard": {
@@ -1647,7 +1916,14 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          true,
+          {
+            "auth": "ops:s3cret",
+            "enabled": true
+          }
+        ]
       },
       "data_dir": {
         "description": "Directory for the SQLite store and logs (env: APERIO_DATA_DIR).",
@@ -1666,6 +1942,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          1073741824
+        ],
         "minimum": 0
       },
       "edge": {
@@ -1678,7 +1957,14 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "entrypoints": "websecure",
+            "service_url": "http://aperio:8080",
+            "token": "edge_xxxxxxxx"
+          }
+        ]
       },
       "edge_cert_resolver": {
         "description": "Deprecated spelling of `edge.cert_resolver` (env: APERIO_EDGE_CERT_RESOLVER).",
@@ -1721,6 +2007,14 @@
           "array",
           "null"
         ],
+        "examples": [
+          [
+            {
+              "504_page": "./pages/app-504.html",
+              "hostname": "app.example.com"
+            }
+          ]
+        ],
         "items": {
           "$ref": "#/$defs/ErrorPageRule"
         }
@@ -1730,6 +2024,15 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "port": 5432,
+              "protocol": "tcp",
+              "tunnel": "pg-main"
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/ExposeEntry"
@@ -1745,7 +2048,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          "retry-wait",
+          {
+            "max_jumps": 2,
+            "mode": "retry",
+            "window": 30
+          }
+        ]
       },
       "failover_all_methods": {
         "description": "Deprecated spelling of `failover.all_methods` (env: APERIO_FAILOVER_ALL_METHODS).",
@@ -1778,6 +2089,15 @@
           "array",
           "null"
         ],
+        "examples": [
+          [
+            {
+              "hostname": "app.example.com",
+              "preserve_path": true,
+              "url": "https://status.example.com"
+            }
+          ]
+        ],
         "items": {
           "$ref": "#/$defs/FallbackRule"
         }
@@ -1792,7 +2112,13 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "response_timeout": 30,
+            "timeout": 10
+          }
+        ]
       },
       "gateway_response_timeout": {
         "description": "Deprecated spelling of `gateway.response_timeout` (env: APERIO_GATEWAY_RESPONSE_TIMEOUT).",
@@ -1821,6 +2147,26 @@
           {
             "type": "null"
           }
+        ],
+        "examples": [
+          {
+            "request": {
+              "add": {
+                "X-Forwarded-Env": "staging"
+              },
+              "remove": [
+                "X-Internal-Debug"
+              ]
+            },
+            "response": {
+              "add": {
+                "X-Served-By": "aperio"
+              },
+              "remove": [
+                "X-Powered-By"
+              ]
+            }
+          }
         ]
       },
       "host": {
@@ -1838,6 +2184,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          false
         ]
       },
       "inspector_redact": {
@@ -1845,6 +2194,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "ip_limit": {
@@ -1857,7 +2209,13 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "max": 120,
+            "refill": 20
+          }
+        ]
       },
       "ip_limit_max": {
         "description": "Deprecated spelling of `ip_limit.max` (env: APERIO_IP_LIMIT_MAX).",
@@ -1909,7 +2267,13 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "secs": 60,
+            "threshold": 5
+          }
+        ]
       },
       "login_lockout_secs": {
         "description": "Deprecated spelling of `login_lockout.secs` (env: APERIO_LOGIN_LOCKOUT_SECS).",
@@ -1936,6 +2300,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          10485760
+        ],
         "minimum": 0
       },
       "max_concurrent_requests": {
@@ -1945,6 +2312,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          512
+        ],
         "minimum": 0
       },
       "max_tunnels": {
@@ -1954,6 +2324,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          10
+        ],
         "minimum": 0
       },
       "max_ws_connections": {
@@ -1963,6 +2336,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          1000
+        ],
         "minimum": 0
       },
       "metrics": {
@@ -1975,7 +2351,14 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          true,
+          {
+            "enabled": true,
+            "token": "scrape_xxxxxxxx"
+          }
+        ]
       },
       "metrics_token": {
         "description": "Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).",
@@ -1994,7 +2377,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "client_id": "aperio",
+            "client_secret": "${OIDC_SECRET}",
+            "issuer": "https://accounts.example.com",
+            "redirect_url": "https://tunnel.example.com/aperio/oidc/callback"
+          }
+        ]
       },
       "oidc_allowed_emails": {
         "description": "Deprecated spelling of `oidc.allowed_emails` (env: APERIO_OIDC_ALLOWED_EMAILS).",
@@ -2054,7 +2445,16 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          true,
+          {
+            "enabled": true,
+            "endpoint": "http://collector:4317",
+            "protocol": "grpc",
+            "service_name": "aperio"
+          }
+        ]
       },
       "otel_endpoint": {
         "description": "Deprecated spelling of `otel.endpoint` (env: APERIO_OTEL_ENDPOINT).",
@@ -2087,13 +2487,28 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "allowlist": [
+              "hooks.example.com",
+              "*.provider.example"
+            ],
+            "block_private": true
+          }
+        ]
       },
       "outbound_allowlist": {
         "description": "Flat spelling of `outbound.allowlist` (env: APERIO_OUTBOUND_ALLOWLIST).",
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            "hooks.example.com",
+            "*.provider.example"
+          ]
         ],
         "items": {
           "type": "string"
@@ -2104,6 +2519,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "outlier_eject_secs": {
@@ -2113,6 +2531,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          30
+        ],
         "minimum": 0
       },
       "outlier_ejection": {
@@ -2120,6 +2541,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "outlier_max_failures": {
@@ -2129,6 +2553,9 @@
           "null"
         ],
         "format": "uint32",
+        "examples": [
+          5
+        ],
         "minimum": 0
       },
       "outlier_window": {
@@ -2138,6 +2565,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          30
+        ],
         "minimum": 0
       },
       "port": {
@@ -2158,6 +2588,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "random_subdomain": {
@@ -2175,6 +2608,16 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "burst": 10,
+              "hostname": "api.example.com",
+              "path": "/api/login",
+              "rps": 5
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/RateLimitRule"
@@ -2195,6 +2638,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "retention": {
@@ -2207,7 +2653,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "access_log": 30,
+            "audit": 90,
+            "captures": 7,
+            "stats": 365
+          }
+        ]
       },
       "retention_access_log": {
         "description": "Deprecated spelling of `retention.access_log` (env: APERIO_RETENTION_ACCESS_LOG).",
@@ -2250,6 +2704,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "retry_statuses": {
@@ -2276,6 +2733,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "routes": {
@@ -2283,6 +2743,15 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "hostname": "old.example.com",
+              "redirect": "https://new.example.com",
+              "status": 301
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/RouteRule"
@@ -2298,7 +2767,15 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          true,
+          {
+            "allow_http": false,
+            "enabled": true,
+            "record_ttl": 2592000
+          }
+        ]
       },
       "scaling_allow_http": {
         "description": "Deprecated spelling of `scaling.allow_http` (env: APERIO_SCALING_ALLOW_HTTP).",
@@ -2312,6 +2789,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          false
         ]
       },
       "scaling_record_ttl": {
@@ -2328,6 +2808,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "server": {
@@ -2340,7 +2823,12 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "token": "change-me-to-a-long-random-string"
+          }
+        ]
       },
       "server_auth": {
         "description": "Deprecated spelling of `server.auth` (env: APERIO_SERVER_AUTH).",
@@ -2366,7 +2854,14 @@
             "type": "null"
           }
         ],
-        "default": null
+        "default": null,
+        "examples": [
+          {
+            "backlog_limit": 16777216,
+            "pause_bytes": 2097152,
+            "resume_bytes": 524288
+          }
+        ]
       },
       "stream_backlog_limit": {
         "description": "Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).",
@@ -2375,6 +2870,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          16777216
+        ],
         "minimum": 0
       },
       "stream_pause_bytes": {
@@ -2384,6 +2882,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          2097152
+        ],
         "minimum": 0
       },
       "stream_resume_bytes": {
@@ -2393,6 +2894,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          524288
+        ],
         "minimum": 0
       },
       "token_expiry_warning": {
@@ -2402,6 +2906,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          7
+        ],
         "minimum": 0
       },
       "token_pinning": {
@@ -2409,6 +2916,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "trust_cf_header": {
@@ -2416,6 +2926,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "trust_proxy": {
@@ -2423,6 +2936,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "trusted_proxies": {
@@ -2445,6 +2961,9 @@
         "type": [
           "boolean",
           "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "ui_language": {
@@ -2465,6 +2984,9 @@
           "null"
         ],
         "format": "uint64",
+        "examples": [
+          60
+        ],
         "minimum": 0
       },
       "version": {
@@ -2482,6 +3004,23 @@
         "type": [
           "array",
           "null"
+        ],
+        "examples": [
+          [
+            {
+              "path": "^/wp-admin"
+            },
+            {
+              "header": {
+                "name": "user-agent",
+                "regex": "(?i)sqlmap|nikto"
+              }
+            },
+            {
+              "max_body": 1048576,
+              "path": "^/upload"
+            }
+          ]
         ],
         "items": {
           "$ref": "#/$defs/WafRule"
@@ -2540,6 +3079,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              1
+            ],
             "minimum": 0
           },
           "error_rate": {
@@ -2560,6 +3102,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              20
+            ],
             "minimum": 0
           },
           "window": {
@@ -2569,6 +3114,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              300
+            ],
             "minimum": 0
           }
         },
@@ -2585,6 +3133,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              3
+            ],
             "minimum": 0
           },
           "max_size": {
@@ -2594,6 +3145,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              10485760
+            ],
             "minimum": 0
           }
         },
@@ -2632,6 +3186,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              7
+            ],
             "minimum": 0
           }
         },
@@ -2646,6 +3203,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "max_bytes": {
@@ -2655,6 +3215,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              67108864
+            ],
             "minimum": 0
           },
           "max_stale": {
@@ -2664,6 +3227,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              3600
+            ],
             "minimum": 0
           },
           "negative_ttl": {
@@ -2673,6 +3239,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              10
+            ],
             "minimum": 0
           }
         },
@@ -2700,6 +3269,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           }
         },
@@ -2747,6 +3319,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "service_url": {
@@ -2764,6 +3339,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "change-me-to-a-long-random-string"
             ]
           }
         },
@@ -2872,6 +3450,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "max_jumps": {
@@ -2881,6 +3462,9 @@
               "null"
             ],
             "format": "uint32",
+            "examples": [
+              2
+            ],
             "minimum": 0
           },
           "mode": {
@@ -2903,6 +3487,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              300
+            ],
             "minimum": 0
           }
         },
@@ -2968,6 +3555,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              30
+            ],
             "minimum": 0
           },
           "timeout": {
@@ -2977,6 +3567,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              10
+            ],
             "minimum": 0
           }
         },
@@ -3028,6 +3621,16 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              {
+                "add": {
+                  "X-Forwarded-Env": "staging"
+                },
+                "remove": [
+                  "X-Internal-Debug"
+                ]
+              }
             ]
           },
           "response": {
@@ -3038,6 +3641,16 @@
               },
               {
                 "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "add": {
+                  "X-Served-By": "aperio"
+                },
+                "remove": [
+                  "X-Powered-By"
+                ]
               }
             ]
           }
@@ -3054,6 +3667,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              120
+            ],
             "minimum": 0
           },
           "refill": {
@@ -3062,7 +3678,10 @@
               "number",
               "null"
             ],
-            "format": "double"
+            "format": "double",
+            "examples": [
+              20
+            ]
           }
         },
         "additionalProperties": false
@@ -3078,6 +3697,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              60
+            ],
             "minimum": 0
           },
           "threshold": {
@@ -3087,6 +3709,9 @@
               "null"
             ],
             "format": "uint32",
+            "examples": [
+              5
+            ],
             "minimum": 0
           }
         },
@@ -3101,6 +3726,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "token": {
@@ -3108,6 +3736,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "change-me-to-a-long-random-string"
             ]
           }
         },
@@ -3136,6 +3767,12 @@
               "array",
               "null"
             ],
+            "examples": [
+              [
+                "alice@example.com",
+                "ops@example.com"
+              ]
+            ],
             "items": {
               "type": "string"
             }
@@ -3145,6 +3782,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "aperio"
             ]
           },
           "client_secret": {
@@ -3152,6 +3792,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "${OIDC_SECRET}"
             ]
           },
           "issuer": {
@@ -3159,6 +3802,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "https://accounts.example.com"
             ]
           },
           "redirect_url": {
@@ -3166,6 +3812,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "https://tunnel.example.com/aperio/oidc/callback"
             ]
           },
           "scopes": {
@@ -3173,6 +3822,13 @@
             "type": [
               "array",
               "null"
+            ],
+            "examples": [
+              [
+                "openid",
+                "email",
+                "profile"
+              ]
             ],
             "items": {
               "type": "string"
@@ -3190,6 +3846,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "endpoint": {
@@ -3219,6 +3878,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "aperio"
             ]
           }
         },
@@ -3247,6 +3909,12 @@
               "array",
               "null"
             ],
+            "examples": [
+              [
+                "hooks.example.com",
+                "*.provider.example"
+              ]
+            ],
             "items": {
               "type": "string"
             }
@@ -3256,6 +3924,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           }
         },
@@ -3360,6 +4031,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              30
+            ],
             "minimum": 0
           },
           "audit": {
@@ -3369,6 +4043,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              90
+            ],
             "minimum": 0
           },
           "captures": {
@@ -3378,6 +4055,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              7
+            ],
             "minimum": 0
           },
           "stats": {
@@ -3387,6 +4067,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              365
+            ],
             "minimum": 0
           }
         },
@@ -3445,6 +4128,13 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              {
+                "body": "Be right back",
+                "content_type": "text/plain",
+                "status": 503
+              }
             ]
           }
         }
@@ -3458,6 +4148,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "allow_private": {
@@ -3465,6 +4158,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "enabled": {
@@ -3472,6 +4168,9 @@
             "type": [
               "boolean",
               "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "record_ttl": {
@@ -3481,6 +4180,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              2592000
+            ],
             "minimum": 0
           }
         },
@@ -3518,6 +4220,9 @@
             "type": [
               "string",
               "null"
+            ],
+            "examples": [
+              "change-me-to-a-long-random-string"
             ]
           }
         },
@@ -3534,6 +4239,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              16777216
+            ],
             "minimum": 0
           },
           "pause_bytes": {
@@ -3543,6 +4251,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              2097152
+            ],
             "minimum": 0
           },
           "resume_bytes": {
@@ -3552,6 +4263,9 @@
               "null"
             ],
             "format": "uint64",
+            "examples": [
+              524288
+            ],
             "minimum": 0
           }
         },
@@ -3594,6 +4308,12 @@
               },
               {
                 "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "name": "user-agent",
+                "regex": "(?i)sqlmap|nikto"
               }
             ]
           },

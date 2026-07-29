@@ -665,3 +665,173 @@ fn the_top_level_health_block_still_parses_every_field() {
   assert_eq!(folded.target_health.as_deref(), Some("/h"));
   assert_eq!(folded.health_interval, Some(7));
 }
+
+// ---------------------------------------------------------------------------
+// Schema guidance: what an editor has to work with.
+// ---------------------------------------------------------------------------
+
+/// Every property of a schema, as `Scope.key` paths, with the property itself.
+fn schema_properties(schema: &serde_json::Value) -> Vec<(String, &serde_json::Value)> {
+  let mut out = Vec::new();
+  let mut scopes: Vec<(String, &serde_json::Value)> = vec![(String::new(), schema)];
+  if let Some(defs) = schema.get("$defs").and_then(|d| d.as_object()) {
+    for (name, def) in defs {
+      scopes.push((format!("{name}."), def));
+    }
+  }
+  for (prefix, scope) in scopes {
+    let Some(props) = scope.get("properties").and_then(|p| p.as_object()) else {
+      continue;
+    };
+    for (key, prop) in props {
+      out.push((format!("{prefix}{key}"), prop));
+    }
+  }
+  out
+}
+
+/// `object` / `array` / a `$ref` — a shape you cannot guess from the type.
+fn is_structured(prop: &serde_json::Value) -> bool {
+  let named = |t: &serde_json::Value| matches!(t.as_str(), Some("object") | Some("array"));
+  if prop.get("$ref").is_some() {
+    return true;
+  }
+  match prop.get("type") {
+    Some(serde_json::Value::String(_)) => named(prop.get("type").unwrap()),
+    Some(serde_json::Value::Array(types)) => types.iter().any(named),
+    _ => prop
+      .get("anyOf")
+      .or_else(|| prop.get("oneOf"))
+      .and_then(|b| b.as_array())
+      .is_some_and(|branches| {
+        branches
+          .iter()
+          .any(|b| b.get("$ref").is_some() || b.get("type").is_some_and(named))
+      }),
+  }
+}
+
+/// A key on its way out. An example would invite writing it.
+fn is_deprecated(prop: &serde_json::Value) -> bool {
+  prop.get("deprecated") == Some(&serde_json::Value::Bool(true))
+    || prop
+      .get("description")
+      .and_then(|d| d.as_str())
+      .is_some_and(|d| d.to_lowercase().contains("deprecated"))
+}
+
+/// The schemas are the documentation an editor can actually reach: a YAML
+/// extension pointed at `aperio-client.schema.json` shows the description and
+/// the examples on hover and completion, and nothing else. A key with neither
+/// sends the reader to the website, which is exactly the trip the schema
+/// exists to save.
+///
+/// So: a description always, an example on anything whose *shape* cannot be
+/// guessed from its type, and an example or a default on the rest.
+fn assert_schema_is_self_documenting(label: &str, schema: serde_json::Value) {
+  let mut missing_description = Vec::new();
+  let mut missing_example = Vec::new();
+  for (path, prop) in schema_properties(&schema) {
+    if prop
+      .get("description")
+      .and_then(|d| d.as_str())
+      .is_none_or(|d| d.trim().is_empty())
+    {
+      missing_description.push(path.clone());
+    }
+    if is_deprecated(prop) {
+      continue;
+    }
+    let has_example = prop.get("examples").is_some();
+    let has_default = prop.get("default").is_some();
+    if is_structured(prop) {
+      if !has_example {
+        missing_example.push(format!("{path} (structured)"));
+      }
+    } else if !has_example && !has_default {
+      missing_example.push(path);
+    }
+  }
+  assert!(
+    missing_description.is_empty(),
+    "{label}: {} propert(ies) without a doc comment:\n  {}",
+    missing_description.len(),
+    missing_description.join("\n  ")
+  );
+  assert!(
+    missing_example.is_empty(),
+    "{label}: {} propert(ies) an editor can show nothing concrete for. Add `#[schemars(extend(\"examples\" = [...]))]`:\n  {}",
+    missing_example.len(),
+    missing_example.join("\n  ")
+  );
+}
+
+#[test]
+fn the_client_schema_documents_every_key() {
+  assert_schema_is_self_documenting(
+    "aperio.yaml",
+    serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap(),
+  );
+}
+
+#[test]
+fn the_server_schema_documents_every_key() {
+  assert_schema_is_self_documenting(
+    "aperio-server.yaml",
+    serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
+  );
+}
+
+/// Builds a document out of every top-level example and parses it back.
+///
+/// An example that does not deserialize is worse than no example: an editor
+/// offers it as the shape to copy, and it produces a file the binary refuses.
+/// Three of them were wrong when this check was first written — `rate_limits`
+/// carried `max`/`refill` instead of `rps`, `fallbacks` a `respond` block
+/// instead of a `url`, `waf` a `contains` instead of a `regex` — all of them
+/// written from memory of a neighbouring section and none of them caught by
+/// the type system, because an example is just JSON until someone parses it.
+fn assert_examples_parse<T: serde::de::DeserializeOwned>(label: &str, schema: serde_json::Value) {
+  let props = schema["properties"].as_object().unwrap();
+  let mut doc = serde_json::Map::new();
+  for (key, prop) in props {
+    if is_deprecated(prop) {
+      continue;
+    }
+    let Some(example) = prop
+      .get("examples")
+      .and_then(|e| e.as_array())
+      .and_then(|e| e.first())
+    else {
+      continue;
+    };
+    doc.insert(key.clone(), example.clone());
+  }
+  assert!(
+    doc.len() > 20,
+    "{label}: only {} examples collected",
+    doc.len()
+  );
+  let yaml = serde_yaml::to_string(&serde_json::Value::Object(doc)).unwrap();
+  if let Err(e) = serde_yaml::from_str::<T>(&yaml) {
+    panic!(
+      "{label}: a document built from the schema's own examples does not parse: {e}\n\n{yaml}"
+    );
+  }
+}
+
+#[test]
+fn the_client_schema_examples_are_valid_config() {
+  assert_examples_parse::<FileConfig>(
+    "aperio.yaml",
+    serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap(),
+  );
+}
+
+#[test]
+fn the_server_schema_examples_are_valid_config() {
+  assert_examples_parse::<ServerFileConfig>(
+    "aperio-server.yaml",
+    serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
+  );
+}

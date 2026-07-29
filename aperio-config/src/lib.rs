@@ -132,6 +132,7 @@ pub struct TunnelDecl {
   /// protecting against an actively hostile server. Never sent anywhere —
   /// the binder configures the same value in its `bind-tunnels` entry.
   #[serde(default, skip_serializing)]
+  #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
   pub psk: Option<String>,
   /// UDP only: seconds a relay may sit with no datagrams in either direction
   /// before it expires (default 60); binders learn it via tunnel discovery.
@@ -168,8 +169,10 @@ pub struct HeaderDirectives {
 #[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
 pub struct HeaderRules {
   /// Edits applied to forwarded requests before they reach the local backend.
+  #[schemars(extend("examples" = [{"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]}]))]
   pub request: Option<HeaderDirectives>,
   /// Edits applied to backend responses before they return to the visitor.
+  #[schemars(extend("examples" = [{"add": {"X-Served-By": "aperio"}, "remove": ["X-Powered-By"]}]))]
   pub response: Option<HeaderDirectives>,
 }
 
@@ -194,6 +197,7 @@ pub enum SecurityHeaders {
 #[serde(deny_unknown_fields)]
 pub struct SecurityHeaderOptions {
   /// Inject `Strict-Transport-Security` (only meaningful behind HTTPS).
+  #[schemars(extend("examples" = [true]))]
   pub hsts: Option<bool>,
   /// HSTS `max-age` in seconds (default 63072000 = 2 years).
   #[schemars(extend("examples" = [31536000]))]
@@ -202,6 +206,7 @@ pub struct SecurityHeaderOptions {
   #[schemars(extend("examples" = ["DENY", "SAMEORIGIN"]))]
   pub frame_options: Option<String>,
   /// Inject `X-Content-Type-Options: nosniff`.
+  #[schemars(extend("examples" = [true]))]
   pub nosniff: Option<bool>,
   /// `Referrer-Policy` value to inject.
   #[schemars(extend("examples" = ["strict-origin-when-cross-origin"]))]
@@ -288,6 +293,7 @@ pub struct HealthConfig {
   /// Hold the service out of routing until the backend first accepts a
   /// connection, avoiding connection-refused errors while it boots
   /// (superseded by `endpoint` when that is set).
+  #[schemars(extend("examples" = [true]))]
   pub wait_for_backend: Option<bool>,
 }
 
@@ -323,6 +329,7 @@ pub struct TopHealthConfig {
   /// Hold the service out of routing until the backend first accepts a
   /// connection, avoiding connection-refused errors while it boots. Applies
   /// to every `services:` entry that does not set its own.
+  #[schemars(extend("examples" = [true]))]
   pub wait_for_backend: Option<bool>,
 }
 
@@ -364,6 +371,7 @@ pub struct ScalingDecl {
   /// Sent as `Authorization: Bearer` on the outgoing call. Write-only: the
   /// server never echoes it back and never logs it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["${SCALE_SECRET}"]))]
   pub secret: Option<String>,
   /// Instances that should always be running. `0` opts into scale-to-zero:
   /// a request for an unserved hostname triggers a cold start instead of a
@@ -475,8 +483,10 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,
   /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
+  #[schemars(extend("examples" = [true]))]
   pub trim_bind: Option<bool>,
   /// Forward the visitor's original Host header instead of the target's.
+  #[schemars(extend("examples" = [false]))]
   pub pass_hostname: Option<bool>,
   /// Most requests this service handles at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
@@ -520,6 +530,7 @@ pub struct ServiceEntry {
   /// Backend health probing for this service (`endpoint`, `interval`,
   /// `timeout`, `threshold`, `wait_for_backend`). Preferred over the flat
   /// `target_health` / `health_*` keys, which still work.
+  #[schemars(extend("examples" = [{"endpoint": "/health", "interval": 10, "threshold": 2}]))]
   pub health: Option<HealthConfig>,
   /// Backend health endpoint the client probes to pull itself from rotation
   /// when down. Deprecated spelling of `health.endpoint`.
@@ -528,6 +539,7 @@ pub struct ServiceEntry {
   /// Hold this service out of routing until the backend first accepts a
   /// connection, avoiding connection-refused errors while it boots
   /// (superseded by `target_health` when that is set).
+  #[schemars(extend("examples" = [true]))]
   pub wait_for_backend: Option<bool>,
   /// Seconds between backend health probes. Deprecated spelling of
   /// `health.interval`.
@@ -541,6 +553,7 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = [3]))]
   pub health_threshold: Option<u32>,
   /// Serve this service without the server's visitor login (needs a token that allows it).
+  #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
   /// Gate this service behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
@@ -551,19 +564,27 @@ pub struct ServiceEntry {
   pub allowed_ips: Option<Vec<String>>,
   /// Request/response header add-remove rules for this service (replaces the
   /// top-level `headers` when set).
+  #[schemars(extend("examples" = [{
+    "request": {"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]},
+    "response": {"add": {"X-Served-By": "aperio"}, "remove": ["X-Powered-By"]}
+  }]))]
   pub headers: Option<HeaderRules>,
   /// Security response-header preset for this service (`true` or a granular
   /// mapping; replaces the top-level `security_headers` when set).
+  #[schemars(extend("examples" = [true, {"hsts": true, "frame_options": "SAMEORIGIN"}]))]
   pub security_headers: Option<SecurityHeaders>,
   /// Let the server cache this service's GET responses (per their
   /// `Cache-Control`); effective only when the server enables APERIO_CACHE.
+  #[schemars(extend("examples" = [true]))]
   pub cache: Option<bool>,
   /// Keep serving this service's cached responses (marked, even past their
   /// lifetime) while no healthy client is connected, instead of failing with
   /// 504 (needs `cache: true` and the server-side cache enabled).
+  #[schemars(extend("examples" = [true]))]
   pub resilience: Option<bool>,
   /// Persist inbound POST requests (third-party webhooks) hitting this
   /// service into the server's webhook inbox, for browsing and re-firing.
+  #[schemars(extend("examples" = [true]))]
   pub webhook_inbox: Option<bool>,
   /// Redirect URL for visitors rejected by `allowed_ips` when no candidate
   /// of the route admits them (unset = stealth: the same answer as an
@@ -623,9 +644,11 @@ pub struct BindTunnelEntry {
   /// which binds every tunnel that peer declares; a name-keyed entry is one
   /// tunnel and uses `port`.
   #[serde(default, rename = "override")]
+  #[schemars(extend("examples" = [{"pg-main": 15432, "redis": 16379}]))]
   pub overrides: HashMap<String, u16>,
   /// Pre-shared key for this peer's end-to-end encrypted tunnels; must match
   /// the `psk` the declaring client configured. Never sent to the server.
+  #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
   pub psk: Option<String>,
 }
 
@@ -635,6 +658,7 @@ pub struct BindTunnelEntry {
 #[derive(Deserialize, Default, JsonSchema)]
 pub struct FileConfig {
   /// The Aperio server to reach and the token to authenticate the tunnel with.
+  #[schemars(extend("examples" = [{"url": "https://tunnel.example.com", "token": "apr_xxxxxxxxxxxxxxxx"}]))]
   pub server: Option<ServerValue>,
   /// Deprecated spelling of `server.token`, kept so a token written at the
   /// top level still authenticates rather than being silently ignored.
@@ -664,8 +688,10 @@ pub struct FileConfig {
   #[schemars(extend("examples" = ["/api"], "deprecated" = true))]
   pub path: Option<String>,
   /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
+  #[schemars(extend("examples" = [true]))]
   pub trim_bind: Option<bool>,
   /// Forward the visitor's original Host header to the backend instead of the target's.
+  #[schemars(extend("examples" = [false]))]
   pub pass_hostname: Option<bool>,
   /// Most requests handled at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
@@ -701,6 +727,7 @@ pub struct FileConfig {
   /// Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,
   /// `wait_for_backend`). Preferred over the flat `target_health` / `health_*`
   /// keys, which still work; `services:` entries may override it per service.
+  #[schemars(extend("examples" = [{"interval": 10, "timeout": 5, "threshold": 2}]))]
   pub health: Option<TopHealthConfig>,
   /// **Deprecated in a config file, removed in 0.7.0.** Backend health
   /// endpoint to probe; also the old flat spelling of `health.endpoint`.
@@ -711,6 +738,7 @@ pub struct FileConfig {
   /// connection, avoiding connection-refused errors while it boots
   /// (superseded by `target_health` when that is set). Deprecated spelling of
   /// `health.wait_for_backend`.
+  #[schemars(extend("examples" = [true]))]
   pub wait_for_backend: Option<bool>,
   /// Seconds between backend health probes.
   #[schemars(extend("examples" = [10]))]
@@ -735,8 +763,13 @@ pub struct FileConfig {
   pub max_redirects: Option<usize>,
   /// Expose several backends from one client, each on its own tunnel connection
   /// (replaces the single top-level `target`).
+  #[schemars(extend("examples" = [[
+    {"name": "web", "target": "http://localhost:3000", "hostname": "app.example.com"},
+    {"name": "api", "target": "http://localhost:4000", "hostname": "api.example.com"}
+  ]]))]
   pub services: Option<Vec<ServiceEntry>>,
   /// Serve without the server's visitor login (needs a token that allows it).
+  #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
   /// Gate this client behind your own `user:password` login instead of the server's.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
@@ -747,13 +780,16 @@ pub struct FileConfig {
   pub allowed_ips: Option<Vec<String>>,
   /// Let the server cache GET responses (per their `Cache-Control`);
   /// effective only when the server enables APERIO_CACHE.
+  #[schemars(extend("examples" = [true]))]
   pub cache: Option<bool>,
   /// Keep serving this service's cached responses (marked, even past their
   /// lifetime) while no healthy client is connected, instead of failing with
   /// 504 (needs `cache: true` and the server-side cache enabled).
+  #[schemars(extend("examples" = [true]))]
   pub resilience: Option<bool>,
   /// Persist inbound POST requests (third-party webhooks) into the server's
   /// webhook inbox, for browsing and re-firing (services may override).
+  #[schemars(extend("examples" = [true]))]
   pub webhook_inbox: Option<bool>,
   /// Redirect URL for visitors rejected by `allowed_ips` when no candidate
   /// of the route admits them (unset = stealth; services may override).
@@ -777,23 +813,42 @@ pub struct FileConfig {
   pub client_id: Option<String>,
   /// Request/response header add-remove rules applied by this client to
   /// proxied HTTP traffic (services may override with their own `headers`).
+  #[schemars(extend("examples" = [{
+    "request": {"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]},
+    "response": {"add": {"X-Served-By": "aperio"}, "remove": ["X-Powered-By"]}
+  }]))]
   pub headers: Option<HeaderRules>,
   /// Security response-header preset: `true` injects HSTS,
   /// `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
   /// `Referrer-Policy`; a mapping picks headers individually (services may
   /// override with their own `security_headers`).
+  #[schemars(extend("examples" = [true, {"hsts": true, "frame_options": "SAMEORIGIN"}]))]
   pub security_headers: Option<SecurityHeaders>,
   /// Private local services a peer client may reach via `--bind-tunnels`; never
   /// exposed to the public web.
+  #[schemars(extend("examples" = [[
+    {"name": "pg-main", "target": "127.0.0.1:5432"},
+    {"name": "dns", "target": "127.0.0.1:53", "protocol": "tcp/udp"}
+  ]]))]
   pub tunnels: Option<Vec<TunnelDecl>>,
   /// Tunnels this process binds to local ports, keyed by the tunnel's name.
   /// A key naming a peer's client id instead binds every tunnel that peer
   /// declares, which is the older spelling and still works.
   #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
+  #[schemars(extend("examples" = [{
+    "pg-main": 15432,
+    "dns": {"port": 15353, "token": "apr_binder_token"}
+  }]))]
   pub bind_tunnels: Option<HashMap<String, BindTunnelValue>>,
   /// Autoscaling: the endpoint the server calls when this client's services
   /// need capacity. Applies to every service this client exposes; each
   /// hostname bind gets its own record on the server.
+  #[schemars(extend("examples" = [{
+    "url": "https://api.provider.example/apps/web/scale",
+    "min": 1,
+    "max": 8,
+    "cold_start": "45s"
+  }]))]
   pub scaling: Option<ScalingDecl>,
   /// Shut this client down after it has served no request for this long, e.g.
   /// `5m` (unset = never). The scale-in half of `scaling`: the server never
@@ -808,6 +863,7 @@ pub struct FileConfig {
   /// router owns its routes. A missing asset still 404s
   /// (env: APERIO_SERVE_SPA). Process-wide: it applies to every served
   /// directory of this client.
+  #[schemars(extend("examples" = [true]))]
   pub serve_spa: Option<bool>,
   /// Static-file mode: HTML file served with status 404 for misses the SPA
   /// fallback does not cover (env: APERIO_SERVE_404). Process-wide, like
@@ -817,6 +873,7 @@ pub struct FileConfig {
   /// Trust-on-first-use device key announced with the tunnel token, so a
   /// server with token pinning on can bind that token to this machine
   /// (env: APERIO_DEVICE_KEY).
+  #[schemars(extend("examples" = ["9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"]))]
   pub device_key: Option<String>,
   /// File holding the device key; a random one is generated and persisted
   /// there on first run. Ignored when `device_key` is set directly
@@ -971,6 +1028,7 @@ pub struct WafRule {
   #[schemars(extend("examples" = [["POST", "PUT"]]))]
   pub methods: Option<Vec<String>>,
   /// Header condition the request must match.
+  #[schemars(extend("examples" = [{"name": "user-agent", "regex": "(?i)sqlmap|nikto"}]))]
   pub header: Option<WafHeaderMatch>,
   /// Body-size ceiling in bytes for the matched route; makes this a `413`
   /// size rule rather than a `403` deny rule.
@@ -1012,6 +1070,7 @@ pub struct RouteRule {
   #[serde(default)]
   pub preserve_path: bool,
   /// Serve a fixed response instead of redirecting.
+  #[schemars(extend("examples" = [{"status": 503, "body": "Be right back", "content_type": "text/plain"}]))]
   pub respond: Option<RespondRule>,
 }
 
@@ -1186,10 +1245,13 @@ pub struct AlertGroup {
   #[schemars(extend("examples" = [0.25]))]
   pub error_rate: Option<f64>,
   /// Alert sliding-window seconds.
+  #[schemars(extend("examples" = [300]))]
   pub window: Option<u64>,
   /// Minimum requests in the window before the error-rate alert fires.
+  #[schemars(extend("examples" = [20]))]
   pub min_requests: Option<u64>,
   /// Connected-client floor below which the client-down alert fires.
+  #[schemars(extend("examples" = [1]))]
   pub client_down: Option<u64>,
 }
 
@@ -1201,8 +1263,10 @@ pub struct AlertGroup {
 #[serde(deny_unknown_fields)]
 pub struct AuditGroup {
   /// Audit log rotation size in bytes, 0 disables.
+  #[schemars(extend("examples" = [10485760]))]
   pub max_size: Option<u64>,
   /// Rotated audit log files kept.
+  #[schemars(extend("examples" = [3]))]
   pub max_files: Option<u64>,
 }
 
@@ -1214,13 +1278,17 @@ pub struct AuditGroup {
 #[serde(deny_unknown_fields)]
 pub struct CacheGroup {
   /// Enable the server-side GET response cache.
+  #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
   /// Response-cache budget in bytes.
+  #[schemars(extend("examples" = [67108864]))]
   pub max_bytes: Option<u64>,
   /// Serve-stale window in seconds for resilient services.
+  #[schemars(extend("examples" = [3600]))]
   pub max_stale: Option<u64>,
   /// Seconds to briefly cache error / negative responses (e.g. `404`), so a
   /// hot missing URL cannot hammer the backend. `0` = disabled.
+  #[schemars(extend("examples" = [10]))]
   pub negative_ttl: Option<u64>,
 }
 
@@ -1232,6 +1300,7 @@ pub struct CacheGroup {
 #[serde(deny_unknown_fields)]
 pub struct DashboardGroup {
   /// Serve the admin dashboard.
+  #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
 }
 
@@ -1245,6 +1314,7 @@ pub struct EdgeGroup {
   /// Credential enabling the edge-integration endpoints, which publish the
   /// live hostname inventory to a reverse proxy in front of this server
   ///.
+  #[schemars(extend("examples" = ["change-me-to-a-long-random-string"]))]
   pub token: Option<String>,
   /// URL the edge proxy forwards matched traffic to.
   #[schemars(extend("examples" = ["http://aperio:8080"]))]
@@ -1257,6 +1327,7 @@ pub struct EdgeGroup {
   pub cert_resolver: Option<String>,
   /// Also publish hostnames a token permits but no client serves yet
   ///.
+  #[schemars(extend("examples" = [false]))]
   pub include_offline: Option<bool>,
 }
 
@@ -1271,10 +1342,13 @@ pub struct FailoverGroup {
   #[schemars(extend("examples" = ["fail", "retry", "wait", "retry-wait"]))]
   pub mode: Option<String>,
   /// Maximum failover re-dispatches per request.
+  #[schemars(extend("examples" = [2]))]
   pub max_jumps: Option<u32>,
   /// Failover window in seconds.
+  #[schemars(extend("examples" = [300]))]
   pub window: Option<u64>,
   /// Allow failover for non-idempotent methods too.
+  #[schemars(extend("examples" = [false]))]
   pub all_methods: Option<bool>,
 }
 
@@ -1286,8 +1360,10 @@ pub struct FailoverGroup {
 #[serde(deny_unknown_fields)]
 pub struct GatewayGroup {
   /// Seconds to wait for a client connection.
+  #[schemars(extend("examples" = [10]))]
   pub timeout: Option<u64>,
   /// Seconds to wait for a client response.
+  #[schemars(extend("examples" = [30]))]
   pub response_timeout: Option<u64>,
 }
 
@@ -1299,8 +1375,10 @@ pub struct GatewayGroup {
 #[serde(deny_unknown_fields)]
 pub struct IpLimitGroup {
   /// Per-IP rate-limit burst.
+  #[schemars(extend("examples" = [120]))]
   pub max: Option<u64>,
   /// Per-IP rate-limit refill per second.
+  #[schemars(extend("examples" = [20.0]))]
   pub refill: Option<f64>,
 }
 
@@ -1312,8 +1390,10 @@ pub struct IpLimitGroup {
 #[serde(deny_unknown_fields)]
 pub struct LoginLockoutGroup {
   /// Failed logins per IP before a lockout.
+  #[schemars(extend("examples" = [5]))]
   pub threshold: Option<u32>,
   /// Base lockout seconds, doubled per repeat.
+  #[schemars(extend("examples" = [60]))]
   pub secs: Option<u64>,
 }
 
@@ -1325,8 +1405,10 @@ pub struct LoginLockoutGroup {
 #[serde(deny_unknown_fields)]
 pub struct MetricsGroup {
   /// Prometheus metrics endpoint toggle.
+  #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
   /// Bearer token gating the metrics endpoint.
+  #[schemars(extend("examples" = ["change-me-to-a-long-random-string"]))]
   pub token: Option<String>,
 }
 
@@ -1338,16 +1420,22 @@ pub struct MetricsGroup {
 #[serde(deny_unknown_fields)]
 pub struct OidcGroup {
   /// OIDC issuer URL.
+  #[schemars(extend("examples" = ["https://accounts.example.com"]))]
   pub issuer: Option<String>,
   /// OIDC client id.
+  #[schemars(extend("examples" = ["aperio"]))]
   pub client_id: Option<String>,
   /// OIDC client secret.
+  #[schemars(extend("examples" = ["${OIDC_SECRET}"]))]
   pub client_secret: Option<String>,
   /// Allowed OIDC login emails.
+  #[schemars(extend("examples" = [["alice@example.com", "ops@example.com"]]))]
   pub allowed_emails: Option<Vec<String>>,
   /// OIDC scopes.
+  #[schemars(extend("examples" = [["openid", "email", "profile"]]))]
   pub scopes: Option<Vec<String>>,
   /// OIDC redirect URL override.
+  #[schemars(extend("examples" = ["https://tunnel.example.com/aperio/oidc/callback"]))]
   pub redirect_url: Option<String>,
 }
 
@@ -1359,6 +1447,7 @@ pub struct OidcGroup {
 #[serde(deny_unknown_fields)]
 pub struct OtelGroup {
   /// Enable OpenTelemetry OTLP export.
+  #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
   /// OTLP endpoint. The conventional ports are 4318 for OTLP/HTTP and 4317
   /// for OTLP/gRPC; `protocol` follows from the port unless it is set.
@@ -1371,6 +1460,7 @@ pub struct OtelGroup {
   #[schemars(extend("examples" = ["http", "grpc"]))]
   pub protocol: Option<String>,
   /// OTLP service name.
+  #[schemars(extend("examples" = ["aperio"]))]
   pub service_name: Option<String>,
 }
 
@@ -1382,12 +1472,16 @@ pub struct OtelGroup {
 #[serde(deny_unknown_fields)]
 pub struct RetentionGroup {
   /// Days to keep inspector captures and webhook inbox entries; 0/unset = forever.
+  #[schemars(extend("examples" = [7]))]
   pub captures: Option<u64>,
   /// Days to keep access-log file lines; 0/unset = forever.
+  #[schemars(extend("examples" = [30]))]
   pub access_log: Option<u64>,
   /// Days to keep audit events; 0/unset = forever.
+  #[schemars(extend("examples" = [90]))]
   pub audit: Option<u64>,
   /// Days to keep day-granularity stats buckets; 0/unset = the built-in caps.
+  #[schemars(extend("examples" = [365]))]
   pub stats: Option<u64>,
 }
 
@@ -1399,14 +1493,18 @@ pub struct RetentionGroup {
 #[serde(deny_unknown_fields)]
 pub struct ScalingGroup {
   /// Honor client `scaling:` declarations.
+  #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
   /// Allow a plain-http autoscaling endpoint.
+  #[schemars(extend("examples" = [false]))]
   pub allow_http: Option<bool>,
   /// Allow an autoscaling endpoint on a private or loopback address, for a
   /// provider API that genuinely lives on the internal network.
+  #[schemars(extend("examples" = [false]))]
   pub allow_private: Option<bool>,
   /// Seconds after which an unrefreshed autoscaling record is dropped
   ///.
+  #[schemars(extend("examples" = [2592000]))]
   pub record_ttl: Option<u64>,
 }
 
@@ -1418,6 +1516,7 @@ pub struct ScalingGroup {
 #[serde(deny_unknown_fields)]
 pub struct ServerCredentials {
   /// Master token; also the fallback dashboard password.
+  #[schemars(extend("examples" = ["change-me-to-a-long-random-string"]))]
   pub token: Option<String>,
   /// Visitor auth `user:password` gate.
   #[schemars(extend("examples" = ["admin:s3cret"]))]
@@ -1435,9 +1534,11 @@ pub struct OutboundGroup {
   /// Host/CIDR patterns the server may call (exact host, `*.suffix`, IP, or
   /// CIDR). When set, any other destination is refused; a matching entry is
   /// trusted even if private.
+  #[schemars(extend("examples" = [["hooks.example.com", "*.provider.example"]]))]
   pub allowlist: Option<Vec<String>>,
   /// With no allowlist: refuse destinations resolving to internal addresses
   /// (loopback, RFC 1918, link-local/metadata, CGNAT, unique-local).
+  #[schemars(extend("examples" = [true]))]
   pub block_private: Option<bool>,
 }
 
@@ -1455,6 +1556,7 @@ pub struct BackupGroup {
   #[schemars(extend("examples" = ["/var/backups/aperio"]))]
   pub dir: Option<String>,
   /// Snapshots to keep; older ones are pruned.
+  #[schemars(extend("examples" = [7]))]
   pub keep: Option<u64>,
 }
 
@@ -1466,10 +1568,13 @@ pub struct BackupGroup {
 #[serde(deny_unknown_fields)]
 pub struct StreamGroup {
   /// Backlog bytes at which the producing client is asked to pause a stream.
+  #[schemars(extend("examples" = [2097152]))]
   pub pause_bytes: Option<u64>,
   /// Backlog bytes under which a paused producer is asked to resume.
+  #[schemars(extend("examples" = [524288]))]
   pub resume_bytes: Option<u64>,
   /// Hard per-stream backlog cap in bytes (drops producers that cannot pause).
+  #[schemars(extend("examples" = [16777216]))]
   pub backlog_limit: Option<u64>,
 }
 
@@ -1640,57 +1745,75 @@ pub struct ServerFileConfig {
   // --- Grouped blocks (preferred over the flat keys below) ---
   /// Alerting thresholds: when the server logs and emits an alert
   #[serde(default)]
+  #[schemars(extend("examples" = [{"error_rate": 0.25, "window": 300, "min_requests": 20, "client_down": 1}]))]
   pub alert: Option<AlertGroup>,
   /// Audit-log file rotation
   #[serde(default)]
+  #[schemars(extend("examples" = [{"max_size": 10485760, "max_files": 3}]))]
   pub audit: Option<AuditGroup>,
   /// Scheduled snapshots of the SQLite store
   #[serde(default)]
+  #[schemars(extend("examples" = [{"dir": "/app/data/backups", "interval": 86400, "keep": 7}]))]
   pub backup: Option<BackupGroup>,
   /// The server-side GET response cache
   #[serde(default)]
+  #[schemars(extend("examples" = [true, {"enabled": true, "max_bytes": 67108864, "max_stale": 3600}]))]
   pub cache: Option<CacheSetting>,
   /// The built-in dashboard
   #[serde(default)]
+  #[schemars(extend("examples" = [true, {"enabled": true, "auth": "ops:s3cret"}]))]
   pub dashboard: Option<DashboardSetting>,
   /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server
   #[serde(default)]
+  #[schemars(extend("examples" = [{"token": "edge_xxxxxxxx", "service_url": "http://aperio:8080", "entrypoints": "websecure"}]))]
   pub edge: Option<EdgeGroup>,
   /// In-flight failover: what happens to a request whose client disappears mid-flight
   #[serde(default)]
+  #[schemars(extend("examples" = ["retry-wait", {"mode": "retry", "max_jumps": 2, "window": 30}]))]
   pub failover: Option<FailoverSetting>,
   /// Gateway timeouts applied to a proxied request
   #[serde(default)]
+  #[schemars(extend("examples" = [{"timeout": 10, "response_timeout": 30}]))]
   pub gateway: Option<GatewayGroup>,
   /// Per-visitor-IP rate limiting (token bucket)
   #[serde(default)]
+  #[schemars(extend("examples" = [{"max": 120, "refill": 20.0}]))]
   pub ip_limit: Option<IpLimitGroup>,
   /// Dashboard login lockout after repeated failures
   #[serde(default)]
+  #[schemars(extend("examples" = [{"threshold": 5, "secs": 60}]))]
   pub login_lockout: Option<LoginLockoutGroup>,
   /// The Prometheus metrics endpoint
   #[serde(default)]
+  #[schemars(extend("examples" = [true, {"enabled": true, "token": "scrape_xxxxxxxx"}]))]
   pub metrics: Option<MetricsSetting>,
   /// OIDC single sign-on for the dashboard
   #[serde(default)]
+  #[schemars(extend("examples" = [{"issuer": "https://accounts.example.com", "client_id": "aperio", "client_secret": "${OIDC_SECRET}", "redirect_url": "https://tunnel.example.com/aperio/oidc/callback"}]))]
   pub oidc: Option<OidcGroup>,
   /// OpenTelemetry trace export
   #[serde(default)]
+  #[schemars(extend("examples" = [true, {"enabled": true, "endpoint": "http://collector:4317", "protocol": "grpc", "service_name": "aperio"}]))]
   pub otel: Option<OtelSetting>,
   /// Where the server may send outbound callbacks (webhooks, autoscaling hooks)
   #[serde(default)]
+  #[schemars(extend("examples" = [{"block_private": true, "allowlist": ["hooks.example.com", "*.provider.example"]}]))]
   pub outbound: Option<OutboundGroup>,
   /// How long each kind of recorded data is kept, in days
   #[serde(default)]
+  #[schemars(extend("examples" = [{"stats": 365, "audit": 90, "captures": 7, "access_log": 30}]))]
   pub retention: Option<RetentionGroup>,
   /// Autoscaling: the server signalling desired capacity to an endpoint you control
   #[serde(default)]
+  #[schemars(extend("examples" = [true, {"enabled": true, "allow_http": false, "record_ttl": 2592000}]))]
   pub scaling: Option<ScalingSetting>,
   /// The server's own credentials
   #[serde(default)]
+  #[schemars(extend("examples" = [{"token": "change-me-to-a-long-random-string"}]))]
   pub server: Option<ServerCredentials>,
   /// Per-stream flow control for streamed data (responses, WebSocket, TCP)
   #[serde(default)]
+  #[schemars(extend("examples" = [{"pause_bytes": 2097152, "resume_bytes": 524288, "backlog_limit": 16777216}]))]
   pub stream: Option<StreamGroup>,
   // --- Core ---
   /// The Aperio version this file was written for, e.g. `0.5.0`. On startup
@@ -1717,28 +1840,35 @@ pub struct ServerFileConfig {
 
   // --- Routing & load balancing ---
   /// Require every client to carry a hostname bind (env: APERIO_REQUIRE_HOSTNAME_BIND).
+  #[schemars(extend("examples" = [true]))]
   pub require_hostname_bind: Option<bool>,
   /// Wildcard pattern granting each client a random subdomain (env: APERIO_RANDOM_SUBDOMAIN).
   #[schemars(extend("examples" = ["*.example.com"]))]
   pub random_subdomain: Option<String>,
   /// Inject noindex headers for random-subdomain preview services (env: APERIO_PREVIEW_NOINDEX).
+  #[schemars(extend("examples" = [true]))]
   pub preview_noindex: Option<bool>,
   /// Seconds without a heartbeat before a client is considered down (env: APERIO_CLIENT_DOWN_THRESHOLD).
+  #[schemars(extend("examples" = [15]))]
   pub client_down_threshold: Option<u64>,
   /// Load-balancing strategy (env: APERIO_LB_STRATEGY).
   #[schemars(extend("examples" = ["round-robin", "primary-standby", "sticky"]))]
   pub lb_strategy: Option<String>,
   /// Passive outlier ejection: temporarily drop a client from the pool when it
   /// returns too many errors in a window (env: APERIO_OUTLIER_EJECTION).
+  #[schemars(extend("examples" = [true]))]
   pub outlier_ejection: Option<bool>,
   /// Failures inside the window before a client is ejected
   /// (env: APERIO_OUTLIER_MAX_FAILURES).
+  #[schemars(extend("examples" = [5]))]
   pub outlier_max_failures: Option<u32>,
   /// Sliding window in seconds the failures are counted over
   /// (env: APERIO_OUTLIER_WINDOW).
+  #[schemars(extend("examples" = [30]))]
   pub outlier_window: Option<u64>,
   /// Seconds an ejected client stays out before re-admission
   /// (env: APERIO_OUTLIER_EJECT_SECS).
+  #[schemars(extend("examples" = [30]))]
   pub outlier_eject_secs: Option<u64>,
 
   // --- Failover ---
@@ -1750,6 +1880,7 @@ pub struct ServerFileConfig {
   pub failover_all_methods: Option<bool>,
   /// Re-dispatch a buffered response whose status is a retryable server error
   /// to another client instead of returning it (env: APERIO_RETRY_ON_5XX).
+  #[schemars(extend("examples" = [true]))]
   pub retry_on_5xx: Option<bool>,
   /// Status codes that trigger that retry; empty = every 5xx
   /// (env: APERIO_RETRY_STATUSES).
@@ -1768,14 +1899,18 @@ pub struct ServerFileConfig {
 
   // --- Capacity & limits ---
   /// Largest request body in bytes (env: APERIO_MAX_BODY_SIZE).
+  #[schemars(extend("examples" = [10485760]))]
   pub max_body_size: Option<u64>,
   /// Concurrent proxied requests limit (env: APERIO_MAX_CONCURRENT_REQUESTS).
+  #[schemars(extend("examples" = [512]))]
   pub max_concurrent_requests: Option<u64>,
   /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
+  #[schemars(extend("examples" = [10]))]
   pub max_tunnels: Option<u64>,
   /// Maximum concurrently-live proxied public WebSockets; they are long-lived,
   /// so they get their own ceiling separate from `max_concurrent_requests`.
   /// `0` = uncapped (env: APERIO_MAX_WS_CONNECTIONS).
+  #[schemars(extend("examples" = [1000]))]
   pub max_ws_connections: Option<u64>,
   /// Deprecated spelling of `ip_limit.max` (env: APERIO_IP_LIMIT_MAX).
   pub ip_limit_max: Option<u64>,
@@ -1792,6 +1927,7 @@ pub struct ServerFileConfig {
 
   // --- Proxy trust & cookies ---
   /// Trust `X-Forwarded-For` from proxies (env: APERIO_TRUST_PROXY).
+  #[schemars(extend("examples" = [true]))]
   pub trust_proxy: Option<bool>,
   /// Trusted proxy IPs/CIDRs (env: APERIO_TRUSTED_PROXIES).
   #[schemars(extend("examples" = [["10.0.0.0/8"]]))]
@@ -1800,8 +1936,10 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = ["CF-Connecting-IP"]))]
   pub real_ip_header: Option<String>,
   /// Trust the Cloudflare client-IP header (env: APERIO_TRUST_CF_HEADER).
+  #[schemars(extend("examples" = [true]))]
   pub trust_cf_header: Option<bool>,
   /// Mark session cookies `Secure` (env: APERIO_SECURE_COOKIES).
+  #[schemars(extend("examples" = [true]))]
   pub secure_cookies: Option<bool>,
   /// Source IPs/CIDRs allowed to reach the authenticated admin surface (the
   /// dashboard and `/aperio/api/*`); empty = no restriction. An invalid entry
@@ -1812,54 +1950,71 @@ pub struct ServerFileConfig {
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).
+  #[schemars(extend("examples" = [true]))]
   pub tunnel_compression: Option<bool>,
   /// Deprecated spelling of `cache.max_bytes` (env: APERIO_CACHE_MAX_BYTES).
   pub cache_max_bytes: Option<u64>,
   /// Deprecated spelling of `cache.max_stale` (env: APERIO_CACHE_MAX_STALE).
   pub cache_max_stale: Option<u64>,
   /// Flat spelling of `outbound.allowlist` (env: APERIO_OUTBOUND_ALLOWLIST).
+  #[schemars(extend("examples" = [["hooks.example.com", "*.provider.example"]]))]
   pub outbound_allowlist: Option<Vec<String>>,
   /// Flat spelling of `outbound.block_private` (env: APERIO_OUTBOUND_BLOCK_PRIVATE).
+  #[schemars(extend("examples" = [true]))]
   pub outbound_block_private: Option<bool>,
   /// Flat spelling of `stream.pause_bytes` (env: APERIO_STREAM_PAUSE_BYTES).
+  #[schemars(extend("examples" = [2097152]))]
   pub stream_pause_bytes: Option<u64>,
   /// Flat spelling of `stream.resume_bytes` (env: APERIO_STREAM_RESUME_BYTES).
+  #[schemars(extend("examples" = [524288]))]
   pub stream_resume_bytes: Option<u64>,
   /// Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).
+  #[schemars(extend("examples" = [16777216]))]
   pub stream_backlog_limit: Option<u64>,
   /// Flat spelling of `cache.negative_ttl` (env: APERIO_CACHE_NEGATIVE_TTL).
+  #[schemars(extend("examples" = [10]))]
   pub cache_negative_ttl: Option<u64>,
   /// Flat spelling of `scaling.allow_private` (env: APERIO_SCALING_ALLOW_PRIVATE).
+  #[schemars(extend("examples" = [false]))]
   pub scaling_allow_private: Option<bool>,
   /// Flat spelling of `backup.interval` (env: APERIO_BACKUP_INTERVAL).
+  #[schemars(extend("examples" = [86400]))]
   pub backup_interval: Option<u64>,
   /// Flat spelling of `backup.dir` (env: APERIO_BACKUP_DIR).
+  #[schemars(extend("examples" = ["/app/data/backups"]))]
   pub backup_dir: Option<String>,
   /// Flat spelling of `backup.keep` (env: APERIO_BACKUP_KEEP).
+  #[schemars(extend("examples" = [7]))]
   pub backup_keep: Option<u64>,
 
   // --- Process & startup ---
   /// Watch the config file and apply live-editable changes without a restart.
   /// On by default (env: APERIO_CONFIG_HOT_RELOAD).
+  #[schemars(extend("examples" = [true]))]
   pub config_hot_reload: Option<bool>,
   /// Bind the listener with SO_REUSEPORT, so a second process can take over
   /// the port for a zero-downtime handover (env: APERIO_REUSEPORT).
+  #[schemars(extend("examples" = [true]))]
   pub reuseport: Option<bool>,
 
   // --- Pages ---
   /// Custom 504 error page path (env: APERIO_504_PAGE).
   #[serde(rename = "504_page")]
+  #[schemars(extend("examples" = ["./pages/504.html"]))]
   pub error_page_504: Option<String>,
   /// Custom 503 maintenance page path (env: APERIO_503_PAGE).
   #[serde(rename = "503_page")]
+  #[schemars(extend("examples" = ["./pages/503.html"]))]
   pub error_page_503: Option<String>,
 
   // --- Logging & telemetry ---
   /// Structured access log path (env: APERIO_ACCESS_LOG).
+  #[schemars(extend("examples" = ["/app/data/access.jsonl"]))]
   pub access_log: Option<String>,
   /// Mask credential headers and secret-looking body fields in the request
   /// inspector, the cURL copy and the HAR export. On by default
   /// (env: APERIO_INSPECTOR_REDACT).
+  #[schemars(extend("examples" = [true]))]
   pub inspector_redact: Option<bool>,
   /// Seconds between webhook delivery retries; empty = no retries
   /// (env: APERIO_WEBHOOK_RETRY_SCHEDULE).
@@ -1867,6 +2022,7 @@ pub struct ServerFileConfig {
   pub webhook_retry_schedule: Option<Vec<u64>>,
   /// Seconds between availability-history ticks for the dashboard's Uptime
   /// panel, minimum 1 (env: APERIO_UPTIME_TICK_SECS).
+  #[schemars(extend("examples" = [60]))]
   pub uptime_tick_secs: Option<u64>,
   /// Deprecated spelling of `retention.captures` (env: APERIO_RETENTION_CAPTURES).
   pub retention_captures: Option<u64>,
@@ -1877,6 +2033,7 @@ pub struct ServerFileConfig {
   /// Deprecated spelling of `retention.stats` (env: APERIO_RETENTION_STATS).
   pub retention_stats: Option<u64>,
   /// Cap on aperio.db (+WAL/SHM) in bytes; nearing it emits a warning, exceeding it auto-prunes low-priority data (env: APERIO_DB_MAX_BYTES).
+  #[schemars(extend("examples" = [1073741824]))]
   pub db_max_bytes: Option<u64>,
   /// Deprecated spelling of `audit.max_size` (env: APERIO_AUDIT_MAX_SIZE).
   pub audit_max_size: Option<u64>,
@@ -1918,13 +2075,16 @@ pub struct ServerFileConfig {
   /// Pin a dynamic token to the first device key that presents it; a later
   /// connection with a different (or missing) key is rejected
   /// (env: APERIO_TOKEN_PINNING).
+  #[schemars(extend("examples" = [true]))]
   pub token_pinning: Option<bool>,
   /// Ignore client-declared visitor passwords (env: APERIO_IGNORE_CLIENT_AUTH).
+  #[schemars(extend("examples" = [false]))]
   pub ignore_client_auth: Option<bool>,
   /// Default dashboard/login UI language (env: APERIO_UI_LANGUAGE).
   #[schemars(extend("examples" = ["en", "tr"]))]
   pub ui_language: Option<String>,
   /// Days before a token's expiry to start warning (env: APERIO_TOKEN_EXPIRY_WARNING).
+  #[schemars(extend("examples" = [7]))]
   pub token_expiry_warning: Option<u64>,
   /// Deprecated spelling of `oidc.issuer` (env: APERIO_OIDC_ISSUER).
   pub oidc_issuer: Option<String>,
@@ -1941,19 +2101,29 @@ pub struct ServerFileConfig {
 
   // --- Structured sections (read directly, not env-mapped) ---
   /// Server-wide request/response header rewrite rules applied to all traffic.
+  #[schemars(extend("examples" = [{
+    "request": {"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]},
+    "response": {"add": {"X-Served-By": "aperio"}, "remove": ["X-Powered-By"]}
+  }]))]
   pub headers: Option<HeaderRules>,
   /// Client-less routes: bind a hostname/path to a redirect or fixed response.
+  #[schemars(extend("examples" = [[{"hostname": "old.example.com", "redirect": "https://new.example.com", "status": 301}]]))]
   pub routes: Option<Vec<RouteRule>>,
   /// Per-hostname custom 504/503 error pages (override the global
   /// `504_page`/`503_page` for that hostname).
+  #[schemars(extend("examples" = [[{"hostname": "app.example.com", "504_page": "./pages/app-504.html"}]]))]
   pub error_pages: Option<Vec<ErrorPageRule>>,
   /// Experimental public TCP expose ports.
+  #[schemars(extend("examples" = [[{"port": 5432, "tunnel": "pg-main", "protocol": "tcp"}]]))]
   pub expose: Option<Vec<ExposeEntry>>,
   /// Per-route request rate limits, capping aggregate rps to a host+path.
+  #[schemars(extend("examples" = [[{"hostname": "api.example.com", "path": "/api/login", "rps": 5.0, "burst": 10.0}]]))]
   pub rate_limits: Option<Vec<RateLimitRule>>,
   /// Per-hostname fallback URLs answered when no client serves the route.
+  #[schemars(extend("examples" = [[{"hostname": "app.example.com", "url": "https://status.example.com", "preserve_path": true}]]))]
   pub fallbacks: Option<Vec<FallbackRule>>,
   /// WAF-lite deny/size rules evaluated before a request is proxied.
+  #[schemars(extend("examples" = [[{"path": "^/wp-admin"}, {"header": {"name": "user-agent", "regex": "(?i)sqlmap|nikto"}}, {"path": "^/upload", "max_body": 1048576}]]))]
   pub waf: Option<Vec<WafRule>>,
 }
 
