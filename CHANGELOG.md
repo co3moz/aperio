@@ -22,6 +22,9 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **Export & Import is its own settings pane.** It sat in the server-settings form as one more collapsible group, next to gateway timeouts and rate limits, which is not what it is: it is not a setting, it moves every token, webhook, user and settings override at once, and importing overwrites all of them. It has its own entry in the settings dialog now, beside Server Settings rather than inside it.
+
+
 - **A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level of `aperio.yaml` — `target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint` — is deprecated and **will be removed in 0.7.0**. Those keys only ever did anything in a file *without* a `services:` list, so a reader had to work out which of two shapes they were looking at before they could read anything else, and a key written into the wrong shape did nothing at all. Nothing changes yet: a file written that way still starts and behaves identically. A client that finds one says so at startup, naming the keys, and a file declaring `version:` gets the same notice through the upgrade report on the next upgrade. The rest of the `health:` block is unaffected: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. Migrating is mechanical — indent them under one `services:` entry.
 
   **Single-service mode itself is not going away.** It moves to where a one-liner belongs: the positional CLI target and `--serve`/`--hostname`/`--path`, and the `APERIO_TARGET` family in the environment. Those are unchanged and will stay.

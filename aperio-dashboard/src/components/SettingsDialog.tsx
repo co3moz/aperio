@@ -1,5 +1,13 @@
-import { Building2Icon, InboxIcon, Settings2Icon, UsersIcon, WebhookIcon } from 'lucide-react'
+import {
+  ArrowDownUpIcon,
+  Building2Icon,
+  InboxIcon,
+  Settings2Icon,
+  UsersIcon,
+  WebhookIcon,
+} from 'lucide-react'
 import { AdminKeysSection } from './AdminKeysSection'
+import { ExportImportSection } from './ExportImportSection'
 import { InboxSection } from './InboxSection'
 import { OrganizationsSection } from './OrganizationsSection'
 import { SettingsSection } from './SettingsSection'
@@ -22,6 +30,7 @@ import type { Page } from './AppSidebar'
  */
 export const SETTINGS_PAGES = [
   'settings',
+  'export',
   'organizations',
   'users',
   'webhooks',
@@ -42,6 +51,7 @@ export function isSettingsPage(page: Page): page is SettingsPage {
  */
 export const SETTINGS_PANES: PaneSpec<SettingsPage>[] = [
   { id: 'settings', label: 'Server Settings', icon: Settings2Icon, minRole: 'admin', masterOnly: true },
+  { id: 'export', label: 'Export & Import', icon: ArrowDownUpIcon, minRole: 'admin', masterOnly: true },
   { id: 'organizations', label: 'Organizations', icon: Building2Icon, minRole: 'admin', masterOnly: true },
   { id: 'users', label: 'Users', icon: UsersIcon, minRole: 'admin' },
   { id: 'webhooks', label: 'Webhooks', icon: WebhookIcon, minRole: 'viewer' },
@@ -80,6 +90,7 @@ export function SettingsDialog({
       {(current) => (
         <>
           {current === 'settings' && <SettingsSection />}
+          {current === 'export' && <ExportImportSection />}
           {current === 'organizations' && <OrganizationsSection />}
           {current === 'users' && (
             <div className="space-y-6">

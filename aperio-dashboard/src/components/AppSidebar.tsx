@@ -58,6 +58,7 @@ export type Page =
   | 'maintenance'
   | 'scaling'
   | 'settings'
+  | 'export'
   | 'webhooks'
   | 'audit'
   | 'users'
