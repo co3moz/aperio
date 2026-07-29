@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "capture:docs": "node scripts/capture-docs-images.mjs",
+    "export:brand": "node scripts/export-brand.mjs",
     "preview": "vite preview",
     "schemas": "node scripts/dump-schemas.mjs"
   },

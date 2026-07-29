@@ -17,6 +17,8 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite (pure lib functions; scans `src/` only), which CI runs alongside the i18n check. `npm run test:e2e` runs the [Playwright](https://playwright.dev) shell smoke test against a static `vite preview` build (one-time `npx playwright install chromium` first); it is not wired into CI because full API-backed journeys need a running server.
 
+**Brand lockup.** `npm run export:brand` renders the mark and the APERIO wordmark, in the dashboard's own Michroma webfont, to `docs/images/aperio-lockup.png`, which is what the book's title page includes. Re-run it if the mark or the wordmark font changes.
+
 **Screenshots.** The images in `README.md` and [Dashboard](dashboard.md) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape, the first set went stale within two releases because refreshing them was a manual afternoon.
 
 ## Tests & end-to-end suite

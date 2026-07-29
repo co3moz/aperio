@@ -36,6 +36,11 @@
 \usepackage{titlesec}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta, positioning, shadows}
+\usepackage{graphicx}
+% Both spellings, so the book builds from its own directory and from the
+% repository root (`tectonic docs/book/aperio.tex`) alike.
+\graphicspath{{../images/}{docs/images/}}
+\usepackage{colortbl}
 \usepackage{tcolorbox}
 \tcbuselibrary{listings, skins, breakable}
 \usepackage[hidelinks]{hyperref}
@@ -44,7 +49,11 @@
 % The accent is the product's own: the dashboard's primary is
 % oklch(0.532 0.157 131.589), which is this green. A book that looks like
 % the thing it documents is doing part of the explaining for free.
-\definecolor{AperioGreen}{HTML}{4C9A2A}
+% The mark's own green (docs/assets/aperio-mark.svg). It is a signature
+% colour, not a text colour: at 12pt on white it does not carry, so it is
+% used for rules, frames and labels, and never for a paragraph.
+\definecolor{AperioGreen}{HTML}{00A85C}
+\definecolor{TableRule}{HTML}{D6DBE0}
 \definecolor{AperioGreenLight}{HTML}{F2F8EA}
 \definecolor{CodeBg}{HTML}{F8F9FA}
 \definecolor{CodeFrame}{HTML}{CBD5E1}
@@ -58,9 +67,12 @@
 % --- Headings -------------------------------------------------------
 % Sans-serif and accented, against the serif body: a heading should be
 % findable while flicking through eighty pages of prose.
+% The chapter title is set in the body's dark, not in the accent: eight
+% words of saturated green at 24pt is a colour swatch, not a heading. The
+% accent goes on the label above it, which is what tells you where you are.
 \titleformat{\chapter}[display]
-  {\normalfont\sffamily\huge\bfseries\color{AperioGreen}}
-  {\chaptertitlename\ \thechapter}{10pt}{\Huge}
+  {\normalfont\sffamily\huge\bfseries\color{TextDark}}
+  {\sffamily\large\bfseries\color{AperioGreen}\chaptertitlename\ \thechapter}{10pt}{\Huge}
 \titleformat{\section}
   {\normalfont\sffamily\Large\bfseries\color{TextDark}}
   {\thesection}{1em}{}
@@ -169,6 +181,14 @@
 
 \newcommand{\aperiokey}[1]{\subsubsection*{\code{#1}}}
 
+% --- Reference table rows -------------------------------------------
+% Entries in the appendices are paragraphs, several lines each, and with
+% nothing but vertical space between them the eye cannot tell where one
+% ends and the next begins. A hairline can: light enough to stay out of
+% the way, dark enough to find.
+\newcommand{\rowsep}{%
+  \arrayrulecolor{TableRule}\specialrule{0.4pt}{2.5pt}{2.5pt}\arrayrulecolor{black}}
+
 % --- Diagram styles -------------------------------------------------
 \tikzset{
   sysnode/.style={draw=CodeFrame, fill=white, rectangle, rounded corners=6pt,
@@ -184,10 +204,14 @@
                       thick, draw=AperioGreen}
 }
 
-\title{\vspace{-1.5cm}\Huge\textbf{Aperio}\\[0.4cm]
-       \LARGE The Complete Guide\\[0.8cm]
-       \large Reverse tunnelling, routing, and operations}
-\author{Version 0.7.0}
+% The lockup is exported from the dashboard's own mark and webfont
+% (aperio-dashboard/scripts/export-brand.mjs), so the book spells the name
+% the way the product does rather than approximating it in a TeX face.
+\title{\vspace{-1.5cm}%
+       \includegraphics[width=0.62\linewidth]{aperio-lockup.png}\\[0.9cm]
+       \LARGE\sffamily The Complete Guide\\[0.8cm]
+       \large\sffamily Reverse tunnelling, routing, and operations}
+\author{\sffamily Version 0.7.0}
 \date{}
 
 \begin{document}
@@ -418,7 +442,7 @@ confusing them is a common source of unexpected \code{429}s:
 
 \section{Where state lives}
 
-\begin{longtable}{@{}p{0.30\linewidth}p{0.62\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.62\linewidth}@{}}
 \toprule
 \textbf{State} & \textbf{Where it lives} \\
 \midrule
@@ -1026,7 +1050,7 @@ happens inside that window.
 
 \section{Modes}
 
-\begin{longtable}{@{}p{0.20\linewidth}p{0.72\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.20\linewidth}p{0.72\linewidth}@{}}
 \toprule
 \textbf{Mode} & \textbf{Behaviour} \\
 \midrule
@@ -1409,7 +1433,7 @@ hostname. The master organisation is never fenced.
 
 \section{What each side is trusted to do}
 
-\begin{longtable}{@{}p{0.18\linewidth}p{0.74\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.18\linewidth}p{0.74\linewidth}@{}}
 \toprule
 \textbf{Actor} & \textbf{Assumption} \\
 \midrule
@@ -2055,7 +2079,7 @@ broken connection.
 
 \section{A symptom-first runbook}
 
-\begin{longtable}{@{}p{0.30\linewidth}p{0.62\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.62\linewidth}@{}}
 \toprule
 \textbf{Symptom} & \textbf{Where to look} \\
 \midrule
@@ -2129,7 +2153,7 @@ overrides win over both. Generated from the reference tables in
 \code{docs/configuration.md}.
 
 \section{Common settings}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2139,36 +2163,36 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_SERVER\_TOKEN} & \textbf{Required.} Master token: authenticates clients and is the dashboard admin password. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{HOST} / \code{PORT} & Bind address and listen port. & \code{0.0.0.0} / \code{8080} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DATA\_DIR} & Directory for persisted state. \textbf{Mount a volume here in Docker.} & \code{./data} \\
-\addlinespace[2pt]
+\rowsep
 \code{LOG\_LEVEL} & \code{error} / \code{warn} / \code{info} / \code{debug} / \code{trace}. & \code{info} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVER\_AUTH} & \code{user:password} visitor login in front of all proxied traffic. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TRUST\_PROXY} + \code{APERIO\_TRUSTED\_PROXIES} & Trust \code{X-Forwarded-For} behind your reverse proxy / CDN, and which hops to trust. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RANDOM\_SUBDOMAIN} & Auto-assign every client a random subdomain from a \code{*} pattern. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_LB\_STRATEGY} & Load balancing: \code{round-robin}, \code{primary-standby}, or \code{sticky}. & \code{round-robin} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel clients. & \code{10} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_BODY\_SIZE} & Max request body size in bytes. & \code{10485760} (10 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE} & Enable the server-side GET response cache (opt-in per service). & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_METRICS} & Enable the Prometheus endpoint at \code{/aperio/metrics}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_UI\_LANGUAGE} & Default dashboard / login language. & \code{en} \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Core}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2178,22 +2202,22 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_SERVER\_TOKEN} & \textbf{Required.} Master token: authenticates tunnel clients and doubles as the dashboard admin password (\code{aperio:<token>}). &  \\
-\addlinespace[2pt]
+\rowsep
 \code{HOST} & Bind address. & \code{0.0.0.0} \\
-\addlinespace[2pt]
+\rowsep
 \code{PORT} & Listen port. & \code{8080} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DATA\_DIR} & Directory for persisted state (tokens, stats, audit log, webhooks). \textbf{Mount a volume here in Docker.} & \code{./data} \\
-\addlinespace[2pt]
+\rowsep
 \code{LOG\_LEVEL} & \code{error}, \code{warn}, \code{info}, \code{debug}, \code{trace}. & \code{info} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_REUSEPORT} & \code{1} = bind the listener with \code{SO\_REUSEPORT}, so a second process can bind the same \code{host:port} while the first is still running, enables a zero-downtime rolling restart. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Routing \& load balancing}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2203,40 +2227,40 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_REQUIRE\_HOSTNAME\_BIND} & \code{1} = clients without a hostname bind never receive traffic (strict multi-tenant mode). & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RANDOM\_SUBDOMAIN} & Pattern with a \code{*} placeholder in the leftmost label, every connecting client gets the pattern with \code{*} replaced by a random label, in addition to its other binds. \code{example.com} $\equiv$ \code{*.example.com}; \code{*-test.example.com} yields \code{<random>-test.example.com} (stays on the same subdomain level, so one wildcard TLS cert covers it). &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_PREVIEW\_NOINDEX} & \code{1} = services reached through their random subdomain answer with \code{X-Robots-Tag: noindex, nofollow} and a disallow-all \code{/robots.txt}, so preview environments never end up in search engines. Also live-editable from the dashboard. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CLIENT\_DOWN\_THRESHOLD} & Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). & \code{15} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_LB\_STRATEGY} & Load-balancing strategy: \code{round-robin}, \code{primary-standby} (client priority tiers), or \code{sticky} (visitor affinity via cookie). See \emph{Routing \& Load Balancing}. & \code{round-robin} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_FAILOVER} & What to do when a client dies mid-request: \code{fail}, \code{retry}, \code{wait}, or \code{retry-wait}. See \emph{In-Flight Failover}. & \code{fail} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_FAILOVER\_MAX\_JUMPS} & Max re-dispatch attempts per request. & \code{2} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_FAILOVER\_WINDOW} & Total seconds the \code{wait}/\code{retry-wait} modes may spend waiting for a candidate, across all jumps. & \code{15} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_FAILOVER\_ALL\_METHODS} & \code{1} = also fail over non-idempotent methods (POST/PATCH). Off by default because a re-dispatched request may reach a backend twice. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETRY\_ON\_5XX} & \code{1} = when a fully-buffered response is a retryable server error, re-dispatch the request to a freshly picked client instead of returning it. Shares the failover jump budget and honors method idempotency; streamed responses are never retried. See \emph{In-Flight Failover}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETRY\_STATUSES} & Comma-separated status codes that trigger \code{APERIO\_RETRY\_ON\_5XX} (e.g. \code{502,503}). Empty = every 5xx (500-599). & every 5xx \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTLIER\_EJECTION} & \code{1} = passively eject a client from routing when it returns too many errors / timeouts / dropped connections under real traffic, even while its \code{/health} probe still reports green. Per-route fail-open. See \emph{Routing \& Load Balancing}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTLIER\_MAX\_FAILURES} & Failures within \code{APERIO\_OUTLIER\_WINDOW} that trigger an ejection. & \code{5} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTLIER\_WINDOW} & Seconds the outlier failures are counted over. & \code{30} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTLIER\_EJECT\_SECS} & Seconds an ejected client stays out before automatic re-admission. & \code{30} \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Limits \& protection}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2246,110 +2270,110 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_ALERT\_ERROR\_RATE} & Failed-request percentage that fires an \code{alert\_triggered} webhook/audit event (kind \code{error\_rate}); resolves at 80\% of the threshold. \code{0}/unset = off. See \emph{Observability}. & off \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ALERT\_WINDOW} & Sliding window (seconds) the error rate is measured over. & \code{300} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ALERT\_MIN\_REQUESTS} & Minimum requests inside the window before the error-rate rule may fire. & \code{20} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ALERT\_CLIENT\_DOWN} & Seconds a known service may stay down before an \code{alert\_triggered} event (kind \code{client\_down}); resolves when it comes back. \code{0}/unset = off. & off \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_BODY\_SIZE} & Max request body size in bytes. & \code{10485760} (10 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_CONCURRENT\_REQUESTS} & Max in-flight proxied requests across all tunnels. & \code{100} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_WS\_CONNECTIONS} & Max concurrently-live proxied public WebSockets (they are long-lived, so they get their own ceiling separate from the request limit above); beyond it an upgrade gets \code{503}. \code{0} = no cap. & \code{10000} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel clients. & \code{10} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_IP\_LIMIT\_MAX} & Per-IP token bucket burst capacity. & \code{100} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_IP\_LIMIT\_REFILL} & Per-IP refill rate (requests/second). & \code{5} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_LOGIN\_LOCKOUT\_THRESHOLD} & Consecutive failed logins from one IP before it is locked out. & \code{5} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_LOGIN\_LOCKOUT\_SECS} & Base lockout window in seconds; doubles with each repeat lockout (capped at 1 h). A successful login resets the state. & \code{60} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_GATEWAY\_TIMEOUT} & Seconds to wait for a client to (re)connect before failing a request. & \code{10} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_GATEWAY\_RESPONSE\_TIMEOUT} & Seconds to wait for a client to answer a dispatched request. & \code{30} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TRUST\_PROXY} & \code{1} = trust \code{X-Forwarded-For} / \code{X-Real-IP} for client IPs. Enable \textbf{only} behind a trusted reverse proxy. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TRUSTED\_PROXIES} & Comma-separated IPs/CIDRs of your reverse proxies and CDN egress ranges (e.g. \code{10.0.0.0/8,173.245.48.0/20}). When set, the client IP is resolved by walking \code{X-Forwarded-For} (plus the direct peer) from the nearest hop backwards past trusted addresses, the CDN-agnostic model that works for Cloudflare, Fastly, Akamai, LB chains, etc. Headers from an untrusted direct peer are ignored entirely. Implies \code{APERIO\_TRUST\_PROXY=1}. Prefer this over the header-based options. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_REAL\_IP\_HEADER} & Header consulted \textbf{before} \code{X-Forwarded-For} for the real client IP (with \code{APERIO\_TRUST\_PROXY=1}). Needed behind CDN$\rightarrow$proxy chains where the proxy resets XFF to the CDN edge, e.g. set \code{CF-Connecting-IP} behind Cloudflare, or configure the proxy's \code{forwardedHeaders.trustedIPs} instead. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TRUST\_CF\_HEADER} & \code{1} = shorthand for \code{APERIO\_REAL\_IP\_HEADER=CF-Connecting-IP} (an explicit \code{APERIO\_REAL\_IP\_HEADER} wins). Enable \textbf{only} behind Cloudflare: any visitor can send this header, so on other deployments trusting it lets clients spoof their IP for rate limiting, audit logs, and token IP allowlists. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ADMIN\_ALLOWED\_IPS} & Comma-separated IPs/CIDRs allowed to reach the authenticated admin surface (\code{/aperio} dashboard + \code{/aperio/api/*}); other sources get a network-level block. The login page and its auth endpoints stay reachable from anywhere so password-gated services keep working. Empty = no restriction. An invalid entry refuses startup rather than applying a partial allowlist. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SECURE\_COOKIES} & \code{1} = set the \code{Secure} flag on session cookies. Defaults to the \code{APERIO\_TRUST\_PROXY} value. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TUNNEL\_COMPRESSION} & \code{1} = offer per-message zlib compression to clients (enabled per connection once acknowledged; old clients keep plain frames). & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE} & \code{1} = enable the server-side GET response cache for services that opt in with the client \code{cache: true} setting. Strictly \code{Cache-Control}-driven: only responses explicitly allowing shared caching (\code{max-age}/\code{s-maxage}, no \code{no-store}/\code{no-cache}/\code{private}, no \code{Vary}/\code{Set-Cookie}) are stored, for the advertised lifetime; only credential-less plain GETs are answered from it. Hits carry \code{x-aperio-cache: hit} and an \code{Age} header; entries without a backend validator get a synthesized \code{ETag}, and a matching \code{If-None-Match} is answered \code{304} at the edge without a tunnel round-trip. Misses are \textbf{single-flighted}: concurrent identical cacheable GETs collapse into one upstream fetch (followers wait for the leader and answer from the freshly stored entry), so cache expiry on a hot URL cannot stampede the backend. Responses advertising \code{stale-while-revalidate=N} (RFC 5861) keep serving for N seconds past expiry (marked \code{x-aperio-stale}) while one background revalidation refreshes the entry, visitors never wait on the refresh. \code{POST /aperio/api/cache/purge} (admin) drops entries by \code{hostname} and/or \code{path\_prefix} (empty body = whole cache), for immediate invalidation after a deploy. Cached entries also satisfy single-range \textbf{\code{Range} requests} (video scrubbing, resumable downloads) at the edge: \code{206 Partial Content} sliced from the stored full body with \code{Accept-Ranges}/\code{Content-Range}, \code{416} when out of range, honoring \code{If-Range}, partial requests never re-traverse the tunnel while the entry lives. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE\_MAX\_BYTES} & Total in-memory budget of the response cache; inserting past it evicts the entries closest to expiry, and a single body larger than a quarter of the budget is never cached. & \code{67108864} (64 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE\_MAX\_STALE} & Serve-stale window in seconds for services that set \code{resilience: true}: how long past its advertised lifetime a cached response may still answer visitors while the route has no healthy client. \code{0} disables serve-stale. & \code{3600} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE\_NEGATIVE\_TTL} & Seconds to briefly cache error / negative responses (e.g. \code{404}) so a hot missing URL cannot hammer the backend with repeated misses. \code{0} = disabled. Needs \code{APERIO\_CACHE}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_STREAM\_PAUSE\_BYTES} & Per-stream flow control (Section~\ref{sec:flow-control}): server-side backlog of one streamed response, WebSocket or TCP relay at which the producing client is asked to pause that stream, so a slow visitor throttles the backend through ordinary TCP backpressure instead of piling data up here. & \code{2097152} (2 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_STREAM\_RESUME\_BYTES} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair cannot flap; a value at or above it is repaired to a quarter of it. & \code{524288} (512 KB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_STREAM\_BACKLOG\_LIMIT} & Hard per-stream backlog cap: a stream whose producer cannot be paused (a pre-v3 client, or one ignoring the pause) is dropped past this many buffered bytes. A value below the pause mark is repaired to twice it. & \code{16777216} (16 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_VERSION} & The Aperio version this configuration was written for, e.g. \code{0.5.0} (yaml \code{version:}). Reports every recorded configuration-format change between it and this build, and refuses to start on a security-relevant one (Section~\ref{sec:config-version}). Unset disables the check. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTBOUND\_ALLOWLIST} & Optional policy over where the server may send outbound callbacks, webhook deliveries and autoscaling hooks (Section~\ref{sec:outbound-policy}): comma-separated host/CIDR patterns (\code{hooks.example.com}, \code{*.corp.example}, \code{10.1.0.0/16}). When set, anything else is refused, at webhook creation and again at every delivery; a matching entry is trusted even if private. An invalid entry refuses startup rather than applying a partial allowlist. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OUTBOUND\_BLOCK\_PRIVATE} & With no allowlist: \code{1} = refuse callback destinations that are, or resolve to, internal addresses (loopback, RFC 1918, link-local and the cloud metadata services, CGNAT, unique-local). Off by default because internal receivers are the normal webhook deployment; turn it on where tenants you do not fully trust may create webhooks. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_504\_PAGE} & Path to an HTML file served on 504 gateway-timeout responses instead of the plain-text default. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_503\_PAGE} & Path to an HTML file served while a hostname is in maintenance mode instead of the plain-text default. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_AUDIT\_MAX\_SIZE} & Rotate \code{audit.jsonl} once it exceeds this many bytes (\code{0} = never rotate). & \code{10485760} (10 MB) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_AUDIT\_MAX\_FILES} & Rotated audit generations to keep (\code{audit.jsonl.1} \ldots{} \code{.N}; \code{0} = truncate instead of keeping history). & \code{3} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ACCESS\_LOG} & File path for the structured access log: one JSON line per proxied request (\code{request\_id}, \code{method}, \code{uri}, \code{status}, \code{duration\_ms}, \code{host}, \code{client\_id}, \code{token}, \code{error}), directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured \code{aperio\_access} tracing events. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_INSPECTOR\_REDACT} & \code{0}/\code{false} = disable secret masking in the request inspector. On (default), credential headers (\code{Authorization}, \code{Cookie}, \code{X-Api-Key}, \ldots{}) and secret-looking body fields (\code{password}, \code{token}, \code{api\_key}, \ldots{}) show as \code{[REDACTED]} in the inspector, the cURL copy, and the HAR export; the raw capture kept in memory for replay is always intact. & \code{1} (on) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETENTION\_CAPTURES} & Days to keep inspector captures and webhook inbox entries; a background pruner enforces the TTL at startup and hourly. \code{0}/unset = keep (bounded only by the entry caps). &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETENTION\_ACCESS\_LOG} & Days to keep \code{APERIO\_ACCESS\_LOG} lines; expired lines are pruned in place. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETENTION\_AUDIT} & Days to keep audit events: rotated generations whose newest event expired are deleted whole, and the active file loses only its leading expired prefix, the tamper-evidence hash chain stays verifiable. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RETENTION\_STATS} & Days to keep day-granularity statistics buckets (week/month/year buckets keep their built-in caps). &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_UPTIME\_TICK\_SECS} & Seconds between availability-history ticks for the dashboard Uptime panel (\code{GET /aperio/api/uptime}). Minimum \code{1}. & \code{10} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DB\_MAX\_BYTES} & Disk-usage guard: cap on \code{aperio.db} (plus its WAL/SHM sidecars). At 90\% a \code{disk\_usage\_warning} webhook/audit event fires (once per episode, resetting below 80\%); past the cap the hourly guard auto-prunes the lowest-priority data, oldest webhook inbox entries, oldest webhook deliveries, oldest day-stat buckets, then vacuums so the file actually shrinks, and emits \code{disk\_pruned}. & unbounded \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_BACKUP\_INTERVAL} & Seconds between automatic physical snapshots of the SQLite store (a consistent online backup). Unset/\code{0} = disabled; enabling also requires \code{APERIO\_BACKUP\_DIR}. & off \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_BACKUP\_DIR} & Destination directory for the automatic backups. Required to enable them. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_BACKUP\_KEEP} & How many timestamped backup snapshots to retain; older ones are pruned. & \code{7} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_WEBHOOK\_RETRY\_SCHEDULE} & Comma-separated backoff seconds between webhook redelivery attempts after a transport error / 5xx / 429 (attempt count = schedule length + 1). Empty = no retries. See \emph{Observability}. & \code{1,5,25,60} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OTEL} & \code{1} = export one OTLP span per proxied request to an OpenTelemetry collector (adopts inbound W3C \code{traceparent}, propagates its own context to the backend). & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OTEL\_ENDPOINT} & OTLP/HTTP collector base URL (\code{/v1/traces} is appended if absent). Falls back to the standard \code{OTEL\_EXPORTER\_OTLP\_ENDPOINT}. & \code{http://localhost:4318} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OTEL\_SERVICE\_NAME} & \code{service.name} reported on exported spans. Falls back to \code{OTEL\_SERVICE\_NAME}. & \code{aperio-server} \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Authentication \& dashboard}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2359,30 +2383,30 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_SERVER\_AUTH} & \code{user:password}, a visitor login form in front of all proxied traffic. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_WEBAUTHN\_ORIGIN} & Public dashboard URL enabling passkey (WebAuthn) sign-in for named users; its domain becomes the RP ID. & passkeys off \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_WEBAUTHN\_RP\_ID} & Override the passkey RP ID with a parent registrable domain (e.g. \code{robogon.com}) so one passkey works across \textbf{all} its subdomains (\code{aperio.robogon.com}, \code{test-aperio.robogon.com}, ...), instead of only the exact host of \code{APERIO\_WEBAUTHN\_ORIGIN}. Must be that host or a parent of it, and never a public suffix (\code{com}). Ceremonies from any subdomain of it are then accepted. Changing it invalidates passkeys enrolled under the previous RP ID (users re-enroll). & origin's host \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_IGNORE\_CLIENT\_AUTH} & \code{1} = ignore any client-declared per-service visitor password (see the client \code{auth} setting) and keep sole control of the visitor gate with \code{APERIO\_SERVER\_AUTH} / OIDC. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DASHBOARD} & \code{0} = disable the admin dashboard entirely. & \code{1} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_UI\_LANGUAGE} & Default dashboard/login UI language (\code{en}, \code{de}, \code{es}, \code{fr}, \code{tr}, \code{ru}, \code{zh}, \code{ja}) used when the visitor's browser language is unsupported; also dashboard-editable. & \code{en} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TOKEN\_EXPIRY\_WARNING} & Seconds before a dynamic token's expiry at which a \code{token\_expiring} webhook/audit event fires (once per token per expiry window; \code{0} = off). The dashboard tokens table shows an "expiring soon" badge in the last 24 h regardless. & \code{86400} (24 h) \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TOKEN\_PINNING} & \code{1} = trust-on-first-use device pinning: the first client device key seen for a dynamic token is pinned, and a later connection presenting a different (or missing) key for that token is rejected, so a leaked token replayed from another machine cannot serve. See \emph{Tokens \& Authentication}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_METRICS} & \code{1} = enable the Prometheus endpoint at \code{/aperio/metrics}. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_METRICS\_TOKEN} & Token required to scrape metrics (\code{?token=} or \code{Authorization: Bearer}). Unset = a random one is generated on first start and persisted in \code{APERIO\_DATA\_DIR/metrics\_token}. & generated \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Autoscaling}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2392,16 +2416,16 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_SCALING} & \code{1} = honor the \code{scaling:} block clients announce. Off = the declaration is ignored entirely. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SCALING\_ALLOW\_HTTP} & \code{1} = permit a plain-http autoscaling endpoint. The URL comes from a client, so https is the floor by default. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SCALING\_RECORD\_TTL} & Seconds after which an autoscaling record nothing has re-announced is dropped. & \code{2592000} (30 days) \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{Edge proxy integration}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2411,20 +2435,20 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_EDGE\_TOKEN} & Credential the edge proxy presents (\code{Authorization: Bearer} or \code{?token=}). \textbf{Unset = the \code{/aperio/api/edge/*} endpoints are not registered at all.} &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_EDGE\_SERVICE\_URL} & URL the edge should forward matched traffic to, i.e. this server as the edge sees it (e.g. \code{http://aperio:8080}). Required by the Traefik document; the Caddy \code{ask} endpoint works without it. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_EDGE\_ENTRYPOINTS} & Comma-separated Traefik entry points set on the generated routers. Empty = leave it to Traefik's defaults. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_EDGE\_CERT\_RESOLVER} & Traefik certificate resolver named on the generated routers. Unset = no \code{tls} block. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_EDGE\_INCLUDE\_OFFLINE} & \code{1} = also publish hostnames a token permits but no client is serving, so a certificate can exist before the first connect. Lets a tenant provoke an ACME request for any hostname its token covers. & \code{0} \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
 \section{OIDC / SSO}
-\begin{longtable}{@{}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2434,15 +2458,15 @@ overrides win over both. Generated from the reference tables in
 \midrule
 \endhead
 \code{APERIO\_OIDC\_ISSUER} & Issuer URL. Setting it enables SSO enforcement. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OIDC\_CLIENT\_ID} / \code{APERIO\_OIDC\_CLIENT\_SECRET} & OAuth client registered at the issuer. Redirect URI: \code{https://<your-host>/aperio/oidc/callback}. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OIDC\_ALLOWED\_EMAILS} & Comma-separated allowlist (required with issuer). &  \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OIDC\_SCOPES} & Requested scopes. & \code{openid email profile} \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_OIDC\_REDIRECT\_URL} & Fixed callback URL; otherwise derived from the request \code{Host} (and \code{X-Forwarded-Proto} when \code{APERIO\_TRUST\_PROXY=1}). Recommended to set explicitly. & derived \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
@@ -2453,7 +2477,7 @@ The client layers CLI arguments over \code{./aperio.yaml}, over the
 environment, over \code{\textasciitilde/.aperio.yaml}. Only three
 settings are required: the token, the server URL, and the target.
 
-\begin{longtable}{@{}p{0.24\linewidth}p{0.17\linewidth}p{0.15\linewidth}p{0.36\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.17\linewidth}p{0.15\linewidth}p{0.36\linewidth}@{}}
 \toprule
 \textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
 \midrule
@@ -2463,97 +2487,97 @@ settings are required: the token, the server URL, and the target.
 \midrule
 \endhead
 \code{APERIO\_SERVER\_TOKEN} & \code{--server-token} & \code{server.token} & \textbf{Required.} Tunnel token. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVER\_URL} & \code{--server-url} & \code{server.url} & \textbf{Required.} Server URL (\code{http/https/ws/wss}). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_API\_KEY} & \code{--api-key} & \code{server.api\_key} & Programmatic admin key for \code{aperio-client api ...} calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See \emph{Admin API from the CLI}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVER\_URLS} &  & \code{server.urls} & Additional server URLs to fail over to (comma-separated on env, a list in yaml), tried in order when the primary \code{server.url} is unreachable, for a redundant control plane. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_IP\_FAMILY} & \code{--ip-family} & \code{ip\_family} & Address family used to dial the server: \code{auto} (default; IPv4-first, trying each resolved address with a per-address timeout), \code{ipv4}, or \code{ipv6}. Use \code{ipv4} when the server hostname resolves to an unreachable IPv6 address. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TARGET} & positional / \code{--target} & \code{target} & \textbf{Required.} Local backend to forward to. \code{http(s)://} (a bare port or hostname is normalized to it), or \code{h2c://} / \code{h2://} for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), \code{te: trailers} is forwarded, and response trailers (\code{grpc-status}) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). \code{unix:///var/run/app.sock} forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. Files stream from disk, so memory does not scale with file size, and single-range \code{Range} requests are answered \code{206} with \code{Accept-Ranges}/\code{Content-Range} (\code{416} past the end), which is what video scrubbing and resumable downloads need. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVE\_SPA} &  &  & \code{1} = a navigation (\code{Accept: text/html}) that resolves to no file falls back to the root \code{index.html} with status \code{200}, the single-page-app deployment. A missing hashed asset still \code{404}s. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SERVE\_404} &  &  & Path to an HTML file served (status \code{404}) for misses the SPA fallback does not cover. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TCP\_TARGET} &  & \code{tcp\_target} & Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's \code{/aperio/tcp} endpoint. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_HOSTNAME} & \code{--hostname} & \code{hostname} & Hostname(s) this client serves. yaml \code{hostname:} accepts a single value or a list (\code{[a.example.com, b.example.com]}); the CLI/env value may be comma-separated. Each must be permitted by the client's token. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_PATH} & \code{--path} & \code{path} & Path prefix this client serves. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TRIM\_BIND} &  & \code{trim\_bind} & Strip the path bind prefix before forwarding. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_PASS\_HOSTNAME} & \code{--pass-hostname} & \code{pass\_hostname} & Forward the original \code{Host} header instead of the target's. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_PUBLIC} & \code{--public} & \code{public} & Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_VISITOR\_AUTH} & \code{--visitor-auth} & \code{auth} & \code{user:password}, gate this service behind a client-set visitor login, superseding the server's own \code{APERIO\_SERVER\_AUTH} for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as \code{public}; ignored if the server sets \code{APERIO\_IGNORE\_CLIENT\_AUTH}. Per \code{services:} entry via \code{auth:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_ALLOWED\_IPS} & \code{--allowed-ips} & \code{allowed\_ips} & Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. \code{203.0.113.7,10.0.0.0/8}). Enforced by the server \textbf{per candidate, before dispatch}, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (\textbf{union semantics}, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level \code{allowed\_ips} for route-wide lockdown). A visitor every candidate rejects gets the \code{denied:} redirect of the most-primary declaring candidate, or, without one, a \textbf{stealth answer identical to an unclaimed route} (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Per \code{services:} entry via \code{allowed\_ips:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DENIED} &  & \code{denied} & Absolute http(s) URL a fully rejected visitor (see \code{allowed\_ips}) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. Per \code{services:} entry via \code{denied:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_PRIORITY} & \code{--priority} & \code{priority} & Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with \code{APERIO\_LB\_STRATEGY=primary-standby}). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_CONCURRENT} & \code{--max-concurrent} & \code{max\_concurrent} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CACHE} &  & \code{cache} & Opt this service into the server-side GET response cache (needs \code{APERIO\_CACHE=1} on the \textbf{server}; strictly \code{Cache-Control}-driven). Per \code{services:} entry via \code{cache:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RESILIENCE} & \code{--resilience} & \code{resilience} & Keep serving this service's cached responses while no healthy client is connected, instead of a 504: fresh-or-expired entries answer visitors (marked \code{x-aperio-stale: true} once past their lifetime, always with an \code{Age} header) up to the server's \code{APERIO\_CACHE\_MAX\_STALE} window. Needs \code{cache: true} and the server cache. The moment a client reconnects, normal proxying takes over. Per \code{services:} entry via \code{resilience:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_WEBHOOK\_INBOX} &  & \code{webhook\_inbox} & Persist every inbound \textbf{POST} to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per \code{services:} entry via \code{webhook\_inbox:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_IDLE\_TIMEOUT} & \code{--} & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see \emph{Autoscaling}. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement waits while any request is still in flight, so a long-lived session is never cut mid-traffic. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CLIENT\_ID} & \code{--client-id} & \code{client\_id} & Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover \code{wait} mode and \code{--bind-tunnels}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DEVICE\_KEY} &  & \code{device\_key} & Explicit device key announced for trust-on-first-use token pinning (server \code{APERIO\_TOKEN\_PINNING}): pins the token to this device so a leaked token replayed elsewhere is rejected. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TARGET\_HEALTH} &  & \code{target\_health} & Health endpoint of the local target (path like \code{/health}, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client \textbf{out of routing without dropping the tunnel}; it rejoins automatically when the probe recovers. The dashboard shows a \code{BACKEND DOWN} badge meanwhile. \textbf{The service starts *unhealthy* (out of routing) until the first probe succeeds}, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a \textbf{CHECKING} badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_WAIT\_FOR\_BACKEND} &  & \code{wait\_for\_backend} & Startup gate: hold the service \textbf{out of routing until the backend first accepts a connection}, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by \code{target\_health}, which gates startup *and* tracks health continuously. Per \code{services:} entry via \code{wait\_for\_backend:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_HEALTH\_INTERVAL} &  & \code{health\_interval} & Seconds between backend health probes. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_HEALTH\_TIMEOUT} &  & \code{health\_timeout} & Per-probe timeout (seconds). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_HEALTH\_THRESHOLD} &  & \code{health\_threshold} & Consecutive probe failures before the backend is reported unhealthy. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_TIMEOUT} &  & \code{timeout} & Per-request backend timeout (seconds). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_RESPONSE\_TIMEOUT} &  & \code{response\_timeout} & Per-service override (seconds) of the server's gateway response timeout for requests dispatched to this service. Unset = the server's global \code{APERIO\_GATEWAY\_RESPONSE\_TIMEOUT}. Per \code{services:} entry via \code{response\_timeout:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_REDIRECTS} &  & \code{max\_redirects} & Backend redirects followed transparently: same-host scheme upgrades (\code{http://x} $\rightarrow$ \code{https://x}) and hops within the same root domain (\code{example.com} $\rightarrow$ \code{test.example.com}), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. \code{0} disables following entirely. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_RESPONSE\_BODY} &  & \code{max\_response\_body} & Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_REQUEST\_BODY} &  & \code{max\_request\_body} & Max request body size in bytes visitors may upload to this service. Announced to the server, which rejects bigger uploads with an early \textbf{413} before the body ever enters the tunnel. Can only tighten the server's global \code{APERIO\_MAX\_BODY\_SIZE}, never widen it. Per \code{services:} entry via \code{max\_request\_body:}. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it --- \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (see \emph{Messages Between Clients}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback by default, with the same warning. \\
-\addlinespace[2pt]
+\rowsep
 \code{LOG\_LEVEL} &  &, & Log verbosity. \\
-\addlinespace[2pt]
+\rowsep
 \code{APERIO\_LOG\_FORMAT} &  &, & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
@@ -2564,7 +2588,7 @@ The complete surface under \code{/aperio}. The generated OpenAPI
 document at \code{GET /aperio/api/openapi.json} is authoritative and
 always matches the running build.
 
-\begin{longtable}{@{}p{0.36\linewidth}p{0.44\linewidth}p{0.16\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.36\linewidth}p{0.44\linewidth}p{0.16\linewidth}@{}}
 \toprule
 \textbf{Endpoint} & \textbf{Purpose} & \textbf{Auth} \\
 \midrule
@@ -2574,54 +2598,54 @@ always matches the running build.
 \midrule
 \endhead
 \code{/*} (fallback) & Proxied to tunnel clients. & visitor password / OIDC if configured \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/ws} & Tunnel endpoint for clients. & master or dynamic token (Bearer / \code{x-auth-token}) \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/tunnels} & Lists the tunnels the presented token may bind. & a tunnel token \\
 \code{GET /aperio/tunnels/:client\_id} & Per-client tunnel discovery for \code{--bind-tunnels}. & master, the client's own token, or one in its organization with \code{allow\_bind} \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio} & Admin dashboard. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/stats}, \code{/api/logs}, \code{/api/audit} & Live stats, request log, audit events. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/api/tokens}, \code{PUT/DELETE /aperio/api/tokens/:id} & Dynamic token management. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/api/webhooks}, \code{DELETE /aperio/api/webhooks/:id} & Webhook management. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/requests/:id}, \code{POST /aperio/api/requests/:id/replay} & Request inspector \& replay. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{POST /aperio/api/clients/:id/override}, \code{POST /aperio/api/clients/:id/enabled} & Temporary bind overrule / enable-disable toggle. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/api/maintenance} & List / toggle per-hostname maintenance mode. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{POST /aperio/api/share} & Generate a signed share link (see \emph{Share Links}). & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/PUT /aperio/api/settings} & Read / edit runtime server settings (persisted overrides on top of env defaults). & master super-admin \\
-\addlinespace[2pt]
+\rowsep
 \code{POST /aperio/api/tunnels}, \code{DELETE /aperio/api/tunnels/:id} & Programmatic ephemeral tunnel provisioning. See \emph{Ephemeral Tunnels}. & master token (Bearer) or dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/auth} & Login page / login API. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/oidc/login}, \code{/aperio/oidc/callback} & OIDC flow. &  \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/metrics} & Prometheus metrics. & metrics token \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/health} & Liveness probe (status, client count, uptime). & none \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/openapi.json} & OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/export} & Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). & master super-admin \\
-\addlinespace[2pt]
+\rowsep
 \code{POST /aperio/api/import} & Applies a dump; each present section \textbf{replaces} the corresponding store. & master super-admin \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/api/users}, \code{PUT/DELETE /aperio/api/users/:id} & Dashboard user management (create/edit/delete, roles). & dashboard session (\textbf{admin}) \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/scaling}, \code{DELETE /aperio/api/scaling/:id} & Autoscaling records armed by clients, with live pool utilization, see \emph{Autoscaling}. & dashboard session \\
-\addlinespace[2pt]
+\rowsep
 \code{GET /aperio/api/edge/ask?domain=}, \code{GET /aperio/api/edge/traefik} & Live hostname inventory for a reverse proxy in front of Aperio (Caddy on-demand TLS, Traefik HTTP provider), see \emph{Behind a Dynamic Edge Proxy}. & \code{APERIO\_EDGE\_TOKEN} \\
-\addlinespace[2pt]
+\rowsep
 \code{GET/POST /aperio/api/orgs}, \code{DELETE /aperio/api/orgs/:id}, \code{PUT /aperio/api/orgs/:id/hostnames}, \code{POST /aperio/api/orgs/select} & Organization management, hostname allowlist, and switching, see \emph{Organizations}. & master super-admin \\
-\addlinespace[2pt]
+\rowsep
 \bottomrule
 \end{longtable}
 
@@ -2635,7 +2659,7 @@ v2 additionally moves chunk payloads onto binary frames with a compact
 v3, the current version, adds the per-stream pause/resume pair
 (Section~\ref{sec:flow-control}).
 
-\begin{longtable}{@{}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
 \toprule
 \textbf{Message} & \textbf{From} & \textbf{Purpose} \\
 \midrule
@@ -2648,48 +2672,48 @@ v3, the current version, adds the per-stream pause/resume pair
 limits, health verdict, priority, public flag, visitor auth, allowed IPs,
 declared tunnels, cache and resilience opt-in, device key, scaling
 declaration. Sent every few seconds and on any change. \\
-\addlinespace[2pt]
+\rowsep
 \code{Pong} & server & Heartbeat reply, carrying the server build and
 protocol version so the client can log skew. \\
-\addlinespace[2pt]
+\rowsep
 \code{Request} & server & A buffered proxied request. \\
-\addlinespace[2pt]
+\rowsep
 \code{RequestStart} / \code{RequestChunk} / \code{RequestEnd} & server &
 A streamed request body, so a large upload is never fully buffered. \\
-\addlinespace[2pt]
+\rowsep
 \code{Response} & client & A buffered response, optionally with per-stage
 client timings. \\
-\addlinespace[2pt]
+\rowsep
 \code{ResponseStart} / \code{ResponseChunk} / \code{ResponseEnd} & client &
 A streamed response body. \\
-\addlinespace[2pt]
+\rowsep
 \code{ResponseAbort} & client & The backend failed mid-stream; the server
 stops the response. \\
-\addlinespace[2pt]
+\rowsep
 \code{UpgradeRequest} / \code{UpgradeResponse} & both & WebSocket upgrade
 relayed to the backend and its answer relayed back. \\
-\addlinespace[2pt]
+\rowsep
 \code{WsData} / \code{WsClose} & both & Frames of a passed-through
 WebSocket, and its close. \\
-\addlinespace[2pt]
+\rowsep
 \code{HostnameAssigned} & server & The generated random subdomain for this
 client. \\
-\addlinespace[2pt]
+\rowsep
 \code{Draining} & client & Graceful shutdown: stop routing new requests
 here, in-flight ones finish. \\
-\addlinespace[2pt]
+\rowsep
 \code{ServerShutdown} & server & The server is going away; clients stop
 reconnecting immediately rather than backing off. \\
-\addlinespace[2pt]
+\rowsep
 \code{TcpOpen} / \code{TcpData} / \code{TcpClose} & both & A raw TCP relay
 for emergency tunnels. \\
-\addlinespace[2pt]
+\rowsep
 \code{UdpOpen} / \code{UdpDatagram} / \code{UdpClose} & both & The
 best-effort datagram equivalent, with an idle timeout. \\
-\addlinespace[2pt]
+\rowsep
 \code{CompressionStart} / \code{CompressionAck} & both & Negotiates zlib
 compression of tunnel frames at connect time. \\
-\addlinespace[2pt]
+\rowsep
 \code{StreamPause} / \code{StreamResume} & server & Per-stream flow
 control (v3): the producing client stops reading that one stream's source
 while its server-side backlog is too large, and carries on once it
@@ -2785,21 +2809,5 @@ ok = constant_time_eq(f"sha256={expected}", signature_header) and abs(now - ts) 
 \end{description}
 
 \backmatter
-
-\chapter*{Colophon}
-\addcontentsline{toc}{chapter}{Colophon}
-
-Written for Aperio 0.7.0. The prose chapters are maintained alongside the
-topic articles under \code{docs/}; the reference appendices were derived
-mechanically from the tables in \code{docs/configuration.md}, which is
-the authority for every setting and endpoint. When a setting changes,
-update that file first and re-derive the appendix rather than editing
-them apart.
-
-Build it with any standard TeX distribution:
-
-\begin{codecard}[aperiosh]{In a checkout, from docs/book}
-pdflatex aperio.tex && pdflatex aperio.tex    # twice, so the TOC resolves
-\end{codecard}
 
 \end{document}
