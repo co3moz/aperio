@@ -433,6 +433,8 @@ pub(crate) struct ClientSettings {
   pub(crate) subscribe: Vec<String>,
   /// Local address the message face listens on (None = no local listener).
   pub(crate) messages_listen: Option<String>,
+  /// Local address the MQTT face listens on (None = no MQTT listener).
+  pub(crate) messages_mqtt_listen: Option<String>,
   /// Static-file mode: SPA history fallback (process-wide).
   pub(crate) serve_spa: bool,
   /// Static-file mode: custom 404 page path (process-wide).
@@ -1031,6 +1033,13 @@ pub(crate) fn resolve_settings(
       local.messages_listen.clone(),
       env_str("APERIO_MESSAGES_LISTEN"),
       home.messages_listen.clone(),
+    )
+    .and_then(nonempty),
+    messages_mqtt_listen: layered(
+      None,
+      local.messages_mqtt_listen.clone(),
+      env_str("APERIO_MESSAGES_MQTT_LISTEN"),
+      home.messages_mqtt_listen.clone(),
     )
     .and_then(nonempty),
   })

@@ -870,6 +870,11 @@ pub struct FileConfig {
   /// tunnel protocol. Unset = no local listener.
   #[schemars(extend("examples" = ["127.0.0.1:1888"]))]
   pub messages_listen: Option<String>,
+  /// Local address an MQTT listener answers on, for an application that would
+  /// rather use the MQTT client library it already has. MQTT 3.1.1, QoS 0;
+  /// the protocol never leaves this machine. Unset = no MQTT listener.
+  #[schemars(extend("examples" = ["127.0.0.1:1883"]))]
+  pub messages_mqtt_listen: Option<String>,
   /// Expose several backends from one client, each on its own tunnel connection
   /// (replaces the single top-level `target`).
   #[schemars(extend("examples" = [[

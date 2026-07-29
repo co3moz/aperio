@@ -122,4 +122,35 @@ echo "  ok: a scoped token is fenced to the topics it carries"
 
 kill "$SCOPED_PID" 2>/dev/null || true
 
+
+step "An ordinary MQTT client talks to the client's MQTT face"
+# The probe is a hand-rolled MQTT client: the face encodes with `mqttbytes`,
+# so a test using the same crate would agree with it about any misreading of
+# the spec. This is an independent second opinion on the wire format.
+MQTT_PORT_A=18841
+MQTT_PORT_B=18842
+start_client mqtta "$MSG_BACKEND_PORT" \
+  APERIO_HOSTNAME=mqtta.e2e.local \
+  APERIO_MESSAGES_MQTT_LISTEN="127.0.0.1:${MQTT_PORT_A}"
+start_client mqttb "$MSG_BACKEND_PORT" \
+  APERIO_HOSTNAME=mqttb.e2e.local \
+  APERIO_MESSAGES_MQTT_LISTEN="127.0.0.1:${MQTT_PORT_B}"
+wait_routable mqtta.e2e.local /hello
+wait_routable mqttb.e2e.local /hello
+
+MQTT_OUT="$LOG_DIR/messages-mqtt.txt"
+"$PYTHON" "$HERE/lib/mqtt_probe.py" subscribe 127.0.0.1 "$MQTT_PORT_A" 'deploy/#' 8 \
+  >"$MQTT_OUT" 2>&1 &
+MQTT_PID=$!
+retry 20 grep -q "suback granted=0" "$MQTT_OUT" \
+  || fail "the MQTT face did not answer SUBSCRIBE"
+
+# Published from the *other* machine's MQTT face, so the message crosses the
+# server rather than staying inside one process.
+"$PYTHON" "$HERE/lib/mqtt_probe.py" publish 127.0.0.1 "$MQTT_PORT_B" 'deploy/mqtt' 'over-the-tunnel'
+retry 20 grep -q "message topic=deploy/mqtt payload=over-the-tunnel" "$MQTT_OUT" \
+  || fail "an MQTT publish on one client did not reach an MQTT subscriber on another"
+echo "  ok: an MQTT client publishes on one machine and another receives it"
+kill "$MQTT_PID" 2>/dev/null || true
+
 kill "$MSG_BACKEND_PID" 2>/dev/null || true

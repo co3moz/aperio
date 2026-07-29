@@ -225,6 +225,7 @@ fn base_settings() -> ClientSettings {
     bind_tunnels: HashMap::new(),
     subscribe: Vec::new(),
     messages_listen: None,
+    messages_mqtt_listen: None,
   }
 }
 

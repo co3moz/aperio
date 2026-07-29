@@ -57,6 +57,7 @@ fn settings_with(
     bind_tunnels,
     subscribe: Vec::new(),
     messages_listen: None,
+    messages_mqtt_listen: None,
   }
 }
 

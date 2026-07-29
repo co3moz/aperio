@@ -341,6 +341,16 @@
           "127.0.0.1:1888"
         ]
       },
+      "messages_mqtt_listen": {
+        "description": "Local address an MQTT listener answers on, for an application that would\nrather use the MQTT client library it already has. MQTT 3.1.1, QoS 0;\nthe protocol never leaves this machine. Unset = no MQTT listener.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "127.0.0.1:1883"
+        ]
+      },
       "pass_hostname": {
         "description": "Forward the visitor's original Host header to the backend instead of the target's.",
         "type": [

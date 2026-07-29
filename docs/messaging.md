@@ -72,6 +72,41 @@ Remember to escape `/` as `%2F` and `#` as `%23` in the query string.
 
 The face is loopback because anything that can open a socket on that host is already running next to the client's credentials. Binding it elsewhere is possible and is warned about at startup.
 
+## Receiving: the MQTT face
+
+For an application that would rather use the MQTT client library it already has:
+
+```yaml
+messages_mqtt_listen: 127.0.0.1:1883
+```
+
+Then connect as you would to any broker. In Node:
+
+```js
+const mqtt = require('mqtt')
+const client = mqtt.connect('mqtt://127.0.0.1:1883')
+client.on('connect', () => client.subscribe('deploy/#'))
+client.on('message', (topic, payload) => console.log(topic, payload.toString()))
+client.publish('deploy/web', 'v1.9.2')
+```
+
+**MQTT exists only between your application and the client.** Nothing on the wire to the Aperio server speaks it, and the server never learns it was involved. That is the whole reason to carry the protocol: at the application boundary it buys a library in every language and no code to write, and on the wire it would buy a dependency and a second connection for something nobody would see.
+
+It is a translator, not a broker: every publish goes up to the server and every delivery comes down, so a local subscriber sees its own message only if the organization sends it back — which is exactly what a subscriber on another machine sees.
+
+What your library gets, stated rather than discovered:
+
+| Feature | Answer |
+| --- | --- |
+| QoS 0 | as asked |
+| QoS 1 and 2 | granted as 0. The tunnel is ordered and reliable, but nothing is stored for an absent subscriber, so promising more would be a lie. Libraries accept the downgrade; that is what the granted-QoS field is for. |
+| Retained messages | never stored, never delivered |
+| Clean session | always. A session lives exactly as long as the connection. |
+| Last will | accepted in CONNECT and never published |
+| Username / password | ignored. The tunnel's token is the credential and the listener is loopback. |
+
+Both faces can run at once and share one subscription set, so a shell script on SSE and an application on MQTT see the same messages.
+
 ## Server events
 
 Everything the server already reports through webhooks is also published on the reserved `$aperio/` namespace, with the event name's underscores as topic levels:

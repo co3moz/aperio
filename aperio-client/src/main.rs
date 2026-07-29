@@ -12,6 +12,7 @@ mod dial;
 mod e2e;
 mod flow;
 mod messages_http;
+mod messages_mqtt;
 mod protocol;
 mod proxy;
 mod pubsub;
@@ -228,6 +229,12 @@ async fn main() {
   // up is refused with a reason rather than silently dropped.
   if let Some(addr) = settings.messages_listen.clone()
     && let Err(e) = crate::messages_http::serve(&addr, shared.messages.clone()).await
+  {
+    error!("CRITICAL ERROR: {}", e);
+    std::process::exit(1);
+  }
+  if let Some(addr) = settings.messages_mqtt_listen.clone()
+    && let Err(e) = crate::messages_mqtt::serve(&addr, shared.messages.clone()).await
   {
     error!("CRITICAL ERROR: {}", e);
     std::process::exit(1);

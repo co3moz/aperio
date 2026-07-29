@@ -35,6 +35,7 @@ bytes = "1.12.1"
 tokio-util = { version = "0.7", features = ["io"] }
 # MIME types for the static file serving mode (--serve).
 mime_guess = "2"
+mqttbytes = "0.6"
 
 # Used by build.rs to emit the aperio.yaml JSON Schema into schemas/.
 [build-dependencies]
