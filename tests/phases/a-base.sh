@@ -26,6 +26,13 @@ LOCATION="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/")"
 assert_contains "$LOCATION" '/aperio' "redirect points at /aperio"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/hello")"
 assert_status 504 "$CODE" "proxying without a client returns 504"
+# `/aperio/` is not the dashboard's own path: without this redirect the
+# trailing slash falls through to the proxy, and a visitor who typed it gets
+# a 504 or, with a client connected, somebody's tunnelled site.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/")"
+assert_status 308 "$CODE" "a trailing slash on /aperio/ redirects instead of proxying"
+LOCATION="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/aperio/?tab=clients")"
+assert_contains "$LOCATION" '/aperio?tab=clients' "the redirect keeps the query string"
 
 step "Tunnel proxying through a connected client"
 start_client main "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"

@@ -1516,6 +1516,22 @@ async fn async_main() {
     );
   }
 
+  // `/aperio/` is not the dashboard: nesting matches `/aperio` and
+  // `/aperio/<something>`, so the trailing slash falls through to the proxy
+  // and a visitor gets whatever a tunnel client answers — a 504, or worse, a
+  // stranger's site. It is the same address to everyone typing it, so it
+  // redirects to the one that works, query string and all.
+  app = app.route(
+    "/aperio/",
+    any(|uri: axum::http::Uri| async move {
+      let target = match uri.query() {
+        Some(q) if !q.is_empty() => format!("/aperio?{q}"),
+        _ => "/aperio".to_string(),
+      };
+      axum::response::Redirect::permanent(&target)
+    }),
+  );
+
   // Health endpoint is intentionally registered outside the dashboard auth
   // middleware so that external load balancers / monitoring tools can probe
   // server liveness without dashboard credentials.
