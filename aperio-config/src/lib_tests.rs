@@ -854,6 +854,96 @@ fn assert_examples_parse<T: serde::de::DeserializeOwned>(label: &str, schema: se
   }
 }
 
+/// Every key inside an example object exists on the type that example is for.
+///
+/// `assert_examples_parse` cannot see this: an example for a *nested* type is
+/// serialized into a document, and a struct without `deny_unknown_fields`
+/// accepts a key it has never heard of. So `routes:` shipped an example
+/// saying `status: 301` for a type whose field is `permanent: true` — the
+/// example parsed, and quietly produced a 302 for anyone who copied it.
+fn assert_example_keys_exist(label: &str, schema: &serde_json::Value) {
+  let defs = &schema["$defs"];
+  // Every `$ref` reachable from a property, through arrays, maps and the
+  // `anyOf` a nullable or multi-spelling field turns into.
+  fn refs(prop: &serde_json::Value, out: &mut Vec<String>) {
+    if let Some(r) = prop.get("$ref").and_then(|r| r.as_str()) {
+      out.push(r.rsplit('/').next().unwrap_or(r).to_string());
+    }
+    for key in ["items", "additionalProperties"] {
+      if let Some(child) = prop.get(key) {
+        refs(child, out);
+      }
+    }
+    for key in ["anyOf", "oneOf", "allOf"] {
+      if let Some(list) = prop.get(key).and_then(|v| v.as_array()) {
+        for child in list {
+          refs(child, out);
+        }
+      }
+    }
+  }
+  let mut checked = 0;
+  let mut problems: Vec<String> = Vec::new();
+  for (key, prop) in schema["properties"].as_object().unwrap() {
+    let Some(examples) = prop.get("examples").and_then(|e| e.as_array()) else {
+      continue;
+    };
+    let mut names = Vec::new();
+    refs(prop, &mut names);
+    // The keys of every type this property could be, together: an untagged
+    // enum (the short and long spelling of a key) is genuinely several.
+    let known: std::collections::BTreeSet<String> = names
+      .iter()
+      .filter_map(|name| defs[name].get("properties"))
+      .flat_map(|p| p.as_object().unwrap().keys().cloned())
+      .collect();
+    if known.is_empty() {
+      continue;
+    }
+    for example in examples {
+      let entries = match example {
+        serde_json::Value::Array(items) => items.clone(),
+        other => vec![other.clone()],
+      };
+      for entry in entries {
+        let serde_json::Value::Object(map) = entry else {
+          continue;
+        };
+        checked += 1;
+        for field in map.keys() {
+          if !known.contains(field) {
+            problems.push(format!(
+              "{key}: the example uses `{field}`, which no type behind it has (valid: {})",
+              known.iter().cloned().collect::<Vec<_>>().join(", ")
+            ));
+          }
+        }
+      }
+    }
+  }
+  assert!(
+    checked > 3,
+    "{label}: only {checked} example object(s) checked"
+  );
+  assert!(problems.is_empty(), "{label}:\n  {}", problems.join("\n  "));
+}
+
+#[test]
+fn the_client_schema_examples_use_keys_that_exist() {
+  assert_example_keys_exist(
+    "aperio.yaml",
+    &serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap(),
+  );
+}
+
+#[test]
+fn the_server_schema_examples_use_keys_that_exist() {
+  assert_example_keys_exist(
+    "aperio-server.yaml",
+    &serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
+  );
+}
+
 #[test]
 fn the_client_schema_examples_are_valid_config() {
   assert_examples_parse::<FileConfig>(

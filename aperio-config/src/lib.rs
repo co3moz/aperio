@@ -2386,7 +2386,7 @@ pub struct ServerFileConfig {
   }]))]
   pub headers: Option<HeaderRules>,
   /// Client-less routes: bind a hostname/path to a redirect or fixed response.
-  #[schemars(extend("examples" = [[{"hostname": "old.example.com", "redirect": "https://new.example.com", "status": 301}]]))]
+  #[schemars(extend("examples" = [[{"hostname": "old.example.com", "redirect": "https://new.example.com", "permanent": true}]]))]
   pub routes: Option<Vec<RouteRule>>,
   /// Per-hostname custom 504/503 error pages (override the global
   /// `504_page`/`503_page` for that hostname).

@@ -268,9 +268,12 @@ fn apply_settings_overrides_skips_out_of_range_and_clears_empties() {
   base.auth_credentials = Some("old:creds".to_string());
 
   let o = SettingsOverrides {
-    // Non-positive rate values are rejected, keeping the base.
+    // Non-positive rate values are rejected, keeping the base. Zero matters as
+    // much as a negative here: a bucket that never refills answers 429 to
+    // everything once the burst is spent, and the dashboard used to accept it
+    // while the environment variable refused it.
     ip_limit_max: Some(0.0),
-    ip_limit_refill: Some(-1.0),
+    ip_limit_refill: Some(0.0),
     // Zero cache budget is rejected (keeps base); stale of 0 is accepted.
     cache_max_bytes: Some(0),
     cache_max_stale: Some(0),
@@ -287,6 +290,17 @@ fn apply_settings_overrides_skips_out_of_range_and_clears_empties() {
   let c = apply_settings_overrides(&base, &o);
   assert_eq!(c.ip_limit_max, base.ip_limit_max);
   assert_eq!(c.ip_limit_refill, base.ip_limit_refill);
+  assert_eq!(
+    apply_settings_overrides(
+      &base,
+      &SettingsOverrides {
+        ip_limit_refill: Some(-1.0),
+        ..Default::default()
+      }
+    )
+    .ip_limit_refill,
+    base.ip_limit_refill
+  );
   assert_eq!(c.cache_max_bytes, base.cache_max_bytes);
   assert_eq!(c.cache_max_stale, 0);
   assert_eq!(c.ui_language, "en");

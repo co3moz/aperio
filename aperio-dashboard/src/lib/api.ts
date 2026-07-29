@@ -234,6 +234,25 @@ export interface TokenUpdatePayload {
   canary?: boolean
 }
 
+/** One entry of the webhook inbox, as the list shows it. */
+export interface InboxSummary {
+  id: string
+  timestamp: string
+  method: string
+  uri: string
+  host: string | null
+  status: number
+  service: string | null
+  body_bytes: number
+  body_truncated: boolean
+}
+
+/** One entry opened: its headers and (Base64) body. */
+export interface InboxDetail extends InboxSummary {
+  headers: [string, string][]
+  body: string | null
+}
+
 /** One client process listening for messages, and what it asked for. */
 export interface Subscriber {
   instance_group: string | null
@@ -592,6 +611,15 @@ export interface DeclaredTunnel {
 export const api = {
   stats: () => request<ServerStats>('/stats'),
   declaredTunnels: () => request<DeclaredTunnel[]>('/tunnels'),
+  // The webhook inbox. Through `request` like everything else, so an expired
+  // session redirects to the login page here too instead of leaving the pane
+  // silently empty.
+  inbox: () => request<InboxSummary[]>('/inbox'),
+  inboxEntry: (id: string) => request<InboxDetail>(`/inbox/${encodeURIComponent(id)}`),
+  inboxRefire: (id: string) =>
+    request<{ status: number }>(`/inbox/${encodeURIComponent(id)}/refire`, { method: 'POST' }),
+  inboxDelete: (id: string) => mutate(`/inbox/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  inboxClear: () => mutate('/inbox', { method: 'DELETE' }),
   uptime: () => request<UptimeEntry[]>('/uptime'),
   topology: () => request<TopologyGraph>('/topology'),
   statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {

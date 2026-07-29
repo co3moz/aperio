@@ -13,23 +13,7 @@ import { MethodBadge, StatusBadge } from './badges'
 import { Button } from '@/components/ui/button'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { useI18n } from '@/i18n'
-
-interface InboxSummary {
-  id: string
-  timestamp: string
-  method: string
-  uri: string
-  host: string | null
-  status: number
-  service: string | null
-  body_bytes: number
-  body_truncated: boolean
-}
-
-interface InboxDetail extends InboxSummary {
-  headers: [string, string][]
-  body: string | null
-}
+import { api, ApiError, type InboxDetail, type InboxSummary } from '@/lib/api'
 
 function decodeBody(b64: string | null, t: (key: string) => string): string {
   if (!b64) return ''
@@ -59,9 +43,9 @@ export function InboxSection() {
   const [busy, setBusy] = useState<string | null>(null)
 
   const reload = useCallback(() => {
-    fetch('/aperio/api/inbox')
-      .then((r) => r.json())
-      .then((rows: InboxSummary[]) => setEntries(rows))
+    api
+      .inbox()
+      .then((rows) => setEntries(rows))
       .catch(() => setEntries([]))
   }, [])
 
@@ -77,9 +61,9 @@ export function InboxSection() {
     // Drop a reply that arrives after `openId` moved on, so a slow fetch for
     // the previously opened entry cannot overwrite the one now on screen.
     let cancelled = false
-    fetch(`/aperio/api/inbox/${openId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: InboxDetail | null) => {
+    api
+      .inboxEntry(openId)
+      .then((d) => {
         if (!cancelled) setDetail(d)
       })
       .catch(() => {
@@ -93,28 +77,25 @@ export function InboxSection() {
   const refire = async (id: string) => {
     setBusy(id)
     try {
-      const res = await fetch(`/aperio/api/inbox/${id}/refire`, { method: 'POST' })
-      const body = await res.json().catch(() => null)
-      if (res.ok && body) {
-        toast.success(t('Re-fired — backend answered {status}', { status: body.status }))
-      } else {
-        toast.error(t('Re-fire failed ({status})', { status: res.status }))
-      }
-    } catch {
-      toast.error(t('Re-fire failed ({status})', { status: 0 }))
+      const body = await api.inboxRefire(id)
+      toast.success(t('Re-fired — backend answered {status}', { status: body.status }))
+    } catch (e) {
+      toast.error(
+        t('Re-fire failed ({status})', { status: e instanceof ApiError ? e.status : 0 }),
+      )
     } finally {
       setBusy(null)
     }
   }
 
   const remove = async (id: string) => {
-    await fetch(`/aperio/api/inbox/${id}`, { method: 'DELETE' }).catch(() => {})
+    await api.inboxDelete(id).catch(() => {})
     if (openId === id) setOpenId(null)
     reload()
   }
 
   const clearAll = async () => {
-    await fetch('/aperio/api/inbox', { method: 'DELETE' }).catch(() => {})
+    await api.inboxClear().catch(() => {})
     setOpenId(null)
     reload()
   }

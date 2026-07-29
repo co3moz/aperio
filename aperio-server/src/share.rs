@@ -24,7 +24,9 @@ pub(crate) struct ShareCreateRequest {
   pub(crate) hostname: String,
   /// Optional path prefix; omitted = the whole site.
   pub(crate) path: Option<String>,
-  /// Lifetime in seconds; defaults to 3 days, capped at 30 days.
+  /// Lifetime in seconds; defaults to 3 days, capped at 10 years. `0` never
+  /// expires. This comment is what the API schema publishes, so it says the
+  /// cap the code enforces rather than a rounder number.
   pub(crate) ttl_seconds: Option<u64>,
 }
 

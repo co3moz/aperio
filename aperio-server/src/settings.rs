@@ -445,8 +445,12 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   {
     c.ip_limit_max = v;
   }
+  // Strictly positive, like the environment variable this shadows. A refill
+  // of zero is not "no limiting", it is a bucket that never refills: once the
+  // burst is spent every visitor of every proxied site gets a 429, for as
+  // long as nobody notices. That is not a setting anyone means to write.
   if let Some(v) = o.ip_limit_refill
-    && v >= 0.0
+    && v > 0.0
   {
     c.ip_limit_refill = v;
   }

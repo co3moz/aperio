@@ -118,6 +118,17 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **The rate-limit refill rate can no longer be set to zero from the dashboard.** The environment variable has always refused a non-positive value; the settings screen accepted `0`, and a bucket that never refills is not "no limiting" — once the burst is spent, every visitor of every proxied site gets a 429, for as long as nobody notices. Now refused the same way, keeping the previous value.
+
+- **The `routes:` schema example named a key that does not exist.** It said `status: 301` where the field is `permanent: true`, so an editor offered it, the file accepted it (the key was simply ignored), and the redirect went out as a 302 — a temporary redirect for someone who asked for a permanent one. Every example in both schemas is now checked against the keys its type actually has, which is what would have caught this.
+
+- **`.env.example` named three variables the code never reads.** `APERIO_SERVER_GATEWAY_TIMEOUT` and `APERIO_SERVER_GATEWAY_RESPONSE_TIMEOUT` carry a `SERVER_` the reader does not (they are `APERIO_GATEWAY_TIMEOUT` / `APERIO_GATEWAY_RESPONSE_TIMEOUT`), and a comment advertised `APERIO_CLIENT_TARGET` as a legacy alias for `APERIO_TARGET`, which it never was. Copying any of the three set a variable nothing looked at.
+
+- **The share-link API said its lifetime was capped at 30 days.** The cap is 10 years (and `0` never expires); the doc comment is what the OpenAPI schema publishes, so the API documented a limit the server does not enforce.
+
+- **The webhook inbox freezes silently when a session expires.** Its five calls went out through a bare `fetch` rather than the shared client, so they missed the redirect-to-login every other screen gets: the pane simply stopped showing anything, with no way to tell that the answer was "log in again".
+
+
 - **A `bind-tunnels:` key that names a tunnel in more than one organization is refused.** A name is unique inside an organization and nowhere else, so a token that can see two of them saw `postgres` twice and bound whichever came back first — a local port onto someone else's database, with nothing said about it. The entry is now reported with the qualified names to choose between (`payments@postgres`, `billing@postgres`), and skipped, like every other entry that cannot be resolved.
 
 - **Every page's subtitle was in English, in all seven languages.** The line under a page title comes from the sidebar's own table, and its strings reach the translator through a variable, which the i18n check could not see. It reads those tables now, the same way it already reads the settings catalogue, and the strings it turned up are translated.
