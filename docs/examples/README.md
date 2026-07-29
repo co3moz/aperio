@@ -23,6 +23,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [resilience](resilience/) | Serve cached (even stale) responses while no healthy client is connected. |
 | [emergency_tunnels](emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `bind-tunnels:`). |
 | [encrypted_tunnels](encrypted_tunnels/) | End-to-end encrypted tunnels with a pre-shared key. |
+| [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |
 | [public_expose](public_expose/) | Expose a declared tunnel on a raw public server port, owned by a named token. |
 | [routes](routes/) | Client-less routes: redirects and fixed responses served by the server alone. |
 | [visitor_auth](visitor_auth/) | Visitor login gates: server-wide password, client-set override, and `public:`. |

@@ -1,0 +1,18 @@
+# Broker side: run this next to the MQTT broker (mosquitto, EMQX, rumqttd…).
+# Nothing about the broker is published to the web; it is reachable only by
+# clients holding a token of this organization.
+server:
+  url: https://tunnel.example.com
+  token: apr_mqtt_change_me
+
+# A client may declare only tunnels, with nothing exposed publicly. Keep the
+# services: list if this machine also serves HTTP.
+tunnels:
+  - name: mqtt
+    target: 127.0.0.1:1883      # the broker's plain-MQTT listener
+    protocol: tcp
+
+  # MQTT over WebSocket, if the broker offers it and a browser client needs it.
+  # - name: mqtt-ws
+  #   target: 127.0.0.1:9001
+  #   protocol: tcp

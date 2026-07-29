@@ -1,0 +1,14 @@
+# Publisher/subscriber side: run one of these next to every application that
+# talks to the broker, then point that application at 127.0.0.1:1883 exactly
+# as if the broker were local.
+#
+#   aperio-client --bind-tunnels --config aperio-binder.yaml
+server:
+  url: https://tunnel.example.com
+  # Any token of the same organization carrying allow_bind, or the declaring
+  # client's own token. A binder publishes nothing of its own.
+  token: apr_mqtt_binder_change_me
+
+bind-tunnels:
+  # 1883 is not privileged, so the application's config needs no change at all.
+  mqtt: 1883

@@ -159,4 +159,5 @@ Copy-and-adapt config pairs for this topic:
 
 - [`emergency_tunnels`](examples/emergency_tunnels/): break-glass TCP tunnels
 - [`encrypted_tunnels`](examples/encrypted_tunnels/): end-to-end encrypted tunnels
+- [`mqtt`](examples/mqtt/): a broker every client can reach, and nothing else
 - [`public_expose`](examples/public_expose/): raw public TCP port
