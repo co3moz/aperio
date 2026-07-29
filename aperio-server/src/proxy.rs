@@ -1296,6 +1296,7 @@ async fn proxy_http_request(
             let trimmed = part.trim();
             // Internal aperio cookies never reach backends.
             !trimmed.starts_with("aperio_session=")
+              && !trimmed.starts_with("__Host-aperio_session=")
               && !trimmed.starts_with("aperio_share=")
               && !trimmed.starts_with("aperio_affinity=")
           })

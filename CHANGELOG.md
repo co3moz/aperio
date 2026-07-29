@@ -8,6 +8,9 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **The session cookie carries the `__Host-` prefix wherever it can.** This server also serves other people's sites, which makes the usual cookie rules too weak for it: a tenant on `evil.tunnel.example.com` can set a cookie for `.tunnel.example.com`, and the dashboard would read it as its own — an operator walked into a session someone else chose. `__Host-` is a promise the browser enforces (host-only, https, `Path=/`), so a neighbour's cookie can never be the prefixed one, and the prefixed one is what the server reads first. The plain name is still accepted on its own, so sessions issued before this and every deployment that cannot set `Secure` keep working; logging out clears both.
+
+
 - **The parameterless TCP tunnel endpoint is fenced like every other one.** `GET /aperio/tcp` with no `?tunnel=` and no `?client=` picks "any TCP-capable client", and picked it without asking whether the caller was allowed to reach it: any valid tunnel token got a raw socket into whichever client answered first, including one belonging to another organization. Every other way into that handler goes through the same permission check that governs `--bind-tunnels`; this one now does too, so a caller reaches only what it could have reached by naming it.
 
 ### Added

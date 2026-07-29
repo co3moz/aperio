@@ -377,8 +377,10 @@ pub(crate) async fn auth_login_handler(
 
   let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
   let cookie = format!(
-    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
-    session_token, secure_flag
+    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+    session_cookie_name(cfg.secure_cookies),
+    session_token,
+    secure_flag
   );
 
   Ok(
@@ -390,13 +392,45 @@ pub(crate) async fn auth_login_handler(
   )
 }
 
-/// Reads the `aperio_session` value out of the Cookie header, if present.
+/// Name of the session cookie when it can carry the `__Host-` prefix.
+///
+/// The prefix is a promise the *browser* enforces: such a cookie may only be
+/// set by a page on this exact host, over https, with `Path=/` and no
+/// `Domain`. That is what this deployment needs, because the server also
+/// serves other people's sites: a tenant on `evil.tunnel.example.com` can set
+/// a cookie for `.tunnel.example.com`, and without the prefix that cookie is
+/// indistinguishable from the dashboard's own — an operator could be walked
+/// into a session someone else chose.
+pub(crate) const SESSION_COOKIE_SECURE: &str = "__Host-aperio_session";
+/// The name used when the prefix cannot be: `__Host-` requires `Secure`, so a
+/// plain-http deployment would have the browser reject the cookie outright.
+pub(crate) const SESSION_COOKIE_PLAIN: &str = "aperio_session";
+
+/// The cookie name this configuration issues.
+pub(crate) fn session_cookie_name(secure: bool) -> &'static str {
+  if secure {
+    SESSION_COOKIE_SECURE
+  } else {
+    SESSION_COOKIE_PLAIN
+  }
+}
+
+/// Reads the session token out of the Cookie header, if present.
+///
+/// The prefixed name wins when both are there. That is the whole defence: a
+/// cookie set by a neighbouring host can only ever be the unprefixed one, so
+/// it cannot displace a session issued with the prefix — it is simply not
+/// looked at. The unprefixed name is still accepted on its own, so sessions
+/// issued before this (and every plain-http deployment) keep working.
 fn session_cookie(headers: &HeaderMap) -> Option<&str> {
   let cookie_str = headers.get("cookie")?.to_str().ok()?;
-  cookie_str.split(';').find_map(|part| {
-    let (k, v) = part.trim().split_once('=')?;
-    (k == "aperio_session").then_some(v)
-  })
+  let read = |want: &str| {
+    cookie_str.split(';').find_map(|part| {
+      let (k, v) = part.trim().split_once('=')?;
+      (k == want).then_some(v)
+    })
+  };
+  read(SESSION_COOKIE_SECURE).or_else(|| read(SESSION_COOKIE_PLAIN))
 }
 
 /// Logs out the current dashboard session: drops it from the session store and
@@ -416,13 +450,14 @@ pub(crate) async fn auth_logout_handler(
   } else {
     ""
   };
-  let cookie = format!(
-    "aperio_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
-    secure_flag
-  );
+  // Both names, because logging out must clear whatever this browser is
+  // carrying — including a cookie issued before the prefix existed.
+  let expire =
+    |name: &str| format!("{name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure_flag}");
   Response::builder()
     .status(StatusCode::OK)
-    .header("Set-Cookie", cookie)
+    .header("Set-Cookie", expire(SESSION_COOKIE_SECURE))
+    .header("Set-Cookie", expire(SESSION_COOKIE_PLAIN))
     .body(Body::empty())
     .unwrap()
 }
