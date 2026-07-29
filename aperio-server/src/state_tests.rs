@@ -621,7 +621,7 @@ async fn test_org_quotas() {
 
   let org_id = {
     let mut orgs = state.org_store.lock().await;
-    let org = orgs.create("acme", Vec::new()).expect("org");
+    let org = orgs.create("acme", Vec::new(), None).expect("org");
     orgs.set_quota(
       &org.id,
       Some(Some(1)), // max_clients

@@ -4,7 +4,11 @@ server:
   token: apr_emergency_e2e_change_me
 
 tunnels:
-  - name: pg-main
+  # `name:` is the handle a binder and an `expose:` rule address: a-z, 0-9
+  # and `_`. `custom_name:` is only what the dashboard shows, so it can say
+  # anything and change whenever.
+  - name: pg_main
+    custom_name: "Primary Postgres"
     target: 127.0.0.1:5432      # PostgreSQL
     encrypt: true               # end-to-end encrypt between the two clients
     psk: replace-with-a-long-random-string   # never sent anywhere; the binder

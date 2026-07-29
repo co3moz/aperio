@@ -928,4 +928,10 @@ export const tr: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Bu client\'ın dinlediği topic\'ler ve aynı makinedeki bir uygulamanın gönderip almak için bağlandığı yer.',
   'Cold start & scale-out records': 'Soğuk başlatma ve ölçek genişletme kayıtları',
   'Private services reachable with --bind-tunnels': '--bind-tunnels ile erişilen özel servisler',
+  'Display name': 'Görünen ad',
+  'Handle': 'Kimlik',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Yalnızca nasıl anıldığı. Onu adresleyen {handle} kimliği hiç değişmez.',
+  'Service {name} (custom_name: {custom})': 'Servis {name} (custom_name: {custom})',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Bu organizasyonun ekranda görünen adı. Herhangi bir dil, herhangi bir noktalama; sonradan değiştirilebilir.',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 ve _ . Organizasyonu adresleyen şey budur — {example} içinde, bir sunucunun expose: kuralında ve API içinde — bu yüzden oluşturulduktan sonra sabittir.',
 }

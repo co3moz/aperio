@@ -48,6 +48,7 @@ use tokio_tungstenite::accept_async;
 /// (usually unused) backend.
 fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
   ServiceSpec {
+    custom_name: None,
     name: None,
     client_id: "test-client".to_string(),
     token: "apr_test".to_string(),
@@ -208,6 +209,7 @@ fn test_label_variants() {
   spec.target = String::new();
   assert_eq!(spec.label(), "(no service)");
   spec.tunnels = vec![aperio_config::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:5432".to_string(),
     protocol: "tcp".to_string(),
@@ -331,6 +333,7 @@ async fn test_run_service_message_loop() {
   spec.tcp_target = Some("127.0.0.1:9".to_string());
   spec.tunnels = vec![
     TunnelDecl {
+      custom_name: None,
       name: None,
       target: "127.0.0.1:5432".to_string(),
       protocol: "tcp".to_string(),
@@ -340,6 +343,7 @@ async fn test_run_service_message_loop() {
       expose: None,
     },
     TunnelDecl {
+      custom_name: None,
       name: None,
       target: "127.0.0.1:5353".to_string(),
       protocol: "udp".to_string(),

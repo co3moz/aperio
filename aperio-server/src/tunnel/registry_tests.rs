@@ -77,6 +77,7 @@ use crate::test_support::test_state;
 
 fn decl(name: &str, protocol: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: Some(name.to_string()),
     target: "127.0.0.1:5432".to_string(),
     protocol: protocol.to_string(),
@@ -100,10 +101,10 @@ async fn insert(
 async fn a_name_resolves_without_any_client_id() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")]
+    c.tunnels = vec![decl("pg_main", "tcp")]
   })
   .await;
-  let found = resolve(&state, &ClientPerms::master(), Selector::Name("pg-main"))
+  let found = resolve(&state, &ClientPerms::master(), Selector::Name("pg_main"))
     .await
     .expect("resolved by name");
   assert_eq!(found.client_id, "conn-abc");
@@ -119,15 +120,15 @@ async fn an_org_qualified_name_picks_that_organizations_tunnel() {
     .org_store
     .lock()
     .await
-    .create("payments", Vec::new())
+    .create("payments", Vec::new(), None)
     .unwrap()
     .id;
   insert(&state, "conn-master", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
   })
   .await;
   insert(&state, "conn-payments", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.perms.org_id = Some(payments);
   })
   .await;
@@ -135,7 +136,7 @@ async fn an_org_qualified_name_picks_that_organizations_tunnel() {
   let found = resolve(
     &state,
     &ClientPerms::master(),
-    Selector::Name("payments@pg-main"),
+    Selector::Name("payments@pg_main"),
   )
   .await
   .expect("resolved inside the named organization");
@@ -144,7 +145,7 @@ async fn an_org_qualified_name_picks_that_organizations_tunnel() {
   let found = resolve(
     &state,
     &ClientPerms::master(),
-    Selector::Name("master@pg-main"),
+    Selector::Name("master@pg_main"),
   )
   .await
   .expect("`master` is the built-in organization");
@@ -156,7 +157,7 @@ async fn an_org_qualified_name_picks_that_organizations_tunnel() {
     resolve(
       &state,
       &ClientPerms::master(),
-      Selector::Name("paymnets@pg-main")
+      Selector::Name("paymnets@pg_main")
     )
     .await
     .is_err()
@@ -170,18 +171,18 @@ async fn a_draining_path_is_skipped_for_a_healthy_sibling() {
   // exactly the failure this walk exists to avoid.
   let state = Arc::new(test_state());
   insert(&state, "conn-drain", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("proc-1".to_string());
     c.draining = true;
   })
   .await;
   insert(&state, "conn-ok", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("proc-1".to_string());
   })
   .await;
 
-  let found = resolve(&state, &ClientPerms::master(), Selector::Name("pg-main"))
+  let found = resolve(&state, &ClientPerms::master(), Selector::Name("pg_main"))
     .await
     .expect("the healthy sibling serves it");
   assert_eq!(found.client_id, "conn-ok");
@@ -193,7 +194,7 @@ async fn the_raw_client_id_from_the_config_file_resolves() {
   // has is the `client_id:` they wrote, which arrives as the instance group.
   let state = Arc::new(test_state());
   insert(&state, "conn-xyz", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("3beebfdb-079f-4a00-9e03-1bb6eb9222b4".to_string());
     c.reported_instance_id = Some("3beebfdb-079f-4a00-9e03-1bb6eb9222b4-0".to_string());
   })
@@ -222,14 +223,14 @@ async fn the_raw_client_id_from_the_config_file_resolves() {
 async fn an_unknown_name_and_a_forbidden_one_are_told_apart() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.perms = perms("owner", Some("org-a"), false);
   })
   .await;
 
   let outsider = perms("other", Some("org-b"), true);
   assert_eq!(
-    resolve(&state, &outsider, Selector::Name("pg-main"))
+    resolve(&state, &outsider, Selector::Name("pg_main"))
       .await
       .unwrap_err(),
     Rejection::Forbidden
@@ -246,12 +247,12 @@ async fn an_unknown_name_and_a_forbidden_one_are_told_apart() {
 async fn an_unavailable_tunnel_is_not_reported_as_missing() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
     c.draining = true;
   })
   .await;
   assert_eq!(
-    resolve(&state, &ClientPerms::master(), Selector::Name("pg-main"))
+    resolve(&state, &ClientPerms::master(), Selector::Name("pg_main"))
       .await
       .unwrap_err(),
     Rejection::Unavailable
@@ -263,14 +264,14 @@ async fn the_listing_folds_a_process_into_one_entry_per_name() {
   let state = Arc::new(test_state());
   for cid in ["conn-0", "conn-1", "conn-2"] {
     insert(&state, cid, |c| {
-      c.tunnels = vec![decl("pg-main", "tcp"), decl("dns", "udp")];
+      c.tunnels = vec![decl("pg_main", "tcp"), decl("dns", "udp")];
       c.instance_group = Some("proc-1".to_string());
     })
     .await;
   }
   let listed = visible(&state, &ClientPerms::master()).await;
   assert_eq!(listed.len(), 2, "two names, not six declarations");
-  let pg = listed.iter().find(|v| v.name == "pg-main").unwrap();
+  let pg = listed.iter().find(|v| v.name == "pg_main").unwrap();
   assert_eq!(pg.paths, 3, "three ways in");
   assert!(pg.available);
 }
@@ -329,7 +330,7 @@ async fn a_combined_tunnel_resolves_on_both_transports() {
 async fn a_single_transport_tunnel_still_refuses_the_other() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg-main", "tcp")];
+    c.tunnels = vec![decl("pg_main", "tcp")];
   })
   .await;
   let selector = Selector::ClientTarget {

@@ -119,6 +119,7 @@ fn named_rule(tunnel: &str, token: Option<&str>) -> ExposeRule {
 
 fn tunnel(key: Option<&str>, protocol: &str, encrypt: bool) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:9000".to_string(),
     protocol: protocol.to_string(),
@@ -432,6 +433,7 @@ async fn spawn_listeners_accepts_and_relays_a_connection() {
 /// A named tunnel declaration.
 fn named_tunnel(name: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: Some(name.to_string()),
     target: "127.0.0.1:9000".to_string(),
     protocol: "tcp".to_string(),
@@ -445,12 +447,12 @@ fn named_tunnel(name: &str) -> TunnelDecl {
 async fn a_named_rule_matches_the_tunnel_of_the_named_token() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |c| {
-    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("bastion-host".to_string());
   })
   .await;
 
-  let found = find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host"))).await;
+  let found = find_declarer(&state, &named_rule("ssh_bastion", Some("bastion-host"))).await;
   let (cid, _tx, target) = found.expect("the declaring client is found by name");
   assert_eq!(cid, "c1");
   assert_eq!(target, "127.0.0.1:9000");
@@ -462,13 +464,13 @@ async fn a_named_rule_does_not_match_another_token_claiming_the_name() {
   // must not be able to take the name and receive the public port's traffic.
   let state = Arc::new(test_state());
   insert_client(&state, "impostor", |c| {
-    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("some-other-token".to_string());
   })
   .await;
 
   assert!(
-    find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host")))
+    find_declarer(&state, &named_rule("ssh_bastion", Some("bastion-host")))
       .await
       .is_none()
   );
@@ -478,25 +480,25 @@ async fn a_named_rule_does_not_match_another_token_claiming_the_name() {
 async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
   let state = Arc::new(test_state());
   insert_client(&state, "master-client", |c| {
-    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.tunnels = vec![named_tunnel("ssh_bastion")];
     // A master-token client reports no token name.
     c.perms.token_name = None;
   })
   .await;
   assert!(
-    find_declarer(&state, &named_rule("ssh-bastion", None))
+    find_declarer(&state, &named_rule("ssh_bastion", None))
       .await
       .is_some()
   );
 
   let state2 = Arc::new(test_state());
   insert_client(&state2, "named-client", |c| {
-    c.tunnels = vec![named_tunnel("ssh-bastion")];
+    c.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("ops".to_string());
   })
   .await;
   assert!(
-    find_declarer(&state2, &named_rule("ssh-bastion", None))
+    find_declarer(&state2, &named_rule("ssh_bastion", None))
       .await
       .is_none(),
     "a named token's tunnel needs the rule to name that token"
@@ -521,7 +523,7 @@ async fn make_org(state: &Arc<AppState>, name: &str) -> String {
     .org_store
     .lock()
     .await
-    .create(name, Vec::new())
+    .create(name, Vec::new(), None)
     .expect("the organization is created")
     .id
 }
@@ -629,14 +631,14 @@ async fn a_named_rule_still_refuses_an_encrypted_tunnel() {
   // the rule addresses the tunnel.
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |c| {
-    let mut decl = named_tunnel("ssh-bastion");
+    let mut decl = named_tunnel("ssh_bastion");
     decl.encrypt = true;
     c.tunnels = vec![decl];
     c.perms.token_name = Some("bastion-host".to_string());
   })
   .await;
   assert!(
-    find_declarer(&state, &named_rule("ssh-bastion", Some("bastion-host")))
+    find_declarer(&state, &named_rule("ssh_bastion", Some("bastion-host")))
       .await
       .is_none()
   );
@@ -647,6 +649,7 @@ fn an_unnamed_tunnel_is_addressable_by_its_derived_name() {
   // A rule may name a tunnel the client never named, since the derivation is
   // shared between both sides.
   let decl = TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:22".to_string(),
     protocol: "tcp".to_string(),
@@ -654,5 +657,5 @@ fn an_unnamed_tunnel_is_addressable_by_its_derived_name() {
     idle_timeout: None,
     expose: None,
   };
-  assert_eq!(crate::tunnel::registry::name_of(&decl), "127-0-0-1-22-tcp");
+  assert_eq!(crate::tunnel::registry::name_of(&decl), "127_0_0_1_22_tcp");
 }

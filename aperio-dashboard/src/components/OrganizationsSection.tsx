@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { nameError, slug } from '@/lib/names'
 import { Spinner } from '@/components/ui/spinner'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
@@ -127,8 +128,10 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
+  const [customName, setCustomName] = useState('')
   const [hostnames, setHostnames] = useState('')
   const [quota, setQuota] = useState<QuotaForm>(EMPTY_QUOTA)
+  const [nameEdited, setNameEdited] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -143,6 +146,8 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const openDialog = (next: boolean) => {
     if (next) {
       setName('')
+      setCustomName('')
+      setNameEdited(false)
       setHostnames('')
       setQuota(EMPTY_QUOTA)
       setError(null)
@@ -152,11 +157,18 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
 
   const submit = async () => {
     if (!name.trim() || busy) return
+    // Checked here as well as on the server, so the rule is explained where
+    // the mistake was made rather than as a failed request.
+    const wrong = nameError('organization', name)
+    if (wrong) {
+      setError(wrong)
+      return
+    }
     setBusy(true)
     setError(null)
     const label = name.trim()
     try {
-      const created = await api.createOrg(label, parseHostnames(hostnames))
+      const created = await api.createOrg(label, parseHostnames(hostnames), customName.trim())
       // The create endpoint takes the name and the fence; the caps are their
       // own endpoint. Only call it when something was actually typed, so a
       // form left blank does not write four explicit "no limit" values.
@@ -201,14 +213,40 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
         </DialogHeader>
         <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
           <div className="grid gap-2">
-            <Label htmlFor="org-name">{t('Name')}</Label>
+            <Label htmlFor="org-custom-name">{t('Display name')}</Label>
             <Input
-              id="org-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              id="org-custom-name"
+              value={customName}
+              onChange={(e) => {
+                setCustomName(e.target.value)
+                // The handle follows what is being typed until it is edited
+                // by hand: the id nobody wants to think about writes itself,
+                // and stays visible so it is never a surprise later.
+                if (!nameEdited) setName(slug(e.target.value))
+              }}
               placeholder="Acme Inc."
               autoComplete="off"
             />
+            <p className="text-xs text-muted-foreground">
+              {t('What this organization is called on screen. Any language, any punctuation, and changeable later.')}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="org-name">{t('Handle')}</Label>
+            <Input
+              id="org-name"
+              value={name}
+              onChange={(e) => {
+                setNameEdited(true)
+                setName(e.target.value)
+              }}
+              placeholder="acme"
+              autoComplete="off"
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.', { example: `${name || 'acme'}@postgres` })}
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="org-hostnames">{t('Allowed hostnames (optional)')}</Label>
@@ -286,9 +324,10 @@ function DeleteOrgButton({ org, onDone }: { org: Organization; onDone: () => voi
 // Everything about one organization that can change after it exists: its
 // fence, its caps, and its SSO, next to what it has used this month. Opens on
 // demand and fetches usage; saving writes and re-fetches.
-function EditOrgDialog({ org }: { org: Organization }) {
+function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
+  const [customName, setCustomName] = useState(org.custom_name ?? '')
   const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [form, setForm] = useState<QuotaForm>(EMPTY_QUOTA)
   const [hostnames, setHostnames] = useState('')
@@ -311,17 +350,27 @@ function EditOrgDialog({ org }: { org: Organization }) {
 
   const onOpenChange = (next: boolean) => {
     setOpen(next)
-    if (next) load().catch(() => setUsage(null))
+    if (next) {
+      setCustomName(org.custom_name ?? '')
+      load().catch(() => setUsage(null))
+    }
   }
 
   const save = async () => {
     setBusy(true)
     try {
+      // The display name is the one thing here that can change freely; the
+      // handle is deliberately not editable, since an `expose:` rule and a
+      // binder's config point at it from machines this screen cannot reach.
+      if (customName.trim() !== (org.custom_name ?? '')) {
+        await api.setOrgCustomName(org.id, customName.trim() || null)
+      }
       await api.setOrgQuota(org.id, quotaPayload(form))
       // The allowlist is a separate endpoint; save it in the same click so the
       // dialog behaves as one form.
       await api.setOrgHostnames(org.id, parseHostnames(hostnames))
       await load()
+      onSaved()
       toast.success(t('Organization updated'))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
@@ -339,7 +388,9 @@ function EditOrgDialog({ org }: { org: Organization }) {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('Edit organization "{name}"', { name: org.name })}</DialogTitle>
+          <DialogTitle>
+            {t('Edit organization "{name}"', { name: org.custom_name || org.name })}
+          </DialogTitle>
           <DialogDescription>
             {t('Leave a limit empty for no limit. Usage is for the current calendar month.')}
           </DialogDescription>
@@ -355,6 +406,19 @@ function EditOrgDialog({ org }: { org: Organization }) {
             })}
           </div>
         )}
+        <div className="space-y-1">
+          <Label htmlFor={`org-custom-${org.id}`}>{t('Display name')}</Label>
+          <Input
+            id={`org-custom-${org.id}`}
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            placeholder={org.name}
+            autoComplete="off"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('Only what it is called. The handle {handle} is what addresses it and never changes.', { handle: org.name })}
+          </p>
+        </div>
         <QuotaFields value={form} onChange={setForm} />
         <div className="space-y-1">
           <Label>{t('Allowed hostnames')}</Label>
@@ -469,14 +533,23 @@ export function OrganizationsSection() {
               title={
                 <>
                   <Building2Icon className="size-4 text-muted-foreground" />
-                  {o.name}
+                  {o.custom_name || o.name}
+                  {/* The handle, whenever it is not already what is shown: it
+                      is what `payments@postgres` and an `expose:` rule name,
+                      so it belongs on screen next to the label rather than
+                      only in the API. */}
+                  {o.custom_name && (
+                    <span className="font-mono text-xs font-normal text-muted-foreground">
+                      {o.name}
+                    </span>
+                  )}
                   {o.master && <TintBadge tint="lime">{t('master')}</TintBadge>}
                 </>
               }
               actions={
                 o.master ? null : (
                   <>
-                    <EditOrgDialog org={o} />
+                    <EditOrgDialog org={o} onSaved={refresh} />
                     <DeleteOrgButton org={o} onDone={refresh} />
                   </>
                 )

@@ -924,4 +924,10 @@ export const es: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics que escucha este cliente, y dónde se conecta una aplicación de la misma máquina para enviar y recibir.',
   'Cold start & scale-out records': 'Registros de arranque en frío y escalado',
   'Private services reachable with --bind-tunnels': 'Servicios privados accesibles con --bind-tunnels',
+  'Display name': 'Nombre visible',
+  'Handle': 'Identificador',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Solo cómo se llama. El identificador {handle} es lo que la direcciona y nunca cambia.',
+  'Service {name} (custom_name: {custom})': 'Servicio {name} (custom_name: {custom})',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Cómo se llama esta organización en pantalla. Cualquier idioma, cualquier puntuación, y modificable después.',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 y _ . Esto es lo que direcciona la organización — en {example}, en la regla expose: de un servidor y en la API — por eso queda fijo al crearla.',
 }

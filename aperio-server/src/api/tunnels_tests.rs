@@ -276,7 +276,7 @@ async fn create_refuses_a_hostname_outside_the_org_allowlist() {
     .org_store
     .lock()
     .await
-    .create("acme", vec!["*.acme.com".to_string()])
+    .create("acme", vec!["*.acme.com".to_string()], None)
     .unwrap()
     .id;
   let token = seed_session(&state, Role::Admin, None, Some(org_id)).await;
@@ -331,7 +331,7 @@ async fn create_respects_the_org_token_quota() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap()
     .id;
   state

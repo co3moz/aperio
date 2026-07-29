@@ -83,7 +83,7 @@ async fn export_includes_seeded_data() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
 
   let resp = export_handler(State(state), ConnectInfo(test_peer()), headers).await;

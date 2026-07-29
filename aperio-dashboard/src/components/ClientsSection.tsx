@@ -430,6 +430,7 @@ export function ClientsSection({
     (c.instance_id ?? c.id).toLowerCase().includes(needle) ||
     c.ip.toLowerCase().includes(needle) ||
     (c.service ?? '').toLowerCase().includes(needle) ||
+    (c.service_custom_name ?? '').toLowerCase().includes(needle) ||
     (c.token_name ?? '').toLowerCase().includes(needle) ||
     (c.path_bind ?? '').toLowerCase().includes(needle) ||
     c.hostname_binds.some((h) => h.toLowerCase().includes(needle))
@@ -530,8 +531,21 @@ export function ClientsSection({
                           </TooltipContent>
                         </Tooltip>
                         {c.service && (
-                          <HintBadge tint="blue" hint={t('Service name announced by the client (services: list)')}>
-                            {c.service}
+                          // The display name when the file gave one, with the
+                          // handle in the tooltip: the handle is what anything
+                          // addresses, and the label is what you recognize.
+                          <HintBadge
+                            tint="blue"
+                            hint={
+                              c.service_custom_name
+                                ? t('Service {name} (custom_name: {custom})', {
+                                    name: c.service,
+                                    custom: c.service_custom_name,
+                                  })
+                                : t('Service name announced by the client (services: list)')
+                            }
+                          >
+                            {c.service_custom_name || c.service}
                           </HintBadge>
                         )}
                         {g.connections.length > 1 && (

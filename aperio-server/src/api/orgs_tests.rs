@@ -12,7 +12,7 @@ async fn make_org(state: &Arc<AppState>, name: &str) -> String {
     .org_store
     .lock()
     .await
-    .create(name, Vec::new())
+    .create(name, Vec::new(), None)
     .unwrap()
     .id
 }
@@ -214,6 +214,7 @@ async fn create_requires_master_admin() {
     ConnectInfo(test_peer()),
     cookie_headers(&token),
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
     }),
@@ -232,6 +233,7 @@ async fn create_success_and_duplicate() {
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
     }),
@@ -248,6 +250,7 @@ async fn create_success_and_duplicate() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
     }),
@@ -659,6 +662,7 @@ async fn create_accepts_an_optional_hostname_allowlist() {
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "acme".into(),
       // Mixed case, a trailing dot and a duplicate all normalize away.
       hostnames: vec![
@@ -682,6 +686,7 @@ async fn create_accepts_an_optional_hostname_allowlist() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "broken".into(),
       hostnames: vec!["app.*.com".into()],
     }),
@@ -708,6 +713,7 @@ async fn create_without_hostnames_leaves_the_org_unfenced() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
     }),

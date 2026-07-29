@@ -176,6 +176,7 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
 
 fn base_settings() -> ClientSettings {
   ClientSettings {
+    custom_name: None,
     token: None,
     api_key: None,
     scaling: None,
@@ -231,6 +232,7 @@ fn base_settings() -> ClientSettings {
 
 fn tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: None,
     target: target.to_string(),
     protocol: "tcp".to_string(),
@@ -355,7 +357,7 @@ async fn drive(scenario: &str) -> ! {
       s.server = Some(format!("http://127.0.0.1:{port}"));
       s.token = Some("t".to_string());
       s.bind_tunnels.insert(
-        "pg-main".to_string(),
+        "pg_main".to_string(),
         aperio_config::BindTunnelValue::Port(15432),
       );
     }

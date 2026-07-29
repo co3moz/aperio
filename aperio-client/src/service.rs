@@ -116,9 +116,11 @@ fn device_key() -> Option<String> {
 /// config hot-reload.
 #[derive(Clone, Debug)]
 pub(crate) struct ServiceSpec {
-  /// Display name from the `services:` list (None for the single default
-  /// service).
+  /// Handle from the `services:` list (None for the single default service).
+  /// An identifier: a-z, 0-9 and `_`.
   pub(crate) name: Option<String>,
+  /// What to call it on screen, when the file said something friendlier.
+  pub(crate) custom_name: Option<String>,
   /// Stable instance id announced to the server. Kept across reconnects
   /// and config respawns so the server's failover `wait` mode keeps
   /// recognizing this client.
@@ -725,6 +727,7 @@ pub(crate) async fn run_service(
             let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
             let service_name_ping = spec.name.clone();
+            let service_custom_name_ping = spec.custom_name.clone();
             let tunnels_ping = spec.tunnels.clone();
             let visitor_auth_ping = spec.visitor_auth.clone();
             let allowed_ips_ping = spec.allowed_ips.clone();
@@ -791,6 +794,7 @@ pub(crate) async fn run_service(
                   priority,
                   bandwidth_bps,
                   service: service_name_ping.clone(),
+                  service_custom_name: service_custom_name_ping.clone(),
                   public,
                   visitor_auth: visitor_auth_ping.clone(),
                   allowed_ips: allowed_ips_ping.clone(),

@@ -793,7 +793,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
     .org_store
     .lock()
     .await
-    .create("acme", vec!["*.acme.com".to_string()])
+    .create("acme", vec!["*.acme.com".to_string()], None)
     .unwrap()
     .id;
   insert_client(&state, "c1", |h| {

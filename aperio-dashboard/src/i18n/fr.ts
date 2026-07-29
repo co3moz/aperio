@@ -924,4 +924,10 @@ export const fr: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics que ce client écoute, et où une application de la même machine se branche pour envoyer et recevoir.',
   'Cold start & scale-out records': 'Journal des démarrages à froid et des montées en charge',
   'Private services reachable with --bind-tunnels': 'Services privés accessibles avec --bind-tunnels',
+  'Display name': 'Nom affiché',
+  'Handle': 'Identifiant',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Uniquement son appellation. L’identifiant {handle} est ce qui l’adresse et ne change jamais.',
+  'Service {name} (custom_name: {custom})': 'Service {name} (custom_name: {custom})',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Le nom de cette organisation à l’écran. Toute langue, toute ponctuation, modifiable plus tard.',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 et _ . C’est ce qui adresse l’organisation — dans {example}, dans la règle expose: d’un serveur et dans l’API — il est donc figé à la création.',
 }

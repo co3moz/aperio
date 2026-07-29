@@ -8,6 +8,7 @@ fn settings_with(
   bind_tunnels: HashMap<String, BindTunnelValue>,
 ) -> ClientSettings {
   ClientSettings {
+    custom_name: None,
     token: token.map(|t| t.to_string()),
     api_key: None,
     scaling: None,
@@ -64,6 +65,7 @@ fn settings_with(
 /// One tunnel as discovery would report it.
 fn view(name: &str, target: &str, protocol: &str) -> TunnelView {
   TunnelView {
+    custom_name: None,
     name: name.to_string(),
     protocol: protocol.to_string(),
     target: target.to_string(),
@@ -98,8 +100,8 @@ fn entry_with(port: Option<u16>) -> BindTunnelValue {
 #[test]
 fn a_name_resolves_against_what_the_server_lists() {
   let mut map = HashMap::new();
-  map.insert("pg-main".to_string(), entry_with(Some(15432)));
-  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  map.insert("pg_main".to_string(), entry_with(Some(15432)));
+  let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
     "",
@@ -109,7 +111,7 @@ fn a_name_resolves_against_what_the_server_lists() {
   .unwrap();
   assert_eq!(planned.len(), 1);
   assert_eq!(planned[0].port, 15432);
-  assert_eq!(planned[0].name, "pg-main");
+  assert_eq!(planned[0].name, "pg_main");
 }
 
 #[test]
@@ -142,7 +144,7 @@ fn a_client_id_key_binds_every_tunnel_that_peer_declares() {
     }),
   );
   let visible = vec![
-    view("pg-main", "127.0.0.1:5432", "tcp"),
+    view("pg_main", "127.0.0.1:5432", "tcp"),
     view("redis", "127.0.0.1:6379", "tcp"),
   ];
   let planned = plan(
@@ -155,7 +157,7 @@ fn a_client_id_key_binds_every_tunnel_that_peer_declares() {
   assert_eq!(planned.len(), 2);
   let pg = planned
     .iter()
-    .find(|b| b.label.contains("pg-main"))
+    .find(|b| b.label.contains("pg_main"))
     .unwrap();
   assert_eq!(pg.port, 15432, "the override applies to its target");
   let redis = planned.iter().find(|b| b.label.contains("redis")).unwrap();
@@ -165,7 +167,7 @@ fn a_client_id_key_binds_every_tunnel_that_peer_declares() {
 #[test]
 fn an_empty_section_binds_everything_the_token_may_reach() {
   let visible = vec![
-    view("pg-main", "127.0.0.1:5432", "tcp"),
+    view("pg_main", "127.0.0.1:5432", "tcp"),
     view("dns", "192.168.3.100:53", "udp"),
   ];
   let planned = plan(
@@ -183,9 +185,9 @@ fn an_unresolvable_entry_does_not_take_down_the_others() {
   // A break-glass tool: three of four tunnels up during an incident beats
   // none, so an unknown name is reported and skipped, not fatal.
   let mut map = HashMap::new();
-  map.insert("pg-main".to_string(), entry_with(None));
+  map.insert("pg_main".to_string(), entry_with(None));
   map.insert("does-not-exist".to_string(), entry_with(None));
-  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
     "",
@@ -194,12 +196,12 @@ fn an_unresolvable_entry_does_not_take_down_the_others() {
   )
   .unwrap();
   assert_eq!(planned.len(), 1);
-  assert!(planned[0].label.contains("pg-main"));
+  assert!(planned[0].label.contains("pg_main"));
 }
 
 #[test]
 fn an_explicit_selection_that_cannot_resolve_is_an_error() {
-  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let err = plan(
     &settings_with(Some("apr_t"), HashMap::new()),
     "nope",
@@ -210,15 +212,15 @@ fn an_explicit_selection_that_cannot_resolve_is_an_error() {
   assert!(err.contains("nope"), "got: {err}");
   // The error names what *can* be bound, which is the thing the operator
   // needs and could not otherwise find out.
-  assert!(err.contains("pg-main"), "got: {err}");
+  assert!(err.contains("pg_main"), "got: {err}");
 }
 
 #[test]
 fn a_binding_without_any_token_is_an_error() {
-  let visible = vec![view("pg-main", "127.0.0.1:5432", "tcp")];
+  let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let err = plan(
     &settings_with(None, HashMap::new()),
-    "pg-main",
+    "pg_main",
     &visible,
     &None,
   )
@@ -255,8 +257,8 @@ fn a_privileged_or_missing_port_falls_back_to_a_derived_one() {
 fn a_derived_port_is_stable_and_name_dependent() {
   // Stability is the point: the port must survive a restart, or whatever
   // connects to it needs reconfiguring every time.
-  assert_eq!(derived_port("pg-main"), derived_port("pg-main"));
-  assert_ne!(derived_port("pg-main"), derived_port("redis"));
+  assert_eq!(derived_port("pg_main"), derived_port("pg_main"));
+  assert_ne!(derived_port("pg_main"), derived_port("redis"));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,12 +269,12 @@ fn a_derived_port_is_stable_and_name_dependent() {
 fn a_binding_addresses_the_tunnel_by_name() {
   // Every binding resolves to a name, including one keyed by a client id, so
   // there is a single address form on the wire.
-  let url = tunnel_ws_url("https://tunnel.example.com", "/aperio/tcp", "pg-main").unwrap();
+  let url = tunnel_ws_url("https://tunnel.example.com", "/aperio/tcp", "pg_main").unwrap();
   assert!(
     url.starts_with("wss://tunnel.example.com/aperio/tcp?"),
     "{url}"
   );
-  assert!(url.contains("tunnel=pg-main"), "{url}");
+  assert!(url.contains("tunnel=pg_main"), "{url}");
   assert!(!url.contains("client="), "{url}");
 }
 
@@ -340,7 +342,7 @@ async fn discovery_reads_the_listing() {
   init_tracing();
   let body = serde_json::json!([
     {
-      "name": "pg-main",
+      "name": "pg_main",
       "protocol": "tcp",
       "target": "127.0.0.1:5432",
       "client_id": "peer-1",
@@ -359,7 +361,7 @@ async fn discovery_reads_the_listing() {
   .await;
   let got = discover(&server, &["apr_test".to_string()]).await;
   assert_eq!(got.len(), 1);
-  assert_eq!(got[0].name, "pg-main");
+  assert_eq!(got[0].name, "pg_main");
   assert!(got[0].available);
 }
 
@@ -386,7 +388,7 @@ async fn binding_opens_listeners_for_the_discovered_tunnels() {
   init_tracing();
   let body = serde_json::json!([
     {
-      "name": "pg-main",
+      "name": "pg_main",
       "protocol": "tcp",
       "target": "127.0.0.1:5432",
       "client_id": "peer-1",
@@ -423,7 +425,7 @@ async fn binding_opens_listeners_for_the_discovered_tunnels() {
   let server = spawn_http(move |_| (200, body.clone())).await;
 
   let mut map = HashMap::new();
-  map.insert("pg-main".to_string(), BindTunnelValue::Port(39210));
+  map.insert("pg_main".to_string(), BindTunnelValue::Port(39210));
   map.insert("dns".to_string(), BindTunnelValue::Port(39211));
   // An encrypted tunnel with no psk: warns, still binds.
   map.insert("vault".to_string(), BindTunnelValue::Port(39212));
@@ -455,7 +457,7 @@ async fn discovery_asks_every_configured_credential() {
   // would exit before binding anything.
   let body = serde_json::json!([
     {
-      "name": "pg-main",
+      "name": "pg_main",
       "protocol": "tcp",
       "target": "127.0.0.1:5432",
       "client_id": "peer-1",

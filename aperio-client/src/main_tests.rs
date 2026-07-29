@@ -3,6 +3,7 @@ use config::ServiceEntry;
 
 fn base_settings() -> ClientSettings {
   ClientSettings {
+    custom_name: None,
     token: Some("apr_test".to_string()),
     api_key: None,
     scaling: None,
@@ -63,6 +64,7 @@ fn test_build_specs_tunnels_only() {
   let mut settings = base_settings();
   settings.target = None;
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:27017".to_string(),
     protocol: "tcp".to_string(),
@@ -82,6 +84,7 @@ fn test_build_specs_tunnels_validation() {
   let mut settings = base_settings();
   // UDP is accepted alongside TCP; anything else is rejected.
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:53".to_string(),
     protocol: "udp".to_string(),
@@ -93,6 +96,7 @@ fn test_build_specs_tunnels_validation() {
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].tunnels[0].protocol, "udp");
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:53".to_string(),
     protocol: "sctp".to_string(),
@@ -107,6 +111,7 @@ fn test_build_specs_tunnels_validation() {
   // The same target may be declared once per protocol (e.g. DNS tcp+udp).
   settings.tunnels = vec![
     protocol::TunnelDecl {
+      custom_name: None,
       name: None,
       target: "127.0.0.1:53".to_string(),
       protocol: "tcp".to_string(),
@@ -116,6 +121,7 @@ fn test_build_specs_tunnels_validation() {
       expose: None,
     },
     protocol::TunnelDecl {
+      custom_name: None,
       name: None,
       target: "127.0.0.1:53".to_string(),
       protocol: "udp".to_string(),
@@ -129,6 +135,7 @@ fn test_build_specs_tunnels_validation() {
 
   // Targets must be host:port.
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "27017".to_string(),
     protocol: "tcp".to_string(),
@@ -142,6 +149,7 @@ fn test_build_specs_tunnels_validation() {
 
   // Duplicates are rejected.
   let decl = protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:27017".to_string(),
     protocol: "tcp".to_string(),
@@ -156,6 +164,7 @@ fn test_build_specs_tunnels_validation() {
 
   // idle_timeout is udp-only and must be at least 1 second.
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:27017".to_string(),
     protocol: "tcp".to_string(),
@@ -167,6 +176,7 @@ fn test_build_specs_tunnels_validation() {
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("only supported for udp"), "got: {err}");
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:53".to_string(),
     protocol: "udp".to_string(),
@@ -178,6 +188,7 @@ fn test_build_specs_tunnels_validation() {
   let err = build_specs(&settings, "base-id", false).unwrap_err();
   assert!(err.contains("at least 1 second"), "got: {err}");
   settings.tunnels = vec![protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: "127.0.0.1:53".to_string(),
     protocol: "udp".to_string(),
@@ -494,6 +505,7 @@ fn init_tracing() {
 
 fn tcp_tunnel(target: &str) -> protocol::TunnelDecl {
   protocol::TunnelDecl {
+    custom_name: None,
     name: None,
     target: target.to_string(),
     protocol: "tcp".to_string(),
@@ -1126,6 +1138,7 @@ fn test_log_spec_all_branches() {
 #[test]
 fn test_validate_tunnels_accepts_the_combined_protocol() {
   let decl = |protocol: &str| protocol::TunnelDecl {
+    custom_name: None,
     name: Some("dns".to_string()),
     target: "192.168.3.100:53".to_string(),
     protocol: protocol.to_string(),
@@ -1152,6 +1165,7 @@ fn test_validate_tunnels_refuses_encrypt_on_a_combined_tunnel() {
   // Encryption is the tcp-only handshake; accepting it here would leave the
   // udp half in the clear under a flag that says otherwise.
   let err = validate_tunnels(&[protocol::TunnelDecl {
+    custom_name: None,
     name: Some("dns".to_string()),
     target: "192.168.3.100:53".to_string(),
     protocol: "tcp/udp".to_string(),
@@ -1168,6 +1182,7 @@ fn test_validate_tunnels_refuses_encrypt_on_a_combined_tunnel() {
 fn test_validate_tunnels_allows_expose_on_a_combined_tunnel() {
   // A public port relays TCP; the tunnel's tcp half qualifies.
   let out = validate_tunnels(&[protocol::TunnelDecl {
+    custom_name: None,
     name: Some("dns".to_string()),
     target: "192.168.3.100:53".to_string(),
     protocol: "tcp/udp".to_string(),

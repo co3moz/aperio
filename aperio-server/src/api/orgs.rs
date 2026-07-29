@@ -69,6 +69,7 @@ pub(crate) async fn orgs_list_handler(
     out.push(serde_json::json!({
       "id": org.id,
       "name": org.name,
+      "custom_name": org.custom_name,
       "master": false,
       "created_at": org.created_at,
       "users": c.0,
@@ -82,7 +83,13 @@ pub(crate) async fn orgs_list_handler(
 /// Body of the create-org call.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct OrgCreateRequest {
+  /// The handle: a-z, 0-9 and `_`. Fixed once created, because it is what
+  /// `payments@postgres` and an `expose:` rule name.
   pub(crate) name: String,
+  /// What to call it on screen. Free text and editable later; absent means
+  /// the handle is shown.
+  #[serde(default)]
+  pub(crate) custom_name: Option<String>,
   /// Optional hostname allowlist fencing every bind made inside the org:
   /// exact hostnames (`acme.com`) and/or subdomain wildcards (`*.acme.com`).
   /// Absent or empty = unrestricted.
@@ -198,11 +205,11 @@ pub(crate) async fn orgs_create_handler(
     Ok(v) => v,
     Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
   };
-  let created = state
-    .org_store
-    .lock()
-    .await
-    .create(&payload.name, hostnames.clone());
+  let created = state.org_store.lock().await.create(
+    &payload.name,
+    hostnames.clone(),
+    payload.custom_name.clone(),
+  );
   match created {
     Ok(org) => {
       let ip = actor_ip(&state, &headers, addr);
@@ -217,6 +224,7 @@ pub(crate) async fn orgs_create_handler(
       Json(serde_json::json!({
         "id": org.id,
         "name": org.name,
+        "custom_name": org.custom_name,
         "hostnames": org.hostnames,
       }))
       .into_response()
@@ -229,6 +237,66 @@ pub(crate) async fn orgs_create_handler(
 /// only). Existing tokens keep their records, but a hostname that falls
 /// outside the new fence stops being bindable immediately: the fence is
 /// re-checked on every client connect, not only at token creation.
+/// Body of the rename call.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgCustomNameRequest {
+  /// What to call the organization on screen. Absent or blank goes back to
+  /// showing the handle.
+  #[serde(default)]
+  pub(crate) custom_name: Option<String>,
+}
+
+/// Renames what an organization is *called*.
+///
+/// The handle is not touched and is not touchable: an `expose:` rule, a
+/// binder's config and every `<org>@<tunnel>` written down elsewhere point at
+/// it, and none of those can be updated from this screen. Which is exactly
+/// why a display name exists — so the thing people read can change without
+/// the thing machines read moving underneath them.
+#[utoipa::path(put, path = "/aperio/api/orgs/{id}/custom-name", tag = "dashboard",
+  description = "Sets an organization's display name; the handle it is addressed by never changes (master admin).",
+  request_body = OrgCustomNameRequest,
+  responses((status = 200, description = "Updated"), (status = 404, description = "No such organization")))]
+pub(crate) async fn orgs_custom_name_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+  Json(payload): Json<OrgCustomNameRequest>,
+) -> Response {
+  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  if id == MASTER_ID {
+    return (
+      StatusCode::BAD_REQUEST,
+      "the master organization is built in and cannot be renamed",
+    )
+      .into_response();
+  }
+  let renamed = state
+    .org_store
+    .lock()
+    .await
+    .set_custom_name(&id, payload.custom_name.clone());
+  if !renamed {
+    return (StatusCode::NOT_FOUND, "No such organization").into_response();
+  }
+  let ip = actor_ip(&state, &headers, addr);
+  state
+    .audit(
+      "org_renamed",
+      &state.session_actor(&headers).await,
+      &ip,
+      &format!(
+        "id={id} custom_name={}",
+        payload.custom_name.as_deref().unwrap_or("(cleared)")
+      ),
+    )
+    .await;
+  StatusCode::OK.into_response()
+}
+
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/hostnames", tag = "orgs",
   description = "Replaces a child org's hostname allowlist (empty list = unrestricted).",
   request_body = OrgHostnamesRequest,

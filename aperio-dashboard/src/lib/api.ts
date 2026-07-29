@@ -44,7 +44,10 @@ export interface ClientDetail {
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
+  /** Handle of the service this connection exposes. */
   service: string | null
+  /** What that service is called on screen, when its file said so. */
+  service_custom_name?: string | null
   public: boolean
   visitor_auth: boolean
   allowed_ips: string[]
@@ -362,7 +365,11 @@ export interface SessionInfo {
 export interface Organization {
   /** `master` for the implicit master org, otherwise a child org UUID. */
   id: string
+  /** The handle: a-z, 0-9 and `_`, fixed at creation. What `payments@postgres`
+   *  and an `expose:` rule name. */
   name: string
+  /** What to call it on screen. Free text, editable, absent = show the handle. */
+  custom_name?: string | null
   /** True for the implicit master organization. */
   master: boolean
   /** Unix seconds of creation (absent for master). */
@@ -564,6 +571,8 @@ export interface TopologyGraph {
 export interface DeclaredTunnel {
   /** Handle a binder addresses, unique within the organization. */
   name: string
+  /** What the declaring client calls it on screen, when it named one. */
+  custom_name?: string | null
   /** Organization that owns it; absent for the master organization. */
   org?: string | null
   /** `tcp`, `udp`, or `tcp/udp` for a tunnel that serves both. */
@@ -701,11 +710,14 @@ export const api = {
       json('POST', payload),
     ),
   orgs: () => request<Organization[]>('/orgs'),
-  createOrg: (name: string, hostnames: string[] = []) =>
+  createOrg: (name: string, hostnames: string[] = [], customName?: string) =>
     request<{ id: string; name: string; hostnames: string[] }>(
       '/orgs',
-      json('POST', { name, hostnames }),
+      json('POST', { name, hostnames, custom_name: customName || null }),
     ),
+  /** Renames what an organization is *called*; its handle never moves. */
+  setOrgCustomName: (id: string, customName: string | null) =>
+    mutate(`/orgs/${encodeURIComponent(id)}/custom-name`, json('PUT', { custom_name: customName })),
   setOrgHostnames: (id: string, hostnames: string[]) =>
     request<{ id: string; name: string; hostnames: string[] }>(
       `/orgs/${encodeURIComponent(id)}/hostnames`,

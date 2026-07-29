@@ -440,6 +440,7 @@ fn every_environment_variable_has_a_yaml_key() {
 
 fn decl(name: Option<&str>, target: &str, protocol: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: name.map(str::to_string),
     target: target.to_string(),
     protocol: protocol.to_string(),
@@ -453,8 +454,8 @@ fn decl(name: Option<&str>, target: &str, protocol: &str) -> TunnelDecl {
 #[test]
 fn a_declared_name_is_used_verbatim() {
   assert_eq!(
-    tunnel_name(&decl(Some("pg-main"), "127.0.0.1:5432", "tcp")),
-    "pg-main"
+    tunnel_name(&decl(Some("pg_main"), "127.0.0.1:5432", "tcp")),
+    "pg_main"
   );
   assert_eq!(
     tunnel_name(&decl(Some("  spaced  "), "127.0.0.1:5432", "tcp")),
@@ -468,7 +469,7 @@ fn an_undeclared_name_is_derived_from_the_target() {
   // scheme would only work for files that opted in.
   assert_eq!(
     tunnel_name(&decl(None, "192.168.3.100:53", "udp")),
-    "192-168-3-100-53-udp"
+    "192_168_3_100_53_udp"
   );
   // Protocol is part of it: the same address over tcp and udp are two
   // tunnels, and the client refuses a file where two resolve to one name.
@@ -491,21 +492,54 @@ fn a_name_shaped_like_a_client_id_is_refused() {
   // the two shapes have to stay disjoint for that fallback to be unambiguous.
   assert!(looks_like_client_id("3beebfdb-079f-4a00-9e03-1bb6eb9222b4"));
   assert!(validate_tunnel_name("3beebfdb-079f-4a00-9e03-1bb6eb9222b4").is_err());
-  assert!(!looks_like_client_id("pg-main"));
-  assert!(validate_tunnel_name("pg-main").is_ok());
+  assert!(!looks_like_client_id("pg_main"));
+  assert!(validate_tunnel_name("pg_main").is_ok());
 }
 
 #[test]
 fn a_name_is_limited_to_addressable_characters() {
-  assert!(validate_tunnel_name("db.primary_1-a").is_ok());
+  assert!(validate_tunnel_name("db_primary_1a").is_ok());
   assert!(validate_tunnel_name("").is_err());
   assert!(validate_tunnel_name("has space").is_err());
   assert!(validate_tunnel_name("has/slash").is_err());
+  // The three that used to pass, and are the whole point of the rule: a name
+  // is an identifier, so there is exactly one way to write each one.
+  assert!(
+    validate_tunnel_name("PgMain").is_err(),
+    "case is not a variant"
+  );
+  assert!(validate_tunnel_name("pg-main").is_err(), "`-` is reserved");
+  assert!(
+    validate_tunnel_name("db.primary").is_err(),
+    "`.` is reserved"
+  );
+  // Not English is not an identifier: `ı` and `i` are one keystroke apart and
+  // a different character, which is a bug waiting in a config file.
+  assert!(validate_tunnel_name("kayıt").is_err());
+  // The message carries the fix, since almost every rejection is mechanical.
+  let why = validate_tunnel_name("PG-Main").unwrap_err();
+  assert!(why.contains("pg_main"), "{why}");
+}
+
+#[test]
+fn a_slug_is_a_name_whatever_it_started_as() {
+  assert_eq!(slug("PG-Main"), "pg_main");
+  assert_eq!(slug("  Acme Inc.  "), "acme_inc");
+  assert_eq!(slug("Ödeme Servisi"), "odeme_servisi");
+  assert_eq!(slug("Müşteri Portalı"), "musteri_portali");
+  assert_eq!(slug("Größe"), "grosse");
+  // A script this cannot read becomes separators rather than a guess.
+  assert_eq!(slug("数据库"), "unnamed");
+  // Never empty: something has to be addressable even when nothing survives.
+  assert_eq!(slug("!!!"), "unnamed");
+  for raw in ["PG-Main", "Acme Inc.", "!!!", "çğüş", "数据库", "Ödeme"] {
+    assert!(validate_name("test", &slug(raw)).is_ok(), "{raw}");
+  }
 }
 
 #[test]
 fn a_bind_entry_accepts_the_short_and_long_forms() {
-  // `pg-main: 15432` is the whole entry for most bindings.
+  // `pg_main: 15432` is the whole entry for most bindings.
   let short: BindTunnelValue = serde_yaml::from_str("15432").unwrap();
   assert_eq!(short.entry().port, Some(15432));
 
@@ -538,7 +572,7 @@ fn a_combined_derived_name_stays_addressable() {
   // The protocol goes into a derived name, and a slash is not a character a
   // name may contain, so it has to be folded rather than passed through.
   let name = tunnel_name(&decl(None, "192.168.3.100:53", PROTOCOL_BOTH));
-  assert_eq!(name, "192-168-3-100-53-tcp-udp");
+  assert_eq!(name, "192_168_3_100_53_tcp_udp");
   assert!(validate_tunnel_name(&name).is_ok());
 }
 

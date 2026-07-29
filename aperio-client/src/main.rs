@@ -849,6 +849,7 @@ fn build_specs(
     let connections = clamp_connections(settings.connections, "the service");
     let mut specs = vec![ServiceSpec {
       name: None,
+      custom_name: settings.custom_name.clone(),
       client_id: client_id_base.to_string(),
       token,
       instance_group: client_id_base.to_string(),
@@ -914,6 +915,13 @@ fn build_specs(
           .clone()
           .unwrap_or_else(|| format!("services[{}]", i))
       };
+      // A service name is an identifier the dashboard, the logs and a future
+      // address form all share, so it is settled here rather than wherever it
+      // is first displayed. `custom_name:` is where anything human goes.
+      if let Some(name) = entry.name.as_deref() {
+        aperio_config::validate_name("service", name)
+          .map_err(|e| format!("CRITICAL ERROR: {e}"))?;
+      }
       let target = entry
         .target
         .clone()
@@ -931,6 +939,11 @@ fn build_specs(
       );
       Ok(ServiceSpec {
         name: entry.name.clone(),
+        custom_name: entry
+          .custom_name
+          .clone()
+          .map(|n| n.trim().to_string())
+          .filter(|n| !n.is_empty()),
         client_id: format!("{}-{}", client_id_base, i),
         token: token.clone(),
         instance_group: client_id_base.to_string(),
@@ -1246,6 +1259,11 @@ fn validate_tunnels(
     }
     let normalized = crate::protocol::TunnelDecl {
       name: decl.name.as_ref().map(|n| n.trim().to_string()),
+      custom_name: decl
+        .custom_name
+        .as_ref()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty()),
       target,
       protocol,
       encrypt: decl.encrypt,

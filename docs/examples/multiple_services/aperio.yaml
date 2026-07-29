@@ -5,7 +5,10 @@ server:
 # Several backends from one client, one tunnel connection per entry.
 # Per-entry fields override the top-level ones; binds are strictly per entry.
 services:
-  - name: web                       # label in client logs and the dashboard
+  # `name:` is the handle (a-z, 0-9, _); `custom_name:` is the label the
+  # dashboard and the client logs show, and can say anything.
+  - name: web
+    custom_name: "Public Web"
     target: http://localhost:3000
     hostname: app.example.com
     health:

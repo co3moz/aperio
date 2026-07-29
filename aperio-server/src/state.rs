@@ -71,6 +71,9 @@ pub(crate) struct ClientDetail {
   pub(crate) version: Option<String>,
   /// Service name announced via Ping (multi-service clients).
   pub(crate) service: Option<String>,
+  /// What that service is called on screen, when the client's file said so.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) service_custom_name: Option<String>,
   /// True when this client serves its traffic without the visitor auth gate.
   pub(crate) public: bool,
   /// True when this client gates its service behind a client-set visitor
@@ -642,6 +645,8 @@ pub(crate) struct ClientHandle {
   /// Display name of the service this connection exposes (announced via
   /// Ping by multi-service clients).
   pub(crate) service_name: Option<String>,
+  /// What that service is called on screen, when the client named one.
+  pub(crate) service_custom_name: Option<String>,
   /// True when the client declared its service public AND its token permits
   /// publishing public services: the visitor auth gate is skipped for
   /// routes served exclusively by public clients.

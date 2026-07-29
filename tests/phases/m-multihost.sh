@@ -18,20 +18,20 @@ assert_status 504 "$CODE" "an unclaimed hostname is not routed"
 
 step "Per-service static serve: one client, two hostnames, two directories"
 SERVE_ROOT="$(mktemp -d)"
-mkdir -p "$SERVE_ROOT/site-a" "$SERVE_ROOT/site-b"
-echo '<h1>site a</h1>' > "$SERVE_ROOT/site-a/index.html"
-echo '<h1>site b</h1>' > "$SERVE_ROOT/site-b/index.html"
+mkdir -p "$SERVE_ROOT/site_a" "$SERVE_ROOT/site_b"
+echo '<h1>site a</h1>' > "$SERVE_ROOT/site_a/index.html"
+echo '<h1>site b</h1>' > "$SERVE_ROOT/site_b/index.html"
 SERVE_CFG="$SERVE_ROOT/aperio.yaml"
 cat > "$SERVE_CFG" <<EOF
 server:
   url: $BASE
   token: $TOKEN
 services:
-  - name: site-a
-    serve: $SERVE_ROOT/site-a
+  - name: site_a
+    serve: $SERVE_ROOT/site_a
     hostname: site-a.e2e.local
-  - name: site-b
-    serve: $SERVE_ROOT/site-b
+  - name: site_b
+    serve: $SERVE_ROOT/site_b
     hostname: site-b.e2e.local
 EOF
 "$CLIENT_BIN" --config "$SERVE_CFG" >"$LOG_DIR/client-$PHASE-serve.log" 2>&1 &

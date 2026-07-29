@@ -1841,7 +1841,7 @@ tunnels:
   - name: mongo
     target: 127.0.0.1:27017     # MongoDB
     protocol: tcp
-  - name: pg-main
+  - name: pg_main
     target: 127.0.0.1:5432
     encrypt: true
     psk: a-long-random-string   # never sent anywhere
@@ -1878,6 +1878,34 @@ one derived from the name, stable across restarts.
 two clients establish X25519 + ChaCha20-Poly1305 and the server relays
 ciphertext only. A pre-shared key mixed into the derivation protects
 against an actively hostile server.
+
+\section{Names}
+
+Everything Aperio addresses by name --- an organisation, a service, a tunnel
+--- carries a \textbf{handle}: \code{a-z}, \code{0-9} and \code{\_}, at most
+64 characters. A handle is written in one file and read in another, typed into
+a command line, and joined with other handles to form an address
+(\code{payments@postgres}). Every character outside that set is a way for two
+people to write down what they think is the same name and be wrong:
+\code{Postgres} and \code{postgres}, \code{pg-main} and \code{pg\_main}, an
+\code{i} that is actually \code{ı}.
+
+What is left out stays available as syntax \emph{around} a name rather than
+inside one: \code{@} already separates an organisation from a tunnel, and
+\code{-}, \code{.} and \code{*} are reserved for whatever an address needs to
+say next.
+
+Anything a person should read goes in \code{custom\_name:} --- free text, any
+language, changeable at any time, because nothing addresses it. The handle
+never changes, since an \code{expose:} rule and a binder's config on another
+machine point at it.
+
+\begin{lstlisting}[language=aperioyaml]
+services:
+  - name: web                    # the handle
+    custom_name: "Public Web"    # what the dashboard shows
+    target: http://localhost:3000
+\end{lstlisting}
 
 An \code{expose:} entry in \code{aperio-server.yaml} opens a public TCP
 port straight into a tunnel, with no binder peer, naming the tunnel and the
@@ -2460,6 +2488,8 @@ settings are required: the token, the server URL, and the target.
 \code{APERIO\_MAX\_REQUEST\_BODY} &  & \code{max\_request\_body} & Max request body size in bytes visitors may upload to this service. Announced to the server, which rejects bigger uploads with an early \textbf{413} before the body ever enters the tunnel. Can only tighten the server's global \code{APERIO\_MAX\_BODY\_SIZE}, never widen it. Per \code{services:} entry via \code{max\_request\_body:}. \\
 \addlinespace[2pt]
 \code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). \\
+\addlinespace[2pt]
+\code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it --- \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
 \addlinespace[2pt]
 \code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (see \emph{Messages Between Clients}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
 \addlinespace[2pt]

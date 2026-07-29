@@ -144,6 +144,7 @@ async fn make_token(state: &AppState) -> String {
 
 fn tcp_tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: None,
     target: target.into(),
     protocol: "tcp".into(),
@@ -155,6 +156,7 @@ fn tcp_tunnel(target: &str) -> TunnelDecl {
 
 fn udp_tunnel(target: &str) -> TunnelDecl {
   TunnelDecl {
+    custom_name: None,
     name: None,
     target: target.into(),
     protocol: "udp".into(),
@@ -304,7 +306,7 @@ async fn tcp_handler_legacy_will_not_reach_another_organizations_client() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap()
     .id;
   seed_client(&state, "c1", |c| {

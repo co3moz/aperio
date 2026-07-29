@@ -135,9 +135,9 @@ pub fn protocol_serves(protocol: &str, want: &str) -> bool {
 /// True when a string is shaped like the UUID a client id is.
 ///
 /// Tunnel names and client ids share one key space in `bind-tunnels:`, where a
-/// key is read as a tunnel name and falls back to a peer's client id. Keeping
-/// the two shapes disjoint is what makes that fallback unambiguous rather than
-/// a guess, so a name that could be a client id is refused at the source.
+/// key is read as a tunnel name and falls back to a peer's client id. The two
+/// shapes cannot collide: a UUID carries `-`, which a name may not, so this
+/// only has to recognize the id form rather than defend the name space.
 pub fn looks_like_client_id(raw: &str) -> bool {
   let s = raw.trim();
   // 8-4-4-4-12 hex with hyphens, the only form the client emits.
@@ -148,9 +148,108 @@ pub fn looks_like_client_id(raw: &str) -> bool {
     })
 }
 
+/// Characters a name may contain. Everything else is reserved.
+///
+/// Lowercase ASCII, digits and `_`, and nothing else, because a name is an
+/// **identifier** rather than a label: it is written in one file and read in
+/// another, typed into a command line, and joined with other names to form an
+/// address (`payments@postgres`). Every character outside this set is a way
+/// for two people to write down what they think is the same name and be
+/// wrong: `Postgres` and `postgres`, `pg_main` and `pg_main`, an `i` that is
+/// actually `ı`.
+///
+/// What is left out is left out on purpose. `-` and `.` and `*` and `@` carry
+/// no meaning in a name today, which is exactly what keeps them available to
+/// carry meaning in an *address* tomorrow: `*@postgres`, `acme.*@postgres`.
+/// A character that is allowed inside a name can never become syntax around
+/// one.
+pub const NAME_CHARS: &str = "a-z, 0-9 and _";
+
+/// Longest name accepted. Long enough to be descriptive, short enough to stay
+/// readable in a table, a log line and a command.
+pub const MAX_NAME_LEN: usize = 64;
+
+/// Rejects a name that cannot be used as an identifier.
+///
+/// `kind` names what is being validated ("tunnel", "service", "organization")
+/// so the message is about the thing the operator wrote rather than about a
+/// rule in the abstract.
+pub fn validate_name(kind: &str, name: &str) -> Result<(), String> {
+  let trimmed = name.trim();
+  if trimmed.is_empty() {
+    return Err(format!("a {kind} name cannot be empty"));
+  }
+  if trimmed.chars().count() > MAX_NAME_LEN {
+    return Err(format!(
+      "{kind} name '{trimmed}' is longer than {MAX_NAME_LEN} characters"
+    ));
+  }
+  if !trimmed
+    .chars()
+    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+  {
+    // The suggestion is the point of the message: almost every rejection is a
+    // capital letter, a hyphen or a dot, and the fix is mechanical.
+    return Err(format!(
+      "{kind} name '{trimmed}' may only contain {NAME_CHARS} (write it as '{}')",
+      slug(trimmed)
+    ));
+  }
+  Ok(())
+}
+
+/// The ASCII letter a Latin one stands on, for suggesting a handle.
+///
+/// Only the letters that are one letter wearing a mark, plus the Turkish
+/// dotless `ı` and the German `ß`, which are their own letters but have one
+/// obvious ASCII reading. Everything else becomes a separator: a suggestion
+/// is meant to be recognizable, not to guess at a script it cannot read.
+fn fold_latin(ch: char) -> Option<&'static str> {
+  Some(match ch {
+    'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'ā' => "a",
+    'ç' | 'ć' | 'č' => "c",
+    'é' | 'è' | 'ê' | 'ë' | 'ē' => "e",
+    'ğ' | 'ĝ' => "g",
+    'í' | 'ì' | 'î' | 'ï' | 'ī' | 'ı' => "i",
+    'ñ' | 'ń' => "n",
+    'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'ø' | 'ō' => "o",
+    'ś' | 'š' | 'ş' => "s",
+    'ú' | 'ù' | 'û' | 'ü' | 'ū' => "u",
+    'ý' | 'ÿ' => "y",
+    'ź' | 'ż' | 'ž' => "z",
+    'ß' => "ss",
+    'æ' => "ae",
+    'œ' => "oe",
+    _ => return None,
+  })
+}
+
+/// Turns any string into a valid name, for deriving one and for suggesting a
+/// correction. Not a validator: it always succeeds, and never silently stands
+/// in for a name the operator wrote — a suggestion is shown, and whoever is
+/// naming the thing accepts or replaces it.
+pub fn slug(raw: &str) -> String {
+  let mut out = String::new();
+  for ch in raw.trim().chars() {
+    let lower = ch.to_lowercase().next().unwrap_or(ch);
+    if lower.is_ascii_alphanumeric() {
+      out.push(lower);
+    } else if let Some(folded) = fold_latin(lower) {
+      out.push_str(folded);
+    } else if !out.ends_with('_') {
+      out.push('_');
+    }
+  }
+  let out = out.trim_matches('_').to_string();
+  if out.is_empty() {
+    return "unnamed".to_string();
+  }
+  out.chars().take(MAX_NAME_LEN).collect()
+}
+
 /// The name a tunnel is addressed by: what it declared, or one derived from
 /// its target and protocol so an unnamed tunnel still has a stable handle
-/// (`127.0.0.1:5432` tcp becomes `127-0-0-1-5432-tcp`).
+/// (`127.0.0.1:5432` tcp becomes `127_0_0_1_5432_tcp`).
 ///
 /// Derivation lives here rather than in the client so the server, the client
 /// and the config builder all spell the same tunnel the same way.
@@ -163,42 +262,19 @@ pub fn tunnel_name(decl: &TunnelDecl) -> String {
   {
     return name.to_string();
   }
-  let slug: String = decl
-    .target
-    .trim()
-    .chars()
-    .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-    .collect();
-  // `tcp/udp` would put a slash in the name, which is not a character a name
-  // may contain; fold it so a combined tunnel stays addressable.
-  format!(
-    "{}-{}",
-    slug.trim_matches('-'),
-    decl.protocol.trim().to_ascii_lowercase().replace('/', "-")
-  )
+  // `tcp/udp` would put a slash in the name; the slug folds it, so a combined
+  // tunnel stays addressable.
+  slug(&format!(
+    "{} {}",
+    decl.target,
+    decl.protocol.trim().to_ascii_lowercase()
+  ))
 }
 
 /// Rejects a tunnel name that cannot be used as a handle. `Ok(())` when the
 /// name is usable (including when none was given).
 pub fn validate_tunnel_name(name: &str) -> Result<(), String> {
-  let trimmed = name.trim();
-  if trimmed.is_empty() {
-    return Err("a tunnel name cannot be empty".to_string());
-  }
-  if looks_like_client_id(trimmed) {
-    return Err(format!(
-      "tunnel name '{trimmed}' is shaped like a client id, which `bind-tunnels:` keys also accept"
-    ));
-  }
-  if !trimmed
-    .chars()
-    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-  {
-    return Err(format!(
-      "tunnel name '{trimmed}' may only contain letters, digits, '-', '_' and '.'"
-    ));
-  }
-  Ok(())
+  validate_name("tunnel", name)
 }
 
 /// A private local service (e.g. a database or SSH) this client makes reachable
@@ -211,8 +287,13 @@ pub struct TunnelDecl {
   /// Unset derives one from the target, and a name shaped like a UUID is
   /// rejected so names can never collide with client ids.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["pg-main", "ssh-bastion"]))]
+  #[schemars(extend("examples" = ["pg_main", "ssh_bastion"]))]
   pub name: Option<String>,
+  /// What to call it on screen. Free text: any language, any punctuation,
+  /// spaces. Nothing addresses it, so nothing breaks when it changes.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["Primary Postgres"]))]
+  pub custom_name: Option<String>,
   /// Local address this client dials when a peer binds the tunnel.
   #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
   pub target: String,
@@ -561,9 +642,16 @@ impl Hostnames {
 /// field falls back to the top-level value.
 #[derive(Deserialize, Default, Clone, JsonSchema)]
 pub struct ServiceEntry {
-  /// Label for this service in client logs and the dashboard clients table.
+  /// Handle for this service in client logs and the dashboard clients table.
+  /// An identifier: a-z, 0-9 and `_`. Use `custom_name` for something to read.
   #[schemars(extend("examples" = ["web"]))]
   pub name: Option<String>,
+  /// What to call this service on screen. Free text: any language, any
+  /// punctuation, spaces. Nothing addresses it, so nothing breaks when it
+  /// changes.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["Public Web"]))]
+  pub custom_name: Option<String>,
   /// Local backend this service exposes through the tunnel; `h2c://` /
   /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed);
   /// `unix://` targets forward over a Unix domain socket.
@@ -759,7 +847,7 @@ pub struct SubscribeEntry {
 #[derive(Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum BindTunnelValue {
-  /// `pg-main: 15432` — the local port, everything else defaulted.
+  /// `pg_main: 15432` — the local port, everything else defaulted.
   Port(u16),
   /// The full entry.
   Entry(BindTunnelEntry),
@@ -802,7 +890,7 @@ pub struct BindTunnelEntry {
   /// which binds every tunnel that peer declares; a name-keyed entry is one
   /// tunnel and uses `port`.
   #[serde(default, rename = "override")]
-  #[schemars(extend("examples" = [{"pg-main": 15432, "redis": 16379}]))]
+  #[schemars(extend("examples" = [{"pg_main": 15432, "redis": 16379}]))]
   pub overrides: HashMap<String, u16>,
   /// Pre-shared key for this peer's end-to-end encrypted tunnels; must match
   /// the `psk` the declaring client configured. Never sent to the server.
@@ -882,6 +970,11 @@ pub struct FileConfig {
   /// `--tcp-target` and `APERIO_TCP_TARGET` are unaffected.
   #[schemars(extend("examples" = ["127.0.0.1:5432"], "deprecated" = true))]
   pub tcp_target: Option<String>,
+  /// What to call the service on screen when one is named on the command line
+  /// or in the environment (`APERIO_CUSTOM_NAME`). A `services:` entry carries
+  /// its own `custom_name:`, which is where a config file says it.
+  #[schemars(extend("examples" = ["Public Web"]))]
+  pub custom_name: Option<String>,
   /// Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,
   /// `wait_for_backend`). Preferred over the flat `target_health` / `health_*`
   /// keys, which still work; `services:` entries may override it per service.
@@ -1003,7 +1096,7 @@ pub struct FileConfig {
   /// Private local services a peer client may reach via `--bind-tunnels`; never
   /// exposed to the public web.
   #[schemars(extend("examples" = [[
-    {"name": "pg-main", "target": "127.0.0.1:5432"},
+    {"name": "pg_main", "target": "127.0.0.1:5432"},
     {"name": "dns", "target": "127.0.0.1:53", "protocol": "tcp/udp"}
   ]]))]
   pub tunnels: Option<Vec<TunnelDecl>>,
@@ -1012,7 +1105,7 @@ pub struct FileConfig {
   /// declares, which is the older spelling and still works.
   #[serde(rename = "bind-tunnels", alias = "bind_tunnels")]
   #[schemars(extend("examples" = [{
-    "pg-main": 15432,
+    "pg_main": 15432,
     "dns": {"port": 15353, "token": "apr_binder_token"}
   }]))]
   pub bind_tunnels: Option<HashMap<String, BindTunnelValue>>,
@@ -1128,7 +1221,7 @@ pub struct ExposeEntry {
   /// as `<org>@<name>`, e.g. `payments@postgres`, which says the same thing
   /// as a separate `org:` and reads the way the dashboard shows it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["ssh-bastion", "payments@postgres"]))]
+  #[schemars(extend("examples" = ["ssh_bastion", "payments@postgres"]))]
   pub tunnel: Option<String>,
   /// Name of the organization whose client may claim this port. A tunnel name
   /// is unique inside an organization and nowhere else, so this is what makes
@@ -2300,7 +2393,7 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = [[{"hostname": "app.example.com", "504_page": "./pages/app-504.html"}]]))]
   pub error_pages: Option<Vec<ErrorPageRule>>,
   /// Experimental public TCP expose ports.
-  #[schemars(extend("examples" = [[{"port": 5432, "tunnel": "pg-main", "protocol": "tcp"}]]))]
+  #[schemars(extend("examples" = [[{"port": 5432, "tunnel": "pg_main", "protocol": "tcp"}]]))]
   pub expose: Option<Vec<ExposeEntry>>,
   /// Per-route request rate limits, capping aggregate rps to a host+path.
   #[schemars(extend("examples" = [[{"hostname": "api.example.com", "path": "/api/login", "rps": 5.0, "burst": 10.0}]]))]

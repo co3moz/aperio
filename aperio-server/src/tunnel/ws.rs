@@ -409,6 +409,7 @@ pub(crate) async fn handle_socket(
         subscriptions: Vec::new(),
         bandwidth_bps: bandwidth_bps.clone(),
         service_name: None,
+        service_custom_name: None,
         public: false,
         public_denied_warned: false,
         visitor_auth: None,
@@ -838,6 +839,7 @@ pub(crate) async fn handle_socket(
               priority,
               bandwidth_bps,
               service,
+              service_custom_name,
               public,
               visitor_auth,
               allowed_ips,
@@ -1060,6 +1062,7 @@ pub(crate) async fn handle_socket(
                   }
                   if service.is_some() {
                     handle.service_name = service;
+                    handle.service_custom_name = service_custom_name;
                   }
                   // Public declaration: honored only when the token permits
                   // publishing public services.

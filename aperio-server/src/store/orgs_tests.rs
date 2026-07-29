@@ -10,26 +10,54 @@ fn temp_dir() -> String {
 fn test_create_unique_and_reserved() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let a = store.create("Acme", Vec::new()).unwrap();
+  let a = store.create("acme", Vec::new(), None).unwrap();
   assert_eq!(store.list().len(), 1);
 
   // Case-insensitive uniqueness and the reserved name.
-  assert!(store.create("acme", Vec::new()).is_err());
-  assert!(store.create("master", Vec::new()).is_err());
-  assert!(store.create("  ", Vec::new()).is_err());
-  // `@` is what separates the organization from the tunnel in `<org>@<name>`,
-  // so a name carrying one would make that spelling ambiguous.
-  assert!(store.create("acme@corp", Vec::new()).is_err());
+  assert!(store.create("acme", Vec::new(), None).is_err());
+  assert!(store.create("master", Vec::new(), None).is_err());
+  assert!(store.create("  ", Vec::new(), None).is_err());
+  // A handle is an identifier: `@` is address syntax, `-` and `.` are
+  // reserved for it, capitals and non-English letters are two ways to write
+  // one name. Anything to read goes in `custom_name`.
+  assert!(store.create("acme@corp", Vec::new(), None).is_err());
+  assert!(store.create("Acme", Vec::new(), None).is_err());
+  assert!(store.create("acme-corp", Vec::new(), None).is_err());
+  assert!(store.create("ödeme", Vec::new(), None).is_err());
 
-  // Survives a reload.
+  // The display name is free text, and changes without the handle moving.
+  let named = store
+    .create("payments", Vec::new(), Some("Ödeme Servisi".to_string()))
+    .unwrap();
+  assert_eq!(named.custom_name.as_deref(), Some("Ödeme Servisi"));
+  assert!(store.set_custom_name(&named.id, Some("  Ödeme  ".to_string())));
+  assert_eq!(
+    store.find(&named.id).unwrap().custom_name.as_deref(),
+    Some("Ödeme"),
+    "trimmed"
+  );
+  assert!(store.set_custom_name(&named.id, Some("   ".to_string())));
+  assert_eq!(
+    store.find(&named.id).unwrap().custom_name,
+    None,
+    "blank clears it rather than storing an empty label"
+  );
+  assert_eq!(
+    store.find(&named.id).unwrap().name,
+    "payments",
+    "the handle never moves"
+  );
+  assert!(!store.set_custom_name("no-such-org", None));
+
+  // Survives a reload (the two created above).
   let reloaded = OrgStore::load(&dir);
-  assert_eq!(reloaded.list().len(), 1);
+  assert_eq!(reloaded.list().len(), 2);
 
   // Delete.
   let mut store = OrgStore::load(&dir);
   assert!(store.delete(&a.id));
   assert!(!store.delete(&a.id));
-  assert!(store.list().is_empty());
+  assert_eq!(store.list().len(), 1);
   let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -37,7 +65,7 @@ fn test_create_unique_and_reserved() {
 fn test_set_quota_and_persist() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme", Vec::new()).unwrap();
+  let org = store.create("acme", Vec::new(), None).unwrap();
   assert!(org.max_tokens.is_none());
 
   // Set two quotas; leave the others untouched.
@@ -64,7 +92,7 @@ fn test_set_quota_and_persist() {
 fn test_set_quota_all_fields_and_users_bytes() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme", Vec::new()).unwrap();
+  let org = store.create("acme", Vec::new(), None).unwrap();
 
   // Exercise the max_users and max_bytes_month branches too.
   let updated = store
@@ -99,10 +127,11 @@ fn test_set_quota_all_fields_and_users_bytes() {
 fn test_import_replaces_and_persists() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  store.create("Existing", Vec::new()).unwrap();
+  store.create("existing", Vec::new(), None).unwrap();
 
   let now = crate::store::tokens::now_secs();
   let mk = |name: &str| Organization {
+    custom_name: None,
     id: uuid::Uuid::new_v4().to_string(),
     name: name.to_string(),
     created_at: now,
@@ -113,16 +142,16 @@ fn test_import_replaces_and_persists() {
     hostnames: Vec::new(),
     oidc: None,
   };
-  let count = store.import(vec![mk("One"), mk("Two"), mk("Three")]);
+  let count = store.import(vec![mk("one"), mk("two"), mk("three")]);
   assert_eq!(count, 3);
   assert_eq!(store.list().len(), 3);
   // The pre-import org is gone (import replaces wholesale).
-  assert!(!store.list().iter().any(|o| o.name == "Existing"));
+  assert!(!store.list().iter().any(|o| o.name == "existing"));
 
   // Import result survives a reload.
   let reloaded = OrgStore::load(&dir);
   assert_eq!(reloaded.list().len(), 3);
-  assert!(reloaded.list().iter().any(|o| o.name == "Two"));
+  assert!(reloaded.list().iter().any(|o| o.name == "two"));
 
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -131,7 +160,7 @@ fn test_import_replaces_and_persists() {
 fn test_set_oidc_set_and_clear() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme", Vec::new()).unwrap();
+  let org = store.create("acme", Vec::new(), None).unwrap();
   assert!(org.oidc.is_none());
 
   let oidc = OrgOidc {
@@ -235,7 +264,9 @@ fn test_hostname_in_org_allowlist() {
 fn test_set_hostnames_persists_and_scopes_lookup() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
-  let org = store.create("Acme", vec!["acme.com".to_string()]).unwrap();
+  let org = store
+    .create("acme", vec!["acme.com".to_string()], None)
+    .unwrap();
   assert_eq!(org.hostnames, vec!["acme.com".to_string()]);
 
   let updated = store

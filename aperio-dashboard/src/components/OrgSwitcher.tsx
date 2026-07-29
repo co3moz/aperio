@@ -26,7 +26,8 @@ export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
   const [busy, setBusy] = useState(false)
 
   const current = orgs?.find((o) => o.id === selectedOrg)
-  const currentName = current?.name ?? (selectedOrg === 'master' ? t('master') : selectedOrg)
+  const currentName =
+    current?.custom_name || current?.name || (selectedOrg === 'master' ? t('master') : selectedOrg)
 
   const switchTo = async (id: string) => {
     if (id === selectedOrg || busy) return
@@ -73,7 +74,7 @@ export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
             {(orgs ?? []).map((o) => (
               <DropdownMenuItem key={o.id} onClick={() => void switchTo(o.id)}>
                 <Building2Icon className="size-4 opacity-70" />
-                <span className="flex-1 truncate">{o.name}</span>
+                <span className="flex-1 truncate">{o.custom_name || o.name}</span>
                 <span className="text-xs text-muted-foreground">
                   {o.users}·{o.tokens}
                 </span>

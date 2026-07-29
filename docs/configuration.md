@@ -139,6 +139,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `--bind-tunnels`. | random UUID per run |
 | `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `APERIO_TOKEN_PINNING`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
 | `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
+| `APERIO_CUSTOM_NAME` |  | `custom_name` | What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will — nothing addresses it. `name:` is the handle that does, and it is an identifier (`a-z`, `0-9`, `_`). Per `services:` entry via `custom_name:`, and available on a `tunnels:` entry too. |  |
 | `APERIO_TARGET_HEALTH` |  | `health.endpoint` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. |  |
 | `APERIO_WAIT_FOR_BACKEND` |  | `health.wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `target_health`, which gates startup *and* tracks health continuously. Per `services:` entry via `wait_for_backend:`. | `0` |
 | `APERIO_HEALTH_INTERVAL` |  | `health.interval` | Seconds between backend health probes. | `10` |
@@ -432,6 +433,26 @@ headers:
 ```
 
 #### Public TCP expose (`expose:`, experimental)
+
+### Names
+
+Everything Aperio addresses by name — an organization, a service, a tunnel — carries a **handle**: `a-z`, `0-9` and `_`, at most 64 characters. Nothing else, and deliberately so. A handle is written in one file and read in another, typed into a command line and joined with other handles to form an address (`payments@postgres`), so every character outside that set is a way for two people to write down what they think is the same name and be wrong: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`.
+
+What is left out stays available as *syntax around* a name rather than inside one: `@` already separates an organization from a tunnel, and `-`, `.` and `*` are reserved for whatever an address needs to say next.
+
+Anything a person should read goes in `custom_name:` instead — free text, any language, any punctuation, changeable at any time, because nothing addresses it. Services and tunnels take it in `aperio.yaml`; an organization takes it when it is created and can be renamed from the dashboard afterwards. The handle never changes, since an `expose:` rule and a binder's config on another machine point at it.
+
+```yaml
+services:
+  - name: web                    # the handle
+    custom_name: "Public Web"    # what the dashboard shows
+    target: http://localhost:3000
+
+tunnels:
+  - name: pg_main
+    custom_name: "Primary Postgres"
+    target: 127.0.0.1:5432
+```
 
 A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the organization whose client may claim it (`tunnel:` + `org:`, or the one-line `tunnel: <org>@<name>`); omitting the organization means the master one. `token:` is the earlier spelling and still works, but a token name is not unique across organizations, so a rule naming one can match a client of another. The older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works too. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
 

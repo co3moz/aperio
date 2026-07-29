@@ -4,6 +4,6 @@ server:
   token: apr_binder_change_me
 
 bind-tunnels:
-  pg-main:
+  pg_main:
     port: 15432
     psk: replace-with-a-long-random-string   # must match the declaring side

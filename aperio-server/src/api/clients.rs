@@ -86,6 +86,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       max_concurrent: handle.max_concurrent,
       version: handle.client_version.clone(),
       service: handle.service_name.clone(),
+      service_custom_name: handle.service_custom_name.clone(),
       public: handle.public,
       visitor_auth: handle.visitor_auth.is_some(),
       allowed_ips: handle.allowed_ips.clone(),

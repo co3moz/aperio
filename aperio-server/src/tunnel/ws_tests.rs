@@ -134,6 +134,7 @@ async fn read_until_pong(ws: &mut Client) -> bool {
 /// fields they care about.
 fn base_ping() -> TunnelMessage {
   TunnelMessage::Ping {
+    service_custom_name: None,
     client_id: "self".into(),
     timestamp: 1,
     path_bind: None,
@@ -1191,6 +1192,7 @@ async fn ping_master_applies_all_binds() {
     *visitor_auth = Some("user:pass".into());
     *allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
     *tunnels = vec![TunnelDecl {
+      custom_name: None,
       name: None,
       target: "127.0.0.1:9".into(),
       protocol: "tcp".into(),

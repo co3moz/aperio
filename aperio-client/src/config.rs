@@ -396,6 +396,10 @@ pub(crate) struct ClientSettings {
   pub(crate) max_message_size: usize,
   pub(crate) max_redirects: usize,
   pub(crate) tcp_target: Option<String>,
+  /// What to call this client's service on screen, for a single service named
+  /// on the command line or in the environment. A `services:` entry carries
+  /// its own `custom_name:`.
+  pub(crate) custom_name: Option<String>,
   pub(crate) target_health: Option<String>,
   /// Hold the service out of routing until the backend first accepts a
   /// connection (superseded by `target_health` when that is set).
@@ -909,6 +913,13 @@ pub(crate) fn resolve_settings(
       local.tcp_target.clone(),
       env_str("APERIO_TCP_TARGET"),
       home.tcp_target.clone(),
+    )
+    .and_then(nonempty),
+    custom_name: layered(
+      None,
+      local.custom_name.clone(),
+      env_str("APERIO_CUSTOM_NAME"),
+      home.custom_name.clone(),
     )
     .and_then(nonempty),
     target_health: layered(

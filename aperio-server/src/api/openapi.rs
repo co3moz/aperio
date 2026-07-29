@@ -40,6 +40,7 @@ use utoipa::OpenApi;
     crate::api::orgs::orgs_create_handler,
     crate::api::orgs::orgs_delete_handler,
     crate::api::orgs::orgs_quota_handler,
+    crate::api::orgs::orgs_custom_name_handler,
     crate::api::orgs::orgs_hostnames_handler,
     crate::api::orgs::orgs_usage_handler,
     crate::api::orgs::orgs_oidc_handler,

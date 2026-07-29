@@ -125,9 +125,16 @@ export function TunnelsSection() {
                         can serve right now is still worth listing, but it
                         should not look bindable. */}
                     <StatusDot active={tunnel.available} />
-                    <span>
-                      <span className="text-muted-foreground">{tunnel.org ?? 'master'}@</span>
-                      {tunnel.name}
+                    <span className="flex flex-col">
+                      {/* The address is what you paste; the label, when the
+                          declaring client gave one, is what you recognize. */}
+                      {tunnel.custom_name && (
+                        <span className="font-sans text-sm">{tunnel.custom_name}</span>
+                      )}
+                      <span>
+                        <span className="text-muted-foreground">{tunnel.org ?? 'master'}@</span>
+                        {tunnel.name}
+                      </span>
                     </span>
                     {tunnel.encrypt && <TintBadge tint="blue">{t('encrypted')}</TintBadge>}
                   </div>

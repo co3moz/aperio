@@ -43,10 +43,10 @@ target: http://127.0.0.1:${BACKEND_PORT}
 hostname: decl.e2e.local
 tcp_target: 127.0.0.1:${ECHO_PORT}
 tunnels:
-  - name: echo-main
+  - name: echo_main
     target: 127.0.0.1:${ECHO_PORT}
     protocol: tcp
-  - name: echo-both
+  - name: echo_both
     target: 127.0.0.1:${ECHO_PORT}
     protocol: tcp/udp
 YAML
@@ -76,7 +76,7 @@ assert_status 403 "$CODE" "a different token without allow_bind is rejected"
 
 step "Tunnel listing and the allow_bind capability"
 LISTED="$(curl -s -H "Authorization: Bearer ${TOKEN}" "$BASE/aperio/tunnels")"
-assert_contains "$LISTED" '"name":"echo-main"' "the listing names the tunnel"
+assert_contains "$LISTED" '"name":"echo_main"' "the listing names the tunnel"
 assert_contains "$LISTED" '"available":true' "the listing says whether it can be served"
 assert_contains "$LISTED" '"protocol":"tcp/udp"' "a combined declaration is listed as one tunnel"
 # A token without the capability sees nothing, rather than being told what it
@@ -91,14 +91,14 @@ BIND_TOK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
 BIND_TOKEN="$(echo "$BIND_TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 [ -n "$BIND_TOKEN" ] || fail "could not parse the allow_bind token response: $BIND_TOK"
 LISTED2="$(curl -s -H "Authorization: Bearer ${BIND_TOKEN}" "$BASE/aperio/tunnels")"
-assert_contains "$LISTED2" '"name":"echo-main"' "allow_bind sees its organization's tunnels"
+assert_contains "$LISTED2" '"name":"echo_main"' "allow_bind sees its organization's tunnels"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${BIND_TOKEN}" "$BASE/aperio/tunnels/${DECL_ID}")"
 assert_status 200 "$CODE" "allow_bind may read a peer's declarations"
 # The raw client_id from the config file resolves, not just the suffixed form.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/tunnels")"
 assert_status 200 "$CODE" "the dashboard lists declared tunnels"
 DASH="$(curl -s -b "$COOKIES" "$BASE/aperio/api/tunnels")"
-assert_contains "$DASH" '"name":"echo-main"' "the dashboard listing names the tunnel"
+assert_contains "$DASH" '"name":"echo_main"' "the dashboard listing names the tunnel"
 
 step "Binding tunnels with --bind-tunnels (port override)"
 BT_CFG="$LOG_DIR/binder.yaml"
@@ -126,8 +126,8 @@ server:
   url: ${BASE}
   token: ${BIND_TOKEN}
 bind-tunnels:
-  echo-main: ${NAMED_PORT}
-  echo-both: ${BOTH_PORT}
+  echo_main: ${NAMED_PORT}
+  echo_both: ${BOTH_PORT}
 YAML
 "$CLIENT_BIN" --bind-tunnels --config "$NAMED_CFG" \
   >"$LOG_DIR/client-tunnels-named.log" 2>&1 &
@@ -136,13 +136,13 @@ retry 30 sh -c "\"$PYTHON\" '$LOG_DIR/tcp_probe.py' $NAMED_PORT ping | grep -q '
   || fail "the name-bound tunnel did not become usable in time"
 OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$NAMED_PORT" ping-named)"
 assert_contains "$OUT" "echo:ping-named" "bytes relayed through a tunnel bound by name"
-assert_contains "$(cat "$LOG_DIR/client-tunnels-named.log")" "tunnel echo-main" \
+assert_contains "$(cat "$LOG_DIR/client-tunnels-named.log")" "tunnel echo_main" \
   "the binder logs the tunnel by name"
 # One `tcp/udp` declaration opens both listeners on the same local port.
 NAMED_LOG="$(cat "$LOG_DIR/client-tunnels-named.log")"
-assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo-both -> 127.0.0.1:${ECHO_PORT} (tcp)" \
+assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo_both -> 127.0.0.1:${ECHO_PORT} (tcp)" \
   "a tcp/udp tunnel opens its tcp half"
-assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo-both -> 127.0.0.1:${ECHO_PORT} (udp)" \
+assert_contains "$NAMED_LOG" "127.0.0.1:${BOTH_PORT} -> tunnel echo_both -> 127.0.0.1:${ECHO_PORT} (udp)" \
   "a tcp/udp tunnel opens its udp half on the same port"
 OUT="$("$PYTHON" "$LOG_DIR/tcp_probe.py" "$BOTH_PORT" ping-both)"
 assert_contains "$OUT" "echo:ping-both" "bytes relayed through the tcp half of a tcp/udp tunnel"

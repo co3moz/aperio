@@ -322,18 +322,28 @@ assert_status 404 "$CODE" "redelivering an unknown id answers 404"
 
 step "Organizations API (master super-admin)"
 ORG="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Acme"}' "$BASE/aperio/api/orgs")" || fail "org creation failed"
+  --data '{"name":"acme","custom_name":"Acme Inc."}' "$BASE/aperio/api/orgs")" || fail "org creation failed"
 ORG_ID="$(echo "$ORG" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 [ -n "$ORG_ID" ] || fail "could not parse the org id: $ORG"
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"id":"master"' "org list includes the implicit master org"
-assert_contains "$ORGS" '"name":"Acme"' "org list includes the created child org"
+assert_contains "$ORGS" '"name":"acme"' "org list includes the created child org"
 assert_contains "$ORGS" '"master":true' "the master org is flagged"
 # Duplicate name (case-insensitive) and the reserved name are rejected.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"name":"acme"}' "$BASE/aperio/api/orgs")"
 assert_status 400 "$CODE" "duplicate org names are rejected"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"name":"master"}' "$BASE/aperio/api/orgs")"
 assert_status 400 "$CODE" "the reserved name master is rejected"
+# A handle is an identifier: anything that could be written a second way is
+# refused at the source rather than becoming an address nobody can reproduce.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' --data '{"name":"Acme Inc"}' "$BASE/aperio/api/orgs")"
+assert_status 400 "$CODE" "an organization name that is not an identifier is rejected"
+# The display name is the editable half, and moves without the handle moving.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X PUT -H 'Content-Type: application/json' --data '{"custom_name":"Acme Global"}' "$BASE/aperio/api/orgs/${ORG_ID}/custom-name")"
+assert_status 200 "$CODE" "an organization is renamed"
+ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
+assert_contains "$ORGS" '"custom_name":"Acme Global"' "the new display name is listed"
+assert_contains "$ORGS" '"name":"acme"' "the handle it is addressed by did not move"
 # The implicit master org cannot be deleted.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/orgs/master")"
 assert_status 400 "$CODE" "the master org cannot be deleted"
@@ -369,14 +379,14 @@ echo "  ok: the traefik document is byte-identical between polls"
 step "Organization hostname allowlist"
 # A separate, fenced org so the isolation checks below keep their own org.
 FENCED="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Fenced","hostnames":["fenced.e2e.local","*.fenced.e2e.local"]}' \
+  --data '{"name":"fenced","hostnames":["fenced.e2e.local","*.fenced.e2e.local"]}' \
   "$BASE/aperio/api/orgs")" || fail "creating a fenced org failed"
 FENCED_ID="$(echo "$FENCED" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 [ -n "$FENCED_ID" ] || fail "could not parse the fenced org id"
 assert_contains "$FENCED" 'fenced.e2e.local' "the create response echoes the allowlist"
 # An invalid pattern is refused.
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Broken","hostnames":["app.*.com"]}' "$BASE/aperio/api/orgs")"
+  --data '{"name":"broken","hostnames":["app.*.com"]}' "$BASE/aperio/api/orgs")"
 assert_status 400 "$CODE" "an invalid hostname pattern is rejected"
 # Switch into the fenced org: its tokens may only carry its own hostnames.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
@@ -541,7 +551,7 @@ step "Organization traffic isolation (per-org logs & stats)"
 # A child org with its own token, bound to a dedicated hostname, then a real
 # client that authenticates with that token and serves a request.
 TORG="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Traffico"}' "$BASE/aperio/api/orgs")" || fail "traffic-org creation failed"
+  --data '{"name":"traffico"}' "$BASE/aperio/api/orgs")" || fail "traffic-org creation failed"
 TORG_ID="$(echo "$TORG" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"id\":\"${TORG_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null

@@ -130,6 +130,10 @@ pub struct TunnelDecl {
   /// name is derived from the target and protocol instead.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub name: Option<String>,
+  /// What to call it on screen. Free text, never addressed by anything, so a
+  /// change to it cannot break a binder or an `expose:` rule.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub custom_name: Option<String>,
   /// Local address the declaring client connects to, e.g. `127.0.0.1:27017`.
   pub target: String,
   /// Transport protocol: `tcp` or `udp` (best-effort datagram relay).
@@ -215,10 +219,14 @@ pub enum TunnelMessage {
     /// tunnel frames so this client is never pushed faster than its network.
     #[serde(default)]
     bandwidth_bps: Option<u64>,
-    /// Display name of the service this connection exposes (from the
-    /// client's `services:` list), for the dashboard.
+    /// Handle of the service this connection exposes (from the client's
+    /// `services:` list), for the dashboard.
     #[serde(default)]
     service: Option<String>,
+    /// What that service is called on screen (`custom_name:`), when the file
+    /// gave it one. Free text; the handle above is what anything addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service_custom_name: Option<String>,
     /// The client declares its service public: skip the visitor auth gate
     /// for traffic routed here (honored only when the token permits it).
     #[serde(default)]

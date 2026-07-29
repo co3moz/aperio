@@ -277,6 +277,20 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
   },
   ConfigChange {
     version: "0.7.0",
+    surface: ConfigSurface::Client,
+    // A name is an identifier now: a-z, 0-9 and `_`. A file that named a
+    // service or a tunnel anything else no longer starts, which is the whole
+    // point — the alternative is two people writing what they think is the
+    // same name (`Postgres`, `pg-main`, `pg_main`) and reaching different
+    // things. Everything human moves to `custom_name:`, which is free text.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["name"],
+    summary: "`name:` on a service or a tunnel must be an identifier: a-z, 0-9 and `_`. Capitals, `-`, `.` and non-English letters are refused; `custom_name:` carries the label.",
+    action: "Rename what the file declares (`pg-main` becomes `pg_main`) and update the `bind-tunnels:` keys and `expose:` rules that address it. Put the old spelling in `custom_name:` if it was there to be read. An unnamed tunnel's derived handle changed spelling too (`127-0-0-1-5432-tcp` is now `127_0_0_1_5432_tcp`).",
+  },
+  ConfigChange {
+    version: "0.7.0",
     surface: ConfigSurface::Server,
     // The rule still parses and still matches the client it always matched:
     // `token:` alone is read exactly as before. What changed is that the

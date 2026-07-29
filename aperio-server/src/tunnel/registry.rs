@@ -27,6 +27,7 @@ use crate::state::{AppState, ClientHandle, ClientPerms};
 pub(crate) fn name_of(decl: &TunnelDecl) -> String {
   aperio_config::tunnel_name(&aperio_config::TunnelDecl {
     name: decl.name.clone(),
+    custom_name: decl.custom_name.clone(),
     target: decl.target.clone(),
     protocol: decl.protocol.clone(),
     encrypt: decl.encrypt,
@@ -105,6 +106,9 @@ pub(crate) struct Resolved {
 pub(crate) struct TunnelView {
   /// Handle to bind, unique within the organization.
   pub(crate) name: String,
+  /// What the declaring client calls it on screen, when it named one.
+  /// Never addressed by anything: the handle above is.
+  pub(crate) custom_name: Option<String>,
   /// `tcp`, `udp`, or `tcp/udp` for a tunnel that serves both.
   pub(crate) protocol: String,
   /// Address the declaring client dials locally.
@@ -307,6 +311,7 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
       }
       out.push(TunnelView {
         name,
+        custom_name: decl.custom_name.clone(),
         protocol: decl.protocol.clone(),
         target: decl.target.clone(),
         // The process handle, falling back to the per-connection id for a

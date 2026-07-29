@@ -156,10 +156,14 @@ pub(crate) enum TunnelMessage {
     /// tunnel frames so this client is never pushed faster than its network.
     #[serde(default)]
     bandwidth_bps: Option<u64>,
-    /// Display name of the service this connection exposes (from the
-    /// client's `services:` list), for the dashboard.
+    /// Handle of the service this connection exposes (from the client's
+    /// `services:` list), for the dashboard.
     #[serde(default)]
     service: Option<String>,
+    /// What that service is called on screen (`custom_name:`), when the file
+    /// gave it one. Free text; the handle above is what anything addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service_custom_name: Option<String>,
     /// The client declares its service public: the server skips the visitor
     /// auth gate for traffic routed here (honored only when the token
     /// permits publishing public services).

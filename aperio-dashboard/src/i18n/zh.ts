@@ -905,4 +905,10 @@ export const zh: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': '该客户端监听的主题，以及同一台机器上的应用接入收发消息的位置。',
   'Cold start & scale-out records': '冷启动与扩容记录',
   'Private services reachable with --bind-tunnels': '通过 --bind-tunnels 访问的私有服务',
+  'Display name': '显示名称',
+  'Handle': '标识符',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': '只是它的称呼。标识符 {handle} 用于寻址，且永不改变。',
+  'Service {name} (custom_name: {custom})': '服务 {name}（custom_name: {custom}）',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': '该组织在界面上的名称。任何语言、任何标点，之后可以修改。',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z、0-9 和 _ 。这是组织的寻址方式 — 出现在 {example}、服务器的 expose: 规则和 API 中 — 因此创建后不可更改。',
 }

@@ -67,7 +67,7 @@ server:
 bind-tunnels:
   mongo: 15000                    # listen on 127.0.0.1:15000
   dns: 5300
-  pg-main:
+  pg_main:
     port: 15432
     address: 127.0.0.1            # default; anything else is warned about
     psk: a-long-random-string     # only for an encrypt: true tunnel
@@ -102,7 +102,7 @@ tunnels:
 
 # Binder side (aperio.yaml)
 bind-tunnels:
-  pg-main:
+  pg_main:
     psk: a-long-random-string     # must match the declaring side
 ```
 

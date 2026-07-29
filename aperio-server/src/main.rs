@@ -1348,6 +1348,10 @@ async fn async_main() {
         axum::routing::delete(crate::api::scaling::scaling_delete_handler),
       )
       .route(
+        "/api/orgs/:id/custom-name",
+        axum::routing::put(crate::api::orgs::orgs_custom_name_handler),
+      )
+      .route(
         "/api/orgs/:id/hostnames",
         axum::routing::put(crate::api::orgs::orgs_hostnames_handler),
       )

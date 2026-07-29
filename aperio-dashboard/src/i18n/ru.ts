@@ -924,4 +924,10 @@ export const ru: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Топики, которые слушает этот клиент, и куда подключается приложение на той же машине, чтобы отправлять и получать.',
   'Cold start & scale-out records': 'Записи о холодном старте и масштабировании',
   'Private services reachable with --bind-tunnels': 'Приватные сервисы, доступные через --bind-tunnels',
+  'Display name': 'Отображаемое имя',
+  'Handle': 'Идентификатор',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Только то, как её называют. Идентификатор {handle} адресует её и никогда не меняется.',
+  'Service {name} (custom_name: {custom})': 'Сервис {name} (custom_name: {custom})',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Как эта организация называется на экране. Любой язык, любая пунктуация, изменяемо позже.',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z, 0-9 и _ . Именно это адресует организацию — в {example}, в правиле expose: сервера и в API — поэтому после создания оно не меняется.',
 }

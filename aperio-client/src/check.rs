@@ -300,6 +300,23 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       );
     }
   };
+  // Names are identifiers, and the check is where a file learns that before
+  // a deploy does. Both lists, since a tunnel name is addressed from another
+  // machine entirely.
+  for (i, entry) in settings.services.iter().enumerate() {
+    if let Some(name) = entry.name.as_deref()
+      && let Err(why) = aperio_config::validate_name("service", name)
+    {
+      fail(&format!("services[{i}]"), why, &mut failures);
+    }
+  }
+  for decl in &settings.tunnels {
+    if let Some(name) = decl.name.as_deref()
+      && let Err(why) = aperio_config::validate_tunnel_name(name)
+    {
+      fail("tunnels", why, &mut failures);
+    }
+  }
   let mut probes: Vec<(String, String, Option<String>)> = Vec::new();
   if let Some(t) = target.as_ref().filter(|_| !services_win) {
     probes.push(("target".to_string(), t.clone(), target_health.clone()));

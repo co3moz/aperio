@@ -366,7 +366,7 @@ async fn login_named_user_without_totp() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   state
     .users
@@ -785,7 +785,7 @@ async fn caller_org_resolution() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   state
     .users
@@ -846,7 +846,7 @@ async fn is_master_admin_cases() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   state
     .users
@@ -865,7 +865,7 @@ async fn disabled_user_session_grants_nothing() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   let user = state
     .users
@@ -910,7 +910,7 @@ async fn effective_org_selection() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   state
     .users
@@ -1029,7 +1029,7 @@ async fn require_master_admin_gate() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   state
     .users
@@ -1505,7 +1505,7 @@ async fn resolve_org_oidc_cache_and_misses() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap();
   assert!(resolve_org_oidc(&state, &org.id).await.is_none());
 }

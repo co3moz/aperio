@@ -49,6 +49,9 @@ pub(crate) struct TunnelView {
   pub(crate) encrypt: bool,
   #[serde(default)]
   pub(crate) idle_timeout: Option<u64>,
+  /// What the declaring client calls it on screen, when it named one.
+  #[serde(default)]
+  pub(crate) custom_name: Option<String>,
   /// Organization that owns it, by name; absent for the master organization
   /// and for a server too old to report it.
   #[serde(default)]
@@ -355,6 +358,7 @@ fn binding_for_view(
     name: view.name.clone(),
     decl: TunnelDecl {
       name: Some(view.name.clone()),
+      custom_name: view.custom_name.clone(),
       target: view.target.clone(),
       protocol: view.protocol.clone(),
       encrypt: view.encrypt,

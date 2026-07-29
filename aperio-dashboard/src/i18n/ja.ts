@@ -922,4 +922,10 @@ export const ja: Record<string, string> = {
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'このクライアントが待ち受けるトピックと、同じマシン上のアプリケーションが送受信のために接続する場所。',
   'Cold start & scale-out records': 'コールドスタートとスケールアウトの記録',
   'Private services reachable with --bind-tunnels': '--bind-tunnels で到達できるプライベートサービス',
+  'Display name': '表示名',
+  'Handle': 'ハンドル',
+  'Only what it is called. The handle {handle} is what addresses it and never changes.': '呼び名だけです。アドレスに使われるハンドル {handle} は変わりません。',
+  'Service {name} (custom_name: {custom})': 'サービス {name}（custom_name: {custom}）',
+  'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'この組織の画面上の名前。どの言語でも記号でも使え、あとから変更できます。',
+  'a-z, 0-9 and _ . This is what addresses the organization — in {example}, in a server’s expose: rule and in the API — so it is fixed once created.': 'a-z、0-9、_ のみ。組織のアドレスに使われるもので — {example}、サーバーの expose: ルール、API で — 作成後は変更できません。',
 }

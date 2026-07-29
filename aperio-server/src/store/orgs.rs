@@ -21,8 +21,15 @@ pub(crate) const MASTER_ID: &str = "master";
 pub struct Organization {
   /// Unique id (UUID).
   pub id: String,
-  /// Human-readable name.
+  /// Handle: the identifier the organization is addressed by, in
+  /// `payments@postgres`, in an `expose:` rule and in the API. Fixed at
+  /// creation, because everything that names it would otherwise be pointing
+  /// at nothing.
   pub name: String,
+  /// What to call it on screen. Free text, any language, and editable at any
+  /// time precisely because nothing addresses it.
+  #[serde(default)]
+  pub custom_name: Option<String>,
   /// Unix seconds of creation.
   pub created_at: u64,
   /// Max concurrently-connected clients in this org (None = unlimited).
@@ -150,7 +157,12 @@ impl OrgStore {
   /// `master` is reserved. `hostnames` is the optional allowlist fencing every
   /// bind made inside the org (already normalized by the caller); empty means
   /// unrestricted.
-  pub fn create(&mut self, name: &str, hostnames: Vec<String>) -> Result<Organization, String> {
+  pub fn create(
+    &mut self,
+    name: &str,
+    hostnames: Vec<String>,
+    custom_name: Option<String>,
+  ) -> Result<Organization, String> {
     let name = name.trim();
     if name.is_empty() {
       return Err("organization name is required".into());
@@ -158,18 +170,18 @@ impl OrgStore {
     if name.eq_ignore_ascii_case("master") {
       return Err("\"master\" is reserved for the built-in organization".into());
     }
-    // `@` separates the organization from the tunnel in `<org>@<name>`, which
-    // is how an exposed port and the dashboard both name a tunnel. A name
-    // carrying one would make that spelling mean two things.
-    if name.contains('@') {
-      return Err("an organization name cannot contain '@' (it separates the organization from the tunnel in payments@postgres)".into());
-    }
+    // The handle is an identifier, not a label: it is written in a server's
+    // `expose:`, in a binder's config and in `payments@postgres`, by people
+    // who are not looking at this screen. `custom_name` is where anything
+    // human belongs.
+    aperio_config::validate_name("organization", name)?;
     if self.orgs.iter().any(|o| o.name.eq_ignore_ascii_case(name)) {
       return Err(format!("an organization named \"{name}\" already exists"));
     }
     let org = Organization {
       id: uuid::Uuid::new_v4().to_string(),
       name: name.to_string(),
+      custom_name: normalize_custom_name(custom_name),
       created_at: crate::store::tokens::now_secs(),
       max_clients: None,
       max_tokens: None,
@@ -181,6 +193,21 @@ impl OrgStore {
     self.orgs.push(org.clone());
     self.persist();
     Ok(org)
+  }
+
+  /// Renames what the organization is *called*, never what it *is*.
+  ///
+  /// The handle stays: an `expose:` rule, a binder's config and every
+  /// `<org>@<tunnel>` written down elsewhere point at it, and none of those
+  /// can be updated from here. `None` (or blank) goes back to showing the
+  /// handle.
+  pub fn set_custom_name(&mut self, id: &str, custom_name: Option<String>) -> bool {
+    let Some(org) = self.orgs.iter_mut().find(|o| o.id == id) else {
+      return false;
+    };
+    org.custom_name = normalize_custom_name(custom_name);
+    self.persist();
+    true
   }
 
   /// Removes an org by id. Returns whether one was removed.
@@ -262,3 +289,9 @@ impl OrgStore {
 #[cfg(test)]
 #[path = "orgs_tests.rs"]
 mod tests;
+
+/// A display name that is blank, or the same as the handle, is no display
+/// name: storing it would leave two things to keep in step for no gain.
+fn normalize_custom_name(raw: Option<String>) -> Option<String> {
+  raw.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())
+}

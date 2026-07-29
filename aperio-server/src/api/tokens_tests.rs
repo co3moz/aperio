@@ -216,7 +216,7 @@ async fn create_forbidden_when_org_quota_reached() {
     .org_store
     .lock()
     .await
-    .create("acme", Vec::new())
+    .create("acme", Vec::new(), None)
     .unwrap()
     .id
     .clone();
@@ -629,7 +629,11 @@ async fn fenced_org_session(state: &Arc<AppState>, hostnames: &[&str]) -> Header
     .org_store
     .lock()
     .await
-    .create("acme", hostnames.iter().map(|s| s.to_string()).collect())
+    .create(
+      "acme",
+      hostnames.iter().map(|s| s.to_string()).collect(),
+      None,
+    )
     .unwrap()
     .id;
   let token = seed_session(state, Role::Admin, None, Some(org_id)).await;

@@ -5,11 +5,11 @@ server:
 # Two static sites from one client: each entry serves its own directory
 # (serve: replaces target:; the two are mutually exclusive per entry).
 services:
-  - name: site-a
+  - name: site_a
     serve: ./sites/a
     hostname: a.example.com
 
-  - name: site-b
+  - name: site_b
     serve: ./sites/b
     hostname: b.example.com
 
