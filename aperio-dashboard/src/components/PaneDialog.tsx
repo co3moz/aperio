@@ -16,6 +16,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -134,6 +135,8 @@ export function PaneDialog<Id extends string>({
         </AlertDialogContent>
       </AlertDialog>
       <DialogContent className={cn('overflow-hidden p-0 sm:max-w-4xl', className)}>
+        {/* Visible in the nav above; still announced here for the small
+            screens where the nav is not rendered at all. */}
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
         {/* `min-w-0`: this is a grid item, whose automatic minimum size is its
@@ -143,6 +146,14 @@ export function PaneDialog<Id extends string>({
         <SidebarProvider className="min-h-0 min-w-0 items-start">
           <Sidebar collapsible="none" className="hidden w-52 shrink-0 bg-transparent md:flex">
             <SidebarContent>
+              {/* Which dialog this is. Settings and Tools are the same shape
+                  with different panes, and opened from a command palette
+                  there was nothing on screen saying which one you got. */}
+              <SidebarHeader className="px-4 pt-4 pb-2">
+                <span className="font-heading text-sm font-semibold tracking-tight">
+                  {title}
+                </span>
+              </SidebarHeader>
               <SidebarGroup>
                 <SidebarGroupContent>
                   <SidebarMenu>
