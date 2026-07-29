@@ -293,6 +293,33 @@ async fn tcp_handler_legacy_success() {
   assert_eq!(status, StatusCode::SWITCHING_PROTOCOLS);
 }
 
+#[tokio::test]
+async fn tcp_handler_legacy_will_not_reach_another_organizations_client() {
+  // The parameterless form picks "any TCP-capable client". Every other way in
+  // is fenced by `may_bind`; this one answered to any valid tunnel token, so
+  // a token of one organization got a raw TCP socket into another
+  // organization's declared target.
+  let state = Arc::new(test_state());
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new())
+    .unwrap()
+    .id;
+  seed_client(&state, "c1", |c| {
+    c.tcp_enabled = true;
+    c.perms.org_id = Some(acme);
+  })
+  .await;
+  // The caller's token belongs to the master organization and carries no
+  // `allow_bind`.
+  let secret = make_token(&state).await;
+  let url = start_tunnel_server(state).await;
+  let status = handshake_status(&format!("{url}/tcp"), Some(&secret)).await;
+  assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
 // --- udp_ws_handler ---------------------------------------------------------
 
 #[tokio::test]

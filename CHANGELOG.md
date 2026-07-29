@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- **The parameterless TCP tunnel endpoint is fenced like every other one.** `GET /aperio/tcp` with no `?tunnel=` and no `?client=` picks "any TCP-capable client", and picked it without asking whether the caller was allowed to reach it: any valid tunnel token got a raw socket into whichever client answered first, including one belonging to another organization. Every other way into that handler goes through the same permission check that governs `--bind-tunnels`; this one now does too, so a caller reaches only what it could have reached by naming it.
+
 ### Added
 
 - **A runnable messaging example.** [`messaging`](docs/examples/messaging/) is the pair: a reacting side that subscribes, runs a command on `deploy/web` and opens both local faces, and a publishing side that exposes nothing at all. It states the two things worth knowing before using `run:` in anger — that it is a remote-execution primitive and how to scope the publishing token to one subtree — and what the delivery does not promise.
@@ -104,6 +108,13 @@ project follows semantic versioning per release tag.
 - **A `bind-tunnels:` entry can be just a port, and a privileged local port no longer means no listener.** `pg-main: 15432` is the whole entry for most bindings. The local port still defaults to the declared target's port; when that port is privileged (below 1024) or the target has none to parse, which used to skip the tunnel outright, a port derived from the tunnel name is used instead, stable across restarts so whatever connects to it never needs reconfiguring. A listener can be moved off loopback with `address:`, which warns, since it puts a deliberately unexposed service on the network.
 
 ### Fixed
+
+- **A `bind-tunnels:` key that names a tunnel in more than one organization is refused.** A name is unique inside an organization and nowhere else, so a token that can see two of them saw `postgres` twice and bound whichever came back first — a local port onto someone else's database, with nothing said about it. The entry is now reported with the qualified names to choose between (`payments@postgres`, `billing@postgres`), and skipped, like every other entry that cannot be resolved.
+
+- **Every page's subtitle was in English, in all seven languages.** The line under a page title comes from the sidebar's own table, and its strings reach the translator through a variable, which the i18n check could not see. It reads those tables now, the same way it already reads the settings catalogue, and the strings it turned up are translated.
+
+- **A deprecation warning naming one key said "`hostname` describe a single service".** Singular now, which is the case an operator actually reads.
+
 
 - **`aperio_messages_resent_total` counted nothing.** The counter was rendered on the metrics endpoint and never incremented, so a QoS 1 subscriber that was not acknowledging looked exactly like one that was: the resends were happening, the graph said zero. The other messaging counters were unaffected.
 

@@ -136,7 +136,12 @@ pub(crate) async fn tcp_ws_handler(
       }
     }
     (None, None) => {
-      // Legacy mode: any TCP-capable, eligible client.
+      // Legacy mode: any TCP-capable, eligible client this caller may reach.
+      //
+      // "Any" used to mean any at all. Every other way into this handler is
+      // fenced by `may_bind`, and this one was not, so a token of one
+      // organization could open a raw socket into another organization's
+      // declared target simply by naming nothing.
       let clients = state.clients.lock().await;
       let found = clients
         .iter()
@@ -145,6 +150,7 @@ pub(crate) async fn tcp_ws_handler(
             && c.admin_enabled
             && !c.draining
             && c.is_healthy(state.config().client_down_threshold)
+            && registry::may_bind(&perms, &c.perms)
         })
         .map(|(id, c)| (id.clone(), c.tx.clone()));
       let Some((id, tx)) = found else {
