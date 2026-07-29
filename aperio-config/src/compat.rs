@@ -197,7 +197,7 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
-    version: "0.6.1",
+    version: "0.7.0",
     surface: ConfigSurface::Client,
     // Announced one release early, on purpose. Nothing is ignored yet and
     // nothing is renamed: a file written this way still starts and still
@@ -288,6 +288,36 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     fields: &["name"],
     summary: "`name:` on a service or a tunnel must be an identifier: a-z, 0-9 and `_`. Capitals, `-`, `.` and non-English letters are refused; `custom_name:` carries the label.",
     action: "Rename what the file declares (`pg-main` becomes `pg_main`) and update the `bind-tunnels:` keys and `expose:` rules that address it. Put the old spelling in `custom_name:` if it was there to be read. An unnamed tunnel's derived handle changed spelling too (`127-0-0-1-5432-tcp` is now `127_0_0_1_5432_tcp`).",
+  },
+  ConfigChange {
+    version: "0.7.0",
+    surface: ConfigSurface::Client,
+    // The key still parses and still produces a header. What changed is that
+    // a value browsers do not recognize is no longer sent as written: it
+    // becomes the strict default. Someone whose `ALLOW-FROM ...` was ignored
+    // by every browser had framing allowed in practice, and now has it
+    // denied — the same file, a different site.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &[
+      "security_headers",
+      "security_headers.frame_options",
+      "security_headers.referrer_policy",
+    ],
+    summary: "`frame_options:` is sent as SAMEORIGIN or DENY and `referrer_policy:` as one of the eight values browsers act on; anything else becomes the strict default instead of going out verbatim.",
+    action: "Only affects a file whose value is not one a browser recognizes (a typo, or `ALLOW-FROM`, which no browser supports). Set one of the accepted values, or drop the key.",
+  },
+  ConfigChange {
+    version: "0.7.0",
+    surface: ConfigSurface::Server,
+    // The server used to start and bind whatever the OS handed out, which
+    // nothing could then reach; it refuses to start now. Breaking rather than
+    // Migration because the file no longer runs at all.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["expose"],
+    summary: "An `expose:` entry with `port: 0` is refused at startup instead of binding a port the OS picks, which nothing could reach.",
+    action: "Give the entry the port you meant. Only a file that literally writes `port: 0` is affected.",
   },
   ConfigChange {
     version: "0.7.0",
