@@ -59,6 +59,9 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The dashboard screenshots in the README and the docs are current again**, and re-capturing them is now `npm run capture:docs` rather than an afternoon: the script brings up a throwaway instance, drives demo traffic through it, and captures every page at the same size as before. The old set was taken at v0.4.3 and showed a sidebar, a logo and a set of pages that no longer exist.
+
+
 - **A name is an identifier: `a-z`, `0-9` and `_`.** Organizations, services and tunnels are all addressed by name — in `payments@postgres`, in a `bind-tunnels:` key, in a server's `expose:` rule — and a name that can be written more than one way is a way to reach the wrong thing: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`. One rule now covers all of them, checked by the client at startup, by `check`, and by the server when an organization is created. What is left out is left out on purpose: `-`, `.`, `*` and `@` carry no meaning inside a name, which is what keeps them available as syntax *around* one (`@` already separates an organization from a tunnel).
 
   **This is breaking, and deliberately so:** a file that named a service or a tunnel anything else no longer starts, and the message names the fix (`pg-main` → `pg_main`). The derived handle of an unnamed tunnel changed spelling with it: `127-0-0-1-5432-tcp` is now `127_0_0_1_5432_tcp`. Recorded in `CONFIG_CHANGES`, so an upgrade says so rather than failing obscurely.

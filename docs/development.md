@@ -17,6 +17,8 @@ To skip the frontend build (reusing an existing `aperio-dashboard/dist/`), set `
 
 Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite (pure lib functions; scans `src/` only), which CI runs alongside the i18n check. `npm run test:e2e` runs the [Playwright](https://playwright.dev) shell smoke test against a static `vite preview` build (one-time `npx playwright install chromium` first); it is not wired into CI because full API-backed journeys need a running server.
 
+**Screenshots.** The images in `README.md` and [Dashboard](dashboard.md) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape — the first set went stale within two releases because refreshing them was a manual afternoon.
+
 ## Tests & end-to-end suite
 
 `cargo test --all` runs the unit tests. `bash tests/e2e.sh` runs the end-to-end suite, a real `aperio-server`, several `aperio-client` processes, and stdlib-only Python mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
