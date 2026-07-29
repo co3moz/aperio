@@ -36,6 +36,12 @@ export const CLIENT_GROUPS: GroupSpec[] = [
     keys: ['tunnels', 'bind-tunnels'],
   },
   {
+    title: 'Messages',
+    description:
+      'Topics this client listens for, and where an application on the same machine attaches to send and receive them.',
+    keys: ['subscribe', 'messages_listen', 'messages_mqtt_listen'],
+  },
+  {
     title: 'Service defaults',
     description:
       'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here — they only ever worked without a services: list — and appear only for a file that already writes them.',
@@ -254,6 +260,7 @@ export const ESSENTIAL_KEYS: string[] = [
   'services',
   'tunnels',
   'protocol',
+  'topic',
   // Where it answers.
   'hostname',
   'path',

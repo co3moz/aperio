@@ -40,6 +40,8 @@ subscribe:
 
 Filters are MQTT's, because that is the syntax people already know: `+` matches exactly one level, `#` matches the rest and is only legal last. `deploy/+` matches `deploy/web` but not `deploy/web/eu`; `deploy/#` matches both, and `deploy` itself.
 
+A client may hold at most **64 filters**; a subscription past that is refused by name rather than silently ignored. The limit is there because a filter costs a string and a linear match on every publish, so a loop in someone's code should not turn into unbounded server memory.
+
 **A subscription belongs to the client process, not to its connections.** A client with a `services:` list holds one tunnel connection per service and still receives each message once. There is nothing to deduplicate.
 
 ## Reacting: running a command

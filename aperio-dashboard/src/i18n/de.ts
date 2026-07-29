@@ -923,4 +923,5 @@ export const de: Record<string, string> = {
   'Published to "{topic}" — {count} client(s)': 'An „{topic}“ veröffentlicht — {count} Client(s)',
   'Published to "{topic}", but nothing is subscribed to it': 'An „{topic}“ veröffentlicht, aber nichts hat es abonniert',
   'Messages': 'Nachrichten',
+  'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics, auf die dieser Client hört, und wo eine Anwendung auf derselben Maschine andockt, um zu senden und zu empfangen.',
 }

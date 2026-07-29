@@ -921,4 +921,5 @@ export const es: Record<string, string> = {
   'Published to "{topic}" — {count} client(s)': 'Publicado en «{topic}» — {count} cliente(s)',
   'Published to "{topic}", but nothing is subscribed to it': 'Publicado en «{topic}», pero nada está suscrito',
   'Messages': 'Mensajes',
+  'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics que escucha este cliente, y dónde se conecta una aplicación de la misma máquina para enviar y recibir.',
 }

@@ -925,4 +925,5 @@ export const tr: Record<string, string> = {
   'Published to "{topic}" — {count} client(s)': '"{topic}" konusuna yayınlandı — {count} client',
   'Published to "{topic}", but nothing is subscribed to it': '"{topic}" konusuna yayınlandı ama buna abone olan yok',
   'Messages': 'Mesajlar',
+  'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Bu client\'ın dinlediği topic\'ler ve aynı makinedeki bir uygulamanın gönderip almak için bağlandığı yer.',
 }

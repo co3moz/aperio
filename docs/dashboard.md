@@ -148,6 +148,8 @@ The form is generated from the JSON Schema this server serves (`GET /aperio/api/
 
 The settings sit in collapsible sections, each showing how many of its fields are set, with `services:` and `tunnels:` first since they are what a file is usually about. The form is on the left and the document it produces on the right, updating as you type. A client file has one shape, `services:`; there is no longer a choice to make. Deprecated keys — the superseded spellings, and the top-level single-service keys on their way out — appear only when an imported file already uses them, so a blank file never suggests a key we want retired, and a file that does use one can still be edited and migrated here.
 
+A key with two spellings is offered in its full one. `subscribe:` accepts a bare filter (`- deploy/web`) or an object (`- {topic: deploy/web, run: …}`), and the form writes the object, since that is the shape that can hold the rest of the entry; the two mean the same thing to the client. An imported file keeps whichever spelling it already used.
+
 Where the schema knows the shape, the form helps: a setting with fixed values becomes a select, a byte size is entered as an amount plus a unit rather than a raw count, a list of scalars takes a comma-separated line, and `services:`, `tunnels:` and the other lists of objects get add/remove entry cards. Fields left empty are omitted from the file entirely rather than written as blanks, so the binary keeps its own default. Maps of objects such as `bind-tunnels:` are edited in a dialog rather than inline, so nothing the schema describes is out of reach. Anything it does not describe is marked as such and preserved exactly as imported, so opening an existing file here never loses anything.
 ## The admin API
 
