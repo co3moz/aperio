@@ -656,7 +656,7 @@ Put an identity-provider login (Google, Keycloak, Authentik, ...) in front of ev
 | `APERIO_OIDC_CLIENT_ID` / `APERIO_OIDC_CLIENT_SECRET` | OAuth client registered at the issuer. Redirect URI: `https://<your-host>/aperio/oidc/callback`. |  |
 | `APERIO_OIDC_ALLOWED_EMAILS` | Comma-separated allowlist (required with issuer). |  |
 | `APERIO_OIDC_SCOPES` | Requested scopes. | `openid email profile` |
-| `APERIO_OIDC_REDIRECT_URL` | Fixed callback URL; otherwise derived from the request `Host` (and `X-Forwarded-Proto` when `APERIO_TRUST_PROXY=1`). Recommended to set explicitly. | derived |
+| `APERIO_OIDC_REDIRECT_URL` | Fixed callback URL; otherwise derived from the request `Host` (and `X-Forwarded-Proto` when `APERIO_TRUST_PROXY=1`), and warned about at startup. **Set it.** Deriving means the `Host` of the request that starts a login decides where the provider returns the authorization code: a visitor lured to any hostname that resolves to this server has their code sent there. Redeeming it still needs the client secret, and your provider's registered-callback list is the other gate, but neither of those is Aperio's to enforce. | derived |
 
 Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup. A misconfigured SSO setup is a **fatal error**, the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
 

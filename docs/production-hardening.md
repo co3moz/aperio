@@ -41,6 +41,10 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
       and create per-person accounts with the least role that works
       (viewer/operator/admin) instead of sharing the master login.
 - [ ] **Turn on a second factor** (TOTP or a passkey) for dashboard admins.
+- [ ] **Set `APERIO_OIDC_REDIRECT_URL` if you use OIDC.** Without it the
+      callback URL is derived from each request's `Host`, so the hostname a
+      login starts on decides where the provider sends the authorization code
+      back to. One fixed URL, the one registered with your provider.
 - [ ] **Seed canary tokens.** Mint one or more decoy tokens flagged as canary
       and leave them where a leak would surface them (a stale config, a repo).
       Any authentication with one fires a `canary_tripped` alert, a

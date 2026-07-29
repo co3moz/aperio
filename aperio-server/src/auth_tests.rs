@@ -1249,6 +1249,7 @@ async fn seed_oidc_state(state: &AppState, token: &str, bound: Option<String>) {
     (
       "/after".to_string(),
       bound,
+      "http://dash.test/aperio/oidc/callback".to_string(),
       Instant::now() + Duration::from_secs(600),
     ),
   );
@@ -1510,7 +1511,7 @@ async fn oidc_login_per_org() {
   assert_eq!(resp.status(), StatusCode::FOUND);
   // The registered CSRF state carries the bound org.
   let states = state.oidc_states.lock().await;
-  let (_, bound, _) = states.values().next().unwrap();
+  let (_, bound, _, _) = states.values().next().unwrap();
   assert_eq!(bound.as_deref(), Some("org-1"));
 }
 

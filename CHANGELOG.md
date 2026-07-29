@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **An OIDC token exchange no longer re-derives its callback URL from the request that carries the code.** The `redirect_uri` presented at the exchange must be the one the authorization request sent; it is now remembered with the login's state entry and read back, so the `Host` header of the callback request cannot decide what the exchange claims. And when `APERIO_OIDC_REDIRECT_URL` is unset, the server says so at startup: deriving the callback from `Host` means the hostname a login *starts* on decides where the provider returns the code, which is worth knowing before it matters.
+
 - **The session cookie carries the `__Host-` prefix wherever it can.** This server also serves other people's sites, which makes the usual cookie rules too weak for it: a tenant on `evil.tunnel.example.com` can set a cookie for `.tunnel.example.com`, and the dashboard would read it as its own — an operator walked into a session someone else chose. `__Host-` is a promise the browser enforces (host-only, https, `Path=/`), so a neighbour's cookie can never be the prefixed one, and the prefixed one is what the server reads first. The plain name is still accepted on its own, so sessions issued before this and every deployment that cannot set `Secure` keep working; logging out clears both.
 
 

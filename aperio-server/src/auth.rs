@@ -1004,6 +1004,17 @@ pub(crate) async fn validate_session_for_host(
 /// Derives the OIDC redirect URI for this deployment: the explicit override
 /// wins, otherwise it is built from the request Host header (and
 /// X-Forwarded-Proto when running behind a trusted proxy).
+///
+/// Deriving it is a convenience with a sharp edge, which is why the override
+/// is recommended and warned about at startup when it is missing: the `Host`
+/// of the request that *starts* the login decides where the provider sends
+/// the authorization code back to. A visitor lured to a hostname that resolves
+/// to this server would have their code sent to that hostname. Redeeming it
+/// still needs the client secret, and the provider's own registered-callback
+/// list is the other gate, but neither of those is ours.
+///
+/// Only the start of the flow can decide it. The callback reads the URL back
+/// out of the login's state entry instead of deriving it again.
 fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap) -> Option<String> {
   let rt = state.oidc.as_ref()?;
   if let Some(ref fixed) = rt.redirect_url_override {
@@ -1110,10 +1121,15 @@ pub(crate) async fn oidc_login_handler(
   {
     let mut states = state.oidc_states.lock().await;
     let now = Instant::now();
-    states.retain(|_, (_, _, exp)| *exp > now);
+    states.retain(|_, (_, _, _, exp)| *exp > now);
     states.insert(
       state_token.clone(),
-      (redirect_after, bound_org, now + Duration::from_secs(600)),
+      (
+        redirect_after,
+        bound_org,
+        redirect_uri.clone(),
+        now + Duration::from_secs(600),
+      ),
     );
   }
 
@@ -1168,10 +1184,10 @@ pub(crate) async fn oidc_callback_handler(
   };
 
   // Validate and consume the CSRF state, recovering the bound org (if any).
-  let (redirect_after, bound_org) = {
+  let (redirect_after, bound_org, redirect_uri) = {
     let mut states = state.oidc_states.lock().await;
     match states.remove(state_param) {
-      Some((redirect, org, exp)) if exp > Instant::now() => (redirect, org),
+      Some((redirect, org, callback, exp)) if exp > Instant::now() => (redirect, org, callback),
       _ => {
         return (StatusCode::BAD_REQUEST, "Invalid or expired OIDC state").into_response();
       }
@@ -1188,9 +1204,9 @@ pub(crate) async fn oidc_callback_handler(
       None => return (StatusCode::NOT_FOUND, "OIDC is not configured").into_response(),
     },
   };
-  let Some(redirect_uri) = oidc_redirect_uri(&state, &headers) else {
-    return (StatusCode::BAD_REQUEST, "Missing Host header").into_response();
-  };
+  // `redirect_uri` comes from the state entry, not from this request: it must
+  // match the one the authorization request carried, and this request's `Host`
+  // is not something to settle that with.
 
   // Exchange the authorization code for an access token.
   let http = match reqwest::Client::builder()

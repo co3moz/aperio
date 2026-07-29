@@ -881,8 +881,14 @@ impl ClientHandle {
 /// Round-robin group key: (hostname group, path group) of the selected pool.
 pub(crate) type RouteGroupKey = (Option<String>, Option<String>);
 
-/// A pending OIDC login: (post-login redirect, bound org id, expiry).
-pub(crate) type OidcStateEntry = (String, Option<String>, Instant);
+/// A pending OIDC login: (post-login redirect, bound org id, the callback URL
+/// sent to the provider, expiry).
+///
+/// The callback URL is remembered rather than re-derived: the token exchange
+/// has to present the *same* `redirect_uri` the authorization request did, and
+/// re-deriving it from the callback request's `Host` would let that header
+/// decide what the exchange claims.
+pub(crate) type OidcStateEntry = (String, Option<String>, String, Instant);
 
 /// One frame of a streamed response body relayed from the tunnel: data
 /// chunks, then optionally one trailer block (e.g. gRPC's `grpc-status`).
@@ -1547,7 +1553,7 @@ pub(crate) struct AppState {
   /// config and cached by org id (invalidated when the org's OIDC is updated).
   pub(crate) org_oidc: Mutex<HashMap<String, oidc::OidcRuntime>>,
   /// Pending OIDC login flows: state token → (original redirect, bound org id
-  /// for a per-org login, expiry).
+  /// for a per-org login, the callback URL sent to the provider, expiry).
   pub(crate) oidc_states: Mutex<HashMap<String, OidcStateEntry>>,
   /// Active experimental TCP tunnel streams: stream_id → consumer sender.
   pub(crate) tcp_streams: Mutex<HashMap<String, TcpStreamHandle>>,

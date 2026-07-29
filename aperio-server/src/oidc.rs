@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Runtime OIDC configuration resolved from the issuer's discovery document.
 #[derive(Clone)]
@@ -99,6 +99,16 @@ pub async fn load_from_env() -> Option<OidcRuntime> {
   let redirect_url_override = std::env::var("APERIO_OIDC_REDIRECT_URL")
     .ok()
     .filter(|s| !s.trim().is_empty());
+  if redirect_url_override.is_none() {
+    // Not fatal: deriving works, and requiring the key would break every
+    // deployment that never set it. But it is worth saying out loud, because
+    // the failure it guards against is silent — the `Host` of the request that
+    // starts a login decides where the provider returns the code.
+    warn!(
+      "OIDC: APERIO_OIDC_REDIRECT_URL is not set, so the callback URL is derived from each \
+       request's Host header. Set it to the one URL registered with your provider."
+    );
+  }
   match build_runtime(
     &issuer,
     &std::env::var("APERIO_OIDC_CLIENT_ID").unwrap_or_default(),
