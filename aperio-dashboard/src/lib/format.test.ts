@@ -32,6 +32,10 @@ describe('parseByteSize', () => {
     expect(parseByteSize('')).toBeNull()
     expect(parseByteSize('abc')).toBeNull()
     expect(parseByteSize('10 petabytes')).toBeNull()
+    // `1,500` is 1.5 or 1500 depending on where you learned to write numbers,
+    // and the two readings are a thousand times apart. Neither is guessed at.
+    expect(parseByteSize('1,500 mb')).toBeNull()
+    expect(parseByteSize('1,024')).toBeNull()
   })
 })
 

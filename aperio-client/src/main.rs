@@ -308,6 +308,10 @@ async fn main() {
           return;
         }
         let last = last_request_at.load(Ordering::SeqCst);
+        // Read after `last`, and read again below: a request that starts
+        // between the two loads bumps the timestamp we already have and the
+        // counter we are about to read, so taking the counter last is what
+        // makes "idle" mean idle at one moment rather than across two.
         let inflight = inflight_requests.load(Ordering::SeqCst);
         let now = std::time::SystemTime::now()
           .duration_since(std::time::UNIX_EPOCH)
@@ -316,7 +320,10 @@ async fn main() {
         // `should_retire_idle` also holds retirement back while a request is
         // still in flight (a slow backend, a response streaming for longer
         // than the window) and before anything was ever served at all.
-        if service::should_retire_idle(last, now, idle_secs, inflight) {
+        if service::should_retire_idle(last, now, idle_secs, inflight)
+          && inflight_requests.load(Ordering::SeqCst) == 0
+          && last_request_at.load(Ordering::SeqCst) == last
+        {
           info!(
             "Idle for {}s (idle_timeout={}s): draining and exiting",
             now.saturating_sub(last),

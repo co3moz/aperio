@@ -401,6 +401,11 @@ pub(crate) async fn orgs_delete_handler(
   // Drop any cached per-org OIDC runtime so a `?org=<deleted-id>` login can no
   // longer complete against the phantom org after it is gone.
   state.org_oidc.lock().await.remove(&id);
+  // And take it off any session that was viewing it: a selection pointing at
+  // an organization that no longer exists shows every org-scoped screen as
+  // empty, which reads as "everything is gone" rather than as "you are
+  // looking at nothing".
+  state.sessions.lock().await.clear_selected_org(&id);
   let ip = actor_ip(&state, &headers, addr);
   state
     .audit(

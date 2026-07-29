@@ -2,7 +2,7 @@
 
 ## Building from source
 
-Requires the Rust toolchain (2024 edition, 1.85+). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](../aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
+Requires the Rust toolchain (2024 edition, **1.87+** — declared as `rust-version` in each crate, so an older toolchain says so instead of failing inside a dependency). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](../aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
 
 ```bash
 cargo build --release -p aperio-server -p aperio-client

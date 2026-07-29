@@ -1481,15 +1481,14 @@ async fn proxy_http_request(
                 let mut stats = pump_state.stats.lock().await;
                 stats.total_bytes_transferred += bytes.len() as u64;
               }
-              if pump_tx
-                .send(Message::Binary(encode_binary_frame(
-                  FRAME_REQUEST_CHUNK,
-                  &pump_id,
-                  &bytes,
-                )))
-                .await
-                .is_err()
-              {
+              let framed = encode_binary_frame(FRAME_REQUEST_CHUNK, &pump_id, &bytes);
+              if framed.is_none() {
+                warn!("Refusing to frame a request chunk: request id is too long to encode");
+              }
+              if match framed {
+                Some(frame) => pump_tx.send(Message::Binary(frame)).await.is_err(),
+                None => true,
+              } {
                 complete = false;
                 break;
               }

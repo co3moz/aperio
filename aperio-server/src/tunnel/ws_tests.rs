@@ -583,11 +583,9 @@ async fn response_stream_lifecycle() {
   }
 
   // Binary frame chunk path (FRAME_RESPONSE_CHUNK).
-  ws.send(TMessage::Binary(encode_binary_frame(
-    FRAME_RESPONSE_CHUNK,
-    "s1",
-    &[1, 2],
-  )))
+  ws.send(TMessage::Binary(
+    encode_binary_frame(FRAME_RESPONSE_CHUNK, "s1", &[1, 2]).unwrap(),
+  ))
   .await
   .unwrap();
   match tokio::time::timeout(Duration::from_secs(2), body_rx.recv())

@@ -20,22 +20,25 @@ pub const FRAME_REQUEST_CHUNK: u8 = 1;
 /// Binary frame tag for a streamed response-body chunk (client → server).
 pub const FRAME_RESPONSE_CHUNK: u8 = 2;
 
-/// Encodes a v2 binary chunk frame.
-pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Vec<u8> {
-  // The length prefix is one byte: ids are request UUIDs (~36 bytes), always
-  // well under 255. Assert the invariant so a future change that grows the id
-  // is caught in tests rather than silently truncating on the wire.
-  debug_assert!(
-    id.len() <= u8::MAX as usize,
-    "binary frame id length {} exceeds the u8 length prefix",
-    id.len()
-  );
+/// Encodes a v2 binary chunk frame, or `None` when the id will not fit the
+/// one-byte length prefix.
+///
+/// Checked in every build rather than only in tests: the id is not always
+/// ours (a peer's request id is echoed back), and `id.len() as u8` on a
+/// longer one wraps, writing a length that does not describe the frame and
+/// putting every frame after it out of step. Refusing costs one chunk;
+/// a wrong length costs the connection. Ids are UUIDs, so this is a guard
+/// against a peer that is broken or hostile, not a case the code produces.
+pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<Vec<u8>> {
+  if id.len() > u8::MAX as usize {
+    return None;
+  }
   let mut out = Vec::with_capacity(2 + id.len() + payload.len());
   out.push(tag);
   out.push(id.len() as u8);
   out.extend_from_slice(id.as_bytes());
   out.extend_from_slice(payload);
-  out
+  Some(out)
 }
 
 /// Decodes a v2 binary chunk frame into (tag, id, payload).

@@ -255,6 +255,26 @@ impl SessionStore {
     }
   }
 
+  /// Clears `org` from every session that had it selected, and persists the
+  /// ones that changed. Called when an organization is deleted: a selection
+  /// pointing at nothing shows empty screens rather than saying why.
+  pub(crate) fn clear_selected_org(&mut self, org: &str) -> usize {
+    let stale: Vec<String> = self
+      .sessions
+      .iter()
+      .filter(|(_, i)| i.selected_org.as_deref() == Some(org))
+      .map(|(k, _)| k.clone())
+      .collect();
+    for key in &stale {
+      if let Some(info) = self.sessions.get_mut(key) {
+        info.selected_org = None;
+        let info = info.clone();
+        self.persist_one(key, &info);
+      }
+    }
+    stale.len()
+  }
+
   /// The selected organization on a session, if the session exists.
   pub(crate) fn selected_org(&self, token: &str) -> Option<Option<String>> {
     self

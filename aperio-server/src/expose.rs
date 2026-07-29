@@ -170,6 +170,15 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
         }
       }
     }
+    // Port 0 asks the OS for whatever is free, which for a rule whose whole
+    // job is to be reachable at a known number is never what was meant.
+    if rule.port == 0 {
+      error!(
+        "expose entry #{}: port 0 lets the OS pick, so nothing can reach it; name the port",
+        i + 1
+      );
+      std::process::exit(1);
+    }
     if !ports.insert(rule.port) {
       error!(
         "expose entry #{}: port {} is declared twice",

@@ -28,14 +28,12 @@ pub(crate) async fn send_response_chunk(
 ) -> Result<(), ()> {
   pause.wait_while_paused().await;
   if binary {
-    tunnel_tx
-      .send(Message::Binary(encode_binary_frame(
-        FRAME_RESPONSE_CHUNK,
-        id,
-        part,
-      )))
-      .await
-      .map_err(|_| ())
+    // An id too long to frame is a broken peer, not a chunk to guess at.
+    let Some(frame) = encode_binary_frame(FRAME_RESPONSE_CHUNK, id, part) else {
+      tracing::warn!("Refusing to frame a response chunk: request id is too long to encode");
+      return Err(());
+    };
+    tunnel_tx.send(Message::Binary(frame)).await.map_err(|_| ())
   } else {
     let msg = TunnelMessage::ResponseChunk {
       id: id.to_string(),

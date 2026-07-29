@@ -424,8 +424,16 @@ impl SecurityHeaders {
             format!("max-age={max_age}"),
           ));
         }
+        // `X-Frame-Options` has exactly two values a browser acts on. A
+        // typo (`DENNY`) is a header that looks like protection and is
+        // ignored, so it is corrected to the value it was reaching for
+        // rather than emitted as written.
         if let Some(v) = opts.frame_options.as_ref().filter(|v| !v.trim().is_empty()) {
-          out.push(("X-Frame-Options".to_string(), v.trim().to_string()));
+          let value = match v.trim().to_ascii_uppercase().as_str() {
+            "SAMEORIGIN" => "SAMEORIGIN",
+            _ => "DENY",
+          };
+          out.push(("X-Frame-Options".to_string(), value.to_string()));
         }
         if opts.nosniff.unwrap_or(false) {
           out.push(("X-Content-Type-Options".to_string(), "nosniff".to_string()));

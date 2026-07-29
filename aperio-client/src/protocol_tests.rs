@@ -2,14 +2,15 @@ use super::*;
 
 #[test]
 fn test_binary_frame_roundtrip() {
-  let frame = encode_binary_frame(FRAME_RESPONSE_CHUNK, "req-1", b"payload-bytes");
+  let frame = encode_binary_frame(FRAME_RESPONSE_CHUNK, "req-1", b"payload-bytes")
+    .expect("a uuid id always fits");
   let (tag, id, payload) = decode_binary_frame(&frame).expect("frame must decode");
   assert_eq!(tag, FRAME_RESPONSE_CHUNK);
   assert_eq!(id, "req-1");
   assert_eq!(payload, b"payload-bytes");
 
   // An empty payload is valid.
-  let frame = encode_binary_frame(FRAME_REQUEST_CHUNK, "x", b"");
+  let frame = encode_binary_frame(FRAME_REQUEST_CHUNK, "x", b"").expect("a uuid id always fits");
   let (tag, id, payload) = decode_binary_frame(&frame).unwrap();
   assert_eq!((tag, id, payload), (FRAME_REQUEST_CHUNK, "x", &b""[..]));
 }
@@ -65,4 +66,18 @@ fn test_tunnel_decl_serde_defaults() {
     }
     other => panic!("expected TcpOpen, got {other:?}"),
   }
+}
+
+#[test]
+fn an_id_too_long_to_frame_is_refused_rather_than_wrapped() {
+  // The length prefix is one byte. A peer's id is echoed back into the frame,
+  // so a peer sending a longer one would have the cast wrap: a length that
+  // does not describe the frame, and every frame after it out of step.
+  let long = "x".repeat(256);
+  assert!(encode_binary_frame(FRAME_RESPONSE_CHUNK, &long, b"body").is_none());
+  let edge = "x".repeat(255);
+  let frame = encode_binary_frame(FRAME_RESPONSE_CHUNK, &edge, b"body").expect("255 still fits");
+  let (_, id, payload) = decode_binary_frame(&frame).unwrap();
+  assert_eq!(id, edge);
+  assert_eq!(payload, b"body");
 }

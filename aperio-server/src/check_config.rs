@@ -350,6 +350,12 @@ pub(crate) fn run() -> i32 {
           rule.protocol
         ));
       }
+      if rule.port == 0 {
+        r.fail(&format!(
+          "`expose:` entry #{}: port 0 lets the OS pick, so nothing can reach it",
+          i + 1
+        ));
+      }
       match (&rule.tunnel, &rule.key) {
         (Some(name), _) => {
           let (prefix, bare) = crate::tunnel::registry::split_qualified(name);

@@ -43,6 +43,27 @@ fn security_headers_detailed_selects_individually() {
     h.iter().find(|(k, _)| k == "X-Frame-Options").unwrap().1,
     "SAMEORIGIN"
   );
+  // A browser acts on two values and ignores everything else, so a typo would
+  // otherwise be a header that looks like protection and is not.
+  for (written, sent) in [
+    ("sameorigin", "SAMEORIGIN"),
+    ("DENY", "DENY"),
+    ("DENNY", "DENY"),
+    ("ALLOW-FROM https://example.com", "DENY"),
+  ] {
+    let opts: SecurityHeaders =
+      serde_json::from_str(&format!(r#"{{"frame_options": "{written}"}}"#)).unwrap();
+    assert_eq!(
+      opts
+        .headers()
+        .iter()
+        .find(|(k, _)| k == "X-Frame-Options")
+        .unwrap()
+        .1,
+      sent,
+      "{written}"
+    );
+  }
   assert!(h.iter().any(|(k, _)| k == "X-Content-Type-Options"));
   assert_eq!(
     h.iter().find(|(k, _)| k == "Referrer-Policy").unwrap().1,

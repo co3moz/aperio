@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn test_binary_frame_roundtrip() {
-  let frame = encode_binary_frame(FRAME_REQUEST_CHUNK, "req-1", b"payload-bytes");
+  let frame = encode_binary_frame(FRAME_REQUEST_CHUNK, "req-1", b"payload-bytes")
+    .expect("a uuid id always fits");
   let (tag, id, payload) = decode_binary_frame(&frame).expect("frame must decode");
   assert_eq!(tag, FRAME_REQUEST_CHUNK);
   assert_eq!(id, "req-1");

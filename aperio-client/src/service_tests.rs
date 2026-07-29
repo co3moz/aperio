@@ -454,11 +454,9 @@ async fn test_run_service_message_loop() {
   )
   .await;
   // Binary v2 chunk frame for the same request id.
-  ws.send(Message::Binary(crate::protocol::encode_binary_frame(
-    FRAME_REQUEST_CHUNK,
-    "r2",
-    b"world",
-  )))
+  ws.send(Message::Binary(
+    crate::protocol::encode_binary_frame(FRAME_REQUEST_CHUNK, "r2", b"world").unwrap(),
+  ))
   .await
   .unwrap();
   srv_send(

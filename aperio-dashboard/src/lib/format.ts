@@ -16,6 +16,10 @@ export function parseByteSize(input: string): number | null {
     .toLowerCase()
     .match(/^(\d+(?:[.,]\d+)?)\s*(b|kb?|mb?|gb?|tb?)?$/)
   if (!m) return null
+  // `1,500` is 1.5 to half the world and 1500 to the other half, and the two
+  // answers are a thousand times apart. Refuse it rather than pick one; every
+  // other spelling of a comma is read as a decimal point, as before.
+  if (/,\d{3}$/.test(m[1])) return null
   const value = parseFloat(m[1].replace(',', '.'))
   if (!Number.isFinite(value)) return null
   const exp = { b: 0, k: 1, kb: 1, m: 2, mb: 2, g: 3, gb: 3, t: 4, tb: 4 }[m[2] ?? 'b']

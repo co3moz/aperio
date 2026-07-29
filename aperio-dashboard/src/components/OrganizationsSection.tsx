@@ -492,6 +492,9 @@ function OidcForm({ org }: { org: Organization }) {
         />
         <Input
           type="password"
+          // A client secret is not a login: a password manager offering to
+          // save it, or filling it with something else, is only ever noise.
+          autoComplete="off"
           placeholder={t('Client secret')}
           value={f.clientSecret}
           onChange={(e) => setF((s) => ({ ...s, clientSecret: e.target.value }))}

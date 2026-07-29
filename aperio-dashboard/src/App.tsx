@@ -155,6 +155,9 @@ function loadHistory(): number[] {
       if (
         Array.isArray(saved.values) &&
         saved.values.length === HISTORY_LENGTH &&
+        // Every value has to be a real number: one `NaN` from a corrupt entry
+        // spreads through the sparkline's own arithmetic and never leaves.
+        saved.values.every((v) => Number.isFinite(v)) &&
         Date.now() - saved.at < HISTORY_MAX_AGE_MS
       ) {
         return saved.values

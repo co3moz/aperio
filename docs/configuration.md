@@ -271,7 +271,10 @@ A `security_headers:` key (top-level, or per `services:` entry, the entry replac
 security_headers:
   hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
   hsts_max_age: 31536000      # optional, default 63072000 (2 years)
-  frame_options: SAMEORIGIN   # X-Frame-Options
+  frame_options: SAMEORIGIN   # X-Frame-Options: SAMEORIGIN or DENY (anything
+                              # else is sent as DENY — a browser acts on those
+                              # two and ignores a typo, which would leave a
+                              # header that only looks like protection)
   nosniff: true               # X-Content-Type-Options: nosniff
   referrer_policy: strict-origin-when-cross-origin
   csp: "default-src 'self'"   # Content-Security-Policy (no default, app-specific)
