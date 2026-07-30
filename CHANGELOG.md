@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The client no longer carries the server's feature set.** The release built both crates in one `cargo` invocation, so Cargo unified features across them and every option the server enables in a shared dependency was compiled into the client as well: 776 KB of code it never calls. They are built separately now, and `aperio-client` drops from 6.17 MB to 5.51 MB on top of the link-time optimization below.
+
 - **The release binaries are a third smaller, and slightly faster.** Link-time optimization across crates, with a single codegen unit: `aperio-client` goes from 9.26 MB to 6.17 MB and `aperio-server` from 18.93 MB to 13.82 MB, while throughput through the tunnel measured ~11% higher, since the inlining that removes duplicated code across crate boundaries is the inlining a proxy hot path wants. Release builds take about three times as long.
 
 ### Fixed

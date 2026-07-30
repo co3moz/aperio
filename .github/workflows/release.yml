@@ -82,8 +82,17 @@ jobs:
       # vendored-openssl: webauthn-rs pulls in openssl, and the release
       # matrix cross-compiles (x86_64 on arm64 macs, musl static) where no
       # system OpenSSL exists for the target, build it from source instead.
-      - name: Build release binaries
-        run: cargo build --release --locked -p aperio-server -p aperio-client --target ${{ matrix.target }} --features aperio-server/vendored-openssl
+      # Two invocations on purpose. Building both crates at once lets Cargo
+      # unify features across them, so every feature the server turns on in a
+      # shared dependency (tokio, rustls, hyper, reqwest) is compiled into the
+      # client too: measured at 776 KB of the client binary, for code it never
+      # calls. Built separately, each gets the feature set it actually asked
+      # for. The cost is that shared dependencies compile twice.
+      - name: Build the server
+        run: cargo build --release --locked -p aperio-server --target ${{ matrix.target }} --features aperio-server/vendored-openssl
+
+      - name: Build the client
+        run: cargo build --release --locked -p aperio-client --target ${{ matrix.target }}
 
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
