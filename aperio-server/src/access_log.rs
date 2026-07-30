@@ -81,19 +81,24 @@ pub(crate) async fn log_request_success(
     logs.push_back(entry);
   }
   // Structured access event: with the JSON log format every field below
-  // becomes a top-level key, directly usable by log pipelines.
-  info!(
-    target: "aperio_access",
-    request_id = %id,
-    method,
-    uri = %safe_uri,
-    status,
-    duration_ms = duration.as_millis() as u64,
-    host = host.unwrap_or(""),
-    client_id = client_id.unwrap_or(""),
-    token = token.unwrap_or("master"),
-    "proxy success"
-  );
+  // becomes a top-level key, directly usable by log pipelines. Skipped
+  // wholesale when `access_events` is off, which is not the same as lowering
+  // the log level: this silences one event per request and leaves warnings
+  // and errors where they are.
+  if state.config().access_events {
+    info!(
+      target: "aperio_access",
+      request_id = %id,
+      method,
+      uri = %safe_uri,
+      status,
+      duration_ms = duration.as_millis() as u64,
+      host = host.unwrap_or(""),
+      client_id = client_id.unwrap_or(""),
+      token = token.unwrap_or("master"),
+      "proxy success"
+    );
+  }
   // Built only when there is somewhere to put it. This ran on every request
   // whether or not an access log was configured: ten fields, a timestamp and
   // a serde_json::Value tree, allocated and dropped for nothing.

@@ -907,6 +907,7 @@ fn build_specs(
       visitor_auth: settings.visitor_auth.clone(),
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
+      capture: settings.capture,
       webhook_inbox: settings.webhook_inbox,
       denied: settings.denied.clone(),
       scaling: settings.scaling.clone(),
@@ -1043,6 +1044,7 @@ fn build_specs(
           .clone()
           .unwrap_or_else(|| settings.allowed_ips.clone()),
         resilience: entry.resilience.unwrap_or(settings.resilience),
+        capture: entry.capture.unwrap_or(settings.capture),
         webhook_inbox: entry.webhook_inbox.unwrap_or(settings.webhook_inbox),
         scaling: settings.scaling.clone(),
         denied: entry

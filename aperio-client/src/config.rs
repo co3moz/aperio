@@ -176,6 +176,12 @@ pub(crate) struct CommonOpts {
   /// `cache` and the server-side cache (yaml: resilience, env: APERIO_RESILIENCE)
   #[arg(long, global = true)]
   pub(crate) resilience: bool,
+  /// Do not record this client's transactions for the dashboard's request
+  /// inspector. Off (so: recorded) by default; a service carrying heavy
+  /// traffic can buy back the per-request capture (yaml: capture: false, env:
+  /// APERIO_CAPTURE=0)
+  #[arg(long = "no-capture", global = true)]
+  pub(crate) no_capture: bool,
   /// IP family to dial the server over: auto (default), ipv4, or ipv6. Use
   /// ipv4 when the server hostname resolves to an unreachable IPv6 address
   /// (yaml: ip_family, env: APERIO_IP_FAMILY)
@@ -423,6 +429,8 @@ pub(crate) struct ClientSettings {
   pub(crate) cache: bool,
   /// Keep serving cached responses while this client is offline (server-side).
   pub(crate) resilience: bool,
+  /// Record transactions for the dashboard's request inspector (default true).
+  pub(crate) capture: bool,
   /// Persist inbound POSTs into the server's webhook inbox (announced via Ping).
   pub(crate) webhook_inbox: bool,
   /// Redirect URL for visitors rejected by `allowed_ips` (None = stealth).
@@ -991,6 +999,16 @@ pub(crate) fn resolve_settings(
         home.resilience,
       )
       .unwrap_or(false),
+    // On by default, so the layers carry the opt-out: `--no-capture`, or
+    // `capture: false`, or `APERIO_CAPTURE=0`.
+    capture: !o.no_capture
+      && layered(
+        None,
+        local.capture,
+        env_bool("APERIO_CAPTURE"),
+        home.capture,
+      )
+      .unwrap_or(true),
     webhook_inbox: layered(
       None,
       local.webhook_inbox,

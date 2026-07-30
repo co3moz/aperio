@@ -116,8 +116,6 @@ export const zh: Record<string, string> = {
     '投递携带 X-Aperio-Signature（对“timestamp.body”做 HMAC-SHA256）和 X-Aperio-Timestamp，接收方可验证来源与时效。',
   'Describe the local service; copy a ready-to-run command below.':
     '描述本地服务；在下方复制可直接运行的命令。',
-  'Detail not available for this request (only recent requests are captured).':
-    '此请求无详情（仅捕获最近的请求）。',
   Details: '详情',
   Disable: '禁用',
   'Disable all': '全部禁用',
@@ -914,4 +912,9 @@ export const zh: Record<string, string> = {
   'Could not delete ({status})': '删除失败（{status}）',
   'Parallel connections per service (0 = server default, empty = keep)': '每个服务的并行连接数（0 = 服务器默认值，留空 = 保持不变）',
   'Parallel connections per service (empty = server default)': '每个服务的并行连接数（留空 = 服务器默认值）',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '详情不可用：只有最近的请求会被记录，而设置了 capture: false 的服务（或关闭了检查器的服务器）根本不会被记录。',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': '该服务允许记录，但服务器关闭了请求检查器（APERIO_INSPECTOR=0），因此这里无法检查或重放任何内容。',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': '该服务未被请求检查器记录（其 aperio.yaml 中 capture: false），其请求无法检查或重放。实时流量和统计不受影响。',
+  'inspector off': '检查器已关闭',
+  'no capture': '未记录',
 }

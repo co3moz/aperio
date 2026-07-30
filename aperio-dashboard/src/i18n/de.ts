@@ -120,8 +120,6 @@ export const de: Record<string, string> = {
     'Zustellungen tragen X-Aperio-Signature (HMAC-SHA256 über „timestamp.body“) und X-Aperio-Timestamp, damit der Empfänger Herkunft und Aktualität prüfen kann.',
   'Describe the local service; copy a ready-to-run command below.':
     'Beschreiben Sie den lokalen Dienst; kopieren Sie unten einen startfertigen Befehl.',
-  'Detail not available for this request (only recent requests are captured).':
-    'Keine Details für diese Anfrage verfügbar (nur aktuelle Anfragen werden erfasst).',
   Details: 'Details',
   Disable: 'Deaktivieren',
   'Disable all': 'Alle deaktivieren',
@@ -935,4 +933,9 @@ export const de: Record<string, string> = {
   'Could not delete ({status})': 'Löschen fehlgeschlagen ({status})',
   'Parallel connections per service (0 = server default, empty = keep)': 'Parallele Verbindungen pro Dienst (0 = Server-Standard, leer = beibehalten)',
   'Parallel connections per service (empty = server default)': 'Parallele Verbindungen pro Dienst (leer = Server-Standard)',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Detail nicht verfügbar: nur aktuelle Anfragen werden aufgezeichnet, und ein Dienst mit capture: false (oder ein Server mit abgeschaltetem Inspector) wird gar nicht aufgezeichnet.',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Dieser Dienst erlaubt die Aufzeichnung, aber der Server hat den Request-Inspector abgeschaltet (APERIO_INSPECTOR=0), daher kann hier nichts inspiziert oder wiederholt werden.',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Dieser Dienst wird nicht für den Request-Inspector aufgezeichnet (capture: false in seiner aperio.yaml), seine Anfragen lassen sich weder inspizieren noch wiederholen. Live-Traffic und Statistiken sind nicht betroffen.',
+  'inspector off': 'Inspector aus',
+  'no capture': 'keine Aufzeichnung',
 }

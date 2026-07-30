@@ -33,3 +33,33 @@ async fn the_access_log_json_is_not_built_when_there_is_no_file() {
   // the absence of a file does not turn off.
   assert_eq!(state.recent_logs.lock().await.len(), 1);
 }
+
+#[tokio::test]
+async fn the_access_event_can_be_silenced_without_silencing_warnings() {
+  // `access_events: false` is not `log_level: warn`: it turns off one event
+  // per request, and the dashboard's live view keeps working, because that is
+  // fed from the ring buffer rather than from the log.
+  let mut config = crate::test_support::test_config();
+  config.access_events = false;
+  let state = Arc::new(crate::test_support::test_state_with(config));
+
+  log_request_success(
+    &state,
+    "req-2".to_string(),
+    "GET",
+    "/x",
+    200,
+    Duration::from_millis(1),
+    None,
+    None,
+    None,
+    None,
+  )
+  .await;
+
+  assert_eq!(
+    state.recent_logs.lock().await.len(),
+    1,
+    "the live view is fed from the ring, not from the log event"
+  );
+}

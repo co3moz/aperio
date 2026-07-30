@@ -86,6 +86,7 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     headers: None,
     cache: false,
     resilience: false,
+    capture: true,
     webhook_inbox: false,
     denied: None,
     scaling: None,

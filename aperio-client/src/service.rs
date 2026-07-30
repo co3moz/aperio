@@ -199,6 +199,10 @@ pub(crate) struct ServiceSpec {
   /// Ask the server to keep serving this service's cached responses while
   /// no healthy client is connected (announced via Ping; needs `cache`).
   pub(crate) resilience: bool,
+  /// False when this service asked not to be recorded for the dashboard's
+  /// request inspector (`capture: false`). Announced in every heartbeat, so
+  /// the server can skip the capture for this service's traffic.
+  pub(crate) capture: bool,
   /// Ask the server to persist inbound POSTs to this service into its
   /// webhook inbox (announced via Ping).
   pub(crate) webhook_inbox: bool,
@@ -799,6 +803,7 @@ pub(crate) async fn run_service(
             let tunnels_ping = spec.tunnels.clone();
             let visitor_auth_ping = spec.visitor_auth.clone();
             let allowed_ips_ping = spec.allowed_ips.clone();
+            let no_capture = !spec.capture;
             let (max_concurrent, priority, bandwidth_bps, public, cache, resilience) = (
               spec.max_concurrent,
               spec.priority,
@@ -869,6 +874,7 @@ pub(crate) async fn run_service(
                   tunnels: tunnels_ping.clone(),
                   cache,
                   resilience,
+                  no_capture,
                   max_request_body: max_request_body_ping,
                   response_timeout: response_timeout_ping,
                   client_key: client_key_ping.clone(),

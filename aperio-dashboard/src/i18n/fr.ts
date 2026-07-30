@@ -120,8 +120,6 @@ export const fr: Record<string, string> = {
     'Les livraisons portent X-Aperio-Signature (HMAC-SHA256 sur « timestamp.body ») et X-Aperio-Timestamp afin que le récepteur vérifie l’origine et la fraîcheur.',
   'Describe the local service; copy a ready-to-run command below.':
     'Décrivez le service local ; copiez ci-dessous une commande prête à l’emploi.',
-  'Detail not available for this request (only recent requests are captured).':
-    'Détail indisponible pour cette requête (seules les requêtes récentes sont capturées).',
   Details: 'Détails',
   Disable: 'Désactiver',
   'Disable all': 'Tout désactiver',
@@ -933,4 +931,9 @@ export const fr: Record<string, string> = {
   'Could not delete ({status})': 'Suppression impossible ({status})',
   'Parallel connections per service (0 = server default, empty = keep)': 'Connexions parallèles par service (0 = valeur du serveur, vide = conserver)',
   'Parallel connections per service (empty = server default)': 'Connexions parallèles par service (vide = valeur du serveur)',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Détail indisponible : seules les requêtes récentes sont capturées, et un service avec capture: false (ou un serveur dont l\'inspecteur est désactivé) n\'est pas capturé du tout.',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Ce service autorise la capture, mais le serveur a désactivé l\'inspecteur de requêtes (APERIO_INSPECTOR=0) : rien ne peut être inspecté ni rejoué ici.',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Ce service n\'est pas enregistré pour l\'inspecteur de requêtes (capture: false dans son aperio.yaml), ses requêtes ne peuvent être ni inspectées ni rejouées. Le trafic en direct et les statistiques ne sont pas affectés.',
+  'inspector off': 'inspecteur désactivé',
+  'no capture': 'pas de capture',
 }

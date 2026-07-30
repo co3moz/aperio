@@ -369,6 +369,10 @@ pub(crate) struct SelectedClient {
   pub(crate) cache: bool,
   /// The client asked for serve-stale resilience (Ping `resilience`).
   pub(crate) resilience: bool,
+  /// False when this service asked not to be recorded for the request
+  /// inspector. Resolved here, under the lock the routing pass already holds,
+  /// so the capture site does not take a second one per request.
+  pub(crate) capture: bool,
   /// Client-declared request body cap in bytes (Ping `max_request_body`);
   /// tightens, never loosens, the global body size limit.
   pub(crate) max_request_body: Option<u64>,
@@ -469,6 +473,7 @@ pub(crate) async fn pick_proxy_client(
       protocol: c.client_protocol,
       cache: c.cache,
       resilience: c.resilience,
+      capture: c.capture,
       max_request_body: c.max_request_body,
       response_timeout: c.response_timeout,
       webhook_inbox: c.webhook_inbox,

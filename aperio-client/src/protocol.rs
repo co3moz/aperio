@@ -197,6 +197,11 @@ pub(crate) enum TunnelMessage {
     /// connected, instead of failing with 504. Needs `cache`.
     #[serde(default)]
     resilience: bool,
+    /// The client asks the server not to record this service's transactions
+    /// for the request inspector. Absent on older clients, which means the
+    /// default: record.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    no_capture: bool,
     /// Largest request body, in bytes, visitors may upload to this service;
     /// the server answers bigger uploads with an early 413 before they enter
     /// the tunnel (None = only the server's global limit applies).

@@ -120,8 +120,6 @@ export const ru: Record<string, string> = {
     'Доставки содержат X-Aperio-Signature (HMAC-SHA256 от «timestamp.body») и X-Aperio-Timestamp, чтобы получатель мог проверить источник и свежесть.',
   'Describe the local service; copy a ready-to-run command below.':
     'Опишите локальный сервис; скопируйте готовую команду ниже.',
-  'Detail not available for this request (only recent requests are captured).':
-    'Детали недоступны для этого запроса (захватываются только недавние).',
   Details: 'Детали',
   Disable: 'Отключить',
   'Disable all': 'Отключить все',
@@ -933,4 +931,9 @@ export const ru: Record<string, string> = {
   'Could not delete ({status})': 'Не удалось удалить ({status})',
   'Parallel connections per service (0 = server default, empty = keep)': 'Параллельные соединения на сервис (0 = значение сервера, пусто = не менять)',
   'Parallel connections per service (empty = server default)': 'Параллельные соединения на сервис (пусто = значение сервера)',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Детали недоступны: сохраняются только недавние запросы, а сервис с capture: false (или сервер с выключенным инспектором) не сохраняется вовсе.',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Этот сервис разрешает запись, но на сервере инспектор запросов выключен (APERIO_INSPECTOR=0), поэтому здесь нечего просматривать и нечего повторить.',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Этот сервис не записывается для инспектора запросов (capture: false в его aperio.yaml), его запросы нельзя просмотреть или повторить. На живой трафик и статистику это не влияет.',
+  'inspector off': 'инспектор выключен',
+  'no capture': 'без записи',
 }

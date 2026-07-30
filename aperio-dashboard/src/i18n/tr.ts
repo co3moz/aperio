@@ -120,8 +120,6 @@ export const tr: Record<string, string> = {
     'Teslimatlar, alıcının kaynağı ve güncelliği doğrulayabilmesi için X-Aperio-Signature ("timestamp.body" üzerinde HMAC-SHA256) ve X-Aperio-Timestamp taşır.',
   'Describe the local service; copy a ready-to-run command below.':
     'Yerel servisi tanımlayın; aşağıdan çalışmaya hazır bir komut kopyalayın.',
-  'Detail not available for this request (only recent requests are captured).':
-    'Bu istek için detay yok (yalnızca son istekler yakalanır).',
   Details: 'Detaylar',
   Disable: 'Devre dışı bırak',
   'Disable all': 'Tümünü devre dışı bırak',
@@ -937,4 +935,9 @@ export const tr: Record<string, string> = {
   'Could not delete ({status})': 'Silinemedi ({status})',
   'Parallel connections per service (0 = server default, empty = keep)': 'Servis başına paralel bağlantı (0 = sunucu varsayılanı, boş = değiştirme)',
   'Parallel connections per service (empty = server default)': 'Servis başına paralel bağlantı (boş = sunucu varsayılanı)',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Ayrıntı yok: yalnızca son istekler kaydedilir ve capture: false olan bir servis (ya da inspector\'ı kapalı bir sunucu) hiç kaydedilmez.',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Bu servis kayda izin veriyor ama sunucuda istek inspector\'ı kapalı (APERIO_INSPECTOR=0), bu yüzden burada hiçbir şey incelenemez veya tekrar oynatılamaz.',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Bu servis istek inspector\'ı için kaydedilmiyor (aperio.yaml içinde capture: false), istekleri incelenemez ve tekrar oynatılamaz. Canlı trafik ve istatistikler etkilenmez.',
+  'inspector off': 'inspector kapalı',
+  'no capture': 'kayıt yok',
 }

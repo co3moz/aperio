@@ -67,6 +67,10 @@ export interface ClientDetail {
   /** The service opted into caching (`cache: true`) but the server's response
    * cache is disabled (APERIO_CACHE off), so the opt-in has no effect. */
   cache_ignored: boolean
+  /** False when this service asked not to be recorded (`capture: false`). */
+  capture: boolean
+  /** True when the service allows capture but the server has the inspector off. */
+  capture_disabled_by_server: boolean
   instance_id: string | null
   instance_id_shared: boolean
   /** Process-wide instance group (the client's raw client_id base), shared by

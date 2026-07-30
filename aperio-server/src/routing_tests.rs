@@ -27,6 +27,7 @@ fn base_handle() -> ClientHandle {
     random_hostname: None,
     override_path_bind: None,
     override_hostname_binds: Vec::new(),
+    capture: true,
     connections: None,
     declared_client_id: None,
     config_notes: Vec::new(),

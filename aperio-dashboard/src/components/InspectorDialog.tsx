@@ -134,7 +134,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
         if (cancelled) return
         setError(
           e instanceof ApiError && e.status === 404
-            ? t('Detail not available for this request (only recent requests are captured).')
+            ? t('Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.')
             : t('Failed to load request detail: {error}', {
                 error: e instanceof Error ? e.message : String(e),
               }),

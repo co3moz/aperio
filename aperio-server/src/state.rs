@@ -107,6 +107,13 @@ pub(crate) struct ClientDetail {
   /// True when the service opted into caching (`cache: true`) but the server's
   /// response cache is disabled (APERIO_CACHE off), so the opt-in does nothing.
   pub(crate) cache_ignored: bool,
+  /// False when this service asked not to be recorded for the request
+  /// inspector (`capture: false`).
+  pub(crate) capture: bool,
+  /// True when the service is willing to be recorded but the server has the
+  /// inspector off altogether, so nothing about it can be inspected however
+  /// the client is configured.
+  pub(crate) capture_disabled_by_server: bool,
   /// Client-process instance id self-reported via Ping (`--client-id`).
   pub(crate) instance_id: Option<String>,
   /// True when another live connection reports the same instance id, a
@@ -600,6 +607,9 @@ pub(crate) struct ClientHandle {
   /// Dashboard kill switch: false = temporarily excluded from routing even
   /// though the connection and heartbeats remain healthy.
   pub(crate) admin_enabled: bool,
+  /// False when the service asked not to be recorded for the request
+  /// inspector (`capture: false` in its aperio.yaml), announced via Ping.
+  pub(crate) capture: bool,
   /// Parallel tunnel connections the client runs for this service
   /// (`connections:`), announced via Ping. Display-only: the server treats
   /// each connection as its own client regardless.

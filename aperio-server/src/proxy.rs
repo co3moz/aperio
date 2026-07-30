@@ -1742,8 +1742,13 @@ async fn proxy_http_request(
         )
         .await;
 
-        // Capture the transaction for the dashboard inspector.
-        {
+        // Capture the transaction for the dashboard inspector, unless the
+        // server has it off (`inspector: false`) or this service asked not to
+        // be recorded. What it costs is a mutex, two header clones and an
+        // entry per request; what it buys is the screen an operator opens
+        // first when something is wrong, so it is on unless someone says
+        // otherwise.
+        if state.config().inspector && selected.capture {
           use base64::prelude::*;
           let resp_streamed = tunnel_res.stream_rx.is_some();
           // The body arrived base64-encoded over the tunnel and the capture

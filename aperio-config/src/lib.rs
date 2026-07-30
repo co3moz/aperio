@@ -799,6 +799,13 @@ pub struct ServiceEntry {
   /// 504 (needs `cache: true` and the server-side cache enabled).
   #[schemars(extend("examples" = [true]))]
   pub resilience: Option<bool>,
+  /// Record this service's transactions for the dashboard's request
+  /// inspector (default true). Turning it off for a service that carries
+  /// heavy traffic buys back a mutex, two header clones and a capture entry
+  /// per request, at the cost of not being able to inspect or replay its
+  /// requests afterwards.
+  #[schemars(extend("examples" = [false]))]
+  pub capture: Option<bool>,
   /// Persist inbound POST requests (third-party webhooks) hitting this
   /// service into the server's webhook inbox, for browsing and re-firing.
   #[schemars(extend("examples" = [true]))]
@@ -1087,6 +1094,10 @@ pub struct FileConfig {
   /// 504 (needs `cache: true` and the server-side cache enabled).
   #[schemars(extend("examples" = [true]))]
   pub resilience: Option<bool>,
+  /// Record transactions for the dashboard's request inspector (default
+  /// true, services may override).
+  #[schemars(extend("examples" = [false]))]
+  pub capture: Option<bool>,
   /// Persist inbound POST requests (third-party webhooks) into the server's
   /// webhook inbox, for browsing and re-firing (services may override).
   #[schemars(extend("examples" = [true]))]
@@ -2222,6 +2233,17 @@ pub struct ServerFileConfig {
   /// raise it. Default 16 (env: APERIO_MAX_CONNECTIONS_PER_SERVICE).
   #[schemars(extend("examples" = [16]))]
   pub max_connections_per_service: Option<u64>,
+  /// Record every proxied transaction for the dashboard's request inspector.
+  /// On by default; `false` gives back a mutex, two header clones and a
+  /// capture entry per request, and nothing can be inspected or replayed
+  /// (env: APERIO_INSPECTOR).
+  #[schemars(extend("examples" = [false]))]
+  pub inspector: Option<bool>,
+  /// Emit the per-request structured access event. On by default. Distinct
+  /// from `log_level`: `false` silences one event per request and leaves
+  /// warnings and errors alone (env: APERIO_ACCESS_EVENTS).
+  #[schemars(extend("examples" = [false]))]
+  pub access_events: Option<bool>,
   /// Maximum concurrently-live proxied public WebSockets; they are long-lived,
   /// so they get their own ceiling separate from `max_concurrent_requests`.
   /// `0` = uncapped (env: APERIO_MAX_WS_CONNECTIONS).

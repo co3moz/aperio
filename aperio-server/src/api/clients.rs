@@ -108,6 +108,8 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .is_some_and(|until| std::time::Instant::now() < until),
       enabled: handle.admin_enabled,
       cache_ignored: handle.cache && !state.config().cache_enabled,
+      capture: handle.capture,
+      capture_disabled_by_server: handle.capture && !state.config().inspector,
       instance_id: handle.reported_instance_id.clone(),
       instance_id_shared: handle
         .reported_instance_id

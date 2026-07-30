@@ -29,6 +29,36 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
   (protocol v2 and later) instead of buffering, so a large limit does not cost
   memory per request, but it does bound how big a single upload can be.
 
+## What every request pays for, and how to stop paying it
+
+Three things run on every proxied request because they make the product
+comfortable, not because the proxying needs them. On a server that is not
+saturated they cost nothing anybody notices. On one that is, they are the
+first place to look, and each has a switch:
+
+| Setting | What it does | What you lose |
+|---|---|---|
+| `inspector` (env `APERIO_INSPECTOR`) | Records every transaction for the request inspector | Inspect, replay, cURL and HAR export stop working |
+| `access_events` (env `APERIO_ACCESS_EVENTS`) | One structured log event per request | Per-request lines in the log; warnings and errors stay |
+| `capture` (per service, client-side) | The same recording, for one service only | Only that service's requests become uninspectable |
+
+`capture: false` is the one to reach for first: it is per service, so the
+one endpoint carrying the load can opt out while everything else stays
+inspectable. The dashboard marks such a client **no capture**, and a server
+with the inspector off altogether marks its clients **inspector off**, so the
+missing data is explained where somebody would go looking for it.
+
+Two more worth knowing about, because neither is on by default and both cost
+per request when they are:
+
+- **OpenTelemetry** (`otel.enabled`). Every request emits a span tree, built
+  and exported to the collector. There is no sampling: enabling it means
+  every request, so a benchmark run with tracing on is measuring the tracing
+  as much as the tunnel.
+- **The live traffic view.** The dashboard's SSE stream costs nothing while
+  nobody is watching, and a clone of every request entry per watcher while
+  somebody is. Close the tab before measuring.
+
 ## Which limit produced a 429
 
 Six different ceilings answer `429`, and raising the wrong one is a slow way

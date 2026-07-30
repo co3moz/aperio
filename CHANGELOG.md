@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **The comfort features have switches now, and one of them is per service.** The request inspector records every transaction and the access event logs every request, because that is what makes the dashboard worth opening; on a server running flat out they are also the first per-request costs worth reclaiming. `inspector` (env `APERIO_INSPECTOR`) and `access_events` (env `APERIO_ACCESS_EVENTS`) turn them off server-wide, the second without lowering `log_level` and losing warnings with it. A client can opt one service out with `capture: false` (or `--no-capture`) and leave the rest inspectable. The dashboard marks such a client **no capture**, marks every client **inspector off** when the server's switch is the reason, and the inspector's "no detail" message now names both possibilities instead of blaming age.
+
 ### Fixed
 
 - **Three things every proxied request paid for and nobody used.** The structured access-log line was built on every request, ten fields and a timestamp assembled into a JSON tree, and then dropped inside the writer when no access log file was configured; the timestamp behind it was read twice per request, once for the dashboard's live entry and once for that line; and the inspector re-encoded the response body to base64 having just decoded it from the base64 it arrived in. None of this changes what anything shows.

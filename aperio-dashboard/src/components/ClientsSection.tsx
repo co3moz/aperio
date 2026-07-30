@@ -615,6 +615,26 @@ export function ClientsSection({
                             {t('SHARED ID')}
                           </HintBadge>
                         )}
+                        {!c.capture && (
+                          <HintBadge
+                            tint="gray"
+                            hint={t(
+                              'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.',
+                            )}
+                          >
+                            {t('no capture')}
+                          </HintBadge>
+                        )}
+                        {c.capture_disabled_by_server && (
+                          <HintBadge
+                            tint="amber"
+                            hint={t(
+                              'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.',
+                            )}
+                          >
+                            {t('inspector off')}
+                          </HintBadge>
+                        )}
                         {c.cache_ignored && (
                           <HintBadge
                             tint="amber"

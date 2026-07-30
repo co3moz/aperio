@@ -155,6 +155,7 @@ fn base_ping() -> TunnelMessage {
     tunnels: Vec::new(),
     cache: false,
     resilience: false,
+    no_capture: false,
     max_request_body: None,
     response_timeout: None,
     client_key: None,

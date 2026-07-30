@@ -476,6 +476,17 @@ async fn async_main() {
   // Parallel connections one client may open for a single service. 16 is what
   // the client used to clamp to on its own, so an unset server keeps exactly
   // the behaviour that was there before this became the server's decision.
+  // Both default on: they are what makes the dashboard useful, and a server
+  // that is not saturated should not have to know they exist. Same spelling
+  // as the other on-by-default flags: `0`/`false` turns one off.
+  let opt_out = |key: &str| {
+    std::env::var(key)
+      .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+      .unwrap_or(true)
+  };
+  let inspector = opt_out("APERIO_INSPECTOR");
+  let access_events = opt_out("APERIO_ACCESS_EVENTS");
+
   let max_connections_per_service = std::env::var("APERIO_MAX_CONNECTIONS_PER_SERVICE")
     .ok()
     .and_then(|val| val.parse::<u32>().ok())
@@ -945,6 +956,8 @@ async fn async_main() {
     max_body_size,
     max_tunnels,
     max_connections_per_service,
+    inspector,
+    access_events,
     ip_limit_max,
     ip_limit_refill,
     auth_credentials,

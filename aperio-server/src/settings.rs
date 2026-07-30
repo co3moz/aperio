@@ -17,6 +17,15 @@ pub(crate) struct ServerConfig {
   /// in the client, since the connections are the server's resource; a token
   /// may lower it for its holder but never raise it.
   pub(crate) max_connections_per_service: u32,
+  /// Record every proxied transaction for the dashboard's request inspector.
+  /// On by default: it is the feature people reach for when something is
+  /// wrong. Off costs a mutex, two header clones and a capture entry per
+  /// request, which is the trade a server running flat out may want.
+  pub(crate) inspector: bool,
+  /// Emit the per-request structured access event (`target: aperio_access`).
+  /// On by default. Distinct from `log_level`: turning this off silences one
+  /// event per request without silencing warnings and errors with it.
+  pub(crate) access_events: bool,
   pub(crate) ip_limit_max: f64,
   pub(crate) ip_limit_refill: f64,
   pub(crate) auth_credentials: Option<String>,
@@ -254,6 +263,8 @@ pub(crate) struct SettingsOverrides {
   pub(crate) max_body_size: Option<usize>,
   pub(crate) max_tunnels: Option<usize>,
   pub(crate) max_connections_per_service: Option<u32>,
+  pub(crate) inspector: Option<bool>,
+  pub(crate) access_events: Option<bool>,
   pub(crate) require_hostname_bind: Option<bool>,
   pub(crate) lb_strategy: Option<String>,
   pub(crate) failover_mode: Option<String>,
@@ -299,6 +310,8 @@ struct FileSettings {
   max_body_size: Option<usize>,
   max_tunnels: Option<usize>,
   max_connections_per_service: Option<u32>,
+  inspector: Option<bool>,
+  access_events: Option<bool>,
   require_hostname_bind: Option<bool>,
   lb_strategy: Option<String>,
   failover: Option<String>,
@@ -356,6 +369,8 @@ pub(crate) fn file_overrides() -> SettingsOverrides {
     max_body_size: fs.max_body_size,
     max_tunnels: fs.max_tunnels,
     max_connections_per_service: fs.max_connections_per_service,
+    inspector: fs.inspector,
+    access_events: fs.access_events,
     require_hostname_bind: fs.require_hostname_bind,
     lb_strategy: fs.lb_strategy,
     failover_mode: fs.failover,
@@ -425,6 +440,12 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   }
   if let Some(v) = o.max_connections_per_service {
     c.max_connections_per_service = v.max(1);
+  }
+  if let Some(v) = o.inspector {
+    c.inspector = v;
+  }
+  if let Some(v) = o.access_events {
+    c.access_events = v;
   }
   if let Some(v) = o.require_hostname_bind {
     c.require_hostname_bind = v;
@@ -561,6 +582,8 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "max_body_size": c.max_body_size,
     "max_tunnels": c.max_tunnels,
     "max_connections_per_service": c.max_connections_per_service,
+    "inspector": c.inspector,
+    "access_events": c.access_events,
     "require_hostname_bind": c.require_hostname_bind,
     "lb_strategy": match c.lb_strategy {
       LbStrategy::RoundRobin => "round-robin",

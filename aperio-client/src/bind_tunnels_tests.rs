@@ -49,6 +49,7 @@ fn settings_with(
     security_headers: None,
     cache: false,
     resilience: false,
+    capture: true,
     webhook_inbox: false,
     denied: None,
     ip_family: crate::dial::IpFamily::Auto,

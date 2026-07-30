@@ -118,8 +118,6 @@ export const ja: Record<string, string> = {
     '配信にはX-Aperio-Signature（「timestamp.body」のHMAC-SHA256）とX-Aperio-Timestampが付与され、受信側で送信元と鮮度を検証できます。',
   'Describe the local service; copy a ready-to-run command below.':
     'ローカルサービスを記述し、下からすぐ実行できるコマンドをコピーしてください。',
-  'Detail not available for this request (only recent requests are captured).':
-    'このリクエストの詳細はありません（最近のリクエストのみキャプチャされます）。',
   Details: '詳細',
   Disable: '無効化',
   'Disable all': 'すべて無効化',
@@ -931,4 +929,9 @@ export const ja: Record<string, string> = {
   'Could not delete ({status})': '削除できませんでした（{status}）',
   'Parallel connections per service (0 = server default, empty = keep)': 'サービスごとの並列接続数（0 = サーバーの既定値、空欄 = 変更しない）',
   'Parallel connections per service (empty = server default)': 'サービスごとの並列接続数（空欄 = サーバーの既定値）',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '詳細はありません: 記録されるのは直近のリクエストだけで、capture: false のサービス（またはインスペクタを無効にしたサーバー）はそもそも記録されません。',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'このサービスは記録を許可していますが、サーバー側でリクエストインスペクタが無効です（APERIO_INSPECTOR=0）。ここでは検査も再送もできません。',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'このサービスはリクエストインスペクタに記録されていません（aperio.yaml の capture: false）。リクエストの検査も再送もできません。ライブトラフィックと統計には影響しません。',
+  'inspector off': 'インスペクタ無効',
+  'no capture': '記録なし',
 }

@@ -453,6 +453,7 @@ pub(crate) async fn handle_socket(
         random_hostname: random_hostname.clone(),
         override_path_bind: None,
         override_hostname_binds: Vec::new(),
+        capture: true,
         connections: None,
         declared_client_id: None,
         config_notes: Vec::new(),
@@ -910,6 +911,7 @@ pub(crate) async fn handle_socket(
               tunnels,
               cache,
               resilience,
+              no_capture,
               max_request_body,
               response_timeout,
               client_key,
@@ -1056,6 +1058,7 @@ pub(crate) async fn handle_socket(
                   // what it resolved differently: display-only, for the
                   // dashboard's per-connection config view.
                   handle.connections = connections;
+                  handle.capture = !no_capture;
                   // The declared id is `<base>-<service>` for the first
                   // connection and `<base>-<service>-c<N>` for the rest, so it
                   // names both the service and this connection's place in its

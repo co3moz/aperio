@@ -120,8 +120,6 @@ export const es: Record<string, string> = {
     'Las entregas incluyen X-Aperio-Signature (HMAC-SHA256 sobre «timestamp.body») y X-Aperio-Timestamp para que el receptor verifique origen y vigencia.',
   'Describe the local service; copy a ready-to-run command below.':
     'Describa el servicio local; copie abajo un comando listo para ejecutar.',
-  'Detail not available for this request (only recent requests are captured).':
-    'Detalle no disponible para esta petición (solo se capturan las recientes).',
   Details: 'Detalles',
   Disable: 'Desactivar',
   'Disable all': 'Desactivar todos',
@@ -933,4 +931,9 @@ export const es: Record<string, string> = {
   'Could not delete ({status})': 'No se pudo eliminar ({status})',
   'Parallel connections per service (0 = server default, empty = keep)': 'Conexiones paralelas por servicio (0 = valor del servidor, vacío = mantener)',
   'Parallel connections per service (empty = server default)': 'Conexiones paralelas por servicio (vacío = valor del servidor)',
+  'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Detalle no disponible: solo se capturan las peticiones recientes, y un servicio con capture: false (o un servidor con el inspector apagado) no se captura en absoluto.',
+  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Este servicio permite la captura, pero el servidor tiene el inspector de peticiones apagado (APERIO_INSPECTOR=0), así que aquí no se puede inspeccionar ni reenviar nada.',
+  'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Este servicio no se registra para el inspector de peticiones (capture: false en su aperio.yaml), sus peticiones no se pueden inspeccionar ni reenviar. El tráfico en vivo y las estadísticas no se ven afectados.',
+  'inspector off': 'inspector apagado',
+  'no capture': 'sin captura',
 }

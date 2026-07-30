@@ -149,6 +149,8 @@ pub(crate) fn test_config() -> ServerConfig {
     max_body_size: 1024 * 1024,
     max_tunnels: 8,
     max_connections_per_service: 16,
+    inspector: true,
+    access_events: true,
     ip_limit_max: 1000.0,
     ip_limit_refill: 100.0,
     auth_credentials: None,
@@ -322,6 +324,7 @@ pub(crate) fn mock_client(
       .map(|s| s.to_string())
       .into_iter()
       .collect(),
+    capture: true,
     connections: None,
     declared_client_id: None,
     config_notes: Vec::new(),

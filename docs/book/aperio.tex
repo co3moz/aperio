@@ -2182,6 +2182,10 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_MAX\_CONNECTIONS\_PER\_SERVICE} & Parallel tunnel connections one client may open for a single service (its \code{connections:}), announced to the client on connect. A token's \code{max\_connections} may lower it, never raise it. & \code{16} \\
 \rowsep
+\code{APERIO\_INSPECTOR} & \code{0} = do not record transactions for the request inspector. Off gives back a mutex, two header clones and a capture entry per request; nothing can be inspected or replayed. & \code{1} \\
+\rowsep
+\code{APERIO\_ACCESS\_EVENTS} & \code{0} = do not emit the per-request access event. Unlike lowering \code{LOG\_LEVEL}, this leaves warnings and errors in place. & \code{1} \\
+\rowsep
 \code{APERIO\_MAX\_BODY\_SIZE} & Max request body size in bytes. & \code{10485760} (10 MB) \\
 \rowsep
 \code{APERIO\_CACHE} & Enable the server-side GET response cache (opt-in per service). & \code{0} \\
@@ -2288,6 +2292,10 @@ overrides win over both. Generated from the reference tables in
 \code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel clients. & \code{10} \\
 \rowsep
 \code{APERIO\_MAX\_CONNECTIONS\_PER\_SERVICE} & Parallel tunnel connections one client may open for a single service (its \code{connections:}), announced to the client on connect. A token's \code{max\_connections} may lower it, never raise it. & \code{16} \\
+\rowsep
+\code{APERIO\_INSPECTOR} & \code{0} = do not record transactions for the request inspector. Off gives back a mutex, two header clones and a capture entry per request; nothing can be inspected or replayed. & \code{1} \\
+\rowsep
+\code{APERIO\_ACCESS\_EVENTS} & \code{0} = do not emit the per-request access event. Unlike lowering \code{LOG\_LEVEL}, this leaves warnings and errors in place. & \code{1} \\
 \rowsep
 \code{APERIO\_IP\_LIMIT\_MAX} & Per-IP token bucket burst capacity. & \code{100} \\
 \rowsep
