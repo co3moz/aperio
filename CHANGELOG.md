@@ -12,7 +12,13 @@ project follows semantic versioning per release tag.
 
 - **The comfort features have switches now, and one of them is per service.** The request inspector records every transaction and the access event logs every request, because that is what makes the dashboard worth opening; on a server running flat out they are also the first per-request costs worth reclaiming. `inspector` (env `APERIO_INSPECTOR`) and `access_events` (env `APERIO_ACCESS_EVENTS`) turn them off server-wide, the second without lowering `log_level` and losing warnings with it. A client can opt one service out with `capture: false` (or `--no-capture`) and leave the rest inspectable. The dashboard marks such a client **no capture**, marks every client **inspector off** when the server's switch is the reason, and the inspector's "no detail" message now names both possibilities instead of blaming age.
 
+### Changed
+
+- **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
+
 ### Fixed
+
+- **The tunnel socket and the client's connections to its backend set `TCP_NODELAY`.** Neither did before. Both carry request and response messages that somebody is waiting on, not a bulk stream, and Nagle holds a small write back for an acknowledgement that has nothing to do with it.
 
 - **Three things every proxied request paid for and nobody used.** The structured access-log line was built on every request, ten fields and a timestamp assembled into a JSON tree, and then dropped inside the writer when no access log file was configured; the timestamp behind it was read twice per request, once for the dashboard's live entry and once for that line; and the inspector re-encoded the response body to base64 having just decoded it from the base64 it arrived in. None of this changes what anything shows.
 

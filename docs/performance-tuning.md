@@ -25,6 +25,11 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
   excess visitors get `429`. Size it to what your backends collectively handle.
 - **`APERIO_IP_LIMIT_MAX` / `_REFILL`.** Per-visitor token bucket. The burst
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
+- **Response bodies over 32 KB stream as binary frames** rather than travelling
+  base64-encoded inside one JSON message. That is a third fewer bytes on the
+  wire for those responses, which is what matters on a real link; on loopback
+  it measures as roughly break-even at 32 KB and a few percent above it, since
+  there the cost is CPU rather than bandwidth.
 - **`APERIO_MAX_BODY_SIZE`.** Upload ceiling. Bodies over ~256 KiB stream
   (protocol v2 and later) instead of buffering, so a large limit does not cost
   memory per request, but it does bound how big a single upload can be.

@@ -10,8 +10,31 @@ use tracing::{error, info, warn};
 use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, send_tunnel_msg};
 
 /// Response bodies larger than this are streamed through the tunnel in
-/// chunks instead of being buffered and sent as one message.
+/// chunks instead of being buffered and sent as one message. Used with a peer
+/// that cannot take binary frames, where streaming means base64 chunks and is
+/// therefore only worth it to bound memory.
 pub(crate) const STREAM_THRESHOLD: usize = 256 * 1024;
+
+/// The same threshold for a peer that takes binary frames, where streaming
+/// also means the body stops being base64-encoded and JSON-escaped.
+///
+/// Measured on loopback, median of three interleaved runs, buffered against
+/// streamed at the same body size:
+///
+/// | body   | buffered | streamed |
+/// |--------|----------|----------|
+/// | 8 KB   | **+18%** |          |
+/// | 16 KB  | **+14%** |          |
+/// | 32 KB  | tie      | tie      |
+/// | 64 KB  |          | **+23%** |
+/// | 128 KB |          | **+36%** |
+///
+/// Streaming has a fixed cost per response (a head message, a frame per
+/// chunk, a tail, and a pause registration) that a small body cannot repay,
+/// and base64 has a per-byte cost that a large one cannot escape. They cross
+/// at 32 KB, so that is where the switch goes: everything above it is the
+/// side that wins, everything below keeps the single message it wanted.
+pub(crate) const BINARY_STREAM_THRESHOLD: usize = 32 * 1024;
 /// Size of individual streamed body chunks.
 pub(crate) const STREAM_CHUNK_SIZE: usize = 128 * 1024;
 
@@ -400,7 +423,12 @@ pub(crate) async fn handle_incoming_request(
       // Read the body incrementally. Bodies up to the stream threshold are
       // buffered and returned as a single Response message; larger bodies
       // switch to chunked streaming so memory usage stays bounded.
-      let threshold = STREAM_THRESHOLD.min(ctx.max_response_body_size);
+      let threshold = if binary_chunks {
+        BINARY_STREAM_THRESHOLD
+      } else {
+        STREAM_THRESHOLD
+      }
+      .min(ctx.max_response_body_size);
       let mut stream = res.bytes_stream();
       let mut buf: Vec<u8> = Vec::new();
       let mut pause_guard: Option<crate::flow::PauseGuard> = None;

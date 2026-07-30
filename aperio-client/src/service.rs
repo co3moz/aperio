@@ -519,6 +519,7 @@ pub(crate) async fn run_service(
     // Health checks never follow redirects: a 3xx to some other page must
     // not let a broken backend look healthy via the redirect target.
     let probe_client = reqwest::Client::builder()
+      .tcp_nodelay(true)
       .timeout(Duration::from_secs(spec.health_timeout))
       .redirect(reqwest::redirect::Policy::none())
       .build()
@@ -904,6 +905,11 @@ pub(crate) async fn run_service(
             let reqwest_client = reqwest::Client::builder()
               .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
               .timeout(Duration::from_secs(spec.timeout_secs))
+              // Same reasoning as the tunnel socket: these are request and
+              // response messages on a loopback or LAN hop, and holding one
+              // back for Nagle is latency on a request a visitor is waiting
+              // for.
+              .tcp_nodelay(true)
               .build()
               .unwrap_or_else(|e| {
                 error!("Failed to build the forwarding HTTP client: {e}; using a client without a timeout");

@@ -928,3 +928,17 @@ fn test_redirect_policy_none_when_zero() {
   // max_hops == 0 yields a no-follow policy (smoke test of the early return).
   let _ = redirect_policy(0);
 }
+
+#[test]
+fn the_streaming_threshold_depends_on_what_the_peer_can_take() {
+  // Against a peer that takes binary frames, streaming also means the body
+  // stops being base64: worth it from 32 KB up. Against one that cannot, a
+  // streamed body is base64 either way, so the only reason left is bounded
+  // memory and the threshold stays where it was. Written as a const block so
+  // the relationship is checked at compile time, which is when it can break.
+  const {
+    assert!(BINARY_STREAM_THRESHOLD < STREAM_THRESHOLD);
+    assert!(BINARY_STREAM_THRESHOLD == 32 * 1024);
+    assert!(STREAM_THRESHOLD == 256 * 1024);
+  }
+}

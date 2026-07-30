@@ -168,6 +168,13 @@ where
     }))
   })?;
 
+  // The tunnel carries request/response messages, not a bulk stream: every
+  // write is a message somebody is waiting on the other side of. Nagle would
+  // hold a small one back for an acknowledgement that has nothing to do with
+  // it, which on this socket is latency added to a visitor's request.
+  // Failure is not fatal, an un-tuned socket still works.
+  let _ = stream.set_nodelay(true);
+
   client_async_tls_with_config(request, stream, config, None).await
 }
 
