@@ -10,3 +10,10 @@ resolver = "2"
 [profile.release]
 strip = true
 opt-level = "s"
+# Cross-crate optimization, and one codegen unit so it has the whole picture.
+# Measured on the client: 9.26 MB to 6.17 MB, and ~11% *more* throughput
+# through the tunnel, since the same inlining that removes duplicated code
+# across crate boundaries is the inlining a proxy hot path wants. The cost is
+# build time, roughly three times as long, paid once per release target.
+lto = "fat"
+codegen-units = 1

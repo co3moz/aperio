@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The release binaries are a third smaller, and slightly faster.** Link-time optimization across crates, with a single codegen unit: `aperio-client` goes from 9.26 MB to 6.17 MB and `aperio-server` from 18.93 MB to 13.82 MB, while throughput through the tunnel measured ~11% higher, since the inlining that removes duplicated code across crate boundaries is the inlining a proxy hot path wants. Release builds take about three times as long.
+
 ### Fixed
 
 - **The throughput figure in the README was measuring refusals.** It said ~12k requests/second; the benchmark behind it ran with the default per-IP rate limit, so 1,900 of every 2,000 requests were answered with an instant `429` that never touched the tunnel. Measured again with the limiter out of the way, the number is ~4,200 requests/second, and it is now labelled with what it does and does not include.
