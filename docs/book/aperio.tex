@@ -1651,6 +1651,7 @@ otel:
   enabled: true                       # env: APERIO_OTEL
   endpoint: http://otel-collector:4318 # env: APERIO_OTEL_ENDPOINT
   protocol: http                      # env: APERIO_OTEL_PROTOCOL, http | grpc
+  sample_rate: 0.01                   # env: APERIO_OTEL_SAMPLE_RATE, 1.0 = every request
 \end{codecard}
 
 Both OTLP transports are built in. \code{http} sends protobuf over HTTP

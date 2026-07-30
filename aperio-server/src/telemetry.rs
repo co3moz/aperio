@@ -19,6 +19,7 @@ use opentelemetry::trace::{Span, SpanKind, TraceContextExt, Tracer, TracerProvid
 use opentelemetry_otlp::{Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::trace::Sampler;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::field::Empty;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -384,6 +385,33 @@ fn speaks_http2(host: &str, port: u16) -> std::io::Result<bool> {
   Ok(header[3] == FRAME_TYPE_SETTINGS)
 }
 
+/// Fraction of traces to record, from `APERIO_OTEL_SAMPLE_RATE`.
+///
+/// Tracing has no free setting: every request builds a span tree and hands it
+/// to an exporter. `1.0` (the default, and what this did before the knob
+/// existed) means every request; `0.01` means one in a hundred, which is what
+/// a busy deployment wants, since a hundredth of the traffic answers the same
+/// questions about latency and error shape.
+///
+/// Out-of-range or unparseable values fall back to 1.0 rather than silently
+/// disabling tracing: somebody who wrote `0.5%` meant to sample, and a config
+/// typo that quietly turns off observability is the wrong way to fail.
+pub(crate) fn resolve_sample_rate() -> f64 {
+  match std::env::var("APERIO_OTEL_SAMPLE_RATE") {
+    Ok(raw) => match raw.trim().parse::<f64>() {
+      Ok(v) if v.is_finite() && (0.0..=1.0).contains(&v) => v,
+      _ => {
+        eprintln!(
+          "aperio-server: APERIO_OTEL_SAMPLE_RATE='{}' is not a fraction between 0 and 1; tracing every request",
+          raw.trim()
+        );
+        1.0
+      }
+    },
+    Err(_) => 1.0,
+  }
+}
+
 /// Service name reported on every span (`APERIO_OTEL_SERVICE_NAME`, then
 /// `OTEL_SERVICE_NAME`, defaulting to `aperio-server`).
 fn resolve_service_name() -> String {
@@ -412,7 +440,18 @@ fn build_provider(target: &OtlpTarget) -> Result<SdkTracerProvider, String> {
   let resource = Resource::builder()
     .with_service_name(resolve_service_name())
     .build();
-  let builder = SdkTracerProvider::builder().with_resource(resource);
+  // Parent-based, so a request is decided once at its root and every child
+  // span of that request follows. Sampling each span independently would give
+  // half-drawn traces: a `proxy.request` with three of its eight phases.
+  let rate = resolve_sample_rate();
+  let sampler = if rate >= 1.0 {
+    Sampler::AlwaysOn
+  } else {
+    Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(rate)))
+  };
+  let builder = SdkTracerProvider::builder()
+    .with_resource(resource)
+    .with_sampler(sampler);
   // The two exporters are distinct types and `SpanExporter` is not dyn-safe
   // (its `export` returns an opaque future), so the branch has to wrap the
   // whole `with_batch_exporter` call rather than just the exporter.
@@ -602,6 +641,13 @@ pub(crate) fn emit_phase_spans(
   }
   use std::time::{Duration, SystemTime};
   let parent_cx = tracing::Span::current().context();
+  // Sampled out: the children would be non-recording spans, so building them,
+  // and the clock reads and timeline arithmetic behind them, is work whose
+  // result is discarded. With `sample_rate: 0.01` this is the path 99 requests
+  // in 100 take.
+  if !parent_cx.span().span_context().is_sampled() {
+    return;
+  }
   let t0 = SystemTime::now()
     .checked_sub(start_time.elapsed())
     .unwrap_or_else(SystemTime::now);

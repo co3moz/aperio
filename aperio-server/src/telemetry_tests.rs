@@ -24,6 +24,7 @@ const KEYS: &[&str] = &[
   "OTEL_EXPORTER_OTLP_PROTOCOL",
   "APERIO_OTEL_SERVICE_NAME",
   "OTEL_SERVICE_NAME",
+  "APERIO_OTEL_SAMPLE_RATE",
 ];
 
 /// Snapshot of the telemetry env vars; restores them (or removes them) on drop.
@@ -659,4 +660,25 @@ fn probe_does_not_panic_on_an_unusable_endpoint() {
     OtlpProtocol::Grpc,
     "https://collector.invalid:4317".to_string(),
   );
+}
+
+#[test]
+fn the_sample_rate_defaults_to_every_trace_and_refuses_nonsense() {
+  let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+  let _env = EnvSnapshot::take();
+
+  // Unset: what tracing did before the knob existed.
+  assert_eq!(resolve_sample_rate(), 1.0);
+
+  for (raw, expected) in [("0.01", 0.01), ("1", 1.0), ("0", 0.0), (" 0.5 ", 0.5)] {
+    unsafe { std::env::set_var("APERIO_OTEL_SAMPLE_RATE", raw) };
+    assert_eq!(resolve_sample_rate(), expected, "{raw}");
+  }
+
+  // Nonsense falls back to tracing everything rather than to tracing nothing:
+  // a typo that silently turns off observability is the wrong way to fail.
+  for raw in ["0.5%", "half", "-1", "2", "NaN", ""] {
+    unsafe { std::env::set_var("APERIO_OTEL_SAMPLE_RATE", raw) };
+    assert_eq!(resolve_sample_rate(), 1.0, "{raw}");
+  }
 }

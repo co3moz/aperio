@@ -1783,6 +1783,14 @@ pub struct OtelGroup {
   /// OTLP service name.
   #[schemars(extend("examples" = ["aperio"]))]
   pub service_name: Option<String>,
+  /// Fraction of traces to record, 0.0 to 1.0. Default 1.0: every request
+  /// builds a span tree and hands it to the exporter, which is the setting
+  /// that makes tracing show up in a benchmark. `0.01` samples one request in
+  /// a hundred, which answers the same questions about latency and error
+  /// shape for a hundredth of the cost. The decision is made once per request
+  /// and every span of that request follows it.
+  #[schemars(extend("examples" = [0.01]))]
+  pub sample_rate: Option<f64>,
 }
 
 /// How long each kind of recorded data is kept, in days.
@@ -2382,6 +2390,8 @@ pub struct ServerFileConfig {
   pub otel_protocol: Option<String>,
   /// Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).
   pub otel_service_name: Option<String>,
+  /// Deprecated spelling of `otel.sample_rate` (env: APERIO_OTEL_SAMPLE_RATE).
+  pub otel_sample_rate: Option<f64>,
   /// Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).
   pub metrics_token: Option<String>,
   /// Deprecated spelling of `scaling.allow_http` (env: APERIO_SCALING_ALLOW_HTTP).

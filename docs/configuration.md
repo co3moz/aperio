@@ -615,6 +615,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `APERIO_OTEL_ENDPOINT` | OTLP collector base URL. Falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT`. Over HTTP the `/v1/traces` signal path is appended if absent; over gRPC it is stripped, since gRPC takes the bare base URL. The default follows `APERIO_OTEL_PROTOCOL`. | `http://localhost:4318` |
 | `APERIO_OTEL_PROTOCOL` | OTLP transport: `http` (protobuf over HTTP, the spec spelling `http/protobuf` is also accepted) or `grpc`. Falls back to the standard `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` / `OTEL_EXPORTER_OTLP_PROTOCOL`. Unset, the endpoint's port decides: 4317 is gRPC, anything else HTTP. A collector answering the other protocol drops every span in silence, so the startup probe checks the transport that was actually chosen and warns when the port contradicts it. | port-derived |
 | `APERIO_OTEL_SERVICE_NAME` | `service.name` reported on exported spans. Falls back to `OTEL_SERVICE_NAME`. | `aperio-server` |
+| `APERIO_OTEL_SAMPLE_RATE` | Fraction of traces to record, `0.0` to `1.0`. Default `1.0`, every request builds a span tree and exports it, which is the setting that makes tracing visible in a benchmark. `0.01` samples one request in a hundred; the decision is made once per request and every span of that request follows it. An unparseable or out-of-range value traces everything rather than nothing. | `1.0` |
 
 ### Authentication & dashboard
 

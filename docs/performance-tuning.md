@@ -52,9 +52,11 @@ Two more worth knowing about, because neither is on by default and both cost
 per request when they are:
 
 - **OpenTelemetry** (`otel.enabled`). Every request emits a span tree, built
-  and exported to the collector. There is no sampling: enabling it means
-  every request, so a benchmark run with tracing on is measuring the tracing
-  as much as the tunnel.
+  and exported to the collector. `otel.sample_rate` decides how many requests
+  that happens for: it defaults to `1.0`, all of them, so a benchmark run with
+  tracing on is measuring the exporter as much as the tunnel. `0.01` keeps the
+  traces useful and takes the cost out of the hot path, since an unsampled
+  request skips the span assembly entirely.
 - **The live traffic view.** The dashboard's SSE stream costs nothing while
   nobody is watching, and a clone of every request entry per watcher while
   somebody is. Close the tab before measuring.
