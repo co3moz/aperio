@@ -302,7 +302,7 @@ pub(crate) async fn publish(
     // `try_send`, not `send`: a subscriber whose channel is full is a
     // subscriber that is not keeping up, and blocking the publisher on it
     // would let one slow client stall the fan-out for everyone.
-    match tx.try_send(axum::extract::ws::Message::Text(text.clone())) {
+    match tx.try_send(axum::extract::ws::Message::Text(text.clone().into())) {
       Ok(()) => {
         connections += 1;
         state
@@ -433,7 +433,10 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
       continue;
     };
     for (id, frame) in messages {
-      if tx.try_send(axum::extract::ws::Message::Text(frame)).is_ok() {
+      if tx
+        .try_send(axum::extract::ws::Message::Text(frame.into()))
+        .is_ok()
+      {
         resent += 1;
         state
           .message_metrics

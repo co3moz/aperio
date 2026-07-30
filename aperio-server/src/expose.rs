@@ -368,7 +368,7 @@ async fn relay_public_tcp(
     target: Some(target),
   };
   if let Ok(json) = serde_json::to_string(&open)
-    && client_tx.send(Message::Text(json)).await.is_err()
+    && client_tx.send(Message::Text(json.into())).await.is_err()
   {
     state.tcp_streams.lock().await.remove(&stream_id);
     return;
@@ -390,7 +390,7 @@ async fn relay_public_tcp(
             data: BASE64_STANDARD.encode(&buf[..n]),
           };
           if let Ok(json) = serde_json::to_string(&data_msg)
-            && client_tx_up.send(Message::Text(json)).await.is_err()
+            && client_tx_up.send(Message::Text(json.into())).await.is_err()
           {
             break;
           }
@@ -402,7 +402,7 @@ async fn relay_public_tcp(
       stream_id: stream_id_up.clone(),
     };
     if let Ok(json) = serde_json::to_string(&close) {
-      let _ = client_tx_up.send(Message::Text(json)).await;
+      let _ = client_tx_up.send(Message::Text(json.into())).await;
     }
   });
 

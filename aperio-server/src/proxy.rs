@@ -150,7 +150,7 @@ fn spawn_swr_revalidation(
       state.pending_requests.lock().await.remove(&revalidate_id);
       return;
     };
-    if client_tx.send(Message::Text(json)).await.is_err() {
+    if client_tx.send(Message::Text(json.into())).await.is_err() {
       state.pending_requests.lock().await.remove(&revalidate_id);
       return;
     }
@@ -1434,7 +1434,11 @@ async fn proxy_http_request(
     // A failed send means the client is already gone; it goes through the
     // same failover decision as an in-flight connection loss.
     let dispatched_at = Instant::now();
-    let dispatched = selected.tx.send(Message::Text(req_json)).await.is_ok();
+    let dispatched = selected
+      .tx
+      .send(Message::Text(req_json.into()))
+      .await
+      .is_ok();
     if !dispatched {
       state.pending_requests.lock().await.remove(&request_id);
     } else if let Some(raw_body) = streamed_body.take() {
@@ -1474,7 +1478,7 @@ async fn proxy_http_request(
                 warn!("Refusing to frame a request chunk: request id is too long to encode");
               }
               if match framed {
-                Some(frame) => pump_tx.send(Message::Binary(frame)).await.is_err(),
+                Some(frame) => pump_tx.send(Message::Binary(frame.into())).await.is_err(),
                 None => true,
               } {
                 complete = false;
@@ -1490,7 +1494,7 @@ async fn proxy_http_request(
         }
         if complete {
           if let Ok(json) = serde_json::to_string(&TunnelMessage::RequestEnd { id: pump_id }) {
-            let _ = pump_tx.send(Message::Text(json)).await;
+            let _ = pump_tx.send(Message::Text(json.into())).await;
           }
         } else {
           // Abort: drop the pending request so the awaiting handler resolves

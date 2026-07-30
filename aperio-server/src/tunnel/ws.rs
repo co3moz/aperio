@@ -346,7 +346,7 @@ pub(crate) async fn handle_socket(
     while let Some(msg) = rx_write.recv().await {
       let msg = match msg {
         Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
-          Message::Binary(compress_frame(&t))
+          Message::Binary(compress_frame(&t).into())
         }
         other => other,
       };
@@ -509,7 +509,7 @@ pub(crate) async fn handle_socket(
     );
     let msg = TunnelMessage::HostnameAssigned { hostname };
     if let Ok(json) = serde_json::to_string(&msg) {
-      let _ = tx_write.send(Message::Text(json)).await;
+      let _ = tx_write.send(Message::Text(json.into())).await;
     }
   }
 
@@ -517,7 +517,7 @@ pub(crate) async fn handle_socket(
   if state.config().tunnel_compression
     && let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {})
   {
-    let _ = tx_write.send(Message::Text(json)).await;
+    let _ = tx_write.send(Message::Text(json.into())).await;
   }
 
   // Cap for decompressed tunnel frames (defends against zlib bombs).
@@ -540,7 +540,7 @@ pub(crate) async fn handle_socket(
     match result {
       Ok(msg) => {
         let text_opt = match msg {
-          Message::Text(t) => Some(t),
+          Message::Text(t) => Some(t.as_str().to_string()),
           Message::Binary(b) => {
             // v2 binary chunk frames carry a tag byte that never collides
             // with zlib-compressed JSON frames (0x78).
@@ -809,7 +809,7 @@ pub(crate) async fn handle_socket(
                 if let Ok(json) = serde_json::to_string(&notice) {
                   let clients = state.clients.lock().await;
                   if let Some(handle) = clients.get(&client_id) {
-                    let _ = handle.tx.try_send(Message::Text(json));
+                    let _ = handle.tx.try_send(Message::Text(json.into()));
                   }
                 }
               }
@@ -856,7 +856,7 @@ pub(crate) async fn handle_socket(
                 if let Ok(json) = serde_json::to_string(&notice) {
                   let clients = state.clients.lock().await;
                   if let Some(handle) = clients.get(&client_id) {
-                    let _ = handle.tx.try_send(Message::Text(json));
+                    let _ = handle.tx.try_send(Message::Text(json.into()));
                   }
                 }
               }
@@ -1433,7 +1433,7 @@ pub(crate) async fn handle_socket(
                 protocol: Some(PROTOCOL_VERSION),
               };
               if let Ok(pong_str) = serde_json::to_string(&pong) {
-                let _ = tx_write.send(Message::Text(pong_str)).await;
+                let _ = tx_write.send(Message::Text(pong_str.into())).await;
               }
             }
             TunnelMessage::UpgradeResponse {
@@ -1492,11 +1492,11 @@ pub(crate) async fn handle_socket(
               };
               if let Some(chunk_tx) = chunk_tx {
                 let ws_msg = if is_text {
-                  Message::Text(data)
+                  Message::Text(data.into())
                 } else {
                   use base64::prelude::*;
                   match BASE64_STANDARD.decode(&data) {
-                    Ok(bytes) => Message::Binary(bytes),
+                    Ok(bytes) => Message::Binary(bytes.into()),
                     Err(_) => {
                       warn!("Failed to decode Base64 WsData for stream {}", stream_id);
                       continue;

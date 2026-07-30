@@ -320,7 +320,7 @@ async fn reassign_random_hostnames(state: &Arc<AppState>) {
   // Send outside the clients lock so a slow client cannot stall the map.
   for (tx, hostname) in notifications {
     if let Ok(json) = serde_json::to_string(&TunnelMessage::HostnameAssigned { hostname }) {
-      let _ = tx.send(Message::Text(json)).await;
+      let _ = tx.send(Message::Text(json.into())).await;
     }
   }
 }
@@ -343,7 +343,7 @@ async fn offer_compression_to_connected(state: &Arc<AppState>) {
   );
   for tx in txs {
     if let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionStart {}) {
-      let _ = tx.send(Message::Text(json)).await;
+      let _ = tx.send(Message::Text(json.into())).await;
     }
   }
 }

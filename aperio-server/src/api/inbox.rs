@@ -227,7 +227,11 @@ pub(crate) async fn inbox_refire_handler(
       return (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed").into_response();
     }
   };
-  if client_tx.send(Message::Text(req_json)).await.is_err() {
+  if client_tx
+    .send(Message::Text(req_json.into()))
+    .await
+    .is_err()
+  {
     state.pending_requests.lock().await.remove(&refire_id);
     return (StatusCode::BAD_GATEWAY, "Tunnel client socket error").into_response();
   }

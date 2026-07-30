@@ -17,7 +17,13 @@ rust-embed = "8"
 openssl = { version = "0.10", optional = true }
 mime_guess = "2"
 tokio = { version = "1.38", features = ["full"] }
-axum = { version = "0.7.5", features = ["ws", "http2"] }
+axum = { version = "0.8", features = ["ws", "http2"] }
+# Salts and TOTP secrets come from `OsRng`, which `rand_core` only exposes with
+# `getrandom`. It used to arrive through feature unification, from a crate that
+# happened to ask for it; nothing said so, and an unrelated dependency bump
+# turned it off. A security-critical source of randomness should not be
+# somebody else's feature flag.
+rand_core = { version = "0.6", features = ["getrandom"] }
 http-body-util = "0.1"
 tower-http = { version = "0.5.2", features = ["trace", "cors", "fs", "catch-panic"] }
 serde = { version = "1.0", features = ["derive"] }

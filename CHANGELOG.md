@@ -14,11 +14,17 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The server is on axum 0.8.** No behavior changes on any endpoint: route parameters are spelled `{id}` instead of `:id` internally and WebSocket text frames carry `Utf8Bytes` rather than `String`, neither of which is visible from outside. The upgrade is what makes the accepted-socket fix below possible.
+
 - **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
 
 ### Fixed
 
+- **Every socket the server accepts sets `TCP_NODELAY` too.** The client's two hops got it in the same release; the server's could not, because `axum::serve` in 0.7 owned the accept loop and offered no hook. The upgrade to axum 0.8 provides one, so the whole path is now free of Nagle: visitor to server, server to client, client to backend.
+
 - **The tunnel socket and the client's connections to its backend set `TCP_NODELAY`.** Neither did before. Both carry request and response messages that somebody is waiting on, not a bulk stream, and Nagle holds a small write back for an acknowledgement that has nothing to do with it.
+
+- **The server asks for the randomness it uses.** Password salts and TOTP secrets come from `OsRng`, which `rand_core` only exposes with its `getrandom` feature, and the server never declared it: the feature arrived through unification, from some other crate in the tree that happened to want it. Nothing was ever wrong at runtime, but nothing said so either, and the axum upgrade rearranged the graph enough to turn it off, which is how it was found. It is a direct dependency now.
 
 - **Three things every proxied request paid for and nobody used.** The structured access-log line was built on every request, ten fields and a timestamp assembled into a JSON tree, and then dropped inside the writer when no access log file was configured; the timestamp behind it was read twice per request, once for the dashboard's live entry and once for that line; and the inspector re-encoded the response body to base64 having just decoded it from the base64 it arrived in. None of this changes what anything shows.
 

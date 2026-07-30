@@ -312,7 +312,11 @@ pub(crate) async fn handle_ws_proxy(
     }
   };
 
-  if client_tx.send(Message::Text(req_json)).await.is_err() {
+  if client_tx
+    .send(Message::Text(req_json.into()))
+    .await
+    .is_err()
+  {
     state.pending_upgrades.lock().await.remove(&stream_id);
     state.ws_streams.lock().await.remove(&stream_id);
     log_request_failure(
@@ -440,7 +444,7 @@ pub(crate) async fn handle_ws_proxy(
         reason: "Server upgrade rejected".to_string(),
       };
       if let Ok(json) = serde_json::to_string(&close_msg) {
-        let _ = client_tx.send(Message::Text(json)).await;
+        let _ = client_tx.send(Message::Text(json.into())).await;
       }
       state.ws_streams.lock().await.remove(&stream_id);
       log_request_failure(
@@ -509,7 +513,10 @@ async fn relay_ws_stream(
           };
 
           if let Ok(json) = serde_json::to_string(&tunnel_msg)
-            && tunnel_tx_clone.send(Message::Text(json)).await.is_err()
+            && tunnel_tx_clone
+              .send(Message::Text(json.into()))
+              .await
+              .is_err()
           {
             break;
           }
@@ -531,7 +538,7 @@ async fn relay_ws_stream(
       reason: String::new(),
     };
     if let Ok(json) = serde_json::to_string(&close_msg) {
-      let _ = tunnel_tx_clone.send(Message::Text(json)).await;
+      let _ = tunnel_tx_clone.send(Message::Text(json.into())).await;
     }
   });
 

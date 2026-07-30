@@ -298,7 +298,7 @@ async fn relay_udp_consumer(
     target,
   };
   if let Ok(json) = serde_json::to_string(&open)
-    && client_tx.send(Message::Text(json)).await.is_err()
+    && client_tx.send(Message::Text(json.into())).await.is_err()
   {
     state.udp_streams.lock().await.remove(&stream_id);
     return;
@@ -325,7 +325,8 @@ async fn relay_udp_consumer(
         continue;
       };
       // Best-effort: drop the datagram when the tunnel is congested.
-      if let Err(mpsc::error::TrySendError::Closed(_)) = client_tx_up.try_send(Message::Text(json))
+      if let Err(mpsc::error::TrySendError::Closed(_)) =
+        client_tx_up.try_send(Message::Text(json.into()))
       {
         break;
       }
@@ -334,7 +335,7 @@ async fn relay_udp_consumer(
       stream_id: stream_id_up.clone(),
     };
     if let Ok(json) = serde_json::to_string(&close) {
-      let _ = client_tx_up.send(Message::Text(json)).await;
+      let _ = client_tx_up.send(Message::Text(json.into())).await;
     }
   });
 
@@ -343,7 +344,7 @@ async fn relay_udp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
-          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
+          if ws_sender.send(Message::Binary(bytes.into())).await.is_err() {
             break;
           }
         }
@@ -475,7 +476,7 @@ async fn relay_tcp_consumer(
     target,
   };
   if let Ok(json) = serde_json::to_string(&open)
-    && client_tx.send(Message::Text(json)).await.is_err()
+    && client_tx.send(Message::Text(json.into())).await.is_err()
   {
     state.tcp_streams.lock().await.remove(&stream_id);
     return;
@@ -491,7 +492,7 @@ async fn relay_tcp_consumer(
     while let Some(Ok(msg)) = ws_receiver.next().await {
       let bytes = match msg {
         Message::Binary(b) => b,
-        Message::Text(t) => t.into_bytes(),
+        Message::Text(t) => t.as_bytes().to_vec().into(),
         Message::Close(_) => break,
         _ => continue,
       };
@@ -500,7 +501,7 @@ async fn relay_tcp_consumer(
         data: BASE64_STANDARD.encode(&bytes),
       };
       if let Ok(json) = serde_json::to_string(&data_msg)
-        && client_tx_up.send(Message::Text(json)).await.is_err()
+        && client_tx_up.send(Message::Text(json.into())).await.is_err()
       {
         break;
       }
@@ -510,7 +511,7 @@ async fn relay_tcp_consumer(
       stream_id: stream_id_up.clone(),
     };
     if let Ok(json) = serde_json::to_string(&close) {
-      let _ = client_tx_up.send(Message::Text(json)).await;
+      let _ = client_tx_up.send(Message::Text(json.into())).await;
     }
   });
 
@@ -519,7 +520,7 @@ async fn relay_tcp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
-          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
+          if ws_sender.send(Message::Binary(bytes.into())).await.is_err() {
             break;
           }
         }

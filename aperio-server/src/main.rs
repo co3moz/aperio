@@ -1,3 +1,4 @@
+use axum::serve::ListenerExt;
 use axum::{
   Router,
   body::Body,
@@ -1221,15 +1222,15 @@ async fn async_main() {
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))
       .route(
-        "/api/clients/:id/config",
+        "/api/clients/{id}/config",
         get(crate::api::clients::client_config_handler),
       )
       .route(
-        "/api/clients/:id/override",
+        "/api/clients/{id}/override",
         axum::routing::post(client_override_handler),
       )
       .route(
-        "/api/clients/:id/enabled",
+        "/api/clients/{id}/enabled",
         axum::routing::post(client_enabled_handler),
       )
       .route(
@@ -1237,11 +1238,11 @@ async fn async_main() {
         get(tokens_list_handler).post(tokens_create_handler),
       )
       .route(
-        "/api/tokens/:id",
+        "/api/tokens/{id}",
         axum::routing::put(tokens_update_handler).delete(tokens_revoke_handler),
       )
       .route(
-        "/api/tokens/:id/rotate",
+        "/api/tokens/{id}/rotate",
         axum::routing::post(tokens_rotate_handler),
       )
       .route(
@@ -1281,17 +1282,17 @@ async fn async_main() {
         get(crate::api::inbox::inbox_list_handler).delete(crate::api::inbox::inbox_clear_handler),
       )
       .route(
-        "/api/inbox/:id",
+        "/api/inbox/{id}",
         get(crate::api::inbox::inbox_detail_handler)
           .delete(crate::api::inbox::inbox_delete_handler),
       )
       .route(
-        "/api/inbox/:id/refire",
+        "/api/inbox/{id}/refire",
         axum::routing::post(crate::api::inbox::inbox_refire_handler),
       )
-      .route("/api/requests/:id", get(request_detail_handler))
+      .route("/api/requests/{id}", get(request_detail_handler))
       .route(
-        "/api/requests/:id/replay",
+        "/api/requests/{id}/replay",
         axum::routing::post(request_replay_handler),
       )
       .route("/api/audit", get(audit_handler))
@@ -1310,7 +1311,7 @@ async fn async_main() {
           .post(crate::api::admin_keys::admin_keys_create_handler),
       )
       .route(
-        "/api/admin-keys/:id",
+        "/api/admin-keys/{id}",
         axum::routing::delete(crate::api::admin_keys::admin_keys_revoke_handler),
       )
       .route(
@@ -1332,12 +1333,12 @@ async fn async_main() {
         get(webhooks_list_handler).post(webhooks_create_handler),
       )
       .route(
-        "/api/webhooks/:id",
+        "/api/webhooks/{id}",
         axum::routing::delete(webhooks_delete_handler),
       )
       .route("/api/webhooks/deliveries", get(webhook_deliveries_handler))
       .route(
-        "/api/webhooks/deliveries/:id/redeliver",
+        "/api/webhooks/deliveries/{id}/redeliver",
         axum::routing::post(webhook_redeliver_handler),
       )
       .route(
@@ -1345,7 +1346,7 @@ async fn async_main() {
         get(crate::api::openapi::openapi_handler),
       )
       .route(
-        "/api/config/schema/:kind",
+        "/api/config/schema/{kind}",
         get(crate::api::config_schema::config_schema_handler),
       )
       .route(
@@ -1357,11 +1358,11 @@ async fn async_main() {
         get(crate::api::orgs::orgs_list_handler).post(crate::api::orgs::orgs_create_handler),
       )
       .route(
-        "/api/orgs/:id",
+        "/api/orgs/{id}",
         axum::routing::delete(crate::api::orgs::orgs_delete_handler),
       )
       .route(
-        "/api/orgs/:id/quota",
+        "/api/orgs/{id}/quota",
         axum::routing::put(crate::api::orgs::orgs_quota_handler),
       )
       .route(
@@ -1369,23 +1370,23 @@ async fn async_main() {
         get(crate::api::scaling::scaling_list_handler),
       )
       .route(
-        "/api/scaling/:id",
+        "/api/scaling/{id}",
         axum::routing::delete(crate::api::scaling::scaling_delete_handler),
       )
       .route(
-        "/api/orgs/:id/custom-name",
+        "/api/orgs/{id}/custom-name",
         axum::routing::put(crate::api::orgs::orgs_custom_name_handler),
       )
       .route(
-        "/api/orgs/:id/hostnames",
+        "/api/orgs/{id}/hostnames",
         axum::routing::put(crate::api::orgs::orgs_hostnames_handler),
       )
       .route(
-        "/api/orgs/:id/usage",
+        "/api/orgs/{id}/usage",
         get(crate::api::orgs::orgs_usage_handler),
       )
       .route(
-        "/api/orgs/:id/oidc",
+        "/api/orgs/{id}/oidc",
         axum::routing::put(crate::api::orgs::orgs_oidc_handler),
       )
       .route(
@@ -1398,7 +1399,7 @@ async fn async_main() {
           .delete(crate::api::users::sessions_clear_handler),
       )
       .route(
-        "/api/sessions/:id",
+        "/api/sessions/{id}",
         axum::routing::delete(crate::api::users::session_revoke_handler),
       )
       .route(
@@ -1406,7 +1407,7 @@ async fn async_main() {
         get(crate::api::users::users_list_handler).post(crate::api::users::users_create_handler),
       )
       .route(
-        "/api/users/:id/totp",
+        "/api/users/{id}/totp",
         axum::routing::delete(crate::api::users::totp_admin_reset_handler),
       )
       .route(
@@ -1434,11 +1435,11 @@ async fn async_main() {
         axum::routing::post(crate::webauthn::passkey_register_finish_handler),
       )
       .route(
-        "/api/me/passkeys/:id",
+        "/api/me/passkeys/{id}",
         axum::routing::delete(crate::webauthn::passkey_delete_handler),
       )
       .route(
-        "/api/users/:id",
+        "/api/users/{id}",
         axum::routing::put(crate::api::users::users_update_handler)
           .delete(crate::api::users::users_delete_handler),
       );
@@ -1529,7 +1530,7 @@ async fn async_main() {
 
     // Static assets are registered after the session layer on purpose: they
     // are public, because the login page needs them before any session exists.
-    dash_router = dash_router.route("/assets/*path", get(dashboard_asset_handler));
+    dash_router = dash_router.route("/assets/{*path}", get(dashboard_asset_handler));
 
     app = app.nest("/aperio", dash_router);
   } else {
@@ -1537,7 +1538,7 @@ async fn async_main() {
     // APERIO_SERVER_AUTH-protected proxied sites) still needs its assets.
     app = app.nest(
       "/aperio",
-      Router::new().route("/assets/*path", get(dashboard_asset_handler)),
+      Router::new().route("/assets/{*path}", get(dashboard_asset_handler)),
     );
   }
 
@@ -1610,7 +1611,7 @@ async fn async_main() {
     get(tunnels_declared_handler).post(tunnels_create_handler),
   );
   app = app.route(
-    "/aperio/api/tunnels/:id",
+    "/aperio/api/tunnels/{id}",
     axum::routing::delete(tunnels_delete_handler),
   );
   app = app.route("/aperio/ws", get(ws_handler));
@@ -1619,7 +1620,7 @@ async fn async_main() {
   // Tunnel discovery for --bind-tunnels consumers: same token the client
   // connected with (or master), explicit client id, never a listing.
   app = app.route("/aperio/tunnels", get(tunnels_discovery_handler));
-  app = app.route("/aperio/tunnels/:client_id", get(tunnels_list_handler));
+  app = app.route("/aperio/tunnels/{client_id}", get(tunnels_list_handler));
   app = app.route("/aperio/oidc/login", get(oidc_login_handler));
   app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));
 
@@ -1884,6 +1885,17 @@ async fn async_main() {
     if reuseport { " (SO_REUSEPORT)" } else { "" }
   );
 
+  // Nagle off on every accepted connection. These sockets carry messages
+  // somebody is waiting for, not a bulk stream, and Nagle holds a small write
+  // back until an outstanding acknowledgement arrives, which here is latency
+  // added to a request rather than bandwidth saved. `tap_io` is axum 0.8's
+  // hook for exactly this; 0.7 owned the accept loop and offered none.
+  let listener = listener.tap_io(|stream| {
+    if let Err(e) = stream.set_nodelay(true) {
+      warn!("could not set TCP_NODELAY on an accepted connection: {e}");
+    }
+  });
+
   axum::serve(
     listener,
     app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -1971,7 +1983,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
     let notified = clients.len();
     for client in clients.values() {
       // try_send: a client with a full queue must not stall the shutdown.
-      let _ = client.tx.try_send(Message::Text(json.clone()));
+      let _ = client.tx.try_send(Message::Text(json.clone().into()));
     }
     drop(clients);
     if notified > 0 {

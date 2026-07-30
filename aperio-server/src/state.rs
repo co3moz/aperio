@@ -1153,7 +1153,7 @@ impl StreamFlow {
   /// (read loop, Drop) that must never wait on the writer.
   fn try_notify(&self, msg: &TunnelMessage) -> bool {
     match serde_json::to_string(msg) {
-      Ok(json) => self.client_tx.try_send(Message::Text(json)).is_ok(),
+      Ok(json) => self.client_tx.try_send(Message::Text(json.into())).is_ok(),
       Err(_) => false,
     }
   }
