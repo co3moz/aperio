@@ -41,6 +41,12 @@ pub struct ApiToken {
   /// served by clients authenticated with this token.
   #[serde(default)]
   pub daily_max_bytes: Option<u64>,
+  /// Parallel connections a client using this token may open for one service.
+  /// `None` = the server's own `max_connections_per_service`. A value above
+  /// the server's is not an error, it simply cannot take effect: the
+  /// effective ceiling is the lower of the two.
+  #[serde(default)]
+  pub max_connections: Option<u32>,
   /// May clients using this token publish services as public (skipping the
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
@@ -179,6 +185,7 @@ impl TokenStore {
     // `allow_bind`. The compiler names every call site for an added argument;
     // it cannot see a shifted one.
     topics: Vec<String>,
+    max_connections: Option<u32>,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -198,6 +205,7 @@ impl TokenStore {
       ttl_seconds,
       max_rps,
       daily_max_bytes,
+      max_connections: max_connections.filter(|v| *v > 0),
       allow_public,
       allow_bind,
       topics,
@@ -229,6 +237,7 @@ impl TokenStore {
     allow_bind: Option<bool>,
     canary: Option<bool>,
     topics: Option<Vec<String>>,
+    max_connections: Option<Option<u32>>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -252,6 +261,9 @@ impl TokenStore {
     }
     if let Some(quota) = daily_max_bytes {
       token.daily_max_bytes = quota.filter(|v| *v > 0);
+    }
+    if let Some(conns) = max_connections {
+      token.max_connections = conns.filter(|v| *v > 0);
     }
     if let Some(p) = allow_public {
       token.allow_public = p;
@@ -429,6 +441,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
     assert!(secret.starts_with("apr_"));
     assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -492,6 +505,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
     let first_expiry = record.expires_at.unwrap();
 
@@ -517,6 +531,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
     assert!(store.refresh(&forever).is_none());
 
@@ -534,6 +549,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
     assert!(store.refresh(&dead).is_none());
 
@@ -557,6 +573,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
 
     // Rotation with a grace window: both secrets verify to the same record.
@@ -601,6 +618,7 @@ mod tests {
       true,
       None,
       Vec::new(),
+      None,
     );
     assert!(record.canary);
 
@@ -623,6 +641,7 @@ mod tests {
         None,
         None,
         Some(false),
+        None,
         None,
       )
       .unwrap();
@@ -648,6 +667,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
 
     // First key pins; the same key matches; a different key is a mismatch.
@@ -690,6 +710,7 @@ mod tests {
       false,
       None,
       Vec::new(),
+      None,
     );
     // ttl 0 → expires_at == now → already expired
     assert!(store.verify(&secret).is_none());

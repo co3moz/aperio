@@ -912,4 +912,6 @@ export const zh: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': '该组织在界面上的名称。任何语言、任何标点，之后可以修改。',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z、0-9 和 _ 。这是组织的寻址方式, 出现在 {example}、服务器的 expose: 规则和 API 中, 因此创建后不可更改。',
   'Could not delete ({status})': '删除失败（{status}）',
+  'Parallel connections per service (0 = server default, empty = keep)': '每个服务的并行连接数（0 = 服务器默认值，留空 = 保持不变）',
+  'Parallel connections per service (empty = server default)': '每个服务的并行连接数（留空 = 服务器默认值）',
 }

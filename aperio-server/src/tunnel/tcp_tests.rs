@@ -21,6 +21,7 @@ fn dynamic_perms(token_id: &str) -> ClientPerms {
     topics: Vec::new(),
     org_id: None,
     org_hostnames: Vec::new(),
+    max_connections: None,
   }
 }
 
@@ -138,6 +139,7 @@ async fn make_token(state: &AppState) -> String {
     false,
     None,
     Vec::new(),
+    None,
   );
   secret
 }

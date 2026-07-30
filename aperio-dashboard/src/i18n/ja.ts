@@ -929,4 +929,6 @@ export const ja: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'この組織の画面上の名前。どの言語でも記号でも使え、あとから変更できます。',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z、0-9、_ のみ。組織のアドレスに使われるもので, {example}、サーバーの expose: ルール、API で, 作成後は変更できません。',
   'Could not delete ({status})': '削除できませんでした（{status}）',
+  'Parallel connections per service (0 = server default, empty = keep)': 'サービスごとの並列接続数（0 = サーバーの既定値、空欄 = 変更しない）',
+  'Parallel connections per service (empty = server default)': 'サービスごとの並列接続数（空欄 = サーバーの既定値）',
 }

@@ -706,7 +706,9 @@ pub struct ServiceEntry {
   /// Most requests this service handles at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
-  /// Parallel tunnel connections opened for this service (1–16, default 1);
+  /// Parallel tunnel connections opened for this service (default 1); the
+  /// server's `max_connections_per_service` is the ceiling, announced on
+  /// connect, and a token may lower it further;
   /// the server load-balances across them like separate clients, so a single
   /// dropped connection leaves no visitor-facing gap.
   #[schemars(extend("examples" = [2]))]
@@ -970,7 +972,8 @@ pub struct FileConfig {
   /// Most requests handled at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
-  /// Parallel tunnel connections opened for the exposed service (1–16,
+  /// Parallel tunnel connections opened for the exposed service (the server's
+  /// `max_connections_per_service` is the ceiling,
   /// default 1); the server load-balances across them like separate clients,
   /// so a single dropped connection leaves no visitor-facing gap.
   #[schemars(extend("examples" = [2]))]
@@ -2214,6 +2217,11 @@ pub struct ServerFileConfig {
   /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
   #[schemars(extend("examples" = [10]))]
   pub max_tunnels: Option<u64>,
+  /// Parallel tunnel connections one client may open for a single service
+  /// (its `connections:`). A token may lower this for its own holder, never
+  /// raise it. Default 16 (env: APERIO_MAX_CONNECTIONS_PER_SERVICE).
+  #[schemars(extend("examples" = [16]))]
+  pub max_connections_per_service: Option<u64>,
   /// Maximum concurrently-live proxied public WebSockets; they are long-lived,
   /// so they get their own ceiling separate from `max_concurrent_requests`.
   /// `0` = uncapped (env: APERIO_MAX_WS_CONNECTIONS).

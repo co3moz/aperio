@@ -182,6 +182,8 @@ export interface TokenView {
   expired: boolean
   max_rps: number | null
   daily_max_bytes: number | null
+  /** Parallel connections per service; null = the server's own ceiling. */
+  max_connections: number | null
   allow_public: boolean
   allow_bind: boolean
   /** Topic filters this token may publish to and subscribe to. */
@@ -215,6 +217,7 @@ export interface TokenCreatePayload {
   ttl_seconds?: number
   max_rps?: number
   daily_max_bytes?: number
+  max_connections?: number
   allow_public?: boolean
   allow_bind?: boolean
   topics?: string[]

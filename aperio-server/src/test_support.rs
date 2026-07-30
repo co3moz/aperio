@@ -148,6 +148,7 @@ pub(crate) fn test_config() -> ServerConfig {
     gateway_response_timeout: Duration::from_secs(1),
     max_body_size: 1024 * 1024,
     max_tunnels: 8,
+    max_connections_per_service: 16,
     ip_limit_max: 1000.0,
     ip_limit_refill: 100.0,
     auth_credentials: None,
@@ -322,6 +323,7 @@ pub(crate) fn mock_client(
       .into_iter()
       .collect(),
     connections: None,
+    declared_client_id: None,
     config_notes: Vec::new(),
     last_ping_at: None,
     perms: ClientPerms::master(),

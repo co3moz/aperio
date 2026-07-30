@@ -196,6 +196,7 @@ pub(crate) fn run() -> i32 {
   check_parse::<usize>(&mut r, "APERIO_MAX_BODY_SIZE", "byte count");
   check_parse::<usize>(&mut r, "APERIO_MAX_CONCURRENT_REQUESTS", "count");
   check_parse::<usize>(&mut r, "APERIO_MAX_TUNNELS", "count");
+  check_parse::<u32>(&mut r, "APERIO_MAX_CONNECTIONS_PER_SERVICE", "count");
   check_parse::<f64>(&mut r, "APERIO_IP_LIMIT_MAX", "number");
   check_parse::<f64>(&mut r, "APERIO_IP_LIMIT_REFILL", "number");
   check_parse::<u32>(&mut r, "APERIO_LOGIN_LOCKOUT_THRESHOLD", "count");

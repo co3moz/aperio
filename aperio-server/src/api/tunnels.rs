@@ -213,6 +213,9 @@ pub(crate) async fn tunnels_create_handler(
       org,
       // Nor sending messages to the organization it is briefly a guest of.
       Vec::new(),
+      // Nor opening a fan of parallel connections: one preview hostname is
+      // one service, and the server's own ceiling is the generous case here.
+      None,
     )
   };
   info!(

@@ -456,6 +456,10 @@ fn spawn_services(
       // One shared backend-health state per service: the backend is probed
       // once (by the first connection), not once per parallel connection.
       let health = service::BackendHealth::for_spec(spec);
+      // One ceiling per service: the first connection learns what the server
+      // permits and the rest size themselves from it instead of each finding
+      // out by being closed.
+      let ceiling = service::ConnectionCeiling::new();
       (1..=spec.connections).map(move |conn| {
         let mut spec = spec.clone();
         if conn > 1 {
@@ -468,6 +472,8 @@ fn spawn_services(
           cancel_rx,
           health.clone(),
           conn == 1,
+          conn,
+          ceiling.clone(),
         ));
         (cancel_tx, handle)
       })
@@ -777,14 +783,21 @@ fn build_specs(
   // 1; set `connections: N` (or APERIO_CONNECTIONS) to run N parallel
   // connections so a single dropped one (e.g. a CDN recycling a long-lived
   // WebSocket) is covered by a sibling with no visitor-facing gap.
+  // A sanity bound, not a policy. The policy is the server's
+  // `max_connections_per_service` (lowered further by a token's own
+  // `max_connections`), announced on the handshake and applied per connection;
+  // this only stops `connections: 100000` from spawning a hundred thousand
+  // tasks before the first one has connected to find out.
+  const CONNECTIONS_SANITY_BOUND: u32 = 256;
   let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
     let n = raw.unwrap_or(1).max(1);
-    if n > 16 {
+    if n > CONNECTIONS_SANITY_BOUND {
       warn!(
-        "{} requests {} connections; clamping to the maximum of 16",
-        what, n
+        "{} requests {} connections; clamping to {}. The server decides the real \
+         ceiling and announces it on connect.",
+        what, n, CONNECTIONS_SANITY_BOUND
       );
-      16
+      CONNECTIONS_SANITY_BOUND
     } else {
       n
     }
@@ -798,7 +811,7 @@ fn build_specs(
         field: "connections".to_string(),
         declared: asked.to_string(),
         effective: effective.to_string(),
-        reason: "clamped to the maximum of 16 parallel connections".to_string(),
+        reason: format!("clamped to {CONNECTIONS_SANITY_BOUND} parallel connections"),
       })
       .into_iter()
       .collect()

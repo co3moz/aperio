@@ -593,6 +593,7 @@ pub(crate) async fn authorize_tunnel_token(
         allow_bind: token.allow_bind,
         topics: token.topics.clone(),
         org_id: token.org_id.clone(),
+        max_connections: token.max_connections,
         // Filled in below: the org store must not be locked while the token
         // store lock is held.
         org_hostnames: Vec::new(),

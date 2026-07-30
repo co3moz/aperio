@@ -419,14 +419,69 @@ impl BackendHealth {
 /// (config reload → the supervisor respawns with a fresh spec). `health` is the
 /// service's shared backend-health state; `run_probe` is true only for the one
 /// connection that owns the health probe/gate (the others just report it).
+/// What the server said this token may open for one service, shared across a
+/// service's parallel connections.
+///
+/// The first connection learns it from the handshake and publishes it here;
+/// the others wait for it before opening a socket, so a `connections:` larger
+/// than the server permits costs one refused connection instead of a fan of
+/// them. `None` = not learned yet, or a server too old to announce it.
+#[derive(Clone)]
+pub(crate) struct ConnectionCeiling {
+  pub(crate) tx: Arc<watch::Sender<Option<u32>>>,
+  pub(crate) rx: watch::Receiver<Option<u32>>,
+}
+
+impl ConnectionCeiling {
+  pub(crate) fn new() -> Self {
+    let (tx, rx) = watch::channel(None);
+    ConnectionCeiling {
+      tx: Arc::new(tx),
+      rx,
+    }
+  }
+
+  /// Waits up to `grace` for the first connection to report the ceiling.
+  /// Returns what it learned, or `None` when nothing arrived: an old server
+  /// does not announce, and a connection that waited must still be allowed to
+  /// try rather than hang for the life of the process.
+  pub(crate) async fn learned(&self, grace: Duration) -> Option<u32> {
+    let mut rx = self.rx.clone();
+    if let Some(v) = *rx.borrow_and_update() {
+      return Some(v);
+    }
+    let _ = tokio::time::timeout(grace, rx.changed()).await;
+    *rx.borrow()
+  }
+}
+
 pub(crate) async fn run_service(
   spec: ServiceSpec,
   shared: Shared,
   mut cancel: watch::Receiver<bool>,
   health: BackendHealth,
   run_probe: bool,
+  connection_index: u32,
+  ceiling: ConnectionCeiling,
 ) {
   let label = spec.label();
+
+  // Connections beyond the first wait for the server's announced ceiling
+  // before opening a socket. Five seconds is the whole budget: past that the
+  // server is either old (no announcement) or slow, and in both cases trying
+  // is better than a connection that never happens.
+  if connection_index > 1
+    && let Some(permitted) = ceiling.learned(Duration::from_secs(5)).await
+    && connection_index > permitted
+  {
+    warn!(
+      "[{}] The server permits {} parallel connection(s) for this service; \
+       connection {} stands down. Raise max_connections_per_service on the server \
+       (or the token's max_connections) to use more.",
+      label, permitted, connection_index
+    );
+    return;
+  }
 
   // Backend health is shared across the service's parallel connections (created
   // once by the supervisor). This connection reports it in every heartbeat and,
@@ -651,8 +706,21 @@ pub(crate) async fn run_service(
           r = &mut connect_fut => r,
         };
         match connect_result {
-          Ok((ws_stream, _)) => {
+          Ok((ws_stream, response)) => {
             info!("[{}] Successfully connected to Aperio Server!", label);
+            // The server announces what this token may open for one service.
+            // Published for the siblings waiting on it above; refreshed on
+            // every reconnect, so raising the number on the server reaches a
+            // running client without restarting it.
+            if let Some(permitted) = response
+              .headers()
+              .get("x-aperio-max-connections")
+              .and_then(|v| v.to_str().ok())
+              .and_then(|v| v.trim().parse::<u32>().ok())
+              .filter(|v| *v > 0)
+            {
+              ceiling.tx.send_replace(Some(permitted));
+            }
             let connected_at = Instant::now();
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 

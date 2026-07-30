@@ -12,6 +12,11 @@ pub(crate) struct ServerConfig {
   pub(crate) gateway_response_timeout: Duration,
   pub(crate) max_body_size: usize,
   pub(crate) max_tunnels: usize,
+  /// Parallel tunnel connections one client may open for a single service
+  /// (`connections:` in its aperio.yaml). The ceiling belongs here rather than
+  /// in the client, since the connections are the server's resource; a token
+  /// may lower it for its holder but never raise it.
+  pub(crate) max_connections_per_service: u32,
   pub(crate) ip_limit_max: f64,
   pub(crate) ip_limit_refill: f64,
   pub(crate) auth_credentials: Option<String>,
@@ -248,6 +253,7 @@ pub(crate) struct SettingsOverrides {
   pub(crate) gateway_response_timeout_secs: Option<u64>,
   pub(crate) max_body_size: Option<usize>,
   pub(crate) max_tunnels: Option<usize>,
+  pub(crate) max_connections_per_service: Option<u32>,
   pub(crate) require_hostname_bind: Option<bool>,
   pub(crate) lb_strategy: Option<String>,
   pub(crate) failover_mode: Option<String>,
@@ -292,6 +298,7 @@ struct FileSettings {
   gateway_response_timeout: Option<u64>,
   max_body_size: Option<usize>,
   max_tunnels: Option<usize>,
+  max_connections_per_service: Option<u32>,
   require_hostname_bind: Option<bool>,
   lb_strategy: Option<String>,
   failover: Option<String>,
@@ -348,6 +355,7 @@ pub(crate) fn file_overrides() -> SettingsOverrides {
     gateway_response_timeout_secs: fs.gateway_response_timeout,
     max_body_size: fs.max_body_size,
     max_tunnels: fs.max_tunnels,
+    max_connections_per_service: fs.max_connections_per_service,
     require_hostname_bind: fs.require_hostname_bind,
     lb_strategy: fs.lb_strategy,
     failover_mode: fs.failover,
@@ -414,6 +422,9 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   }
   if let Some(v) = o.max_tunnels {
     c.max_tunnels = v.max(1);
+  }
+  if let Some(v) = o.max_connections_per_service {
+    c.max_connections_per_service = v.max(1);
   }
   if let Some(v) = o.require_hostname_bind {
     c.require_hostname_bind = v;
@@ -549,6 +560,7 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "gateway_response_timeout_secs": c.gateway_response_timeout.as_secs(),
     "max_body_size": c.max_body_size,
     "max_tunnels": c.max_tunnels,
+    "max_connections_per_service": c.max_connections_per_service,
     "require_hostname_bind": c.require_hostname_bind,
     "lb_strategy": match c.lb_strategy {
       LbStrategy::RoundRobin => "round-robin",

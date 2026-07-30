@@ -362,6 +362,8 @@ async fn test_run_service_message_loop() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
 
   // Mock server: accept, then push one of each server→client frame, close.
@@ -636,6 +638,8 @@ async fn test_run_service_cancel_while_connected() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
 
   let (stream, _) = listener.accept().await.unwrap();
@@ -672,6 +676,8 @@ async fn test_run_service_invalid_token_header() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   // Let the header-build error fire once, then cancel out of the reconnect.
   tokio::time::sleep(Duration::from_millis(150)).await;
@@ -697,6 +703,8 @@ async fn test_run_service_server_shutdown_fast_reconnect() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
 
   let (stream, _) = listener.accept().await.unwrap();
@@ -740,6 +748,8 @@ async fn test_run_service_connection_refused_failover() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   // Let one failed connect + failover rotation happen, then cancel.
   tokio::time::sleep(Duration::from_millis(200)).await;
@@ -776,6 +786,8 @@ async fn test_run_service_http_401_rejection() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
@@ -814,6 +826,8 @@ async fn test_run_service_http_500_rejection() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
@@ -864,6 +878,8 @@ async fn test_run_service_health_probe_flap() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   // Span three probes (t≈0,1,2s): fail → restored → unhealthy.
   tokio::time::sleep(Duration::from_millis(2400)).await;
@@ -891,6 +907,8 @@ async fn test_run_service_health_probe_healthy() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(400)).await;
   cancel_tx.send(true).unwrap();
@@ -958,6 +976,8 @@ async fn test_run_service_health_probe_absolute_url_unhealthy() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(300)).await;
   cancel_tx.send(true).unwrap();
@@ -991,6 +1011,8 @@ async fn test_run_service_wait_for_backend() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(400)).await;
   cancel_tx.send(true).unwrap();
@@ -1016,6 +1038,8 @@ async fn test_run_service_wait_for_backend_implied_by_health() {
     cancel_rx,
     BackendHealth::for_spec(&spec),
     true,
+    1,
+    ConnectionCeiling::new(),
   ));
   tokio::time::sleep(Duration::from_millis(200)).await;
   cancel_tx.send(true).unwrap();

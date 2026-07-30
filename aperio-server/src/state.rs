@@ -604,6 +604,12 @@ pub(crate) struct ClientHandle {
   /// (`connections:`), announced via Ping. Display-only: the server treats
   /// each connection as its own client regardless.
   pub(crate) connections: Option<u32>,
+  /// The id the client calls this connection, `<base>-<service>` for the first
+  /// of a service and `<base>-<service>-c<N>` for the rest. Not trusted for
+  /// state changes (the server's own connection id is), but it is what names
+  /// the *service* a connection belongs to, which is the unit the
+  /// per-service connection ceiling is about.
+  pub(crate) declared_client_id: Option<String>,
   /// Settings the client resolved to something other than its config asked
   /// for (a bandwidth budget divided across connections, a clamped connection
   /// count, …), announced via Ping. Display-only, surfaced in the dashboard's
@@ -739,6 +745,10 @@ pub(crate) struct ClientPerms {
   /// fenced, or one carrying `*`, still cannot bind beyond the org's own
   /// hostnames.
   pub(crate) org_hostnames: Vec<String>,
+  /// Parallel connections per service this token permits. `None` = whatever
+  /// the server allows. It can only lower the server's ceiling: the effective
+  /// number is the smaller of the two, resolved by `connection_ceiling`.
+  pub(crate) max_connections: Option<u32>,
 }
 
 impl ClientPerms {
@@ -754,6 +764,18 @@ impl ClientPerms {
       topics: vec!["#".to_string()],
       org_id: None,
       org_hostnames: Vec::new(),
+      max_connections: None,
+    }
+  }
+
+  /// The ceiling in force for this connection: the server's setting, lowered
+  /// by the token's own if it asked for less. A token asking for more is not
+  /// an error, it simply does not get it, which is what makes the server's
+  /// number a policy rather than a suggestion.
+  pub(crate) fn connection_ceiling(&self, server_max: u32) -> u32 {
+    match self.max_connections {
+      Some(token_max) => token_max.min(server_max).max(1),
+      None => server_max.max(1),
     }
   }
 

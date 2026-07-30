@@ -27,6 +27,7 @@ pub(crate) struct TokenView {
   pub(crate) expired: bool,
   pub(crate) max_rps: Option<f64>,
   pub(crate) daily_max_bytes: Option<u64>,
+  pub(crate) max_connections: Option<u32>,
   pub(crate) allow_public: bool,
   pub(crate) allow_bind: bool,
   pub(crate) topics: Vec<String>,
@@ -59,6 +60,7 @@ pub(crate) async fn tokens_list_handler(
       expired: t.is_expired(),
       max_rps: t.max_rps,
       daily_max_bytes: t.daily_max_bytes,
+      max_connections: t.max_connections,
       allow_public: t.allow_public,
       allow_bind: t.allow_bind,
       topics: t.topics.clone(),
@@ -88,6 +90,9 @@ pub(crate) struct TokenCreateRequest {
   pub(crate) max_rps: Option<f64>,
   /// Optional daily byte quota (request + response payload).
   pub(crate) daily_max_bytes: Option<u64>,
+  /// Parallel connections a client using this token may open for one service.
+  /// Absent = the server's own ceiling; a larger value cannot raise it.
+  pub(crate) max_connections: Option<u32>,
   /// May clients using this token publish services as public (skipping the
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
@@ -121,6 +126,9 @@ pub(crate) struct TokenUpdateRequest {
   pub(crate) max_rps: Option<f64>,
   /// Some(0) clears the quota; Some(n) sets it to n bytes/day.
   pub(crate) daily_max_bytes: Option<u64>,
+  /// Some(0) clears the per-service connection ceiling (back to the server's);
+  /// Some(n) sets it to n.
+  pub(crate) max_connections: Option<u32>,
   /// Absent = keep; true/false sets whether public publishing is permitted.
   pub(crate) allow_public: Option<bool>,
   /// Absent = keep; true/false sets whether this token may bind other
@@ -317,6 +325,7 @@ pub(crate) async fn tokens_create_handler(
       payload.canary,
       org,
       topics,
+      payload.max_connections.filter(|v| *v > 0),
     )
   };
   info!(
@@ -494,6 +503,7 @@ pub(crate) async fn tokens_update_handler(
     payload.allow_bind,
     payload.canary,
     topics,
+    payload.max_connections.map(Some),
   );
 
   match updated {

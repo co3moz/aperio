@@ -7,6 +7,11 @@ use axum::{
   response::{IntoResponse, Response},
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
+
+/// Handshake header carrying the parallel-connection ceiling for the token
+/// that just connected. The client sizes its fan of connections from it, so
+/// the number lives on the server where the resource is.
+pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -200,8 +205,15 @@ pub(crate) async fn ws_handler(
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty());
 
+  // The parallel-connection ceiling in force for this token, announced on the
+  // handshake so the client can size itself instead of opening sockets the
+  // server will only close. Read by aperio-client; older clients ignore it and
+  // keep their own default, which is this same 16.
+  let ceiling = perms.connection_ceiling(state.config().max_connections_per_service);
+
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
-  ws.max_message_size(state.config().max_body_size.saturating_mul(2))
+  let mut response = ws
+    .max_message_size(state.config().max_body_size.saturating_mul(2))
     .max_frame_size(state.config().max_body_size)
     .on_upgrade(move |socket| {
       slot.handed_off();
@@ -212,7 +224,54 @@ pub(crate) async fn ws_handler(
         perms,
         instance_group,
       )
+    });
+  if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
+    response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
+  }
+  response
+}
+
+/// The service a declared connection id belongs to.
+///
+/// The client names its connections `<base>-<service>` for the first of a
+/// service and `<base>-<service>-c<N>` for the rest, so trimming the `-c<N>`
+/// suffix leaves the service. Anything that does not follow the shape is its
+/// own service, which is the safe reading: an unrecognized id is not silently
+/// merged into somebody else's fan.
+fn service_of(declared_id: &str) -> &str {
+  match declared_id.rsplit_once("-c") {
+    Some((base, tail)) if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => base,
+    _ => declared_id,
+  }
+}
+
+/// True when this connection is one too many for its service.
+///
+/// Counts the live connections of the same process (`instance_group`) that
+/// declared the same service, excluding this one. Grouping on the process
+/// matters: two clients that happen to choose the same `client_id` base are
+/// still two processes, and neither should be able to spend the other's
+/// allowance.
+fn service_connection_over_ceiling(
+  clients: &std::collections::HashMap<String, ClientHandle>,
+  own_connection_id: &str,
+  instance_group: Option<&str>,
+  declared_id: &str,
+  ceiling: u32,
+) -> bool {
+  let service = service_of(declared_id);
+  let siblings = clients
+    .iter()
+    .filter(|(id, handle)| {
+      id.as_str() != own_connection_id
+        && handle.instance_group.as_deref() == instance_group
+        && handle
+          .declared_client_id
+          .as_deref()
+          .is_some_and(|other| service_of(other) == service)
     })
+    .count();
+  siblings as u32 >= ceiling
 }
 
 /// Holds the `active_tunnel_count` slot reserved before the upgrade, and gives
@@ -256,6 +315,10 @@ pub(crate) async fn handle_socket(
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let client_id = uuid::Uuid::new_v4().to_string();
+  // Read once: the ceiling is a server setting, and a live edit of it should
+  // not retroactively evict connections that were within the number when they
+  // were made.
+  let server_max_connections = state.config().max_connections_per_service;
 
   // Create channel to handle writes asynchronously
   let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
@@ -391,6 +454,7 @@ pub(crate) async fn handle_socket(
         override_path_bind: None,
         override_hostname_binds: Vec::new(),
         connections: None,
+        declared_client_id: None,
         config_notes: Vec::new(),
         last_ping_at: None,
         perms: perms.clone(),
@@ -865,6 +929,10 @@ pub(crate) async fn handle_socket(
               // Token pinning context captured under the clients lock and used
               // after it is released: (token id, token name, org).
               let mut pin_ctx: Option<(String, String, Option<String>)> = None;
+              // Set under the clients lock, acted on after it: a connection
+              // beyond what the token is allowed for this service.
+              let mut over_ceiling = false;
+              let mut ceiling_ctx: Option<(Option<String>, u32)> = None;
               // Bind context for the autoscaling upsert, captured under the
               // clients lock and used after it is released (the scaling store
               // must never be locked while the clients map is).
@@ -988,6 +1056,19 @@ pub(crate) async fn handle_socket(
                   // what it resolved differently: display-only, for the
                   // dashboard's per-connection config view.
                   handle.connections = connections;
+                  // The declared id is `<base>-<service>` for the first
+                  // connection and `<base>-<service>-c<N>` for the rest, so it
+                  // names both the service and this connection's place in its
+                  // fan. Recorded here rather than trusted for anything else:
+                  // it is what lets the ceiling below be about *one service*
+                  // instead of the whole process.
+                  handle.declared_client_id = Some(cid.clone());
+                  // Counted after this block: `handle` is a mutable borrow of
+                  // the map the count has to walk.
+                  ceiling_ctx = Some((
+                    handle.instance_group.clone(),
+                    handle.perms.connection_ceiling(server_max_connections),
+                  ));
                   if handle.config_notes != config_notes {
                     handle.config_notes = config_notes;
                   }
@@ -1187,6 +1268,38 @@ pub(crate) async fn handle_socket(
                     ));
                   }
                 }
+                if let Some((group, ceiling)) = ceiling_ctx {
+                  over_ceiling = service_connection_over_ceiling(
+                    &clients,
+                    &client_id,
+                    group.as_deref(),
+                    &cid,
+                    ceiling,
+                  );
+                }
+              }
+
+              // A connection past what this token may hold for one service.
+              // Refused here rather than at the handshake because the service
+              // it belongs to is only known once the client says so, and said
+              // out loud rather than dropped silently: a client that opened
+              // more than it may is a config to fix, not a mystery. A current
+              // client never reaches this, it reads the ceiling from the
+              // handshake header and opens that many.
+              if over_ceiling {
+                let ceiling = perms.connection_ceiling(server_max_connections);
+                warn!(
+                  "Client {} ({}) opened more parallel connections than permitted for one \
+                   service; closing this one. Ceiling {} ({})",
+                  cid,
+                  client_ip,
+                  ceiling,
+                  match perms.max_connections {
+                    Some(_) => "the token's own, at or below the server's",
+                    None => "the server's max_connections_per_service",
+                  }
+                );
+                break;
               }
 
               // Trust-on-first-use token pinning (APERIO_TOKEN_PINNING): pin the

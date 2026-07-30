@@ -931,4 +931,6 @@ export const ru: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Как эта организация называется на экране. Любой язык, любая пунктуация, изменяемо позже.',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 и _ . Именно это адресует организацию, в {example}, в правиле expose: сервера и в API, поэтому после создания оно не меняется.',
   'Could not delete ({status})': 'Не удалось удалить ({status})',
+  'Parallel connections per service (0 = server default, empty = keep)': 'Параллельные соединения на сервис (0 = значение сервера, пусто = не менять)',
+  'Parallel connections per service (empty = server default)': 'Параллельные соединения на сервис (пусто = значение сервера)',
 }

@@ -12,6 +12,7 @@ fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
     topics: Vec::new(),
     org_id: None,
     org_hostnames: Vec::new(),
+    max_connections: None,
   }
 }
 
@@ -570,6 +571,7 @@ async fn test_check_token_limits_rps_and_quota() {
       false,
       None,
       Vec::new(),
+      None,
     );
     tok.id
   };
@@ -595,6 +597,7 @@ async fn test_check_token_limits_rps_and_quota() {
       false,
       None,
       Vec::new(),
+      None,
     );
     tok.id
   };
@@ -683,6 +686,7 @@ async fn test_disconnect_token_clients() {
     topics: Vec::new(),
     org_id: None,
     org_hostnames: Vec::new(),
+    max_connections: None,
   };
   state.clients.lock().await.insert("c1".to_string(), c);
   state
@@ -811,4 +815,42 @@ fn stream_limits_sanitized_repairs_inconsistent_trios() {
   assert_eq!(l.pause_bytes, 64 * 1024);
   assert_eq!(l.resume_bytes, 0);
   assert_eq!(l.backlog_limit, 128 * 1024);
+}
+
+#[test]
+fn a_token_may_lower_the_connection_ceiling_but_never_raise_it() {
+  // The server's number is policy: a token asking for more is not an error,
+  // it simply does not get it. Otherwise minting a token would be a way to
+  // spend more of the server's resources than the operator allowed.
+  let server_max = 16;
+  let mut perms = ClientPerms::master();
+
+  perms.max_connections = None;
+  assert_eq!(
+    perms.connection_ceiling(server_max),
+    16,
+    "unset = the server's"
+  );
+
+  perms.max_connections = Some(4);
+  assert_eq!(
+    perms.connection_ceiling(server_max),
+    4,
+    "a token may ask for less"
+  );
+
+  perms.max_connections = Some(64);
+  assert_eq!(
+    perms.connection_ceiling(server_max),
+    16,
+    "a token asking for more gets the server's number"
+  );
+
+  // A server that allows nothing still leaves one connection: a service with
+  // zero connections is a service that cannot exist, and refusing every
+  // client is not what setting a small number means.
+  perms.max_connections = Some(0);
+  assert_eq!(perms.connection_ceiling(server_max), 1);
+  perms.max_connections = None;
+  assert_eq!(perms.connection_ceiling(0), 1);
 }

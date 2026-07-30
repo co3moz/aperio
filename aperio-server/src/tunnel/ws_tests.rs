@@ -182,6 +182,7 @@ async fn make_dynamic_token(state: &AppState, allow_public: bool) -> (String, St
     false,
     None,
     Vec::new(),
+    None,
   );
   (secret, rec.id)
 }

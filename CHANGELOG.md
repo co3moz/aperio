@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **The parallel-connection ceiling is the server's, and a token can lower it.** `connections:` was capped at 16 by the client itself, a number the server had no say in and no way to enforce: raising it meant editing the client, and a client that ignored it was not stopped by anything. The server now owns it as `max_connections_per_service` (env `APERIO_MAX_CONNECTIONS_PER_SERVICE`, default 16, so nothing changes for an existing deployment), announces it on the handshake so a client opens what it may rather than finding out by being closed, and enforces it. A dynamic token carries an optional `max_connections` that can lower the number for its holder and never raise it: the effective ceiling is the smaller of the two.
+
 - **A `429` now says which limit produced it.** Six different ceilings answer `429`, and to the visitor they were one status code and a sentence: the response carries `x-aperio-limit: <kind>; setting=<where the number lives>` (plus `Retry-After` on the limits that refill, and deliberately not on the quotas measured in days or months). Because a load test does not read headers, the same thing is a counter: `aperio_rate_limited_total{limit=...}`, one series per ceiling, emitted even at zero. [Performance Tuning](docs/performance-tuning.md) has the table mapping each kind to the setting to raise.
 
 ### Changed

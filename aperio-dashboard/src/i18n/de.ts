@@ -933,4 +933,6 @@ export const de: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Wie diese Organisation auf dem Bildschirm heißt. Jede Sprache, jede Zeichensetzung, später änderbar.',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 und _ . Damit wird die Organisation adressiert, in {example}, in der expose:-Regel eines Servers und in der API, deshalb steht sie nach dem Anlegen fest.',
   'Could not delete ({status})': 'Löschen fehlgeschlagen ({status})',
+  'Parallel connections per service (0 = server default, empty = keep)': 'Parallele Verbindungen pro Dienst (0 = Server-Standard, leer = beibehalten)',
+  'Parallel connections per service (empty = server default)': 'Parallele Verbindungen pro Dienst (leer = Server-Standard)',
 }

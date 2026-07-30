@@ -65,6 +65,8 @@ interface TokenFormState {
   ttl: string
   maxRps: string
   dailyMaxMb: string
+  /** Parallel connections per service; empty = the server's own ceiling. */
+  maxConnections: string
   allowPublic: boolean
   allowBind: boolean
   /** Comma-separated topic filters; empty means messaging is not permitted. */
@@ -81,6 +83,7 @@ function formFromToken(tok: TokenView | null): TokenFormState {
     ttl: '',
     maxRps: tok?.max_rps != null ? String(tok.max_rps) : '',
     dailyMaxMb: tok?.daily_max_bytes != null ? String(tok.daily_max_bytes / (1024 * 1024)) : '',
+    maxConnections: tok?.max_connections != null ? String(tok.max_connections) : '',
     allowPublic: tok?.allow_public ?? false,
     allowBind: tok?.allow_bind ?? false,
     topics: (tok?.topics ?? []).join(', '),
@@ -133,6 +136,8 @@ function TokenFormDialog({
     // Empty input = keep current (edit) / no limit (create); 0 clears on edit.
     const maxRps = form.maxRps.trim() === '' ? NaN : Number(form.maxRps)
     const dailyMb = form.dailyMaxMb.trim() === '' ? NaN : Number(form.dailyMaxMb)
+    const maxConnections =
+      form.maxConnections.trim() === '' ? NaN : Math.floor(Number(form.maxConnections))
     const dailyBytes = Number.isNaN(dailyMb) ? NaN : Math.round(dailyMb * 1024 * 1024)
     try {
       if (editing) {
@@ -143,6 +148,9 @@ function TokenFormDialog({
           ...(Number.isNaN(ttl) || ttl < 0 ? {} : { ttl_seconds: ttl }),
           ...(Number.isNaN(maxRps) || maxRps < 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes < 0 ? {} : { daily_max_bytes: dailyBytes }),
+          ...(Number.isNaN(maxConnections) || maxConnections < 0
+            ? {}
+            : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
           topics: splitList(form.topics),
@@ -163,6 +171,9 @@ function TokenFormDialog({
           ...(Number.isNaN(ttl) || ttl <= 0 ? {} : { ttl_seconds: ttl }),
           ...(Number.isNaN(maxRps) || maxRps <= 0 ? {} : { max_rps: maxRps }),
           ...(Number.isNaN(dailyBytes) || dailyBytes <= 0 ? {} : { daily_max_bytes: dailyBytes }),
+          ...(Number.isNaN(maxConnections) || maxConnections <= 0
+            ? {}
+            : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
           topics: splitList(form.topics),
@@ -263,6 +274,13 @@ function TokenFormDialog({
               ? t('Daily traffic quota (MB, 0 = no quota, empty = keep)')
               : t('Daily traffic quota (MB, empty = no quota)'),
             'dailyMaxMb',
+            '',
+          )}
+          {field(
+            editing
+              ? t('Parallel connections per service (0 = server default, empty = keep)')
+              : t('Parallel connections per service (empty = server default)'),
+            'maxConnections',
             '',
           )}
           <label className="flex items-center gap-2 text-sm">

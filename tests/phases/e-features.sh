@@ -237,6 +237,26 @@ assert_contains "$RL_HEADERS" "x-aperio-limit: token-rate" "the refusal names th
 assert_contains "$RL_HEADERS" "setting=token.max_rps" "and names where the number lives"
 assert_contains "$RL_HEADERS" "retry-after:" "a limit that refills says when to come back"
 
+step "Per-service parallel connection ceiling"
+# The ceiling is the server's, announced on the handshake, and a token may
+# only lower it. A client asking for more opens what it is allowed instead of
+# opening sockets the server then closes.
+CONN="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"conns","hostnames":["conns.e2e.local"],"max_connections":2}' "$BASE/aperio/api/tokens")" \
+  || fail "connection-limited token creation failed"
+CONN_TOKEN="$(echo "$CONN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$CONN_TOKEN" ] || fail "could not parse the token response: $CONN"
+env APERIO_SERVER_URL="$BASE" APERIO_SERVER_TOKEN="$CONN_TOKEN" \
+  APERIO_TARGET="http://127.0.0.1:${BACKEND_PORT}" APERIO_HOSTNAME=conns.e2e.local \
+  APERIO_CONNECTIONS=6 \
+  "$CLIENT_BIN" >"$LOG_DIR/client-features-conns.log" 2>&1 &
+CLIENT_PIDS+=($!)
+wait_routable conns.e2e.local
+retry 20 sh -c "grep -c 'Successfully connected' '$LOG_DIR/client-features-conns.log' | grep -q '^2$'" \
+  || fail "expected exactly 2 connections, got $(grep -c 'Successfully connected' "$LOG_DIR/client-features-conns.log")"
+assert_contains "$(cat "$LOG_DIR/client-features-conns.log")" "stands down" \
+  "the connections beyond the ceiling say so instead of retrying"
+
 step "Per-candidate visitor IP allowlist (APERIO_ALLOWED_IPS)"
 # A client that only admits a TEST-NET address: the local visitor is fully
 # rejected and gets the stealth answer, indistinguishable from an

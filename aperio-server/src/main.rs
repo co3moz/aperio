@@ -473,6 +473,15 @@ async fn async_main() {
     .and_then(|val| val.parse::<usize>().ok())
     .unwrap_or(10);
 
+  // Parallel connections one client may open for a single service. 16 is what
+  // the client used to clamp to on its own, so an unset server keeps exactly
+  // the behaviour that was there before this became the server's decision.
+  let max_connections_per_service = std::env::var("APERIO_MAX_CONNECTIONS_PER_SERVICE")
+    .ok()
+    .and_then(|val| val.parse::<u32>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(16);
+
   // Max IP token bucket capacity burst (default: 100 requests)
   // Only a finite, strictly positive bucket size is meaningful: 0, a negative,
   // NaN or infinity would silently wedge the limiter (never/always throttling),
@@ -935,6 +944,7 @@ async fn async_main() {
     gateway_response_timeout: Duration::from_secs(gateway_response_timeout_secs),
     max_body_size,
     max_tunnels,
+    max_connections_per_service,
     ip_limit_max,
     ip_limit_refill,
     auth_credentials,

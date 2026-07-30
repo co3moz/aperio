@@ -16,6 +16,7 @@ fn perms(token_id: &str, org: Option<&str>, allow_bind: bool) -> ClientPerms {
     topics: Vec::new(),
     org_id: org.map(str::to_string),
     org_hostnames: Vec::new(),
+    max_connections: None,
   }
 }
 

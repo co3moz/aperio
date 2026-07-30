@@ -935,4 +935,6 @@ export const tr: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Bu organizasyonun ekranda görünen adı. Herhangi bir dil, herhangi bir noktalama; sonradan değiştirilebilir.',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 ve _ . Organizasyonu adresleyen şey budur, {example} içinde, bir sunucunun expose: kuralında ve API içinde, bu yüzden oluşturulduktan sonra sabittir.',
   'Could not delete ({status})': 'Silinemedi ({status})',
+  'Parallel connections per service (0 = server default, empty = keep)': 'Servis başına paralel bağlantı (0 = sunucu varsayılanı, boş = değiştirme)',
+  'Parallel connections per service (empty = server default)': 'Servis başına paralel bağlantı (boş = sunucu varsayılanı)',
 }

@@ -931,4 +931,6 @@ export const es: Record<string, string> = {
   'What this organization is called on screen. Any language, any punctuation, and changeable later.': 'Cómo se llama esta organización en pantalla. Cualquier idioma, cualquier puntuación, y modificable después.',
   'a-z, 0-9 and _ . This is what addresses the organization, in {example}, in a server’s expose: rule and in the API, so it is fixed once created.': 'a-z, 0-9 y _ . Esto es lo que direcciona la organización, en {example}, en la regla expose: de un servidor y en la API, por eso queda fijo al crearla.',
   'Could not delete ({status})': 'No se pudo eliminar ({status})',
+  'Parallel connections per service (0 = server default, empty = keep)': 'Conexiones paralelas por servicio (0 = valor del servidor, vacío = mantener)',
+  'Parallel connections per service (empty = server default)': 'Conexiones paralelas por servicio (vacío = valor del servidor)',
 }

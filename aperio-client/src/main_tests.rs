@@ -260,8 +260,8 @@ fn test_build_specs_connections() {
   let specs = build_specs(&base_settings(), "base-id", false).unwrap();
   assert_eq!(specs[0].connections, 1);
 
-  // Configured values pass through; per-entry overrides the top level;
-  // out-of-range values are clamped to 16.
+  // Configured values pass through and a per-entry value overrides the top
+  // level. What the server permits is applied at connect time, not here.
   let mut settings = base_settings();
   settings.connections = Some(3);
   settings.services = vec![
@@ -279,7 +279,7 @@ fn test_build_specs_connections() {
   ];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].connections, 3);
-  assert_eq!(specs[1].connections, 16);
+  assert_eq!(specs[1].connections, 99);
 }
 
 #[test]
@@ -726,14 +726,16 @@ fn test_config_notes_report_invalid_and_clamped_values() {
   assert_eq!(note.declared, "very fast");
   assert_eq!(note.effective, "unlimited");
 
-  // Over the connection ceiling: what was asked for, next to what runs.
+  // Past the sanity bound: what was asked for, next to what runs. The
+  // server's own ceiling is applied at connect time and reported in the
+  // client's log, not here, since this runs before anything has connected.
   let mut settings = base_settings();
-  settings.services = vec![bw_service("x", None, 50)];
+  settings.services = vec![bw_service("x", None, 100_000)];
   let specs = build_specs(&settings, "id", false).unwrap();
   let note = &specs[0].config_notes[0];
   assert_eq!(note.field, "connections");
-  assert_eq!(note.declared, "50");
-  assert_eq!(note.effective, "16");
+  assert_eq!(note.declared, "100000");
+  assert_eq!(note.effective, "256");
 }
 
 #[test]
@@ -913,11 +915,18 @@ fn test_build_specs_server_urls_failover() {
 #[test]
 fn test_build_specs_clamps_connections_warn() {
   init_tracing();
-  // Single-service mode clamps an out-of-range top-level connections value.
+  // The client's own bound is a sanity bound, not the policy: the real
+  // ceiling is the server's, announced on connect. 50 is a number an operator
+  // might mean, so it survives; an absurd one is cut back to something a
+  // process can actually spawn.
   let mut settings = base_settings();
   settings.connections = Some(50);
   let specs = build_specs(&settings, "id", false).unwrap();
-  assert_eq!(specs[0].connections, 16);
+  assert_eq!(specs[0].connections, 50);
+
+  settings.connections = Some(100_000);
+  let specs = build_specs(&settings, "id", false).unwrap();
+  assert_eq!(specs[0].connections, 256);
 }
 
 // ---------------------------------------------------------------------------

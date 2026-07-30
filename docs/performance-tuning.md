@@ -9,7 +9,7 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
 
 ## Client-side parallelism
 
-- **`connections` (per service, 1-16).** The number of parallel tunnel
+- **`connections` (per service).** The number of parallel tunnel
   connections a client opens for one service. One connection serializes at the
   WebSocket; several spread requests across sockets and CPU cores on the
   backend. Raise it for a high-RPS backend that can absorb the concurrency;
