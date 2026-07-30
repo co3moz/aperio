@@ -12,6 +12,10 @@ project follows semantic versioning per release tag.
 
 - **The comfort features have switches now, and one of them is per service.** The request inspector records every transaction and the access event logs every request, because that is what makes the dashboard worth opening; on a server running flat out they are also the first per-request costs worth reclaiming. `inspector` (env `APERIO_INSPECTOR`) and `access_events` (env `APERIO_ACCESS_EVENTS`) turn them off server-wide, the second without lowering `log_level` and losing warnings with it. A client can opt one service out with `capture: false` (or `--no-capture`) and leave the rest inspectable. The dashboard marks such a client **no capture**, marks every client **inspector off** when the server's switch is the reason, and the inspector's "no detail" message now names both possibilities instead of blaming age.
 
+### Security
+
+- **The admin namespace is not proxied.** A path under `/aperio/` matching no route fell through to the proxy, so a typo in an API path, or a probe for an endpoint that does not exist, was answered with whatever a tunnel client happened to serve, under the URL the documentation calls the admin surface. Unmatched paths there are `404` now. The registered endpoints, including `/aperio/health`, `/aperio/ws` and the auth routes, are unaffected.
+
 ### Changed
 
 - **The server is on axum 0.8.** No behavior changes on any endpoint: route parameters are spelled `{id}` instead of `:id` internally and WebSocket text frames carry `Utf8Bytes` rather than `String`, neither of which is visible from outside. The upgrade is what makes the accepted-socket fix below possible.

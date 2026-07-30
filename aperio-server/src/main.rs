@@ -1542,6 +1542,18 @@ async fn async_main() {
     );
   }
 
+  // Anything else under `/aperio/` is the admin surface's namespace, and a
+  // path that matches nothing in it is a mistake, not traffic. Without this it
+  // reaches the proxy: a typo in an API path, or a probe for an endpoint that
+  // does not exist, would be served whatever a tunnel client happens to
+  // answer, under the URL the docs call the admin surface. The routes
+  // registered on the router directly (`/aperio/health`, `/aperio/ws`, the
+  // auth endpoints) are literals and still win over this.
+  app = app.route(
+    "/aperio/{*rest}",
+    any(|| async { (StatusCode::NOT_FOUND, "404 Not Found\n") }),
+  );
+
   // `/aperio/` is not the dashboard: nesting matches `/aperio` and
   // `/aperio/<something>`, so the trailing slash falls through to the proxy
   // and a visitor gets whatever a tunnel client answers, a 504, or worse, a

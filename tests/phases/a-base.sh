@@ -33,6 +33,11 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/")"
 assert_status 308 "$CODE" "a trailing slash on /aperio/ redirects instead of proxying"
 LOCATION="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/aperio/?tab=clients")"
 assert_contains "$LOCATION" '/aperio?tab=clients' "the redirect keeps the query string"
+# The admin namespace is not proxied either: a path under /aperio/ that matches
+# nothing is a mistake, and answering it with whatever a tunnel client serves
+# puts somebody else's site on the URL the docs call the admin surface.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/api/does-not-exist")"
+assert_status 404 "$CODE" "an unknown /aperio/ path is a 404, not tunnel traffic"
 
 step "Tunnel proxying through a connected client"
 start_client main "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
