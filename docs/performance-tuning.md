@@ -29,6 +29,42 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
   (protocol v2 and later) instead of buffering, so a large limit does not cost
   memory per request, but it does bound how big a single upload can be.
 
+## Which limit produced a 429
+
+Six different ceilings answer `429`, and raising the wrong one is a slow way
+to spend an afternoon. Every refusal names itself in a header:
+
+```
+x-aperio-limit: ip; setting=ip_limit_max
+retry-after: 1
+```
+
+One `curl -i` while a load test runs is enough to tell them apart:
+
+| `x-aperio-limit` | What refused | Where the number lives |
+|---|---|---|
+| `ip` | Per-visitor token bucket | `ip_limit_max` / `ip_limit_refill` (env `APERIO_IP_LIMIT_MAX` / `APERIO_IP_LIMIT_REFILL`) |
+| `server-concurrency` | The server's global in-flight ceiling | `max_concurrent_requests` (env `APERIO_MAX_CONCURRENT_REQUESTS`) |
+| `route` | A `rate_limits:` rule matched the hostname and path | the matching rule in `aperio-server.yaml` |
+| `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `max_concurrent` in that client's `aperio.yaml` |
+| `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
+| `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |
+| `org-quota` | The organization's monthly byte quota | the organization's quota |
+
+`Retry-After` is present on the limits that refill and absent on the quotas,
+which have no honest number to give in seconds.
+
+A load test does not read headers, so the same thing is a counter:
+`aperio_rate_limited_total{limit="ip"}` on the [metrics
+endpoint](observability.md), emitted for every kind including the ones sitting
+at zero. Watching it during a run answers "which ceiling am I hitting" without
+capturing a single response.
+
+**Benchmarking against your own server?** The per-visitor bucket is the one
+that will fire first, because every request in a load test comes from one
+address. Raise `ip_limit_max` and `ip_limit_refill` for the duration, or the
+number you measure is the speed at which Aperio can refuse you.
+
 ## Slow visitors and stream backpressure
 
 A visitor who downloads more slowly than the backend produces used to be the

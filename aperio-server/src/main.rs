@@ -26,6 +26,7 @@ mod error_pages;
 mod expose;
 mod fallbacks;
 mod headers;
+mod limits;
 mod oidc;
 mod outbound;
 mod print_config;
@@ -1181,6 +1182,7 @@ async fn async_main() {
     access_log,
     access_log_path,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   });
 
   let mut app = Router::new().fallback(any(proxy_handler));

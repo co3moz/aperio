@@ -215,6 +215,22 @@ pub(crate) async fn metrics_handler(
   out.push_str("# TYPE aperio_uptime_seconds gauge\n");
   out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
   state.duration_histogram.render(&mut out);
+
+  // Refusals by limit. During a load test this is the question being asked,
+  // "which ceiling am I hitting", and a header cannot answer it at ten
+  // thousand requests a second. Always emitted, including at zero: a series
+  // that only appears once it fires is a series nobody has a dashboard for.
+  out.push_str(
+    "# HELP aperio_rate_limited_total Requests refused with 429, by the limit that refused them.\n",
+  );
+  out.push_str("# TYPE aperio_rate_limited_total counter\n");
+  for limit in crate::limits::ALL_LIMITS {
+    out.push_str(&format!(
+      "aperio_rate_limited_total{{limit=\"{}\"}} {}\n",
+      limit.kind(),
+      state.limit_counters.get(limit)
+    ));
+  }
   out.push_str(
     "# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n",
   );

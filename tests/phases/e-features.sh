@@ -230,6 +230,12 @@ for i in 1 2 3 4 5 6 7 8; do
 done
 assert_contains "$RL_CODES" "200" "some requests pass within the rate limit"
 assert_contains "$RL_CODES" "429" "excess requests are rejected with 429"
+# A 429 has to say which of the six limits produced it, or finding the number
+# to raise means reading the server's log next to a load test.
+RL_HEADERS="$(curl -s -D - -o /dev/null -H 'Host: rl.e2e.local' "$BASE/limited")"
+assert_contains "$RL_HEADERS" "x-aperio-limit: token-rate" "the refusal names the limit that fired"
+assert_contains "$RL_HEADERS" "setting=token.max_rps" "and names where the number lives"
+assert_contains "$RL_HEADERS" "retry-after:" "a limit that refills says when to come back"
 
 step "Per-candidate visitor IP allowlist (APERIO_ALLOWED_IPS)"
 # A client that only admits a TEST-NET address: the local visitor is fully

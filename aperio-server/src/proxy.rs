@@ -15,6 +15,7 @@ use tracing::{Instrument, error, warn};
 
 use crate::access_log::{log_request_failure, log_request_success};
 use crate::auth::{safe_redirect_path, validate_session, validate_session_for_host};
+use crate::limits::{Limit, too_many_requests};
 use crate::protocol::{FRAME_REQUEST_CHUNK, TunnelMessage, encode_binary_frame};
 use crate::routing::{
   PickOutcome, extract_client_ip, extract_request_host, method_retryable, pick_proxy_client,
@@ -350,6 +351,14 @@ pub(crate) async fn check_visitor_gate(
 
 /// Proxy handler for forwarding all incoming HTTP requests to active client.
 /// Also detects WebSocket upgrade requests and proxies them as persistent streams.
+/// Refuses a request with the limit that caused it, counting it on the way
+/// out. Everything that answers 429 goes through here: the counter behind
+/// `aperio_rate_limited_total` is only trustworthy if no path can skip it.
+fn refuse(state: &AppState, limit: Limit) -> Response {
+  state.limit_counters.record(limit);
+  too_many_requests(limit)
+}
+
 pub(crate) async fn proxy_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -651,15 +660,11 @@ async fn proxy_http_request(
       &uri_str,
       429,
       start_time.elapsed(),
-      Some(&format!("Rate Limit Exceeded for IP {}", caller_ip)),
+      Some(&format!("{} (IP {})", Limit::Ip.log_detail(), caller_ip)),
       None,
     )
     .await;
-    return (
-      StatusCode::TOO_MANY_REQUESTS,
-      "429 Too Many Requests - IP rate limit exceeded",
-    )
-      .into_response();
+    return refuse(&state, Limit::Ip);
   }
 
   // 2. Visitor-auth gate: a client-declared per-service password (if any)
@@ -765,15 +770,11 @@ async fn proxy_http_request(
         &uri_str,
         429,
         start_time.elapsed(),
-        Some("Concurrency limit exceeded"),
+        Some(&Limit::ServerConcurrency.log_detail()),
         None,
       )
       .await;
-      return (
-        StatusCode::TOO_MANY_REQUESTS,
-        "429 Too Many Requests - Concurrency limit reached on tunnel server",
-      )
-        .into_response();
+      return refuse(&state, Limit::ServerConcurrency);
     }
   };
 
@@ -819,15 +820,15 @@ async fn proxy_http_request(
       &uri_str,
       429,
       start_time.elapsed(),
-      Some(&format!("Route rate limit exceeded for {}", uri_path_owned)),
+      Some(&format!(
+        "{} (path {})",
+        Limit::Route.log_detail(),
+        uri_path_owned
+      )),
       None,
     )
     .await;
-    return (
-      StatusCode::TOO_MANY_REQUESTS,
-      "429 Too Many Requests - Route rate limit exceeded",
-    )
-      .into_response();
+    return refuse(&state, Limit::Route);
   }
 
   // Sticky strategy: a returning visitor carries an affinity cookie naming
@@ -866,15 +867,14 @@ async fn proxy_http_request(
           &uri_str,
           429,
           start_time.elapsed(),
-          Some("Concurrency limit exceeded after a cold start"),
+          Some(&format!(
+            "{} (after a cold start)",
+            Limit::ServerConcurrency.log_detail()
+          )),
           None,
         )
         .await;
-        return (
-          StatusCode::TOO_MANY_REQUESTS,
-          "429 Too Many Requests - Concurrency limit reached on tunnel server",
-        )
-          .into_response();
+        return refuse(&state, Limit::ServerConcurrency);
       }
     };
   }
@@ -994,22 +994,18 @@ async fn proxy_http_request(
   // Per-token rate limit / daily quota of the serving token (dynamic tokens
   // only). Enforced once at admission; failover re-dispatches of an already
   // admitted request are not double-counted.
-  if let Err(reason) = state.check_token_limits(selected.token_id.as_deref()).await {
+  if let Err(limit) = state.check_token_limits(selected.token_id.as_deref()).await {
     log_request_failure(
       &state,
       &method_str,
       &uri_str,
       429,
       start_time.elapsed(),
-      Some(reason),
+      Some(&limit.log_detail()),
       selected.org_id.clone(),
     )
     .await;
-    return (
-      StatusCode::TOO_MANY_REQUESTS,
-      format!("429 Too Many Requests - {}", reason),
-    )
-      .into_response();
+    return refuse(&state, limit);
   }
 
   // Per-organization monthly byte quota (max_bytes_month): once the serving
@@ -1021,15 +1017,11 @@ async fn proxy_http_request(
       &uri_str,
       429,
       start_time.elapsed(),
-      Some("Organization monthly byte quota exceeded"),
+      Some(&Limit::OrgQuota.log_detail()),
       selected.org_id.clone(),
     )
     .await;
-    return (
-      StatusCode::TOO_MANY_REQUESTS,
-      "429 Too Many Requests - Organization monthly byte quota exceeded",
-    )
-      .into_response();
+    return refuse(&state, Limit::OrgQuota);
   }
 
   // Server-side response cache (APERIO_CACHE + the client's `cache: true`):
@@ -1372,15 +1364,11 @@ async fn proxy_http_request(
               &uri_str,
               429,
               start_time.elapsed(),
-              Some("Client concurrency limit: no slot freed within gateway timeout"),
+              Some(&Limit::ClientConcurrency.log_detail()),
               selected.org_id.clone(),
             )
             .await;
-            break (
-              StatusCode::TOO_MANY_REQUESTS,
-              "429 Too Many Requests - Tunnel client concurrency limit reached",
-            )
-              .into_response();
+            break refuse(&state, Limit::ClientConcurrency);
           }
         }
       }

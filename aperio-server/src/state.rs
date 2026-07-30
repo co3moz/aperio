@@ -1589,6 +1589,10 @@ pub(crate) struct AppState {
   pub(crate) access_log_path: Option<String>,
   /// Request duration histogram exposed on `/aperio/metrics`.
   pub(crate) duration_histogram: DurationHistogram,
+  /// Refusals by limit, for `aperio_rate_limited_total`. A load test asks
+  /// "which limit is firing", and that is a counter's question, not a
+  /// header's.
+  pub(crate) limit_counters: crate::limits::LimitCounters,
 }
 
 /// RAII slot in the global proxied-request concurrency limit; the slot is
@@ -1904,10 +1908,12 @@ impl AppState {
   /// Enforces the serving token's optional rate limit and daily byte quota.
   /// Returns Err with a short reason when the request must be rejected with
   /// 429. Master-token traffic (token_id = None) is never limited.
+  /// The error names *which* limit refused, so the refusal can name itself
+  /// in a header rather than leaving the caller to parse a sentence.
   pub(crate) async fn check_token_limits(
     &self,
     token_id: Option<&str>,
-  ) -> Result<(), &'static str> {
+  ) -> Result<(), crate::limits::Limit> {
     let Some(id) = token_id else {
       return Ok(());
     };
@@ -1935,7 +1941,7 @@ impl AppState {
       bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
       bucket.last_updated = now;
       if bucket.tokens < 1.0 {
-        return Err("token rate limit exceeded");
+        return Err(crate::limits::Limit::TokenRate);
       }
       bucket.tokens -= 1.0;
     }
@@ -1947,7 +1953,7 @@ impl AppState {
         && *day == today
         && *used >= quota
       {
-        return Err("token daily byte quota exceeded");
+        return Err(crate::limits::Limit::TokenQuota);
       }
     }
     Ok(())

@@ -180,6 +180,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     access_log: None,
     access_log_path: None,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   })
 }
 

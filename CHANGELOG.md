@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **A `429` now says which limit produced it.** Six different ceilings answer `429`, and to the visitor they were one status code and a sentence: the response carries `x-aperio-limit: <kind>; setting=<where the number lives>` (plus `Retry-After` on the limits that refill, and deliberately not on the quotas measured in days or months). Because a load test does not read headers, the same thing is a counter: `aperio_rate_limited_total{limit=...}`, one series per ceiling, emitted even at zero. [Performance Tuning](docs/performance-tuning.md) has the table mapping each kind to the setting to raise.
+
 ### Changed
 
 - **The client no longer carries the server's feature set.** The release built both crates in one `cargo` invocation, so Cargo unified features across them and every option the server enables in a shared dependency was compiled into the client as well: 776 KB of code it never calls. They are built separately now, and `aperio-client` drops from 6.17 MB to 5.51 MB on top of the link-time optimization below.

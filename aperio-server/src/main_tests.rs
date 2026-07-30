@@ -195,6 +195,7 @@ async fn test_rate_limiting() {
     access_log: None,
     access_log_path: None,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   };
 
   let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -352,6 +353,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     access_log: None,
     access_log_path: None,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   });
 
   // A fresh install (no client ever, no traffic ever) redirects the bare
@@ -529,6 +531,7 @@ async fn test_proxy_handler_success() {
     access_log: None,
     access_log_path: None,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   });
 
   let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);

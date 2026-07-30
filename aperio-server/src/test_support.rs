@@ -286,6 +286,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     access_log: None,
     access_log_path: None,
     duration_histogram: DurationHistogram::default(),
+    limit_counters: Default::default(),
   }
 }
 
