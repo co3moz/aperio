@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Fixed
+
+- **The throughput figure in the README was measuring refusals.** It said ~12k requests/second; the benchmark behind it ran with the default per-IP rate limit, so 1,900 of every 2,000 requests were answered with an instant `429` that never touched the tunnel. Measured again with the limiter out of the way, the number is ~4,200 requests/second, and it is now labelled with what it does and does not include.
+
 ## [0.7.0] - 2026-07-29
 
 ### Security

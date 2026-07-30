@@ -71,7 +71,7 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 | **Observability**   | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox                        |
 | **Hardening**       | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
 
-Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~12k requests/second through a tunnel on loopback with a trivial backend and one keep-alive connection, on the same laptop as above.
+Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~4,200 requests/second through the tunnel on loopback, with a trivial backend and one keep-alive connection, on the same laptop as above.
 
 ## Use it for
 
