@@ -1746,6 +1746,11 @@ async fn proxy_http_request(
         {
           use base64::prelude::*;
           let resp_streamed = tunnel_res.stream_rx.is_some();
+          // The body arrived base64-encoded over the tunnel and the capture
+          // wants it base64-encoded. Re-encoding the bytes decoded from it a
+          // few lines up is the same string, computed twice; the encoded form
+          // is reused whenever it is whole, and only a truncated capture has
+          // to encode anything.
           let (resp_body_cap, resp_truncated) = if resp_streamed || res_bytes.is_empty() {
             (None, false)
           } else if res_bytes.len() > CAPTURE_BODY_LIMIT {
@@ -1754,7 +1759,10 @@ async fn proxy_http_request(
               true,
             )
           } else {
-            (Some(BASE64_STANDARD.encode(&res_bytes)), false)
+            match tunnel_res.body.as_ref() {
+              Some(encoded) => (Some(encoded.clone()), false),
+              None => (Some(BASE64_STANDARD.encode(&res_bytes)), false),
+            }
           };
           let mut captured = state.captured_requests.lock().await;
           if captured.len() >= CAPTURE_MAX_ENTRIES {

@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three things every proxied request paid for and nobody used.** The structured access-log line was built on every request, ten fields and a timestamp assembled into a JSON tree, and then dropped inside the writer when no access log file was configured; the timestamp behind it was read twice per request, once for the dashboard's live entry and once for that line; and the inspector re-encoded the response body to base64 having just decoded it from the base64 it arrived in. None of this changes what anything shows.
+
 ### Added
 
 - **The parallel-connection ceiling is the server's, and a token can lower it.** `connections:` was capped at 16 by the client itself, a number the server had no say in and no way to enforce: raising it meant editing the client, and a client that ignored it was not stopped by anything. The server now owns it as `max_connections_per_service` (env `APERIO_MAX_CONNECTIONS_PER_SERVICE`, default 16, so nothing changes for an existing deployment), announces it on the handshake so a client opens what it may rather than finding out by being closed, and enforces it. A dynamic token carries an optional `max_connections` that can lower the number for its holder and never raise it: the effective ceiling is the smaller of the two.

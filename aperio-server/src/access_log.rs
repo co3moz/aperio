@@ -52,6 +52,10 @@ pub(crate) async fn log_request_success(
     org.as_deref(),
     crate::store::tokens::now_secs(),
   );
+  // One clock read for this request. `Local::now()` resolves the timezone on
+  // every call, and this function used to do it twice: once for the dashboard
+  // entry, once for the access-log line.
+  let now = Local::now();
   {
     let mut logs = state.recent_logs.lock().await;
     if logs.len() >= 100 {
@@ -60,7 +64,7 @@ pub(crate) async fn log_request_success(
     // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
     // which may be in a different timezone than the server, a naive local
     // string would be re-interpreted in the browser's zone and drift.
-    let timestamp = Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+    let timestamp = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
     let entry = RequestLog {
       id: id.clone(),
       timestamp,
@@ -90,10 +94,16 @@ pub(crate) async fn log_request_success(
     token = token.unwrap_or("master"),
     "proxy success"
   );
+  // Built only when there is somewhere to put it. This ran on every request
+  // whether or not an access log was configured: ten fields, a timestamp and
+  // a serde_json::Value tree, allocated and dropped for nothing.
+  if state.access_log.is_none() {
+    return;
+  }
   append_access_line(
     state,
     &serde_json::json!({
-      "ts": Local::now().to_rfc3339(),
+      "ts": now.to_rfc3339(),
       "request_id": id,
       "method": method,
       "uri": safe_uri,
@@ -119,6 +129,7 @@ pub(crate) async fn log_request_failure(
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
   let id = uuid::Uuid::new_v4().to_string();
+  let now = Local::now();
   {
     let mut logs = state.recent_logs.lock().await;
     if logs.len() >= 100 {
@@ -127,7 +138,7 @@ pub(crate) async fn log_request_failure(
     // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
     // which may be in a different timezone than the server, a naive local
     // string would be re-interpreted in the browser's zone and drift.
-    let timestamp = Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+    let timestamp = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
     let entry = RequestLog {
       id: id.clone(),
       timestamp,
@@ -153,10 +164,13 @@ pub(crate) async fn log_request_failure(
     error = error.unwrap_or(""),
     "proxy failure"
   );
+  if state.access_log.is_none() {
+    return;
+  }
   append_access_line(
     state,
     &serde_json::json!({
-      "ts": Local::now().to_rfc3339(),
+      "ts": now.to_rfc3339(),
       "request_id": id,
       "method": method,
       "uri": safe_uri,
@@ -169,3 +183,7 @@ pub(crate) async fn log_request_failure(
     }),
   );
 }
+
+#[cfg(test)]
+#[path = "access_log_tests.rs"]
+mod tests;
