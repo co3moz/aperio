@@ -81,7 +81,7 @@ export const es: Record<string, string> = {
   'Clipboard unavailable': 'Portapapeles no disponible',
   Close: 'Cerrar',
   'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    'Atajo de Cloudflare: confiar en la cabecera CF-Connecting-IP',
+    'Atajo de Cloudflare: confiar en el header CF-Connecting-IP',
   'Connect a new client': 'Conectar un cliente nuevo',
   'Connected & Active': 'Conectado y activo',
   'Connected For': 'Conectado desde hace',
@@ -153,10 +153,10 @@ export const es: Record<string, string> = {
   'Gateway & Requests': 'Gateway y peticiones',
   'Gateway timeout (s)': 'Timeout del gateway (s)',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
-    'Dé a alguien acceso temporal a un sitio protegido: el enlace lleva un token firmado y caducable limitado al hostname (y ruta opcional). Al abrirlo establece una cookie y redirige a la URL limpia. Los enlaces no tienen estado, no se pueden listar después, simplemente caducan.',
+    'Dé a alguien acceso temporal a un sitio protegido: el enlace lleva un token firmado y caducable limitado al hostname (y un path opcional). Al abrirlo establece una cookie y redirige a la URL limpia. Los enlaces no tienen estado, no se pueden listar después, simplemente caducan.',
   'Go to {page}': 'Ir a {page}',
   'Header consulted first for the visitor IP (behind CDN chains)':
-    'Cabecera consultada primero para la IP del visitante (tras cadenas CDN)',
+    'Header consultado primero para la IP del visitante (tras cadenas CDN)',
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Vínculo de hostname (opcional)',
   Hostnames: 'Hostnames',
@@ -173,7 +173,7 @@ export const es: Record<string, string> = {
   'Invalid credentials. Please try again.': 'Credenciales no válidas. Inténtelo de nuevo.',
   'It stays connected but receives no new requests; in-flight requests complete.':
     'Sigue conectado pero no recibe peticiones nuevas; las peticiones en curso se completan.',
-  'JSONL access log file path (empty = disabled)': 'Ruta del log de acceso JSONL (vacío = desactivado)',
+  'JSONL access log file path (empty = disabled)': 'Path del log de acceso JSONL (vacío = desactivado)',
   'Known events: {events}. Use * to subscribe to everything.':
     'Eventos conocidos: {events}. Use * para suscribirse a todo.',
   'Last Ping': 'Último ping',
@@ -668,7 +668,7 @@ export const es: Record<string, string> = {
   '{count} more hostname(s) routed here': '{count} hostname(s) más enrutados aquí',
   'Configuration of {label}': 'Configuración de {label}',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
-    'Lo que esta conexión anuncia en su heartbeat, más lo que el servidor aplica encima. Los ajustes que un cliente nunca anuncia (su target, timeouts, reglas de cabeceras, sondas de salud) no pueden mostrarse aquí.',
+    'Lo que esta conexión anuncia en su heartbeat, más lo que el servidor aplica encima. Los ajustes que un cliente nunca anuncia (su target, timeouts, reglas de headers, sondas de salud) no pueden mostrarse aquí.',
   'Loading…': 'Cargando…',
   '{count} setting(s) differ from the configuration': '{count} ajuste(s) difieren de la configuración',
   'not set': 'sin definir',
@@ -814,7 +814,7 @@ export const es: Record<string, string> = {
   'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Sondea el backend para que uno con problemas salga del grupo de enrutamiento sin cortar el túnel. Definido aquí se aplica a cada entrada de services:, y cualquier entrada puede anularlo.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Pedir capacidad cuando hace falta y retirarse cuando está inactivo.',
   'Response handling': 'Gestión de respuestas',
-  'Caching, resilience, and the headers this client rewrites.': 'Caché, resiliencia y las cabeceras que reescribe este cliente.',
+  'Caching, resilience, and the headers this client rewrites.': 'Caché, resiliencia y los headers que reescribe este cliente.',
   'Logging': 'Registro',
   'What this client writes and in which format.': 'Qué escribe este cliente y en qué formato.',
   'Core': 'Núcleo',
@@ -839,7 +839,7 @@ export const es: Record<string, string> = {
   'Edge integration': 'Integración con el edge',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Publica los nombres de host activos a un proxy inverso situado delante de este servidor.',
   'Pages & headers': 'Páginas y headers',
-  'What visitors see on an error, and server-wide header rewriting.': 'Qué ven los visitantes ante un error, y la reescritura de cabeceras en todo el servidor.',
+  'What visitors see on an error, and server-wide header rewriting.': 'Qué ven los visitantes ante un error, y la reescritura de headers en todo el servidor.',
   'Process & maintenance': 'Proceso y mantenimiento',
   'Startup behaviour, backups, and the public expose ports.': 'Comportamiento de arranque, copias de seguridad y los puertos públicos de exposición.',
   'Settings': 'Ajustes',

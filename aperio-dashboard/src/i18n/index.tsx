@@ -34,7 +34,12 @@ export type Lang = (typeof LANGUAGES)[number]['code']
 //
 // Everything around them is translated normally, including the words that
 // merely sound technical, tunnel, client, server, cache, request, response,
-// which name ideas rather than keys.
+// which name ideas rather than keys. The rule holds in prose as well as in
+// labels: a screen that says "hostname" in a column header and something else
+// in the sentence under it is worse than either choice made consistently. In
+// Japanese and Chinese the term takes a space on each side, next to kana or
+// hanzi but not next to their punctuation, which is how those languages set a
+// Latin word.
 const DICTS: Record<Exclude<Lang, 'en'>, Record<string, string>> = {
   de,
   es,
