@@ -616,7 +616,7 @@ fn a_combined_derived_name_stays_addressable() {
 }
 
 // ---------------------------------------------------------------------------
-// Single-service keys in a config file (deprecated; removed in 0.7.0).
+// Single-service keys in a config file (deprecated; removed in 0.9.0).
 // ---------------------------------------------------------------------------
 
 #[test]

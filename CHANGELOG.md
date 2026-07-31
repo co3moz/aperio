@@ -4,37 +4,23 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
-## [Unreleased]
-
-### Added
-
-- **Tunnel protocol v5: a buffered response body travels as bytes, not as base64 inside JSON.** The envelope and the body go out in one binary frame, so a response no longer costs a base64 encode on the client, a decode on the server, a third more bytes on the wire, and a string the size of the response held on both sides. Negotiated, not breaking: the frame is only sent to a server that announced v5, an older one still receives base64 in JSON, and a v5 server still understands it. Streamed bodies were already bytes since v2; this closes the buffered case.
-
-
-- **A group of server settings says how many of them were changed, without opening it.** The settings pane marks an overridden setting once you are looking at it, which is no help for the group you did not think to open: a value changed once from the dashboard is invisible until something it does surprises you. Each accordion header now carries the count of settings inside it that differ from what the server started with.
-
-
-- **Traces can be sampled.** `otel.sample_rate` (env `APERIO_OTEL_SAMPLE_RATE`) is the fraction of requests traced, and it defaults to `1.0`, which is what tracing did before the setting existed: every request builds a span tree and hands it to the exporter. `0.01` samples one request in a hundred, which answers the same questions about latency and error shape for a hundredth of the cost. The decision is made once at the root of a request and every span of that request follows it, so a sampled trace is whole rather than a `proxy.request` missing five of its eight phases; a request that is not sampled skips the phase-span assembly entirely. An unparseable or out-of-range value traces everything and says so, rather than silently turning observability off.
-
-- **The comfort features have switches now, and one of them is per service.** The request inspector records every transaction and the access event logs every request, because that is what makes the dashboard worth opening; on a server running flat out they are also the first per-request costs worth reclaiming. `inspector` (env `APERIO_INSPECTOR`) and `access_events` (env `APERIO_ACCESS_EVENTS`) turn them off server-wide, the second without lowering `log_level` and losing warnings with it. A client can opt one service out with `capture: false` (or `--no-capture`) and leave the rest inspectable. The dashboard marks such a client **no capture**, marks every client **inspector off** when the server's switch is the reason, and the inspector's "no detail" message now names both possibilities instead of blaming age.
+## [0.8.0] - 2026-07-31
 
 ### Security
 
 - **The admin namespace is not proxied.** A path under `/aperio/` matching no route fell through to the proxy, so a typo in an API path, or a probe for an endpoint that does not exist, was answered with whatever a tunnel client happened to serve, under the URL the documentation calls the admin surface. Unmatched paths there are `404` now. The registered endpoints, including `/aperio/health`, `/aperio/ws` and the auth routes, are unaffected.
 
-### Changed
-
-- **A response body is copied twice less on its way through the tunnel.** The client built the frame in two allocations, copying the body into the payload and then again into the frame around it; it is one pass now. The server copied the body out of the WebSocket message it had just received; it takes a refcounted slice of it instead. The wire format is unchanged, and so is everything a visitor sees.
-
-
-- **`aperio-server.yaml` wins over a dashboard override for the same key.** It used to be the other way round: the file said one thing, a value changed once from the dashboard said another, the dashboard won, and nothing anywhere reported the difference. That is a file that lies, and finding out costs an afternoon of wondering why a benchmark will not go faster. A stored override the file contradicts is now dropped at startup (named in the log and written to the audit trail as `settings_override_dropped`), the dashboard refuses to create one for a key the file writes, and the settings pane marks those fields **from file** so nobody types into them first. A key the file leaves alone is still the dashboard's to set, live, which is what the feature is for.
-
-
-- **The server is on axum 0.8.** No behavior changes on any endpoint: route parameters are spelled `{id}` instead of `:id` internally and WebSocket text frames carry `Utf8Bytes` rather than `String`, neither of which is visible from outside. The upgrade is what makes the accepted-socket fix below possible.
-
-- **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
+- **The dashboard's live stream now notices that the session it was opened with is gone.** The session check ran once, when the stream was opened, and the connection then lives for as long as the tab stays open: signing out, "sign out everywhere", an expiry or a disabled user all left it emitting live traffic and statistics to a caller who no longer had a session. It re-runs the same check on every two-second tick and closes as soon as it comes back empty, so a revoked session sees at most one more tick. It needs an already-authenticated session to reach, which is why this was a leak rather than a way in.
 
 ### Added
+
+- **Tunnel protocol v5: a buffered response body travels as bytes, not as base64 inside JSON.** The envelope and the body go out in one binary frame, so a response no longer costs a base64 encode on the client, a decode on the server, a third more bytes on the wire, and a string the size of the response held on both sides. Negotiated, not breaking: the frame is only sent to a server that announced v5, an older one still receives base64 in JSON, and a v5 server still understands it. Streamed bodies were already bytes since v2; this closes the buffered case.
+
+- **A group of server settings says how many of them were changed, without opening it.** The settings pane marks an overridden setting once you are looking at it, which is no help for the group you did not think to open: a value changed once from the dashboard is invisible until something it does surprises you. Each accordion header now carries the count of settings inside it that differ from what the server started with.
+
+- **Traces can be sampled.** `otel.sample_rate` (env `APERIO_OTEL_SAMPLE_RATE`) is the fraction of requests traced, and it defaults to `1.0`, which is what tracing did before the setting existed: every request builds a span tree and hands it to the exporter. `0.01` samples one request in a hundred, which answers the same questions about latency and error shape for a hundredth of the cost. The decision is made once at the root of a request and every span of that request follows it, so a sampled trace is whole rather than a `proxy.request` missing five of its eight phases; a request that is not sampled skips the phase-span assembly entirely. An unparseable or out-of-range value traces everything and says so, rather than silently turning observability off.
+
+- **The comfort features have switches now, and one of them is per service.** The request inspector records every transaction and the access event logs every request, because that is what makes the dashboard worth opening; on a server running flat out they are also the first per-request costs worth reclaiming. `inspector` (env `APERIO_INSPECTOR`) and `access_events` (env `APERIO_ACCESS_EVENTS`) turn them off server-wide, the second without lowering `log_level` and losing warnings with it. A client can opt one service out with `capture: false` (or `--no-capture`) and leave the rest inspectable. The dashboard marks such a client **no capture**, marks every client **inspector off** when the server's switch is the reason, and the inspector's "no detail" message now names both possibilities instead of blaming age.
 
 - **The activity chart has a fifteen-minute view.** The minute-long one is built in the browser from the deltas between stats polls, which is right for "is it moving right now" and cannot answer "what did the last quarter hour look like": it starts empty on every reload and only knows what the tab has seen. The server now keeps its own ring of five-second slices per organization, `GET /aperio/api/activity`, and the chart toggles between the two. Five seconds rather than one because a per-second line over fifteen minutes is noise, and hovering a slice gives the request count behind the rate. Refusals are counted too, so the chart does not show a quiet server at the moment it is turning everything away.
 
@@ -48,7 +34,25 @@ project follows semantic versioning per release tag.
 
 - **The export chooses what it carries, and the store's history can come too.** `GET /aperio/api/export?include=` names the sections, and `aperio-client api export --include` does the same from the CLI. Omitted, it writes what this endpoint always wrote: tokens, webhooks, users, organizations, autoscaling and settings overrides. What the store also holds is now available for the asking, `statistics`, `uptime`, `inbox` and `admin_keys`, so a migration can carry its history instead of someone copying `aperio.db` and losing the schema tolerance that is the point of a logical dump. The dashboard's Export & Import pane is a checkbox per section. Leaving `organizations` out keeps only the master organization's rows, its statistics slice included, because a row whose organization does not exist on the target server is an orphan; the pane names what that drops before you download it. A misspelled section is a `400` rather than a quietly missing one. Sessions and the audit log are still never exported.
 
+- **The parallel-connection ceiling is the server's, and a token can lower it.** `connections:` was capped at 16 by the client itself, a number the server had no say in and no way to enforce: raising it meant editing the client, and a client that ignored it was not stopped by anything. The server now owns it as `max_connections_per_service` (env `APERIO_MAX_CONNECTIONS_PER_SERVICE`, default 16, so nothing changes for an existing deployment), announces it on the handshake so a client opens what it may rather than finding out by being closed, and enforces it. A dynamic token carries an optional `max_connections` that can lower the number for its holder and never raise it: the effective ceiling is the smaller of the two.
+
+- **A `429` now says which limit produced it.** Six different ceilings answer `429`, and to the visitor they were one status code and a sentence: the response carries `x-aperio-limit: <kind>; setting=<where the number lives>` (plus `Retry-After` on the limits that refill, and deliberately not on the quotas measured in days or months). Because a load test does not read headers, the same thing is a counter: `aperio_rate_limited_total{limit=...}`, one series per ceiling, emitted even at zero. [Performance Tuning](docs/performance-tuning.md) has the table mapping each kind to the setting to raise.
+
 ### Changed
+
+- **The upgrade report names the keys your file writes, not every key the entry covers.** An entry can span thirty settings and reach a file through one of them, and printing all thirty is how a warning stops being read: the question an operator asks is which of *theirs* is affected. A `WhenSet` entry now lists the intersection with the file; a changed-default entry, whose whole point is the people who never wrote the key, still names what it is about.
+
+- **The single-service shape in `aperio.yaml` is now removed in 0.9.0, not 0.7.0.** The deprecation was announced for a removal in 0.7.0, that release came and went with the shape still accepted, and every warning, doc line and upgrade-report entry went on naming a version that had already shipped. Nothing about the file changes: a top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` still works exactly as before, the notice now names a version that is still ahead. Found by this release's configuration audit.
+
+- **Breaking for scripts: `GET /aperio/api/maintenance` returns objects, not bare hostnames.** Each entry is now `{hostname, reason, until, since, actor}`, which is what carries the reason and the window this release adds. `aperio-client api maintenance list` prints the new shape; anything parsing the old array of strings wants the `hostname` field. The `POST` side is unchanged and its two new fields are optional.
+
+- **A response body is copied twice less on its way through the tunnel.** The client built the frame in two allocations, copying the body into the payload and then again into the frame around it; it is one pass now. The server copied the body out of the WebSocket message it had just received; it takes a refcounted slice of it instead. The wire format is unchanged, and so is everything a visitor sees.
+
+- **Breaking, and reported on upgrade: `aperio-server.yaml` wins over a dashboard override for the same key.** It used to be the other way round: the file said one thing, a value changed once from the dashboard said another, the dashboard won, and nothing anywhere reported the difference. That is a file that lies, and finding out costs an afternoon of wondering why a benchmark will not go faster. A stored override the file contradicts is now dropped at startup (named in the log and written to the audit trail as `settings_override_dropped`), the dashboard refuses to create one for a key the file writes, and the settings pane marks those fields **from file** so nobody types into them first. A key the file leaves alone is still the dashboard's to set, live, which is what the feature is for. A file declaring `version:` hears about this as a `Breaking` entry in the upgrade report, naming the affected keys it writes; a file that mentions none of the live-editable keys cannot be affected at all.
+
+- **The server is on axum 0.8.** No behavior changes on any endpoint: route parameters are spelled `{id}` instead of `:id` internally and WebSocket text frames carry `Utf8Bytes` rather than `String`, neither of which is visible from outside. The upgrade is what makes the accepted-socket fix below possible.
+
+- **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
 
 - **The settings pane says what a stored override is, and offers the yaml that replaces it.** Editing a server setting from the dashboard is a live change that also outlives a restart, but it is stored in the server's own store rather than in `aperio-server.yaml`, so the file an operator reads describes a different server than the one running. When any setting carries an override, the pane now says so, and shows the exact yaml lines that would make them the deployment's, with the consequence stated: the file wins, so writing a key there drops the override behind it at the next start.
 
@@ -56,13 +60,11 @@ project follows semantic versioning per release tag.
 
 - **The words an operator types are no longer translated.** `hostname`, `path`, `header`, `endpoint`, `payload`, `token`, `webhook`, `proxy` and `subdomain` name things that appear verbatim in `aperio.yaml`, in a URL or on the wire, and a column headed "Alan Adı" over a list of `hostname:` values breaks the link between the screen and the file. They stay in English in all seven languages now, in prose as well as in labels: a column headed one way and a sentence under it worded another is worse than either choice made consistently. Everything around them is still translated, including the words that only sound technical (tunnel, client, cache, request).
 
-### Changed
-
 - **`--serve` no longer does its filesystem work on the thread it is answering from.** Resolving a request path ran a blocking `canonicalize` and up to two `stat` calls directly on the Tokio worker polling that request, so a slow filesystem (a network mount, a cold disk) stalled every other task on that worker rather than just the one response. It goes through `tokio::fs` now. The SPA fallback took the same route *and* read the whole `index.html` into memory on every navigation; it is served from an open file like anything else, and a `HEAD` for it now reports the length it would have sent.
 
-### Security
+- **The client no longer carries the server's feature set.** The release built both crates in one `cargo` invocation, so Cargo unified features across them and every option the server enables in a shared dependency was compiled into the client as well: 776 KB of code it never calls. They are built separately now, and `aperio-client` drops from 6.17 MB to 5.51 MB on top of the link-time optimization below.
 
-- **The dashboard's live stream now notices that the session it was opened with is gone.** The session check ran once, when the stream was opened, and the connection then lives for as long as the tab stays open: signing out, "sign out everywhere", an expiry or a disabled user all left it emitting live traffic and statistics to a caller who no longer had a session. It re-runs the same check on every two-second tick and closes as soon as it comes back empty, so a revoked session sees at most one more tick. It needs an already-authenticated session to reach, which is why this was a leak rather than a way in.
+- **The release binaries are a third smaller, and slightly faster.** Link-time optimization across crates, with a single codegen unit: `aperio-client` goes from 9.26 MB to 6.17 MB and `aperio-server` from 18.93 MB to 13.82 MB, while throughput through the tunnel measured ~11% higher, since the inlining that removes duplicated code across crate boundaries is the inlining a proxy hot path wants. Release builds take about three times as long.
 
 ### Fixed
 
@@ -82,12 +84,9 @@ project follows semantic versioning per release tag.
 
 - **A visitor's WebSocket upgrade that hits the per-visitor rate limit now names the limit, like every other refusal.** That path answered a bare `429` while its HTTP sibling carried `x-aperio-limit` and counted itself, so a WebSocket-heavy service could be throttled without showing up in `aperio_rate_limited_total`.
 
-
 - **An HTTP/2 visitor's request reaches the backend at the path it asked for.** Such a request arrives with its URI rebuilt from `:scheme` and `:authority`, and the client turned `http://host/echo` into the path `/host/echo` rather than `/echo`, because it read the path by prefixing `http://localhost` to whatever it was given. HTTP/1.1 visitors, whose URI is a bare path, were never affected.
 
-
 - **A compressible response body is compressed again when `tunnel_compression` is on.** The v5 full-response frame is a binary frame, and binary frames bypass the tunnel's compression, which only ever applied to text: 32 KB of HTML that used to travel as a few hundred bytes was travelling whole. The frame deflates its own payload now, and only when deflating makes it smaller, so a body that is already compressed or genuinely random is sent as it is rather than paying to grow. Nothing changes for a deployment with compression off, which is the default and the right setting for anyone chasing throughput.
-
 
 - **Every socket the server accepts sets `TCP_NODELAY` too.** The client's two hops got it in the same release; the server's could not, because `axum::serve` in 0.7 owned the accept loop and offered no hook. The upgrade to axum 0.8 provides one, so the whole path is now free of Nagle: visitor to server, server to client, client to backend.
 
@@ -97,22 +96,7 @@ project follows semantic versioning per release tag.
 
 - **Three things every proxied request paid for and nobody used.** The structured access-log line was built on every request, ten fields and a timestamp assembled into a JSON tree, and then dropped inside the writer when no access log file was configured; the timestamp behind it was read twice per request, once for the dashboard's live entry and once for that line; and the inspector re-encoded the response body to base64 having just decoded it from the base64 it arrived in. None of this changes what anything shows.
 
-### Added
-
-- **The parallel-connection ceiling is the server's, and a token can lower it.** `connections:` was capped at 16 by the client itself, a number the server had no say in and no way to enforce: raising it meant editing the client, and a client that ignored it was not stopped by anything. The server now owns it as `max_connections_per_service` (env `APERIO_MAX_CONNECTIONS_PER_SERVICE`, default 16, so nothing changes for an existing deployment), announces it on the handshake so a client opens what it may rather than finding out by being closed, and enforces it. A dynamic token carries an optional `max_connections` that can lower the number for its holder and never raise it: the effective ceiling is the smaller of the two.
-
-- **A `429` now says which limit produced it.** Six different ceilings answer `429`, and to the visitor they were one status code and a sentence: the response carries `x-aperio-limit: <kind>; setting=<where the number lives>` (plus `Retry-After` on the limits that refill, and deliberately not on the quotas measured in days or months). Because a load test does not read headers, the same thing is a counter: `aperio_rate_limited_total{limit=...}`, one series per ceiling, emitted even at zero. [Performance Tuning](docs/performance-tuning.md) has the table mapping each kind to the setting to raise.
-
-### Changed
-
-- **The client no longer carries the server's feature set.** The release built both crates in one `cargo` invocation, so Cargo unified features across them and every option the server enables in a shared dependency was compiled into the client as well: 776 KB of code it never calls. They are built separately now, and `aperio-client` drops from 6.17 MB to 5.51 MB on top of the link-time optimization below.
-
-- **The release binaries are a third smaller, and slightly faster.** Link-time optimization across crates, with a single codegen unit: `aperio-client` goes from 9.26 MB to 6.17 MB and `aperio-server` from 18.93 MB to 13.82 MB, while throughput through the tunnel measured ~11% higher, since the inlining that removes duplicated code across crate boundaries is the inlining a proxy hot path wants. Release builds take about three times as long.
-
-### Fixed
-
 - **The throughput figure in the README was measuring refusals.** It said ~12k requests/second; the benchmark behind it ran with the default per-IP rate limit, so 1,900 of every 2,000 requests were answered with an instant `429` that never touched the tunnel. Measured again with the limiter out of the way, the number is ~4,200 requests/second, and it is now labelled with what it does and does not include.
-
 ## [0.7.0] - 2026-07-29
 
 ### Security

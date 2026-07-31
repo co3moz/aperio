@@ -388,3 +388,49 @@ fn the_single_service_deprecation_is_silent_for_a_services_file() {
     r.changes.iter().map(|c| c.fields).collect::<Vec<_>>()
   );
 }
+
+#[test]
+fn the_report_names_the_keys_this_file_writes_not_the_whole_entry() {
+  // An entry can cover thirty settings and reach a file through one of them.
+  // Printing all thirty is how a warning stops being read, and the operator's
+  // question is "which of mine".
+  static WIDE: &[ConfigChange] = &[ConfigChange {
+    version: "0.8.0",
+    surface: ConfigSurface::Server,
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["cache", "tunnel_compression", "max_tunnels"],
+    summary: "Something moved.",
+    action: "Look at it.",
+  }];
+  let keys = keys(&["tunnel_compression"]);
+  let report = check_upgrade(Some("0.7.0"), "0.8.0", ConfigSurface::Server, WIDE, &keys).unwrap();
+  let text = report_lines(&report).join("\n");
+  assert!(
+    text.contains("Affected: tunnel_compression."),
+    "the report should name only the key this file writes: {text}"
+  );
+  assert!(!text.contains("max_tunnels"), "{text}");
+
+  // An `Always` entry has nothing to intersect (the people it affects are the
+  // ones who left the key alone), so it still names what it is about.
+  static ALWAYS: &[ConfigChange] = &[ConfigChange {
+    version: "0.8.0",
+    surface: ConfigSurface::Server,
+    severity: ChangeSeverity::Migration,
+    applies: Applies::Always,
+    fields: &["cache_max_bytes"],
+    summary: "A default changed.",
+    action: "Set it if you relied on the old one.",
+  }];
+  let report = check_upgrade(
+    Some("0.7.0"),
+    "0.8.0",
+    ConfigSurface::Server,
+    ALWAYS,
+    &no_keys(),
+  )
+  .unwrap();
+  let text = report_lines(&report).join("\n");
+  assert!(text.contains("Affected: cache_max_bytes."), "{text}");
+}

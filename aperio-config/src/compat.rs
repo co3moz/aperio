@@ -197,14 +197,69 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    version: "0.8.0",
+    surface: ConfigSurface::Server,
+    // Breaking rather than Migration: nothing was translated for anyone, and
+    // the effective value of a setting can change at upgrade. Found by the
+    // release audit (CLAUDE.md rule 19) rather than in the commit that made
+    // the change, which is exactly the case that rule exists for.
+    //
+    // WhenSet, because only a file that writes one of these keys can be
+    // affected: a file that mentions none of them keeps behaving identically,
+    // whatever is stored in the dashboard.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &[
+      "gateway_timeout",
+      "gateway_response_timeout",
+      "max_body_size",
+      "max_tunnels",
+      "max_connections_per_service",
+      "inspector",
+      "access_events",
+      "require_hostname_bind",
+      "lb_strategy",
+      "failover",
+      "failover_max_jumps",
+      "failover_window",
+      "failover_all_methods",
+      "client_down_threshold",
+      "ip_limit_max",
+      "ip_limit_refill",
+      "tunnel_compression",
+      "server_auth",
+      "cache",
+      "cache_max_bytes",
+      "cache_max_stale",
+      "stream_pause_bytes",
+      "stream_resume_bytes",
+      "stream_backlog_limit",
+      "max_concurrent_requests",
+      "login_lockout_threshold",
+      "login_lockout_secs",
+      "audit_max_size",
+      "audit_max_files",
+      "ui_language",
+      "preview_noindex",
+      "random_subdomain",
+    ],
+    summary: "aperio-server.yaml now outranks a setting saved from the dashboard. Until 0.8.0 the order was environment < file < dashboard, so a value changed once from the dashboard won over the file forever, and the file said one thing while the server did another. A key your file sets that also carries a stored override therefore takes effect on this upgrade, possibly changing what the server does; the override is dropped at startup, with a warning naming each key and an audit event.",
+    action: "Compare the settings pane against your file before upgrading, or read the startup warning after: it names every override that was dropped. To keep a dashboard-set value, write it into the file. Settings your file does not mention are unaffected and stay editable from the dashboard.",
+  },
+  ConfigChange {
     version: "0.7.0",
     surface: ConfigSurface::Client,
-    // Announced one release early, on purpose. Nothing is ignored yet and
-    // nothing is renamed: a file written this way still starts and still
-    // behaves identically, which is why this is a Migration and not Breaking.
-    // The point of saying it now is that the removal lands in 0.7.0, and an
-    // operator who only ever reads this report should hear about it while
-    // there is still nothing to fix.
+    // Announced early, on purpose. Nothing is ignored yet and nothing is
+    // renamed: a file written this way still starts and still behaves
+    // identically, which is why this is a Migration and not Breaking. The
+    // point of saying it is that an operator who only ever reads this report
+    // should hear about the removal while there is still nothing to fix.
+    //
+    // `version` stays at the release the *announcement* shipped in, so anyone
+    // upgrading across it still sees the notice. The removal itself was first
+    // aimed at 0.7.0, did not land there, and is now aimed at 0.9.0; the
+    // release audit for 0.8.0 caught the text still naming a version that had
+    // already shipped.
     severity: ChangeSeverity::Migration,
     applies: Applies::WhenSet,
     fields: &[
@@ -216,8 +271,8 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
       "target_health",
       "health.endpoint",
     ],
-    summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.7.0 a config file will only accept `services:`. Single-service mode is unaffected on the command line and in the environment.",
-    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` (or `health.endpoint`) into one `services:` entry. The file behaves the same either way until 0.7.0.",
+    summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.9.0 a config file will only accept `services:`. Single-service mode is unaffected on the command line and in the environment.",
+    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` (or `health.endpoint`) into one `services:` entry. The file behaves the same either way until 0.9.0.",
   },
   ConfigChange {
     version: "0.6.0",
@@ -371,6 +426,11 @@ pub struct UpgradeReport {
   pub current: Version,
   /// Changes that landed after `declared`, up to and including `current`.
   pub changes: Vec<&'static ConfigChange>,
+  /// The keys this file writes, so the report can name the ones an entry
+  /// actually touches instead of every key the entry lists. An entry may
+  /// cover thirty settings and reach a file through one of them; printing all
+  /// thirty is how a warning stops being read.
+  pub keys: Vec<String>,
   /// True when the file declares a version newer than the binary, which
   /// usually means a rollback nobody rolled the config back for.
   pub from_the_future: bool,
@@ -424,6 +484,7 @@ pub fn check_upgrade(
       declared: None,
       current,
       changes: Vec::new(),
+      keys: Vec::new(),
       from_the_future: false,
     });
   };
@@ -455,6 +516,7 @@ pub fn check_upgrade(
     declared: Some(declared),
     current,
     changes: applicable,
+    keys: keys.0.iter().cloned().collect(),
     from_the_future: declared > current,
   })
 }
@@ -486,13 +548,29 @@ pub fn report_lines(report: &UpgradeReport) -> Vec<String> {
   let mut sorted: Vec<&&ConfigChange> = report.changes.iter().collect();
   sorted.sort_by_key(|c| std::cmp::Reverse(c.severity));
   for change in sorted {
+    // The keys this file writes, when the entry names any: an operator reads
+    // "Affected" to find out whether their file is one of the affected ones,
+    // and a list of thirty keys they mostly do not use answers a different
+    // question. An `Always` entry (a changed default) has nothing to
+    // intersect, so it keeps naming the keys it is about.
+    let touched: Vec<&str> = change
+      .fields
+      .iter()
+      .copied()
+      .filter(|f| report.keys.iter().any(|k| k == f))
+      .collect();
+    let affected = if touched.is_empty() {
+      change.fields.join(", ")
+    } else {
+      touched.join(", ")
+    };
     lines.push(format!(
       "  [{}] {} (since {}): {} Affected: {}. {}",
       change.severity.as_str(),
       change.surface_label(),
       change.version,
       change.summary,
-      change.fields.join(", "),
+      affected,
       change.action
     ));
   }

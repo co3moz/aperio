@@ -58,7 +58,7 @@
               "port": 15353,
               "token": "apr_binder_token"
             },
-            "pg-main": 15432
+            "pg_main": 15432
           }
         ]
       },
@@ -72,6 +72,16 @@
           true
         ]
       },
+      "capture": {
+        "description": "Record transactions for the dashboard's request inspector (default\ntrue, services may override).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          false
+        ]
+      },
       "client_id": {
         "description": "Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`\ncan recognize this client; a random one is used when unset.",
         "type": [
@@ -83,7 +93,7 @@
         ]
       },
       "connections": {
-        "description": "Parallel tunnel connections opened for the exposed service (1–16,\ndefault 1); the server load-balances across them like separate clients,\nso a single dropped connection leaves no visitor-facing gap.",
+        "description": "Parallel tunnel connections opened for the exposed service (the server's\n`max_connections_per_service` is the ceiling,\ndefault 1); the server load-balances across them like separate clients,\nso a single dropped connection leaves no visitor-facing gap.",
         "type": [
           "integer",
           "null"
@@ -93,6 +103,16 @@
           2
         ],
         "minimum": 0
+      },
+      "custom_name": {
+        "description": "What to call the service on screen when one is named on the command line\nor in the environment (`APERIO_CUSTOM_NAME`). A `services:` entry carries\nits own `custom_name:`, which is where a config file says it.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "Public Web"
+        ]
       },
       "denied": {
         "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth; services may override).",
@@ -210,7 +230,7 @@
         "minimum": 0
       },
       "hostname": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Public hostname(s)\nto claim for this client's traffic. A bind belongs to the service it\nbinds, so write it on the `services:` entry; `--hostname` and\n`APERIO_HOSTNAME` are unaffected.",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Public hostname(s)\nto claim for this client's traffic. A bind belongs to the service it\nbinds, so write it on the `services:` entry; `--hostname` and\n`APERIO_HOSTNAME` are unaffected.",
         "anyOf": [
           {
             "$ref": "#/$defs/Hostnames"
@@ -362,7 +382,7 @@
         ]
       },
       "path": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Public path prefix\nto claim for this client's traffic. Write it on the `services:` entry\nit binds; `--path` and `APERIO_PATH` are unaffected.",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Public path prefix\nto claim for this client's traffic. Write it on the `services:` entry\nit binds; `--path` and `APERIO_PATH` are unaffected.",
         "type": [
           "string",
           "null"
@@ -454,7 +474,7 @@
         ]
       },
       "serve": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Serve a local\ndirectory of static files instead of forwarding to a backend. Write it\nas a `services:` entry's `serve:`; the CLI's `--serve` and\n`APERIO_SERVE` are unaffected.",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Serve a local\ndirectory of static files instead of forwarding to a backend. Write it\nas a `services:` entry's `serve:`; the CLI's `--serve` and\n`APERIO_SERVE` are unaffected.",
         "type": [
           "string",
           "null"
@@ -546,7 +566,7 @@
         }
       },
       "target": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Local backend to\nexpose. Write it as a `services:` entry instead; single-service mode\nstays available as the CLI's positional target and `APERIO_TARGET`.\n`h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Local backend to\nexpose. Write it as a `services:` entry instead; single-service mode\nstays available as the CLI's positional target and `APERIO_TARGET`.\n`h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
         "type": [
           "string",
           "null"
@@ -559,7 +579,7 @@
         ]
       },
       "target_health": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Backend health\nendpoint to probe; also the old flat spelling of `health.endpoint`.\nWrite it on the `services:` entry whose backend it probes.",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Backend health\nendpoint to probe; also the old flat spelling of `health.endpoint`.\nWrite it on the `services:` entry whose backend it probes.",
         "type": [
           "string",
           "null"
@@ -570,7 +590,7 @@
         ]
       },
       "tcp_target": {
-        "description": "**Deprecated in a config file, removed in 0.7.0.** Raw TCP backend to\nexpose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;\n`--tcp-target` and `APERIO_TCP_TARGET` are unaffected.",
+        "description": "**Deprecated in a config file, removed in 0.9.0.** Raw TCP backend to\nexpose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;\n`--tcp-target` and `APERIO_TCP_TARGET` are unaffected.",
         "type": [
           "string",
           "null"
@@ -621,7 +641,7 @@
         "examples": [
           [
             {
-              "name": "pg-main",
+              "name": "pg_main",
               "target": "127.0.0.1:5432"
             },
             {
@@ -693,7 +713,7 @@
             "default": {},
             "examples": [
               {
-                "pg-main": 15432,
+                "pg_main": 15432,
                 "redis": 16379
               }
             ]
@@ -738,7 +758,7 @@
         "description": "One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older\nspelling, by a peer client's id).\n\nA bare port number is the short form of `{ port: <n> }`, since naming the\nlocal port is the only thing most entries do.",
         "anyOf": [
           {
-            "description": "`pg-main: 15432`, the local port, everything else defaulted.",
+            "description": "`pg_main: 15432`, the local port, everything else defaulted.",
             "type": "integer",
             "format": "uint16",
             "maximum": 65535,
@@ -1186,8 +1206,18 @@
               true
             ]
           },
+          "capture": {
+            "description": "Record this service's transactions for the dashboard's request\ninspector (default true). Turning it off for a service that carries\nheavy traffic buys back a mutex, two header clones and a capture entry\nper request, at the cost of not being able to inspect or replay its\nrequests afterwards.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
+          },
           "connections": {
-            "description": "Parallel tunnel connections opened for this service (1–16, default 1);\nthe server load-balances across them like separate clients, so a single\ndropped connection leaves no visitor-facing gap.",
+            "description": "Parallel tunnel connections opened for this service (default 1); the\nserver's `max_connections_per_service` is the ceiling, announced on\nconnect, and a token may lower it further;\nthe server load-balances across them like separate clients, so a single\ndropped connection leaves no visitor-facing gap.",
             "type": [
               "integer",
               "null"
@@ -1197,6 +1227,17 @@
               2
             ],
             "minimum": 0
+          },
+          "custom_name": {
+            "description": "What to call this service on screen. Free text: any language, any\npunctuation, spaces. Nothing addresses it, so nothing breaks when it\nchanges.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "Public Web"
+            ]
           },
           "denied": {
             "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth: the same answer as an\nunclaimed route).",
@@ -1360,7 +1401,7 @@
             "minimum": 0
           },
           "name": {
-            "description": "Label for this service in client logs and the dashboard clients table.",
+            "description": "Handle for this service in client logs and the dashboard clients table.\nAn identifier: a-z, 0-9 and `_`. Use `custom_name` for something to read.",
             "type": [
               "string",
               "null"
@@ -1609,7 +1650,7 @@
         "type": "object",
         "properties": {
           "endpoint": {
-            "description": "**Deprecated in a config file, removed in 0.7.0.** Endpoint to probe.\nWrite it on the `services:` entry whose backend it probes; at the top\nlevel it is read only by a file that has no `services:` list.",
+            "description": "**Deprecated in a config file, removed in 0.9.0.** Endpoint to probe.\nWrite it on the `services:` entry whose backend it probes; at the top\nlevel it is read only by a file that has no `services:` list.",
             "type": [
               "string",
               "null"
@@ -1672,6 +1713,16 @@
         "description": "A private local service (e.g. a database or SSH) this client makes reachable\nto a peer running `--bind-tunnels`, without ever exposing it to the public web.",
         "type": "object",
         "properties": {
+          "custom_name": {
+            "description": "What to call it on screen. Free text: any language, any punctuation,\nspaces. Nothing addresses it, so nothing breaks when it changes.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "Primary Postgres"
+            ]
+          },
           "encrypt": {
             "description": "End-to-end encrypt this tunnel between the two clients (X25519 +\nChaCha20-Poly1305); the server only relays ciphertext. TCP only.",
             "type": "boolean",
@@ -1706,8 +1757,8 @@
               "null"
             ],
             "examples": [
-              "pg-main",
-              "ssh-bastion"
+              "pg_main",
+              "ssh_bastion"
             ]
           },
           "protocol": {
@@ -1721,7 +1772,7 @@
             ]
           },
           "psk": {
-            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere, \nthe binder configures the same value in its `bind-tunnels` entry.",
+            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere,\nthe binder configures the same value in its `bind-tunnels` entry.",
             "type": [
               "string",
               "null"
@@ -1769,6 +1820,16 @@
         ],
         "examples": [
           "./pages/504.html"
+        ]
+      },
+      "access_events": {
+        "description": "Emit the per-request structured access event for a successful request.\nOn by default. Distinct from `log_level`: `false` silences that\none-per-request line and leaves warnings and errors alone, so a refused\nor failed request still logs at `warn` (env: APERIO_ACCESS_EVENTS).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          false
         ]
       },
       "access_log": {
@@ -2136,7 +2197,7 @@
             {
               "port": 5432,
               "protocol": "tcp",
-              "tunnel": "pg-main"
+              "tunnel": "pg_main"
             }
           ]
         ],
@@ -2295,6 +2356,16 @@
           false
         ]
       },
+      "inspector": {
+        "description": "Record every proxied transaction for the dashboard's request inspector.\nOn by default; `false` gives back a mutex, two header clones and a\ncapture entry per request, and nothing can be inspected or replayed\n(env: APERIO_INSPECTOR).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          false
+        ]
+      },
       "inspector_redact": {
         "description": "Mask credential headers and secret-looking body fields in the request\ninspector, the cURL copy and the HAR export. On by default\n(env: APERIO_INSPECTOR_REDACT).",
         "type": [
@@ -2420,6 +2491,18 @@
         "format": "uint64",
         "examples": [
           512
+        ],
+        "minimum": 0
+      },
+      "max_connections_per_service": {
+        "description": "Parallel tunnel connections one client may open for a single service\n(its `connections:`). A token may lower this for its own holder, never\nraise it. Default 16 (env: APERIO_MAX_CONNECTIONS_PER_SERVICE).",
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "uint64",
+        "examples": [
+          16
         ],
         "minimum": 0
       },
@@ -2575,6 +2658,14 @@
           "string",
           "null"
         ]
+      },
+      "otel_sample_rate": {
+        "description": "Deprecated spelling of `otel.sample_rate` (env: APERIO_OTEL_SAMPLE_RATE).",
+        "type": [
+          "number",
+          "null"
+        ],
+        "format": "double"
       },
       "otel_service_name": {
         "description": "Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).",
@@ -2854,8 +2945,8 @@
           [
             {
               "hostname": "old.example.com",
-              "redirect": "https://new.example.com",
-              "status": 301
+              "permanent": true,
+              "redirect": "https://new.example.com"
             }
           ]
         ],
@@ -3503,6 +3594,16 @@
               "k5fj2q-expose-secret"
             ]
           },
+          "org": {
+            "description": "Name of the organization whose client may claim this port. A tunnel name\nis unique inside an organization and nowhere else, so this is what makes\nthe claim unambiguous. Unset (with no `<org>@` prefix and no `token`)\nmeans the master organization.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "payments"
+            ]
+          },
           "port": {
             "description": "Public port the server listens on.",
             "type": "integer",
@@ -3522,23 +3623,25 @@
             ]
           },
           "token": {
-            "description": "Name of the token whose client may claim this port. Unset accepts only\ntunnels declared with the master token, so a named token is what lets an\norganization own an exposed port; revoking it closes the port's source.",
+            "description": "Name of the token whose client may claim this port. Superseded by `org`:\na token name is not unique across organizations, so a rule naming one\ncan match a client of another organization, and which one gets the port\nis not defined. Still honored; write `org` instead.",
             "type": [
               "string",
               "null"
             ],
+            "deprecated": true,
             "examples": [
               "bastion-host"
             ]
           },
           "tunnel": {
-            "description": "Name of the tunnel this port is relayed into. Preferred over `key`:\nthe claim is settled by identity (which token declared the tunnel)\nrather than by a secret copied into two files.",
+            "description": "Name of the tunnel this port is relayed into. Preferred over `key`:\nthe claim is settled by identity (which organization declared the\ntunnel) rather than by a secret copied into two files. May be written\nas `<org>@<name>`, e.g. `payments@postgres`, which says the same thing\nas a separate `org:` and reads the way the dashboard shows it.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
-              "ssh-bastion"
+              "ssh_bastion",
+              "payments@postgres"
             ]
           }
         },
@@ -3977,6 +4080,17 @@
             "examples": [
               "http",
               "grpc"
+            ]
+          },
+          "sample_rate": {
+            "description": "Fraction of traces to record, 0.0 to 1.0. Default 1.0: every request\nbuilds a span tree and hands it to the exporter, which is the setting\nthat makes tracing show up in a benchmark. `0.01` samples one request in\na hundred, which answers the same questions about latency and error\nshape for a hundredth of the cost. The decision is made once per request\nand every span of that request follows it.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "examples": [
+              0.01
             ]
           },
           "service_name": {

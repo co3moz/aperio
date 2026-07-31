@@ -275,7 +275,7 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
       ("describe", "them")
     };
     warn!(
-      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.7.0, move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
+      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.9.0, move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
       path,
       single.join("`, `")
     );

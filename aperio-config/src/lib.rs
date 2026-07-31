@@ -517,7 +517,7 @@ pub struct HealthConfig {
 #[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TopHealthConfig {
-  /// **Deprecated in a config file, removed in 0.7.0.** Endpoint to probe.
+  /// **Deprecated in a config file, removed in 0.9.0.** Endpoint to probe.
   /// Write it on the `services:` entry whose backend it probes; at the top
   /// level it is read only by a file that has no `services:` list.
   #[schemars(extend("examples" = ["/health"], "deprecated" = true))]
@@ -947,25 +947,25 @@ pub struct FileConfig {
   /// top level still authenticates rather than being silently ignored.
   #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
   pub token: Option<String>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Local backend to
+  /// **Deprecated in a config file, removed in 0.9.0.** Local backend to
   /// expose. Write it as a `services:` entry instead; single-service mode
   /// stays available as the CLI's positional target and `APERIO_TARGET`.
   /// `h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).
   #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051"], "deprecated" = true))]
   pub target: Option<String>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Serve a local
+  /// **Deprecated in a config file, removed in 0.9.0.** Serve a local
   /// directory of static files instead of forwarding to a backend. Write it
   /// as a `services:` entry's `serve:`; the CLI's `--serve` and
   /// `APERIO_SERVE` are unaffected.
   #[schemars(extend("examples" = ["./dist"], "deprecated" = true))]
   pub serve: Option<String>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Public hostname(s)
+  /// **Deprecated in a config file, removed in 0.9.0.** Public hostname(s)
   /// to claim for this client's traffic. A bind belongs to the service it
   /// binds, so write it on the `services:` entry; `--hostname` and
   /// `APERIO_HOSTNAME` are unaffected.
   #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]], "deprecated" = true))]
   pub hostname: Option<Hostnames>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Public path prefix
+  /// **Deprecated in a config file, removed in 0.9.0.** Public path prefix
   /// to claim for this client's traffic. Write it on the `services:` entry
   /// it binds; `--path` and `APERIO_PATH` are unaffected.
   #[schemars(extend("examples" = ["/api"], "deprecated" = true))]
@@ -1003,7 +1003,7 @@ pub struct FileConfig {
   /// Largest single tunnel frame, in bytes, the client will accept.
   #[schemars(extend("examples" = [33554432]))]
   pub max_message_size: Option<usize>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Raw TCP backend to
+  /// **Deprecated in a config file, removed in 0.9.0.** Raw TCP backend to
   /// expose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;
   /// `--tcp-target` and `APERIO_TCP_TARGET` are unaffected.
   #[schemars(extend("examples" = ["127.0.0.1:5432"], "deprecated" = true))]
@@ -1018,7 +1018,7 @@ pub struct FileConfig {
   /// keys, which still work; `services:` entries may override it per service.
   #[schemars(extend("examples" = [{"interval": 10, "timeout": 5, "threshold": 2}]))]
   pub health: Option<TopHealthConfig>,
-  /// **Deprecated in a config file, removed in 0.7.0.** Backend health
+  /// **Deprecated in a config file, removed in 0.9.0.** Backend health
   /// endpoint to probe; also the old flat spelling of `health.endpoint`.
   /// Write it on the `services:` entry whose backend it probes.
   #[schemars(extend("examples" = ["/health"], "deprecated" = true))]

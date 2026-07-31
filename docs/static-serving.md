@@ -18,7 +18,7 @@ The file server listens on `127.0.0.1:0`, a random loopback port. Nothing else o
 | Environment | `APERIO_SERVE=./dist` |
 | yaml | `serve:` on a `services:` entry |
 
-A top-level `serve:` (with no `services:` list) still works and is the same thing, but it is **deprecated and removed in 0.7.0**, see [Configuration](configuration.md#aperioyaml--aperioyaml).
+A top-level `serve:` (with no `services:` list) still works and is the same thing, but it is **deprecated and removed in 0.9.0**, see [Configuration](configuration.md#aperioyaml--aperioyaml).
 
 `serve:` takes the place of `target:` and the two are mutually exclusive, per entry. One client can therefore serve several directories on different binds, and mix static sites with proxied backends in the same process:
 
