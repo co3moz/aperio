@@ -940,4 +940,5 @@ export const tr: Record<string, string> = {
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Bu servis istek inspector\'ı için kaydedilmiyor (aperio.yaml içinde capture: false), istekleri incelenemez ve tekrar oynatılamaz. Canlı trafik ve istatistikler etkilenmez.',
   'inspector off': 'inspector kapalı',
   'no capture': 'kayıt yok',
+  '{count} setting(s) here differ from what the server started with': 'Burada {count} ayar, sunucunun başladığı değerden farklı',
 }

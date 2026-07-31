@@ -376,10 +376,14 @@ export function SettingsSection() {
     }
   }
 
+  /** True when this setting carries a stored override rather than the value
+   *  the server started with. */
+  const isOverridden = (key: string) => overrides[key] !== undefined && overrides[key] !== null
+
   // Override marker + one-click reset to the env default, shown next to the
   // field label so the state of every setting is visible at a glance.
   const overrideControls = (f: FieldSpec) => {
-    const overridden = overrides[f.key] !== undefined && overrides[f.key] !== null
+    const overridden = isOverridden(f.key)
     if (!overridden) return null
     return (
       <span className="inline-flex items-center gap-1">
@@ -476,10 +480,33 @@ export function SettingsSection() {
         value={openGroups}
         onValueChange={(v) => setOpenGroups(v as string[])}
       >
-        {GROUPS.map((group, i) => (
+        {GROUPS.map((group, i) => {
+          // How many of this group's settings are not what the server started
+          // with. On the header rather than inside, because the reason to
+          // want this number is to find the group you did not think to open:
+          // a setting changed once from the dashboard is invisible until
+          // something it does surprises you.
+          const changed = group.fields.filter((f) => isOverridden(f.key)).length
+          return (
           <AccordionItem key={group.title} value={String(i)}>
             <AccordionTrigger>
               <span className="flex-1 text-left">{t(group.title)}</span>
+              {changed > 0 && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span>
+                        <TintBadge tint="amber">{changed}</TintBadge>
+                      </span>
+                    }
+                  />
+                  <TooltipContent>
+                    {t('{count} setting(s) here differ from what the server started with', {
+                      count: changed,
+                    })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </AccordionTrigger>
             <AccordionContent>
               <p className="mb-4 text-xs text-muted-foreground">{t(group.description)}</p>
@@ -494,7 +521,8 @@ export function SettingsSection() {
               </div>
             </AccordionContent>
           </AccordionItem>
-        ))}
+          )
+        })}
         {data.environment && (
           <AccordionItem value="environment">
             <AccordionTrigger>

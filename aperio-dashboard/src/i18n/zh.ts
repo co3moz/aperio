@@ -917,4 +917,5 @@ export const zh: Record<string, string> = {
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': '该服务未被请求检查器记录（其 aperio.yaml 中 capture: false），其请求无法检查或重放。实时流量和统计不受影响。',
   'inspector off': '检查器已关闭',
   'no capture': '未记录',
+  '{count} setting(s) here differ from what the server started with': '此处有 {count} 项设置与服务器启动时的值不同',
 }

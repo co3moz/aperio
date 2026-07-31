@@ -936,4 +936,5 @@ export const ru: Record<string, string> = {
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Этот сервис не записывается для инспектора запросов (capture: false в его aperio.yaml), его запросы нельзя просмотреть или повторить. На живой трафик и статистику это не влияет.',
   'inspector off': 'инспектор выключен',
   'no capture': 'без записи',
+  '{count} setting(s) here differ from what the server started with': 'Здесь {count} настроек(и) отличаются от тех, с которыми запустился сервер',
 }
