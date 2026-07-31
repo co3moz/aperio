@@ -441,12 +441,20 @@ pub(crate) async fn live_stream_handler(
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let stream = futures_util::stream::unfold(
-    (state, rx, interval, shutdown, org),
-    |(state, mut rx, mut interval, mut shutdown, org)| async move {
+    (state, rx, interval, shutdown, org, headers),
+    |(state, mut rx, mut interval, mut shutdown, org, headers)| async move {
       loop {
         tokio::select! {
           // The first tick fires immediately, seeding the initial snapshot.
           _ = interval.tick() => {
+            // The session middleware runs once, when the stream is opened,
+            // and this connection then lives for hours. Signing out, "sign
+            // out everywhere", an expiring session or a disabled user would
+            // all leave it emitting traffic and statistics to a caller who no
+            // longer has a session. Re-checking on each tick bounds that to
+            // one tick, and costs one read of the session store every two
+            // seconds per open stream.
+            crate::auth::dashboard_role(&state, &headers).await?;
             let mut snapshot = compute_stats(&state).await;
             filter_stats_for_org(&mut snapshot, &org);
             scope_stats_for_org(&state, &mut snapshot, &org).await;
@@ -454,7 +462,7 @@ pub(crate) async fn live_stream_handler(
               .event("stats")
               .json_data(&snapshot)
               .unwrap_or_else(|_| Event::default());
-            return Some((Ok(event), (state, rx, interval, shutdown, org)));
+            return Some((Ok(event), (state, rx, interval, shutdown, org, headers)));
           }
           recv = rx.recv() => match recv {
             Ok(log) => {
@@ -466,7 +474,7 @@ pub(crate) async fn live_stream_handler(
                 .event("traffic")
                 .json_data(&log)
                 .unwrap_or_else(|_| Event::default());
-              return Some((Ok(event), (state, rx, interval, shutdown, org)));
+              return Some((Ok(event), (state, rx, interval, shutdown, org, headers)));
             }
             // Slow subscriber: drop the missed span and keep streaming.
             Err(RecvError::Lagged(_)) => continue,

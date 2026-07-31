@@ -835,3 +835,47 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
     vec!["app.acme.com".to_string()]
   );
 }
+
+#[tokio::test]
+async fn live_stream_ends_when_the_session_it_opened_with_is_revoked() {
+  // The session middleware runs once, when the stream is opened, and the
+  // stream then lives for hours: signing out (or "sign out everywhere", or an
+  // expiry, or a user being disabled) left it emitting traffic and statistics
+  // to a caller with no session at all.
+  use axum::response::IntoResponse;
+  use futures_util::StreamExt;
+  use std::time::Duration;
+  use tokio::time::timeout;
+
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |_| {}).await;
+  let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
+
+  let sse = live_stream_handler(State(state.clone()), cookie_headers(&token)).await;
+  let mut body = sse.into_response().into_body().into_data_stream();
+
+  let first = timeout(Duration::from_secs(2), body.next())
+    .await
+    .expect("stats frame in time")
+    .expect("some frame")
+    .expect("ok bytes");
+  assert!(String::from_utf8_lossy(&first).contains("event: stats"));
+
+  // Sign out, then let a tick come round.
+  state.sessions.lock().await.remove(&token);
+  let mut ended = false;
+  for _ in 0..3 {
+    match timeout(Duration::from_secs(4), body.next()).await {
+      Ok(None) => {
+        ended = true;
+        break;
+      }
+      Ok(Some(_)) => continue,
+      Err(_) => break,
+    }
+  }
+  assert!(
+    ended,
+    "the stream must close within a tick of the session going away"
+  );
+}

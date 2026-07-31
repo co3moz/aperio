@@ -100,6 +100,9 @@ socket2 = "0.6.4"
 vendored-openssl = ["dep:openssl", "openssl/vendored"]
 
 [dev-dependencies]
+# `start_paused` in tests: the live stream ticks every two seconds, and a test
+# that actually waits them is a test nobody runs.
+tokio = { version = "1.38", features = ["full", "test-util"] }
 criterion = "0.8.2"
 # For the envelope-codec benchmark: what MessagePack would cost against the
 # JSON the tunnel speaks today, measured on our own messages.

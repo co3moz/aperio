@@ -125,6 +125,8 @@ The settings sit in one accordion, grouped by what they govern. The full descrip
 
 **What is deliberately not here.** The master token, `HOST`/`PORT`, `data_dir`, proxy trust, secure cookies, OIDC, metrics, the access log and the outbound callback policy never become dashboard overrides: they are security- or startup-critical, and a compromised dashboard session must not be able to move them. Every one is still settable from `aperio-server.yaml` (or its environment spelling) and needs a restart. The pane lists them read-only rather than hiding them, so the screen still answers "what is this server actually running".
 
+The live stream re-checks the session on every tick, so signing out (or being signed out) closes it within a couple of seconds rather than when the tab does.
+
 Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 
 ## Live request activity

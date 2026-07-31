@@ -29,16 +29,16 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   the default-branch release cache (ci.yml `warm-release-cache`) and the Windows
   Defender exclusion in `release.yml`. Discuss before implementing.
 
-- [ ] **#3 Re-validate the dashboard SSE live stream while it is open.** The
-  dashboard live stream (`live_stream_handler` in `aperio-server/src/api/clients.rs`)
-  only resolves the caller's org/role at connection time; an already-open stream
-  keeps emitting live traffic + stats even after the session is revoked, expires,
-  or is cleared via "sign out everywhere". Re-check `validate_session` /
-  `dashboard_role` periodically inside the stream loop (e.g. on each stats tick)
-  and close the stream when the session is no longer valid; an explicit
-  "auth revoked" signal on the `state.shutdown` path could also drive it. Low
-  severity: requires an already-authenticated session and leaks at most one
-  ~2s tick of data after revocation. (From the 2026-07 static security review.)
+- [x] **#3 Re-validate the dashboard SSE live stream while it is open.** shipped:
+  `live_stream_handler` keeps the caller's headers and re-runs `dashboard_role`
+  on every stats tick, the same check the session middleware makes when the
+  stream is opened, and ends the stream the moment it comes back empty. A sign
+  out, a "sign out everywhere", an expiry or a disabled user therefore closes
+  the stream within one ~2 s tick instead of leaving it emitting traffic and
+  statistics for as long as the tab stays open. The org stays fixed for the
+  life of the connection, as before. A test seeds a session, reads the first
+  snapshot, removes the session and asserts the stream ends; it fails without
+  the check. (From the 2026-07 static security review.)
 
 - [ ] **#4 Stream static-serve responses instead of reading whole files into
   memory.** In `--serve` mode, `handle` in `aperio-client/src/serve.rs` reads the
