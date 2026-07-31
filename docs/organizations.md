@@ -90,7 +90,15 @@ aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
 aperio-client api org hostnames <id> --hostname "*.acme.example.com"
 ```
 
-Entries are either an exact hostname (`acme.com`) or a subdomain wildcard (`*.acme.example.com`, matching any depth of subdomain but **not** `acme.example.com` itself, so list both if you want both). An empty list, or a single `*`, means no restriction and is the default: existing deployments are unchanged.
+Entries take three shapes:
+
+| Entry | Matches |
+|---|---|
+| `acme.com` | that hostname, and nothing under it |
+| `*.acme.example.com` | any depth of subdomain, **not** `acme.example.com` itself, so list both if you want both |
+| `*-pi.acme.com`, `dev-*.acme.com` | one label, around the placeholder: `raspberry-pi.acme.com` but not `a.raspberry-pi.acme.com` |
+
+The third is for a fleet naming convention: an organization that owns every `<something>-pi.acme.com` can say exactly that instead of being handed `*.acme.com`, which is the whole domain and rather more than they own. One placeholder, in the leftmost label only, the same shape `random_subdomain` accepts. An empty list, or a single `*`, means no restriction and is the default: existing deployments are unchanged.
 
 The fence is enforced everywhere a hostname can be claimed, not just once:
 

@@ -429,6 +429,27 @@ assert_contains "$FENCED" 'fenced.e2e.local' "the create response echoes the all
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"name":"broken","hostnames":["app.*.com"]}' "$BASE/aperio/api/orgs")"
 assert_status 400 "$CODE" "an invalid hostname pattern is rejected"
+# A partial leftmost label is a third legal shape, for a fleet named by
+# convention; two placeholders are not, since only the first would be free.
+FLEET="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"fleet","hostnames":["*-pi.fleet.e2e.local"]}' "$BASE/aperio/api/orgs")" \
+  || fail "a partial-label hostname pattern should be accepted"
+assert_contains "$FLEET" '*-pi.fleet.e2e.local' "the create response echoes the partial-label pattern"
+FLEET_ID="$(echo "$FLEET" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"broken2","hostnames":["*-pi-*.fleet.e2e.local"]}' "$BASE/aperio/api/orgs")"
+assert_status 400 "$CODE" "two placeholders in one pattern are rejected"
+# The fence admits a name of that shape and nothing wider.
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data "{\"id\":\"${FLEET_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"in-fleet","hostnames":["raspberry-pi.fleet.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 200 "$CODE" "a token for a name matching the partial label is created"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"out-fleet","hostnames":["raspberry-pie.fleet.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 403 "$CODE" "a name outside the partial label is refused"
+curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
 # Switch into the fenced org: its tokens may only carry its own hostnames.
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data "{\"id\":\"${FENCED_ID}\"}" "$BASE/aperio/api/orgs/select" >/dev/null \

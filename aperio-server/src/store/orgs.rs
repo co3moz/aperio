@@ -59,11 +59,23 @@ pub struct Organization {
   pub oidc: Option<OrgOidc>,
 }
 
-/// Normalizes one entry of an organization's hostname allowlist: an exact
-/// hostname (`acme.com`) or a subdomain wildcard (`*.acme.com`), lowercased
-/// and without a trailing dot or port. `*` on its own means "unrestricted"
-/// and normalizes to `*`. Returns None for anything else, including a
-/// wildcard anywhere but the leading label.
+/// Normalizes one entry of an organization's hostname allowlist, lowercased
+/// and without a trailing dot or port. Three shapes:
+///
+/// - an exact hostname, `acme.com`
+/// - a subdomain wildcard, `*.acme.com`: every subdomain at any depth, never
+///   the apex
+/// - a **partial** leftmost label, `*-pi.acme.com` or `dev-*.acme.com`: one
+///   label, matching the text around the `*`
+///
+/// The third is the same shape `random_subdomain` already accepts, and it is
+/// what a fleet naming convention looks like: a tenant who owns every
+/// `<something>-pi.acme.com` should be able to say so without being handed
+/// `*.acme.com`, which is the whole domain and rather more than they own.
+///
+/// `*` on its own means "unrestricted". Returns None for anything else,
+/// including a `*` outside the leftmost label or more than one of them: two
+/// placeholders read as if both were free, and only the first would be.
 pub fn normalize_org_hostname_pattern(raw: &str) -> Option<String> {
   let trimmed = raw.trim().trim_end_matches('.').to_ascii_lowercase();
   if trimmed.is_empty() {
@@ -72,22 +84,28 @@ pub fn normalize_org_hostname_pattern(raw: &str) -> Option<String> {
   if trimmed == "*" {
     return Some("*".to_string());
   }
-  let (wildcard, host) = match trimmed.strip_prefix("*.") {
-    Some(rest) => (true, rest.to_string()),
-    None => (false, trimmed),
-  };
-  // The remainder must be a plain hostname: reuse the bind normalizer so the
-  // allowlist can never hold something a bind could not match anyway.
-  let normalized = crate::routing::normalize_hostname_bind(&host)?;
-  // A wildcard needs something to be a subdomain *of*, so a bare TLD is out.
-  if wildcard && !normalized.contains('.') {
-    return None;
+  if let Some(rest) = trimmed.strip_prefix("*.") {
+    // Subdomain wildcard. The remainder must be a plain hostname: reuse the
+    // bind normalizer so the allowlist can never hold something a bind could
+    // not match anyway, and a wildcard needs something to be a subdomain
+    // *of*, so a bare TLD is out.
+    let normalized = crate::routing::normalize_hostname_bind(rest)?;
+    return normalized.contains('.').then(|| format!("*.{normalized}"));
   }
-  Some(if wildcard {
-    format!("*.{normalized}")
-  } else {
-    normalized
-  })
+  if trimmed.contains('*') {
+    // Partial label. Exactly one placeholder, in the leftmost label only, and
+    // the pattern has to describe a real hostname once it is filled in.
+    if trimmed.matches('*').count() != 1 {
+      return None;
+    }
+    let (head, tail) = trimmed.split_once('.')?;
+    if !head.contains('*') || tail.contains('*') || !tail.contains('.') {
+      return None;
+    }
+    crate::routing::normalize_hostname_bind(&trimmed.replacen('*', "abc123", 1))?;
+    return Some(trimmed);
+  }
+  crate::routing::normalize_hostname_bind(&trimmed)
 }
 
 /// True when one allowlist pattern (`*`, `*.acme.com`, or an exact hostname)
@@ -103,14 +121,34 @@ pub fn pattern_matches_host(pattern: &str, host: &str) -> bool {
     return true;
   }
   let host = host.trim_end_matches('.').as_bytes();
-  match pattern.strip_prefix("*.") {
-    Some(suffix) => {
-      let (n, m) = (host.len(), suffix.len());
-      // A label of at least one character, then a dot, then the suffix.
-      n > m + 1 && host[n - m - 1] == b'.' && host[n - m..].eq_ignore_ascii_case(suffix.as_bytes())
-    }
-    None => host.eq_ignore_ascii_case(pattern.as_bytes()),
+  if let Some(suffix) = pattern.strip_prefix("*.") {
+    let (n, m) = (host.len(), suffix.len());
+    // A label of at least one character, then a dot, then the suffix.
+    return n > m + 1
+      && host[n - m - 1] == b'.'
+      && host[n - m..].eq_ignore_ascii_case(suffix.as_bytes());
   }
+  if let Some(star) = pattern.find('*') {
+    // Partial leftmost label: the text on each side of the placeholder has to
+    // sit in the host's first label, which must have something between them.
+    let (pat_head, pat_tail) = pattern.split_at(star);
+    let pat_tail = &pat_tail[1..];
+    let Some(dot) = host.iter().position(|b| *b == b'.') else {
+      return false;
+    };
+    let (label, rest) = host.split_at(dot);
+    // Everything after the first label is matched exactly, so the pattern
+    // covers one level and cannot reach a deeper subdomain.
+    let Some((pat_label_tail, pat_rest)) = pat_tail.split_once('.') else {
+      return false;
+    };
+    return label.len() > pat_head.len() + pat_label_tail.len()
+      && label[..pat_head.len()].eq_ignore_ascii_case(pat_head.as_bytes())
+      && label[label.len() - pat_label_tail.len()..]
+        .eq_ignore_ascii_case(pat_label_tail.as_bytes())
+      && rest[1..].eq_ignore_ascii_case(pat_rest.as_bytes());
+  }
+  host.eq_ignore_ascii_case(pattern.as_bytes())
 }
 
 /// True when `host` is covered by an organization's hostname allowlist. An
@@ -143,6 +181,35 @@ pub fn pattern_covers_pattern(outer: &str, inner: &str) -> bool {
   if outer == "*" {
     return true;
   }
+  if inner == "*" {
+    return false;
+  }
+  // A partial label (`*-pi.acme.com`) covers a single level, so `*.acme.com`
+  // contains it; itself it only covers exactly itself and the concrete names
+  // it matches. This function *grants* permission, so anything it cannot
+  // prove is a no: two different partial patterns may or may not share a
+  // name, and "may" is not a claim.
+  let partial = |p: &str| wildcard_suffix(p).is_none() && p.contains('*');
+  if partial(outer) {
+    return if partial(inner) {
+      outer.eq_ignore_ascii_case(inner)
+    } else if wildcard_suffix(inner).is_some() {
+      false
+    } else {
+      pattern_matches_host(outer, inner)
+    };
+  }
+  if partial(inner) {
+    // `*.acme.com` covers every name under acme.com, including every name a
+    // partial label under it could match; `*.eu.acme.com` does not reach
+    // `*-pi.acme.com`, and an exact entry reaches nothing but itself.
+    return match wildcard_suffix(outer) {
+      Some(suffix) => inner
+        .split_once('.')
+        .is_some_and(|(_, rest)| rest == suffix || rest.ends_with(&format!(".{suffix}"))),
+      None => false,
+    };
+  }
   match (wildcard_suffix(outer), wildcard_suffix(inner)) {
     // `*.acme.com` covers `*.acme.com` and `*.eu.acme.com`.
     (Some(outer), Some(inner)) => inner == outer || inner.ends_with(&format!(".{outer}")),
@@ -158,7 +225,20 @@ pub fn pattern_covers_pattern(outer: &str, inner: &str) -> bool {
 /// coverage is not enough here: `*.acme.com` and `*.eu.acme.com` overlap in
 /// both directions of the question "is someone else already inside this".
 pub fn patterns_overlap(a: &str, b: &str) -> bool {
-  pattern_covers_pattern(a, b) || pattern_covers_pattern(b, a)
+  if pattern_covers_pattern(a, b) || pattern_covers_pattern(b, a) {
+    return true;
+  }
+  // Two partial labels on the same domain (`*-pi.acme.com` and
+  // `dev-*.acme.com`) can share a name (`dev-pi.acme.com`) without either
+  // covering the other. This answer *refuses* an action rather than granting
+  // one, so the unprovable case is "yes, they overlap": at worst master is
+  // told to name the hostname rather than the domain.
+  let partial = |p: &str| wildcard_suffix(p).is_none() && p.contains('*');
+  if partial(a) && partial(b) {
+    let rest = |p: &str| p.split_once('.').map(|(_, r)| r.to_string());
+    return rest(a) == rest(b);
+  }
+  false
 }
 
 /// Per-organization OIDC single sign-on configuration.

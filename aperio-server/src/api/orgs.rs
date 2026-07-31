@@ -106,8 +106,9 @@ pub(crate) struct OrgHostnamesRequest {
 }
 
 /// Normalizes an allowlist payload, rejecting entries that are not an exact
-/// hostname or a `*.domain` wildcard. Duplicates collapse; a bare `*` (or an
-/// empty list) means unrestricted and normalizes to an empty list.
+/// hostname, a `*.domain` wildcard, or a partial leftmost label like
+/// `*-pi.domain`. Duplicates collapse; a bare `*` (or an empty list) means
+/// unrestricted and normalizes to an empty list.
 fn normalize_allowlist(raw: &[String]) -> Result<Vec<String>, String> {
   let mut out: Vec<String> = Vec::new();
   for entry in raw {
@@ -116,7 +117,8 @@ fn normalize_allowlist(raw: &[String]) -> Result<Vec<String>, String> {
     }
     let Some(pattern) = crate::store::orgs::normalize_org_hostname_pattern(entry) else {
       return Err(format!(
-        "invalid hostname pattern: {} (use acme.com or *.acme.com)",
+        "invalid hostname pattern: {} (use acme.com, *.acme.com, or a single \
+         placeholder in the leftmost label such as *-pi.acme.com)",
         entry.trim()
       ));
     };

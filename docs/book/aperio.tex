@@ -1419,10 +1419,16 @@ own tenant could claim another tenant's hostname:
 aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
 \end{codecard}
 
-Entries are an exact hostname or a subdomain wildcard (\code{*.acme.com}
-matches any depth of subdomain but not \code{acme.com} itself, so list
-both if you want both). The fence is enforced at every point a hostname
-can be claimed, not once:
+An entry takes one of three shapes. An exact hostname matches itself. A
+subdomain wildcard (\code{*.acme.com}) matches any depth of subdomain but
+not \code{acme.com} itself, so an operator who wants both lists both. A
+partial leftmost label (\code{*-pi.acme.com}, \code{dev-*.acme.com})
+matches one label around the placeholder, which is what a fleet naming
+convention looks like: an organisation that owns every
+\code{<name>-pi.acme.com} can say exactly that rather than be handed the
+whole domain. One placeholder, leftmost label only, the same shape
+\code{random\_subdomain} accepts. The fence is enforced at every point a
+hostname can be claimed, not once:
 
 \begin{itemize}[leftmargin=1.3em]
   \item token creation and editing refuse an out-of-fence permission;

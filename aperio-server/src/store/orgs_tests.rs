@@ -352,3 +352,124 @@ fn pattern_matching_survives_the_hostnames_a_visitor_can_send() {
     "short.example"
   ));
 }
+
+// --- A partial leftmost label, for a fleet naming convention ---
+
+#[test]
+fn a_partial_label_pattern_is_accepted_and_normalized() {
+  // What this exists for: an organization that owns every `<name>-pi` box
+  // under a domain, and should not have to be handed the whole domain to say
+  // so. The shape is the one `random_subdomain` already accepts.
+  assert_eq!(
+    normalize_org_hostname_pattern(" *-PI.Robogon.com. "),
+    Some("*-pi.robogon.com".to_string())
+  );
+  assert_eq!(
+    normalize_org_hostname_pattern("dev-*.robogon.com"),
+    Some("dev-*.robogon.com".to_string())
+  );
+  // The old shapes are untouched.
+  assert_eq!(
+    normalize_org_hostname_pattern("*.robogon.com"),
+    Some("*.robogon.com".to_string())
+  );
+  assert_eq!(
+    normalize_org_hostname_pattern("robogon.com"),
+    Some("robogon.com".to_string())
+  );
+  assert_eq!(normalize_org_hostname_pattern("*"), Some("*".to_string()));
+}
+
+#[test]
+fn a_placeholder_that_would_not_do_what_it_looks_like_is_refused() {
+  // Two placeholders read as if both were free; only the first would be.
+  assert_eq!(normalize_org_hostname_pattern("*-pi-*.robogon.com"), None);
+  // Outside the leftmost label it is not a label pattern at all.
+  assert_eq!(normalize_org_hostname_pattern("pi.*.robogon.com"), None);
+  assert_eq!(normalize_org_hostname_pattern("pi.robogon.*"), None);
+  // A partial label needs a domain under it, like the subdomain wildcard.
+  assert_eq!(normalize_org_hostname_pattern("*-pi.com"), None);
+  assert_eq!(normalize_org_hostname_pattern("*-pi"), None);
+  // `*.` is `*` with the root label written out, and the trailing dot is
+  // trimmed before anything else looks at the string, so it means what it
+  // says: unrestricted.
+  assert_eq!(normalize_org_hostname_pattern("*."), Some("*".to_string()));
+}
+
+#[test]
+fn a_partial_label_matches_one_label_and_only_around_the_placeholder() {
+  let p = "*-pi.robogon.com";
+  assert!(pattern_matches_host(p, "raspberry-pi.robogon.com"));
+  assert!(pattern_matches_host(p, "a-pi.robogon.com"));
+  assert!(pattern_matches_host(p, "RASPBERRY-PI.Robogon.com"));
+  assert!(pattern_matches_host(p, "raspberry-pi.robogon.com."));
+  // The placeholder must stand for something.
+  assert!(!pattern_matches_host(p, "-pi.robogon.com"));
+  // One label: a deeper subdomain is a different host, not this one.
+  assert!(!pattern_matches_host(p, "a.raspberry-pi.robogon.com"));
+  // The rest of the name is matched exactly.
+  assert!(!pattern_matches_host(p, "raspberry-pi.other.com"));
+  assert!(!pattern_matches_host(
+    p,
+    "raspberry-pi.robogon.com.evil.com"
+  ));
+  // And the suffix has to be the suffix.
+  assert!(!pattern_matches_host(p, "raspberry-pie.robogon.com"));
+  assert!(!pattern_matches_host(p, "robogon.com"));
+
+  // A prefix pattern is the mirror image.
+  let q = "dev-*.robogon.com";
+  assert!(pattern_matches_host(q, "dev-1.robogon.com"));
+  assert!(!pattern_matches_host(q, "dev-.robogon.com"));
+  assert!(!pattern_matches_host(q, "prod-1.robogon.com"));
+
+  // Not UTF-8 boundaries, not a panic: the Host header is attacker-controlled.
+  assert!(!pattern_matches_host(p, "ü-pi.robogon.co"));
+  assert!(!pattern_matches_host(p, ""));
+  assert!(!pattern_matches_host(p, "robogon"));
+}
+
+#[test]
+fn a_partial_label_sits_under_the_domain_wildcard_and_owns_nothing_wider() {
+  // Coverage grants permission, so it says yes only where it can prove it.
+  assert!(pattern_covers_pattern("*.robogon.com", "*-pi.robogon.com"));
+  assert!(pattern_covers_pattern("*", "*-pi.robogon.com"));
+  assert!(pattern_covers_pattern(
+    "*-pi.robogon.com",
+    "*-pi.robogon.com"
+  ));
+  assert!(pattern_covers_pattern(
+    "*-pi.robogon.com",
+    "a-pi.robogon.com"
+  ));
+
+  assert!(!pattern_covers_pattern("*-pi.robogon.com", "*.robogon.com"));
+  assert!(!pattern_covers_pattern(
+    "*-pi.robogon.com",
+    "dev-*.robogon.com"
+  ));
+  assert!(!pattern_covers_pattern("*-pi.robogon.com", "robogon.com"));
+  assert!(!pattern_covers_pattern("robogon.com", "*-pi.robogon.com"));
+  assert!(!pattern_covers_pattern(
+    "*.eu.robogon.com",
+    "*-pi.robogon.com"
+  ));
+  assert!(pattern_covers_pattern(
+    "*.robogon.com",
+    "*-pi.eu.robogon.com"
+  ));
+}
+
+#[test]
+fn two_partial_labels_on_one_domain_are_treated_as_overlapping() {
+  // `dev-pi.robogon.com` matches both, and neither covers the other. Overlap
+  // refuses an action rather than granting one, so the unprovable case has to
+  // answer yes: master is told to name the hostname instead of the domain.
+  assert!(patterns_overlap("*-pi.robogon.com", "dev-*.robogon.com"));
+  assert!(patterns_overlap("dev-*.robogon.com", "*-pi.robogon.com"));
+  // A different domain cannot share a name with it.
+  assert!(!patterns_overlap("*-pi.robogon.com", "dev-*.other.com"));
+  // And the ordinary cases still answer as they did.
+  assert!(patterns_overlap("*.robogon.com", "*-pi.robogon.com"));
+  assert!(!patterns_overlap("*-pi.robogon.com", "robogon.com"));
+}

@@ -916,3 +916,47 @@ async fn deleting_an_org_clears_the_maintenance_flags_it_owns() {
   assert_eq!(set.len(), 1);
   assert!(set.contains_key("master.example"));
 }
+
+#[tokio::test]
+async fn a_partial_label_pattern_is_accepted_by_the_allowlist_endpoint() {
+  // The shape a fleet naming convention needs: every `<name>-pi` box under a
+  // domain, without handing the tenant the domain.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let id = make_org(&state, "robogon").await;
+
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(id.clone()),
+    Json(OrgHostnamesRequest {
+      hostnames: vec![" *-PI.Robogon.com ".into(), "robogon.com".into()],
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    state.org_store.lock().await.hostnames_of(Some(&id)),
+    vec!["*-pi.robogon.com".to_string(), "robogon.com".to_string()]
+  );
+
+  // And the refusal names the third shape now, so the message is a
+  // description of what is accepted rather than of half of it.
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(id),
+    Json(OrgHostnamesRequest {
+      hostnames: vec!["*-pi-*.robogon.com".into()],
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    .await
+    .unwrap();
+  let text = String::from_utf8(body.to_vec()).unwrap();
+  assert!(text.contains("*-pi.acme.com"), "{text}");
+}
