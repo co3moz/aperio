@@ -112,6 +112,67 @@ fn device_key() -> Option<String> {
     .clone()
 }
 
+/// Longest the tunnel's read loop will wait for one upload's consumer.
+///
+/// The loop is shared by every request, every stream and the heartbeat on this
+/// connection, so a blocking send here does not slow one upload down, it stops
+/// the whole tunnel: no Pong goes out, and fifteen seconds later the liveness
+/// check tears the connection down and every in-flight request with it. Two
+/// seconds is generous for a backend that is merely slow and short enough that
+/// two of them in a row still leave the heartbeat alive.
+const REQUEST_CHUNK_STALL: Duration = Duration::from_secs(2);
+
+/// Hands one chunk of a streamed request body to the backend request it
+/// belongs to, without letting a slow consumer stall the tunnel.
+///
+/// The lock is released before the send, and the send is bounded. A consumer
+/// that cannot take the chunk in time has its upload *failed* rather than
+/// silently truncated: the error travels down the same channel as the body, so
+/// the backend request ends with an error instead of a body that looks
+/// complete and is not.
+async fn feed_request_chunk(
+  streams: &Arc<Mutex<HashMap<String, RequestBodyFeeder>>>,
+  id: &str,
+  bytes: Vec<u8>,
+) {
+  let feeder = {
+    let map = streams.lock().await;
+    match map.get(id) {
+      Some(feeder) => feeder.clone(),
+      None => return,
+    }
+  };
+  // Fast path: room in the buffer, nothing to wait for.
+  match feeder.try_send(Ok(bytes)) {
+    Ok(()) => return,
+    Err(mpsc::error::TrySendError::Closed(_)) => {
+      streams.lock().await.remove(id);
+      return;
+    }
+    Err(mpsc::error::TrySendError::Full(chunk)) => {
+      if tokio::time::timeout(REQUEST_CHUNK_STALL, feeder.send(chunk))
+        .await
+        .is_ok()
+      {
+        return;
+      }
+    }
+  }
+  warn!(
+    "Upload {} stalled: the backend did not read it for {}s, failing that request rather than the tunnel",
+    id,
+    REQUEST_CHUNK_STALL.as_secs()
+  );
+  // Best effort: the channel is full by definition here, so this only lands
+  // once the consumer takes one more chunk. When it never does, dropping the
+  // feeder below ends the body anyway, and the request fails on its own
+  // content-length check.
+  let _ = feeder.try_send(Err(std::io::Error::other(
+    "upload abandoned: the backend stopped reading the request body",
+  )));
+  streams.lock().await.remove(id);
+}
+
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
@@ -1017,10 +1078,7 @@ pub(crate) async fn run_service(
                                       // collides with zlib streams (0x78).
                                       match decode_binary_frame(&b) {
                                           Some((FRAME_REQUEST_CHUNK, fid, payload)) => {
-                                              let streams = active_request_streams.lock().await;
-                                              if let Some(feeder) = streams.get(fid) {
-                                                  let _ = feeder.send(Ok(payload.to_vec())).await;
-                                              }
+                                              feed_request_chunk(&active_request_streams, fid, payload.to_vec()).await;
                                               None
                                           }
                                           // v6: envelope and buffered body in one frame,
@@ -1155,17 +1213,14 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::RequestChunk { id, data } => {
                                               // Base64 fallback path; v2 servers send binary frames.
-                                              let streams = active_request_streams.lock().await;
-                                              if let Some(feeder) = streams.get(&id) {
-                                                  match BASE64_STANDARD.decode(&data) {
-                                                      Ok(bytes) => {
-                                                          let _ = feeder.send(Ok(bytes)).await;
-                                                      }
-                                                      Err(_) => warn!(
-                                                          "Failed to decode Base64 RequestChunk for {}",
-                                                          id
-                                                      ),
+                                              match BASE64_STANDARD.decode(&data) {
+                                                  Ok(bytes) => {
+                                                      feed_request_chunk(&active_request_streams, &id, bytes).await;
                                                   }
+                                                  Err(_) => warn!(
+                                                      "Failed to decode Base64 RequestChunk for {}",
+                                                      id
+                                                  ),
                                               }
                                           }
                                           TunnelMessage::RequestEnd { id } => {

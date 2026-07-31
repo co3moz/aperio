@@ -1114,3 +1114,80 @@ fn should_retire_idle_covers_inflight_and_cold_start() {
   // state, and retiring would cut it off at the drain deadline.
   assert!(!should_retire_idle(700, 1_000, 300, 1));
 }
+
+// --- One upload's consumer must not be able to stop the tunnel ---
+
+/// The map the read loop consults, and the backend end of the one stream in it.
+type StreamMap = Arc<Mutex<HashMap<String, RequestBodyFeeder>>>;
+type BackendEnd = mpsc::Receiver<Result<Vec<u8>, std::io::Error>>;
+
+/// A stream map holding one feeder, with the buffer size given.
+fn one_stream(capacity: usize) -> (StreamMap, BackendEnd) {
+  let (tx, rx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(capacity);
+  let map = Arc::new(Mutex::new(HashMap::from([("req-1".to_string(), tx)])));
+  (map, rx)
+}
+
+#[tokio::test]
+async fn a_chunk_reaches_the_backend_and_the_lock_is_free_while_it_does() {
+  let (streams, mut rx) = one_stream(4);
+  feed_request_chunk(&streams, "req-1", b"hello".to_vec()).await;
+  assert_eq!(rx.recv().await.unwrap().unwrap(), b"hello".to_vec());
+  // The map is not held across the send: another task can read it right after.
+  assert!(streams.lock().await.contains_key("req-1"));
+}
+
+#[tokio::test]
+async fn a_chunk_for_an_unknown_stream_is_dropped_quietly() {
+  let (streams, _rx) = one_stream(4);
+  // A late chunk for a request that already ended is normal, not an error.
+  feed_request_chunk(&streams, "gone", b"x".to_vec()).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_consumer_that_stops_reading_loses_its_upload_not_the_tunnel() {
+  // The bug this covers: the send blocked forever on a full channel while
+  // holding the stream map, so the read loop stopped, no Pong went out, and
+  // fifteen seconds later the liveness check tore down every request on the
+  // connection because of one slow backend.
+  let (streams, _rx) = one_stream(1);
+  feed_request_chunk(&streams, "req-1", b"first".to_vec()).await; // fills it
+
+  let start = tokio::time::Instant::now();
+  feed_request_chunk(&streams, "req-1", b"second".to_vec()).await;
+  let waited = start.elapsed();
+
+  assert!(
+    waited >= REQUEST_CHUNK_STALL && waited < REQUEST_CHUNK_STALL * 2,
+    "the loop waited {waited:?}, it must be bounded by the stall budget"
+  );
+  assert!(
+    !streams.lock().await.contains_key("req-1"),
+    "the abandoned upload is dropped, so later chunks cost nothing"
+  );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_consumer_that_catches_up_keeps_its_upload() {
+  // Merely slow is not abandoned: the chunk lands as soon as there is room.
+  let (streams, mut rx) = one_stream(1);
+  feed_request_chunk(&streams, "req-1", b"first".to_vec()).await;
+
+  let reader = tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut out = Vec::new();
+    while let Some(Ok(chunk)) = rx.recv().await {
+      out.extend_from_slice(&chunk);
+      if out.len() >= 11 {
+        break;
+      }
+    }
+    out
+  });
+  feed_request_chunk(&streams, "req-1", b"second".to_vec()).await;
+  assert!(
+    streams.lock().await.contains_key("req-1"),
+    "a backend that catches up keeps its stream"
+  );
+  assert_eq!(reader.await.unwrap(), b"firstsecond".to_vec());
+}

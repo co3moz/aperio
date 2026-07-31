@@ -1392,3 +1392,26 @@ async fn handler_org_month_quota_returns_429() {
   let resp = run(state, get("/orgquota")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
+
+#[test]
+fn a_body_frame_is_decided_per_client_not_per_request() {
+  // The bug this covers: the choice was made once, before the dispatch loop,
+  // and the loop re-enters with a *different* client after a failover or a
+  // 5xx retry. A v6 frame handed to a client that speaks v5 is a message it
+  // cannot read, so the request hung until the gateway timeout with nothing
+  // saying why.
+  let body = b"payload".as_slice();
+  assert!(body_frame_negotiated(Some(6), body));
+  assert!(body_frame_negotiated(Some(7), body));
+  assert!(
+    !body_frame_negotiated(Some(5), body),
+    "v5 needs base64 in JSON"
+  );
+  assert!(!body_frame_negotiated(Some(2), body));
+  assert!(
+    !body_frame_negotiated(None, body),
+    "a client that announced nothing is assumed old"
+  );
+  // An empty body has nothing to carry either way, so it stays in the JSON.
+  assert!(!body_frame_negotiated(Some(6), b""));
+}

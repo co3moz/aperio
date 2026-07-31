@@ -205,6 +205,17 @@ pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usiz
   }
 }
 
+/// Whether a buffered body travels as bytes in the dispatch frame (v6) rather
+/// than base64 inside the JSON.
+///
+/// A function rather than a line at the call site because the call site is
+/// inside the dispatch loop, which re-runs with a *different* client after a
+/// failover, and the answer is a property of that client rather than of the
+/// request.
+fn body_frame_negotiated(protocol: Option<u32>, body: &[u8]) -> bool {
+  protocol.is_some_and(|v| v >= 6) && !body.is_empty()
+}
+
 /// Builds the 503 maintenance response: the hostname's own `error_pages:`
 /// page, then the global APERIO_503_PAGE, then plain text.
 ///
@@ -1280,18 +1291,6 @@ async fn proxy_http_request(
     }
   }
 
-  // v6 carries a buffered body as bytes in the dispatch frame; anything older
-  // gets base64 in the JSON, which costs an encode here, a decode there and a
-  // third more bytes on the wire. Negotiated per connection, so a mixed fleet
-  // keeps working.
-  let full_body_frame = selected.protocol.is_some_and(|v| v >= 6) && !body_bytes.is_empty();
-  let base64_body = if body_bytes.is_empty() || full_body_frame {
-    None
-  } else {
-    use base64::prelude::*;
-    Some(BASE64_STANDARD.encode(&body_bytes))
-  };
-
   // Map headers (preserve duplicates by collecting into a Vec).
   // Filter out internal aperio session cookies to prevent leaking dashboard
   // session tokens to tunnel clients.
@@ -1423,6 +1422,19 @@ async fn proxy_http_request(
     // Dispatch: buffered requests go out as a single Request message;
     // streamed requests send RequestStart here and a pump task feeds the
     // body as raw binary chunk frames.
+    // Which way this client takes a buffered body. Decided *here*, per
+    // iteration, because a failover or a 5xx retry re-enters this loop with a
+    // different `selected`: deciding once outside would send a v6 frame to
+    // whichever client the first one failed over to, and one that does not
+    // speak v6 cannot read it, so the request would hang until the gateway
+    // timeout with no sign of why.
+    let full_body_frame = !stream_request && body_frame_negotiated(selected.protocol, &body_bytes);
+    let base64_body = if stream_request || full_body_frame || body_bytes.is_empty() {
+      None
+    } else {
+      use base64::prelude::*;
+      Some(BASE64_STANDARD.encode(&body_bytes))
+    };
     let dispatch_msg = if stream_request {
       TunnelMessage::RequestStart {
         id: request_id.clone(),
@@ -1436,7 +1448,7 @@ async fn proxy_http_request(
         method: method_str.clone(),
         uri: uri_str.clone(),
         headers: serialized_headers.clone(),
-        body: base64_body.clone(),
+        body: base64_body,
       }
     };
 
@@ -1464,7 +1476,7 @@ async fn proxy_http_request(
     // v6: the envelope and the body in one binary frame. The writer deflates
     // it when this connection negotiated compression, the same way the client
     // does with a full response.
-    let dispatch_frame = if full_body_frame && !stream_request {
+    let dispatch_frame = if full_body_frame {
       crate::protocol::encode_full_request_frame(
         crate::protocol::FRAME_REQUEST_FULL,
         &request_id,
