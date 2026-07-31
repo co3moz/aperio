@@ -24,6 +24,9 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **A response body is copied twice less on its way through the tunnel.** The client built the frame in two allocations, copying the body into the payload and then again into the frame around it; it is one pass now. The server copied the body out of the WebSocket message it had just received; it takes a refcounted slice of it instead. The wire format is unchanged, and so is everything a visitor sees.
+
+
 - **`aperio-server.yaml` wins over a dashboard override for the same key.** It used to be the other way round: the file said one thing, a value changed once from the dashboard said another, the dashboard won, and nothing anywhere reported the difference. That is a file that lies, and finding out costs an afternoon of wondering why a benchmark will not go faster. A stored override the file contradicts is now dropped at startup (named in the log and written to the audit trail as `settings_override_dropped`), the dashboard refuses to create one for a key the file writes, and the settings pane marks those fields **from file** so nobody types into them first. A key the file leaves alone is still the dashboard's to set, live, which is what the feature is for.
 
 

@@ -541,7 +541,7 @@ pub(crate) async fn handle_socket(
       Ok(msg) => {
         // Set by a v5 full-response frame and taken by the `Response` arm: the
         // body that came as bytes rather than base64 inside the envelope.
-        let mut full_body: Option<Vec<u8>> = None;
+        let mut full_body: Option<axum::body::Bytes> = None;
         let text_opt = match msg {
           Message::Text(t) => Some(t.as_str().to_string()),
           Message::Binary(b) => {
@@ -581,7 +581,17 @@ pub(crate) async fn handle_socket(
                 };
                 match crate::protocol::split_full_response(payload) {
                   Some((json, body)) => {
-                    full_body = Some(body.to_vec());
+                    // A slice of the message that arrived, not a copy of it:
+                    // `b` is refcounted, and the body is the tail of it. The
+                    // inflated case has no such backing, so it hands over the
+                    // buffer it just built.
+                    full_body = Some(match &inflated {
+                      Some(_) => axum::body::Bytes::copy_from_slice(body),
+                      None => {
+                        let start = b.len() - body.len();
+                        b.slice(start..)
+                      }
+                    });
                     Some(json.to_string())
                   }
                   None => {

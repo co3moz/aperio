@@ -80,6 +80,29 @@ pub(crate) fn inflate_payload(data: &[u8], max_out: usize) -> Option<Vec<u8>> {
   Some(out)
 }
 
+/// Builds the whole `FRAME_RESPONSE_FULL` frame in one allocation:
+/// `[tag][id_len][id][json_len][json][body]`.
+///
+/// The two halves used to be built separately, which copied the body twice:
+/// once into the payload and once again into the frame around it. The wire
+/// format is the same either way; this is the same bytes with one pass over
+/// the body instead of two. `None` when the id will not fit its one-byte
+/// length, the same refusal `encode_binary_frame` makes and for the same
+/// reason.
+pub(crate) fn encode_full_response_frame(id: &str, json: &str, body: &[u8]) -> Option<Vec<u8>> {
+  if id.len() > u8::MAX as usize {
+    return None;
+  }
+  let mut out = Vec::with_capacity(2 + id.len() + 4 + json.len() + body.len());
+  out.push(FRAME_RESPONSE_FULL);
+  out.push(id.len() as u8);
+  out.extend_from_slice(id.as_bytes());
+  out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+  out.extend_from_slice(json.as_bytes());
+  out.extend_from_slice(body);
+  Some(out)
+}
+
 /// The other half of the pair, for the round-trip test. A full-response frame
 /// only ever travels client to server, so each side ships the direction it
 /// actually uses and keeps the other one for the test that proves they agree.
@@ -97,6 +120,7 @@ pub(crate) fn split_full_response(payload: &[u8]) -> Option<(&str, &[u8])> {
 
 /// Builds a `FRAME_RESPONSE_FULL` payload: the envelope's length, the
 /// envelope, then the body verbatim.
+#[cfg(test)]
 pub(crate) fn join_full_response(json: &str, body: &[u8]) -> Vec<u8> {
   let mut out = Vec::with_capacity(4 + json.len() + body.len());
   out.extend_from_slice(&(json.len() as u32).to_le_bytes());

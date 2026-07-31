@@ -170,7 +170,7 @@ fn spawn_swr_revalidation(
         // the entry is only wrong later, on a request nobody is watching.
         use base64::prelude::*;
         let body = match tunnel_res.body_raw.take() {
-          Some(raw) => raw,
+          Some(raw) => raw.to_vec(),
           None => tunnel_res
             .body
             .as_deref()
@@ -1633,13 +1633,16 @@ async fn proxy_http_request(
         // A v5 client sends the body as bytes in the same frame as the
         // envelope, so there is nothing to decode. Anything older sends it
         // base64 inside the JSON.
-        let res_bytes = if let Some(raw) = tunnel_res.body_raw.take() {
+        let res_bytes: axum::body::Bytes = if let Some(raw) = tunnel_res.body_raw.take() {
           raw
         } else if let Some(ref encoded_body) = tunnel_res.body {
           use base64::prelude::*;
-          BASE64_STANDARD.decode(encoded_body).unwrap_or_default()
+          BASE64_STANDARD
+            .decode(encoded_body)
+            .unwrap_or_default()
+            .into()
         } else {
-          Vec::new()
+          axum::body::Bytes::new()
         };
 
         let body_len = res_bytes.len() as u64;
@@ -1727,7 +1730,9 @@ async fn proxy_http_request(
               cache_key.clone(),
               tunnel_res.status,
               tunnel_res.headers.clone(),
-              res_bytes.clone(),
+              // The cache owns its copy: it outlives this response, and the
+              // `Bytes` here is a view into the frame that carried it.
+              res_bytes.to_vec(),
               ttl,
               state.config().cache_max_bytes,
               selected.resilience,
@@ -1863,9 +1868,7 @@ async fn proxy_http_request(
           Body::new(http_body_util::StreamBody::new(stream))
         } else if let Some(trailers) = tunnel_res.trailers.take() {
           let frames: Vec<Result<http_body::Frame<axum::body::Bytes>, axum::BoxError>> = vec![
-            Ok(http_body::Frame::data(axum::body::Bytes::from(
-              res_bytes.clone(),
-            ))),
+            Ok(http_body::Frame::data(res_bytes.clone())),
             Ok(http_body::Frame::trailers(trailer_header_map(&trailers))),
           ];
           Body::new(http_body_util::StreamBody::new(futures_util::stream::iter(

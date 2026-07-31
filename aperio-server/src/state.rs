@@ -939,8 +939,10 @@ pub(crate) struct TunnelResponse {
   pub(crate) body: Option<String>,
   /// The same body as bytes, from a v5 full-response frame. When this is set
   /// `body` is not: the point of the frame is that the body never becomes a
-  /// base64 string on either side.
-  pub(crate) body_raw: Option<Vec<u8>>,
+  /// base64 string on either side. `Bytes` rather than `Vec<u8>` because the
+  /// WebSocket message already owns them refcounted, so this is a slice of
+  /// what arrived rather than a copy of it.
+  pub(crate) body_raw: Option<axum::body::Bytes>,
   /// HTTP trailers of a buffered response (e.g. `grpc-status` for gRPC).
   pub(crate) trailers: Option<Vec<(String, String)>>,
   /// For streamed responses: receiver of decoded body frames. The proxy

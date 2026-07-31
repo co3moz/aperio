@@ -7,9 +7,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tracing::{error, info, warn};
 
-use crate::protocol::{
-  FRAME_RESPONSE_CHUNK, FRAME_RESPONSE_FULL, TunnelMessage, encode_binary_frame, send_tunnel_msg,
-};
+use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, send_tunnel_msg};
 
 /// Response bodies larger than this are streamed through the tunnel in
 /// chunks instead of being buffered and sent as one message. Used with a peer
@@ -58,8 +56,7 @@ pub(crate) async fn send_full_response(
   let Ok(json) = serde_json::to_string(message) else {
     return false;
   };
-  let payload = crate::protocol::join_full_response(&json, body);
-  let Some(frame) = encode_binary_frame(FRAME_RESPONSE_FULL, id, &payload) else {
+  let Some(frame) = crate::protocol::encode_full_response_frame(id, &json, body) else {
     return false;
   };
   tunnel_tx.send(Message::Binary(frame)).await.is_ok()
