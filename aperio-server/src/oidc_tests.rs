@@ -330,7 +330,7 @@ async fn load_from_env_covers_none_and_success() {
     std::env::set_var("APERIO_OIDC_CLIENT_ID", "cid");
     std::env::set_var("APERIO_OIDC_CLIENT_SECRET", "csecret");
     // Includes blanks and mixed case to exercise trim/lowercase/filter.
-    std::env::set_var("APERIO_OIDC_ALLOWED_EMAILS", " Boss@Corp.com,*@team.io ");
+    std::env::set_var("APERIO_OIDC_ALLOWED_EMAILS", " Boss@Corp.com , ,*@team.io ");
     std::env::set_var("APERIO_OIDC_REDIRECT_URL", "https://app.example/cb");
   }
 

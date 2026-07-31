@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
 use crate::access_log::{log_request_failure, sanitize_uri};
+use crate::limits::{Limit, refuse};
 use crate::protocol::TunnelMessage;
 use crate::proxy::gateway_timeout_response;
 use crate::routing::{extract_request_host, pick_proxy_client};
@@ -47,15 +48,15 @@ pub(crate) async fn handle_ws_proxy(
       &uri_str,
       429,
       start_time.elapsed(),
-      Some(&format!("Rate Limit Exceeded for IP {}", caller_ip)),
+      Some(&format!("{} (IP {})", Limit::Ip.log_detail(), caller_ip)),
       None,
     )
     .await;
-    return (
-      StatusCode::TOO_MANY_REQUESTS,
-      "429 Too Many Requests - IP rate limit exceeded",
-    )
-      .into_response();
+    // The same refusal the HTTP path gives, through the same door: a visitor
+    // whose WebSocket upgrade is rate-limited gets the header naming the
+    // limit, and the refusal is counted. This path answered a bare 429 while
+    // its sibling explained itself.
+    return refuse(&state, Limit::Ip);
   }
 
   // Cap concurrently-live proxied WebSockets. They are long-lived, so they get

@@ -267,7 +267,10 @@ fn test_build_ws_url() {
 #[test]
 fn test_split_ip_list() {
   assert_eq!(
-    split_ip_list(" 203.0.113.7, 10.0.0.0/8,"),
+    // Deliberately messy: a space before a comma and two empty entries, which
+    // is what this function exists to survive. An earlier sweep tidied the
+    // input and quietly took the coverage with it.
+    split_ip_list(" 203.0.113.7, 10.0.0.0/8 ,,"),
     vec!["203.0.113.7".to_string(), "10.0.0.0/8".to_string()]
   );
   assert!(split_ip_list("").is_empty());

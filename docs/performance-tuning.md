@@ -44,7 +44,7 @@ first place to look, and each has a switch:
 | Setting | What it does | What you lose |
 |---|---|---|
 | `inspector` (env `APERIO_INSPECTOR`) | Records every transaction for the request inspector | Inspect, replay, cURL and HAR export stop working |
-| `access_events` (env `APERIO_ACCESS_EVENTS`) | One structured log event per request | Per-request lines in the log; warnings and errors stay |
+| `access_events` (env `APERIO_ACCESS_EVENTS`) | One structured log event per successful request | The per-request line; a refused or failed request still logs, at `warn` |
 | `capture` (per service, client-side) | The same recording, for one service only | Only that service's requests become uninspectable |
 
 `capture: false` is the one to reach for first: it is per service, so the

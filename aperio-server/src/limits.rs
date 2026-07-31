@@ -136,6 +136,17 @@ impl LimitCounters {
   }
 }
 
+/// Refuses a request with the limit that caused it, counting it on the way
+/// out. Everything that answers 429 goes through here: the counter behind
+/// `aperio_rate_limited_total` is only trustworthy if no path can skip it,
+/// and one did until a review of this change found it, the visitor-facing
+/// WebSocket upgrade, which answered a bare 429 while its HTTP sibling
+/// explained itself.
+pub(crate) fn refuse(state: &crate::state::AppState, limit: Limit) -> Response {
+  state.limit_counters.record(limit);
+  too_many_requests(limit)
+}
+
 /// The refusal itself: the status, the header naming the limit, a body that
 /// repeats it in prose, and `Retry-After` where there is a truthful one.
 pub(crate) fn too_many_requests(limit: Limit) -> Response {

@@ -2247,9 +2247,10 @@ pub struct ServerFileConfig {
   /// (env: APERIO_INSPECTOR).
   #[schemars(extend("examples" = [false]))]
   pub inspector: Option<bool>,
-  /// Emit the per-request structured access event. On by default. Distinct
-  /// from `log_level`: `false` silences one event per request and leaves
-  /// warnings and errors alone (env: APERIO_ACCESS_EVENTS).
+  /// Emit the per-request structured access event for a successful request.
+  /// On by default. Distinct from `log_level`: `false` silences that
+  /// one-per-request line and leaves warnings and errors alone, so a refused
+  /// or failed request still logs at `warn` (env: APERIO_ACCESS_EVENTS).
   #[schemars(extend("examples" = [false]))]
   pub access_events: Option<bool>,
   /// Maximum concurrently-live proxied public WebSockets; they are long-lived,

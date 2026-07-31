@@ -22,9 +22,11 @@ pub(crate) struct ServerConfig {
   /// wrong. Off costs a mutex, two header clones and a capture entry per
   /// request, which is the trade a server running flat out may want.
   pub(crate) inspector: bool,
-  /// Emit the per-request structured access event (`target: aperio_access`).
-  /// On by default. Distinct from `log_level`: turning this off silences one
-  /// event per request without silencing warnings and errors with it.
+  /// Emit the per-request structured access event for a successful request
+  /// (`target: aperio_access`, level `info`). On by default. Distinct from
+  /// `log_level`: turning this off silences the one-per-request line without
+  /// silencing warnings and errors with it, so a refused or failed request
+  /// still logs at `warn`.
   pub(crate) access_events: bool,
   pub(crate) ip_limit_max: f64,
   pub(crate) ip_limit_refill: f64,

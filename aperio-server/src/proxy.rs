@@ -15,7 +15,7 @@ use tracing::{Instrument, error, warn};
 
 use crate::access_log::{log_request_failure, log_request_success};
 use crate::auth::{safe_redirect_path, validate_session, validate_session_for_host};
-use crate::limits::{Limit, too_many_requests};
+use crate::limits::{Limit, refuse};
 use crate::protocol::{FRAME_REQUEST_CHUNK, TunnelMessage, encode_binary_frame};
 use crate::routing::{
   PickOutcome, extract_client_ip, extract_request_host, method_retryable, pick_proxy_client,
@@ -359,14 +359,6 @@ pub(crate) async fn check_visitor_gate(
 
 /// Proxy handler for forwarding all incoming HTTP requests to active client.
 /// Also detects WebSocket upgrade requests and proxies them as persistent streams.
-/// Refuses a request with the limit that caused it, counting it on the way
-/// out. Everything that answers 429 goes through here: the counter behind
-/// `aperio_rate_limited_total` is only trustworthy if no path can skip it.
-fn refuse(state: &AppState, limit: Limit) -> Response {
-  state.limit_counters.record(limit);
-  too_many_requests(limit)
-}
-
 pub(crate) async fn proxy_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
