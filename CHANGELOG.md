@@ -36,6 +36,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The settings pane says what a stored override is, and offers the yaml that replaces it.** Editing a server setting from the dashboard is a live change that also outlives a restart, but it is stored in the server's own store rather than in `aperio-server.yaml`, so the file an operator reads describes a different server than the one running. When any setting carries an override, the pane now says so, and shows the exact yaml lines that would make them the deployment's, with the consequence stated: the file wins, so writing a key there drops the override behind it at the next start.
+
 - **Large counts in the dashboard are grouped, and an empty cell says so.** `6652646` is a number nobody reads, so the overview, the clients table and the traffic breakdown now write `6,652,646`, grouped the way the dashboard's own language does rather than the browser's. A cell with nothing in it shows an en dash again: a repository-wide sweep had replaced the placeholder with a lone comma, so a client with no hostname bind showed `,`.
 
 - **The words an operator types are no longer translated.** `hostname`, `path`, `header`, `endpoint`, `payload`, `token`, `webhook`, `proxy` and `subdomain` name things that appear verbatim in `aperio.yaml`, in a URL or on the wire, and a column headed "Alan Adı" over a list of `hostname:` values breaks the link between the screen and the file. They stay in English in all seven languages now; everything around them is still translated, including the words that only sound technical (tunnel, client, cache, request).

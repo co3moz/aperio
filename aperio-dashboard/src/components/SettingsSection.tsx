@@ -2,7 +2,7 @@ import { RotateCcwIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useUnsavedChanges } from '@/lib/unsaved'
 import { usePaneFocus } from '@/lib/paneFocus'
-import { SectionHeader } from './shared'
+import { CopyButton, SectionHeader } from './shared'
 import {
   Accordion,
   AccordionContent,
@@ -192,6 +192,27 @@ Environment=APERIO_TRUST_PROXY=1`}
         </Table>
     </div>
   )
+}
+
+/**
+ * The overrides as the `aperio-server.yaml` that would make them permanent.
+ *
+ * Every key here is a flat yaml key, which is what the settings API and the
+ * file agree on, so a line can be pasted into the file as it stands.
+ */
+function overridesAsYaml(overrides: SettingsOverrides): string {
+  const quote = (value: unknown): string => {
+    if (typeof value === 'boolean' || typeof value === 'number') return String(value)
+    const text = String(value ?? '')
+    // Quote anything yaml would read as something other than a string, and
+    // anything empty, so a pasted line means what it shows.
+    return /^[A-Za-z0-9_./*@:-]+$/.test(text) && text !== '' ? text : JSON.stringify(text)
+  }
+  return Object.entries(overrides)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}: ${quote(value)}`)
+    .join('\n')
 }
 
 /**
@@ -413,6 +434,16 @@ export function SettingsSection() {
     )
   }
 
+  // The keys carrying a stored override, and the yaml that would make them
+  // permanent. Derived from the fields rather than from `overrides` directly,
+  // so a key the catalog does not know about cannot be offered as yaml.
+  const overriddenKeys = GROUPS.flatMap((g) => g.fields)
+    .map((f) => f.key)
+    .filter((key) => isOverridden(key))
+  const yamlSnippet = overridesAsYaml(
+    Object.fromEntries(overriddenKeys.map((key) => [key, overrides[key]])),
+  )
+
   /** Marker for a setting aperio-server.yaml owns. */
   const fileMarker = (f: FieldSpec) =>
     fromFile(f.key) ? (
@@ -493,6 +524,31 @@ export function SettingsSection() {
         >
           {message.text}
         </p>
+      )}
+      {/* What a stored override actually is, shown only when there is one:
+          the change is live and it survives a restart, but it lives in the
+          server's own store rather than in the file an operator reads, so
+          nothing about aperio-server.yaml reveals it. The yaml equivalent is
+          right here because that is the next thing you want. */}
+      {overriddenKeys.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            {t('{count} setting(s) are stored overrides, not what your config file says', {
+              count: overriddenKeys.length,
+            })}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'They apply immediately and survive a restart, but they live in the server\u2019s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment\u2019s: the file wins, and the override behind each of these keys is dropped at the next start.',
+            )}
+          </p>
+          <pre className="overflow-x-auto rounded-2xl bg-background/60 px-3 py-2 font-mono text-xs">
+            {yamlSnippet}
+          </pre>
+          <div>
+            <CopyButton value={yamlSnippet} label={t('Copy as YAML')} />
+          </div>
+        </div>
       )}
       {/* One column of collapsed groups rather than two columns of open
           cards: side by side, two unrelated groups of switches read as one

@@ -943,4 +943,7 @@ export const tr: Record<string, string> = {
   '{count} setting(s) here differ from what the server started with': 'Burada {count} ayar, sunucunun başladığı değerden farklı',
   'from file': 'dosyadan',
   'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'Bunu aperio-server.yaml belirliyor ve dosya kazanıyor. Oradan değiştir: burada yapılan değişiklik reddedilir, çünkü dosyanın çeliştiği kayıtlı bir override tam da bunun engellediği görünmez durumdur.',
+  '{count} setting(s) are stored overrides, not what your config file says': '{count} ayar kayıtlı override, config dosyanızın söylediği değil',
+  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'Hemen uygulanır ve yeniden başlatmayı da atlatırlar, ancak sunucunun kendi deposunda dururlar, dolayısıyla aperio-server.yaml hâlâ çalışandan başka bir sunucuyu anlatır. Dağıtımın parçası olmaları için dosyaya yazın: dosya kazanır ve bu anahtarların ardındaki override bir sonraki başlangıçta düşer.',
+  'Copy as YAML': 'YAML olarak kopyala',
 }

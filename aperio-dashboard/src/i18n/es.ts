@@ -939,4 +939,7 @@ export const es: Record<string, string> = {
   '{count} setting(s) here differ from what the server started with': '{count} ajuste(s) aquí difieren de con lo que arrancó el servidor',
   'from file': 'del archivo',
   'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'aperio-server.yaml lo define y el archivo manda. Cámbialo ahí: un cambio hecho aquí sería rechazado, porque un override guardado que el archivo contradice es justo el estado invisible que esto evita.',
+  '{count} setting(s) are stored overrides, not what your config file says': '{count} ajuste(s) son overrides guardados, no lo que dice tu archivo de configuración',
+  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'Se aplican de inmediato y sobreviven a un reinicio, pero viven en el propio almacén del servidor, así que aperio-server.yaml sigue describiendo un servidor distinto del que está en marcha. Escríbelos en el archivo para que formen parte del despliegue: el archivo gana, y el override de cada una de estas claves se descarta en el siguiente arranque.',
+  'Copy as YAML': 'Copiar como YAML',
 }

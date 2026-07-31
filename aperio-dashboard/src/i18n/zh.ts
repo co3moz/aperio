@@ -920,4 +920,7 @@ export const zh: Record<string, string> = {
   '{count} setting(s) here differ from what the server started with': '此处有 {count} 项设置与服务器启动时的值不同',
   'from file': '来自文件',
   'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': '这是 aperio-server.yaml 设置的，以文件为准。请在那里修改：在此处的更改会被拒绝，因为与文件矛盾的已存覆盖正是这里要避免的隐形状态。',
+  '{count} setting(s) are stored overrides, not what your config file says': '{count} 项设置是已保存的 override，而不是配置文件中的内容',
+  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': '它们立即生效并能在重启后保留，但保存在服务器自己的存储里，因此 aperio-server.yaml 描述的仍是另一台服务器，而不是正在运行的这台。把它们写进文件，它们才属于这次部署：文件优先，这些键背后的 override 会在下次启动时被丢弃。',
+  'Copy as YAML': '复制为 YAML',
 }

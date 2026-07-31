@@ -937,4 +937,7 @@ export const ja: Record<string, string> = {
   '{count} setting(s) here differ from what the server started with': 'ここでは {count} 件の設定がサーバー起動時の値と異なります',
   'from file': 'ファイル由来',
   'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'これは aperio-server.yaml が設定しており、ファイルが優先されます。変更はそちらで行ってください。ここでの変更は拒否されます。ファイルと矛盾する保存済みの上書きこそ、これが避けようとしている見えない状態だからです。',
+  '{count} setting(s) are stored overrides, not what your config file says': '{count} 件の設定は保存された override であり、設定ファイルの内容ではありません',
+  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'すぐに適用され、再起動後も残りますが、サーバー自身のストアに置かれるため、aperio-server.yaml は動作中のサーバーとは別のサーバーを説明したままです。デプロイの一部にするにはファイルに書いてください: ファイルが優先され、これらのキーの override は次回起動時に破棄されます。',
+  'Copy as YAML': 'YAML としてコピー',
 }
