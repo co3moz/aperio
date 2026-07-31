@@ -138,30 +138,23 @@ free number.
   that needs new server-side counters and is out of scope. Ship A/B/C behind the
   new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
 
-- [ ] **#9 Give the WS and TCP relay arms the bounded hand-off the upload path
-  already has.** The `try_send` fix (commit `2e5273b`) protected the tunnel read
-  loop, one stalled backend can no longer starve `Pong` and trip the liveness
-  watchdog, but it converts *transient* backpressure into stream death: when a
-  stream's 64-slot channel fills, the stream is dropped on the spot. WS and TCP
-  are lossless, so a healthy but legitimately slow consumer, a large file over a
-  tunneled TCP stream whose backend socket applies flow control, can be killed
-  by a burst that momentarily outpaces it.
+- [x] **#9 Give the WS and TCP relay arms the bounded hand-off the upload path
+  already has.** shipped: `deliver_to_relay` in `aperio-client/src/service.rs`,
+  the generic form of `feed_request_chunk`, is what the `WsData` and `TcpData`
+  arms use now. The map is released before the send, the frame goes over
+  without waiting when there is room, and a full channel is waited on for a
+  bounded two seconds (`STREAM_STALL_BUDGET`) before that one stream is
+  dropped with a log line naming it. So a lossless stream whose consumer is
+  merely slower than a burst survives, where `try_send` alone killed it, and a
+  consumer that has genuinely stopped still cannot stall the shared read loop
+  or the heartbeat on it. `UdpDatagram` keeps dropping on a full channel, now
+  with a comment saying that is its contract rather than an oversight.
 
-  **Most of the answer already exists.** `feed_request_chunk`
-  (`aperio-client/src/service.rs`, commit `dbd73ea`) is the shape: clone the
-  sender, release the map, try without waiting, and on a full channel wait a
-  bounded two seconds before failing *that* stream with an explicit error. The
-  work left is applying the same helper to the `WsData` arm and the TCP-data
-  arm, which still do `try_send(...).is_err() → remove the stream`. The
-  `UdpDatagram` arm keeps dropping on a full channel: that is the correct
-  semantic for a datagram relay, not an oversight.
-
-  **Deliberately not doing** the per-stream credit/window protocol the original
-  note proposed. The server already pauses producers in the other direction
-  (protocol v3), and a symmetric credit scheme means a protocol change, a
-  version bump and skew handling for a case a bounded wait plus a larger buffer
-  covers. Revisit only if the bounded wait proves too blunt in practice.
-  (From the 2026-07 unpushed-commits review, rescoped 2026-07-31.)
+  The per-stream credit/window protocol the original entry proposed was
+  deliberately not built: the server already pauses producers in the other
+  direction (protocol v3), and a symmetric scheme means a protocol bump and
+  skew handling for a case a bounded wait covers. Revisit only if the wait
+  proves too blunt in practice. (From the 2026-07 unpushed-commits review.)
 
 - [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
   server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):

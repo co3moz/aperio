@@ -1158,7 +1158,7 @@ async fn a_consumer_that_stops_reading_loses_its_upload_not_the_tunnel() {
   let waited = start.elapsed();
 
   assert!(
-    waited >= REQUEST_CHUNK_STALL && waited < REQUEST_CHUNK_STALL * 2,
+    waited >= STREAM_STALL_BUDGET && waited < STREAM_STALL_BUDGET * 2,
     "the loop waited {waited:?}, it must be bounded by the stall budget"
   );
   assert!(
@@ -1190,4 +1190,62 @@ async fn a_consumer_that_catches_up_keeps_its_upload() {
     "a backend that catches up keeps its stream"
   );
   assert_eq!(reader.await.unwrap(), b"firstsecond".to_vec());
+}
+
+// --- The relay arms take the same bounded hand-off ---
+
+#[tokio::test]
+async fn a_relay_frame_is_delivered_when_the_consumer_has_room() {
+  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(2);
+  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec()).await);
+  assert_eq!(rx.recv().await.unwrap(), b"first".to_vec());
+}
+
+#[tokio::test]
+async fn a_relay_whose_consumer_is_gone_is_finished() {
+  let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
+  drop(rx);
+  assert!(!deliver_to_relay(&tx, "TCP", "s1", b"x".to_vec()).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_relay_consumer_that_is_merely_slow_keeps_its_stream() {
+  // The regression this covers: `try_send` alone dropped a lossless stream the
+  // moment its buffer filled, so a large file over a tunneled socket died on a
+  // burst its backend would have absorbed a moment later.
+  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1);
+  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec()).await); // fills it
+
+  let reader = tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut seen = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+      seen.push(chunk);
+      if seen.len() == 2 {
+        break;
+      }
+    }
+    seen
+  });
+  assert!(
+    deliver_to_relay(&tx, "TCP", "s1", b"second".to_vec()).await,
+    "a consumer that catches up inside the budget keeps its stream"
+  );
+  assert_eq!(reader.await.unwrap().len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_relay_consumer_that_stops_reading_loses_its_stream_not_the_tunnel() {
+  let (tx, _rx) = mpsc::channel::<Vec<u8>>(1);
+  assert!(deliver_to_relay(&tx, "WebSocket", "s1", b"first".to_vec()).await);
+
+  let start = tokio::time::Instant::now();
+  let alive = deliver_to_relay(&tx, "WebSocket", "s1", b"second".to_vec()).await;
+  let waited = start.elapsed();
+
+  assert!(!alive, "the stalled stream is finished");
+  assert!(
+    waited >= STREAM_STALL_BUDGET && waited < STREAM_STALL_BUDGET * 2,
+    "the read loop waited {waited:?}, it must be bounded by the budget"
+  );
 }

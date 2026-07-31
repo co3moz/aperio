@@ -42,6 +42,8 @@ Two safety nets bound the mechanism. A client that cannot be paused, a pre-v3 cl
 
 The watermarks are server settings ([Configuration](configuration.md)); an inconsistent trio is repaired rather than obeyed, so the mechanism cannot be configured into dropping every stream.
 
+The client side has the mirror of the same rule. Its read loop is shared by every request, stream and heartbeat on the connection, so it never blocks on one consumer indefinitely: a frame for a proxied WebSocket, a TCP relay or a buffered upload is handed over without waiting when there is room, and when there is not, it waits **two seconds** before giving up on that stream. A backend that is merely slower than a burst keeps its stream; one that has genuinely stopped reading loses its own stream, with a log line naming it, rather than the tunnel losing its heartbeat and taking every other stream down with it. UDP relays are the exception in both directions, a datagram relay that waits for a congested consumer is not a datagram relay.
+
 ## Tunnel compression
 
 With `APERIO_TUNNEL_COMPRESSION=1` (yaml `tunnel_compression`) the server offers per-message zlib compression for JSON frames. Clients that support it acknowledge, and both directions switch to compressed frames; older clients keep working uncompressed. The client bounds decompression output as a memory-protection measure.

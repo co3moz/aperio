@@ -112,15 +112,48 @@ fn device_key() -> Option<String> {
     .clone()
 }
 
-/// Longest the tunnel's read loop will wait for one upload's consumer.
+/// Longest the tunnel's read loop will wait for one stream's consumer, whether
+/// that is an upload's backend request, a proxied WebSocket or a TCP relay.
 ///
 /// The loop is shared by every request, every stream and the heartbeat on this
-/// connection, so a blocking send here does not slow one upload down, it stops
+/// connection, so a blocking send here does not slow one stream down, it stops
 /// the whole tunnel: no Pong goes out, and fifteen seconds later the liveness
 /// check tears the connection down and every in-flight request with it. Two
 /// seconds is generous for a backend that is merely slow and short enough that
 /// two of them in a row still leave the heartbeat alive.
-const REQUEST_CHUNK_STALL: Duration = Duration::from_secs(2);
+const STREAM_STALL_BUDGET: Duration = Duration::from_secs(2);
+
+/// Hands one frame to a relay's consumer, waiting only as long as the tunnel
+/// can afford. `false` means this stream is finished and its entry should go.
+///
+/// The alternative that was here, `try_send` and drop the stream the moment
+/// its buffer is full, protected the read loop and turned *transient*
+/// backpressure into stream death. WebSockets and TCP relays are lossless, so
+/// a healthy consumer that is merely slower than a burst, a large file over a
+/// tunneled socket whose peer applies flow control, was being killed for
+/// keeping the tunnel waiting a few milliseconds. Waiting a bounded two
+/// seconds first covers that; a consumer still not ready after it is stalled
+/// rather than slow, and loses its own stream instead of the connection.
+async fn deliver_to_relay<T>(tx: &mpsc::Sender<T>, kind: &str, stream_id: &str, item: T) -> bool {
+  match tx.try_send(item) {
+    Ok(()) => true,
+    Err(mpsc::error::TrySendError::Closed(_)) => false,
+    Err(mpsc::error::TrySendError::Full(item)) => {
+      match tokio::time::timeout(STREAM_STALL_BUDGET, tx.send(item)).await {
+        Ok(Ok(())) => true,
+        _ => {
+          warn!(
+            "{} relay {} stalled: its consumer took no data for {}s, dropping that stream rather than the tunnel",
+            kind,
+            stream_id,
+            STREAM_STALL_BUDGET.as_secs()
+          );
+          false
+        }
+      }
+    }
+  }
+}
 
 /// Hands one chunk of a streamed request body to the backend request it
 /// belongs to, without letting a slow consumer stall the tunnel.
@@ -150,7 +183,7 @@ async fn feed_request_chunk(
       return;
     }
     Err(mpsc::error::TrySendError::Full(chunk)) => {
-      if tokio::time::timeout(REQUEST_CHUNK_STALL, feeder.send(chunk))
+      if tokio::time::timeout(STREAM_STALL_BUDGET, feeder.send(chunk))
         .await
         .is_ok()
       {
@@ -161,7 +194,7 @@ async fn feed_request_chunk(
   warn!(
     "Upload {} stalled: the backend did not read it for {}s, failing that request rather than the tunnel",
     id,
-    REQUEST_CHUNK_STALL.as_secs()
+    STREAM_STALL_BUDGET.as_secs()
   );
   // Best effort: the channel is full by definition here, so this only lands
   // once the consumer takes one more chunk. When it never does, dropping the
@@ -1266,13 +1299,13 @@ pub(crate) async fn run_service(
                                               data,
                                               is_text,
                                           } => {
-                                              // Forward from tunnel → backend WS with a NON-BLOCKING
-                                              // try_send: awaiting the send here would let one backend
-                                              // that stopped reading wedge the entire tunnel read loop,
-                                              // which also carries Pong, so a stall would starve the
-                                              // liveness watchdog and drop every stream on this
-                                              // connection. Instead drop just this backed-up stream (its
-                                              // 64-slot channel is already a generous buffer).
+                                              // Forward from tunnel → backend WS with the bounded
+                                              // hand-off: the map is released first, and a consumer
+                                              // that cannot take the frame within the budget loses its
+                                              // own stream. Awaiting it without a bound would let one
+                                              // backend that stopped reading wedge the read loop, which
+                                              // also carries Pong, and take every stream on this
+                                              // connection down with it.
                                               let tx = {
                                                   let streams = active_ws_streams.lock().await;
                                                   streams.get(&stream_id).map(|h| h.tx.clone())
@@ -1289,8 +1322,7 @@ pub(crate) async fn run_service(
                                                           }
                                                       }
                                                   };
-                                                  if tx.try_send(ws_msg).is_err() {
-                                                      debug!("Backend WS channel full/closed for stream {}; dropping", stream_id);
+                                                  if !deliver_to_relay(&tx, "WebSocket", &stream_id, ws_msg).await {
                                                       active_ws_streams.lock().await.remove(&stream_id);
                                                   }
                                               }
@@ -1400,7 +1432,11 @@ pub(crate) async fn run_service(
                                               let streams = active_udp_streams.lock().await;
                                               if let Some(handle) = streams.get(&stream_id) {
                                                   match BASE64_STANDARD.decode(&data) {
-                                                      // Best-effort: drop when the relay is congested.
+                                                      // Best-effort by contract, unlike the WS and TCP
+                                                      // arms above: a datagram relay that waits for a
+                                                      // congested consumer is no longer a datagram
+                                                      // relay, so a full channel drops the datagram and
+                                                      // keeps the stream.
                                                       Ok(bytes) => { let _ = handle.tx.try_send(bytes); }
                                                       Err(_) => warn!("Failed to decode Base64 UdpDatagram for stream {}", stream_id),
                                                   }
@@ -1414,10 +1450,10 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::TcpData { stream_id, data } => {
-                                              // Non-blocking try_send (see the WsData arm): a backend that
-                                              // accepts the connection but stops reading must never wedge
-                                              // the tunnel read loop and starve the liveness watchdog.
-                                              // Drop just this stalled stream instead.
+                                              // The bounded hand-off (see the WsData arm): a backend
+                                              // that accepts the connection and then stops reading must
+                                              // never wedge the tunnel read loop and starve the liveness
+                                              // watchdog, but a merely slow one keeps its stream.
                                               let tx = {
                                                   let streams = active_tcp_streams.lock().await;
                                                   streams.get(&stream_id).map(|h| h.tx.clone())
@@ -1425,8 +1461,7 @@ pub(crate) async fn run_service(
                                               if let Some(tx) = tx {
                                                   match BASE64_STANDARD.decode(&data) {
                                                       Ok(bytes) => {
-                                                          if tx.try_send(bytes).is_err() {
-                                                              debug!("TCP backend channel full/closed for stream {}; dropping", stream_id);
+                                                          if !deliver_to_relay(&tx, "TCP", &stream_id, bytes).await {
                                                               active_tcp_streams.lock().await.remove(&stream_id);
                                                           }
                                                       }
