@@ -42,5 +42,14 @@ assert_contains "$BODY_A" "site a" "the first hostname serves its own directory"
 wait_routable site-b.e2e.local /
 BODY_B="$(curl -s -H "Host: site-b.e2e.local" "$BASE/")"
 assert_contains "$BODY_B" "site b" "the second hostname serves its own directory"
+# A served file streams from disk, so a redeployed file is served as it is now
+# rather than as it was when the process started, and a HEAD reports the length
+# a GET would have sent without reading the file.
+echo '<h1>site a v2</h1>' > "$SERVE_ROOT/site_a/index.html"
+BODY_A2="$(curl -s -H "Host: site-a.e2e.local" "$BASE/")"
+assert_contains "$BODY_A2" "site a v2" "a redeployed file is served without a restart"
+HEAD_LEN="$(curl -s -I -H "Host: site-a.e2e.local" "$BASE/" | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ll]ength: //p')"
+[ "$HEAD_LEN" = "19" ] || fail "HEAD reported content-length '$HEAD_LEN', expected 19"
+echo "  ok: a served file streams from disk and HEAD reports its length"
 rm -rf "$SERVE_ROOT"
 stop_server

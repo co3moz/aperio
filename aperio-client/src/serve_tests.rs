@@ -9,33 +9,33 @@ fn setup() -> std::path::PathBuf {
   std::fs::canonicalize(root).unwrap()
 }
 
-#[test]
-fn resolves_files_directories_and_encoded_names() {
+#[tokio::test]
+async fn resolves_files_directories_and_encoded_names() {
   let root = setup();
   assert_eq!(
-    resolve(&root, "/assets/app.js"),
+    resolve(&root, "/assets/app.js").await,
     Some(root.join("assets/app.js"))
   );
   // A directory resolves to its index.html.
-  assert_eq!(resolve(&root, "/"), Some(root.join("index.html")));
+  assert_eq!(resolve(&root, "/").await, Some(root.join("index.html")));
   // Percent-encoded names decode before hitting the filesystem.
   assert_eq!(
-    resolve(&root, "/a%20file.txt"),
+    resolve(&root, "/a%20file.txt").await,
     Some(root.join("a file.txt"))
   );
   // Missing files are None.
-  assert_eq!(resolve(&root, "/nope.txt"), None);
+  assert_eq!(resolve(&root, "/nope.txt").await, None);
   std::fs::remove_dir_all(&root).unwrap();
 }
 
-#[test]
-fn rejects_traversal_out_of_the_root() {
+#[tokio::test]
+async fn rejects_traversal_out_of_the_root() {
   let root = setup();
-  assert_eq!(resolve(&root, "/../secrets.txt"), None);
-  assert_eq!(resolve(&root, "/assets/../../secrets.txt"), None);
+  assert_eq!(resolve(&root, "/../secrets.txt").await, None);
+  assert_eq!(resolve(&root, "/assets/../../secrets.txt").await, None);
   // Encoded traversal decodes first, still rejected.
-  assert_eq!(resolve(&root, "/%2e%2e/secrets.txt"), None);
-  assert_eq!(resolve(&root, "/..%2fsecrets.txt"), None);
+  assert_eq!(resolve(&root, "/%2e%2e/secrets.txt").await, None);
+  assert_eq!(resolve(&root, "/..%2fsecrets.txt").await, None);
   std::fs::remove_dir_all(&root).unwrap();
 }
 
@@ -47,14 +47,14 @@ fn percent_decode_handles_escapes_and_leaves_garbage() {
   assert_eq!(percent_decode("/plain"), "/plain");
 }
 
-#[test]
-fn resolve_directory_without_index_is_none() {
+#[tokio::test]
+async fn resolve_directory_without_index_is_none() {
   let root = setup();
   // `assets/` exists but holds no index.html, so a directory request yields
   // nothing servable.
-  assert_eq!(resolve(&root, "/assets"), None);
+  assert_eq!(resolve(&root, "/assets").await, None);
   // A path segment carrying a `:` (drive-letter / scheme smell) is rejected.
-  assert_eq!(resolve(&root, "/c:/win.ini"), None);
+  assert_eq!(resolve(&root, "/c:/win.ini").await, None);
   std::fs::remove_dir_all(&root).unwrap();
 }
 
@@ -165,7 +165,9 @@ async fn spa_fallback_serves_index_for_navigations_only() {
   assert_eq!(resp.status(), 200);
   assert_eq!(resp.text().await.unwrap(), "<h1>hi</h1>");
 
-  // A HEAD navigation gets the same 200 with an empty body.
+  // A HEAD navigation gets the same 200 with an empty body, and now says how
+  // long that body would have been: the answer has to match what the GET
+  // above said, and an empty response with no length did not.
   let resp = client
     .head(format!("{base}/app/route"))
     .header("accept", "text/html")
@@ -173,6 +175,7 @@ async fn spa_fallback_serves_index_for_navigations_only() {
     .await
     .unwrap();
   assert_eq!(resp.status(), 200);
+  assert_eq!(resp.headers()["content-length"], "11");
   assert_eq!(resp.text().await.unwrap(), "");
 
   // A non-HTML fetch (missing hashed asset) still 404s, no fallback.
@@ -383,5 +386,29 @@ async fn range_requests_get_partial_content() {
   assert_eq!(resp.headers()["content-length"], "10");
   assert_eq!(resp.text().await.unwrap(), "0123456789");
 
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[tokio::test]
+async fn a_symlink_out_of_the_root_is_still_refused_after_the_async_move() {
+  // `resolve` does its filesystem work through tokio now, and the check that
+  // matters is the one after canonicalization: a symlink inside the root
+  // pointing outside it must not be served.
+  let root = setup();
+  let outside = std::env::temp_dir().join(format!("aperio-serve-outside-{}", uuid::Uuid::new_v4()));
+  std::fs::write(&outside, "secret").unwrap();
+  #[cfg(unix)]
+  std::os::unix::fs::symlink(&outside, root.join("leak.txt")).unwrap();
+
+  #[cfg(unix)]
+  assert_eq!(resolve(&root, "/leak.txt").await, None);
+  // And a file that is really inside still resolves, so the check is not
+  // simply refusing everything.
+  assert_eq!(
+    resolve(&root, "/assets/app.js").await,
+    Some(root.join("assets/app.js"))
+  );
+
+  let _ = std::fs::remove_file(&outside);
   std::fs::remove_dir_all(&root).unwrap();
 }

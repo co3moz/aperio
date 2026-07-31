@@ -43,7 +43,7 @@ Serving survives [config hot-reload](client-resilience.md): a directory that was
 
 `GET` and `HEAD`, nothing else, anything else gets `405`. A request path maps onto a file under the root; a directory resolves to its `index.html`, and a directory without one is a miss. The content type comes from the file extension, falling back to `application/octet-stream` for anything unrecognised.
 
-Files are **streamed from disk** rather than read into memory, so serving a 2 GB video to ten visitors costs ten buffers, not 20 GB. A `HEAD` reads only the file's metadata and reports the `Content-Length` a `GET` would have returned, so it stays cheap no matter how large the file is.
+Files are **streamed from disk** rather than read into memory, so serving a 2 GB video to ten visitors costs ten buffers, not 20 GB. A `HEAD` reads only the file's metadata and reports the `Content-Length` a `GET` would have returned, so it stays cheap no matter how large the file is. The path resolution around it is asynchronous too, so a slow filesystem (a network mount, a cold disk) delays the request that touched it rather than every other request the same worker thread was carrying.
 
 ### Range requests
 
@@ -65,7 +65,7 @@ If a [cached](caching.md) entry covers the URL, the server answers the range at 
 
 Two options refine what a miss looks like. Both are **process-wide** rather than per service: a client serving several directories applies the same SPA and 404 behavior to all of them. If one site is a router SPA and another must not be, run them from separate clients.
 
-- **`serve_spa: true`** (env `APERIO_SERVE_SPA=1`) answers a *navigation* that resolves to no file with the root `index.html` and status `200`, which is what a client-side router (React Router, Vue Router) needs to own its routes.
+- **`serve_spa: true`** (env `APERIO_SERVE_SPA=1`) answers a *navigation* that resolves to no file with the root `index.html` and status `200`, which is what a client-side router (React Router, Vue Router) needs to own its routes. The index is streamed from disk on each navigation like any other file, so it is read fresh after a redeploy without the process being restarted.
 - **`serve_404: ./dist/404.html`** (env `APERIO_SERVE_404`) serves a custom page with status `404` for whatever the SPA fallback does not cover. The file is read once at startup; an unreadable path logs a warning and is ignored rather than being fatal.
 
 Without either, a miss is a plain-text `404`.

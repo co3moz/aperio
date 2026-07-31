@@ -40,20 +40,22 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   snapshot, removes the session and asserts the stream ends; it fails without
   the check. (From the 2026-07 static security review.)
 
-- [ ] **#4 Stream static-serve responses instead of reading whole files into
-  memory.** In `--serve` mode, `handle` in `aperio-client/src/serve.rs` reads the
-  entire resolved file into memory with `tokio::fs::read` on every request (even
-  HEAD), and `max_response_body_size` only bounds what the *tunnel* forwards,
-  the file is already fully buffered in the serve process. Concurrent requests to
-  a large served file can OOM the client. Stream the file (e.g. `ReaderStream` /
-  chunked body, which means moving the response body off `Full<Bytes>` to a boxed
-  body) and/or add a per-serve max file size; on HEAD return metadata without
-  reading the body. Low severity: opt-in feature, client-process-only DoS bounded
-  by the size of files the operator chose to publish (a `dist/` of web assets is a
-  non-issue). Also in scope: `serve.rs::resolve` uses blocking `std::fs::canonicalize`/
-  `is_file`/`is_dir` in the async `handle` path, those synchronous syscalls run on
-  a Tokio worker thread; move them to `tokio::fs` or `spawn_blocking` as part of the
-  same rework. (From the 2026-07 static security review + a 2026-07 client review.)
+- [x] **#4 Stream static-serve responses instead of reading whole files into
+  memory.** shipped in two parts. The body: `serve.rs` answers from an open
+  `tokio::fs::File` through a `BoxBody` stream instead of `tokio::fs::read`
+  into a `Full<Bytes>`, so peak memory no longer scales with file size times
+  concurrent requests, and a `HEAD` reports the length from metadata without
+  reading anything (`7f92cbb`, which also added single-range `Range` support
+  built on the same stream). The syscalls: `resolve` was doing a blocking
+  `canonicalize` and up to two `stat` calls on the Tokio worker thread polling
+  the request, so a slow filesystem stalled every other task on that worker,
+  not just this response; it is async now, through `tokio::fs`. The SPA
+  fallback had both problems at once (a blocking `is_file()` and reading the
+  whole index per navigation) and takes the same path as any other file. A
+  per-serve maximum file size was considered and deliberately not added:
+  streaming removed the reason for it, and a cap would only surprise an
+  operator who meant to publish a large file. (From the 2026-07 static
+  security review + a 2026-07 client review.)
 
 - [x] **#7 Run the backend health probe once per service, not per parallel
   connection.** shipped: `BackendHealth::for_spec` builds one shared verdict per

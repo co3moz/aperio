@@ -140,7 +140,7 @@ async fn handle(
   if req.method() != Method::GET && !head_only {
     return simple(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
   }
-  if let Some(path) = resolve(root, req.uri().path()) {
+  if let Some(path) = resolve(root, req.uri().path()).await {
     let mime = || {
       mime_guess::from_path(&path)
         .first_or_octet_stream()
@@ -288,15 +288,25 @@ async fn not_found(
   head_only: bool,
 ) -> Response<ServeBody> {
   if opts.spa && wants_html(req) {
+    // The SPA fallback is a file like any other: opened, not read whole, and
+    // answered from its own metadata. It used a blocking `is_file()` followed
+    // by reading the entire index into memory on every navigation, which is
+    // the same two problems the file path already fixed.
     let index = root.join("index.html");
-    if index.is_file()
-      && let Ok(bytes) = tokio::fs::read(&index).await
+    if let Ok(file) = tokio::fs::File::open(&index).await
+      && let Ok(meta) = file.metadata().await
+      && meta.is_file()
     {
-      let body = if head_only { Vec::new() } else { bytes };
+      let body = if head_only {
+        buffered(Bytes::new())
+      } else {
+        file_stream(file, meta.len())
+      };
       return Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")
-        .body(buffered(Bytes::from(body)))
+        .header("content-length", meta.len())
+        .body(body)
         .unwrap_or_default();
     }
   }
@@ -335,7 +345,13 @@ fn simple(status: StatusCode, msg: &str) -> Response<ServeBody> {
 /// Maps a request path to a file under `root`, or `None` when it escapes the
 /// root, contains traversal segments, or points at nothing servable.
 /// Directories resolve to their `index.html`.
-fn resolve(root: &Path, uri_path: &str) -> Option<PathBuf> {
+///
+/// Async because every step that touches the disk is: `std::fs` here ran a
+/// blocking `canonicalize` and up to two `stat` calls on the Tokio worker
+/// thread that happened to poll this request, so a slow filesystem (a network
+/// mount, a cold spinning disk) stopped every other task on that worker, not
+/// only this response.
+async fn resolve(root: &Path, uri_path: &str) -> Option<PathBuf> {
   let decoded = percent_decode(uri_path);
   let mut path = root.to_path_buf();
   for segment in decoded.split('/') {
@@ -349,15 +365,17 @@ fn resolve(root: &Path, uri_path: &str) -> Option<PathBuf> {
     path.push(segment);
   }
   // Symlinks could still point outside the root; canonicalize and re-check.
-  let canonical = std::fs::canonicalize(&path).ok()?;
+  let canonical = tokio::fs::canonicalize(&path).await.ok()?;
   if !canonical.starts_with(root) {
     return None;
   }
-  if canonical.is_dir() {
+  let meta = tokio::fs::metadata(&canonical).await.ok()?;
+  if meta.is_dir() {
     let index = canonical.join("index.html");
-    return index.is_file().then_some(index);
+    let index_meta = tokio::fs::metadata(&index).await.ok()?;
+    return index_meta.is_file().then_some(index);
   }
-  canonical.is_file().then_some(canonical)
+  meta.is_file().then_some(canonical)
 }
 
 /// Minimal percent-decoding for URL paths (leaves invalid escapes as-is).

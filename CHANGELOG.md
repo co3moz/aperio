@@ -56,6 +56,10 @@ project follows semantic versioning per release tag.
 
 - **The words an operator types are no longer translated.** `hostname`, `path`, `header`, `endpoint`, `payload`, `token`, `webhook`, `proxy` and `subdomain` name things that appear verbatim in `aperio.yaml`, in a URL or on the wire, and a column headed "Alan Adı" over a list of `hostname:` values breaks the link between the screen and the file. They stay in English in all seven languages now, in prose as well as in labels: a column headed one way and a sentence under it worded another is worse than either choice made consistently. Everything around them is still translated, including the words that only sound technical (tunnel, client, cache, request).
 
+### Changed
+
+- **`--serve` no longer does its filesystem work on the thread it is answering from.** Resolving a request path ran a blocking `canonicalize` and up to two `stat` calls directly on the Tokio worker polling that request, so a slow filesystem (a network mount, a cold disk) stalled every other task on that worker rather than just the one response. It goes through `tokio::fs` now. The SPA fallback took the same route *and* read the whole `index.html` into memory on every navigation; it is served from an open file like anything else, and a `HEAD` for it now reports the length it would have sent.
+
 ### Security
 
 - **The dashboard's live stream now notices that the session it was opened with is gone.** The session check ran once, when the stream was opened, and the connection then lives for as long as the tab stays open: signing out, "sign out everywhere", an expiry or a disabled user all left it emitting live traffic and statistics to a caller who no longer had a session. It re-runs the same check on every two-second tick and closes as soon as it comes back empty, so a revoked session sees at most one more tick. It needs an already-authenticated session to reach, which is why this was a leak rather than a way in.
