@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The explain view names which visitor gate would stop a request.** It only ever reported a password a *client* declared for its own service, so a server-wide `server_auth` or an OIDC configuration read as "no visitor gate" on a hostname that very much has one. All three are reported now, and the step names which of them applies, since a client's password and the server's live in different places and are changed by different people.
+
 ### Added
 
 - **An organization's hostname allowlist takes a partial leftmost label.** `*-pi.robogon.com` (or `dev-*.robogon.com`) matches one label around the placeholder, so a tenant whose fleet is named by convention can be fenced to exactly the names it owns. Until now the only wildcard was `*.robogon.com`, which is the whole domain and rather more than such a tenant owns, and the refusal message offered nothing else. One placeholder, in the leftmost label only, the same shape `random_subdomain` already accepted; two placeholders are refused rather than silently honouring the first. The fence, the maintenance ownership check and the per-request matching all understand the new shape, and where the maintenance check cannot prove which of two partial patterns owns a name it now refuses rather than guesses.

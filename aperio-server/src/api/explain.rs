@@ -289,15 +289,38 @@ pub(crate) async fn explain_handler(
     )),
   }
 
-  // 6. The visitor gate.
-  if crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await {
+  // 6. The visitor gate. Three things can raise it, and naming which one is
+  // the whole value: a client's own password is the service's, the server's
+  // password and OIDC are the operator's, and they are configured in
+  // different places.
+  let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
+  let server_gate = cfg.auth_credentials.is_some();
+  let oidc_gate = state.oidc.is_some();
+  if client_gate || server_gate || oidc_gate {
+    let (why, setting) = if client_gate {
+      (
+        "the serving client declared a visitor password for this route, which supersedes the server's own gate",
+        "auth: on the service",
+      )
+    } else if server_gate && oidc_gate {
+      (
+        "the server's visitor gate is on, and OIDC is configured",
+        "server_auth / OIDC",
+      )
+    } else if server_gate {
+      ("the server's visitor password is set", "server_auth")
+    } else {
+      ("OIDC is configured for visitors", "OIDC")
+    };
     steps.push(
       Step::new(
         "visitor_gate",
         Verdict::Passes,
-        "visitors must sign in (or carry a share link) before this reaches a client",
+        format!(
+          "visitors must sign in (or carry a share link) before this reaches a client: {why}"
+        ),
       )
-      .from("server_auth / OIDC"),
+      .from(setting),
     );
   } else {
     steps.push(Step::new(

@@ -202,3 +202,7 @@ pub(crate) async fn topology_handler(
     offline,
   })
 }
+
+#[cfg(test)]
+#[path = "topology_tests.rs"]
+mod tests;

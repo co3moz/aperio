@@ -157,3 +157,194 @@ async fn an_invalid_hostname_is_a_bad_request() {
   let resp = explain(&state, headers, q("not a hostname!", None)).await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Runs `f` with an `aperio-server.yaml` in place, so the sections that are
+/// only readable from the file (`waf:`, `rate_limits:`, `fallbacks:`) can be
+/// exercised. Serialized on the shared config lock, like the other tests that
+/// need a file.
+fn with_server_config<T>(yaml: &str, f: impl FnOnce() -> T) -> T {
+  let _lock = crate::test_support::config_lock();
+  struct Cleanup;
+  impl Drop for Cleanup {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_file("aperio-server.yaml");
+    }
+  }
+  let _cleanup = Cleanup;
+  std::fs::write("aperio-server.yaml", yaml).unwrap();
+  crate::config_file::reload().unwrap();
+  f()
+}
+
+/// The step for one stage of a report, by name.
+fn step<'a>(body: &'a serde_json::Value, stage: &str) -> &'a serde_json::Value {
+  body["steps"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|s| s["stage"] == stage)
+    .unwrap_or_else(|| panic!("no {stage} step in {body}"))
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn a_waf_rule_that_would_block_the_path_is_the_answer() {
+  let (state, body) = with_server_config("waf:\n  - path: \"^/\\\\.git\"\n", || {
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap();
+    rt.block_on(async {
+      let mut cfg = test_config();
+      cfg.waf = crate::waf::from_config_file();
+      let state = Arc::new(test_state_with(cfg));
+      let headers = admin_headers(&state).await;
+      let body =
+        json_body(explain(&state, headers, q("app.example.com/.git/config", None)).await).await;
+      (state, body)
+    })
+  });
+  let _ = state;
+  assert_eq!(body["outcome"], "waf");
+  assert!(body["summary"].as_str().unwrap().contains("403"));
+  assert_eq!(step(&body, "waf")["verdict"], "decides");
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn a_route_rate_limit_is_reported_without_being_spent() {
+  // Asking why a request is refused must not spend the budget it is asking
+  // about, so this stage reports the rule rather than consuming a token.
+  let body = with_server_config(
+    "rate_limits:\n  - hostname: app.example.com\n    path: /api\n    rps: 5\n    burst: 10\n",
+    || {
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+      rt.block_on(async {
+        let mut cfg = test_config();
+        cfg.route_limits = crate::route_limits::from_config_file();
+        let state = Arc::new(test_state_with(cfg));
+        let headers = admin_headers(&state).await;
+        json_body(explain(&state, headers, q("app.example.com/api/x", None)).await).await
+      })
+    },
+  );
+  let limit = step(&body, "route_rate_limit");
+  assert_eq!(limit["verdict"], "passes");
+  let detail = limit["detail"].as_str().unwrap();
+  assert!(detail.contains("5 rps"), "{detail}");
+  assert!(detail.contains("does not spend"), "{detail}");
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn a_fallback_answers_where_the_504_would_have_been() {
+  let body = with_server_config(
+    "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n",
+    || {
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+      rt.block_on(async {
+        let mut cfg = test_config();
+        cfg.fallbacks = crate::fallbacks::from_config_file();
+        let state = Arc::new(test_state_with(cfg));
+        let headers = admin_headers(&state).await;
+        json_body(explain(&state, headers, q("app.example.com", None)).await).await
+      })
+    },
+  );
+  assert_eq!(body["outcome"], "fallback");
+  let summary = body["summary"].as_str().unwrap();
+  assert!(summary.contains("status.example.com"), "{summary}");
+  assert_eq!(step(&body, "fallback")["verdict"], "decides");
+}
+
+#[tokio::test]
+async fn a_static_route_answers_before_any_client_does() {
+  use crate::static_routes::{RouteRule, StaticRoutes};
+  let mut cfg = test_config();
+  cfg.static_routes = StaticRoutes::compile(vec![RouteRule {
+    hostname: Some("app.example.com".to_string()),
+    path: Some("/old".to_string()),
+    redirect: Some("https://new.example.com".to_string()),
+    permanent: true,
+    preserve_path: false,
+    respond: None,
+  }])
+  .unwrap();
+  let state = Arc::new(test_state_with(cfg));
+  state.clients.lock().await.insert(
+    "c1".to_string(),
+    mock_client(Some("app.example.com"), None, None, None),
+  );
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/old", None)).await).await;
+
+  assert_eq!(body["outcome"], "static_route");
+  assert!(body["summary"].as_str().unwrap().contains("301"));
+  // The client is still reported, which is the point of reporting every stage:
+  // "the route is fine, a routes: rule is what answers" is a different fix
+  // from "no client is connected".
+  assert_eq!(step(&body, "routing")["verdict"], "passes");
+  assert!(
+    step(&body, "routing")["detail"]
+      .as_str()
+      .unwrap()
+      .contains("c1")
+  );
+}
+
+#[tokio::test]
+async fn the_preview_robots_txt_is_named_when_it_would_answer() {
+  let mut cfg = test_config();
+  cfg.preview_noindex = true;
+  cfg.random_subdomain_suffix = Some("*.preview.example.com".to_string());
+  let state = Arc::new(test_state_with(cfg));
+  let headers = admin_headers(&state).await;
+
+  let body = json_body(
+    explain(
+      &state,
+      headers.clone(),
+      q("a1b2c3.preview.example.com/robots.txt", None),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(body["outcome"], "preview_noindex");
+
+  // Any other path on the same host is not that answer.
+  let body = json_body(
+    explain(
+      &state,
+      headers,
+      q("a1b2c3.preview.example.com/index.html", None),
+    )
+    .await,
+  )
+  .await;
+  assert_ne!(body["outcome"], "preview_noindex");
+}
+
+#[tokio::test]
+async fn the_visitor_gate_is_reported_when_one_is_configured() {
+  let mut cfg = test_config();
+  cfg.auth_credentials = Some("user:password".to_string());
+  let state = Arc::new(test_state_with(cfg));
+  state.clients.lock().await.insert(
+    "c1".to_string(),
+    mock_client(Some("app.example.com"), None, None, None),
+  );
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+  let gate = step(&body, "visitor_gate");
+  assert_eq!(gate["verdict"], "passes");
+  assert!(gate["detail"].as_str().unwrap().contains("sign in"));
+}

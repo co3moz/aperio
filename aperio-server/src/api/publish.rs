@@ -188,3 +188,7 @@ pub(crate) async fn subscribers_handler(
   }
   Json(by_process.into_values().collect())
 }
+
+#[cfg(test)]
+#[path = "publish_tests.rs"]
+mod tests;
