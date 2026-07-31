@@ -2,32 +2,49 @@
 
 Future feature ideas. Backlog items carry stable `#N` ids (never renumbered or
 reused); a shipped item keeps its id and flips to `[x]` in place with a short
-"shipped: ..." note.
+"shipped: ..." note. An idea that is dropped moves to **Withdrawn** at the
+bottom with the reason, so the decision is on record and its id stays retired.
+An entry that turns out to be bigger than one piece of work is split, the
+original id keeping the part it best describes and the rest taking the next
+free number.
 
 ## Future ideas
 
-- [ ] **#1 Auto-tune resource limits from the environment.** Derive sensible
-  defaults for some capacity settings (e.g. `APERIO_MAX_CONCURRENT_REQUESTS`,
-  `APERIO_MAX_WS_CONNECTIONS`, cache budget) from the container/host it runs in
-, cgroup CPU/memory limits, Docker deploy constraints, available file
-  descriptors, instead of fixed constants. Needs care: an operator must always
-  be able to tell what value is in effect and why (surface it via
-  `--print-config`), and an explicit env/yaml/dashboard value must always win
-  over an auto-derived one, so behaviour is never surprising. Discuss scope
-  before implementing.
+- [ ] **#1 Warn when a capacity setting does not fit the machine, rather than
+  deriving it.** Originally "auto-tune resource limits from the environment":
+  derive `max_concurrent_requests`, `max_ws_connections`, the cache budget and
+  friends from cgroup CPU/memory limits and the file-descriptor ceiling.
+  Rescoped after the 0.7 configuration work, which spent its effort on making
+  "which value is in effect, and where does it come from" answerable (the file
+  layer winning over stored overrides, the yaml key each setting is written as,
+  the explain endpoint). A number that silently changes because the host
+  changed is the opposite of that, and it changes under an operator who moved
+  the same file to a bigger box.
+
+  So: keep the detection, drop the derivation. At startup (and in
+  `--check-config`) compare the effective values against what the environment
+  can actually support, and say so once: `max_concurrent_requests` far above
+  `RLIMIT_NOFILE`, a cache budget above the cgroup memory limit,
+  `max_ws_connections` that cannot fit alongside it. One line naming the
+  setting, the value, and the limit it exceeds. No behaviour changes, nothing
+  to be surprised by, and the operator keeps the decision. If a later release
+  still wants real derivation, this is the layer it would build on.
 
 - [ ] **#2 Speed up the Windows release build without vendoring OpenSSL from
-  source.** The `x86_64-pc-windows-msvc` release job spends several minutes
-  compiling OpenSSL from source via `aperio-server/vendored-openssl` (needed
-  because webauthn-rs pulls in openssl). Dropping vendored on Windows and
-  linking the runner's system OpenSSL would cut that, but naively it breaks the
-  self-contained `.exe`: dynamic linking makes the binary depend on
-  `libssl`/`libcrypto` DLLs at runtime, and MSVC static linking hits the classic
-  CRT (MT vs MD) mismatch. Explore a reliably-static, ABI-compatible prebuilt
-  OpenSSL (or a webauthn crypto path that needs no openssl at all) so the
-  released binary stays download-and-run. Until then the cost is mitigated by
-  the default-branch release cache (ci.yml `warm-release-cache`) and the Windows
-  Defender exclusion in `release.yml`. Discuss before implementing.
+  source.** *Parked, not refused.* The `x86_64-pc-windows-msvc` release job
+  spends several minutes compiling OpenSSL from source via
+  `aperio-server/vendored-openssl` (needed because webauthn-rs pulls in
+  openssl). Dropping vendored on Windows and linking the runner's system
+  OpenSSL would cut that, but naively it breaks the self-contained `.exe`:
+  dynamic linking makes the binary depend on `libssl`/`libcrypto` DLLs at
+  runtime, and MSVC static linking hits the classic CRT (MT vs MD) mismatch.
+  Hunting a reliably-static, ABI-compatible prebuilt OpenSSL is a known dead
+  end; the version worth doing is the other one in the original note, **a
+  webauthn crypto path that needs no openssl at all**, which removes the
+  dependency instead of packaging it. That is a dependency swap with its own
+  risk, and the cost it saves is CI minutes on a job the default-branch release
+  cache (ci.yml `warm-release-cache`) already warms. Left open so the option is
+  recorded; not worth starting while the cache holds.
 
 - [x] **#3 Re-validate the dashboard SSE live stream while it is open.** shipped:
   `live_stream_handler` keeps the caller's headers and re-runs `dashboard_role`
@@ -121,29 +138,30 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   that needs new server-side counters and is out of scope. Ship A/B/C behind the
   new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
 
-- [ ] **#8 Pool Unix-domain-socket backend connections.** `dial_and_send` in
-  `aperio-client/src/proxy/unix.rs` opens a fresh `UnixStream::connect` +
-  `http1::handshake` for every request with no reuse. Under very high request
-  rates that is per-request connect/handshake overhead (a keep-alive pool via
-  `hyper-util`'s legacy client would amortize it). Low priority: Unix sockets
-  have no TCP `TIME_WAIT`, so FDs are released promptly, the reviewer's "EMFILE
-  / FD exhaustion" framing is overstated; this is an efficiency win, not a leak
-  fix. (From a 2026-07 client review.)
-
-- [ ] **#9 Per-stream backpressure for tunneled WS/TCP delivery instead of
-  drop-on-full.** The `try_send` fix (commit `2e5273b`) protects the tunnel read
+- [ ] **#9 Give the WS and TCP relay arms the bounded hand-off the upload path
+  already has.** The `try_send` fix (commit `2e5273b`) protected the tunnel read
   loop, one stalled backend can no longer starve `Pong` and trip the liveness
   watchdog, but it converts *transient* backpressure into stream death: when a
-  stream's 64-slot channel fills, the stream is dropped on the spot. WS/TCP are
-  lossless protocols (the UDP analogy the fix borrowed is weak), so a healthy
-  but legitimately slow consumer, e.g. a large file piped over a tunneled TCP
-  stream whose backend socket applies flow control, can be killed by a burst
-  of server→client frames that momentarily outpaces the backend. Fix properly:
-  per-stream backpressure that pauses reading *that stream's* frames without
-  blocking the shared loop (e.g. buffer-and-park the stream with a bounded
-  spill, or a per-stream credit/window echoed to the server), or at minimum a
-  substantially larger per-stream buffer plus a grace timeout before dropping.
-  (From the 2026-07 unpushed-commits review.)
+  stream's 64-slot channel fills, the stream is dropped on the spot. WS and TCP
+  are lossless, so a healthy but legitimately slow consumer, a large file over a
+  tunneled TCP stream whose backend socket applies flow control, can be killed
+  by a burst that momentarily outpaces it.
+
+  **Most of the answer already exists.** `feed_request_chunk`
+  (`aperio-client/src/service.rs`, commit `dbd73ea`) is the shape: clone the
+  sender, release the map, try without waiting, and on a full channel wait a
+  bounded two seconds before failing *that* stream with an explicit error. The
+  work left is applying the same helper to the `WsData` arm and the TCP-data
+  arm, which still do `try_send(...).is_err() → remove the stream`. The
+  `UdpDatagram` arm keeps dropping on a full channel: that is the correct
+  semantic for a datagram relay, not an oversight.
+
+  **Deliberately not doing** the per-stream credit/window protocol the original
+  note proposed. The server already pauses producers in the other direction
+  (protocol v3), and a symmetric credit scheme means a protocol change, a
+  version bump and skew handling for a case a bounded wait plus a larger buffer
+  covers. Revisit only if the bounded wait proves too blunt in practice.
+  (From the 2026-07 unpushed-commits review, rescoped 2026-07-31.)
 
 - [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
   server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
@@ -209,23 +227,29 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   catches the common wrong-endpoint / not-running / DNS cases immediately.
   (From a 2026-07 field debugging session.)
 
-- [ ] **#11 Supervise long-lived background loops so a panic restarts (or at
-  least surfaces) instead of silently killing the loop.** Under the default
-  `unwind` strategy a panic only unwinds its own task, so the process survives,
-  but a bare `tokio::spawn`ed background loop (the stats/uptime tickers, the
-  token-expiry sweep, accept loops, expose listeners in `main.rs`, and the
-  per-connection writer tasks) that panics just *stops*, silently, with no
-  restart. Its function is lost for the life of the process (e.g. uptime stops
-  ticking) even though nothing crashed. The global panic hook added for #1/#2
-  now makes such a panic *visible* in the log, but does not bring the loop back.
-  Wrap the critical long-lived loops in a supervisor: a small helper that
-  `tokio::spawn`s the loop, awaits its `JoinHandle`, and on a panic/early-exit
-  logs it and respawns with a short backoff (a `JoinSet`-based supervisor, or a
-  `spawn_supervised(name, factory)` wrapper). Scope carefully, only genuinely
-  restartable, idempotent loops (tickers, accept loops); one-shot tasks and
-  request-scoped work must stay as they are. Decide per loop whether a restart
-  is safe or whether a panic there should instead be escalated to a graceful
-  shutdown. (From a 2026-07 panic-resilience review.)
+- [ ] **#11 Restart the background tickers when one panics; escalate the rest.**
+  Under the default `unwind` strategy a panic only unwinds its own task, so the
+  process survives, but a bare `tokio::spawn`ed background loop that panics
+  just *stops*, silently, and its function is lost for the life of the process.
+  The global panic hook (`main.rs`) makes such a panic visible in the log; it
+  does not bring the loop back.
+
+  Split by whether a restart is safe, which the original note asked for and is
+  the whole difficulty:
+
+  - **Restart:** the idempotent tickers, stats and uptime flush, the
+    token-expiry sweep, retention pruning. These are the ones where "silently
+    stopped" is invisible for days: nothing errors, the numbers simply stop
+    moving. A small `spawn_supervised(name, factory)` that awaits the
+    `JoinHandle`, logs a panic with the loop's name, and respawns with a short
+    backoff covers all of them.
+  - **Escalate, do not respawn:** accept loops and expose listeners. A
+    listener that panicked is in an unknown state, and a respawned one that
+    silently accepts nothing is worse than an outage that is visible. These
+    should log and drive a graceful shutdown instead.
+
+  Request-scoped work and one-shot tasks stay exactly as they are.
+  (From a 2026-07 panic-resilience review, scoped 2026-07-31.)
 
 - [x] **#12 Capacity-aware autoscaling: the server signals desired capacity,
   the client declares the actuator.** shipped: `scaling:` in `aperio.yaml`
@@ -392,20 +416,11 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   Decide the shape before implementing. (From the 2026-07 four-agent review.)
 
 - [x] **#16 Stream static files instead of reading each one fully into memory.**
-  shipped: `serve.rs` moved onto a boxed `ReaderStream` body with
-  `Accept-Ranges`/`206`/`416` single-range support; multi-range and
-  `If-Range` fall back to the full `200`.
-  `serve.rs` answers every GET with `tokio::fs::read`, so the whole file is held
-  in memory for the life of the request and peak usage is file size times
-  concurrent requests. A HEAD no longer pays this cost (it reads the metadata
-  instead), but a large asset served to several visitors at once still does.
-  Fixing it means moving the handler off `Full<Bytes>` onto a streaming body
-  (`ReaderStream` over the open file, boxed), which changes the return type of
-  `handle`, `not_found` and `simple`, and pulls in `tokio-util`'s `io` feature.
-  Worth doing together with range-request support (`Accept-Ranges` / `206`),
-  since both need the file handle rather than its contents, and both matter for
-  the same case: serving large downloads out of a `serve:` directory.
-  (From the 2026-07 four-agent review.)
+  shipped, and the same work as **#4**: two reviews found the one problem and
+  filed it twice. #16 delivered the streaming body and range support; #4
+  carried the rest of the request path (the blocking `canonicalize`/`stat`
+  calls, the SPA fallback) and finished it. Kept as its own id because ids are
+  never reused; read #4 for what shipped.
 
 - [x] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
   field.** shipped: entries carry `applies: WhenSet | Always`, `check_upgrade`
@@ -428,24 +443,29 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   the report stops mentioning keys the operator does not have.
   (From the 2026-07 dashboard_auth removal.)
 
-- [ ] **#17 Tunable stream flow control and slow-read (Slowloris-style)
-  defenses.** The per-stream pause/resume flow control (protocol v3) hardcodes
-  its knobs in `aperio-server/src/state.rs`: `STREAM_PAUSE_BYTES` (2 MiB),
-  `STREAM_RESUME_BYTES` (512 KiB) and `STREAM_BACKLOG_LIMIT` (16 MiB). Three
-  follow-ups worth doing together: (1) expose the watermarks as settings (a
-  `stream:` block / `APERIO_STREAM_*`, live-editable like the other scalars)
-, shipped: `stream.pause_bytes` / `stream.resume_bytes` /
-  `stream.backlog_limit` with `StreamLimits::sanitized` repairing
-  inconsistent trios; (2) and (3) remain;
-  (2) an opt-in minimum-throughput guard for streamed HTTP responses, dropping
-  a consumer that averages below N bytes/s over an M-second window, since a
-  deliberately slow reader can now hold a stream (and the client-side
-  `max_concurrent` slot it occupies) alive indefinitely at ~2 MiB server-side
-  cost each, where the old backlog cut used to kill it by accident. It must
-  not apply to WS/TCP relays, which are legitimately quiet for long stretches;
-  (3) a per-IP cap on concurrently open streamed responses, so saturating a
-  service's concurrency budget takes a botnet rather than one host. (From the
-  2026-07 flow-control fix discussion.)
+- [ ] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
+  (1) of the original entry shipped (`stream.pause_bytes` /
+  `stream.resume_bytes` / `stream.backlog_limit`, with `StreamLimits::sanitized`
+  repairing an inconsistent trio), and part (3) is now #20. What is left is the
+  slow-read defense: a deliberately slow reader can hold a streamed response,
+  and the client-side `max_concurrent` slot it occupies, alive indefinitely at
+  roughly 2 MiB of server-side buffer each. The old backlog cut used to kill it
+  by accident; flow control made the server well-behaved and therefore patient.
+
+  Drop a consumer that averages below N bytes/s over an M-second window, off by
+  default, both numbers settings. It must **not** apply to WS or TCP relays,
+  which are legitimately quiet for long stretches, that exclusion is the part
+  worth getting right rather than the accounting. Best done alongside #9, which
+  touches the same delivery paths. (From the 2026-07 flow-control discussion.)
+
+- [ ] **#20 A per-IP ceiling on concurrently open streamed responses.** Split
+  out of #17, where it was part (3). Saturating a service's concurrency budget
+  currently takes one host holding many slow streams; a per-IP cap makes it
+  take a botnet. The pattern exists already: `try_acquire_ws_slot`
+  (`aperio-server/src/state.rs`) holds a slot for the life of a proxied
+  WebSocket under `max_ws_connections`, and the per-IP rate limiter's map shows
+  how the keying and its eviction are done here. Small next to #17 and worth
+  doing in the same pass. (From the 2026-07 flow-control discussion.)
 
 - [x] **#19 Pub/sub between the clients of an organization, over the tunnel
   that already exists.** shipped: four `TunnelMessage`
@@ -526,3 +546,18 @@ reused); a shipped item keeps its id and flips to `[x]` in place with a short
   numbers, the `$aperio/` split, the capability shape, and the sentence saying
   v1 has no offline delivery. (From the 2026-07 client-to-client messaging
   discussion.)
+
+## Withdrawn
+
+Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
+nothing reuses them.
+
+- **#8 Pool Unix-domain-socket backend connections.** Withdrawn 2026-07-31. It
+  would break a documented behaviour to buy an unmeasured saving:
+  `docs/configuration.md` promises that a `unix://` target "dials the socket
+  fresh" per request, which is what makes socket-activated backends work, and a
+  pool is exactly the opposite. The entry itself had already conceded that the
+  FD-exhaustion framing behind it was overstated, since Unix sockets have no
+  `TIME_WAIT`, which left efficiency as the only argument and no number behind
+  it. Revisit only with a profile from a real deployment.
+
