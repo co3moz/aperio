@@ -33,6 +33,9 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A compressible response body is compressed again when `tunnel_compression` is on.** The v5 full-response frame is a binary frame, and binary frames bypass the tunnel's compression, which only ever applied to text: 32 KB of HTML that used to travel as a few hundred bytes was travelling whole. The frame deflates its own payload now, and only when deflating makes it smaller, so a body that is already compressed or genuinely random is sent as it is rather than paying to grow. Nothing changes for a deployment with compression off, which is the default and the right setting for anyone chasing throughput.
+
+
 - **Every socket the server accepts sets `TCP_NODELAY` too.** The client's two hops got it in the same release; the server's could not, because `axum::serve` in 0.7 owned the accept loop and offered no hook. The upgrade to axum 0.8 provides one, so the whole path is now free of Nagle: visitor to server, server to client, client to backend.
 
 - **The tunnel socket and the client's connections to its backend set `TCP_NODELAY`.** Neither did before. Both carry request and response messages that somebody is waiting on, not a bulk stream, and Nagle holds a small write back for an acknowledgement that has nothing to do with it.

@@ -38,6 +38,48 @@ pub(crate) const FRAME_RESPONSE_CHUNK: u8 = 2;
 /// repay. This costs one message, the same as the JSON it replaces.
 pub(crate) const FRAME_RESPONSE_FULL: u8 = 3;
 
+/// Binary frame tag for a whole buffered response whose payload is zlib
+/// compressed (client → server), v5.
+///
+/// The uncompressed frame bypasses the tunnel's compression entirely, because
+/// compression only ever applied to text frames. For a compressible body that
+/// is a large regression against what the base64-in-JSON path used to send:
+/// 32 KB of HTML went out as a few hundred bytes and would have gone out
+/// whole. This is the same frame with a deflated payload, sent only when the
+/// peer negotiated compression and only when deflating actually made it
+/// smaller.
+pub(crate) const FRAME_RESPONSE_FULL_ZLIB: u8 = 4;
+
+/// Deflates a frame payload. Returns `None` when the result is not smaller,
+/// which is the normal answer for an already-compressed or random body: there
+/// is no point paying for the bytes twice, and the reader takes either tag.
+pub(crate) fn deflate_payload(payload: &[u8]) -> Option<Vec<u8>> {
+  use flate2::{Compression, write::ZlibEncoder};
+  use std::io::Write;
+  let mut enc = ZlibEncoder::new(Vec::new(), Compression::fast());
+  enc.write_all(payload).ok()?;
+  let out = enc.finish().ok()?;
+  (out.len() < payload.len()).then_some(out)
+}
+
+/// Only the sending side deflates and only the receiving side inflates, so
+/// each binary keeps the direction it uses and the other for the test.
+#[cfg(test)]
+/// Inflates a frame payload, bounded like every other decompression on this
+/// path so a small frame cannot ask for an unbounded allocation.
+pub(crate) fn inflate_payload(data: &[u8], max_out: usize) -> Option<Vec<u8>> {
+  use flate2::read::ZlibDecoder;
+  use std::io::Read;
+  let mut out = Vec::new();
+  let mut dec = ZlibDecoder::new(data).take(max_out as u64 + 1);
+  dec.read_to_end(&mut out).ok()?;
+  if out.len() > max_out {
+    warn!("Dropped tunnel frame: decompressed payload exceeds limit");
+    return None;
+  }
+  Some(out)
+}
+
 /// The other half of the pair, for the round-trip test. A full-response frame
 /// only ever travels client to server, so each side ships the direction it
 /// actually uses and keeps the other one for the test that proves they agree.

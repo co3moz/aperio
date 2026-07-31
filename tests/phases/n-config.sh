@@ -220,3 +220,32 @@ server_token: e2e-removed-token-long-enough
 YAML
 env APERIO_SERVER_CONFIG="$GONE_CFG" "$SERVER_BIN" --check-config > /dev/null \
   || fail "the guard must not fire for a config that does not set the removed key"
+
+step "A compressible body survives the compressed v5 frame"
+# The v5 full-response frame is a binary frame, and binary frames bypass the
+# tunnel's compression, which only ever applied to text. Left alone that made
+# a compressible body travel whole where it used to travel deflated: 32 KB of
+# HTML as 32 KB instead of a few hundred bytes. The frame deflates its own
+# payload now, and the thing to prove is that the body still comes back
+# byte for byte with compression on.
+COMP_CFG="$LOG_DIR/aperio-compress.yaml"
+cat > "$COMP_CFG" <<YAML
+tunnel_compression: true
+YAML
+# The running server first: `start_server` does not replace one, and an orphan
+# left holding the port takes the *next* phase down, not this one.
+stop_server
+start_server APERIO_SERVER_CONFIG="$COMP_CFG"
+start_client comp "$BACKEND_PORT" APERIO_HOSTNAME=comp.e2e.local
+wait_routable comp.e2e.local
+COMP_OUT="$LOG_DIR/compressed-binary.bin"
+curl -s -o "$COMP_OUT" -H "Host: comp.e2e.local" "$BASE/binary"
+"$PYTHON" - "$COMP_OUT" <<'PYEOF' || fail "the binary body did not survive a compressed tunnel"
+import sys
+want = bytes(range(256)) * 2
+got = open(sys.argv[1], 'rb').read()
+sys.exit(0 if got == want else 1)
+PYEOF
+echo "  ok: every byte value survived with tunnel compression on"
+# Like every other phase: hand the port back, or the next one cannot bind.
+stop_server

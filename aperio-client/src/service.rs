@@ -20,8 +20,9 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{debug, error, info, warn};
 
 use crate::protocol::{
-  FRAME_REQUEST_CHUNK, PROTOCOL_VERSION, RequestBodyFeeder, TunnelDecl, TunnelMessage,
-  compress_frame, decode_binary_frame, decompress_frame,
+  FRAME_REQUEST_CHUNK, FRAME_RESPONSE_FULL, FRAME_RESPONSE_FULL_ZLIB, PROTOCOL_VERSION,
+  RequestBodyFeeder, TunnelDecl, TunnelMessage, compress_frame, decode_binary_frame,
+  decompress_frame, encode_binary_frame,
 };
 use crate::proxy::http::{
   ForwardContext, ForwardRequest, HeaderTransform, handle_incoming_request,
@@ -760,6 +761,29 @@ pub(crate) async fn run_service(
                 let msg = match msg {
                   Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
                     Message::Binary(compress_frame(&t))
+                  }
+                  // A full-response frame carries a body that used to travel
+                  // inside a text frame and be compressed with it. Compressed
+                  // here rather than where it is built, so the negotiated flag
+                  // stays in one place, and only when deflating wins: for an
+                  // already-compressed body it does not, and the frame goes
+                  // out as it is.
+                  Message::Binary(b)
+                    if compress_out_writer.load(Ordering::SeqCst)
+                      && b.first() == Some(&FRAME_RESPONSE_FULL) =>
+                  {
+                    match decode_binary_frame(&b) {
+                      Some((_, id, payload)) => match crate::protocol::deflate_payload(payload) {
+                        Some(deflated) => {
+                          match encode_binary_frame(FRAME_RESPONSE_FULL_ZLIB, id, &deflated) {
+                            Some(frame) => Message::Binary(frame),
+                            None => Message::Binary(b),
+                          }
+                        }
+                        None => Message::Binary(b),
+                      },
+                      None => Message::Binary(b),
+                    }
                   }
                   other => other,
                 };

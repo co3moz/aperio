@@ -22,8 +22,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::auth::authorize_tunnel_token;
 use crate::protocol::{
-  FRAME_RESPONSE_CHUNK, FRAME_RESPONSE_FULL, PROTOCOL_VERSION, TunnelMessage, compress_frame,
-  decode_binary_frame, decompress_frame,
+  FRAME_RESPONSE_CHUNK, FRAME_RESPONSE_FULL, FRAME_RESPONSE_FULL_ZLIB, PROTOCOL_VERSION,
+  TunnelMessage, compress_frame, decode_binary_frame, decompress_frame,
 };
 use crate::routing::{
   extract_client_ip, normalize_hostname_bind, normalize_path_bind, random_subdomain_hostname,
@@ -553,11 +553,32 @@ pub(crate) async fn handle_socket(
                 deliver_response_chunk(&state, &client_id, &fid, payload.to_vec()).await;
                 None
               }
-              // v5: envelope and body in one frame. The body is kept aside as
-              // bytes and picked up by the `Response` arm below, which is the
-              // only place that knows what to do with it; everything else
-              // about the message is the same JSON it always was.
-              Some((FRAME_RESPONSE_FULL, _fid, payload)) => {
+              // v5: envelope and body in one frame, deflated or not. The
+              // body is kept aside as bytes and picked up by the `Response`
+              // arm below, which is the only place that knows what to do with
+              // it; everything else about the message is the same JSON it
+              // always was.
+              Some((tag, _fid, payload))
+                if tag == FRAME_RESPONSE_FULL || tag == FRAME_RESPONSE_FULL_ZLIB =>
+              {
+                // Deflated payloads are inflated first, bounded like every
+                // other decompression here so a small frame cannot ask for an
+                // unbounded allocation. A payload that will not inflate is a
+                // corrupt frame: dropped, and the request behind it times out
+                // rather than being answered with nonsense.
+                let inflated = (tag == FRAME_RESPONSE_FULL_ZLIB)
+                  .then(|| crate::protocol::inflate_payload(payload, max_inflated));
+                let payload = match &inflated {
+                  Some(Some(bytes)) => bytes.as_slice(),
+                  Some(None) => {
+                    warn!(
+                      "Client {} sent a full-response frame that would not inflate; dropping it",
+                      client_id
+                    );
+                    &[][..]
+                  }
+                  None => payload,
+                };
                 match crate::protocol::split_full_response(payload) {
                   Some((json, body)) => {
                     full_body = Some(body.to_vec());

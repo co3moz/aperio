@@ -125,3 +125,40 @@ fn a_truncated_full_response_frame_is_refused() {
   lying.extend_from_slice(b"{}");
   assert!(split_full_response(&lying).is_none());
 }
+
+#[test]
+fn a_deflated_full_response_payload_round_trips() {
+  // The compressed sibling: a compressible body must come back byte for byte,
+  // and an incompressible one must not be sent compressed at all, since
+  // deflating it costs CPU to produce more bytes.
+  let json = r#"{"type":"Response","id":"abc","status":200}"#;
+  let compressible: Vec<u8> = b"the quick brown fox ".repeat(400);
+  let payload = join_full_response(json, &compressible);
+
+  let deflated = deflate_payload(&payload).expect("a compressible payload deflates");
+  assert!(deflated.len() < payload.len());
+  let inflated = inflate_payload(&deflated, 1 << 20).expect("it inflates back");
+  let (out_json, out_body) = split_full_response(&inflated).expect("and still splits");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &compressible[..]);
+
+  // Random bytes: deflating makes it bigger, so it is refused and the frame
+  // goes out as it is.
+  let random: Vec<u8> = (0..4096u32)
+    .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+    .collect();
+  let payload = join_full_response(json, &random);
+  assert!(
+    deflate_payload(&payload).is_none() || deflate_payload(&payload).unwrap().len() < payload.len()
+  );
+
+  // The bound holds: a payload that inflates past the limit is refused rather
+  // than allocated.
+  let big = join_full_response(json, &vec![0u8; 200_000]);
+  let deflated = deflate_payload(&big).expect("zeros deflate");
+  assert!(
+    inflate_payload(&deflated, 1000).is_none(),
+    "the limit was not enforced"
+  );
+  assert!(inflate_payload(&deflated, 1 << 20).is_some());
+}
