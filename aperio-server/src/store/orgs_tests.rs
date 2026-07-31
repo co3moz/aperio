@@ -328,3 +328,27 @@ fn overlap_is_symmetric_where_coverage_is_not() {
   assert!(!patterns_overlap("*.robogon.com", "robogon.com"));
   assert!(!patterns_overlap("*.robogon.com", "*.other.com"));
 }
+
+#[test]
+fn pattern_matching_survives_the_hostnames_a_visitor_can_send() {
+  // The Host header is attacker-controlled, and this now indexes bytes.
+  assert!(pattern_matches_host("*.acme.com", "app.acme.com"));
+  assert!(pattern_matches_host("*.acme.com", "APP.ACME.COM"));
+  assert!(pattern_matches_host("*.acme.com", "app.acme.com."));
+  assert!(!pattern_matches_host("*.acme.com", "acme.com"));
+  assert!(!pattern_matches_host("*.acme.com", ".acme.com"));
+  assert!(!pattern_matches_host("*.acme.com", "notacme.com"));
+  assert!(!pattern_matches_host("*.acme.com", "xacme.com"));
+  assert!(!pattern_matches_host("*.acme.com", ""));
+  assert!(pattern_matches_host("acme.com", "ACME.com."));
+  assert!(pattern_matches_host("*", "anything"));
+  // Multi-byte input must compare false, not panic on a slice boundary.
+  assert!(!pattern_matches_host("*.acme.com", "ü.acme.co"));
+  assert!(!pattern_matches_host("*.acme.com", "ünicode"));
+  assert!(!pattern_matches_host("üacme.com", "acme.com"));
+  // A suffix longer than the host cannot underflow the index arithmetic.
+  assert!(!pattern_matches_host(
+    "*.a.very.long.suffix.example",
+    "short.example"
+  ));
+}

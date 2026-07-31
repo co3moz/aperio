@@ -208,6 +208,7 @@ pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usiz
 /// True when the request's hostname is currently in maintenance mode
 /// (either listed explicitly or covered by the `*` wildcard entry).
 async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
+  use crate::store::orgs::pattern_matches_host;
   let set = state.maintenance.lock().await;
   if set.is_empty() {
     return false;
@@ -221,10 +222,9 @@ async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
     // for every service under a domain, which is what an operator means by
     // "put robogon into maintenance".
     set.contains_key(h)
-      || set.keys().any(|pattern| {
-        pattern.starts_with("*.")
-          && crate::store::orgs::hostname_in_org_allowlist(h, std::slice::from_ref(pattern))
-      })
+      || set
+        .keys()
+        .any(|pattern| pattern.starts_with("*.") && pattern_matches_host(pattern, h))
   })
 }
 

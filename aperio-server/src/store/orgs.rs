@@ -90,6 +90,29 @@ pub fn normalize_org_hostname_pattern(raw: &str) -> Option<String> {
   })
 }
 
+/// True when one allowlist pattern (`*`, `*.acme.com`, or an exact hostname)
+/// covers `host`.
+///
+/// Allocation-free on purpose: this runs per request on the proxy's hot path
+/// once any maintenance flag exists, and the obvious spelling cost a
+/// lowercased copy of the hostname plus a `format!` per pattern, per request.
+/// Compared as bytes rather than as `str` so a Host header that is not UTF-8
+/// where the suffix begins cannot panic on a slice boundary.
+pub fn pattern_matches_host(pattern: &str, host: &str) -> bool {
+  if pattern == "*" {
+    return true;
+  }
+  let host = host.trim_end_matches('.').as_bytes();
+  match pattern.strip_prefix("*.") {
+    Some(suffix) => {
+      let (n, m) = (host.len(), suffix.len());
+      // A label of at least one character, then a dot, then the suffix.
+      n > m + 1 && host[n - m - 1] == b'.' && host[n - m..].eq_ignore_ascii_case(suffix.as_bytes())
+    }
+    None => host.eq_ignore_ascii_case(pattern.as_bytes()),
+  }
+}
+
 /// True when `host` is covered by an organization's hostname allowlist. An
 /// empty list (or one containing `*`) is unrestricted. `*.acme.com` matches
 /// any subdomain of `acme.com` at any depth, but not `acme.com` itself, so an
@@ -98,16 +121,9 @@ pub fn hostname_in_org_allowlist(host: &str, patterns: &[String]) -> bool {
   if patterns.is_empty() {
     return true;
   }
-  let host = host.trim_end_matches('.').to_ascii_lowercase();
-  patterns.iter().any(|pattern| {
-    if pattern == "*" {
-      return true;
-    }
-    match pattern.strip_prefix("*.") {
-      Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(&format!(".{suffix}")),
-      None => host == *pattern,
-    }
-  })
+  patterns
+    .iter()
+    .any(|pattern| pattern_matches_host(pattern, host))
 }
 
 /// The suffix of a subdomain wildcard (`*.acme.com` -> `acme.com`), or None
