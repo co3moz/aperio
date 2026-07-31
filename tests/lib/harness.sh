@@ -78,13 +78,19 @@ assert_status() { # <expected> <actual> <label>
   echo "  ok: $3"
 }
 
+# Polls a command until it succeeds, giving up after <seconds>.
+#
+# The interval is a tenth of a second rather than a whole one: almost every
+# wait in this suite is "is the server up yet", answered in tens of
+# milliseconds, and a one-second granularity charged a full second for each of
+# them. There are more than a hundred such waits across the phases.
 retry() { # <seconds> <command...>
   local deadline=$(( $(date +%s) + $1 )); shift
   until "$@" >/dev/null 2>&1; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       return 1
     fi
-    sleep 1
+    sleep 0.1
   done
 }
 
@@ -168,8 +174,18 @@ stop_server() {
   CLIENT_PIDS=()
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true
+    # Wait for it to actually be gone rather than for a fixed second: the next
+    # phase binds the same port, and an orphan still holding it takes down a
+    # phase that has nothing to do with this one. Graceful shutdown usually
+    # takes tens of milliseconds; the ceiling is there so a wedged process
+    # fails this phase instead of hanging the suite.
+    local gone=0
+    for _ in $(seq 1 100); do
+      if ! kill -0 "$SERVER_PID" 2>/dev/null; then gone=1; break; fi
+      sleep 0.05
+    done
+    [ "$gone" = "1" ] || echo "  warn: server $SERVER_PID did not exit within 5s"
     SERVER_PID=""
-    sleep 1
   fi
 }
 

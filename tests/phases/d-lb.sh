@@ -9,10 +9,16 @@ start_server APERIO_LB_STRATEGY='primary-standby'
 start_client primary "$BACKEND_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND"
 start_client standby "$BACKEND2_PORT" APERIO_HOSTNAME="$HOSTNAME_BIND" APERIO_PRIORITY=1
 wait_routable "$HOSTNAME_BIND"
-# Give the standby's first heartbeat (priority announcement) time to land.
+# Wait for the standby's first heartbeat, which is what carries the priority:
+# until it lands both clients look like tier 0 and the tier assertions below
+# would be testing round-robin. Waiting for the announcement itself rather
+# than for six seconds, which was the old way of spelling the same thing.
 retry 20 sh -c "curl -s '$BASE/aperio/health' | grep -q '\"connected_clients\":2'" \
   || fail "both clients did not connect"
-sleep 6
+LB_COOKIES="$LOG_DIR/cookies-$PHASE.txt"
+dashboard_login "$LB_COOKIES"
+retry 20 sh -c "curl -s -b '$LB_COOKIES' '$BASE/aperio/api/stats' | grep -q '\"priority\":1'" \
+  || fail "the standby never announced its priority"
 
 for i in 1 2 3 4; do
   BODY="$(curl -s -H "Host: ${HOSTNAME_BIND}" "$BASE/tier")"
