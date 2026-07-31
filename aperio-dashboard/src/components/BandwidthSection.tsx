@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatBytes } from '@/lib/format'
+import { formatBytes, NO_VALUE } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -84,7 +84,7 @@ function BandwidthTable({
                       className="text-right font-mono text-xs tabular-nums"
                       title={`▲ ${formatBytes(b.bytes_sent)} · ▼ ${formatBytes(b.bytes_received)} · ${b.requests} req`}
                     >
-                      {total > 0 ? formatBytes(total) : <span className="text-muted-foreground">, </span>}
+                      {total > 0 ? formatBytes(total) : <span className="text-muted-foreground">{NO_VALUE}</span>}
                     </TableCell>
                   )
                 })}

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { usePoll } from '@/hooks/usePoll'
 import { api, type SelfHealth } from '@/lib/api'
-import { formatBytes, formatUptime } from '@/lib/format'
+import { formatBytes, formatCount, formatUptime, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
@@ -18,8 +18,8 @@ export function SelfHealthSection() {
   const tiles: [string, string][] = data
     ? [
         [t('Uptime'), formatUptime(data.uptime_seconds)],
-        [t('Clients'), String(data.connected_clients)],
-        [t('Memory (RSS)'), data.rss_bytes == null ? ', ' : formatBytes(data.rss_bytes)],
+        [t('Clients'), formatCount(data.connected_clients)],
+        [t('Memory (RSS)'), data.rss_bytes == null ? NO_VALUE : formatBytes(data.rss_bytes)],
         [t('Store size'), formatBytes(data.store_bytes)],
       ]
     : []

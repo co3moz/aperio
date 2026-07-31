@@ -22,6 +22,19 @@ export type Lang = (typeof LANGUAGES)[number]['code']
 
 // English is the source language: the translation KEY is the English string,
 // so a missing entry falls back to English rather than a placeholder.
+//
+// **Terms that are never translated.** A word an operator types verbatim, in
+// `aperio.yaml`, in a URL or on the wire, is the same word in every language,
+// and translating it breaks the link between the screen and the file: the
+// clients table said "Alan Adı" over a column of `hostname:` values. These
+// stay in English in every dictionary:
+//
+//   hostname, path, header, endpoint, payload, token, webhook, proxy,
+//   subdomain, and the acronyms (OIDC, TOTP, MQTT, gRPC, TCP, UDP, WAF)
+//
+// Everything around them is translated normally, including the words that
+// merely sound technical, tunnel, client, server, cache, request, response,
+// which name ideas rather than keys.
 const DICTS: Record<Exclude<Lang, 'en'>, Record<string, string>> = {
   de,
   es,

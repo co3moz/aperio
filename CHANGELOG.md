@@ -34,6 +34,12 @@ project follows semantic versioning per release tag.
 
 - **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
 
+### Changed
+
+- **Large counts in the dashboard are grouped, and an empty cell says so.** `6652646` is a number nobody reads, so the overview, the clients table and the traffic breakdown now write `6,652,646`, grouped the way the dashboard's own language does rather than the browser's. A cell with nothing in it shows an en dash again: a repository-wide sweep had replaced the placeholder with a lone comma, so a client with no hostname bind showed `,`.
+
+- **The words an operator types are no longer translated.** `hostname`, `path`, `header`, `endpoint`, `payload`, `token`, `webhook`, `proxy` and `subdomain` name things that appear verbatim in `aperio.yaml`, in a URL or on the wire, and a column headed "Alan Adı" over a list of `hostname:` values breaks the link between the screen and the file. They stay in English in all seven languages now; everything around them is still translated, including the words that only sound technical (tunnel, client, cache, request).
+
 ### Fixed
 
 - **A new organization appears in the sidebar's picker immediately.** The picker and the Organizations screen poll separately, so an organization created on one was missing from the other for up to thirty seconds, which is where you go straight after creating it. Creating, renaming and deleting now tell the picker to reload.

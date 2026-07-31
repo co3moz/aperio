@@ -49,7 +49,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
 import { api, logout, type Role } from './lib/api'
-import { formatBytes, formatUptime } from './lib/format'
+import { formatBytes, formatUptime, NO_VALUE } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { useI18n } from '@/i18n'
@@ -135,7 +135,7 @@ const ACTIONS: {
 function describeSetting(payload: SettingsPayload, field: FieldSpec): string {
   const override = payload.overrides[field.key]
   const value = override ?? payload.defaults[field.key]
-  if (value === undefined || value === null || value === '') return ', '
+  if (value === undefined || value === null || value === '') return NO_VALUE
   const text =
     typeof value === 'boolean'
       ? value

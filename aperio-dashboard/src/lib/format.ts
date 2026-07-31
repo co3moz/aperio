@@ -1,3 +1,33 @@
+/**
+ * What a cell shows when there is nothing to show: an en dash, the typographic
+ * convention for "no value", never an empty cell (which reads as a rendering
+ * bug) and never a `0` (which is a measurement).
+ *
+ * A constant because it was briefly a comma: a sweep that replaced the em dash
+ * everywhere in the repository reached these placeholders too, and the
+ * clients table showed a lone `,` where a hostname would be.
+ */
+export const NO_VALUE = '\u2013'
+
+/**
+ * The language the dashboard is being read in, which the i18n provider writes
+ * onto `<html lang>`. Not the browser's, which is a different question and
+ * would group a Turkish page's numbers the American way whenever the browser
+ * happened to be American.
+ */
+function uiLocale(): string | undefined {
+  return typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined
+}
+
+/**
+ * A count, grouped for reading: 6652646 becomes 6,652,646 in English and
+ * 6.652.646 in Turkish. Seven digits in a row are not a number anyone reads,
+ * they are a width to be estimated.
+ */
+export function formatCount(value: number, locale: string | undefined = uiLocale()): string {
+  return Number.isFinite(value) ? Math.round(value).toLocaleString(locale) : String(value)
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -87,7 +117,7 @@ export function formatAbsoluteTime(input: string | number): string {
 }
 
 export function formatLastPing(secondsAgo: number | null): string {
-  if (secondsAgo === null || secondsAgo === undefined) return ', '
+  if (secondsAgo === null || secondsAgo === undefined) return NO_VALUE
   if (secondsAgo < 1) return 'now'
   return `${secondsAgo}s ago`
 }

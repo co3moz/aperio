@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, ApiError, type ClientDetail } from '@/lib/api'
-import { formatBandwidth, formatLastPing, formatUptime } from '@/lib/format'
+import { formatBandwidth, formatCount, formatLastPing, formatUptime, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
@@ -70,7 +70,7 @@ function BindList({ binds, override }: { binds: string[]; override: string[] }) 
       </div>
     )
   }
-  if (binds.length === 0) return <span className="text-muted-foreground">, </span>
+  if (binds.length === 0) return <span className="text-muted-foreground">{NO_VALUE}</span>
   const [primary, ...rest] = binds
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -683,7 +683,7 @@ export function ClientsSection({
                     </div>
                   </TableCell>
                   <TableCell>{formatUptime(c.connected_for_seconds)}</TableCell>
-                  <TableCell className="tabular-nums">{g.requestCount}</TableCell>
+                  <TableCell className="tabular-nums">{formatCount(g.requestCount)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
                       {canMutate ? (

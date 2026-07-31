@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { usePoll } from '@/hooks/usePoll'
 import { api, type CacheStats } from '@/lib/api'
 import { useI18n } from '@/i18n'
+import { formatCount } from '@/lib/format'
 import { useHasRole } from '@/lib/session'
 
 function bytes(n: number): string {
@@ -32,10 +33,10 @@ export function CacheStatsSection() {
 
   const tiles: [string, string][] = data
     ? [
-        [t('Entries'), String(data.entries)],
+        [t('Entries'), formatCount(data.entries)],
         [t('Size'), bytes(data.bytes)],
         [t('Hit ratio'), `${(data.hit_ratio * 100).toFixed(1)}%`],
-        [t('Hits / misses'), `${data.hits} / ${data.misses}`],
+        [t('Hits / misses'), `${formatCount(data.hits)} / ${formatCount(data.misses)}`],
       ]
     : []
 

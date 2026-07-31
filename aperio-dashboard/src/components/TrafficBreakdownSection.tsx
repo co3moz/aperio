@@ -10,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { PeriodStats, ServerStats } from '@/lib/api'
-import { formatBytes } from '@/lib/format'
+import { formatBytes, formatCount } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 const TOP_N = 10
@@ -57,9 +57,9 @@ function BreakdownTable({
                   <TableCell className="break-all font-mono text-sm">
                     {label === '__other' ? t('(other)') : label}
                   </TableCell>
-                  <TableCell className="tabular-nums">{s.requests}</TableCell>
+                  <TableCell className="tabular-nums">{formatCount(s.requests)}</TableCell>
                   <TableCell className="tabular-nums">
-                    {s.success} / {s.failed}
+                    {formatCount(s.success)} / {formatCount(s.failed)}
                   </TableCell>
                   <TableCell>{formatBytes(s.bytes_sent)}</TableCell>
                   <TableCell>{formatBytes(s.bytes_received)}</TableCell>

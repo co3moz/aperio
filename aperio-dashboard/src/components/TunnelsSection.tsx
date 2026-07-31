@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api, type DeclaredTunnel } from '@/lib/api'
+import { NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 /**
@@ -155,7 +156,7 @@ export function TunnelsSection() {
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
-                  {tunnel.client_id ?? ', '}
+                  {tunnel.client_id ?? NO_VALUE}
                   {tunnel.token_name && (
                     <span className="ml-2 font-sans">{tunnel.token_name}</span>
                   )}

@@ -10,7 +10,7 @@ import type { ReactNode } from 'react'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ServerStats } from '@/lib/api'
-import { formatBytes } from '@/lib/format'
+import { formatBytes, formatCount, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 function StatCard({
@@ -55,10 +55,10 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
         loading={loading}
         icon={<GlobeIcon />}
         title={t('Tunnel Clients')}
-        value={String(s?.connected_clients_count ?? 0)}
+        value={formatCount(s?.connected_clients_count ?? 0)}
         sub={
           s && s.connected_clients_count > 0
-            ? t('{count} tunnel client(s) active', { count: s.connected_clients_count })
+            ? t('{count} tunnel client(s) active', { count: formatCount(s.connected_clients_count) })
             : t('No active web socket client')
         }
       />
@@ -66,15 +66,18 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
         loading={loading}
         icon={<LayersIcon />}
         title={t('Queue Status')}
-        value={String(s?.pending_requests_count ?? 0)}
+        value={formatCount(s?.pending_requests_count ?? 0)}
         sub={t('Requests pending reconnection')}
       />
       <StatCard
         loading={loading}
         icon={<TrendingUpIcon />}
         title={t('Total Requests')}
-        value={String(s?.total_requests ?? 0)}
-        sub={t('{ok} of {total} successful', { ok: s?.successful_requests ?? 0, total })}
+        value={formatCount(s?.total_requests ?? 0)}
+        sub={t('{ok} of {total} successful', {
+          ok: formatCount(s?.successful_requests ?? 0),
+          total: formatCount(total),
+        })}
       />
       <StatCard
         loading={loading}
@@ -87,10 +90,13 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
         loading={loading}
         icon={<GaugeIcon />}
         title={t('Avg Response')}
-        value={s && s.persistent.total_requests > 0 ? `${s.avg_response_ms.toFixed(1)} ms` : ', '}
+        value={s && s.persistent.total_requests > 0 ? `${s.avg_response_ms.toFixed(1)} ms` : NO_VALUE}
         sub={
           s
-            ? t('{count} lifetime requests • {bytes} sent', { count: s.persistent.total_requests, bytes: formatBytes(s.persistent.total_bytes_sent) })
+            ? t('{count} lifetime requests • {bytes} sent', {
+                count: formatCount(s.persistent.total_requests),
+                bytes: formatBytes(s.persistent.total_bytes_sent),
+              })
             : t('All-time (persisted)')
         }
       />
@@ -98,10 +104,14 @@ export function StatsCards({ stats }: { stats: ServerStats | null }) {
         loading={loading}
         icon={<CalendarDaysIcon />}
         title={t('Today')}
-        value={String(s?.today.requests ?? 0)}
+        value={formatCount(s?.today.requests ?? 0)}
         sub={
           s
-            ? t('{ok} ok / {failed} failed • {bytes} sent today', { ok: s.today.success, failed: s.today.failed, bytes: formatBytes(s.today.bytes_sent) })
+            ? t('{ok} ok / {failed} failed • {bytes} sent today', {
+                ok: formatCount(s.today.success),
+                failed: formatCount(s.today.failed),
+                bytes: formatBytes(s.today.bytes_sent),
+              })
             : t('Requests today')
         }
       />

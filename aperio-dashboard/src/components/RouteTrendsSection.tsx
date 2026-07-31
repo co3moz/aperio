@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { formatCount } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 interface TrendBucket {
@@ -134,7 +135,7 @@ export function RouteTrendsSection() {
                     </Tooltip>
                   </TableCell>
                   <TableCell className="text-right font-mono text-sm tabular-nums">
-                    {r.total}
+                    {formatCount(r.total)}
                   </TableCell>
                   <TableCell className="text-right font-mono text-sm tabular-nums">
                     <span className={r.error_rate > 0 ? 'text-red-500' : 'text-muted-foreground'}>

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   formatBandwidth,
   formatBytes,
+  formatCount,
   formatExpiry,
   formatRelativeTime,
   formatUptime,
+  NO_VALUE,
   parseByteSize,
   splitList,
 } from './format'
@@ -89,5 +91,33 @@ describe('formatRelativeTime', () => {
     const anHourAgo = Math.floor(Date.now() / 1000) - 3600
     expect(formatRelativeTime(anHourAgo)).toBe('1h ago')
     expect(formatRelativeTime(anHourAgo * 1000)).toBe('just now')
+  })
+})
+
+describe('formatCount', () => {
+  it('groups a long count so it can be read at a glance', () => {
+    // The overview showed 6652646: seven digits nobody reads, they estimate.
+    expect(formatCount(6652646, 'en')).toBe('6,652,646')
+    expect(formatCount(999, 'en')).toBe('999')
+    expect(formatCount(0, 'en')).toBe('0')
+  })
+
+  it("follows the dashboard's language, not the browser's", () => {
+    // The locale comes from <html lang>, which the i18n provider writes; the
+    // argument is how that reaches this function, and how a test states it.
+    expect(formatCount(6652646, 'tr')).toBe('6.652.646')
+    expect(formatCount(6652646, 'de')).toBe('6.652.646')
+  })
+
+  it('leaves a non-finite value alone rather than grouping NaN', () => {
+    expect(formatCount(Number.NaN)).toBe('NaN')
+    expect(formatCount(Number.POSITIVE_INFINITY)).toBe('Infinity')
+  })
+})
+
+describe('NO_VALUE', () => {
+  it('is an en dash, not the comma a repo-wide sweep once left behind', () => {
+    expect(NO_VALUE).toBe('\u2013')
+    expect(NO_VALUE).not.toContain(',')
   })
 })

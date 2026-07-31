@@ -12,10 +12,11 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePoll } from '@/hooks/usePoll'
 import { api, type UptimeEntry } from '@/lib/api'
+import { NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 function pct(value: number | null): string {
-  if (value === null) return ', '
+  if (value === null) return NO_VALUE
   return `${value >= 99.995 ? '100' : value.toFixed(2)}%`
 }
 

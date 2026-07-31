@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { formatCount } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 interface SlowEndpoint {
@@ -93,10 +94,12 @@ export function SlowEndpointsSection() {
                   <TableCell className="text-right font-mono text-sm tabular-nums">
                     {r.max_ms} ms
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm tabular-nums">{r.count}</TableCell>
+                  <TableCell className="text-right font-mono text-sm tabular-nums">
+                    {formatCount(r.count)}
+                  </TableCell>
                   <TableCell className="text-right font-mono text-sm tabular-nums">
                     {r.errors > 0 ? (
-                      <span className="text-red-500">{r.errors}</span>
+                      <span className="text-red-500">{formatCount(r.errors)}</span>
                     ) : (
                       <span className="text-muted-foreground">0</span>
                     )}

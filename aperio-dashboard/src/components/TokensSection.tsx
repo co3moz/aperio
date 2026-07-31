@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/table'
 import { usePoll } from '@/hooks/usePoll'
 import { api, ApiError, type TokenView } from '@/lib/api'
-import { formatExpiry, splitList } from '@/lib/format'
+import { formatExpiry, NO_VALUE, splitList } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
@@ -461,7 +461,7 @@ export function TokensSection() {
                         tok.daily_max_bytes == null &&
                         !tok.allow_public &&
                         !tok.canary && (
-                        <span className="text-muted-foreground">, </span>
+                        <span className="text-muted-foreground">{NO_VALUE}</span>
                       )}
                     </div>
                   </TableCell>
