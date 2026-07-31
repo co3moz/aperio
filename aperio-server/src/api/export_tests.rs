@@ -3,7 +3,19 @@
 use super::*;
 use crate::store::users::Role;
 use crate::test_support::*;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Query, State};
+
+/// The default section set (what `?include=` unset means).
+fn all() -> Query<ExportQuery> {
+  Query(ExportQuery { include: None })
+}
+
+/// `?include=<names>`.
+fn include(names: &str) -> Query<ExportQuery> {
+  Query(ExportQuery {
+    include: Some(names.to_string()),
+  })
+}
 
 fn import_dump(
   format_version: u32,
@@ -21,6 +33,10 @@ fn import_dump(
     settings_overrides,
     organizations,
     scaling: None,
+    statistics: None,
+    uptime: None,
+    inbox: None,
+    admin_keys: None,
   })
 }
 
@@ -29,7 +45,13 @@ fn import_dump(
 #[tokio::test]
 async fn export_requires_authentication() {
   let state = Arc::new(test_state());
-  let resp = export_handler(State(state), ConnectInfo(test_peer()), HeaderMap::new()).await;
+  let resp = export_handler(
+    State(state),
+    ConnectInfo(test_peer()),
+    HeaderMap::new(),
+    all(),
+  )
+  .await;
   assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
@@ -41,6 +63,7 @@ async fn export_forbidden_for_non_master_admin() {
     State(state),
     ConnectInfo(test_peer()),
     cookie_headers(&token),
+    all(),
   )
   .await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -50,7 +73,7 @@ async fn export_forbidden_for_non_master_admin() {
 async fn export_empty_state_returns_dump() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
-  let resp = export_handler(State(state), ConnectInfo(test_peer()), headers).await;
+  let resp = export_handler(State(state), ConnectInfo(test_peer()), headers, all()).await;
   assert_eq!(resp.status(), StatusCode::OK);
 
   // Headers: JSON content-type and an attachment filename.
@@ -86,7 +109,7 @@ async fn export_includes_seeded_data() {
     .create("acme", Vec::new(), None)
     .unwrap();
 
-  let resp = export_handler(State(state), ConnectInfo(test_peer()), headers).await;
+  let resp = export_handler(State(state), ConnectInfo(test_peer()), headers, all()).await;
   assert_eq!(resp.status(), StatusCode::OK);
   let body = json_body(resp).await;
   let orgs = body["organizations"].as_array().unwrap();
@@ -212,4 +235,199 @@ async fn import_all_sections_applies_and_reports_counts() {
   assert_eq!(imported["webhooks"], 0);
   assert_eq!(imported["users"], 0);
   assert_eq!(imported["organizations"], 0);
+}
+
+// ---- Section selection ----
+
+#[tokio::test]
+async fn the_default_dump_is_the_configuration_sections() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let body =
+    json_body(export_handler(State(state), ConnectInfo(test_peer()), headers, all()).await).await;
+  // What this endpoint always wrote, so a script that predates `include`
+  // keeps getting it.
+  for key in [
+    "tokens",
+    "webhooks",
+    "users",
+    "organizations",
+    "scaling",
+    "settings_overrides",
+  ] {
+    assert!(!body[key].is_null(), "{key} missing from the default dump");
+  }
+  // And what it did not: history is opt-in.
+  for key in ["statistics", "uptime", "inbox", "admin_keys"] {
+    assert!(body[key].is_null(), "{key} should be opt-in");
+  }
+}
+
+#[tokio::test]
+async fn include_selects_exactly_what_was_asked_for() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let body = json_body(
+    export_handler(
+      State(state),
+      ConnectInfo(test_peer()),
+      headers,
+      include("statistics, uptime"),
+    )
+    .await,
+  )
+  .await;
+  assert!(body["statistics"].is_object());
+  assert!(body["uptime"].is_object());
+  assert!(body["tokens"].is_null());
+  assert_eq!(
+    body["sections"].as_array().unwrap().len(),
+    2,
+    "the dump says what it holds"
+  );
+}
+
+#[tokio::test]
+async fn a_misspelled_section_is_refused_rather_than_dropped() {
+  // Silently ignoring it would hand back a backup missing exactly the thing
+  // that was asked for, which is the one way a backup must not fail.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = export_handler(
+    State(state),
+    ConnectInfo(test_peer()),
+    headers,
+    include("tokens,statistic"),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    .await
+    .unwrap();
+  let text = String::from_utf8(bytes.to_vec()).unwrap();
+  assert!(text.contains("statistic"), "{text}");
+  assert!(text.contains("statistics"), "names the known ones: {text}");
+}
+
+#[tokio::test]
+async fn without_organizations_only_masters_rows_travel() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  {
+    let mut tokens = state.token_store.lock().await;
+    tokens.create(
+      "master-one".into(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+      false,
+      false,
+      None,
+      vec![],
+      None,
+    );
+    tokens.create(
+      "acme-one".into(),
+      vec![],
+      vec![],
+      vec![],
+      None,
+      None,
+      None,
+      false,
+      false,
+      false,
+      Some(org.clone()),
+      vec![],
+      None,
+    );
+  }
+  state
+    .persistent_stats
+    .lock()
+    .await
+    .record_request(true, 1, 2, 3, Some(&org));
+
+  // Without the organizations section, a child org's rows would land on a
+  // server where that organization does not exist.
+  let body = json_body(
+    export_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      include("tokens,statistics"),
+    )
+    .await,
+  )
+  .await;
+  let tokens = body["tokens"].as_array().unwrap();
+  assert_eq!(tokens.len(), 1);
+  assert_eq!(tokens[0]["name"], "master-one");
+  assert!(
+    body["statistics"]["by_org"][&org].is_null(),
+    "the org's slice went with it"
+  );
+  // The global aggregate is this server's own total, not an organization's,
+  // so it stays.
+  assert_eq!(body["statistics"]["total_requests"], 1);
+
+  // Ask for the organizations too and everything travels.
+  let body = json_body(
+    export_handler(
+      State(state),
+      ConnectInfo(test_peer()),
+      headers,
+      include("tokens,statistics,organizations"),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(body["tokens"].as_array().unwrap().len(), 2);
+  assert!(body["statistics"]["by_org"][&org].is_object());
+}
+
+#[tokio::test]
+async fn a_dump_of_history_imports_back() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  state
+    .persistent_stats
+    .lock()
+    .await
+    .record_request(true, 10, 20, 30, None);
+  let exported = json_body(
+    export_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      include("statistics"),
+    )
+    .await,
+  )
+  .await;
+
+  // A fresh server reads it back and has the history.
+  let target = Arc::new(test_state());
+  let target_headers = admin_headers(&target).await;
+  let dump: ImportDump = serde_json::from_value(exported).unwrap();
+  let resp = import_handler(
+    State(target.clone()),
+    ConnectInfo(test_peer()),
+    target_headers,
+    Json(dump),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(target.persistent_stats.lock().await.lifetime_requests(), 1);
 }

@@ -67,7 +67,10 @@ validates the exact keys a given version accepts.
    flags anything the new version would reject or silently default, run it
    before restarting.
 3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` (yaml `backup_*`) or a logical
-   `/aperio/api/export`) so a rollback has a known-good state. The SQLite schema
+   `/aperio/api/export`) so a rollback has a known-good state. The logical dump
+   carries the configuration by default; add `?include=` to name the sections,
+   `tokens,webhooks,users,organizations,scaling,settings_overrides,statistics,uptime,inbox,admin_keys`
+   is everything the store holds. The SQLite schema
    is created idempotently; new columns are additive with serde defaults, so an
    older store loads cleanly into a newer server.
 4. **Roll the server forward.** With `APERIO_REUSEPORT=1` (yaml `reuseport`) you can start the new

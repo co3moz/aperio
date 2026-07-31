@@ -216,14 +216,14 @@ const RETENTION: [(&str, usize); 4] = [("d:", 60), ("w:", 26), ("m:", 24), ("y:"
 /// background task flushes periodically.
 /// On-disk shape: the global aggregate (flattened, so older files that were a
 /// bare `PersistentStats` still load) plus a per-organization breakdown.
-#[derive(Serialize, Deserialize, Default)]
-struct PersistedStats {
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct PersistedStats {
   #[serde(flatten)]
-  global: PersistentStats,
+  pub global: PersistentStats,
   /// Per-organization stats, keyed by org id (`master` for the implicit master
   /// org). Each entry is a full [`PersistentStats`] scoped to that org.
   #[serde(default)]
-  by_org: HashMap<String, PersistentStats>,
+  pub by_org: HashMap<String, PersistentStats>,
 }
 
 /// The org-id key used for the implicit master organization (org `None`).
@@ -550,6 +550,25 @@ impl StatsStore {
       }
       Err(e) => error!("Failed to serialize persistent stats: {}", e),
     }
+  }
+
+  /// Everything this store holds, for a dump: the global aggregate plus each
+  /// organization's slice, in the shape the store persists.
+  pub fn export(&self) -> PersistedStats {
+    PersistedStats {
+      global: self.stats.clone(),
+      by_org: self.by_org.clone(),
+    }
+  }
+
+  /// Replaces every counter with an imported dump. Whole-store, like every
+  /// other import: merging two histories would invent traffic that never
+  /// happened on either server.
+  pub fn import(&mut self, dump: PersistedStats) {
+    self.stats = dump.global;
+    self.by_org = dump.by_org;
+    self.dirty = true;
+    self.save_if_dirty();
   }
 
   /// The global aggregate across all organizations (used by Prometheus and

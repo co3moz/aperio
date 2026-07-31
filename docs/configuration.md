@@ -694,7 +694,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
 | `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |
-| `GET /aperio/api/export` | Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). | master super-admin |
+| `GET /aperio/api/export` | Logical JSON dump, a failsafe for upgrades and migrations. `?include=` names the sections: `tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides` (the default set), plus `statistics`, `uptime`, `inbox`, `admin_keys`. Without `organizations`, only the master organization's rows travel. Sessions and the audit log are never included. | master super-admin |
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
 | `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
 | `GET /aperio/api/scaling`, `DELETE /aperio/api/scaling/:id` | Autoscaling records armed by clients, with live pool utilization, see [Autoscaling](autoscaling.md). | dashboard session |

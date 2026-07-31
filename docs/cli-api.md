@@ -215,6 +215,7 @@ aperio-client api settings get
 aperio-client api settings set --file overrides.json
 
 aperio-client api export > backup.json
+aperio-client api export --include tokens,users,statistics > partial.json
 aperio-client api import --file backup.json
 
 aperio-client api purge --hostname app.example.com   # or --token-name ci, --ip 203.0.113.7
@@ -222,6 +223,8 @@ aperio-client api openapi                            # the OpenAPI document for 
 ```
 
 `settings set` and `import` both replace what they touch, so read the current state first (`settings get`, `export`). Both accept `-` as the file to read stdin.
+
+`export` writes the configuration that rebuilds a deployment (`tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides`). `--include` names the sections instead, and adds the history the store also holds: `statistics`, `uptime`, `inbox`, `admin_keys`. A misspelled name is an error rather than a silently missing section. Leave `organizations` out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target server is an orphan. `import` applies whatever sections the file holds, so the export is where the decision is made.
 
 ## Scripting
 

@@ -73,6 +73,14 @@ impl AdminKeyStore {
     crate::store::replace_all(&mut self.conn, "admin_keys", &rows)
   }
 
+  /// Replaces the stored admin keys with an imported set. The records carry
+  /// only hashes, like every other credential in a dump.
+  pub fn import(&mut self, keys: Vec<AdminKey>) -> usize {
+    self.keys = keys;
+    self.persist();
+    self.keys.len()
+  }
+
   /// Creates a new admin key, persists it, and returns the record plus the
   /// plaintext secret (available only at creation time).
   pub fn create(

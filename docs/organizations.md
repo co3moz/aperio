@@ -61,7 +61,7 @@ Per **effective organization**, a named user's own org, or the org the super-adm
 A few things are properties of the *server*, not of any one tenant, and are reserved for the master super-admin:
 
 - **Server settings** (`/aperio/api/settings`), one runtime configuration for the whole process.
-- **Export / import** (`/aperio/api/export`, `/aperio/api/import`), a whole-server backup that spans every organization.
+- **Export / import** (`/aperio/api/export`, `/aperio/api/import`), a whole-server backup that spans every organization. Exporting *without* the `organizations` section keeps only master's rows, since a token, user or statistics slice whose organization does not exist on the target server would be an orphan.
 - **Prometheus metrics** (`/aperio/metrics`), the server-wide grand totals for operators (guarded by its own metrics token).
 
 Where a server-global feature's data *can* be attributed to an organization, the request counters, for instance, each organization still sees its own slice; only the cross-organization grand total is master-only.

@@ -86,6 +86,25 @@ impl InboxStore {
     self.persist();
   }
 
+  /// Every entry, oldest first, across organizations. For a dump; the
+  /// dashboard's list is org-scoped.
+  pub fn list_all(&self) -> Vec<&InboxEntry> {
+    self.entries.iter().collect()
+  }
+
+  /// Replaces the inbox with an imported set, keeping it chronological and
+  /// within the cap. Returns how many entries were kept.
+  pub fn import(&mut self, entries: Vec<InboxEntry>) -> usize {
+    let mut entries = entries;
+    entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    if entries.len() > INBOX_MAX_ENTRIES {
+      entries.drain(..entries.len() - INBOX_MAX_ENTRIES);
+    }
+    self.entries = entries.into();
+    self.persist();
+    self.entries.len()
+  }
+
   /// Newest-first entries of one organization.
   pub fn list(&self, org: &Option<String>) -> Vec<&InboxEntry> {
     self

@@ -125,8 +125,8 @@ pub(crate) enum ApiCommand {
   TrafficCsv(HistoryArgs),
   /// Erase stored records for a hostname, token label, or visitor IP
   Purge(PurgeArgs),
-  /// Dump tokens, webhooks, users, and orgs as JSON
-  Export,
+  /// Dump the server's stored state as JSON
+  Export(ExportArgs),
   /// Apply a dump created by `api export`
   Import(FileArgs),
   /// Fetch the OpenAPI document describing this server's API
@@ -569,6 +569,16 @@ pub(crate) struct FileArgs {
   /// Path to a JSON file; `-` reads stdin
   #[arg(long, value_name = "FILE")]
   file: String,
+}
+
+#[derive(Args)]
+pub(crate) struct ExportArgs {
+  /// Sections to include, comma separated. Omitted: the configuration that
+  /// rebuilds a deployment (tokens, webhooks, users, organizations, scaling,
+  /// settings_overrides). Also available: statistics, uptime, inbox,
+  /// admin_keys. Without `organizations`, only master's rows travel.
+  #[arg(long, value_name = "SECTIONS")]
+  include: Option<String>,
 }
 
 #[derive(Args)]
@@ -1093,7 +1103,7 @@ fn build_call(
       }
       Call::post("/aperio/api/purge", Value::Object(body))
     }
-    ApiCommand::Export => Call::get("/aperio/api/export"),
+    ApiCommand::Export(a) => Call::get("/aperio/api/export").query("include", a.include.clone()),
     ApiCommand::Import(a) => Call::post("/aperio/api/import", read_json_file(&a.file)?),
     ApiCommand::Openapi => Call::get("/aperio/api/openapi.json"),
   })

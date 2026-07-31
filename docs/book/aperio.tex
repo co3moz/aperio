@@ -1473,7 +1473,9 @@ the server accepts.
   \item Decide about token pinning and canary tokens.
   \item Back the database up. \code{aperio-client api export} produces a
         JSON dump of tokens, webhooks, users, organisations and scaling
-        records.
+        records; \code{--include} adds the history the store also holds
+        (\code{statistics}, \code{uptime}, \code{inbox},
+        \code{admin\_keys}) or narrows the dump to the sections named.
 \end{enumerate}
 
 \section{Secrets and redaction}

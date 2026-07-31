@@ -164,6 +164,17 @@ impl UptimeStore {
     }
   }
 
+  /// Replaces the recorded history with an imported one, and writes it out.
+  pub fn import(&mut self, entities: HashMap<String, EntityUptime>) -> usize {
+    self.entities = entities;
+    // `last_tick` stays where it is: it is a clock reading of *this* process,
+    // not part of what was imported, and clearing it would attribute the gap
+    // since the last tick to the imported entities.
+    self.dirty = true;
+    self.save_if_dirty();
+    self.entities.len()
+  }
+
   pub fn snapshot(&self) -> HashMap<String, EntityUptime> {
     self.entities.clone()
   }
