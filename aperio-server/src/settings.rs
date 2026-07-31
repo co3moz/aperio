@@ -693,6 +693,57 @@ pub(crate) fn override_keys(o: &SettingsOverrides) -> Vec<String> {
   }
 }
 
+/// Keys the file writes *and* the dashboard stored an override for.
+///
+/// These are the ones that used to be a lie: `aperio-server.yaml` said one
+/// thing, a value changed once from the dashboard months earlier said another,
+/// the second won, and nothing anywhere reported the difference. An operator
+/// reads the file, versions it and reviews it; a value they wrote there must
+/// not be quietly ignored.
+///
+/// Compared through serde rather than field by field, so a setting added to
+/// `SettingsOverrides` is covered without anyone remembering to add it here.
+pub(crate) fn conflicting_keys(
+  file: &SettingsOverrides,
+  stored: &SettingsOverrides,
+) -> Vec<String> {
+  let from_file: std::collections::BTreeSet<String> = override_keys(file).into_iter().collect();
+  override_keys(stored)
+    .into_iter()
+    .filter(|k| from_file.contains(k))
+    .collect()
+}
+
+/// Removes the overrides the file also sets, returning what was dropped.
+///
+/// Dropped rather than merely out-voted: an override that is stored but never
+/// applied is the same invisible state in a different place, and it would come
+/// back to life the day someone removes the key from the file.
+pub(crate) fn drop_conflicting(
+  file: &SettingsOverrides,
+  stored: &mut SettingsOverrides,
+) -> Vec<String> {
+  let conflicts = conflicting_keys(file, stored);
+  if conflicts.is_empty() {
+    return conflicts;
+  }
+  // Through the same JSON shape the comparison uses: null a key and the field
+  // is `None` again, whatever its type.
+  let Ok(serde_json::Value::Object(mut map)) = serde_json::to_value(&*stored) else {
+    return Vec::new();
+  };
+  for key in &conflicts {
+    map.insert(key.clone(), serde_json::Value::Null);
+  }
+  match serde_json::from_value::<SettingsOverrides>(serde_json::Value::Object(map)) {
+    Ok(pruned) => {
+      *stored = pruned;
+      conflicts
+    }
+    Err(_) => Vec::new(),
+  }
+}
+
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod tests;

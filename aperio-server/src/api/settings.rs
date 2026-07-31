@@ -35,6 +35,10 @@ pub(crate) async fn settings_get_handler(
     "effective": settings_view(&state.config()),
     "defaults": settings_view(&state.config_env_defaults),
     "overrides": overrides,
+    // Keys aperio-server.yaml writes. They cannot be changed from here, and
+    // the pane says so on the field rather than letting someone type into it
+    // and receive an error on save.
+    "file_keys": crate::settings::override_keys(&crate::settings::file_overrides()),
     "environment": environment_report(&state),
   }))
   .into_response()
@@ -196,10 +200,24 @@ pub(crate) async fn apply_overrides_validated(
     }
   }
 
-  // Layer the config: env defaults -> aperio-server.yaml live settings ->
-  // dashboard overrides (dashboard wins). Then swap it in and push the
-  // side-effects into live structures.
+  // A key the file writes cannot be overridden from here. Refused at the
+  // door rather than stored and ignored: an override that does nothing is
+  // exactly the invisible state this is about, and the dashboard would show
+  // it as if it were in force.
   let file_layer = crate::settings::file_overrides();
+  let conflicts = crate::settings::conflicting_keys(&file_layer, &payload);
+  if !conflicts.is_empty() {
+    return Err(format!(
+      "aperio-server.yaml sets {}, so {} cannot be changed here. Edit the file: it is applied on \
+       hot-reload, and it is what an operator reads to know how this server is configured.",
+      conflicts.join(", "),
+      if conflicts.len() == 1 { "it" } else { "they" }
+    ));
+  }
+
+  // Layer the config: env defaults -> aperio-server.yaml live settings ->
+  // dashboard overrides. Then swap it in and push the side-effects into live
+  // structures.
   let base = apply_settings_overrides(&state.config_env_defaults, &file_layer);
   let mut effective = apply_settings_overrides(&base, &payload);
   // Structured sections come from the file document, not overrides.
@@ -227,7 +245,7 @@ pub(crate) async fn apply_overrides_validated(
 /// holds `auth_credentials` as plaintext `user:password`, so a default-umask
 /// (typically 0644) write would let other local users read it. Mirrors the
 /// device-key persistence in the client's `service.rs`.
-fn write_owner_only(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_owner_only(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
   use std::io::Write;
   #[cfg(unix)]
   let opened = {

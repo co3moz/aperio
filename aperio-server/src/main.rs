@@ -1086,6 +1086,33 @@ async fn async_main() {
       },
     )
     .unwrap_or_default();
+  // The file wins over a stored dashboard override for the same key, and the
+  // override is dropped rather than out-voted. Both directions of the old
+  // behaviour were wrong: the file said one thing and the server did another,
+  // and the override survived to come back the day the key left the file.
+  let file_layer_for_pruning = crate::settings::file_overrides();
+  let mut settings_overrides = settings_overrides;
+  let dropped = crate::settings::drop_conflicting(&file_layer_for_pruning, &mut settings_overrides);
+  if !dropped.is_empty() {
+    warn!(
+      "Dropped {} dashboard override(s) that aperio-server.yaml also sets, the file wins: {:?}. \
+       Set them in the file if you meant them; they are gone from {:?}.",
+      dropped.len(),
+      dropped,
+      settings_path
+    );
+    match serde_json::to_string_pretty(&settings_overrides) {
+      Ok(json) => {
+        if let Err(e) = crate::api::settings::write_owner_only(&settings_path, json.as_bytes()) {
+          error!(
+            "Failed to rewrite {:?} without the dropped overrides: {}",
+            settings_path, e
+          );
+        }
+      }
+      Err(e) => error!("Failed to serialize the pruned settings: {}", e),
+    }
+  }
   let overridden = override_keys(&settings_overrides);
   if !overridden.is_empty() {
     info!(
@@ -1208,6 +1235,23 @@ async fn async_main() {
     duration_histogram: DurationHistogram::default(),
     limit_counters: Default::default(),
   });
+
+  // Recorded once the audit log exists: a dropped override changed how this
+  // server behaves, and the operator who set it from a browser is not the one
+  // reading the startup log.
+  if !dropped.is_empty() {
+    state
+      .audit(
+        "settings_override_dropped",
+        "system",
+        "system",
+        &format!(
+          "aperio-server.yaml also sets {}; the file wins and the stored override was removed",
+          dropped.join(", ")
+        ),
+      )
+      .await;
+  }
 
   let mut app = Router::new().fallback(any(proxy_handler));
 

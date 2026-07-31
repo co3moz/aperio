@@ -918,4 +918,6 @@ export const zh: Record<string, string> = {
   'inspector off': '检查器已关闭',
   'no capture': '未记录',
   '{count} setting(s) here differ from what the server started with': '此处有 {count} 项设置与服务器启动时的值不同',
+  'from file': '来自文件',
+  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': '这是 aperio-server.yaml 设置的，以文件为准。请在那里修改：在此处的更改会被拒绝，因为与文件矛盾的已存覆盖正是这里要避免的隐形状态。',
 }

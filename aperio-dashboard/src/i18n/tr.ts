@@ -941,4 +941,6 @@ export const tr: Record<string, string> = {
   'inspector off': 'inspector kapalı',
   'no capture': 'kayıt yok',
   '{count} setting(s) here differ from what the server started with': 'Burada {count} ayar, sunucunun başladığı değerden farklı',
+  'from file': 'dosyadan',
+  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'Bunu aperio-server.yaml belirliyor ve dosya kazanıyor. Oradan değiştir: burada yapılan değişiklik reddedilir, çünkü dosyanın çeliştiği kayıtlı bir override tam da bunun engellediği görünmez durumdur.',
 }

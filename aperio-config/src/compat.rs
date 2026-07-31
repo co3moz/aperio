@@ -290,6 +290,19 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     action: "Rename what the file declares (`pg-main` becomes `pg_main`) and update the `bind-tunnels:` keys and `expose:` rules that address it. Put the old spelling in `custom_name:` if it was there to be read. An unnamed tunnel's derived handle changed spelling too (`127-0-0-1-5432-tcp` is now `127_0_0_1_5432_tcp`).",
   },
   ConfigChange {
+    version: "0.8.0",
+    surface: ConfigSurface::Server,
+    // The file did not change; what changed is that it is now obeyed. An
+    // operator whose dashboard override was quietly winning gets the value
+    // their file asks for, which is a behaviour change on an existing
+    // deployment even though it is the one the file already described.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["*"],
+    summary: "aperio-server.yaml now wins over a persisted dashboard override for the same key: the override is dropped at startup (named in the log and the audit trail) and the dashboard refuses to set one for a key the file writes.",
+    action: "Only affects a server where the dashboard and the file disagreed. Check the startup log for dropped overrides: if you meant the dashboard's value, write it in aperio-server.yaml.",
+  },
+  ConfigChange {
     version: "0.7.0",
     surface: ConfigSurface::Client,
     // The key still parses and still produces a header. What changed is that

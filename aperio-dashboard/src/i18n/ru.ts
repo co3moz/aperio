@@ -937,4 +937,6 @@ export const ru: Record<string, string> = {
   'inspector off': 'инспектор выключен',
   'no capture': 'без записи',
   '{count} setting(s) here differ from what the server started with': 'Здесь {count} настроек(и) отличаются от тех, с которыми запустился сервер',
+  'from file': 'из файла',
+  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'Это задаёт aperio-server.yaml, и файл главнее. Меняйте там: изменение здесь будет отклонено, ведь сохранённый override, которому противоречит файл, это ровно то невидимое состояние, которого мы избегаем.',
 }

@@ -935,4 +935,6 @@ export const ja: Record<string, string> = {
   'inspector off': 'インスペクタ無効',
   'no capture': '記録なし',
   '{count} setting(s) here differ from what the server started with': 'ここでは {count} 件の設定がサーバー起動時の値と異なります',
+  'from file': 'ファイル由来',
+  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'これは aperio-server.yaml が設定しており、ファイルが優先されます。変更はそちらで行ってください。ここでの変更は拒否されます。ファイルと矛盾する保存済みの上書きこそ、これが避けようとしている見えない状態だからです。',
 }

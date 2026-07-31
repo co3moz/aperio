@@ -264,8 +264,10 @@ environment variable, the equivalent \code{aperio-server.yaml} key (the
 same name lowercased, without the prefix), and for many of them a live
 dashboard override. \textbf{YAML is the primary surface}: the file is
 loaded into the environment at startup and overwrites what is already
-there. Dashboard overrides win over both at runtime. The client adds a
-fourth surface, CLI arguments, which outrank everything.
+there, and for the keys it writes it also wins over a dashboard
+override, which is refused rather than stored. A dashboard override
+applies to the keys the file leaves alone. The client adds a fourth
+surface, CLI arguments, which outrank everything.
 \end{aperionote}
 
 \section*{What this book is not}

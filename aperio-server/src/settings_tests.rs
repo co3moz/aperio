@@ -408,3 +408,42 @@ fn apply_settings_overrides_updates_valid_and_skips_invalid() {
   assert_eq!(updated.failover_mode, base.failover_mode);
   assert_eq!(updated.require_hostname_bind, !base.require_hostname_bind);
 }
+
+#[test]
+fn the_file_wins_over_a_stored_override_for_the_same_key() {
+  // The failure this exists for: aperio-server.yaml says compression is off,
+  // a value changed once from the dashboard says it is on, the dashboard used
+  // to win, and nothing anywhere reported the difference.
+  let file = SettingsOverrides {
+    tunnel_compression: Some(false),
+    gateway_timeout_secs: Some(30),
+    ..Default::default()
+  };
+  let mut stored = SettingsOverrides {
+    tunnel_compression: Some(true),
+    max_tunnels: Some(50),
+    ..Default::default()
+  };
+
+  assert_eq!(conflicting_keys(&file, &stored), vec!["tunnel_compression"]);
+
+  let dropped = drop_conflicting(&file, &mut stored);
+  assert_eq!(dropped, vec!["tunnel_compression"]);
+  assert_eq!(
+    stored.tunnel_compression, None,
+    "the contradicted override is gone, not merely out-voted"
+  );
+  assert_eq!(
+    stored.max_tunnels,
+    Some(50),
+    "an override for a key the file leaves alone still stands"
+  );
+
+  // Nothing to drop is not an error, and touches nothing.
+  let mut untouched = SettingsOverrides {
+    max_tunnels: Some(50),
+    ..Default::default()
+  };
+  assert!(drop_conflicting(&file, &mut untouched).is_empty());
+  assert_eq!(untouched.max_tunnels, Some(50));
+}

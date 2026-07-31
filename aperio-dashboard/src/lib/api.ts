@@ -369,6 +369,8 @@ export interface SettingsPayload {
   effective: SettingsValues
   defaults: SettingsValues
   overrides: SettingsOverrides
+  /** Keys aperio-server.yaml writes: the file wins, so they are not editable here. */
+  file_keys: string[]
   /** Read-only env-only flags for the reference table. */
   environment: EnvironmentReport
 }

@@ -380,6 +380,10 @@ export function SettingsSection() {
    *  the server started with. */
   const isOverridden = (key: string) => overrides[key] !== undefined && overrides[key] !== null
 
+  /** True when aperio-server.yaml sets this key. The file wins, so the field
+   *  is shown rather than offered: typing here would be refused on save. */
+  const fromFile = (key: string) => (data?.file_keys ?? []).includes(key)
+
   // Override marker + one-click reset to the env default, shown next to the
   // field label so the state of every setting is visible at a glance.
   const overrideControls = (f: FieldSpec) => {
@@ -409,6 +413,25 @@ export function SettingsSection() {
     )
   }
 
+  /** Marker for a setting aperio-server.yaml owns. */
+  const fileMarker = (f: FieldSpec) =>
+    fromFile(f.key) ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span>
+              <TintBadge tint="blue">{t('from file')}</TintBadge>
+            </span>
+          }
+        />
+        <TooltipContent>
+          {t(
+            'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.',
+          )}
+        </TooltipContent>
+      </Tooltip>
+    ) : null
+
   const field = (f: FieldSpec) => {
     if (f.kind === 'boolean') {
       // Booleans read best as a bordered row with the switch on the right.
@@ -420,7 +443,7 @@ export function SettingsSection() {
         >
           <div className="flex flex-col gap-0.5">
             <span className="flex items-center gap-2 text-sm font-medium">
-              {t(f.label)} {overrideControls(f)}
+              {t(f.label)} {overrideControls(f)} {fileMarker(f)}
             </span>
             {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
           </div>
@@ -438,7 +461,7 @@ export function SettingsSection() {
         )}
       >
         <Label className="flex items-center gap-2">
-          {t(f.label)} {overrideControls(f)}
+          {t(f.label)} {overrideControls(f)} {fileMarker(f)}
         </Label>
         {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
         {control(f)}

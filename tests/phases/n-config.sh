@@ -59,6 +59,24 @@ assert_contains "$BODY" "v2-reloaded" "the structured route reloaded to its new 
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
 assert_status 200 "$CODE" "a structural port change is ignored live (no restart)"
 
+step "The file wins over a dashboard override for the same key"
+# The failure this prevents: the file says one thing, a value changed once from
+# the dashboard says another, the dashboard wins, and nothing reports it. The
+# file writes login_lockout_threshold, so the dashboard may not.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$RJAR" -X PUT \
+  -H 'Content-Type: application/json' --data '{"login_lockout_threshold":42}' \
+  "$BASE/aperio/api/settings")"
+assert_status 400 "$CODE" "an override for a key the file writes is refused"
+[ "$(reload_setting login_lockout_threshold)" = "9" ] || fail "the refused override changed the setting anyway"
+# A key the file leaves alone is still the dashboard's to set.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$RJAR" -X PUT \
+  -H 'Content-Type: application/json' --data '{"cache_max_stale":1800}' \
+  "$BASE/aperio/api/settings")"
+assert_status 200 "$CODE" "an override for a key the file leaves alone still applies"
+SETTINGS_KEYS="$(curl -s -b "$RJAR" "$BASE/aperio/api/settings")"
+assert_contains "$SETTINGS_KEYS" '"file_keys"' "the settings payload names the keys the file owns"
+assert_contains "$SETTINGS_KEYS" 'login_lockout_threshold' "the file's keys are listed for the dashboard"
+
 step "Edge endpoints without an edge token"
 # This phase's server runs without APERIO_EDGE_TOKEN. The endpoints must still
 # own their paths and say the feature is off: when they were registered only

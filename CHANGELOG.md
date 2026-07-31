@@ -24,6 +24,9 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **`aperio-server.yaml` wins over a dashboard override for the same key.** It used to be the other way round: the file said one thing, a value changed once from the dashboard said another, the dashboard won, and nothing anywhere reported the difference. That is a file that lies, and finding out costs an afternoon of wondering why a benchmark will not go faster. A stored override the file contradicts is now dropped at startup (named in the log and written to the audit trail as `settings_override_dropped`), the dashboard refuses to create one for a key the file writes, and the settings pane marks those fields **from file** so nobody types into them first. A key the file leaves alone is still the dashboard's to set, live, which is what the feature is for.
+
+
 - **The server is on axum 0.8.** No behavior changes on any endpoint: route parameters are spelled `{id}` instead of `:id` internally and WebSocket text frames carry `Utf8Bytes` rather than `String`, neither of which is visible from outside. The upgrade is what makes the accepted-socket fix below possible.
 
 - **A response body over 32 KB now travels as binary frames instead of base64 inside a JSON message.** The switch existed at 256 KB, where it was there to bound memory; below that a body was base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The threshold moves to 32 KB against a server that takes binary frames and stays at 256 KB against one that does not, where streaming would buy nothing. On loopback this measures as break-even at 32 KB and a few percent above; the third fewer bytes is the part that matters on a real link, and it is the part a loopback benchmark cannot show.
