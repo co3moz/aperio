@@ -89,6 +89,8 @@ Three shapes are accepted, the same two an organization's hostname allowlist is 
 | `*.robogon.com` | every subdomain at any depth (`test.robogon.com`, `a.b.robogon.com`), **not** the apex, so list `robogon.com` as well if you want both |
 | `*` | every hostname on the server; reserved for the master organization |
 
+Clearing a flag is the organization's own, with one exception: master may clear any flag, including one whose organization has since been deleted. Deleting an organization also clears the flags it owned, so a tenant cannot leave a hostname answering 503 behind it.
+
 A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it.
 
 ## Organizations

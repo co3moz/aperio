@@ -884,3 +884,31 @@ async fn hostnames_requires_master_admin() {
   .await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn deleting_an_org_clears_the_maintenance_flags_it_owns() {
+  // Otherwise the hostname answers 503 until the next restart: a flag is
+  // cleared by the organization that set it, and that organization is gone.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let org_id = make_org(&state, "acme").await;
+  {
+    let mut set = state.maintenance.lock().await;
+    set.insert("acme.example".to_string(), Some(org_id.clone()));
+    set.insert("*.acme.example".to_string(), Some(org_id.clone()));
+    // Master's own flag is not the deleted org's business.
+    set.insert("master.example".to_string(), None);
+  }
+
+  let resp = orgs_delete_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(org_id),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let set = state.maintenance.lock().await;
+  assert_eq!(set.len(), 1);
+  assert!(set.contains_key("master.example"));
+}

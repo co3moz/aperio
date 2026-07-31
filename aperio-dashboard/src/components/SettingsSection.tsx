@@ -197,10 +197,16 @@ Environment=APERIO_TRUST_PROXY=1`}
 /**
  * The overrides as the `aperio-server.yaml` that would make them permanent.
  *
- * Every key here is a flat yaml key, which is what the settings API and the
- * file agree on, so a line can be pasted into the file as it stands.
+ * `yamlKeys` comes from the server, which owns the mapping: a setting and its
+ * yaml key are different names more often than not (`gateway_timeout_secs` is
+ * `gateway_timeout:`, `cache_enabled` is `cache:`, `auth_credentials` is
+ * `server_auth:`), and a snippet spelled the dashboard's way would look right,
+ * materialize an environment variable nobody reads, and change nothing.
  */
-function overridesAsYaml(overrides: SettingsOverrides): string {
+function overridesAsYaml(
+  overrides: SettingsOverrides,
+  yamlKeys: Record<string, string>,
+): string {
   const quote = (value: unknown): string => {
     if (typeof value === 'boolean' || typeof value === 'number') return String(value)
     const text = String(value ?? '')
@@ -209,7 +215,8 @@ function overridesAsYaml(overrides: SettingsOverrides): string {
     return /^[A-Za-z0-9_./*@:-]+$/.test(text) && text !== '' ? text : JSON.stringify(text)
   }
   return Object.entries(overrides)
-    .filter(([, value]) => value !== undefined && value !== null)
+    .filter(([key, value]) => value !== undefined && value !== null && yamlKeys[key])
+    .map(([key, value]) => [yamlKeys[key], value] as const)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}: ${quote(value)}`)
     .join('\n')
@@ -440,9 +447,24 @@ export function SettingsSection() {
   const overriddenKeys = GROUPS.flatMap((g) => g.fields)
     .map((f) => f.key)
     .filter((key) => isOverridden(key))
+  const yamlKeys = data?.yaml_keys ?? {}
   const yamlSnippet = overridesAsYaml(
     Object.fromEntries(overriddenKeys.map((key) => [key, overrides[key]])),
+    yamlKeys,
   )
+  // Two things the snippet cannot carry, named rather than dropped: a setting
+  // the file has no spelling for, and one whose key the server only reads at
+  // startup.
+  const labelOf = (key: string) => {
+    const field = GROUPS.flatMap((g) => g.fields).find((f) => f.key === key)
+    return field ? t(field.label) : key
+  }
+  const notInYaml = overriddenKeys
+    .filter((key) => !yamlKeys[key])
+    .map(labelOf)
+  const needsRestart = overriddenKeys
+    .filter((key) => (data?.yaml_keys_needing_restart ?? []).includes(key))
+    .map(labelOf)
 
   /** Marker for a setting aperio-server.yaml owns. */
   const fileMarker = (f: FieldSpec) =>
@@ -545,6 +567,21 @@ export function SettingsSection() {
           <pre className="overflow-x-auto rounded-2xl bg-background/60 px-3 py-2 font-mono text-xs">
             {yamlSnippet}
           </pre>
+          {notInYaml.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.',
+                { settings: notInYaml.join(', ') },
+              )}
+            </p>
+          )}
+          {needsRestart.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.', {
+                settings: needsRestart.join(', '),
+              })}
+            </p>
+          )}
           <div>
             <CopyButton value={yamlSnippet} label={t('Copy as YAML')} />
           </div>

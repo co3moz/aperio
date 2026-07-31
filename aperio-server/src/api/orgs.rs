@@ -398,6 +398,22 @@ pub(crate) async fn orgs_delete_handler(
   if !state.org_store.lock().await.delete(&id) {
     return (StatusCode::NOT_FOUND, "unknown organization id").into_response();
   }
+  // Clear the maintenance flags it owns. Nothing else could: a flag is
+  // cleared by the organization that set it, and that organization no longer
+  // exists, so the hostname would answer 503 until the next restart with no
+  // screen anywhere showing why.
+  let cleared = {
+    let mut set = state.maintenance.lock().await;
+    let before = set.len();
+    set.retain(|_, owner| owner.as_deref() != Some(id.as_str()));
+    before - set.len()
+  };
+  if cleared > 0 {
+    info!(
+      "Cleared {} maintenance flag(s) owned by the deleted organization {}",
+      cleared, id
+    );
+  }
   // Drop any cached per-org OIDC runtime so a `?org=<deleted-id>` login can no
   // longer complete against the phantom org after it is gone.
   state.org_oidc.lock().await.remove(&id);

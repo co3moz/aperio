@@ -371,6 +371,14 @@ export interface SettingsPayload {
   overrides: SettingsOverrides
   /** Keys aperio-server.yaml writes: the file wins, so they are not editable here. */
   file_keys: string[]
+  /** The yaml key each setting is written as; the two names often differ
+   *  (`gateway_timeout_secs` is `gateway_timeout:` in the file). */
+  yaml_keys?: Record<string, string>
+  /** Settings whose yaml key is only read at startup. */
+  yaml_keys_needing_restart?: string[]
+  /** Settings the file has no honest spelling for (it takes a path where the
+   *  override holds the HTML itself). */
+  not_expressible_in_yaml?: string[]
   /** Read-only env-only flags for the reference table. */
   environment: EnvironmentReport
 }

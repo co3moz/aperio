@@ -447,3 +447,59 @@ fn the_file_wins_over_a_stored_override_for_the_same_key() {
   assert!(drop_conflicting(&file, &mut untouched).is_empty());
   assert_eq!(untouched.max_tunnels, Some(50));
 }
+
+// --- The yaml spelling of every dashboard-editable setting ---
+
+#[test]
+fn every_setting_says_how_it_is_written_in_the_file() {
+  // Compared through serde, so a setting added to SettingsOverrides fails
+  // here rather than reaching the dashboard's "copy as YAML" as its own
+  // name, which would produce a file that looks right and does nothing.
+  let all: Vec<String> = match serde_json::to_value(SettingsOverrides::default()) {
+    Ok(serde_json::Value::Object(map)) => map.into_iter().map(|(k, _)| k).collect(),
+    _ => panic!("SettingsOverrides did not serialize to an object"),
+  };
+  for setting in &all {
+    let in_table = YAML_KEYS.iter().any(|(s, _)| s == setting);
+    let excluded = NOT_EXPRESSIBLE_IN_YAML.contains(&setting.as_str());
+    assert!(
+      in_table ^ excluded,
+      "{setting} must be in exactly one of YAML_KEYS / NOT_EXPRESSIBLE_IN_YAML"
+    );
+  }
+  // And nothing in the table that is not a setting.
+  for (setting, _) in YAML_KEYS {
+    assert!(
+      all.iter().any(|s| s == setting),
+      "{setting} is in YAML_KEYS but is not a setting"
+    );
+  }
+  for setting in YAML_KEYS_NEEDING_RESTART {
+    assert!(
+      YAML_KEYS.iter().any(|(s, _)| s == setting),
+      "{setting} needs a restart but has no yaml key"
+    );
+  }
+}
+
+#[test]
+fn the_live_file_layer_agrees_with_the_table() {
+  // `FileSettings` is what the file layer actually reads, and its field
+  // names are the yaml keys. It is a shorter list than the table by design
+  // (a key needing a restart is not live), but every live key the pane
+  // offers must be one the file reads, spelled the same way. Nothing in
+  // serde would catch a typo: an unknown key is silently ignored.
+  let fields: Vec<String> = match serde_json::to_value(FileSettings::default()) {
+    Ok(serde_json::Value::Object(map)) => map.into_iter().map(|(k, _)| k).collect(),
+    _ => panic!("FileSettings did not serialize to an object"),
+  };
+  for (setting, key) in YAML_KEYS {
+    if YAML_KEYS_NEEDING_RESTART.contains(setting) {
+      continue;
+    }
+    assert!(
+      fields.iter().any(|f| f == key),
+      "{setting} is offered as `{key}:`, which the file layer does not read"
+    );
+  }
+}

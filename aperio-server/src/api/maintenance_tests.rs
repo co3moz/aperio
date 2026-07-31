@@ -258,15 +258,15 @@ async fn disable_removes_own_flag() {
 }
 
 #[tokio::test]
-async fn disable_other_orgs_flag_is_noop() {
+async fn one_org_cannot_clear_another_orgs_flag() {
   let state = Arc::new(test_state());
-  // Flag owned by "acme"; master org (None) tries to clear it.
+  // Flag owned by "acme"; a caller scoped to "other" tries to clear it.
   state
     .maintenance
     .lock()
     .await
     .insert("example.com".to_string(), Some("acme".to_string()));
-  let headers = admin_headers(&state).await;
+  let headers = master_with_org(&state, "other").await;
 
   let resp = maintenance_set_handler(
     State(state.clone()),
@@ -281,6 +281,30 @@ async fn disable_other_orgs_flag_is_noop() {
     state.maintenance.lock().await.get("example.com"),
     Some(&Some("acme".to_string()))
   );
+}
+
+#[tokio::test]
+async fn master_can_clear_a_flag_it_did_not_set() {
+  // A flag whose organization is gone (deleted, or simply not the caller's)
+  // is otherwise a 503 with nothing to switch it off: the list is org-scoped,
+  // so master cannot even see it.
+  let state = Arc::new(test_state());
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("example.com".to_string(), Some("gone".to_string()));
+  let headers = admin_headers(&state).await;
+
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("example.com", false),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(state.maintenance.lock().await.is_empty());
 }
 
 #[tokio::test]

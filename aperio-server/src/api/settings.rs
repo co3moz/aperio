@@ -39,6 +39,16 @@ pub(crate) async fn settings_get_handler(
     // the pane says so on the field rather than letting someone type into it
     // and receive an error on save.
     "file_keys": crate::settings::override_keys(&crate::settings::file_overrides()),
+    // The aperio-server.yaml spelling of each setting, so the pane can offer
+    // the yaml that makes an override permanent without guessing at a name:
+    // the two disagree often enough (`gateway_timeout`, `cache`,
+    // `server_auth`) that a guess produces a file which changes nothing.
+    "yaml_keys": crate::settings::YAML_KEYS
+      .iter()
+      .map(|(setting, key)| (setting.to_string(), serde_json::Value::from(*key)))
+      .collect::<serde_json::Map<_, _>>(),
+    "yaml_keys_needing_restart": crate::settings::YAML_KEYS_NEEDING_RESTART,
+    "not_expressible_in_yaml": crate::settings::NOT_EXPRESSIBLE_IN_YAML,
     "environment": environment_report(&state),
   }))
   .into_response()

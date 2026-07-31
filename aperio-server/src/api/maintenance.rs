@@ -108,8 +108,11 @@ pub(crate) async fn maintenance_set_handler(
     if payload.enabled {
       set.insert(hostname.clone(), org.clone()).is_none()
     } else {
-      // Only clear a flag your own organization set.
-      if set.get(&hostname).map(|o| *o == org).unwrap_or(false) {
+      // Clear a flag your own organization set, and, for master, any flag at
+      // all: master owns the server, and a flag it cannot clear is a 503 with
+      // no screen to turn it off from, since the list is org-scoped.
+      let mine = set.get(&hostname).map(|o| *o == org).unwrap_or(false);
+      if mine || org.is_none() {
         set.remove(&hostname).is_some()
       } else {
         false

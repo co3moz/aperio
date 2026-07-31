@@ -942,4 +942,6 @@ export const zh: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': '没有处于维护中的 Hostname。列出的 Hostname 的访客会看到 503 页面，而其客户端保持连接；服务器重启后清除。用 *.example.com 覆盖一个域名下的所有 Subdomain；若也想包含域名本身，请另外列出。',
   'app.example.com, *.example.com, or *': 'app.example.com、*.example.com 或 *',
   'every subdomain': '所有 Subdomain',
+  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': '片段中不含：{settings}。文件没有对应的写法，它的 503/504 键接受文件路径，而这里保存的是 HTML 本身，因此它们仍是面板 override。',
+  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}：文件中的这个键在启动时读取，因此需要重启才会生效，而不是重新加载。',
 }

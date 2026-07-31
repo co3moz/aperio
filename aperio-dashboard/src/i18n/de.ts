@@ -963,4 +963,6 @@ export const de: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Keine Hostnames in Wartung. Besucher eines gelisteten Hostnames sehen die 503-Seite, während dessen Clients verbunden bleiben; wird beim Server-Neustart geleert. *.example.com deckt jede Subdomain einer Domain ab; wollen Sie die Domain selbst auch, listen Sie sie zusätzlich.',
   'app.example.com, *.example.com, or *': 'app.example.com, *.example.com oder *',
   'every subdomain': 'jede Subdomain',
+  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Nicht im Snippet: {settings}. Die Datei hat dafür keine Schreibweise, ihre 503/504-Schlüssel nehmen einen Pfad, hier steht das HTML selbst; sie bleiben also Dashboard-Overrides.',
+  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: der Schlüssel in der Datei wird beim Start gelesen, das wirkt also erst nach einem Neustart, nicht beim Reload.',
 }

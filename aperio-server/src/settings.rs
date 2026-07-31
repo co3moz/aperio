@@ -305,7 +305,9 @@ pub(crate) struct SettingsOverrides {
 /// the yaml keys; each maps onto a [`SettingsOverrides`] field. Keys with a
 /// non-trivial transform (`random_subdomain` normalization, `504_page`/
 /// `503_page` file loading) are intentionally excluded, they need a restart.
-#[derive(serde::Deserialize, Default)]
+// Serialize as well as Deserialize: the field names are the yaml keys, and a
+// test walks them to prove the pane offers the names the file actually reads.
+#[derive(serde::Deserialize, serde::Serialize, Default)]
 struct FileSettings {
   gateway_timeout: Option<u64>,
   gateway_response_timeout: Option<u64>,
@@ -402,6 +404,59 @@ pub(crate) fn file_overrides() -> SettingsOverrides {
     preview_noindex: fs.preview_noindex,
   }
 }
+
+/// The `aperio-server.yaml` key each dashboard-editable setting is written
+/// as, for the pane that offers the yaml which would make an override
+/// permanent.
+///
+/// It is a table because the two names disagree more often than not:
+/// `gateway_timeout_secs` is `gateway_timeout` in the file, `cache_enabled`
+/// is `cache`, `auth_credentials` is `server_auth`. Emitting the setting's
+/// own name would produce a file that looks right, materializes an
+/// environment variable nobody reads, and changes nothing.
+pub(crate) const YAML_KEYS: &[(&str, &str)] = &[
+  ("gateway_timeout_secs", "gateway_timeout"),
+  ("gateway_response_timeout_secs", "gateway_response_timeout"),
+  ("max_body_size", "max_body_size"),
+  ("max_tunnels", "max_tunnels"),
+  ("max_connections_per_service", "max_connections_per_service"),
+  ("inspector", "inspector"),
+  ("access_events", "access_events"),
+  ("require_hostname_bind", "require_hostname_bind"),
+  ("lb_strategy", "lb_strategy"),
+  ("failover_mode", "failover"),
+  ("failover_max_jumps", "failover_max_jumps"),
+  ("failover_window_secs", "failover_window"),
+  ("failover_all_methods", "failover_all_methods"),
+  ("client_down_threshold_secs", "client_down_threshold"),
+  ("ip_limit_max", "ip_limit_max"),
+  ("ip_limit_refill", "ip_limit_refill"),
+  ("tunnel_compression", "tunnel_compression"),
+  ("auth_credentials", "server_auth"),
+  ("cache_enabled", "cache"),
+  ("cache_max_bytes", "cache_max_bytes"),
+  ("cache_max_stale", "cache_max_stale"),
+  ("stream_pause_bytes", "stream_pause_bytes"),
+  ("stream_resume_bytes", "stream_resume_bytes"),
+  ("stream_backlog_limit", "stream_backlog_limit"),
+  ("max_concurrent_requests", "max_concurrent_requests"),
+  ("login_lockout_threshold", "login_lockout_threshold"),
+  ("login_lockout_secs", "login_lockout_secs"),
+  ("audit_max_size", "audit_max_size"),
+  ("audit_max_files", "audit_max_files"),
+  ("ui_language", "ui_language"),
+  ("preview_noindex", "preview_noindex"),
+  ("random_subdomain_suffix", "random_subdomain"),
+];
+
+/// Settings whose yaml key exists but is read once at startup, so writing it
+/// into the file is right and takes a restart to take effect.
+pub(crate) const YAML_KEYS_NEEDING_RESTART: &[&str] = &["random_subdomain_suffix"];
+
+/// Settings with no honest yaml spelling of the value held here. The file's
+/// `504_page`/`503_page` take a *path*; the override is the HTML itself, so
+/// the two cannot be copied from one to the other.
+pub(crate) const NOT_EXPRESSIBLE_IN_YAML: &[&str] = &["custom_504_page", "custom_503_page"];
 
 /// Parses an `APERIO_LB_STRATEGY`-style value.
 pub(crate) fn parse_lb_strategy(raw: &str) -> Option<LbStrategy> {

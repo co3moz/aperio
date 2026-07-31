@@ -961,4 +961,6 @@ export const ru: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Нет hostname на обслуживании. Посетители указанного hostname видят страницу 503, пока его клиенты остаются подключёнными; сбрасывается при перезапуске сервера. Для всех subdomain домена используйте *.example.com, а если нужен и сам домен, добавьте его отдельно.',
   'app.example.com, *.example.com, or *': 'app.example.com, *.example.com или *',
   'every subdomain': 'все subdomain',
+  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Нет в сниппете: {settings}. В файле для них нет написания: его ключи 503/504 принимают путь, а здесь хранится сам HTML, поэтому они остаются override панели.',
+  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ключ в файле читается при старте, поэтому нужен перезапуск, а не перечитывание конфигурации.',
 }
