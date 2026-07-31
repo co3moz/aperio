@@ -1362,6 +1362,7 @@ async fn async_main() {
         "/api/maintenance",
         get(maintenance_list_handler).post(maintenance_set_handler),
       )
+      .route("/api/explain", get(crate::api::explain::explain_handler))
       .route("/api/share", axum::routing::post(share_create_handler))
       .route(
         "/api/settings",

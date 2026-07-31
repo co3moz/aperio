@@ -383,6 +383,24 @@ export interface SettingsPayload {
   environment: EnvironmentReport
 }
 
+/** One decision in the proxy's chain, as the explain endpoint reports it. */
+export interface ExplainStep {
+  stage: string
+  verdict: 'decides' | 'passes' | 'skipped'
+  detail: string
+  setting?: string
+}
+
+/** The dry-run answer for a request nobody sent. */
+export interface Explanation {
+  hostname: string
+  path: string
+  method: string
+  outcome: string
+  summary: string
+  steps: ExplainStep[]
+}
+
 /** One maintenance flag: what is down, why, and until when. */
 export interface MaintenanceEntry {
   hostname: string
@@ -747,6 +765,8 @@ export const api = {
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: () => request<AuditEvent[]>('/audit'),
   maintenance: () => request<MaintenanceEntry[]>('/maintenance'),
+  explain: (hostname: string) =>
+    request<Explanation>(`/explain?hostname=${encodeURIComponent(hostname)}`),
   scaling: () => request<ScalingRecord[]>('/scaling'),
   disarmScaling: (id: string) => mutate(`/scaling/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<SettingsPayload>('/settings'),

@@ -969,4 +969,8 @@ export const ja: Record<string, string> = {
   '15 min': '15 分',
   '1 h': '1 時間',
   '4 h': '4 時間',
+  'Explain': '説明',
+  'Explain a request': 'リクエストを説明',
+  'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'この Hostname と Path へのリクエストに何が応答し、それはなぜか。実際には送信しません: レート制限を消費せず、ラウンドロビンのカーソルも動かさず、ゼロにスケールしたサービスも起こしません。',
+  'app.example.com/api, or a full URL': 'app.example.com/api、または完全な URL',
 }

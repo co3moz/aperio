@@ -971,4 +971,8 @@ export const ru: Record<string, string> = {
   '15 min': '15 мин',
   '1 h': '1 ч',
   '4 h': '4 ч',
+  'Explain': 'Объяснить',
+  'Explain a request': 'Объяснить запрос',
+  'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'Что ответило бы на запрос к этому hostname и path и почему. Ничего не отправляется: rate limit не расходуется, курсор round-robin не двигается, свёрнутый до нуля сервис не будится.',
+  'app.example.com/api, or a full URL': 'app.example.com/api или полный URL',
 }

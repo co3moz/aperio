@@ -973,4 +973,8 @@ export const de: Record<string, string> = {
   '15 min': '15 Min',
   '1 h': '1 Std',
   '4 h': '4 Std',
+  'Explain': 'Erklären',
+  'Explain a request': 'Eine Anfrage erklären',
+  'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'Was eine Anfrage an diesen Hostname und Path beantworten würde, und warum. Es wird nichts gesendet: kein Rate-Limit verbraucht, kein Round-Robin-Zeiger bewegt, kein auf null skalierter Dienst geweckt.',
+  'app.example.com/api, or a full URL': 'app.example.com/api oder eine vollständige URL',
 }

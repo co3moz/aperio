@@ -127,6 +127,18 @@ The settings sit in one accordion, grouped by what they govern. The full descrip
 
 Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 
+## Explain a request
+
+The **Topology** page carries a box that answers the question a dashboard could never answer before: *why would a request to this hostname get that answer*. Type a hostname (or paste a URL) and the server walks the same decisions the proxy makes, in the same order, and marks the one that decides:
+
+maintenance flag → `routes:` rule → preview `robots.txt` → `waf:` deny → `rate_limits:` rule → visitor gate → client selection → `fallbacks:` rule or the 504.
+
+Every stage reports, not only the deciding one, which is the point: "the route is fine, a maintenance flag someone else set is what is answering" is a different fix from "no client is connected". When nothing serves the route, the report also names the clients that *could* have and why they did not, draining, disabled, failing their backend probe, missed heartbeats, or a path bind that does not match.
+
+It is a dry run in the strict sense: it spends no rate-limit token, moves no round-robin cursor, and does not wake a scaled-to-zero service. Where a real check would be destructive (the route rate limit) it reports the rule instead of the outcome, and says so. Operator role and up, and an organization may only ask about hostnames its own fence admits, since the answer names the clients serving them.
+
+`GET /aperio/api/explain?hostname=&path=&method=` is the same thing from a script.
+
 ## Messages
 
 The settings dialog's **Messages** pane shows the one thing about [client-to-client messaging](messaging.md) that cannot be worked out from the outside: which client processes are listening, and to which topic filters. A publish that reached nobody looks exactly like one that reached everybody, and the difference is almost always a filter that does not match or a token without the topic; both are on this screen at once.

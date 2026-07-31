@@ -14,6 +14,7 @@ pub(crate) mod admin_keys;
 pub(crate) mod clients;
 pub(crate) mod config_schema;
 pub(crate) mod edge;
+pub(crate) mod explain;
 pub(crate) mod export;
 pub(crate) mod inbox;
 pub(crate) mod inspector;

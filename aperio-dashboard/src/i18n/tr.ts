@@ -975,4 +975,8 @@ export const tr: Record<string, string> = {
   '15 min': '15 dk',
   '1 h': '1 sa',
   '4 h': '4 sa',
+  'Explain': 'Açıkla',
+  'Explain a request': 'Bir isteği açıkla',
+  'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'Bu hostname ve path için isteği ne cevaplardı ve neden. Hiçbir şey gönderilmez: rate limit harcanmaz, round-robin imleci ilerlemez ve sıfıra ölçeklenmiş bir servis uyandırılmaz.',
+  'app.example.com/api, or a full URL': 'app.example.com/api veya tam bir URL',
 }

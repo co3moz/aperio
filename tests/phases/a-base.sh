@@ -587,6 +587,15 @@ echo "  ok: the child-org webhook is hidden from master's webhook list"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"
+# The explain endpoint answers "why would this be answered that way" without
+# sending a request. Master context, so it may ask about anything.
+EXPL="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/explain?hostname=nothing.e2e.local")" \
+  || fail "explain failed for an unserved hostname"
+assert_contains "$EXPL" '"outcome":"no_client"' "explain names the 504 for an unserved hostname"
+assert_contains "$EXPL" '"stage":"maintenance"' "and reports every stage, not only the deciding one"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/explain?hostname=not%20a%20host!")"
+assert_status 400 "$CODE" "explain refuses an unusable hostname"
+
 # The dump carries what it is asked for, and no more. Master is selected here,
 # and the child org still holds its token.
 DUMP="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/export")" || fail "the default export failed"

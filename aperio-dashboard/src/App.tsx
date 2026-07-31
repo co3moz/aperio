@@ -33,6 +33,7 @@ import { ShareLinksSection } from './components/ShareLinksSection'
 import { StatsCards } from './components/StatsCards'
 import { TokensSection } from './components/TokensSection'
 import { TrafficBreakdownSection } from './components/TrafficBreakdownSection'
+import { ExplainSection } from './components/ExplainSection'
 import { TopologySection } from './components/TopologySection'
 import { StageStatsSection } from './components/StageStatsSection'
 import { CacheStatsSection } from './components/CacheStatsSection'
@@ -557,7 +558,12 @@ export default function App() {
                   <SelfHealthSection />
                 </div>
               )}
-              {page === 'topology' && <TopologySection />}
+              {page === 'topology' && (
+                <div className="flex flex-col gap-6">
+                  <TopologySection />
+                  <ExplainSection />
+                </div>
+              )}
               {page === 'tokens' && <TokensSection />}
               {page === 'share' && <ShareLinksSection />}
               {page === 'maintenance' && <MaintenanceSection />}
