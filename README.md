@@ -17,7 +17,7 @@ The client always dials **out**, so nothing on your network accepts inbound conn
 - **It is yours.** Both sides are binaries you run: no account, no third-party relay, no traffic through someone else's infrastructure, nothing to price per tunnel or per seat.
 - **Two binaries and a token.** No database, no message broker, no sidecar. The server keeps its state in a file next to it; the dashboard is compiled into the binary.
 - **One connection out.** The tunnel is a WebSocket the client opens, so the machine serving your app can sit behind NAT, CGNAT or a firewall that allows nothing inbound.
-- **Small enough to leave running.** Measured on an Apple M-series laptop: the server binary is 19 MB (dashboard included) and idles at ~13 MB RSS; the client is 9 MB and idles at ~7 MB. Neither grows with request count.
+- **Small enough to leave running.** Measured on an Apple M-series laptop: the server binary is 14 MB (dashboard included) and idles at ~14 MB RSS; the client is 6 MB and idles at ~6 MB. Neither grows with request count.
 - **It is a product, not a pipe.** A live dashboard, a request inspector with replay, scoped tokens, organizations, caching, failover, autoscaling hooks and messaging between clients ship in the same binaries.
 
 [![The Aperio admin dashboard](docs/images/dashboard-overview.png)](docs/dashboard.md)
@@ -71,7 +71,7 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 | **Observability**   | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox                        |
 | **Hardening**       | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
 
-Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~4,200 requests/second through the tunnel on loopback, with a trivial backend and one keep-alive connection, on the same laptop as above.
+Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~7,800 requests/second through the tunnel on loopback, with a trivial backend and one keep-alive connection, on the same laptop as above. Concurrency is where the number actually lives: the same setup serves ~22,000-25,000/second at a hundred connections, with the per-visitor rate limit raised out of the way (at its default it is the limiter you are measuring, not the tunnel). Both figures are floors rather than records, taken on a laptop with other work on it.
 
 ## Use it for
 

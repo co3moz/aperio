@@ -723,6 +723,12 @@ random-subdomain pattern, the custom error-page file paths, the outbound
 callback policy, and \code{expose:} ports. Reloads are audit-logged as
 \code{config\_reloaded}.
 
+The watcher is on by default and \code{APERIO\_CONFIG\_HOT\_RELOAD=0}
+turns it off, for a deployment that would rather restart deliberately than
+have a half-saved file apply itself. \code{APERIO\_SERVER\_CONFIG} points
+at the file when it does not sit next to the binary; the name deliberately
+differs from the client's \code{aperio.yaml} so the two are never confused.
+
 \section{Editor support}
 
 Building the client emits JSON Schemas for both config files into
@@ -1505,7 +1511,12 @@ as a named user, or through OIDC.
 \section{What each screen is for}
 
 \begin{description}[leftmargin=1.6em,style=nextline]
-  \item[Overview] Live request rate, totals, connected clients.
+  \item[Overview] Live request rate, totals, connected clients. The
+        activity chart answers two questions rather than one: the
+        minute-long view is derived in the browser from successive polls,
+        so it moves with the traffic and starts empty on a reload, while
+        the quarter-hour view is the server's own ring of five-second
+        slices and survives one.
   \item[Clients] Every tunnel connection with its binds, version, health,
         concurrency and flags (draining, ejected, cache off). The kill
         switch and bind overrule live here.
@@ -1515,6 +1526,20 @@ as a named user, or through OIDC.
         browsable and re-firable.
   \item[Topology] The routing map: clients, routes that exist without a
         client, declared-but-offline binds, and public expose ports.
+        It also carries \emph{explain}: name a hostname and a path, and
+        the server walks the same decisions the proxy makes, in the same
+        order, and marks the one that would answer. It sends nothing, so
+        it spends no rate limit and wakes no scaled-to-zero service; when
+        nothing serves the route it names the clients that could have and
+        why they did not.
+  \item[Maintenance] The per-hostname 503 switch. An entry is a hostname,
+        a \code{*.example.com} subdomain wildcard (every subdomain, not the
+        apex, so an operator who wants both lists both), or \code{*} for
+        the whole server, which is master's alone. A flag carries a reason,
+        shown to the visitor on the 503 page and to the next operator in
+        the list, and optionally a window after which it lifts by itself,
+        which also makes \code{Retry-After} truthful. Flags live in memory
+        and a restart clears them.
   \item[Autoscaling] Armed records with live pool utilisation
         (Chapter~\ref{ch:autoscaling}).
   \item[Tokens] The management surface for tunnel credentials, mirroring
@@ -2096,9 +2121,10 @@ broken connection.
 disabled or ejected flags. \\
 \code{502} mid-request & The client died after dispatch. Failover mode
 governs whether it is retried; see Chapter~\ref{ch:failover}. \\
-\code{429} under mild load & Which limit? Server-wide, per-client, per-IP
-and per-route are four different settings
-(Chapter~\ref{ch:architecture}). \\
+\code{429} under mild load & Read the \code{x-aperio-limit} header on the
+refusal: it names the limit and the setting that holds its number
+(\code{ip; setting=ip\_limit\_max}), and \code{aperio\_rate\_limited\_total}
+counts the same thing per kind for a load test nobody watches by hand. \\
 Bind is ignored & The token does not permit it, or the organisation's
 hostname allowlist does not. The server logs the dropped bind. \\
 A setting has no effect & It is set in \code{aperio-server.yaml} too,
@@ -2388,6 +2414,8 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_OTEL\_SERVICE\_NAME} & \code{service.name} reported on exported spans. Falls back to \code{OTEL\_SERVICE\_NAME}. & \code{aperio-server} \\
 \rowsep
+\code{APERIO\_OTEL\_SAMPLE\_RATE} & Fraction of requests traced, \code{0.0} to \code{1.0}. At the default every request builds a span tree and hands it to the exporter, which is the cost that shows up in a benchmark; \code{0.01} answers the same questions about latency and error shape for a hundredth of it. The decision is made once at the root of a request and every span of that request follows it, so a sampled trace is whole rather than a fragment. & \code{1.0} \\
+\rowsep
 \bottomrule
 \end{longtable}
 
@@ -2553,6 +2581,8 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_RESILIENCE} & \code{--resilience} & \code{resilience} & Keep serving this service's cached responses while no healthy client is connected, instead of a 504: fresh-or-expired entries answer visitors (marked \code{x-aperio-stale: true} once past their lifetime, always with an \code{Age} header) up to the server's \code{APERIO\_CACHE\_MAX\_STALE} window. Needs \code{cache: true} and the server cache. The moment a client reconnects, normal proxying takes over. Per \code{services:} entry via \code{resilience:}. \\
 \rowsep
+\code{APERIO\_CAPTURE} & \code{--no-capture} & \code{capture} & Record this service's transactions for the dashboard's request inspector, on by default. \code{capture: false} trades the ability to inspect and replay this service's requests for the per-request cost of recording them; live traffic, statistics and the access log are unaffected. \\
+\rowsep
 \code{APERIO\_WEBHOOK\_INBOX} &  & \code{webhook\_inbox} & Persist every inbound \textbf{POST} to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per \code{services:} entry via \code{webhook\_inbox:}. \\
 \rowsep
 \code{APERIO\_IDLE\_TIMEOUT} & \code{--} & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see \emph{Autoscaling}. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement waits while any request is still in flight, so a long-lived session is never cut mid-traffic. \\
@@ -2603,9 +2633,11 @@ settings are required: the token, the server URL, and the target.
 \chapter{HTTP endpoint reference}
 \label{app:endpoints}
 
-The complete surface under \code{/aperio}. The generated OpenAPI
-document at \code{GET /aperio/api/openapi.json} is authoritative and
-always matches the running build.
+The endpoints an operator reaches by hand, which is a reading of the
+surface rather than the whole of it: the dashboard drives roughly seventy,
+including the per-resource ones this table folds into their group. The
+generated OpenAPI document at \code{GET /aperio/api/openapi.json} is the
+complete list, it is authoritative, and it always matches the running build.
 
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.36\linewidth}p{0.44\linewidth}p{0.16\linewidth}@{}}
 \toprule
@@ -2655,7 +2687,7 @@ always matches the running build.
 \rowsep
 \code{GET /aperio/api/openapi.json} & OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). & dashboard session \\
 \rowsep
-\code{GET /aperio/api/export} & Logical JSON dump of tokens, webhooks, users, organizations and settings overrides, a failsafe for upgrades and migrations (no statistics/sessions). & master super-admin \\
+\code{GET /aperio/api/export} & Logical JSON dump, a failsafe for upgrades and migrations. \code{?include=} names the sections (\code{tokens}, \code{webhooks}, \code{users}, \code{organizations}, \code{scaling}, \code{settings\_overrides} by default, plus \code{statistics}, \code{uptime}, \code{inbox}, \code{admin\_keys}). Without \code{organizations}, only master's rows travel. Sessions and the audit log are never included. & master super-admin \\
 \rowsep
 \code{POST /aperio/api/import} & Applies a dump; each present section \textbf{replaces} the corresponding store. & master super-admin \\
 \rowsep

@@ -98,6 +98,9 @@ requests so the limit can change at runtime without rebuilding a semaphore.
   windows, maintenance flags, and the token-seen-IP / outlier-ejection tracking.
   These are deliberately not persisted; a restart starts them clean.
 
-Configuration is layered (environment defaults < `aperio-server.yaml` file <
-dashboard overrides) into an immutable `ServerConfig` snapshot behind an
+Configuration is layered (environment defaults < dashboard overrides <
+`aperio-server.yaml` file) into an immutable `ServerConfig` snapshot behind an
 `RwLock`; a hot-reload swaps the snapshot atomically and audits the key diff.
+The file is last on purpose: it is what an operator writes, versions and
+reviews, so a stored override it contradicts is dropped at startup rather than
+silently outranking it.

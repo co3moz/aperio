@@ -8,6 +8,11 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
+The current `PROTOCOL_VERSION` is **6**. Every version below is negotiated on
+connect, so a client and a server that disagree still work: each feature falls
+back to what the older side understands, and the mismatch is logged on both
+sides and shown on the dashboard.
+
 Since protocol v5 a **buffered response travels as one binary frame**: the envelope and the body in a single message, with the body as bytes. Before v5 the body was base64-encoded into the JSON, which is a third more bytes on the wire, an encode pass on the client and a decode pass on the server, and a string the size of the response held on both sides. The frame is only sent to a server that announced v5; an older one still gets base64 in JSON, and a v5 server still understands it.
 
 Protocol **v6** does the same in the other direction: a **buffered request body** (an upload under the streaming threshold) travels as bytes in the dispatch frame instead of base64 inside the `Request` JSON. Same layout, same negotiation, sent only to a client that announced v6. Both frames have a compressed sibling that the sending side's writer produces when the connection negotiated tunnel compression and only when deflating actually made the payload smaller; without it a binary frame would bypass compression entirely, since compression applies to text frames.
@@ -20,7 +25,7 @@ One trade-off: streamed uploads cannot fail over or be replayed from the request
 
 ## Messages between clients (v4)
 
-The current `PROTOCOL_VERSION` is **4**, which adds frames carrying messages between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, `PublishAck` acknowledges a `qos: 1` delivery so the server stops resending it, and `SubscribeRefused` / `PublishRefused` say which filter or message was not accepted and why.
+Messages between clients arrived in **v4**, which added frames carrying them between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, `PublishAck` acknowledges a `qos: 1` delivery so the server stops resending it, and `SubscribeRefused` / `PublishRefused` say which filter or message was not accepted and why.
 
 They ride the connection that already exists, so nothing new is dialled and the message is authenticated by the token the client connected with. The server keys subscriptions on the client *process* rather than the connection, so a client running several services receives one copy rather than one per service. See [Messages Between Clients](messaging.md) for the whole shape.
 

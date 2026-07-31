@@ -45,6 +45,14 @@ idle_timeout: 5m            # the scale-in half: retire when nothing arrives
 max_concurrent: 10          # what one instance can handle, and how saturation is measured
 ```
 
+Every field of the block has its environment spelling, for a client configured
+without a file: `APERIO_SCALING_URL`, `APERIO_SCALING_SECRET`,
+`APERIO_SCALING_MIN`, `APERIO_SCALING_MAX`, `APERIO_SCALING_COLD_START`,
+`APERIO_SCALING_TARGET_UTILIZATION`, `APERIO_SCALING_WINDOW` and
+`APERIO_SCALING_COOLDOWN`. They are read field by field rather than
+all-or-nothing, so a file can declare the block and an environment variable
+override one value of it, the way every other setting layers.
+
 The declaration is announced on every heartbeat and **persisted server-side against the hostname**. That is the point: with `min: 0` the server must be able to call your endpoint when nothing is running at all, long after the client that declared it exited.
 
 ## What your endpoint receives

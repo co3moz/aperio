@@ -283,6 +283,8 @@ security_headers:
 
 Preset headers replace whatever the backend sent for the same name, but explicit `headers:` rules always win: a name you `add` or `remove` yourself is left to your rules. Config file only; hot-reload applies changes within ~5 s.
 
+The preset has environment spellings too, for a client with no file: `APERIO_SECURITY_HEADERS` (the whole preset on or off) and the granular `APERIO_SECURITY_HEADERS_HSTS`, `APERIO_SECURITY_HEADERS_HSTS_MAX_AGE`, `APERIO_SECURITY_HEADERS_FRAME_OPTIONS`, `APERIO_SECURITY_HEADERS_NOSNIFF`, `APERIO_SECURITY_HEADERS_REFERRER_POLICY` and `APERIO_SECURITY_HEADERS_CSP`, each read on its own so one of them can be overridden without restating the rest.
+
 ### Editor autocompletion (JSON Schema)
 
 Building the client emits JSON Schemas for both config files to `schemas/` (git-ignored build artifacts, regenerated from the parser types so they never drift): `aperio-client.schema.json` for `aperio.yaml` and `aperio-server.schema.json` for `aperio-server.yaml`. Point your editor's YAML extension at them for completion, hover docs, and validation:
