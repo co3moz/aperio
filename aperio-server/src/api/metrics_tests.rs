@@ -179,6 +179,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     stage_stats: Mutex::new(StageStats::default()),
     endpoint_stats: Mutex::new(EndpointStats::default()),
     route_trends: Mutex::new(RouteTrends::default()),
+    activity: Mutex::new(crate::state::Activity::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
     access_log_path: None,

@@ -30,6 +30,7 @@ use utoipa::OpenApi;
     crate::api::metrics::slow_endpoints_handler,
     crate::api::metrics::bandwidth_handler,
     crate::api::metrics::route_trends_handler,
+    crate::api::metrics::activity_handler,
     crate::api::clients::stats_handler,
     crate::api::clients::stats_history_handler,
     crate::api::clients::uptime_handler,

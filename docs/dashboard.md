@@ -127,6 +127,15 @@ The settings sit in one accordion, grouped by what they govern. The full descrip
 
 Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 
+## Live request activity
+
+The overview's chart answers two different questions, and the toggle picks which:
+
+- **60 s** is derived in the browser from the deltas between stats polls. It moves with the poll, which is what "is it moving right now" needs, and it starts empty on every reload because there is nothing to remember.
+- **15 min** is the server's own ring of five-second slices (`GET /aperio/api/activity`). It survives a reload, two people looking at once see the same picture, and hovering a point gives the request count behind the rate. Five seconds rather than one: a per-second line over a quarter of an hour is noise the eye cannot use, and the ring costs 180 slices per organization.
+
+Both are organization-scoped, like every other traffic view. Refusals count too: a chart that leaves out the 429s shows a quiet server at the moment it is turning everything away.
+
 ## Explain a request
 
 The **Topology** page carries a box that answers the question a dashboard could never answer before: *why would a request to this hostname get that answer*. Type a hostname (or paste a URL) and the server walks the same decisions the proxy makes, in the same order, and marks the one that decides:

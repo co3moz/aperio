@@ -975,4 +975,10 @@ export const es: Record<string, string> = {
   'Explain a request': 'Explicar una petición',
   'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'Qué respondería a una petición a este hostname y path, y por qué. No se envía nada: no se gasta rate limit, no avanza el cursor de round-robin y no se despierta un servicio escalado a cero.',
   'app.example.com/api, or a full URL': 'app.example.com/api, o una URL completa',
+  '60 s': '60 s',
+  'Requests / second, in 5-second slices (last {minutes} minutes)': 'Peticiones / segundo, en tramos de 5 segundos (últimos {minutes} minutos)',
+  'now': 'ahora',
+  '{count} requests': '{count} peticiones',
+  '{count}m ago': 'hace {count} min',
+  '{count}s ago': 'hace {count} s',
 }

@@ -512,6 +512,101 @@ impl RouteTrend {
   }
 }
 
+/// Bucket width of the activity ring, in seconds.
+///
+/// Five rather than one: the dashboard's live chart derives per-second rates
+/// from its own polls and covers a minute, which is the right tool for "is it
+/// moving right now". This series answers the other question, "what did the
+/// last quarter of an hour look like", and a second's resolution there is
+/// noise the eye cannot use, at five times the memory.
+pub(crate) const ACTIVITY_BUCKET_SECS: u64 = 5;
+
+/// How many buckets are kept: 180 × 5 s = 15 minutes.
+pub(crate) const ACTIVITY_BUCKETS: usize = 180;
+
+/// Organizations tracked before new ones stop being admitted, the same guard
+/// the route trends carry: this is in-memory per-request state, and a bound is
+/// what keeps a tenant from growing it.
+const ACTIVITY_ORG_CAP: usize = 100;
+
+/// One five-second slice of served traffic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct ActivityBucket {
+  /// Unix seconds of the bucket's start, so a gap reads as a gap rather than
+  /// as a shift.
+  pub(crate) at: u64,
+  /// Requests served in this slice, and how many of them failed.
+  pub(crate) total: u32,
+  pub(crate) failed: u32,
+}
+
+/// Recent request volume in fixed slices, per organization.
+///
+/// The dashboard's minute-long chart is built in the browser from successive
+/// polls, so it starts empty on every reload and cannot look back further than
+/// the tab has been open. This is the same shape kept by the server: it
+/// survives a reload, it is the same for two people looking at once, and it
+/// costs one increment per request on a lock the request already takes.
+#[derive(Default)]
+pub(crate) struct Activity {
+  /// Keyed by org id; `None` (master) is the empty string, so one map holds
+  /// both without an Option key.
+  by_org: HashMap<String, VecDeque<ActivityBucket>>,
+}
+
+impl Activity {
+  fn key(org: Option<&str>) -> String {
+    org.unwrap_or("").to_string()
+  }
+
+  /// Records one served request into the current slice.
+  pub(crate) fn record(&mut self, org: Option<&str>, failed: bool, now: u64) {
+    let key = Self::key(org);
+    if !self.by_org.contains_key(&key) && self.by_org.len() >= ACTIVITY_ORG_CAP {
+      return;
+    }
+    let buckets = self.by_org.entry(key).or_default();
+    let at = now - now % ACTIVITY_BUCKET_SECS;
+    if buckets.back().map(|b| b.at) != Some(at) {
+      if buckets.len() >= ACTIVITY_BUCKETS {
+        buckets.pop_front();
+      }
+      buckets.push_back(ActivityBucket {
+        at,
+        ..Default::default()
+      });
+    }
+    let bucket = buckets.back_mut().expect("bucket just ensured");
+    bucket.total += 1;
+    if failed {
+      bucket.failed += 1;
+    }
+  }
+
+  /// The last `count` slices for one organization, oldest first, with the
+  /// silent ones filled in. A quiet minute is a real answer, and a series that
+  /// simply omits it draws the traffic on either side as if it were adjacent.
+  pub(crate) fn series(&self, org: Option<&str>, count: usize, now: u64) -> Vec<ActivityBucket> {
+    let latest = now - now % ACTIVITY_BUCKET_SECS;
+    let empty = VecDeque::new();
+    let buckets = self.by_org.get(&Self::key(org)).unwrap_or(&empty);
+    (0..count)
+      .rev()
+      .map(|back| {
+        let at = latest.saturating_sub(back as u64 * ACTIVITY_BUCKET_SECS);
+        buckets
+          .iter()
+          .find(|b| b.at == at)
+          .copied()
+          .unwrap_or(ActivityBucket {
+            at,
+            ..Default::default()
+          })
+      })
+      .collect()
+  }
+}
+
 /// All routes' status trends, keyed by request hostname (or `*`).
 #[derive(Default)]
 pub(crate) struct RouteTrends {
@@ -1648,6 +1743,10 @@ pub(crate) struct AppState {
   pub(crate) endpoint_stats: Mutex<EndpointStats>,
   /// Rolling per-route minute-bucketed status trends (dashboard sparklines).
   pub(crate) route_trends: Mutex<RouteTrends>,
+  /// Request volume in five-second slices over the last quarter hour, per
+  /// organization: the long view of the dashboard's live activity chart, kept
+  /// here so it survives a reload and is the same for everyone looking.
+  pub(crate) activity: Mutex<Activity>,
   /// Hostnames and patterns currently in maintenance mode (`*` = every
   /// hostname, `*.example.com` = every subdomain of it), mapped to what is
   /// known about each flag. Requests to them get a 503 page even while

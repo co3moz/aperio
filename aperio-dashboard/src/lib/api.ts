@@ -383,6 +383,20 @@ export interface SettingsPayload {
   environment: EnvironmentReport
 }
 
+/** One five-second slice of served traffic, from the server's own ring. */
+export interface ActivityBucket {
+  /** Unix seconds of the slice's start. */
+  at: number
+  total: number
+  failed: number
+}
+
+export interface ActivitySeries {
+  bucket_secs: number
+  /** Oldest first, silent slices included. */
+  buckets: ActivityBucket[]
+}
+
 /** One decision in the proxy's chain, as the explain endpoint reports it. */
 export interface ExplainStep {
   stage: string
@@ -764,6 +778,7 @@ export const api = {
   redeliverWebhook: (id: string) =>
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: () => request<AuditEvent[]>('/audit'),
+  activity: () => request<ActivitySeries>('/activity'),
   maintenance: () => request<MaintenanceEntry[]>('/maintenance'),
   explain: (hostname: string) =>
     request<Explanation>(`/explain?hostname=${encodeURIComponent(hostname)}`),

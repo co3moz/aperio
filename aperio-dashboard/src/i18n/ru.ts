@@ -975,4 +975,10 @@ export const ru: Record<string, string> = {
   'Explain a request': 'Объяснить запрос',
   'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': 'Что ответило бы на запрос к этому hostname и path и почему. Ничего не отправляется: rate limit не расходуется, курсор round-robin не двигается, свёрнутый до нуля сервис не будится.',
   'app.example.com/api, or a full URL': 'app.example.com/api или полный URL',
+  '60 s': '60 с',
+  'Requests / second, in 5-second slices (last {minutes} minutes)': 'Запросов / секунду, срезами по 5 секунд (последние {minutes} мин)',
+  'now': 'сейчас',
+  '{count} requests': 'запросов: {count}',
+  '{count}m ago': '{count} мин назад',
+  '{count}s ago': '{count} с назад',
 }

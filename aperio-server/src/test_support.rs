@@ -285,6 +285,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
     route_trends: Mutex::new(crate::state::RouteTrends::default()),
+    activity: Mutex::new(crate::state::Activity::default()),
     maintenance: Mutex::new(HashMap::new()),
     access_log: None,
     access_log_path: None,

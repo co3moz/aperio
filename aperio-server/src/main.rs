@@ -1228,6 +1228,7 @@ async fn async_main() {
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
     route_trends: Mutex::new(crate::state::RouteTrends::default()),
+    activity: Mutex::new(crate::state::Activity::default()),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
@@ -1305,6 +1306,7 @@ async fn async_main() {
         "/api/route-trends",
         get(crate::api::metrics::route_trends_handler),
       )
+      .route("/api/activity", get(crate::api::metrics::activity_handler))
       .route(
         "/api/cache/purge",
         axum::routing::post(crate::api::purge::cache_purge_handler),

@@ -956,4 +956,10 @@ export const zh: Record<string, string> = {
   'Explain a request': '解释一个请求',
   'What would answer a request to this hostname and path, and why. Nothing is sent: no rate limit is spent, no round-robin cursor moves, and a scaled-to-zero service is not woken.': '对这个 Hostname 和 Path 的请求会由什么来回答，以及为什么。不会发送任何请求：不消耗速率限制，不移动轮询游标，也不会唤醒缩容到零的服务。',
   'app.example.com/api, or a full URL': 'app.example.com/api，或完整 URL',
+  '60 s': '60 秒',
+  'Requests / second, in 5-second slices (last {minutes} minutes)': '每秒请求数，按 5 秒切片（最近 {minutes} 分钟）',
+  'now': '现在',
+  '{count} requests': '{count} 个请求',
+  '{count}m ago': '{count} 分钟前',
+  '{count}s ago': '{count} 秒前',
 }

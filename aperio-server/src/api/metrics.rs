@@ -488,6 +488,35 @@ pub(crate) async fn bandwidth_handler(
   .into_response()
 }
 
+/// Request volume in five-second slices: the long view of the dashboard's
+/// live activity chart.
+///
+/// The chart's minute-long view is built in the browser from successive polls,
+/// which is right for "is it moving right now" and cannot answer "what did the
+/// last quarter hour look like": it starts empty on every reload. This series
+/// is the server's own, so it survives a reload and two people looking at once
+/// see the same picture.
+#[utoipa::path(get, path = "/aperio/api/activity", tag = "dashboard",
+  description = "Request volume in five-second buckets over the last 15 minutes (total and failed per bucket), for the activity chart's long view.",
+  responses((status = 200, description = "Volume buckets, oldest first", body = serde_json::Value)))]
+pub(crate) async fn activity_handler(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+) -> Json<serde_json::Value> {
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let now = crate::store::tokens::now_secs();
+  let buckets =
+    state
+      .activity
+      .lock()
+      .await
+      .series(org.as_deref(), crate::state::ACTIVITY_BUCKETS, now);
+  Json(serde_json::json!({
+    "bucket_secs": crate::state::ACTIVITY_BUCKET_SECS,
+    "buckets": buckets,
+  }))
+}
+
 /// Per-route status-class trends: one-minute buckets over the last window,
 /// for the dashboard sparklines.
 #[utoipa::path(get, path = "/aperio/api/route-trends", tag = "dashboard",

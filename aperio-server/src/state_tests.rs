@@ -925,3 +925,57 @@ async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
   assert!(state.org_may_claim_hostname(Some(&id), "x.com").await);
   assert!(!state.org_may_claim_hostname(Some(&id), "y.com").await);
 }
+
+// --- The activity ring behind the chart's long view ---
+
+#[test]
+fn activity_buckets_by_five_seconds_and_keeps_quiet_slices() {
+  let mut activity = Activity::default();
+  // Three requests inside one slice, one of them a failure.
+  activity.record(None, false, 1000);
+  activity.record(None, true, 1002);
+  activity.record(None, false, 1004);
+  // A slice later, after a gap of two silent slices.
+  activity.record(None, false, 1020);
+
+  let series = activity.series(None, 6, 1020);
+  assert_eq!(series.len(), 6);
+  // Oldest first, and the silent slices are present rather than skipped: a
+  // quiet minute is an answer, and omitting it draws the traffic on either
+  // side as if it were adjacent.
+  let totals: Vec<u32> = series.iter().map(|b| b.total).collect();
+  assert_eq!(totals, vec![0, 3, 0, 0, 0, 1]);
+  assert_eq!(series[1].failed, 1);
+  // Every bucket is stamped, five seconds apart, aligned to the slice.
+  for pair in series.windows(2) {
+    assert_eq!(pair[1].at - pair[0].at, ACTIVITY_BUCKET_SECS);
+  }
+  assert_eq!(series.last().unwrap().at, 1020);
+}
+
+#[test]
+fn activity_is_per_organization_and_bounded() {
+  let mut activity = Activity::default();
+  activity.record(None, false, 100);
+  activity.record(Some("acme"), false, 100);
+  activity.record(Some("acme"), false, 100);
+
+  assert_eq!(activity.series(None, 1, 100)[0].total, 1);
+  assert_eq!(activity.series(Some("acme"), 1, 100)[0].total, 2);
+  // An org that never served anything reads as silence, not as someone else's
+  // traffic.
+  assert_eq!(activity.series(Some("other"), 3, 100)[0].total, 0);
+
+  // The ring is bounded: fifteen minutes of slices, then the oldest goes.
+  let mut long = Activity::default();
+  for i in 0..(ACTIVITY_BUCKETS as u64 + 50) {
+    long.record(None, false, i * ACTIVITY_BUCKET_SECS);
+  }
+  let last = (ACTIVITY_BUCKETS as u64 + 49) * ACTIVITY_BUCKET_SECS;
+  let series = long.series(None, ACTIVITY_BUCKETS, last);
+  assert_eq!(series.len(), ACTIVITY_BUCKETS);
+  assert!(
+    series.iter().all(|b| b.total == 1),
+    "the window is full of the most recent slices"
+  );
+}

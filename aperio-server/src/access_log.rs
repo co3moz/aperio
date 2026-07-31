@@ -45,13 +45,19 @@ pub(crate) async fn log_request_success(
     duration.as_millis() as u64,
     org.as_deref(),
   );
-  // Feed the per-route status trend (dashboard sparklines).
-  state.route_trends.lock().await.record(
-    host,
-    status,
-    org.as_deref(),
-    crate::store::tokens::now_secs(),
-  );
+  // Feed the per-route status trend (dashboard sparklines) and the volume
+  // ring behind the activity chart's long view.
+  let now_secs = crate::store::tokens::now_secs();
+  state
+    .route_trends
+    .lock()
+    .await
+    .record(host, status, org.as_deref(), now_secs);
+  state
+    .activity
+    .lock()
+    .await
+    .record(org.as_deref(), status >= 500, now_secs);
   // One clock read for this request. `Local::now()` resolves the timezone on
   // every call, and this function used to do it twice: once for the dashboard
   // entry, once for the access-log line.
@@ -134,6 +140,13 @@ pub(crate) async fn log_request_failure(
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
   let id = uuid::Uuid::new_v4().to_string();
+  // A refusal is traffic too, and the chart that leaves it out shows a quiet
+  // server at the moment it is turning everything away.
+  state
+    .activity
+    .lock()
+    .await
+    .record(org.as_deref(), true, crate::store::tokens::now_secs());
   let now = Local::now();
   {
     let mut logs = state.recent_logs.lock().await;

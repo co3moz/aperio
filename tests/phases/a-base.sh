@@ -600,6 +600,22 @@ echo "  ok: the child-org webhook is hidden from master's webhook list"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"
+# The activity ring behind the chart's long view: five-second slices, and the
+# traffic this phase has already driven has to be in one of them.
+ACT="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/activity")" || fail "the activity series failed"
+assert_contains "$ACT" '"bucket_secs":5' "activity buckets are five seconds wide"
+"$PYTHON" - "$ACT" <<'PYEOF' || fail "the activity ring recorded no traffic"
+import json, sys
+doc = json.loads(sys.argv[1])
+buckets = doc["buckets"]
+assert len(buckets) == 180, f"expected a quarter hour of slices, got {len(buckets)}"
+assert sum(b["total"] for b in buckets) > 0, "no requests in the ring"
+# Oldest first, five seconds apart, with the silent slices present.
+gaps = {buckets[i + 1]["at"] - buckets[i]["at"] for i in range(len(buckets) - 1)}
+assert gaps == {5}, f"slices are not contiguous: {sorted(gaps)}"
+PYEOF
+echo "  ok: the activity ring holds this phase's traffic in five-second slices"
+
 # The explain endpoint answers "why would this be answered that way" without
 # sending a request. Master context, so it may ask about anything.
 EXPL="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/explain?hostname=nothing.e2e.local")" \
