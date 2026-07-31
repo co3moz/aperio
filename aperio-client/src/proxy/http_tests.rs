@@ -128,6 +128,7 @@ async fn test_redirects_followed_same_host() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered response");
@@ -171,6 +172,7 @@ async fn test_redirects_passed_through_cross_site() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await
@@ -259,6 +261,7 @@ async fn test_handle_incoming_request() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered response");
@@ -331,6 +334,7 @@ async fn test_pass_hostname_sends_exactly_one_host_header() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered response");
@@ -390,6 +394,7 @@ async fn test_handle_incoming_request_header_rules() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await
@@ -467,6 +472,7 @@ async fn test_handle_incoming_request_streams_large_body() {
     },
     None,
     false,
+    false,
   )
   .await;
 
@@ -541,6 +547,7 @@ async fn test_handle_incoming_request_trim_bind() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await
@@ -619,6 +626,7 @@ async fn test_handle_incoming_request_trim_bind_disabled() {
     },
     None,
     false,
+    false,
   )
   .await;
 
@@ -645,6 +653,7 @@ async fn test_backend_connection_refused_502() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered error");
@@ -668,6 +677,7 @@ async fn test_invalid_method_400() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered error");
@@ -690,6 +700,7 @@ async fn test_bad_base64_body_400() {
       body: Some("!!not-base64!!".to_string()),
     },
     None,
+    false,
     false,
   )
   .await
@@ -716,6 +727,7 @@ async fn test_unparsable_incoming_uri_400() {
     },
     None,
     false,
+    false,
   )
   .await
   .expect("expected buffered error");
@@ -739,6 +751,7 @@ async fn test_unparsable_target_url_502() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await
@@ -789,6 +802,7 @@ async fn test_streamed_request_body_forwarded() {
       body: None,
     },
     Some(brx),
+    false,
     false,
   )
   .await
@@ -844,6 +858,7 @@ async fn test_redirect_stops_after_max_hops() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await
@@ -903,6 +918,7 @@ async fn test_stream_truncated_at_limit() {
       body: None,
     },
     None,
+    false,
     false,
   )
   .await;

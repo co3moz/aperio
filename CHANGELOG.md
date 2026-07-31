@@ -8,6 +8,9 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **Tunnel protocol v5: a buffered response body travels as bytes, not as base64 inside JSON.** The envelope and the body go out in one binary frame, so a response no longer costs a base64 encode on the client, a decode on the server, a third more bytes on the wire, and a string the size of the response held on both sides. Negotiated, not breaking: the frame is only sent to a server that announced v5, an older one still receives base64 in JSON, and a v5 server still understands it. Streamed bodies were already bytes since v2; this closes the buffered case.
+
+
 - **A group of server settings says how many of them were changed, without opening it.** The settings pane marks an overridden setting once you are looking at it, which is no help for the group you did not think to open: a value changed once from the dashboard is invisible until something it does surprises you. Each accordion header now carries the count of settings inside it that differ from what the server started with.
 
 

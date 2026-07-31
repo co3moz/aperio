@@ -12,7 +12,9 @@ use tracing::warn;
 /// chunk frames instead of base64+JSON for body data.
 /// v3: per-stream flow control (StreamPause/StreamResume), the server
 /// pauses a producer whose visitor reads slower than it sends.
-pub(crate) const PROTOCOL_VERSION: u32 = 4;
+/// v5: a buffered response travels as one binary frame (envelope + body)
+/// instead of base64 inside JSON.
+pub(crate) const PROTOCOL_VERSION: u32 = 5;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -23,6 +25,43 @@ pub(crate) const PROTOCOL_VERSION: u32 = 4;
 pub(crate) const FRAME_REQUEST_CHUNK: u8 = 1;
 /// Binary frame tag for a streamed response-body chunk (client → server).
 pub(crate) const FRAME_RESPONSE_CHUNK: u8 = 2;
+
+/// Binary frame tag for a whole buffered response (client → server), v5.
+///
+/// The `Response` message and its body in one frame, so a body that is not
+/// streamed still travels as bytes instead of base64 inside JSON. The payload
+/// is `[json_len: u32 LE][json][body]`: the JSON is the `Response` with
+/// `body: None`, the rest is the body itself.
+///
+/// Why a frame rather than lowering the streaming threshold: streaming costs
+/// a head message, a frame per chunk and a tail, which a small body cannot
+/// repay. This costs one message, the same as the JSON it replaces.
+pub(crate) const FRAME_RESPONSE_FULL: u8 = 3;
+
+/// The other half of the pair, for the round-trip test. A full-response frame
+/// only ever travels client to server, so each side ships the direction it
+/// actually uses and keeps the other one for the test that proves they agree.
+#[cfg(test)]
+/// Splits a `FRAME_RESPONSE_FULL` payload into its JSON envelope and the body
+/// that follows it. `None` when the length prefix does not describe the frame,
+/// which is a corrupt or truncated message rather than an old peer: the tag
+/// is only sent to a peer that announced v5.
+pub(crate) fn split_full_response(payload: &[u8]) -> Option<(&str, &[u8])> {
+  let (len_bytes, rest) = payload.split_at_checked(4)?;
+  let json_len = u32::from_le_bytes(len_bytes.try_into().ok()?) as usize;
+  let (json, body) = rest.split_at_checked(json_len)?;
+  Some((std::str::from_utf8(json).ok()?, body))
+}
+
+/// Builds a `FRAME_RESPONSE_FULL` payload: the envelope's length, the
+/// envelope, then the body verbatim.
+pub(crate) fn join_full_response(json: &str, body: &[u8]) -> Vec<u8> {
+  let mut out = Vec::with_capacity(4 + json.len() + body.len());
+  out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+  out.extend_from_slice(json.as_bytes());
+  out.extend_from_slice(body);
+  out
+}
 
 /// Encodes a v2 binary chunk frame, or `None` when the id will not fit the
 /// one-byte length prefix.

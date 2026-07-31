@@ -106,6 +106,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/slow'):
             time.sleep(5)
+        # Every byte value, twice: a body that is not valid UTF-8 and cannot
+        # be carried by anything that assumes text. Used to prove a buffered
+        # response survives the v5 binary frame byte for byte.
+        if self.path.startswith('/binary'):
+            data = bytes(range(256)) * 2
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         port = self.server.server_address[1]
         self._respond(f'backend {port} GET {self.path}')
 

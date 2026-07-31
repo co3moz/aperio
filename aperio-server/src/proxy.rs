@@ -156,19 +156,27 @@ fn spawn_swr_revalidation(
     }
     let result = tokio::time::timeout(state.config().gateway_response_timeout, rx_response).await;
     state.pending_requests.lock().await.remove(&revalidate_id);
-    if let Ok(Ok(tunnel_res)) = result {
+    if let Ok(Ok(mut tunnel_res)) = result {
       // Streamed bodies never refresh the cache (dropping stream_rx makes
       // the tunnel read loop clean the stream up).
       if tunnel_res.stream_rx.is_none()
         && tunnel_res.status == 200
         && let Some(ttl) = crate::cache::response_cache_ttl(&tunnel_res.headers)
       {
+        // Same two shapes as the visitor-facing path: a v5 client sends the
+        // body as bytes in the frame, anything older sends base64 in the JSON.
+        // Missing this one meant the revalidation refreshed the cache with an
+        // empty body, which the e2e suite caught and nothing else would have:
+        // the entry is only wrong later, on a request nobody is watching.
         use base64::prelude::*;
-        let body = tunnel_res
-          .body
-          .as_deref()
-          .and_then(|b| BASE64_STANDARD.decode(b).ok())
-          .unwrap_or_default();
+        let body = match tunnel_res.body_raw.take() {
+          Some(raw) => raw,
+          None => tunnel_res
+            .body
+            .as_deref()
+            .and_then(|b| BASE64_STANDARD.decode(b).ok())
+            .unwrap_or_default(),
+        };
         let swr = crate::cache::response_swr_window(&tunnel_res.headers);
         let surrogate = crate::cache::response_surrogate_keys(&tunnel_res.headers);
         state.response_cache.lock().await.insert(
@@ -1622,7 +1630,12 @@ async fn proxy_http_request(
           }
         }
 
-        let res_bytes = if let Some(ref encoded_body) = tunnel_res.body {
+        // A v5 client sends the body as bytes in the same frame as the
+        // envelope, so there is nothing to decode. Anything older sends it
+        // base64 inside the JSON.
+        let res_bytes = if let Some(raw) = tunnel_res.body_raw.take() {
+          raw
+        } else if let Some(ref encoded_body) = tunnel_res.body {
           use base64::prelude::*;
           BASE64_STANDARD.decode(encoded_body).unwrap_or_default()
         } else {
@@ -1755,11 +1768,11 @@ async fn proxy_http_request(
         if state.config().inspector && selected.capture {
           use base64::prelude::*;
           let resp_streamed = tunnel_res.stream_rx.is_some();
-          // The body arrived base64-encoded over the tunnel and the capture
-          // wants it base64-encoded. Re-encoding the bytes decoded from it a
-          // few lines up is the same string, computed twice; the encoded form
-          // is reused whenever it is whole, and only a truncated capture has
-          // to encode anything.
+          // A pre-v5 body arrived base64-encoded and the capture wants it
+          // base64-encoded, so the string that came in is reused rather than
+          // computed twice. A v5 body arrived as bytes and has no string to
+          // reuse: it is encoded here, once, and only when the capture is on
+          // at all.
           let (resp_body_cap, resp_truncated) = if resp_streamed || res_bytes.is_empty() {
             (None, false)
           } else if res_bytes.len() > CAPTURE_BODY_LIMIT {

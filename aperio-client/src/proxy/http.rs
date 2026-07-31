@@ -7,7 +7,9 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tracing::{error, info, warn};
 
-use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, send_tunnel_msg};
+use crate::protocol::{
+  FRAME_RESPONSE_CHUNK, FRAME_RESPONSE_FULL, TunnelMessage, encode_binary_frame, send_tunnel_msg,
+};
 
 /// Response bodies larger than this are streamed through the tunnel in
 /// chunks instead of being buffered and sent as one message. Used with a peer
@@ -37,6 +39,31 @@ pub(crate) const STREAM_THRESHOLD: usize = 256 * 1024;
 pub(crate) const BINARY_STREAM_THRESHOLD: usize = 32 * 1024;
 /// Size of individual streamed body chunks.
 pub(crate) const STREAM_CHUNK_SIZE: usize = 128 * 1024;
+
+/// Sends a whole buffered response as one v5 binary frame: the envelope and
+/// the body in a single message, with the body as bytes.
+///
+/// The alternative is what every version before v5 did, base64 the body into
+/// the JSON: a third more bytes on the wire, an encode pass here and a decode
+/// pass on the server, and a String the size of the response held on both
+/// sides. Returns whether it went out; a peer that cannot take the frame is
+/// never offered one, so a failure here is a dead connection rather than a
+/// version problem.
+pub(crate) async fn send_full_response(
+  tunnel_tx: &mpsc::Sender<Message>,
+  id: &str,
+  message: &TunnelMessage,
+  body: &[u8],
+) -> bool {
+  let Ok(json) = serde_json::to_string(message) else {
+    return false;
+  };
+  let payload = crate::protocol::join_full_response(&json, body);
+  let Some(frame) = encode_binary_frame(FRAME_RESPONSE_FULL, id, &payload) else {
+    return false;
+  };
+  tunnel_tx.send(Message::Binary(frame)).await.is_ok()
+}
 
 /// Sends one streamed response chunk: a raw binary frame for v2 servers, or
 /// the legacy base64+JSON message otherwise. Honors the stream's pause
@@ -278,12 +305,15 @@ pub(crate) struct ForwardRequest {
 ///
 /// Small responses are returned as `Some(TunnelMessage::Response)` for the
 /// caller to send. Large responses are streamed directly through the tunnel
-/// (ResponseStart/Chunk/End) and `None` is returned.
+/// (ResponseStart/Chunk/End) and `None` is returned, and so is a buffered
+/// response sent as a v5 full-body frame, which this sends itself for the
+/// same reason: the body does not fit through a `TunnelMessage`.
 pub(crate) async fn handle_incoming_request(
   ctx: &ForwardContext,
   req: ForwardRequest,
   streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
   binary_chunks: bool,
+  full_body_frames: bool,
 ) -> Option<TunnelMessage> {
   // HTTP/2 targets (h2c:// / h2://, e.g. gRPC backends) take the hyper-based
   // path, which speaks HTTP/2 to the backend and relays trailers.
@@ -529,26 +559,44 @@ pub(crate) async fn handle_incoming_request(
       }
 
       let backend_done_us = received_at.elapsed().as_micros() as u64;
-      let body_encoded = if buf.is_empty() {
-        None
-      } else {
-        Some(BASE64_STANDARD.encode(&buf))
-      };
 
       info!("Tunnel request SUCCESS: ID={} Status={}", id, status);
+
+      let timings = Some(crate::protocol::ClientTimings {
+        backend_sent_us,
+        backend_first_byte_us,
+        backend_done_us,
+        respond_us: received_at.elapsed().as_micros() as u64,
+      });
+
+      // A v5 peer takes the body as bytes in the same frame as the envelope.
+      // Anything older gets it base64-encoded inside the JSON, which is what
+      // every version before this did.
+      if full_body_frames && !buf.is_empty() {
+        let envelope = TunnelMessage::Response {
+          id: id.clone(),
+          status,
+          headers: res_headers,
+          body: None,
+          trailers: None,
+          timings,
+        };
+        if send_full_response(tunnel_tx, &id, &envelope, &buf).await {
+          return None;
+        }
+        // The send failed, which means the connection is going away. Falling
+        // through would encode the body a second time for a socket that is
+        // not there.
+        return None;
+      }
 
       Some(TunnelMessage::Response {
         id,
         status,
         headers: res_headers,
-        body: body_encoded,
+        body: (!buf.is_empty()).then(|| BASE64_STANDARD.encode(&buf)),
         trailers: None,
-        timings: Some(crate::protocol::ClientTimings {
-          backend_sent_us,
-          backend_first_byte_us,
-          backend_done_us,
-          respond_us: received_at.elapsed().as_micros() as u64,
-        }),
+        timings,
       })
     }
     Err(e) => {

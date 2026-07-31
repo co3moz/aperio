@@ -81,3 +81,40 @@ fn an_id_too_long_to_frame_is_refused_rather_than_wrapped() {
   assert_eq!(id, edge);
   assert_eq!(payload, b"body");
 }
+
+#[test]
+fn a_full_response_frame_round_trips() {
+  // The v5 payload shape: the envelope's length, the envelope, the body. The
+  // body is bytes, so it must survive being something JSON could not carry.
+  let json = r#"{"type":"Response","id":"abc","status":200}"#;
+  let body: Vec<u8> = vec![0x00, 0xff, 0x80, b'"', b'\\', 0x0a];
+
+  let payload = join_full_response(json, &body);
+  let (out_json, out_body) = split_full_response(&payload).expect("round trip");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &body[..]);
+
+  // An empty body is a legitimate frame: a 204 has an envelope and nothing
+  // after it.
+  let payload = join_full_response(json, &[]);
+  let (out_json, out_body) = split_full_response(&payload).expect("empty body");
+  assert_eq!(out_json, json);
+  assert!(out_body.is_empty());
+}
+
+#[test]
+fn a_truncated_full_response_frame_is_refused() {
+  // A length prefix that does not describe the frame is corruption, and the
+  // reader has to say so rather than index past the end.
+  let payload = join_full_response(r#"{"type":"Response"}"#, b"body");
+  for cut in [0, 1, 3, 4, 6] {
+    assert!(
+      split_full_response(&payload[..cut]).is_none(),
+      "a frame cut to {cut} bytes was accepted"
+    );
+  }
+  // A prefix claiming more JSON than the frame holds.
+  let mut lying = u32::MAX.to_le_bytes().to_vec();
+  lying.extend_from_slice(b"{}");
+  assert!(split_full_response(&lying).is_none());
+}

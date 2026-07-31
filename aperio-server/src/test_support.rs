@@ -435,6 +435,7 @@ pub(crate) fn ok_tunnel_response() -> TunnelResponse {
     status: 200,
     headers: Vec::new(),
     body: None,
+    body_raw: None,
     trailers: None,
     stream_rx: None,
     timings: None,

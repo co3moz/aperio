@@ -1021,12 +1021,17 @@ pub(crate) async fn run_service(
                                                       Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
-                                                  let binary = proto.load(Ordering::Relaxed) >= 2;
+                                                  let peer = proto.load(Ordering::Relaxed);
+                                                  let binary = peer >= 2;
+                                                  // v5: a buffered response goes out as one frame,
+                                                  // envelope and body, instead of base64 in JSON.
+                                                  let full_body = peer >= 5;
                                                   let response = handle_incoming_request(
                                                       &ctx,
                                                       ForwardRequest { id, method, uri, headers, body },
                                                       None,
                                                       binary,
+                                                      full_body,
                                                   )
                                                   .await;
 
@@ -1063,7 +1068,11 @@ pub(crate) async fn run_service(
                                                       Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
-                                                  let binary = proto.load(Ordering::Relaxed) >= 2;
+                                                  let peer = proto.load(Ordering::Relaxed);
+                                                  let binary = peer >= 2;
+                                                  // v5: a buffered response goes out as one frame,
+                                                  // envelope and body, instead of base64 in JSON.
+                                                  let full_body = peer >= 5;
                                                   let response = handle_incoming_request(
                                                       &ctx,
                                                       ForwardRequest {
@@ -1075,6 +1084,7 @@ pub(crate) async fn run_service(
                                                       },
                                                       Some(body_rx),
                                                       binary,
+                                                      full_body,
                                                   )
                                                   .await;
                                                   streams.lock().await.remove(&id);

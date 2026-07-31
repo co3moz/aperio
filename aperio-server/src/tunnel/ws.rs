@@ -22,8 +22,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::auth::authorize_tunnel_token;
 use crate::protocol::{
-  FRAME_RESPONSE_CHUNK, PROTOCOL_VERSION, TunnelMessage, compress_frame, decode_binary_frame,
-  decompress_frame,
+  FRAME_RESPONSE_CHUNK, FRAME_RESPONSE_FULL, PROTOCOL_VERSION, TunnelMessage, compress_frame,
+  decode_binary_frame, decompress_frame,
 };
 use crate::routing::{
   extract_client_ip, normalize_hostname_bind, normalize_path_bind, random_subdomain_hostname,
@@ -539,17 +539,41 @@ pub(crate) async fn handle_socket(
   } {
     match result {
       Ok(msg) => {
+        // Set by a v5 full-response frame and taken by the `Response` arm: the
+        // body that came as bytes rather than base64 inside the envelope.
+        let mut full_body: Option<Vec<u8>> = None;
         let text_opt = match msg {
           Message::Text(t) => Some(t.as_str().to_string()),
           Message::Binary(b) => {
             // v2 binary chunk frames carry a tag byte that never collides
             // with zlib-compressed JSON frames (0x78).
-            if let Some((FRAME_RESPONSE_CHUNK, fid, payload)) = decode_binary_frame(&b) {
-              let fid = fid.to_string();
-              deliver_response_chunk(&state, &client_id, &fid, payload.to_vec()).await;
-              None
-            } else {
-              decompress_frame(&b, max_inflated)
+            match decode_binary_frame(&b) {
+              Some((FRAME_RESPONSE_CHUNK, fid, payload)) => {
+                let fid = fid.to_string();
+                deliver_response_chunk(&state, &client_id, &fid, payload.to_vec()).await;
+                None
+              }
+              // v5: envelope and body in one frame. The body is kept aside as
+              // bytes and picked up by the `Response` arm below, which is the
+              // only place that knows what to do with it; everything else
+              // about the message is the same JSON it always was.
+              Some((FRAME_RESPONSE_FULL, _fid, payload)) => {
+                match crate::protocol::split_full_response(payload) {
+                  Some((json, body)) => {
+                    full_body = Some(body.to_vec());
+                    Some(json.to_string())
+                  }
+                  None => {
+                    warn!(
+                      "Client {} sent a malformed full-response frame ({} bytes); dropping it",
+                      client_id,
+                      b.len()
+                    );
+                    None
+                  }
+                }
+              }
+              _ => decompress_frame(&b, max_inflated),
             }
           }
           _ => None,
@@ -587,6 +611,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body,
+                    body_raw: full_body.take(),
                     trailers,
                     stream_rx: None,
                     timings,
@@ -645,6 +670,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body: None,
+                    body_raw: None,
                     trailers: None,
                     stream_rx: Some(chunk_rx),
                     timings: None,
@@ -1459,6 +1485,7 @@ pub(crate) async fn handle_socket(
                     status,
                     headers,
                     body: None,
+                    body_raw: None,
                     trailers: None,
                     stream_rx: None,
                     timings: None,

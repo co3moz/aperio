@@ -17,6 +17,7 @@ step "Health endpoint"
 HEALTH="$(curl -s "$BASE/aperio/health")"
 assert_contains "$HEALTH" '"status":"healthy"' "health reports healthy"
 assert_contains "$HEALTH" '"protocol":' "health reports the tunnel protocol version"
+assert_contains "$HEALTH" '"protocol":5' "the protocol version is the one this build speaks"
 assert_contains "$HEALTH" '"ui_language"' "health reports the default UI language"
 
 step "First-run redirect and 504 when no client is connected"
@@ -49,6 +50,21 @@ assert_contains "$BODY" "backend ${BACKEND_PORT} GET /hello?x=1" "GET is proxied
 BODY="$(curl -s -X POST -H "Host: ${HOSTNAME_BIND}" -H 'Content-Type: text/plain' \
   --data 'payload-123' "$BASE/submit")"
 assert_contains "$BODY" "backend ${BACKEND_PORT} POST /submit body=payload-123" "POST body is proxied"
+
+step "A buffered response body survives the v5 binary frame"
+# Since v5 a buffered body travels as bytes in the same frame as its envelope
+# rather than base64 inside the JSON. A base64 string could carry anything; a
+# frame with a length prefix has to be read correctly to, so the proof is that
+# 512 bytes covering every value come back byte for byte.
+BIN_OUT="$LOG_DIR/binary-body.bin"
+curl -s -o "$BIN_OUT" -H "Host: ${HOSTNAME_BIND}" "$BASE/binary"
+"$PYTHON" - "$BIN_OUT" <<'PYEOF' || fail "the binary body did not survive the tunnel"
+import sys
+want = bytes(range(256)) * 2
+got = open(sys.argv[1], 'rb').read()
+sys.exit(0 if got == want else 1)
+PYEOF
+echo "  ok: 512 bytes of every value survived the tunnel byte for byte"
 
 step "Large upload/download streaming (protocol v2)"
 BIG="$LOG_DIR/big.bin"

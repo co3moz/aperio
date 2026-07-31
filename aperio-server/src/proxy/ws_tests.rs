@@ -48,6 +48,7 @@ fn spawn_upgrade_responder(state: Arc<AppState>, mut rx: mpsc::Receiver<Message>
         status,
         headers: Vec::new(),
         body: None,
+        body_raw: None,
         trailers: None,
         stream_rx: None,
         timings: None,

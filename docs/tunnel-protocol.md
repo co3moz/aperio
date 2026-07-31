@@ -8,6 +8,8 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
+Since protocol v5 a **buffered response travels as one binary frame**: the envelope and the body in a single message, with the body as bytes. Before v5 the body was base64-encoded into the JSON, which is a third more bytes on the wire, an encode pass on the client and a decode pass on the server, and a string the size of the response held on both sides. The frame is only sent to a server that announced v5; an older one still gets base64 in JSON, and a v5 server still understands it.
+
 Response bodies over 32 KB are streamed through the tunnel in chunks (256 KB against a server too old for binary frames, where streaming buys nothing but bounded memory), and request bodies (uploads) over 256 KB with protocol v2, so memory usage stays bounded on both sides regardless of size. The response threshold is where two costs cross: streaming pays a head, a frame per chunk and a tail per response, while a buffered body is base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`) (default 50 MB).
 
 Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64-in-JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames.

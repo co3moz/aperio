@@ -935,8 +935,12 @@ pub(crate) struct TunnelResponse {
   pub(crate) status: u16,
   /// List of response headers (preserves duplicates like Set-Cookie).
   pub(crate) headers: Vec<(String, String)>,
-  /// Base64 encoded payload body (buffered responses only).
+  /// Base64 encoded payload body (buffered responses only, peers before v5).
   pub(crate) body: Option<String>,
+  /// The same body as bytes, from a v5 full-response frame. When this is set
+  /// `body` is not: the point of the frame is that the body never becomes a
+  /// base64 string on either side.
+  pub(crate) body_raw: Option<Vec<u8>>,
   /// HTTP trailers of a buffered response (e.g. `grpc-status` for gRPC).
   pub(crate) trailers: Option<Vec<(String, String)>>,
   /// For streamed responses: receiver of decoded body frames. The proxy
