@@ -451,6 +451,18 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content
 assert_status 200 "$CODE" "the org may 503 every subdomain of its own domain"
 MAINT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/maintenance")"
 assert_contains "$MAINT" '*.fenced.e2e.local' "the wildcard is listed like any other flag"
+# A reason and a window travel with the flag, and the window expires it.
+curl -s -o /dev/null -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"app.fenced.e2e.local","enabled":true,"reason":"db migration","ttl_seconds":900}' \
+  "$BASE/aperio/api/maintenance"
+MAINT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/maintenance")"
+assert_contains "$MAINT" 'db migration' "the flag carries its reason"
+assert_contains "$MAINT" '"until":' "and the window it lifts at"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"app.fenced.e2e.local","enabled":true,"ttl_seconds":1800000000}' "$BASE/aperio/api/maintenance")"
+assert_status 400 "$CODE" "an absurd maintenance window is refused"
+curl -s -o /dev/null -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"app.fenced.e2e.local","enabled":false}' "$BASE/aperio/api/maintenance"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"hostname":"*.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
 assert_status 403 "$CODE" "a subtree wider than the fence is refused"

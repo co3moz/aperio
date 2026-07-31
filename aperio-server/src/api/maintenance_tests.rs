@@ -10,7 +10,22 @@ fn req(hostname: &str, enabled: bool) -> Json<MaintenanceRequest> {
   Json(MaintenanceRequest {
     hostname: hostname.to_string(),
     enabled,
+    reason: None,
+    ttl_seconds: None,
   })
+}
+
+/// A flag owned by `org`, open-ended, with no reason.
+fn flag(org: Option<&str>) -> MaintenanceFlag {
+  MaintenanceFlag {
+    org: org.map(str::to_string),
+    ..MaintenanceFlag::default()
+  }
+}
+
+/// The hostnames of a list response, which is what most of these assert.
+fn hostnames(list: &[MaintenanceEntry]) -> Vec<&str> {
+  list.iter().map(|e| e.hostname.as_str()).collect()
 }
 
 /// A master-admin session whose selected org is `org` (so `effective_org`
@@ -33,19 +48,19 @@ async fn list_is_org_scoped_and_sorted() {
   {
     let mut set = state.maintenance.lock().await;
     // Two flags owned by the master org (None), one owned by "acme".
-    set.insert("zeta.example".to_string(), None);
-    set.insert("alpha.example".to_string(), None);
-    set.insert("other.example".to_string(), Some("acme".to_string()));
+    set.insert("zeta.example".to_string(), flag(None));
+    set.insert("alpha.example".to_string(), flag(None));
+    set.insert("other.example".to_string(), flag(Some("acme")));
   }
 
   // Master admin (org None) sees only its two flags, sorted.
   let resp = maintenance_list_handler(State(state.clone()), admin_headers(&state).await).await;
-  assert_eq!(resp.0, vec!["alpha.example", "zeta.example"]);
+  assert_eq!(hostnames(&resp.0), vec!["alpha.example", "zeta.example"]);
 
   // A caller scoped to "acme" sees only the acme flag.
   let headers = master_with_org(&state, "acme").await;
   let resp = maintenance_list_handler(State(state.clone()), headers).await;
-  assert_eq!(resp.0, vec!["other.example"]);
+  assert_eq!(hostnames(&resp.0), vec!["other.example"]);
 }
 
 #[tokio::test]
@@ -188,7 +203,7 @@ async fn enable_specific_hostname_served_ok() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   let set = state.maintenance.lock().await;
-  assert_eq!(set.get("example.com"), Some(&None));
+  assert_eq!(set.get("example.com").map(|f| f.org.clone()), Some(None));
 }
 
 #[tokio::test]
@@ -243,7 +258,7 @@ async fn disable_removes_own_flag() {
     .maintenance
     .lock()
     .await
-    .insert("example.com".to_string(), None);
+    .insert("example.com".to_string(), flag(None));
   let headers = admin_headers(&state).await;
 
   let resp = maintenance_set_handler(
@@ -265,7 +280,7 @@ async fn one_org_cannot_clear_another_orgs_flag() {
     .maintenance
     .lock()
     .await
-    .insert("example.com".to_string(), Some("acme".to_string()));
+    .insert("example.com".to_string(), flag(Some("acme")));
   let headers = master_with_org(&state, "other").await;
 
   let resp = maintenance_set_handler(
@@ -278,8 +293,13 @@ async fn one_org_cannot_clear_another_orgs_flag() {
   assert_eq!(resp.status(), StatusCode::OK);
   // Left untouched.
   assert_eq!(
-    state.maintenance.lock().await.get("example.com"),
-    Some(&Some("acme".to_string()))
+    state
+      .maintenance
+      .lock()
+      .await
+      .get("example.com")
+      .map(|f| f.org.clone()),
+    Some(Some("acme".to_string()))
   );
 }
 
@@ -293,7 +313,7 @@ async fn master_can_clear_a_flag_it_did_not_set() {
     .maintenance
     .lock()
     .await
-    .insert("example.com".to_string(), Some("gone".to_string()));
+    .insert("example.com".to_string(), flag(Some("gone")));
   let headers = admin_headers(&state).await;
 
   let resp = maintenance_set_handler(
@@ -325,7 +345,11 @@ async fn disable_absent_flag_is_noop() {
 #[tokio::test]
 async fn disable_wildcard_removes_own_flag() {
   let state = Arc::new(test_state());
-  state.maintenance.lock().await.insert("*".to_string(), None);
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("*".to_string(), flag(None));
   let headers = admin_headers(&state).await;
   let resp = maintenance_set_handler(
     State(state.clone()),
@@ -371,7 +395,7 @@ async fn a_subdomain_wildcard_is_one_switch_for_a_whole_domain() {
 
   // It lists like any other flag, so it can be turned off from the same screen.
   let list = maintenance_list_handler(State(state.clone()), headers.clone()).await;
-  assert_eq!(list.0, vec!["*.robogon.com"]);
+  assert_eq!(hostnames(&list.0), vec!["*.robogon.com"]);
   let resp = maintenance_set_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),
@@ -453,4 +477,100 @@ async fn a_pattern_that_is_not_a_hostname_or_a_wildcard_is_refused() {
     .await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{bad}");
   }
+}
+
+// --- A window, and a reason ---
+
+fn req_with(hostname: &str, reason: Option<&str>, ttl: Option<u64>) -> Json<MaintenanceRequest> {
+  Json(MaintenanceRequest {
+    hostname: hostname.to_string(),
+    enabled: true,
+    reason: reason.map(str::to_string),
+    ttl_seconds: ttl,
+  })
+}
+
+#[tokio::test]
+async fn a_flag_carries_why_and_until_when() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req_with("example.com", Some("  database migration  "), Some(600)),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  let list = maintenance_list_handler(State(state.clone()), headers).await;
+  assert_eq!(list.0.len(), 1);
+  let entry = &list.0[0];
+  assert_eq!(entry.reason.as_deref(), Some("database migration"));
+  let now = crate::store::tokens::now_secs();
+  assert!(entry.until.is_some_and(|u| u > now && u <= now + 600));
+  assert!(entry.since <= now);
+  assert!(!entry.actor.is_empty(), "the list says who set it");
+}
+
+#[tokio::test]
+async fn an_expired_flag_stops_applying_and_is_swept() {
+  // The flag that causes an outage is the one switched on for twenty minutes
+  // of work and left up, so a window that has passed serves nobody.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  state.maintenance.lock().await.insert(
+    "gone.example".to_string(),
+    MaintenanceFlag {
+      until: Some(1),
+      ..MaintenanceFlag::default()
+    },
+  );
+  assert!(
+    state.maintenance_for(Some("gone.example")).await.is_none(),
+    "an expired window does not serve a 503"
+  );
+  // Listing is a write path, so it takes the chance to drop it.
+  let list = maintenance_list_handler(State(state.clone()), headers).await;
+  assert!(list.0.is_empty());
+  assert!(state.maintenance.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn extending_a_window_is_a_change_and_not_a_no_op() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  for ttl in [600, 1200] {
+    let resp = maintenance_set_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      req_with("example.com", Some("migration"), Some(ttl)),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+  }
+  let flag = state.maintenance.lock().await["example.com"].clone();
+  let now = crate::store::tokens::now_secs();
+  assert!(
+    flag.until.is_some_and(|u| u > now + 600),
+    "the second call moved the window"
+  );
+}
+
+#[tokio::test]
+async fn an_absurd_window_is_refused() {
+  // A unix timestamp pasted into a duration field is the usual way this goes
+  // wrong, and it would read as "down for fifty-eight thousand years".
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req_with("example.com", None, Some(1_800_000_000)),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  assert!(state.maintenance.lock().await.is_empty());
 }

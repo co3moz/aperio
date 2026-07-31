@@ -944,4 +944,12 @@ export const zh: Record<string, string> = {
   'every subdomain': '所有 Subdomain',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': '片段中不含：{settings}。文件没有对应的写法，它的 503/504 键接受文件路径，而这里保存的是 HTML 本身，因此它们仍是面板 override。',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}：文件中的这个键在启动时读取，因此需要重启才会生效，而不是重新加载。',
+  'Maintenance window': '维护窗口',
+  'lifts in {duration}': '{duration} 后解除',
+  'reason, shown on the 503 page (optional)': '原因，会显示在 503 页面上（可选）',
+  'set by {actor} {when}': '由 {actor} 于{when}设置',
+  'until turned off': '直到手动关闭',
+  '15 min': '15 分钟',
+  '1 h': '1 小时',
+  '4 h': '4 小时',
 }

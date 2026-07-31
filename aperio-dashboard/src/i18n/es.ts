@@ -963,4 +963,12 @@ export const es: Record<string, string> = {
   'every subdomain': 'todos los subdominios',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'No están en el fragmento: {settings}. El archivo no tiene forma de expresarlos, sus claves 503/504 toman una ruta y aquí se guarda el HTML en sí, así que siguen siendo overrides del panel.',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: la clave del archivo se lee al arrancar, así que esto requiere un reinicio en vez de aplicarse al recargar.',
+  'Maintenance window': 'Ventana de mantenimiento',
+  'lifts in {duration}': 'termina en {duration}',
+  'reason, shown on the 503 page (optional)': 'motivo, se muestra en la página 503 (opcional)',
+  'set by {actor} {when}': 'puesto por {actor} {when}',
+  'until turned off': 'hasta desactivarlo',
+  '15 min': '15 min',
+  '1 h': '1 h',
+  '4 h': '4 h',
 }

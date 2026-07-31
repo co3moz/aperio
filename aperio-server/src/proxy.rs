@@ -205,33 +205,29 @@ pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usiz
   }
 }
 
-/// True when the request's hostname is currently in maintenance mode
-/// (either listed explicitly or covered by the `*` wildcard entry).
-async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
-  use crate::store::orgs::pattern_matches_host;
-  let set = state.maintenance.lock().await;
-  if set.is_empty() {
-    return false;
-  }
-  if set.contains_key("*") {
-    return true;
-  }
-  request_host.is_some_and(|h| {
-    // An exact flag first, since that is the common case and needs no
-    // matching, then the subdomain wildcards: `*.robogon.com` is one switch
-    // for every service under a domain, which is what an operator means by
-    // "put robogon into maintenance".
-    set.contains_key(h)
-      || set
-        .keys()
-        .any(|pattern| pattern.starts_with("*.") && pattern_matches_host(pattern, h))
-  })
-}
-
 /// Builds the 503 maintenance response: the hostname's own `error_pages:`
 /// page, then the global APERIO_503_PAGE, then plain text.
-fn maintenance_response(state: &AppState, request_host: Option<&str>) -> Response {
+///
+/// The flag's reason reaches the visitor: a maintenance page that says why,
+/// and until when, is the difference between "this is broken" and "this is
+/// planned". A custom page opts in by writing `{reason}` and `{until}` where
+/// it wants them, so an existing page is unchanged.
+fn maintenance_response(
+  state: &AppState,
+  request_host: Option<&str>,
+  flag: &crate::state::MaintenanceFlag,
+) -> Response {
   let config = state.config();
+  let now = crate::store::tokens::now_secs();
+  let reason = flag.reason.clone().unwrap_or_default();
+  let until = flag
+    .until
+    .map(|end| {
+      chrono::DateTime::from_timestamp(end as i64, 0)
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_default()
+    })
+    .unwrap_or_default();
   let html = config
     .error_pages
     .page_503(request_host)
@@ -240,18 +236,30 @@ fn maintenance_response(state: &AppState, request_host: Option<&str>) -> Respons
     Some(html) => (
       StatusCode::SERVICE_UNAVAILABLE,
       [("content-type", "text/html; charset=utf-8")],
-      html.to_string(),
+      html.replace("{reason}", &reason).replace("{until}", &until),
     )
       .into_response(),
-    None => (
-      StatusCode::SERVICE_UNAVAILABLE,
-      "503 Service Unavailable - This site is temporarily down for maintenance",
-    )
-      .into_response(),
+    None => {
+      let mut text =
+        "503 Service Unavailable - This site is temporarily down for maintenance".to_string();
+      if !reason.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&reason);
+      }
+      if !until.is_empty() {
+        text.push_str("\n\nExpected back at ");
+        text.push_str(&until);
+      }
+      text.push('\n');
+      (StatusCode::SERVICE_UNAVAILABLE, text).into_response()
+    }
   };
-  resp
-    .headers_mut()
-    .insert("retry-after", HeaderValue::from_static("300"));
+  // A window that is known is a truthful Retry-After; without one, the fixed
+  // fallback, which promises nothing in particular.
+  let seconds = flag.retry_after(now).unwrap_or(300);
+  if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+    resp.headers_mut().insert("retry-after", value);
+  }
   resp
 }
 
@@ -399,8 +407,9 @@ pub(crate) async fn proxy_handler(
 
   // Maintenance mode wins over everything else (including WS upgrades):
   // visitors get the 503 page even while tunnel clients stay connected.
-  if in_maintenance(&state, extract_request_host(&headers).as_deref()).await {
-    return maintenance_response(&state, extract_request_host(&headers).as_deref());
+  let host_for_maintenance = extract_request_host(&headers);
+  if let Some(flag) = state.maintenance_for(host_for_maintenance.as_deref()).await {
+    return maintenance_response(&state, host_for_maintenance.as_deref(), &flag);
   }
 
   // Client-less routes (aperio-server.yaml `routes:`): redirects and fixed

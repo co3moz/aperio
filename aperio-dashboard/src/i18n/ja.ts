@@ -961,4 +961,12 @@ export const ja: Record<string, string> = {
   'every subdomain': 'すべての Subdomain',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'スニペットに含まれないもの: {settings}。ファイル側に対応する書き方がありません。ファイルの 503/504 キーはパスを取りますが、ここに入っているのは HTML そのものです。そのためダッシュボードの override のままになります。',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ファイル側のキーは起動時に読まれるため、リロードではなく再起動が必要です。',
+  'Maintenance window': 'メンテナンス期間',
+  'lifts in {duration}': '{duration} 後に解除',
+  'reason, shown on the 503 page (optional)': '理由。503 ページに表示されます（任意）',
+  'set by {actor} {when}': '{when} に {actor} が設定',
+  'until turned off': '解除するまで',
+  '15 min': '15 分',
+  '1 h': '1 時間',
+  '4 h': '4 時間',
 }

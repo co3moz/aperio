@@ -5,6 +5,7 @@ import {
   formatCount,
   formatExpiry,
   formatRelativeTime,
+  formatTimeUntil,
   formatUptime,
   NO_VALUE,
   parseByteSize,
@@ -119,5 +120,22 @@ describe('NO_VALUE', () => {
   it('is an en dash, not the comma a repo-wide sweep once left behind', () => {
     expect(NO_VALUE).toBe('\u2013')
     expect(NO_VALUE).not.toContain(',')
+  })
+})
+
+describe('formatTimeUntil', () => {
+  const now = 1_700_000_000_000
+
+  it('counts forward, where formatRelativeTime counts back', () => {
+    expect(formatTimeUntil(now / 1000 + 45, now)).toBe('45s')
+    expect(formatTimeUntil(now / 1000 + 900, now)).toBe('15m')
+    expect(formatTimeUntil(now / 1000 + 3600, now)).toBe('1h')
+    expect(formatTimeUntil(now / 1000 + 7500, now)).toBe('2h 5m')
+    expect(formatTimeUntil(now / 1000 + 90000, now)).toBe('1d 1h')
+  })
+
+  it('is empty once the moment has passed, so a caller can say something else', () => {
+    expect(formatTimeUntil(now / 1000 - 1, now)).toBe('')
+    expect(formatTimeUntil(now / 1000, now)).toBe('')
   })
 })

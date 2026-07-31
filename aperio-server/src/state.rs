@@ -1476,6 +1476,41 @@ pub(crate) struct ConnectionState {
   pub(crate) last_disconnect: Option<Instant>,
 }
 
+/// One maintenance flag: who owns it, why it is up, and when it ends.
+///
+/// It started as just the owning organization. The rest is what someone
+/// asking "why is this site 503ing" needs and had to find in a chat log: a
+/// reason, and an expiry, because the flag that causes an outage is the one
+/// switched on for twenty minutes of work and left up.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub(crate) struct MaintenanceFlag {
+  /// The organization that enabled it (`None` = master).
+  pub(crate) org: Option<String>,
+  /// Free text shown on the 503 page and in the dashboard. Empty = none.
+  pub(crate) reason: Option<String>,
+  /// Unix seconds after which the flag stops applying and is swept away.
+  /// `None` = until someone turns it off.
+  pub(crate) until: Option<u64>,
+  /// Unix seconds when it was set, and who set it.
+  pub(crate) since: u64,
+  pub(crate) actor: String,
+}
+
+impl MaintenanceFlag {
+  /// True once `until` has passed. An expired flag serves no request, and is
+  /// removed on the next write rather than on a timer: a sweep that has to be
+  /// scheduled is a sweep that can stop running.
+  pub(crate) fn expired(&self, now: u64) -> bool {
+    self.until.is_some_and(|end| now >= end)
+  }
+
+  /// Seconds until it lifts, for `Retry-After`. `None` when open-ended, where
+  /// the response keeps its fixed fallback rather than promising a time.
+  pub(crate) fn retry_after(&self, now: u64) -> Option<u64> {
+    self.until.map(|end| end.saturating_sub(now).max(1))
+  }
+}
+
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
 pub(crate) struct AppState {
   pub(crate) clients: Mutex<HashMap<String, ClientHandle>>,
@@ -1613,11 +1648,12 @@ pub(crate) struct AppState {
   pub(crate) endpoint_stats: Mutex<EndpointStats>,
   /// Rolling per-route minute-bucketed status trends (dashboard sparklines).
   pub(crate) route_trends: Mutex<RouteTrends>,
-  /// Hostnames currently in maintenance mode (`*` = every hostname), mapped to
-  /// the organization that enabled it (`None` = master). Requests to them get a
-  /// 503 page even while clients are connected. In-memory only, like bind
-  /// overrides: cleared by a server restart.
-  pub(crate) maintenance: Mutex<std::collections::HashMap<String, Option<String>>>,
+  /// Hostnames and patterns currently in maintenance mode (`*` = every
+  /// hostname, `*.example.com` = every subdomain of it), mapped to what is
+  /// known about each flag. Requests to them get a 503 page even while
+  /// clients are connected. In-memory only, like bind overrides: cleared by a
+  /// server restart.
+  pub(crate) maintenance: Mutex<std::collections::HashMap<String, MaintenanceFlag>>,
   /// Structured access log file (APERIO_ACCESS_LOG): one JSON line per
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.
@@ -2110,6 +2146,42 @@ impl AppState {
           .any(|h| pattern_covers_pattern(target, h))
       }
     }
+  }
+
+  /// The maintenance flag in force for `host`, if any: an exact entry, a
+  /// `*.suffix` wildcard covering it, or the server-wide `*`.
+  ///
+  /// One place rather than two, because there were two and they disagreed:
+  /// the proxy matched wildcards and the autoscaler still asked
+  /// `contains_key`, so a `*.robogon.com` flag served the 503 page and woke a
+  /// scaled-to-zero service behind it at the same time.
+  ///
+  /// An expired flag simply does not match. It is not swept here: this is the
+  /// read path holding a lock every request shares, and the write paths
+  /// (setting a flag, listing them, deleting an organization) drop them.
+  pub(crate) async fn maintenance_for(&self, host: Option<&str>) -> Option<MaintenanceFlag> {
+    let set = self.maintenance.lock().await;
+    if set.is_empty() {
+      return None;
+    }
+    let now = crate::store::tokens::now_secs();
+    set
+      .iter()
+      .filter(|(_, flag)| !flag.expired(now))
+      .find(|(pattern, _)| {
+        if *pattern == "*" {
+          return true;
+        }
+        host.is_some_and(|h| {
+          // An exact flag first, since that is the common case and needs no
+          // matching, then the subdomain wildcards: `*.robogon.com` is one
+          // switch for every service under a domain, which is what an
+          // operator means by "put robogon into maintenance".
+          *pattern == h
+            || (pattern.starts_with("*.") && crate::store::orgs::pattern_matches_host(pattern, h))
+        })
+      })
+      .map(|(_, flag)| flag.clone())
   }
 
   /// The quota record for a child org (None for master or an unknown id).

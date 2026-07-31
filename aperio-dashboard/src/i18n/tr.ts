@@ -967,4 +967,12 @@ export const tr: Record<string, string> = {
   'every subdomain': 'tüm subdomainler',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Snippet’te yok: {settings}. Dosyanın bunlar için bir yazımı yok, 503/504 anahtarları bir dosya yolu alıyor, buradaysa HTML’in kendisi duruyor; dolayısıyla panel override’ı olarak kalıyorlar.',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: dosyadaki anahtar başlangıçta okunuyor, yani bu yeniden yükleme ile değil ancak yeniden başlatmayla uygulanır.',
+  'Maintenance window': 'Bakım penceresi',
+  'lifts in {duration}': '{duration} sonra kalkıyor',
+  'reason, shown on the 503 page (optional)': 'sebep, 503 sayfasında görünür (isteğe bağlı)',
+  'set by {actor} {when}': '{when} {actor} tarafından ayarlandı',
+  'until turned off': 'kapatılana kadar',
+  '15 min': '15 dk',
+  '1 h': '1 sa',
+  '4 h': '4 sa',
 }

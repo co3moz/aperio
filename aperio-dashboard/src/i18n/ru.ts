@@ -963,4 +963,12 @@ export const ru: Record<string, string> = {
   'every subdomain': 'все subdomain',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Нет в сниппете: {settings}. В файле для них нет написания: его ключи 503/504 принимают путь, а здесь хранится сам HTML, поэтому они остаются override панели.',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ключ в файле читается при старте, поэтому нужен перезапуск, а не перечитывание конфигурации.',
+  'Maintenance window': 'Окно обслуживания',
+  'lifts in {duration}': 'снимется через {duration}',
+  'reason, shown on the 503 page (optional)': 'причина, видна на странице 503 (необязательно)',
+  'set by {actor} {when}': 'установил {actor} {when}',
+  'until turned off': 'до отключения',
+  '15 min': '15 мин',
+  '1 h': '1 ч',
+  '4 h': '4 ч',
 }

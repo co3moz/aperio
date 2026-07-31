@@ -99,10 +99,11 @@ Provisions a scoped, short-lived token plus its hostname, the building block beh
 ```bash
 aperio-client api maintenance list
 aperio-client api maintenance on app.example.com     # or * for every hostname
+aperio-client api maintenance on '*.example.com' --reason "database migration" --ttl 1800
 aperio-client api maintenance off app.example.com
 ```
 
-While a host is flagged, visitors get the maintenance page instead of the backend. Flags live in memory and a server restart clears them.
+While a host is flagged, visitors get the maintenance page instead of the backend. `*.example.com` flags every subdomain of a domain at once (not the apex, list it too if you want both). `--reason` is shown on the 503 page and in the dashboard; `--ttl` makes the flag lift by itself and makes `Retry-After` truthful, which is worth setting because the flag that causes an outage is the one switched on for twenty minutes of work and left up. Flags live in memory and a server restart clears them.
 
 ### Connected clients
 

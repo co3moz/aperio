@@ -559,7 +559,7 @@ pub(crate) async fn cold_start_wait(
   };
   // Maintenance mode is explicit operator intent: the site is meant to be
   // down, so waking it would fight the operator.
-  if state.maintenance.lock().await.contains_key(hostname) {
+  if state.maintenance_for(Some(hostname)).await.is_some() {
     return;
   }
   let record = {

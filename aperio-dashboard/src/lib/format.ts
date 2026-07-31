@@ -107,6 +107,27 @@ export function formatRelativeTime(input: string | number): string {
 }
 
 /**
+ * How long until a future unix timestamp, compactly ("15m", "2h 5m").
+ *
+ * `formatRelativeTime` looks backwards and calls anything in the future "just
+ * now", which is exactly wrong for a maintenance window that lifts at a set
+ * time. Empty string once the moment has passed, so a caller can fall back.
+ */
+export function formatTimeUntil(unixSeconds: number, now: number = Date.now()): string {
+  const seconds = Math.round(unixSeconds - now / 1000)
+  if (seconds <= 0) return ''
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours < 24) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours > 0 ? `${days}d ${restHours}h` : `${days}d`
+}
+
+/**
  * Renders an absolute time in the browser's local timezone (tooltips). Falls
  * back to the raw input when it cannot be parsed.
  */

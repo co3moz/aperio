@@ -405,7 +405,7 @@ pub(crate) async fn orgs_delete_handler(
   let cleared = {
     let mut set = state.maintenance.lock().await;
     let before = set.len();
-    set.retain(|_, owner| owner.as_deref() != Some(id.as_str()));
+    set.retain(|_, flag| flag.org.as_deref() != Some(id.as_str()));
     before - set.len()
   };
   if cleared > 0 {

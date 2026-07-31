@@ -894,10 +894,14 @@ async fn deleting_an_org_clears_the_maintenance_flags_it_owns() {
   let org_id = make_org(&state, "acme").await;
   {
     let mut set = state.maintenance.lock().await;
-    set.insert("acme.example".to_string(), Some(org_id.clone()));
-    set.insert("*.acme.example".to_string(), Some(org_id.clone()));
+    let owned = |org: Option<&str>| crate::state::MaintenanceFlag {
+      org: org.map(str::to_string),
+      ..crate::state::MaintenanceFlag::default()
+    };
+    set.insert("acme.example".to_string(), owned(Some(&org_id)));
+    set.insert("*.acme.example".to_string(), owned(Some(&org_id)));
     // Master's own flag is not the deleted org's business.
-    set.insert("master.example".to_string(), None);
+    set.insert("master.example".to_string(), owned(None));
   }
 
   let resp = orgs_delete_handler(

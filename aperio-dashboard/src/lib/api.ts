@@ -383,6 +383,17 @@ export interface SettingsPayload {
   environment: EnvironmentReport
 }
 
+/** One maintenance flag: what is down, why, and until when. */
+export interface MaintenanceEntry {
+  hostname: string
+  reason: string | null
+  /** Unix seconds when it lifts by itself; null = until turned off. */
+  until: number | null
+  /** Unix seconds when it was set, and by whom. */
+  since: number
+  actor: string
+}
+
 export type Role = 'viewer' | 'operator' | 'admin'
 
 export interface SessionInfo {
@@ -735,7 +746,7 @@ export const api = {
   redeliverWebhook: (id: string) =>
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: () => request<AuditEvent[]>('/audit'),
-  maintenance: () => request<string[]>('/maintenance'),
+  maintenance: () => request<MaintenanceEntry[]>('/maintenance'),
   scaling: () => request<ScalingRecord[]>('/scaling'),
   disarmScaling: (id: string) => mutate(`/scaling/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<SettingsPayload>('/settings'),
@@ -746,8 +757,11 @@ export const api = {
       '/share',
       json('POST', payload),
     ),
-  setMaintenance: (hostname: string, enabled: boolean) =>
-    mutate('/maintenance', json('POST', { hostname, enabled })),
+  setMaintenance: (
+    hostname: string,
+    enabled: boolean,
+    extra?: { reason?: string; ttl_seconds?: number },
+  ) => mutate('/maintenance', json('POST', { hostname, enabled, ...extra })),
   subscribers: () => request<Subscriber[]>('/subscribers'),
   publish: (payload: { topic: string; payload?: string; qos?: number }) =>
     request<{ topic: string; qos: number; clients: number; connections: number }>(

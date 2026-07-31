@@ -257,12 +257,18 @@ pub(crate) enum MaintenanceCmd {
   List,
   /// Turn maintenance mode on for a hostname (`*` = every hostname)
   On {
-    /// Hostname, or `*`
+    /// Hostname, `*.example.com` for every subdomain of it, or `*`
     hostname: String,
+    /// Why, in one line. Shown on the 503 page and in the dashboard.
+    #[arg(long, value_name = "TEXT")]
+    reason: Option<String>,
+    /// Seconds until it lifts by itself; omitted = until turned off
+    #[arg(long, value_name = "SECONDS")]
+    ttl: Option<u64>,
   },
   /// Turn maintenance mode off for a hostname (`*` = every hostname)
   Off {
-    /// Hostname, or `*`
+    /// Hostname, `*.example.com`, or `*`
     hostname: String,
   },
 }
@@ -910,10 +916,20 @@ fn build_call(
     }
 
     ApiCommand::Maintenance(MaintenanceCmd::List) => Call::get("/aperio/api/maintenance"),
-    ApiCommand::Maintenance(MaintenanceCmd::On { hostname }) => Call::post(
-      "/aperio/api/maintenance",
-      json!({ "hostname": hostname, "enabled": true }),
-    ),
+    ApiCommand::Maintenance(MaintenanceCmd::On {
+      hostname,
+      reason,
+      ttl,
+    }) => {
+      let mut body = Map::new();
+      body.insert("hostname".into(), json!(hostname));
+      body.insert("enabled".into(), json!(true));
+      put_opt(&mut body, "reason", reason.clone());
+      if let Some(ttl) = ttl {
+        body.insert("ttl_seconds".into(), json!(ttl));
+      }
+      Call::post("/aperio/api/maintenance", Value::Object(body))
+    }
     ApiCommand::Maintenance(MaintenanceCmd::Off { hostname }) => Call::post(
       "/aperio/api/maintenance",
       json!({ "hostname": hostname, "enabled": false }),

@@ -83,15 +83,16 @@ async fn gateway_timeout_response_plain_and_custom() {
 
 #[tokio::test]
 async fn maintenance_response_sets_retry_after() {
+  let open = crate::state::MaintenanceFlag::default();
   let state = test_state_with(test_config());
-  let resp = maintenance_response(&state, None);
+  let resp = maintenance_response(&state, None, &open);
   assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
   assert_eq!(resp.headers().get("retry-after").unwrap(), "300");
 
   let mut cfg = test_config();
   cfg.custom_503_page = Some("<h1>maint</h1>".to_string());
   let state = test_state_with(cfg);
-  let resp = maintenance_response(&state, None);
+  let resp = maintenance_response(&state, None, &open);
   assert_eq!(
     resp.headers().get("content-type").unwrap(),
     "text/html; charset=utf-8"
@@ -101,33 +102,98 @@ async fn maintenance_response_sets_retry_after() {
 #[tokio::test]
 async fn in_maintenance_matches_wildcard_and_host() {
   let state = test_state_with(test_config());
+  let flag = |until: Option<u64>| crate::state::MaintenanceFlag {
+    org: None,
+    reason: None,
+    until,
+    since: 0,
+    actor: "test".into(),
+  };
+  let is_down = |host: Option<&'static str>| {
+    let state = &state;
+    async move { state.maintenance_for(host).await.is_some() }
+  };
   // Empty set → never in maintenance.
-  assert!(!in_maintenance(&state, Some("a.example.com")).await);
+  assert!(!is_down(Some("a.example.com")).await);
   // Explicit host entry.
   state
     .maintenance
     .lock()
     .await
-    .insert("a.example.com".to_string(), None);
-  assert!(in_maintenance(&state, Some("a.example.com")).await);
-  assert!(!in_maintenance(&state, Some("b.example.com")).await);
+    .insert("a.example.com".to_string(), flag(None));
+  assert!(is_down(Some("a.example.com")).await);
+  assert!(!is_down(Some("b.example.com")).await);
   // A subdomain wildcard is one switch for everything under a domain, which
   // is what "put robogon into maintenance" means.
   state
     .maintenance
     .lock()
     .await
-    .insert("*.robogon.com".to_string(), None);
-  assert!(in_maintenance(&state, Some("test.robogon.com")).await);
-  assert!(in_maintenance(&state, Some("a.b.robogon.com")).await);
+    .insert("*.robogon.com".to_string(), flag(None));
+  assert!(is_down(Some("test.robogon.com")).await);
+  assert!(is_down(Some("a.b.robogon.com")).await);
   // Not the apex: `*.robogon.com` is a subdomain wildcard the way a TLS
   // certificate's is, so an operator who wants both flags both.
-  assert!(!in_maintenance(&state, Some("robogon.com")).await);
-  assert!(!in_maintenance(&state, Some("notrobogon.com")).await);
+  assert!(!is_down(Some("robogon.com")).await);
+  assert!(!is_down(Some("notrobogon.com")).await);
+  // An expired window does not apply, whatever it covers.
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("expired.example".to_string(), flag(Some(1)));
+  assert!(!is_down(Some("expired.example")).await);
+  // A window still open does.
+  let future = crate::store::tokens::now_secs() + 3600;
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("planned.example".to_string(), flag(Some(future)));
+  assert!(is_down(Some("planned.example")).await);
   // Wildcard covers every host.
-  state.maintenance.lock().await.insert("*".to_string(), None);
-  assert!(in_maintenance(&state, Some("b.example.com")).await);
-  assert!(in_maintenance(&state, None).await);
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("*".to_string(), flag(None));
+  assert!(is_down(Some("b.example.com")).await);
+  assert!(is_down(None).await);
+}
+
+#[tokio::test]
+async fn the_503_page_carries_the_reason_and_the_window() {
+  let state = test_state_with(test_config());
+  let until = crate::store::tokens::now_secs() + 600;
+  let flag = crate::state::MaintenanceFlag {
+    org: None,
+    reason: Some("database migration".into()),
+    until: Some(until),
+    since: 0,
+    actor: "aperio".into(),
+  };
+  let resp = maintenance_response(&state, Some("app.example.com"), &flag);
+  assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+  // Retry-After is the real window, not the fixed fallback.
+  let retry: u64 = resp.headers()["retry-after"]
+    .to_str()
+    .unwrap()
+    .parse()
+    .unwrap();
+  assert!((595..=600).contains(&retry), "{retry}");
+  let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    .await
+    .unwrap();
+  let text = String::from_utf8(body.to_vec()).unwrap();
+  assert!(text.contains("database migration"), "{text}");
+
+  // Open-ended: the fallback, which promises nothing in particular.
+  let open = crate::state::MaintenanceFlag {
+    until: None,
+    ..flag
+  };
+  let resp = maintenance_response(&state, None, &open);
+  assert_eq!(resp.headers()["retry-after"], "300");
 }
 
 #[test]
@@ -455,7 +521,11 @@ async fn run(state: Arc<AppState>, req: axum::extract::Request<Body>) -> axum::r
 #[tokio::test]
 async fn handler_maintenance_returns_503() {
   let state = connected(test_config());
-  state.maintenance.lock().await.insert("*".to_string(), None);
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("*".to_string(), crate::state::MaintenanceFlag::default());
   let resp = run(state, get("/whatever")).await;
   assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
