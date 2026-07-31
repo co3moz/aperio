@@ -86,22 +86,19 @@ pub(crate) async fn maintenance_set_handler(
     )
       .into_response();
   }
-  // A specific hostname may only be toggled by the organization that serves it,
-  // so one org cannot 503 another org's site.
-  if payload.enabled && hostname != "*" {
-    let owned = {
-      let clients = state.clients.lock().await;
-      clients
-        .values()
-        .any(|c| c.perms.org_id == org && c.effective_hostnames().iter().any(|h| **h == hostname))
-    };
-    if !owned {
-      return (
-        StatusCode::FORBIDDEN,
-        "that hostname is not served by your organization",
-      )
-        .into_response();
-    }
+  // A specific hostname may only be toggled by the organization that may serve
+  // it, so one org cannot 503 another org's site.
+  if payload.enabled
+    && hostname != "*"
+    && !state
+      .org_may_claim_hostname(org.as_deref(), &hostname)
+      .await
+  {
+    return (
+      StatusCode::FORBIDDEN,
+      "that hostname is not served by your organization",
+    )
+      .into_response();
   }
   let changed = {
     let mut set = state.maintenance.lock().await;

@@ -2019,6 +2019,35 @@ impl AppState {
     }
   }
 
+  /// May this organization act on `host` (put it into maintenance, mint a
+  /// share link for it)? This is the isolation fence for the hostname-scoped
+  /// operations, so that one tenant cannot 503 or hand out access to
+  /// another's site.
+  ///
+  /// The question it answers is "may this org *serve* that hostname", not
+  /// "is one of its clients serving it right now". Those came apart in
+  /// practice: an org fenced to `x.com` could not put `x.com` into
+  /// maintenance until a client for it was connected, which is precisely the
+  /// case where maintenance mode is wanted, and a share link had to wait for
+  /// the client to come back.
+  ///
+  /// Master is unfenced. A fenced org is judged by its allowlist. An unfenced
+  /// child org has no allowlist to judge, so it falls back to the older test,
+  /// one of its own connected clients serving the hostname, which is the only
+  /// isolation left when the operator never drew a boundary.
+  pub(crate) async fn org_may_claim_hostname(&self, org: Option<&str>, host: &str) -> bool {
+    let Some(id) = org else {
+      return true;
+    };
+    let allowlist = self.org_store.lock().await.hostnames_of(Some(id));
+    if !allowlist.is_empty() {
+      return crate::store::orgs::hostname_in_org_allowlist(host, &allowlist);
+    }
+    self.clients.lock().await.values().any(|c| {
+      c.perms.org_id.as_deref() == Some(id) && c.effective_hostnames().iter().any(|h| **h == *host)
+    })
+  }
+
   /// The quota record for a child org (None for master or an unknown id).
   pub(crate) async fn org_quota(
     &self,

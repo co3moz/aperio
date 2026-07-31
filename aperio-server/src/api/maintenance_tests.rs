@@ -93,10 +93,71 @@ async fn enable_invalid_hostname_is_bad_request() {
 }
 
 #[tokio::test]
-async fn enable_specific_hostname_not_served_forbidden() {
+async fn master_may_flag_a_hostname_with_no_client_up() {
+  // The fence exists to keep one tenant off another's site, and master is not
+  // a tenant. It also has to work when nothing is connected: a client being
+  // down is the usual reason to want a maintenance page in the first place.
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
-  // No client serves this hostname → refused.
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("example.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(state.maintenance.lock().await.contains_key("example.com"));
+}
+
+#[tokio::test]
+async fn a_fenced_org_may_flag_its_own_hostname_with_no_client_up() {
+  // The reported bug: an org allowed x.com could not put x.com into
+  // maintenance, because the check asked whether one of its clients was
+  // serving it at that moment.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["x.com".into(), "*.x.com".into()], None)
+    .unwrap()
+    .id;
+  let headers = master_with_org(&state, &org).await;
+
+  for host in ["x.com", "app.x.com"] {
+    let resp = maintenance_set_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      req(host, true),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK, "{host}");
+  }
+  // Outside the fence is still refused.
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("y.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert_eq!(state.maintenance.lock().await.len(), 2);
+}
+
+#[tokio::test]
+async fn an_unfenced_org_still_needs_a_client_serving_it() {
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec![], None)
+    .unwrap()
+    .id;
+  let headers = master_with_org(&state, &org).await;
   let resp = maintenance_set_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),

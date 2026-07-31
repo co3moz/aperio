@@ -67,13 +67,10 @@ pub(crate) async fn share_create_handler(
   // Isolation: a share link may only be minted for a hostname the caller's own
   // organization serves, so one org cannot hand out access to another's site.
   let org = crate::auth::effective_org(&state, &headers).await;
-  let owns_host = {
-    let clients = state.clients.lock().await;
-    clients
-      .values()
-      .any(|c| c.perms.org_id == org && c.effective_hostnames().iter().any(|h| **h == hostname))
-  };
-  if !owns_host {
+  if !state
+    .org_may_claim_hostname(org.as_deref(), &hostname)
+    .await
+  {
     return (
       StatusCode::FORBIDDEN,
       "that hostname is not served by your organization",

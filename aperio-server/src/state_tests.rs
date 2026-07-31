@@ -854,3 +854,74 @@ fn a_token_may_lower_the_connection_ceiling_but_never_raise_it() {
   perms.max_connections = None;
   assert_eq!(perms.connection_ceiling(0), 1);
 }
+
+// --- Which hostnames an organization may act on ---
+
+/// A state whose org store holds one org, returning its id.
+async fn state_with_org(hostnames: &[&str]) -> (AppState, String) {
+  let state = crate::test_support::test_state();
+  let id = state
+    .org_store
+    .lock()
+    .await
+    .create(
+      "acme",
+      hostnames.iter().map(|h| h.to_string()).collect(),
+      None,
+    )
+    .unwrap()
+    .id;
+  (state, id)
+}
+
+#[tokio::test]
+async fn a_fenced_org_may_act_on_its_hostnames_with_no_client_connected() {
+  // The bug this covers: maintenance mode and share links asked whether one
+  // of the org's clients was serving the hostname *right now*, so an org
+  // fenced to x.com could not 503 x.com until a client for it was up, which
+  // is exactly when nobody's client is up.
+  let (state, id) = state_with_org(&["x.com", "*.x.com"]).await;
+  assert!(state.org_may_claim_hostname(Some(&id), "x.com").await);
+  assert!(state.org_may_claim_hostname(Some(&id), "app.x.com").await);
+  assert!(state.org_may_claim_hostname(Some(&id), "a.b.x.com").await);
+  // Another tenant's hostname stays refused, which is the point of the fence.
+  assert!(!state.org_may_claim_hostname(Some(&id), "y.com").await);
+}
+
+#[tokio::test]
+async fn a_wildcard_alone_does_not_carry_the_bare_domain() {
+  // `*.x.com` is a subdomain wildcard, TLS-style: an operator who wants the
+  // apex lists it too. Asserted here because it is the difference between
+  // the two entries in the allowlist above.
+  let (state, id) = state_with_org(&["*.x.com"]).await;
+  assert!(state.org_may_claim_hostname(Some(&id), "app.x.com").await);
+  assert!(!state.org_may_claim_hostname(Some(&id), "x.com").await);
+}
+
+#[tokio::test]
+async fn master_is_never_fenced() {
+  let (state, _) = state_with_org(&["x.com"]).await;
+  assert!(
+    state
+      .org_may_claim_hostname(None, "anything.example.com")
+      .await
+  );
+}
+
+#[tokio::test]
+async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
+  // With no allowlist there is no boundary to read, so the older test is all
+  // that is left: an org with no fence cannot claim a hostname out of thin
+  // air just because nobody drew one.
+  let (state, id) = state_with_org(&[]).await;
+  assert!(!state.org_may_claim_hostname(Some(&id), "x.com").await);
+
+  let mut handle = crate::test_support::mock_client(Some("x.com"), None, None, None);
+  handle.perms = ClientPerms {
+    org_id: Some(id.clone()),
+    ..ClientPerms::master()
+  };
+  state.clients.lock().await.insert("c1".to_string(), handle);
+  assert!(state.org_may_claim_hostname(Some(&id), "x.com").await);
+  assert!(!state.org_may_claim_hostname(Some(&id), "y.com").await);
+}

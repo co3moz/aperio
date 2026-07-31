@@ -282,9 +282,33 @@ async fn share_create_rejects_invalid_hostname() {
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
-#[tokio::test]
-async fn share_create_rejects_unowned_host() {
+/// A state holding one fenced organization, with a master-admin session
+/// switched into it, which is how an operator reaches an org's screens.
+async fn state_with_fenced_org(
+  hostnames: &[&str],
+) -> (std::sync::Arc<AppState>, axum::http::HeaderMap) {
   let state = std::sync::Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create(
+      "acme",
+      hostnames.iter().map(|h| h.to_string()).collect(),
+      None,
+    )
+    .unwrap()
+    .id;
+  let token =
+    crate::test_support::seed_session(&state, crate::store::users::Role::Admin, None, Some(org))
+      .await;
+  let headers = crate::test_support::cookie_headers(&token);
+  (state, headers)
+}
+
+#[tokio::test]
+async fn share_create_rejects_a_host_outside_the_orgs_fence() {
+  let (state, headers) = state_with_fenced_org(&["x.com"]).await;
   let payload = ShareCreateRequest {
     hostname: "app.example.com".to_string(),
     path: None,
@@ -293,7 +317,48 @@ async fn share_create_rejects_unowned_host() {
   let resp = share_create_handler(
     State(state),
     ConnectInfo(test_peer()),
-    HeaderMap::new(),
+    headers,
+    Json(payload),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn share_create_works_for_a_fenced_host_with_no_client_up() {
+  // A share link is a URL that keeps working once the client comes back, so
+  // requiring a connected client to mint one made it unavailable exactly
+  // while an org was being set up.
+  let (state, headers) = state_with_fenced_org(&["x.com", "*.x.com"]).await;
+  for host in ["x.com", "app.x.com"] {
+    let payload = ShareCreateRequest {
+      hostname: host.to_string(),
+      path: None,
+      ttl_seconds: Some(3600),
+    };
+    let resp = share_create_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      Json(payload),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK, "{host}");
+  }
+}
+
+#[tokio::test]
+async fn share_create_for_an_unfenced_org_still_needs_a_client() {
+  let (state, headers) = state_with_fenced_org(&[]).await;
+  let payload = ShareCreateRequest {
+    hostname: "app.example.com".to_string(),
+    path: None,
+    ttl_seconds: None,
+  };
+  let resp = share_create_handler(
+    State(state),
+    ConnectInfo(test_peer()),
+    headers,
     Json(payload),
   )
   .await;
