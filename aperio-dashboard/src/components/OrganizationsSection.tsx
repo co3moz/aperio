@@ -7,7 +7,7 @@ import {
   Trash2Icon,
   UsersIcon,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   RecordEmpty,
@@ -44,6 +44,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { nameError, slug } from '@/lib/names'
 import { Spinner } from '@/components/ui/spinner'
+import { emitAppEvent } from '@/hooks/useAppEvent'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { usePaneFocus } from '@/lib/paneFocus'
@@ -515,6 +516,12 @@ function OidcForm({ org }: { org: Organization }) {
 export function OrganizationsSection() {
   const { t } = useI18n()
   const { data: orgs, refresh } = usePoll(api.orgs, 30_000)
+  // The sidebar's organization picker lists the same set, so it hears about a
+  // create, a rename or a delete instead of waiting out its own poll.
+  const changed = useCallback(() => {
+    refresh()
+    emitAppEvent('orgs-changed')
+  }, [refresh])
 
   return (
     <section className="flex flex-col gap-3">
@@ -522,7 +529,7 @@ export function OrganizationsSection() {
         title={t('Organizations')}
         description={t('Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.')}
       >
-        <CreateOrgDialog onCreated={refresh} />
+        <CreateOrgDialog onCreated={changed} />
       </SectionHeader>
       <RecordList>
         {orgs === null ? (
@@ -552,8 +559,8 @@ export function OrganizationsSection() {
               actions={
                 o.master ? null : (
                   <>
-                    <EditOrgDialog org={o} onSaved={refresh} />
-                    <DeleteOrgButton org={o} onDone={refresh} />
+                    <EditOrgDialog org={o} onSaved={changed} />
+                    <DeleteOrgButton org={o} onDone={changed} />
                   </>
                 )
               }

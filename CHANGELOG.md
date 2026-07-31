@@ -36,6 +36,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A new organization appears in the sidebar's picker immediately.** The picker and the Organizations screen poll separately, so an organization created on one was missing from the other for up to thirty seconds, which is where you go straight after creating it. Creating, renaming and deleting now tell the picker to reload.
+
 - **An organization can put its own hostname into maintenance, and mint a share link for it, before any client is connected.** Both asked whether one of the org's clients was serving that hostname *at that moment*, so an organization fenced to `x.com` was told `x.com` is not served by your organization until a client for it came up, which is the opposite of when a maintenance page is wanted. A fenced organization is now judged by its hostname allowlist, which is what says which sites are its own; an organization with no fence has no allowlist to read and keeps the old rule. The master organization is not fenced, so it can flag a host with nothing behind it.
 
 - **A visitor's WebSocket upgrade that hits the per-visitor rate limit now names the limit, like every other refusal.** That path answered a bare `429` while its HTTP sibling carried `x-aperio-limit` and counted itself, so a WebSocket-heavy service could be throttled without showing up in `aperio_rate_limited_total`.

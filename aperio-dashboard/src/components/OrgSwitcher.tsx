@@ -13,6 +13,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
+import { useAppEvent } from '@/hooks/useAppEvent'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { api, ApiError } from '@/lib/api'
@@ -22,7 +23,8 @@ import { api, ApiError } from '@/lib/api'
  *  newly-scoped clients, tokens, and users. */
 export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
   const { t } = useI18n()
-  const { data: orgs } = usePoll(api.orgs, 30_000)
+  const { data: orgs, refresh } = usePoll(api.orgs, 30_000)
+  useAppEvent('orgs-changed', refresh)
   const [busy, setBusy] = useState(false)
 
   const current = orgs?.find((o) => o.id === selectedOrg)
