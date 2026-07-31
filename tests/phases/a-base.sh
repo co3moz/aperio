@@ -448,6 +448,14 @@ assert_status 200 "$CODE" "a token for a name matching the partial label is crea
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"name":"out-fleet","hostnames":["raspberry-pie.fleet.e2e.local"]}' "$BASE/aperio/api/tokens")"
 assert_status 403 "$CODE" "a name outside the partial label is refused"
+# The domain around the fleet is not the fleet: a plain name under the same
+# domain has to be refused, or the pattern would just mean *.fleet.e2e.local.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"plain-name","hostnames":["test.fleet.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 403 "$CODE" "a plain name under the same domain is refused"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"in-fleet-2","hostnames":["test-pi.fleet.e2e.local"]}' "$BASE/aperio/api/tokens")"
+assert_status 200 "$CODE" "and test-pi under it is allowed"
 curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"id":"master"}' "$BASE/aperio/api/orgs/select" >/dev/null
 # Switch into the fenced org: its tokens may only carry its own hostnames.

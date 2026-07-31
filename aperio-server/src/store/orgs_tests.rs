@@ -473,3 +473,24 @@ fn two_partial_labels_on_one_domain_are_treated_as_overlapping() {
   assert!(patterns_overlap("*.robogon.com", "*-pi.robogon.com"));
   assert!(!patterns_overlap("*-pi.robogon.com", "robogon.com"));
 }
+
+#[test]
+fn the_fence_admits_the_fleet_and_refuses_the_domain_around_it() {
+  // The question this answers, asked in exactly these words: with the org
+  // fenced to `*-pi.robogon.com`, a token of that org binds
+  // `test-pi.robogon.com` and cannot bind `test.robogon.com`.
+  let fence = vec!["*-pi.robogon.com".to_string()];
+  assert!(hostname_in_org_allowlist("test-pi.robogon.com", &fence));
+  assert!(!hostname_in_org_allowlist("test.robogon.com", &fence));
+
+  // The neighbours of that answer, so it cannot drift into something looser:
+  assert!(!hostname_in_org_allowlist("robogon.com", &fence));
+  assert!(!hostname_in_org_allowlist("pi.robogon.com", &fence));
+  assert!(!hostname_in_org_allowlist("test-pi.evil.com", &fence));
+  assert!(!hostname_in_org_allowlist(
+    "test-pi.robogon.com.evil.com",
+    &fence
+  ));
+  assert!(!hostname_in_org_allowlist("a.test-pi.robogon.com", &fence));
+  assert!(hostname_in_org_allowlist("TEST-PI.Robogon.com", &fence));
+}
