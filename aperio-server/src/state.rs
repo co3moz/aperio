@@ -2031,21 +2031,57 @@ impl AppState {
   /// case where maintenance mode is wanted, and a share link had to wait for
   /// the client to come back.
   ///
-  /// Master is unfenced. A fenced org is judged by its allowlist. An unfenced
-  /// child org has no allowlist to judge, so it falls back to the older test,
-  /// one of its own connected clients serving the hostname, which is the only
-  /// isolation left when the operator never drew a boundary.
+  /// A fenced org is judged by its allowlist. An unfenced child org has no
+  /// allowlist to judge, so it falls back to the older test, one of its own
+  /// connected clients serving the hostname, which is the only isolation left
+  /// when the operator never drew a boundary.
+  ///
+  /// Master is fenced by the other organizations and by nothing else:
+  /// everything no tenant claims is master's, which is what lets it act on a
+  /// hostname with nothing connected, while a tenant's site stays the
+  /// tenant's even from the super-admin's own screen.
   pub(crate) async fn org_may_claim_hostname(&self, org: Option<&str>, host: &str) -> bool {
-    let Some(id) = org else {
-      return true;
+    let fences: Vec<(String, Vec<String>)> = {
+      let store = self.org_store.lock().await;
+      store
+        .list()
+        .iter()
+        .map(|o| (o.id.clone(), o.hostnames.clone()))
+        .collect()
     };
-    let allowlist = self.org_store.lock().await.hostnames_of(Some(id));
-    if !allowlist.is_empty() {
-      return crate::store::orgs::hostname_in_org_allowlist(host, &allowlist);
+    let admits = |list: &[String]| {
+      !list.is_empty() && crate::store::orgs::hostname_in_org_allowlist(host, list)
+    };
+    let served_by =
+      |org_matches: &dyn Fn(Option<&str>) -> bool,
+       clients: &std::collections::HashMap<String, ClientHandle>| {
+        clients.values().any(|c| {
+          org_matches(c.perms.org_id.as_deref())
+            && c.effective_hostnames().iter().any(|h| **h == *host)
+        })
+      };
+
+    match org {
+      Some(id) => {
+        let own = fences
+          .iter()
+          .find(|(oid, _)| oid == id)
+          .map(|(_, list)| list.clone())
+          .unwrap_or_default();
+        if !own.is_empty() {
+          return crate::store::orgs::hostname_in_org_allowlist(host, &own);
+        }
+        let clients = self.clients.lock().await;
+        served_by(&|owner| owner == Some(id), &clients)
+      }
+      None => {
+        if fences.iter().any(|(_, list)| admits(list)) {
+          return false;
+        }
+        let clients = self.clients.lock().await;
+        !served_by(&|owner| owner.is_some(), &clients)
+      }
     }
-    self.clients.lock().await.values().any(|c| {
-      c.perms.org_id.as_deref() == Some(id) && c.effective_hostnames().iter().any(|h| **h == *host)
-    })
   }
 
   /// The quota record for a child org (None for master or an unknown id).

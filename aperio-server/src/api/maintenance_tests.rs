@@ -94,9 +94,9 @@ async fn enable_invalid_hostname_is_bad_request() {
 
 #[tokio::test]
 async fn master_may_flag_a_hostname_with_no_client_up() {
-  // The fence exists to keep one tenant off another's site, and master is not
-  // a tenant. It also has to work when nothing is connected: a client being
-  // down is the usual reason to want a maintenance page in the first place.
+  // Master owns whatever no tenant claims, and that has to work with nothing
+  // connected: a client being down is the usual reason to want a maintenance
+  // page in the first place.
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
   let resp = maintenance_set_handler(

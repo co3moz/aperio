@@ -436,6 +436,22 @@ FENCED_SECRET="$(echo "$FENCED_TOK" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"name":"t","hostname":"evil.e2e.local"}' "$BASE/aperio/api/tunnels")"
 assert_status 403 "$CODE" "an ephemeral tunnel outside the allowlist is refused"
+# Maintenance mode and share links read the same fence, and no client of this
+# org is connected yet: a maintenance page is wanted precisely then.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"fenced.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
+assert_status 200 "$CODE" "the org may 503 its own hostname with nothing connected"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"evil.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
+assert_status 403 "$CODE" "the org may not 503 a hostname outside its fence"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"app.fenced.e2e.local"}' "$BASE/aperio/api/share")"
+assert_status 200 "$CODE" "a share link for a fenced subdomain is minted"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"evil.e2e.local"}' "$BASE/aperio/api/share")"
+assert_status 403 "$CODE" "a share link outside the fence is refused"
+curl -s -o /dev/null -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"fenced.e2e.local","enabled":false}' "$BASE/aperio/api/maintenance"
 # Connect a client with the wildcard token and declare an out-of-fence bind:
 # the server must drop it rather than route it.
 start_client fenced "$BACKEND_PORT" \
@@ -547,6 +563,27 @@ echo "  ok: the child-org webhook is hidden from master's webhook list"
 # The org listing still counts the child org's token.
 ORGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/orgs")"
 assert_contains "$ORGS" '"tokens":1' "the org listing counts the child org's token"
+# The dump carries what it is asked for, and no more. Master is selected here,
+# and the child org still holds its token.
+DUMP="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/export")" || fail "the default export failed"
+assert_contains "$DUMP" '"tokens"' "the default dump carries the configuration"
+if echo "$DUMP" | grep -q '"statistics"'; then
+  fail "the default dump should not carry the history"
+fi
+DUMP="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/export?include=statistics,organizations")" \
+  || fail "an export of named sections failed"
+assert_contains "$DUMP" '"statistics"' "include= carries the section it names"
+if echo "$DUMP" | grep -q '"webhooks"'; then
+  fail "include= carried a section nobody asked for"
+fi
+# Without the organizations section, a child org's rows would be orphans.
+DUMP="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/export?include=tokens")" \
+  || fail "an export of tokens alone failed"
+if echo "$DUMP" | grep -q 'acme-token'; then
+  fail "a child org's token travelled without its organization"
+fi
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" "$BASE/aperio/api/export?include=nope")"
+assert_status 400 "$CODE" "a misspelled section is refused rather than dropped"
 # A cross-org by-id revoke from master is refused (404, existence hidden).
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X DELETE "$BASE/aperio/api/tokens/${ACME_TOK_ID}")"
 assert_status 404 "$CODE" "revoking a child-org token from master is refused"
