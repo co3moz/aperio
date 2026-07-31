@@ -348,6 +348,31 @@ pub(crate) async fn handle_socket(
         Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
           Message::Binary(compress_frame(&t).into())
         }
+        // A v6 full-request frame is binary, so the text path above never
+        // sees it: compression is applied here rather than where the frame is
+        // built, so the negotiated flag stays in one place, and only when
+        // deflating wins. This mirrors what the client does with a full
+        // response, and without it an upload would bypass tunnel compression
+        // entirely, which is the regression v5 shipped with and then fixed.
+        Message::Binary(b)
+          if compress_out_writer.load(Ordering::SeqCst)
+            && b.first() == Some(&crate::protocol::FRAME_REQUEST_FULL) =>
+        {
+          match crate::protocol::decode_binary_frame(&b) {
+            Some((_, id, payload)) => match crate::protocol::deflate_payload(payload) {
+              Some(deflated) => match crate::protocol::encode_binary_frame(
+                crate::protocol::FRAME_REQUEST_FULL_ZLIB,
+                id,
+                &deflated,
+              ) {
+                Some(frame) => Message::Binary(frame.into()),
+                None => Message::Binary(b),
+              },
+              None => Message::Binary(b),
+            },
+            None => Message::Binary(b),
+          }
+        }
         other => other,
       };
       let rate = bandwidth_writer.load(Ordering::Relaxed);

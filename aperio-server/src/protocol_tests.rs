@@ -162,3 +162,48 @@ fn a_deflated_full_response_payload_round_trips() {
   );
   assert!(inflate_payload(&deflated, 1 << 20).is_some());
 }
+
+#[test]
+fn a_full_request_frame_round_trips_through_the_client_side_reader() {
+  // v6 is the response frame's mirror, and the two sides are different
+  // crates: this encodes with the server's builder and splits with the same
+  // reader the client uses, so a disagreement about the layout fails here
+  // rather than on someone's upload.
+  let json = r#"{"type":"Request","id":"abc","method":"POST","uri":"/upload"}"#;
+  let body: Vec<u8> = vec![0x00, 0xff, 0x80, b'"', b'\\', 0x0a, 0x7f];
+
+  let frame = encode_full_request_frame(FRAME_REQUEST_FULL, "req-1", json, &body)
+    .expect("a uuid-length id encodes");
+  let (tag, id, payload) = decode_binary_frame(&frame).expect("it decodes as a binary frame");
+  assert_eq!(tag, FRAME_REQUEST_FULL);
+  assert_eq!(id, "req-1");
+  let (out_json, out_body) = split_full_response(payload).expect("and splits");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &body[..]);
+
+  // An id too long for the one-byte length prefix is refused rather than
+  // wrapped, which would put every frame after it out of step.
+  let long = "x".repeat(256);
+  assert!(encode_full_request_frame(FRAME_REQUEST_FULL, &long, json, &body).is_none());
+}
+
+#[test]
+fn a_deflated_full_request_payload_round_trips() {
+  // The compressed sibling of the request frame: an upload of compressible
+  // text must come back byte for byte, and the tag says which it is.
+  let json = r#"{"type":"Request","id":"abc","method":"POST","uri":"/upload"}"#;
+  let form: Vec<u8> = b"field=value&".repeat(500);
+  let frame = encode_full_request_frame(FRAME_REQUEST_FULL, "req-1", json, &form).unwrap();
+  let (_, id, payload) = decode_binary_frame(&frame).unwrap();
+
+  let deflated = deflate_payload(payload).expect("a compressible upload deflates");
+  assert!(deflated.len() < payload.len());
+  let rewrapped = encode_binary_frame(FRAME_REQUEST_FULL_ZLIB, id, &deflated).unwrap();
+  let (tag, _, payload) = decode_binary_frame(&rewrapped).unwrap();
+  assert_eq!(tag, FRAME_REQUEST_FULL_ZLIB);
+
+  let inflated = inflate_payload(payload, 1 << 20).expect("it inflates back");
+  let (out_json, out_body) = split_full_response(&inflated).expect("and still splits");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &form[..]);
+}

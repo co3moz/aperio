@@ -247,5 +247,14 @@ got = open(sys.argv[1], 'rb').read()
 sys.exit(0 if got == want else 1)
 PYEOF
 echo "  ok: every byte value survived with tunnel compression on"
+# And the same for an upload, which travels the other way through the same
+# mechanism: a v6 request frame deflated by the server's writer.
+COMP_UP_IN="$LOG_DIR/compressed-upload.bin"
+COMP_UP_OUT="$LOG_DIR/compressed-upload-echo.bin"
+"$PYTHON" -c "import sys; sys.stdout.buffer.write((bytes(range(256)) * 2) + b'field=value&' * 400)" > "$COMP_UP_IN"
+curl -s -o "$COMP_UP_OUT" -X POST -H "Host: comp.e2e.local" \
+  -H 'Content-Type: application/octet-stream' --data-binary @"$COMP_UP_IN" "$BASE/echo-body"
+cmp -s "$COMP_UP_IN" "$COMP_UP_OUT" || fail "the uploaded body did not survive a compressed tunnel"
+echo "  ok: a compressible upload survived with tunnel compression on"
 # Like every other phase: hand the port back, or the next one cannot bind.
 stop_server

@@ -1189,8 +1189,10 @@ system, which is why it is fuzzed continuously
 \section{Flow control}
 \label{sec:flow-control}
 
-The current protocol version is 3, and what it adds is flow control for
-everything that streams.
+The current protocol version is 6. Version 3 added flow control for
+everything that streams; version 5 moved a buffered response body out of
+JSON and into the frame that carries its envelope, and version 6 did the
+same for a buffered request body, in the direction an upload travels.
 
 The awkward case is a visitor who reads more slowly than the backend
 produces. One connection's read loop is shared by every request and stream

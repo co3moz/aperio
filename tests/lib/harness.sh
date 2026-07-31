@@ -122,7 +122,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length).decode()
+        raw = self.rfile.read(length)
+        # Echo the upload back verbatim: what proves a v6 request frame is
+        # that a body no text encoding could carry arrives byte for byte.
+        if self.path.startswith('/echo-body'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        body = raw.decode(errors='replace')
         port = self.server.server_address[1]
         self._respond(f'backend {port} POST {self.path} body={body}')
 

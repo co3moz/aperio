@@ -14,7 +14,9 @@ use tracing::warn;
 /// pauses a producer whose visitor reads slower than it sends.
 /// v5: a buffered response travels as one binary frame (envelope + body)
 /// instead of base64 inside JSON.
-pub(crate) const PROTOCOL_VERSION: u32 = 5;
+/// v6: the same for a buffered *request* body, server to client, which is
+/// the other direction of the same cost (an upload was still base64 in JSON).
+pub(crate) const PROTOCOL_VERSION: u32 = 6;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -50,6 +52,19 @@ pub(crate) const FRAME_RESPONSE_FULL: u8 = 3;
 /// smaller.
 pub(crate) const FRAME_RESPONSE_FULL_ZLIB: u8 = 4;
 
+/// Binary frame tag for a whole buffered request (server → client), v6.
+///
+/// The mirror of `FRAME_RESPONSE_FULL`, in the direction an upload travels.
+/// A buffered request body under the streaming threshold was still base64
+/// inside the `Request` JSON: a third more bytes on the wire, an encode on
+/// the server and a decode here, per POST. Same layout,
+/// `[json_len: u32 LE][json][body]`, with the JSON being the `Request`
+/// message carrying `body: None`.
+pub(crate) const FRAME_REQUEST_FULL: u8 = 5;
+
+/// The same frame with a zlib-deflated payload (server → client), v6.
+pub(crate) const FRAME_REQUEST_FULL_ZLIB: u8 = 6;
+
 /// Deflates a frame payload. Returns `None` when the result is not smaller,
 /// which is the normal answer for an already-compressed or random body: there
 /// is no point paying for the bytes twice, and the reader takes either tag.
@@ -62,9 +77,6 @@ pub(crate) fn deflate_payload(payload: &[u8]) -> Option<Vec<u8>> {
   (out.len() < payload.len()).then_some(out)
 }
 
-/// Only the sending side deflates and only the receiving side inflates, so
-/// each binary keeps the direction it uses and the other for the test.
-#[cfg(test)]
 /// Inflates a frame payload, bounded like every other decompression on this
 /// path so a small frame cannot ask for an unbounded allocation.
 pub(crate) fn inflate_payload(data: &[u8], max_out: usize) -> Option<Vec<u8>> {
@@ -103,14 +115,12 @@ pub(crate) fn encode_full_response_frame(id: &str, json: &str, body: &[u8]) -> O
   Some(out)
 }
 
-/// The other half of the pair, for the round-trip test. A full-response frame
-/// only ever travels client to server, so each side ships the direction it
-/// actually uses and keeps the other one for the test that proves they agree.
-#[cfg(test)]
-/// Splits a `FRAME_RESPONSE_FULL` payload into its JSON envelope and the body
-/// that follows it. `None` when the length prefix does not describe the frame,
-/// which is a corrupt or truncated message rather than an old peer: the tag
-/// is only sent to a peer that announced v5.
+/// Splits a full-envelope frame payload (`FRAME_RESPONSE_FULL` in the test
+/// that proves both sides agree, `FRAME_REQUEST_FULL` in production) into its
+/// JSON envelope and the body that follows it. `None` when the length prefix
+/// does not describe the frame, which is a corrupt or truncated message
+/// rather than an old peer: the tag is only sent to a peer that announced the
+/// version that has it.
 pub(crate) fn split_full_response(payload: &[u8]) -> Option<(&str, &[u8])> {
   let (len_bytes, rest) = payload.split_at_checked(4)?;
   let json_len = u32::from_le_bytes(len_bytes.try_into().ok()?) as usize;

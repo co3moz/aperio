@@ -317,8 +317,13 @@ pub(crate) struct ForwardRequest {
   pub(crate) method: String,
   pub(crate) uri: String,
   pub(crate) headers: Vec<(String, String)>,
-  /// Base64-encoded buffered body (None when absent or streamed).
+  /// Base64-encoded buffered body (None when absent, streamed, or carried as
+  /// bytes in a v6 frame).
   pub(crate) body: Option<String>,
+  /// The buffered body as bytes, from a v6 full-request frame. Takes
+  /// precedence over `body`: only one of the two is ever set, and this one
+  /// costs no decode.
+  pub(crate) raw_body: Option<Vec<u8>>,
 }
 
 /// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
@@ -363,6 +368,7 @@ pub(crate) async fn handle_incoming_request(
     uri: uri_str,
     headers,
     body: body_base64,
+    raw_body,
   } = req;
   let tunnel_tx = &ctx.tunnel_tx;
   info!(
@@ -445,6 +451,9 @@ pub(crate) async fn handle_incoming_request(
       rx.recv().await.map(|item| (item, rx))
     });
     builder = builder.body(reqwest::Body::wrap_stream(stream));
+  } else if let Some(bytes) = raw_body {
+    // v6: the body arrived as bytes in the dispatch frame, nothing to decode.
+    builder = builder.body(bytes);
   } else if let Some(encoded_body) = body_base64 {
     match BASE64_STANDARD.decode(encoded_body) {
       Ok(bytes) => {

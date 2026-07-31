@@ -86,6 +86,7 @@ pub(crate) async fn handle_incoming_request_unix(
     uri: uri_str,
     headers,
     body: body_base64,
+    raw_body,
   } = req;
   let tunnel_tx = &ctx.tunnel_tx;
   let Some(socket_path) = ctx.unix_socket.as_deref() else {
@@ -157,6 +158,9 @@ pub(crate) async fn handle_incoming_request_unix(
         .map(|item| (item.map(|bytes| Frame::data(Bytes::from(bytes))), rx))
     });
     BoxBody::new(StreamBody::new(stream))
+  } else if let Some(bytes) = raw_body {
+    // v6: the body arrived as bytes in the dispatch frame, nothing to decode.
+    BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {}))
   } else if let Some(encoded_body) = body_base64 {
     match BASE64_STANDARD.decode(encoded_body) {
       Ok(bytes) => BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {})),

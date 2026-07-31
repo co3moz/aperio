@@ -95,6 +95,7 @@ fn req(id: &str, method: &str, uri: &str) -> ForwardRequest {
     uri: uri.to_string(),
     headers: vec![],
     body: None,
+    raw_body: None,
   }
 }
 

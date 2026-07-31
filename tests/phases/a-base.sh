@@ -17,7 +17,7 @@ step "Health endpoint"
 HEALTH="$(curl -s "$BASE/aperio/health")"
 assert_contains "$HEALTH" '"status":"healthy"' "health reports healthy"
 assert_contains "$HEALTH" '"protocol":' "health reports the tunnel protocol version"
-assert_contains "$HEALTH" '"protocol":5' "the protocol version is the one this build speaks"
+assert_contains "$HEALTH" '"protocol":6' "the protocol version is the one this build speaks"
 assert_contains "$HEALTH" '"ui_language"' "health reports the default UI language"
 
 step "First-run redirect and 504 when no client is connected"
@@ -65,6 +65,19 @@ got = open(sys.argv[1], 'rb').read()
 sys.exit(0 if got == want else 1)
 PYEOF
 echo "  ok: 512 bytes of every value survived the tunnel byte for byte"
+
+step "A buffered request body survives the v6 binary frame"
+# The other direction, since v6: an upload under the streaming threshold
+# travels as bytes in the dispatch frame rather than base64 in the JSON. The
+# body is every byte value twice, which base64 could carry and a length-
+# prefixed frame has to be read correctly to.
+UP_IN="$LOG_DIR/upload.bin"
+UP_OUT="$LOG_DIR/upload-echo.bin"
+"$PYTHON" -c "import sys; sys.stdout.buffer.write(bytes(range(256)) * 2)" > "$UP_IN"
+curl -s -o "$UP_OUT" -X POST -H "Host: ${HOSTNAME_BIND}" \
+  -H 'Content-Type: application/octet-stream' --data-binary @"$UP_IN" "$BASE/echo-body"
+cmp -s "$UP_IN" "$UP_OUT" || fail "the uploaded body did not survive the tunnel"
+echo "  ok: a 512-byte upload came back byte for byte"
 
 step "Large upload/download streaming (protocol v2)"
 BIG="$LOG_DIR/big.bin"

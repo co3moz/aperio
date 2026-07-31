@@ -1280,7 +1280,12 @@ async fn proxy_http_request(
     }
   }
 
-  let base64_body = if body_bytes.is_empty() {
+  // v6 carries a buffered body as bytes in the dispatch frame; anything older
+  // gets base64 in the JSON, which costs an encode here, a decode there and a
+  // third more bytes on the wire. Negotiated per connection, so a mixed fleet
+  // keeps working.
+  let full_body_frame = selected.protocol.is_some_and(|v| v >= 6) && !body_bytes.is_empty();
+  let base64_body = if body_bytes.is_empty() || full_body_frame {
     None
   } else {
     use base64::prelude::*;
@@ -1456,9 +1461,23 @@ async fn proxy_http_request(
     // A failed send means the client is already gone; it goes through the
     // same failover decision as an in-flight connection loss.
     let dispatched_at = Instant::now();
+    // v6: the envelope and the body in one binary frame. The writer deflates
+    // it when this connection negotiated compression, the same way the client
+    // does with a full response.
+    let dispatch_frame = if full_body_frame && !stream_request {
+      crate::protocol::encode_full_request_frame(
+        crate::protocol::FRAME_REQUEST_FULL,
+        &request_id,
+        &req_json,
+        &body_bytes,
+      )
+      .map(|frame| Message::Binary(frame.into()))
+    } else {
+      None
+    };
     let dispatched = selected
       .tx
-      .send(Message::Text(req_json.into()))
+      .send(dispatch_frame.unwrap_or_else(|| Message::Text(req_json.into())))
       .await
       .is_ok();
     if !dispatched {

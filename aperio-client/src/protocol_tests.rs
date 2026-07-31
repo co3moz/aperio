@@ -155,3 +155,41 @@ fn a_deflated_full_response_payload_round_trips() {
   );
   assert!(inflate_payload(&deflated, 1 << 20).is_some());
 }
+
+#[test]
+fn a_full_request_frame_is_read_the_way_the_server_writes_it() {
+  // The client's half of v6: the server encodes `[tag][id_len][id]` then
+  // `[json_len][json][body]`, and this is the reader that has to agree. The
+  // frame is built here by hand rather than imported, because the two sides
+  // are different crates and a shared helper would prove nothing.
+  let json = r#"{"type":"Request","id":"abc","method":"POST","uri":"/upload"}"#;
+  let body: Vec<u8> = vec![0x00, 0xff, 0x80, b'"', 0x0a];
+  let id = "req-1";
+
+  let mut frame = vec![FRAME_REQUEST_FULL, id.len() as u8];
+  frame.extend_from_slice(id.as_bytes());
+  frame.extend_from_slice(&(json.len() as u32).to_le_bytes());
+  frame.extend_from_slice(json.as_bytes());
+  frame.extend_from_slice(&body);
+
+  let (tag, out_id, payload) = decode_binary_frame(&frame).expect("decodes");
+  assert_eq!(tag, FRAME_REQUEST_FULL);
+  assert_eq!(out_id, id);
+  let (out_json, out_body) = split_full_response(payload).expect("splits");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &body[..]);
+
+  // The deflated tag carries the same payload through inflate first. A body
+  // worth compressing, since a handful of bytes never deflates smaller and
+  // the writer would send it as it is.
+  let form: Vec<u8> = b"field=value&".repeat(500);
+  let mut payload = (json.len() as u32).to_le_bytes().to_vec();
+  payload.extend_from_slice(json.as_bytes());
+  payload.extend_from_slice(&form);
+  let deflated = deflate_payload(&payload).expect("compressible");
+  let inflated = inflate_payload(&deflated, 1 << 20).expect("inflates");
+  let (out_json, out_body) = split_full_response(&inflated).expect("splits");
+  assert_eq!(out_json, json);
+  assert_eq!(out_body, &form[..]);
+  assert_eq!(FRAME_REQUEST_FULL_ZLIB, 6, "the tag the server sends");
+}

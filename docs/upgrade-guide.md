@@ -38,8 +38,9 @@ log a warning when they differ. The protocol is designed to tolerate skew:
   flow control), both sides log the mismatch. Traffic still flows for the shared
   subset, but you should update the older side to avoid subtle
   incompatibilities. The fallbacks are per feature: a pre-v2 peer gets buffered
-  bodies and base64 frames, a pre-v5 server gets a buffered body base64-encoded
-  inside the JSON instead of as bytes in one frame, and a pre-v3 client is
+  bodies and base64 frames, a pre-v5 server gets a buffered response body
+  base64-encoded inside the JSON instead of as bytes in one frame, a pre-v6
+  client gets its request bodies the same way, and a pre-v3 client is
   never asked to pause, so the
   server lets its streams buffer up to `APERIO_STREAM_BACKLOG_LIMIT` (16 MB)
   before dropping them. Running an old client therefore costs worse behavior

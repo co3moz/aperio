@@ -10,7 +10,9 @@ use tracing::warn;
 /// pauses a producer whose visitor reads slower than it sends.
 /// v5: a buffered response travels as one binary frame (envelope + body)
 /// instead of base64 inside JSON.
-pub const PROTOCOL_VERSION: u32 = 5;
+/// v6: the same for a buffered *request* body, server to client, which is
+/// the other direction of the same cost (an upload was still base64 in JSON).
+pub const PROTOCOL_VERSION: u32 = 6;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -33,6 +35,42 @@ pub const FRAME_RESPONSE_CHUNK: u8 = 2;
 /// a head message, a frame per chunk and a tail, which a small body cannot
 /// repay. This costs one message, the same as the JSON it replaces.
 pub const FRAME_RESPONSE_FULL: u8 = 3;
+
+/// Binary frame tag for a whole buffered request (server → client), v6.
+///
+/// The mirror of `FRAME_RESPONSE_FULL`, in the direction an upload travels.
+/// A buffered request body under the streaming threshold was still base64
+/// inside the `Request` JSON: a third more bytes on the wire, an encode on
+/// the server and a decode on the client, per POST. Same layout,
+/// `[json_len: u32 LE][json][body]`, with the JSON being the `Request`
+/// message carrying `body: None`.
+pub const FRAME_REQUEST_FULL: u8 = 5;
+
+/// The same frame with a zlib-deflated payload (server → client), v6. Sent
+/// only when the peer negotiated compression and only when deflating made it
+/// smaller, exactly like the response side.
+pub const FRAME_REQUEST_FULL_ZLIB: u8 = 6;
+
+/// Builds a `FRAME_REQUEST_FULL`/`_ZLIB` frame in one allocation: tag, id,
+/// then the envelope's length, the envelope and the body.
+pub(crate) fn encode_full_request_frame(
+  tag: u8,
+  id: &str,
+  json: &str,
+  body: &[u8],
+) -> Option<Vec<u8>> {
+  if id.len() > u8::MAX as usize {
+    return None;
+  }
+  let mut out = Vec::with_capacity(2 + id.len() + 4 + json.len() + body.len());
+  out.push(tag);
+  out.push(id.len() as u8);
+  out.extend_from_slice(id.as_bytes());
+  out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+  out.extend_from_slice(json.as_bytes());
+  out.extend_from_slice(body);
+  Some(out)
+}
 
 /// Splits a `FRAME_RESPONSE_FULL` payload into its JSON envelope and the body
 /// that follows it. `None` when the length prefix does not describe the frame,
@@ -57,9 +95,6 @@ pub fn split_full_response(payload: &[u8]) -> Option<(&str, &[u8])> {
 /// smaller.
 pub const FRAME_RESPONSE_FULL_ZLIB: u8 = 4;
 
-/// Only the sending side deflates and only the receiving side inflates, so
-/// each binary keeps the direction it uses and the other for the test.
-#[cfg(test)]
 /// Deflates a frame payload. Returns `None` when the result is not smaller,
 /// which is the normal answer for an already-compressed or random body: there
 /// is no point paying for the bytes twice, and the reader takes either tag.

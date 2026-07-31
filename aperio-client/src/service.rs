@@ -20,9 +20,9 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{debug, error, info, warn};
 
 use crate::protocol::{
-  FRAME_REQUEST_CHUNK, FRAME_RESPONSE_FULL, FRAME_RESPONSE_FULL_ZLIB, PROTOCOL_VERSION,
-  RequestBodyFeeder, TunnelDecl, TunnelMessage, compress_frame, decode_binary_frame,
-  decompress_frame, encode_binary_frame,
+  FRAME_REQUEST_CHUNK, FRAME_REQUEST_FULL, FRAME_REQUEST_FULL_ZLIB, FRAME_RESPONSE_FULL,
+  FRAME_RESPONSE_FULL_ZLIB, PROTOCOL_VERSION, RequestBodyFeeder, TunnelDecl, TunnelMessage,
+  compress_frame, decode_binary_frame, decompress_frame, encode_binary_frame, split_full_response,
 };
 use crate::proxy::http::{
   ForwardContext, ForwardRequest, HeaderTransform, handle_incoming_request,
@@ -1006,19 +1006,46 @@ pub(crate) async fn run_service(
                   msg_res = ws_receiver.next() => {
                       match msg_res {
                           Some(Ok(msg)) => {
+                              // A frame yields the envelope text and, for a v6
+                              // full-request frame, the body that travelled with it
+                              // as bytes rather than base64.
+                              let mut frame_body: Option<Vec<u8>> = None;
                               let text_opt = match msg {
                                   Message::Text(t) => Some(t),
                                   Message::Binary(b) => {
                                       // v2 binary chunk frames carry a tag byte that never
                                       // collides with zlib streams (0x78).
-                                      if let Some((FRAME_REQUEST_CHUNK, fid, payload)) = decode_binary_frame(&b) {
-                                          let streams = active_request_streams.lock().await;
-                                          if let Some(feeder) = streams.get(fid) {
-                                              let _ = feeder.send(Ok(payload.to_vec())).await;
+                                      match decode_binary_frame(&b) {
+                                          Some((FRAME_REQUEST_CHUNK, fid, payload)) => {
+                                              let streams = active_request_streams.lock().await;
+                                              if let Some(feeder) = streams.get(fid) {
+                                                  let _ = feeder.send(Ok(payload.to_vec())).await;
+                                              }
+                                              None
                                           }
-                                          None
-                                      } else {
-                                          decompress_frame(&b, spec.max_message_size.saturating_mul(4))
+                                          // v6: envelope and buffered body in one frame,
+                                          // deflated by the server's writer when this
+                                          // connection negotiated compression.
+                                          Some((tag @ (FRAME_REQUEST_FULL | FRAME_REQUEST_FULL_ZLIB), _, payload)) => {
+                                              let max = spec.max_message_size.saturating_mul(4);
+                                              let inflated = if tag == FRAME_REQUEST_FULL_ZLIB {
+                                                  crate::protocol::inflate_payload(payload, max)
+                                              } else {
+                                                  None
+                                              };
+                                              let payload = inflated.as_deref().unwrap_or(payload);
+                                              match split_full_response(payload) {
+                                                  Some((json, body)) => {
+                                                      frame_body = Some(body.to_vec());
+                                                      Some(json.to_string())
+                                                  }
+                                                  None => {
+                                                      warn!("Dropped a malformed full-request frame");
+                                                      None
+                                                  }
+                                              }
+                                          }
+                                          _ => decompress_frame(&b, spec.max_message_size.saturating_mul(4)),
                                       }
                                   }
                                   _ => None,
@@ -1038,6 +1065,7 @@ pub(crate) async fn run_service(
                                               let limiter = local_limiter.clone();
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
+                                              let raw_body = frame_body.take();
                                               inflight.fetch_add(1, Ordering::SeqCst);
                                               shared.mark_request_activity();
 
@@ -1056,7 +1084,7 @@ pub(crate) async fn run_service(
                                                   let full_body = peer >= 5;
                                                   let response = handle_incoming_request(
                                                       &ctx,
-                                                      ForwardRequest { id, method, uri, headers, body },
+                                                      ForwardRequest { id, method, uri, headers, body, raw_body },
                                                       None,
                                                       binary,
                                                       full_body,
@@ -1109,6 +1137,7 @@ pub(crate) async fn run_service(
                                                           uri,
                                                           headers,
                                                           body: None,
+                                                          raw_body: None,
                                                       },
                                                       Some(body_rx),
                                                       binary,
