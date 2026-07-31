@@ -77,6 +77,7 @@ fn base_ctx(socket_path: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardConte
     timeout_secs: 30,
     stream_pauses: Default::default(),
     target: format!("unix://{socket_path}"),
+    target_url: url::Url::parse(&format!("unix://{socket_path}")).ok(),
     pass_hostname: false,
     path_bind: None,
     trim_bind: false,

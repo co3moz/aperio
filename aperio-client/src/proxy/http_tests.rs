@@ -17,6 +17,7 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
     timeout_secs: 30,
     stream_pauses: Default::default(),
     target: target.to_string(),
+    target_url: url::Url::parse(target).ok(),
     pass_hostname: false,
     path_bind: None,
     trim_bind: false,
@@ -957,4 +958,74 @@ fn the_streaming_threshold_depends_on_what_the_peer_can_take() {
     assert!(BINARY_STREAM_THRESHOLD == 32 * 1024);
     assert!(STREAM_THRESHOLD == 256 * 1024);
   }
+}
+
+#[test]
+fn splitting_the_uri_agrees_with_parsing_it_as_a_url() {
+  // `build_dest_url` used to parse `http://localhost{uri}` just to reach the
+  // path and the query. Parsing also normalizes (`..` collapses, stray
+  // characters get encoded), and an SSRF check sits underneath, so the cheap
+  // split may only replace it where the two agree exactly. This is that
+  // proof, and it stays as the thing that fails if `set_path` ever stops
+  // normalizing on its own.
+  let base = url::Url::parse("http://127.0.0.1:3000").unwrap();
+  for uri in [
+    "/",
+    "/a/b",
+    "/a/../b",
+    "/a/./b",
+    "/a//b",
+    "/..%2f..%2fetc/passwd",
+    "/%2e%2e/x",
+    "/a?x=1&y=2",
+    "/?q",
+    "/a?x=/../b",
+    "/a%20b",
+    "/ünicode/yol",
+    "/a?",
+    "/trailing/",
+  ] {
+    let parsed = url::Url::parse(&format!("http://localhost{uri}")).unwrap();
+
+    let (raw_path, raw_query) = match uri.split_once('?') {
+      Some((p, q)) => (p, Some(q)),
+      None => (uri, None),
+    };
+
+    let mut from_parse = base.clone();
+    from_parse.set_path(parsed.path());
+    from_parse.set_query(parsed.query());
+
+    let mut from_split = base.clone();
+    from_split.set_path(raw_path);
+    from_split.set_query(raw_query);
+
+    assert_eq!(
+      from_parse.as_str(),
+      from_split.as_str(),
+      "the two ways of reading {uri:?} disagree"
+    );
+  }
+}
+
+#[test]
+fn an_absolute_form_uri_reaches_the_backend_as_its_path() {
+  // HTTP/2 visitors send `:scheme` and `:authority`, so the URI arrives
+  // rebuilt as `http://host/path`. The old expression prefixed
+  // `http://localhost` to it, which made the whole thing the path: the
+  // backend saw `/127.0.0.1:18110/echo` where it should see `/echo`.
+  let (tx, _rx) = mpsc::channel(4);
+  let ctx = test_ctx("http://127.0.0.1:3000", tx);
+
+  let dest = build_dest_url(&ctx, "req-1", "http://127.0.0.1:18110/echo").unwrap();
+  assert_eq!(dest.as_str(), "http://127.0.0.1:3000/echo");
+
+  let dest = build_dest_url(&ctx, "req-2", "http://host/a?b=1").unwrap();
+  assert_eq!(dest.as_str(), "http://127.0.0.1:3000/a?b=1");
+
+  // Origin-form is unchanged, and neither shape reaches the backend when it
+  // is not a URI at all.
+  let dest = build_dest_url(&ctx, "req-3", "/plain?x=1").unwrap();
+  assert_eq!(dest.as_str(), "http://127.0.0.1:3000/plain?x=1");
+  assert_eq!(build_dest_url(&ctx, "req-4", ":notaport").unwrap_err(), 400);
 }

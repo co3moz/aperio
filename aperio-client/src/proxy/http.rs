@@ -200,6 +200,13 @@ pub(crate) struct ForwardContext {
   pub(crate) client: reqwest::Client,
   /// Local backend base URL.
   pub(crate) target: String,
+  /// The same URL, parsed once. It does not change for the life of the
+  /// connection, and parsing it per request showed up in a profile as its own
+  /// line: `url::Url::parse` is not cheap, and this one had the same answer
+  /// every time. `None` for a target that is not a URL at all, which is a
+  /// configuration error and answers 502, the same as when the parse lived in
+  /// the request path.
+  pub(crate) target_url: Option<url::Url>,
   /// Forward the original `Host` header instead of the target's.
   pub(crate) pass_hostname: bool,
   /// Path bind of this client, stripped from incoming paths when `trim_bind`.
@@ -234,24 +241,42 @@ pub(crate) fn build_dest_url(
   id: &str,
   uri_str: &str,
 ) -> Result<url::Url, u16> {
-  let target_parsed = match url::Url::parse(&ctx.target) {
-    Ok(url) => url,
-    Err(e) => {
-      error!("Failed to parse local target URL: {:?}", e);
-      return Err(502);
-    }
+  let Some(target_parsed) = ctx.target_url.as_ref() else {
+    error!("Failed to parse local target URL: {:?}", ctx.target);
+    return Err(502);
   };
-  let incoming_parsed = match url::Url::parse(&format!("http://localhost{}", uri_str)) {
-    Ok(url) => url,
-    Err(e) => {
-      error!("Failed to parse incoming proxy URI path: {:?}", e);
-      return Err(400);
+  // The path and the query. Origin-form (`/a/b?c`) is every HTTP/1.1 visitor
+  // and splits without allocating; parsing `http://localhost{uri}` for it ran
+  // a full URL parse per request to reach two `&str`s, and `set_path` below
+  // normalizes what that parse normalized, which
+  // `splitting_the_uri_agrees_with_parsing_it_as_a_url` holds to.
+  //
+  // Absolute-form (`http://host/a`) arrives from HTTP/2 visitors, where the
+  // URI is rebuilt from `:scheme` and `:authority`. It is parsed, once, for
+  // the shape that needs it. That also fixes what the old expression did with
+  // it: prefixing `http://localhost` made the whole URI the *path*, so the
+  // backend received `/127.0.0.1:8080/echo` instead of `/echo`.
+  let uri_str = if uri_str.is_empty() { "/" } else { uri_str };
+  let absolute;
+  let (incoming_path_raw, incoming_query) = if uri_str.starts_with('/') {
+    match uri_str.split_once('?') {
+      Some((path, query)) => (path, Some(query)),
+      None => (uri_str, None),
     }
+  } else {
+    absolute = match url::Url::parse(uri_str) {
+      Ok(url) => url,
+      Err(e) => {
+        error!("Failed to parse incoming proxy URI {:?}: {:?}", uri_str, e);
+        return Err(400);
+      }
+    };
+    (absolute.path(), absolute.query())
   };
 
   let mut dest_url = target_parsed.clone();
   let target_path = target_parsed.path().trim_end_matches('/');
-  let mut incoming_path = incoming_parsed.path().trim_start_matches('/').to_string();
+  let mut incoming_path = incoming_path_raw.trim_start_matches('/').to_string();
   if ctx.trim_bind
     && let Some(ref bind) = ctx.path_bind
   {
@@ -274,7 +299,7 @@ pub(crate) fn build_dest_url(
     format!("{}/{}", target_path, incoming_path)
   };
   dest_url.set_path(&combined_path);
-  dest_url.set_query(incoming_parsed.query());
+  dest_url.set_query(incoming_query);
 
   if dest_url.scheme() != target_parsed.scheme()
     || dest_url.host_str() != target_parsed.host_str()
@@ -442,7 +467,10 @@ pub(crate) async fn handle_incoming_request(
       let backend_first_byte_us = received_at.elapsed().as_micros() as u64;
       let status = res.status().as_u16();
 
-      let mut res_headers: Vec<(String, String)> = Vec::new();
+      // Sized from the header count, for the same reason as the body buffer
+      // below: a dozen pushes into an empty Vec is a handful of reallocations
+      // per response, each copying what it had.
+      let mut res_headers: Vec<(String, String)> = Vec::with_capacity(res.headers().len());
       for (k, v) in res.headers().iter() {
         if let Ok(v_str) = v.to_str() {
           res_headers.push((k.to_string(), v_str.to_string()));
@@ -459,8 +487,17 @@ pub(crate) async fn handle_incoming_request(
         STREAM_THRESHOLD
       }
       .min(ctx.max_response_body_size);
+      // Sized up front from the backend's own Content-Length, capped at the
+      // point where this switches to streaming anyway. Growing into an empty
+      // Vec was the single heaviest thing in a profile of the client under
+      // load: a 32 KB body arriving in chunks reallocated its way there,
+      // copying what it had accumulated each time.
+      let reserve = res
+        .content_length()
+        .map(|len| len.min(threshold as u64 + 1) as usize)
+        .unwrap_or(0);
       let mut stream = res.bytes_stream();
-      let mut buf: Vec<u8> = Vec::new();
+      let mut buf: Vec<u8> = Vec::with_capacity(reserve);
       let mut pause_guard: Option<crate::flow::PauseGuard> = None;
       let mut aborted = false;
       let mut total: usize = 0;

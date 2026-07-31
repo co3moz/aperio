@@ -33,6 +33,9 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **An HTTP/2 visitor's request reaches the backend at the path it asked for.** Such a request arrives with its URI rebuilt from `:scheme` and `:authority`, and the client turned `http://host/echo` into the path `/host/echo` rather than `/echo`, because it read the path by prefixing `http://localhost` to whatever it was given. HTTP/1.1 visitors, whose URI is a bare path, were never affected.
+
+
 - **A compressible response body is compressed again when `tunnel_compression` is on.** The v5 full-response frame is a binary frame, and binary frames bypass the tunnel's compression, which only ever applied to text: 32 KB of HTML that used to travel as a few hundred bytes was travelling whole. The frame deflates its own payload now, and only when deflating makes it smaller, so a body that is already compressed or genuinely random is sent as it is rather than paying to grow. Nothing changes for a deployment with compression off, which is the default and the right setting for anyone chasing throughput.
 
 

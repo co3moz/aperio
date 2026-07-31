@@ -959,6 +959,10 @@ pub(crate) async fn run_service(
               unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
               timeout_secs: spec.timeout_secs,
               target: spec.target.clone(),
+              // Parsed once here rather than per request. `None` keeps the
+              // answer the request path used to give for a target that is not
+              // a URL: 502, a configuration error, not the visitor's fault.
+              target_url: url::Url::parse(&spec.target).ok(),
               pass_hostname: spec.pass_hostname,
               path_bind: spec.path.clone(),
               trim_bind: spec.trim_bind,
