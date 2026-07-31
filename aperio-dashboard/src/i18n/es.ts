@@ -260,8 +260,6 @@ export const es: Record<string, string> = {
   'No clients to enable': 'No hay clientes que activar',
   'No dynamic tokens created': 'No hay tokens dinámicos creados',
   'No further events will be delivered to {url}.': 'No se entregarán más eventos a {url}.',
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    'Sin hostnames en mantenimiento. Los visitantes de un hostname listado ven la página 503 mientras sus clientes siguen conectados; se limpia al reiniciar el servidor.',
   'No matching commands': 'Sin comandos coincidentes',
   'No requests matching filter': 'Sin peticiones que coincidan con el filtro',
   'No webhooks defined': 'Sin webhooks definidos',
@@ -524,7 +522,6 @@ export const es: Record<string, string> = {
   'all binds': 'todos los vínculos',
   'any hostname': 'cualquier hostname',
   'any path': 'cualquier path',
-  'app.example.com  (* = all hostnames)': 'app.example.com  (* = todos los hostnames)',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl rota al superar este tamaño; 0 = nunca rotar',
   'client id': 'id de cliente',
@@ -961,4 +958,7 @@ export const es: Record<string, string> = {
   'Per-client and per-hostname availability by day': 'Disponibilidad por cliente y por hostname, por día',
   'Captured inbound webhook payloads': 'Payloads de webhooks entrantes capturados',
   'Programmatic admin credentials, hashes only': 'Credenciales de administración programáticas, solo hashes',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Sin hostnames en mantenimiento. Los visitantes de un hostname listado ven la página 503 mientras sus clientes siguen conectados; se limpia al reiniciar el servidor. Usa *.example.com para todos los subdominios de un dominio, y añade el dominio en sí si también lo quieres.',
+  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com o *',
+  'every subdomain': 'todos los subdominios',
 }

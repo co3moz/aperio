@@ -258,8 +258,6 @@ export const ja: Record<string, string> = {
   'No clients to enable': '有効化するクライアントがありません',
   'No dynamic tokens created': '動的トークンは作成されていません',
   'No further events will be delivered to {url}.': '{url}へのイベント配信は停止されます。',
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    'メンテナンス中のホスト名はありません。登録されたホスト名の訪問者には、クライアントが接続されたまま503ページが表示されます。サーバー再起動でクリアされます。',
   'No matching commands': '一致するコマンドがありません',
   'No requests matching filter': 'フィルタに一致するリクエストがありません',
   'No webhooks defined': 'Webhookは定義されていません',
@@ -522,7 +520,6 @@ export const ja: Record<string, string> = {
   'all binds': 'すべてのバインド',
   'any hostname': '任意の Hostname',
   'any path': '任意の Path',
-  'app.example.com  (* = all hostnames)': 'app.example.com（* = すべての Hostname）',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonlはこのサイズを超えるとローテーションします。0 = しない',
   'client id': 'クライアントID',
@@ -959,4 +956,7 @@ export const ja: Record<string, string> = {
   'Per-client and per-hostname availability by day': 'クライアント別・Hostname 別の日次可用性',
   'Captured inbound webhook payloads': '受信した Webhook Payload の記録',
   'Programmatic admin credentials, hashes only': 'プログラム用の管理資格情報、ハッシュのみ',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'メンテナンス中の Hostname はありません。登録された Hostname の訪問者には、クライアントが接続されたまま 503 ページが表示されます。サーバー再起動でクリアされます。ドメイン配下のすべてのサブドメインには *.example.com を、ドメイン自体も含めたい場合は別途登録してください。',
+  'app.example.com, *.example.com, or *': 'app.example.com、*.example.com、または *',
+  'every subdomain': 'すべてのサブドメイン',
 }

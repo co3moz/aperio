@@ -111,6 +111,19 @@ async fn in_maintenance_matches_wildcard_and_host() {
     .insert("a.example.com".to_string(), None);
   assert!(in_maintenance(&state, Some("a.example.com")).await);
   assert!(!in_maintenance(&state, Some("b.example.com")).await);
+  // A subdomain wildcard is one switch for everything under a domain, which
+  // is what "put robogon into maintenance" means.
+  state
+    .maintenance
+    .lock()
+    .await
+    .insert("*.robogon.com".to_string(), None);
+  assert!(in_maintenance(&state, Some("test.robogon.com")).await);
+  assert!(in_maintenance(&state, Some("a.b.robogon.com")).await);
+  // Not the apex: `*.robogon.com` is a subdomain wildcard the way a TLS
+  // certificate's is, so an operator who wants both flags both.
+  assert!(!in_maintenance(&state, Some("robogon.com")).await);
+  assert!(!in_maintenance(&state, Some("notrobogon.com")).await);
   // Wildcard covers every host.
   state.maintenance.lock().await.insert("*".to_string(), None);
   assert!(in_maintenance(&state, Some("b.example.com")).await);

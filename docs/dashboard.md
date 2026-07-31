@@ -79,7 +79,17 @@ Admins see every live dashboard session on the Users page, who is signed in, fro
 
 ## Maintenance mode
 
-Put a hostname (or `*` for everything) into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
+Put a hostname into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
+
+Three shapes are accepted, the same two an organization's hostname allowlist is written in plus the server-wide one:
+
+| Entry | Covers |
+|---|---|
+| `robogon.com` | that hostname, and nothing under it |
+| `*.robogon.com` | every subdomain at any depth (`test.robogon.com`, `a.b.robogon.com`), **not** the apex, so list `robogon.com` as well if you want both |
+| `*` | every hostname on the server; reserved for the master organization |
+
+A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it.
 
 ## Organizations
 

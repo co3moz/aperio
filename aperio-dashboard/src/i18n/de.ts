@@ -261,8 +261,6 @@ export const de: Record<string, string> = {
   'No clients to enable': 'Keine Clients zu aktivieren',
   'No dynamic tokens created': 'Keine dynamischen Tokens erstellt',
   'No further events will be delivered to {url}.': 'An {url} werden keine weiteren Ereignisse zugestellt.',
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    'Keine Hostnames in Wartung. Besucher eines gelisteten Hostnames sehen die 503-Seite, während dessen Clients verbunden bleiben; wird beim Server-Neustart geleert.',
   'No matching commands': 'Keine passenden Befehle',
   'No requests matching filter': 'Keine Anfragen entsprechen dem Filter',
   'No webhooks defined': 'Keine Webhooks definiert',
@@ -526,7 +524,6 @@ export const de: Record<string, string> = {
   'all binds': 'alle Bindings',
   'any hostname': 'beliebiger Hostname',
   'any path': 'beliebiger Path',
-  'app.example.com  (* = all hostnames)': 'app.example.com  (* = alle Hostnames)',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl rotiert oberhalb dieser Größe; 0 = nie rotieren',
   'client id': 'Client-ID',
@@ -963,4 +960,7 @@ export const de: Record<string, string> = {
   'Per-client and per-hostname availability by day': 'Verfügbarkeit pro Client und Hostname, tageweise',
   'Captured inbound webhook payloads': 'Erfasste eingehende Webhook-Payloads',
   'Programmatic admin credentials, hashes only': 'Programmatische Admin-Zugangsdaten, nur Hashes',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Keine Hostnames in Wartung. Besucher eines gelisteten Hostnames sehen die 503-Seite, während dessen Clients verbunden bleiben; wird beim Server-Neustart geleert. *.example.com deckt jede Subdomain einer Domain ab; wollen Sie die Domain selbst auch, listen Sie sie zusätzlich.',
+  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com oder *',
+  'every subdomain': 'jede Subdomain',
 }

@@ -260,8 +260,6 @@ export const ru: Record<string, string> = {
   'No clients to enable': 'Нет клиентов для включения',
   'No dynamic tokens created': 'Динамические токены не созданы',
   'No further events will be delivered to {url}.': 'События больше не будут доставляться на {url}.',
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    'Нет хостов на обслуживании. Посетители указанного хоста видят страницу 503, пока его клиенты остаются подключёнными; сбрасывается при перезапуске сервера.',
   'No matching commands': 'Нет подходящих команд',
   'No requests matching filter': 'Нет запросов по фильтру',
   'No webhooks defined': 'Вебхуки не заданы',
@@ -524,7 +522,6 @@ export const ru: Record<string, string> = {
   'all binds': 'все привязки',
   'any hostname': 'любой hostname',
   'any path': 'любой path',
-  'app.example.com  (* = all hostnames)': 'app.example.com  (* = все hostname)',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl ротируется при превышении этого размера; 0 = никогда',
   'client id': 'id клиента',
@@ -961,4 +958,7 @@ export const ru: Record<string, string> = {
   'Per-client and per-hostname availability by day': 'Доступность по клиентам и hostname, по дням',
   'Captured inbound webhook payloads': 'Захваченные входящие payload вебхуков',
   'Programmatic admin credentials, hashes only': 'Программные административные учётные данные, только хеши',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Нет hostname на обслуживании. Посетители указанного hostname видят страницу 503, пока его клиенты остаются подключёнными; сбрасывается при перезапуске сервера. Для всех поддоменов домена используйте *.example.com, а если нужен и сам домен, добавьте его отдельно.',
+  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com или *',
+  'every subdomain': 'все поддомены',
 }

@@ -14,8 +14,9 @@ import { useHasRole } from '@/lib/session'
 
 /**
  * Per-hostname maintenance switch: listed hostnames answer with the 503
- * maintenance page even while their tunnel clients stay connected. `*`
- * covers every hostname. In-memory only, a server restart clears it.
+ * maintenance page even while their tunnel clients stay connected.
+ * `*.example.com` covers every subdomain of a domain and `*` covers every
+ * hostname on the server. In-memory only, a server restart clears it.
  */
 export function MaintenanceSection() {
   const { t } = useI18n()
@@ -64,7 +65,7 @@ export function MaintenanceSection() {
             <Input
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
-              placeholder={t('app.example.com  (* = all hostnames)')}
+              placeholder={t('app.example.com, *.example.com, or *')}
               className="max-w-xs"
             />
             <Button
@@ -80,7 +81,7 @@ export function MaintenanceSection() {
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!hosts || hosts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {t('No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.')}
+              {t('No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.')}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -90,6 +91,11 @@ export function MaintenanceSection() {
                   className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-amber-500/15 py-1 pl-3 pr-1 text-sm font-medium text-amber-700 dark:text-amber-400"
                 >
                   {h === '*' ? t('* (all hostnames)') : h}
+                  {h.startsWith('*.') && (
+                    <span className="text-xs font-normal opacity-80">
+                      {t('every subdomain')}
+                    </span>
+                  )}
                   {canMutate && (
                     <Tooltip>
                       <TooltipTrigger

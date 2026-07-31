@@ -253,8 +253,6 @@ export const zh: Record<string, string> = {
   'No clients to enable': '没有可启用的客户端',
   'No dynamic tokens created': '尚未创建动态令牌',
   'No further events will be delivered to {url}.': '将不再向 {url} 投递事件。',
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    '没有处于维护中的主机名。列出主机名的访客会看到 503 页面，而其客户端保持连接；服务器重启后清除。',
   'No matching commands': '没有匹配的命令',
   'No requests matching filter': '没有符合过滤条件的请求',
   'No webhooks defined': '未定义 Webhook',
@@ -506,7 +504,6 @@ export const zh: Record<string, string> = {
   'all binds': '所有绑定',
   'any hostname': '任意 Hostname',
   'any path': '任意 Path',
-  'app.example.com  (* = all hostnames)': 'app.example.com（* = 所有 Hostname）',
   'audit.jsonl rotates past this size; 0 = never rotate': 'audit.jsonl 超过此大小即轮转；0 = 从不轮转',
   'client id': '客户端 ID',
   connection: '连接',
@@ -942,4 +939,7 @@ export const zh: Record<string, string> = {
   'Per-client and per-hostname availability by day': '按天统计的每客户端与每 Hostname 可用性',
   'Captured inbound webhook payloads': '已捕获的入站 Webhook Payload',
   'Programmatic admin credentials, hashes only': '程序化管理凭据，仅哈希',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': '没有处于维护中的 Hostname。列出的 Hostname 的访客会看到 503 页面，而其客户端保持连接；服务器重启后清除。用 *.example.com 覆盖一个域名下的所有子域名；若也想包含域名本身，请另外列出。',
+  'app.example.com, *.example.com, or *': 'app.example.com、*.example.com 或 *',
+  'every subdomain': '所有子域名',
 }

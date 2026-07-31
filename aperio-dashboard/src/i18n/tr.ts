@@ -260,8 +260,6 @@ export const tr: Record<string, string> = {
   'No clients to enable': 'Etkinleştirilecek istemci yok',
   'No dynamic tokens created': 'Dinamik token oluşturulmadı',
   'No further events will be delivered to {url}.': "{url} adresine artık olay iletilmeyecek.",
-  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart.':
-    "Bakımda hostname yok. Listelenen bir hostname'in ziyaretçileri, istemcileri bağlı kalırken 503 sayfası görür; sunucu yeniden başlatılınca temizlenir.",
   'No matching commands': 'Eşleşen komut yok',
   'No requests matching filter': 'Filtreyle eşleşen istek yok',
   'No webhooks defined': 'Tanımlı webhook yok',
@@ -524,7 +522,6 @@ export const tr: Record<string, string> = {
   'all binds': 'tüm bağlamalar',
   'any hostname': 'herhangi bir hostname',
   'any path': 'herhangi bir path',
-  'app.example.com  (* = all hostnames)': "app.example.com  (* = tüm hostname'ler)",
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl bu boyutu aşınca döner; 0 = asla dönme',
   'client id': 'istemci kimliği',
@@ -965,4 +962,7 @@ export const tr: Record<string, string> = {
   'Per-client and per-hostname availability by day': 'İstemci ve hostname başına günlük erişilebilirlik',
   'Captured inbound webhook payloads': 'Yakalanan gelen webhook payloadları',
   'Programmatic admin credentials, hashes only': 'Programatik yönetim kimlik bilgileri, yalnızca hashler',
+  'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': "Bakımda hostname yok. Listelenen bir hostname'in ziyaretçileri, istemcileri bağlı kalırken 503 sayfası görür; sunucu yeniden başlatılınca temizlenir. Bir domainin tüm subdomainleri için *.example.com kullanın; domainin kendisini de istiyorsanız onu da ekleyin.",
+  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com veya *',
+  'every subdomain': 'tüm subdomainler',
 }

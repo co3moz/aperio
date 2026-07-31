@@ -110,6 +110,41 @@ pub fn hostname_in_org_allowlist(host: &str, patterns: &[String]) -> bool {
   })
 }
 
+/// The suffix of a subdomain wildcard (`*.acme.com` -> `acme.com`), or None
+/// for an exact hostname.
+fn wildcard_suffix(pattern: &str) -> Option<&str> {
+  pattern.strip_prefix("*.")
+}
+
+/// True when the names `outer` covers include every name `inner` covers, both
+/// being allowlist patterns (`*`, `*.acme.com`, or an exact hostname).
+///
+/// This is the question a *wildcard* operation asks: putting `*.acme.com`
+/// into maintenance is a claim over a whole subtree, and only an entry that
+/// owns the subtree can authorize it. An exact `acme.com` cannot, since it
+/// covers one name and the request covers all the others.
+pub fn pattern_covers_pattern(outer: &str, inner: &str) -> bool {
+  if outer == "*" {
+    return true;
+  }
+  match (wildcard_suffix(outer), wildcard_suffix(inner)) {
+    // `*.acme.com` covers `*.acme.com` and `*.eu.acme.com`.
+    (Some(outer), Some(inner)) => inner == outer || inner.ends_with(&format!(".{outer}")),
+    // `*.acme.com` covers the names under it, one at a time too.
+    (Some(_), None) => hostname_in_org_allowlist(inner, &[outer.to_string()]),
+    // An exact entry covers nothing but itself, and never a subtree.
+    (None, Some(_)) => false,
+    (None, None) => outer.eq_ignore_ascii_case(inner),
+  }
+}
+
+/// True when two allowlist patterns have any hostname in common. Asymmetric
+/// coverage is not enough here: `*.acme.com` and `*.eu.acme.com` overlap in
+/// both directions of the question "is someone else already inside this".
+pub fn patterns_overlap(a: &str, b: &str) -> bool {
+  pattern_covers_pattern(a, b) || pattern_covers_pattern(b, a)
+}
+
 /// Per-organization OIDC single sign-on configuration.
 #[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct OrgOidc {

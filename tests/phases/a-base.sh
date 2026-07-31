@@ -444,6 +444,18 @@ assert_status 200 "$CODE" "the org may 503 its own hostname with nothing connect
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"hostname":"evil.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
 assert_status 403 "$CODE" "the org may not 503 a hostname outside its fence"
+# A subdomain wildcard is one switch for everything under the domain, and it
+# takes a fence that owns the subtree, which this org has.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"*.fenced.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
+assert_status 200 "$CODE" "the org may 503 every subdomain of its own domain"
+MAINT="$(curl -s -b "$COOKIES" "$BASE/aperio/api/maintenance")"
+assert_contains "$MAINT" '*.fenced.e2e.local' "the wildcard is listed like any other flag"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"*.e2e.local","enabled":true}' "$BASE/aperio/api/maintenance")"
+assert_status 403 "$CODE" "a subtree wider than the fence is refused"
+curl -s -o /dev/null -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
+  --data '{"hostname":"*.fenced.e2e.local","enabled":false}' "$BASE/aperio/api/maintenance"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"hostname":"app.fenced.e2e.local"}' "$BASE/aperio/api/share")"
 assert_status 200 "$CODE" "a share link for a fenced subdomain is minted"

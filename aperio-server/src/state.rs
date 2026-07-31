@@ -2019,13 +2019,19 @@ impl AppState {
     }
   }
 
-  /// May this organization act on `host` (put it into maintenance, mint a
+  /// May this organization act on `target` (put it into maintenance, mint a
   /// share link for it)? This is the isolation fence for the hostname-scoped
   /// operations, so that one tenant cannot 503 or hand out access to
   /// another's site.
   ///
-  /// The question it answers is "may this org *serve* that hostname", not
-  /// "is one of its clients serving it right now". Those came apart in
+  /// `target` is an exact hostname or a subdomain wildcard (`*.acme.com`),
+  /// the same two shapes an organization's allowlist is written in. A
+  /// wildcard is a claim over a whole subtree, so it takes an entry that owns
+  /// the subtree: `acme.com` does not authorize `*.acme.com`, it authorizes
+  /// one name and the request covers all the others.
+  ///
+  /// The question it answers is "may this org *serve* those names", not "is
+  /// one of its clients serving them right now". Those came apart in
   /// practice: an org fenced to `x.com` could not put `x.com` into
   /// maintenance until a client for it was connected, which is precisely the
   /// case where maintenance mode is wanted, and a share link had to wait for
@@ -2034,13 +2040,17 @@ impl AppState {
   /// A fenced org is judged by its allowlist. An unfenced child org has no
   /// allowlist to judge, so it falls back to the older test, one of its own
   /// connected clients serving the hostname, which is the only isolation left
-  /// when the operator never drew a boundary.
+  /// when the operator never drew a boundary. That test cannot prove a
+  /// subtree, so an unfenced org cannot claim one.
   ///
   /// Master is fenced by the other organizations and by nothing else:
   /// everything no tenant claims is master's, which is what lets it act on a
   /// hostname with nothing connected, while a tenant's site stays the
-  /// tenant's even from the super-admin's own screen.
-  pub(crate) async fn org_may_claim_hostname(&self, org: Option<&str>, host: &str) -> bool {
+  /// tenant's even from the super-admin's own screen. For a subtree that
+  /// means no tenant may be anywhere inside it.
+  pub(crate) async fn org_may_claim_hostname(&self, org: Option<&str>, target: &str) -> bool {
+    use crate::store::orgs::{pattern_covers_pattern, patterns_overlap};
+
     let fences: Vec<(String, Vec<String>)> = {
       let store = self.org_store.lock().await;
       store
@@ -2049,17 +2059,20 @@ impl AppState {
         .map(|o| (o.id.clone(), o.hostnames.clone()))
         .collect()
     };
-    let admits = |list: &[String]| {
-      !list.is_empty() && crate::store::orgs::hostname_in_org_allowlist(host, list)
-    };
-    let served_by =
-      |org_matches: &dyn Fn(Option<&str>) -> bool,
-       clients: &std::collections::HashMap<String, ClientHandle>| {
-        clients.values().any(|c| {
-          org_matches(c.perms.org_id.as_deref())
-            && c.effective_hostnames().iter().any(|h| **h == *host)
+    // Hostnames of the clients of the organizations `org_matches` selects.
+    let served = |org_matches: &dyn Fn(Option<&str>) -> bool,
+                  clients: &std::collections::HashMap<String, ClientHandle>| {
+      clients
+        .values()
+        .filter(|c| org_matches(c.perms.org_id.as_deref()))
+        .flat_map(|c| {
+          c.effective_hostnames()
+            .into_iter()
+            .map(|h| h.to_string())
+            .collect::<Vec<_>>()
         })
-      };
+        .collect::<Vec<String>>()
+    };
 
     match org {
       Some(id) => {
@@ -2069,17 +2082,32 @@ impl AppState {
           .map(|(_, list)| list.clone())
           .unwrap_or_default();
         if !own.is_empty() {
-          return crate::store::orgs::hostname_in_org_allowlist(host, &own);
+          return own
+            .iter()
+            .any(|entry| pattern_covers_pattern(entry, target));
         }
-        let clients = self.clients.lock().await;
-        served_by(&|owner| owner == Some(id), &clients)
-      }
-      None => {
-        if fences.iter().any(|(_, list)| admits(list)) {
+        // No fence: the only claim left is a client of this org serving the
+        // name, which says nothing about the rest of a subtree.
+        if target.starts_with("*.") {
           return false;
         }
         let clients = self.clients.lock().await;
-        !served_by(&|owner| owner.is_some(), &clients)
+        served(&|owner| owner == Some(id), &clients)
+          .iter()
+          .any(|h| h == target)
+      }
+      None => {
+        if fences
+          .iter()
+          .flat_map(|(_, list)| list)
+          .any(|entry| patterns_overlap(entry, target))
+        {
+          return false;
+        }
+        let clients = self.clients.lock().await;
+        !served(&|owner| owner.is_some(), &clients)
+          .iter()
+          .any(|h| pattern_covers_pattern(target, h))
       }
     }
   }

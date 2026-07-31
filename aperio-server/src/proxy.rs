@@ -212,7 +212,20 @@ async fn in_maintenance(state: &AppState, request_host: Option<&str>) -> bool {
   if set.is_empty() {
     return false;
   }
-  set.contains_key("*") || request_host.is_some_and(|h| set.contains_key(h))
+  if set.contains_key("*") {
+    return true;
+  }
+  request_host.is_some_and(|h| {
+    // An exact flag first, since that is the common case and needs no
+    // matching, then the subdomain wildcards: `*.robogon.com` is one switch
+    // for every service under a domain, which is what an operator means by
+    // "put robogon into maintenance".
+    set.contains_key(h)
+      || set.keys().any(|pattern| {
+        pattern.starts_with("*.")
+          && crate::store::orgs::hostname_in_org_allowlist(h, std::slice::from_ref(pattern))
+      })
+  })
 }
 
 /// Builds the 503 maintenance response: the hostname's own `error_pages:`

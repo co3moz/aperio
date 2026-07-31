@@ -297,3 +297,34 @@ fn test_set_hostnames_persists_and_scopes_lookup() {
   assert!(store.set_hostnames("does-not-exist", Vec::new()).is_none());
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_subtree_is_covered_only_by_something_that_owns_the_subtree() {
+  // What authorizes "put every subdomain of robogon.com into maintenance".
+  assert!(pattern_covers_pattern("*.robogon.com", "*.robogon.com"));
+  assert!(pattern_covers_pattern("*.robogon.com", "*.eu.robogon.com"));
+  assert!(pattern_covers_pattern("*.robogon.com", "test.robogon.com"));
+  assert!(pattern_covers_pattern("*.robogon.com", "a.b.robogon.com"));
+  assert!(pattern_covers_pattern("*", "*.robogon.com"));
+  assert!(pattern_covers_pattern("robogon.com", "robogon.com"));
+
+  // An exact entry owns one name, so it cannot authorize the subtree, and
+  // the apex is not inside its own wildcard.
+  assert!(!pattern_covers_pattern("robogon.com", "*.robogon.com"));
+  assert!(!pattern_covers_pattern("*.robogon.com", "robogon.com"));
+  assert!(!pattern_covers_pattern("*.other.com", "*.robogon.com"));
+  assert!(!pattern_covers_pattern("*.eu.robogon.com", "*.robogon.com"));
+}
+
+#[test]
+fn overlap_is_symmetric_where_coverage_is_not() {
+  // The question "is another tenant already inside this subtree" is answered
+  // in both directions: a tenant fenced to a *deeper* wildcard is inside a
+  // shallower one, and the reverse.
+  assert!(patterns_overlap("*.robogon.com", "*.eu.robogon.com"));
+  assert!(patterns_overlap("*.eu.robogon.com", "*.robogon.com"));
+  assert!(patterns_overlap("*.robogon.com", "test.robogon.com"));
+  assert!(patterns_overlap("test.robogon.com", "*.robogon.com"));
+  assert!(!patterns_overlap("*.robogon.com", "robogon.com"));
+  assert!(!patterns_overlap("*.robogon.com", "*.other.com"));
+}

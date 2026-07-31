@@ -685,7 +685,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET/POST /aperio/api/webhooks`, `DELETE /aperio/api/webhooks/:id` | Webhook management. | dashboard session |
 | `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
 | `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
-| `GET/POST /aperio/api/maintenance` | List / toggle per-hostname maintenance mode. | dashboard session |
+| `GET/POST /aperio/api/maintenance` | List / toggle maintenance mode for a hostname, a `*.example.com` subdomain wildcard, or `*` (master only). | dashboard session |
 | `POST /aperio/api/share` | Generate a signed share link (see [Share Links](share-links.md)). | dashboard session |
 | `GET/PUT /aperio/api/settings` | Read / edit runtime server settings (persisted overrides on top of env defaults). | master super-admin |
 | `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](ephemeral-tunnels.md). | master token (Bearer) or dashboard session |

@@ -9,20 +9,24 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::routing::{extract_client_ip, normalize_hostname_bind};
+use crate::routing::extract_client_ip;
 use crate::state::AppState;
+use crate::store::orgs::normalize_org_hostname_pattern;
 
 /// Payload for toggling maintenance mode on a hostname (dashboard).
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct MaintenanceRequest {
-  /// Hostname to toggle, or `*` for every hostname.
+  /// Hostname to toggle: an exact hostname (`robogon.com`), a subdomain
+  /// wildcard (`*.robogon.com`, every subdomain at any depth but not the
+  /// apex, so an operator who wants both sets both), or `*` for every
+  /// hostname on the server.
   pub(crate) hostname: String,
   pub(crate) enabled: bool,
 }
 
 /// Lists hostnames currently in maintenance mode.
 #[utoipa::path(get, path = "/aperio/api/maintenance", tag = "dashboard",
-  description = "Hostnames currently in maintenance mode (`*` = every hostname).",
+  description = "Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it).",
   responses((status = 200, description = "Hostname list", body = Vec<String>)))]
 pub(crate) async fn maintenance_list_handler(
   State(state): State<Arc<AppState>>,
@@ -43,7 +47,7 @@ pub(crate) async fn maintenance_list_handler(
 /// Enables/disables maintenance mode for a hostname. In-memory only, like
 /// bind overrides: a server restart clears all maintenance flags.
 #[utoipa::path(post, path = "/aperio/api/maintenance", tag = "dashboard",
-  description = "Turns maintenance mode on/off for a hostname (503 page while on). In-memory; cleared by a restart.",
+  description = "Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, or `*` (503 page while on). In-memory; cleared by a restart.",
   request_body = MaintenanceRequest,
   responses((status = 200, description = "Maintenance state changed")))]
 pub(crate) async fn maintenance_set_handler(
@@ -61,18 +65,17 @@ pub(crate) async fn maintenance_set_handler(
   )
   .to_string();
   let raw = payload.hostname.trim();
-  let hostname = if raw == "*" {
-    "*".to_string()
-  } else {
-    match normalize_hostname_bind(raw) {
-      Some(h) => h,
-      None => {
-        return (
-          StatusCode::BAD_REQUEST,
-          format!("Invalid hostname: {}", raw),
-        )
-          .into_response();
-      }
+  // Same shape as an organization's allowlist: an exact hostname, a
+  // subdomain wildcard, or `*`. One spelling of "everything under this
+  // domain" across the product beats a second one invented here.
+  let hostname = match normalize_org_hostname_pattern(raw) {
+    Some(h) => h,
+    None => {
+      return (
+        StatusCode::BAD_REQUEST,
+        format!("Invalid hostname: {}", raw),
+      )
+        .into_response();
     }
   };
 

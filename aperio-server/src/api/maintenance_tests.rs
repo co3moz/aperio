@@ -313,3 +313,120 @@ async fn disable_wildcard_removes_own_flag() {
   assert_eq!(resp.status(), StatusCode::OK);
   assert!(state.maintenance.lock().await.is_empty());
 }
+
+#[tokio::test]
+async fn a_subdomain_wildcard_is_one_switch_for_a_whole_domain() {
+  // "Put every service under robogon.com into maintenance" was not
+  // expressible: an exact flag on robogon.com left test.robogon.com serving.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create(
+      "robogon",
+      vec!["robogon.com".into(), "*.robogon.com".into()],
+      None,
+    )
+    .unwrap()
+    .id;
+  let headers = master_with_org(&state, &org).await;
+
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req(" *.robogon.com ", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(
+    state.maintenance.lock().await.contains_key("*.robogon.com"),
+    "the pattern is stored normalized"
+  );
+
+  // It lists like any other flag, so it can be turned off from the same screen.
+  let list = maintenance_list_handler(State(state.clone()), headers.clone()).await;
+  assert_eq!(list.0, vec!["*.robogon.com"]);
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("*.robogon.com", false),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(state.maintenance.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_subtree_needs_an_entry_that_owns_the_subtree() {
+  // The org may serve robogon.com and nothing under it, so it cannot switch
+  // off everything under it either.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("robogon", vec!["robogon.com".into()], None)
+    .unwrap()
+    .id;
+  let headers = master_with_org(&state, &org).await;
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("*.robogon.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(state.maintenance.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn master_cannot_blanket_a_domain_a_tenant_lives_in() {
+  // `*.robogon.com` from master would take down a tenant fenced to
+  // `*.eu.robogon.com`, which is the thing the fence exists to prevent.
+  let state = Arc::new(test_state());
+  state
+    .org_store
+    .lock()
+    .await
+    .create("eu", vec!["*.eu.robogon.com".into()], None)
+    .unwrap();
+  let headers = admin_headers(&state).await;
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req("*.robogon.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+  // A domain no tenant is inside is master's, as ever.
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("*.other.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_pattern_that_is_not_a_hostname_or_a_wildcard_is_refused() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  for bad in ["app.*.com", "*.com.", "*.localhost", "*x.com"] {
+    let resp = maintenance_set_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      req(bad, true),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{bad}");
+  }
+}
