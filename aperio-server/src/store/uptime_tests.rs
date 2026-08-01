@@ -101,3 +101,75 @@ fn test_degraded_and_prune() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn prune_caps_days_entities_and_total_count() {
+  let dir = crate::test_support::test_temp_root().join(format!("up-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let mut store = UptimeStore::load(&dir.to_string_lossy());
+  let day = 86_400u64;
+  let now = 1_700_000_000u64;
+
+  // An entity with more day buckets than retention keeps only the newest.
+  store.tick(
+    now - (DAY_RETENTION as u64 + 10) * day,
+    live(&[("host:a", Availability::Up)]),
+  );
+  for i in (0..=(DAY_RETENTION as u64 + 9)).rev() {
+    store.tick(now - i * day, live(&[("host:a", Availability::Up)]));
+  }
+  let snap = store.snapshot();
+  assert!(
+    snap["host:a"].days.len() <= DAY_RETENTION,
+    "{} day buckets survive pruning",
+    snap["host:a"].days.len()
+  );
+
+  // An entity unseen past the retention window is dropped entirely.
+  store.tick(now, live(&[("host:gone", Availability::Up)]));
+  store.tick(
+    now + ENTITY_RETENTION_SECS + 1,
+    live(&[("host:a", Availability::Up)]),
+  );
+  assert!(!store.snapshot().contains_key("host:gone"));
+
+  // Over the entity cap, the oldest last_seen goes first.
+  let mut crowd = HashMap::new();
+  for i in 0..(ENTITY_CAP + 20) {
+    crowd.insert(format!("host:h{i}"), (Availability::Up, None::<String>));
+  }
+  store.tick(now + ENTITY_RETENTION_SECS + 2, crowd);
+  assert!(store.snapshot().len() <= ENTITY_CAP);
+
+  // And the whole thing survives a save/load round trip.
+  store.save_if_dirty();
+  let reloaded = UptimeStore::load(&dir.to_string_lossy());
+  assert_eq!(reloaded.snapshot().len(), store.snapshot().len());
+}
+
+#[test]
+fn import_replaces_history_and_persists_it() {
+  let dir = crate::test_support::test_temp_root().join(format!("up-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let mut store = UptimeStore::load(&dir.to_string_lossy());
+  store.tick(1_700_000_000, live(&[("host:old", Availability::Up)]));
+
+  let mut imported = HashMap::new();
+  imported.insert(
+    "host:new".to_string(),
+    EntityUptime {
+      status: Availability::Down,
+      last_seen: 1_700_000_000,
+      org_id: Some("acme".to_string()),
+      days: HashMap::new(),
+    },
+  );
+  assert_eq!(store.import(imported), 1);
+  assert!(!store.snapshot().contains_key("host:old"));
+
+  let reloaded = UptimeStore::load(&dir.to_string_lossy());
+  assert_eq!(
+    reloaded.snapshot()["host:new"].org_id.as_deref(),
+    Some("acme")
+  );
+}

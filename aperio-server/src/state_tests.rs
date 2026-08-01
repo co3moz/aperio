@@ -510,8 +510,7 @@ fn test_client_health_and_ejection() {
 
 #[tokio::test]
 async fn test_config_snapshot_and_request_slots() {
-  use crate::test_support::test_config;
-  let mut cfg = test_config();
+  let mut cfg = crate::test_support::test_config();
   cfg.max_concurrent_requests = 2;
   let state = crate::test_support::test_state_with(cfg);
 
@@ -529,8 +528,7 @@ async fn test_config_snapshot_and_request_slots() {
 
 #[tokio::test]
 async fn ws_slots_respect_the_live_websocket_limit() {
-  use crate::test_support::test_config;
-  let mut cfg = test_config();
+  let mut cfg = crate::test_support::test_config();
   cfg.max_ws_connections = 2;
   let state = crate::test_support::test_state_with(cfg);
 
@@ -649,8 +647,7 @@ async fn test_org_quotas() {
 
 #[tokio::test]
 async fn test_ip_rate_limit_exhausts() {
-  use crate::test_support::test_config;
-  let mut cfg = test_config();
+  let mut cfg = crate::test_support::test_config();
   cfg.ip_limit_max = 2.0;
   cfg.ip_limit_refill = 0.0; // no refill so the bucket empties for good
   let state = crate::test_support::test_state_with(cfg);
@@ -978,4 +975,57 @@ fn activity_is_per_organization_and_bounded() {
     series.iter().all(|b| b.total == 1),
     "the window is full of the most recent slices"
   );
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn a_route_rate_limit_spends_its_burst_and_then_refuses() {
+  let _lock = crate::test_support::config_lock();
+  struct Cleanup;
+  impl Drop for Cleanup {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_file("aperio-server.yaml");
+    }
+  }
+  let _cleanup = Cleanup;
+  std::fs::write(
+    "aperio-server.yaml",
+    "rate_limits:\n  - hostname: api.example.com\n    path: /login\n    rps: 1\n    burst: 2\n",
+  )
+  .unwrap();
+  crate::config_file::reload().unwrap();
+
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  rt.block_on(async {
+    let mut cfg = crate::test_support::test_config();
+    cfg.route_limits = crate::route_limits::from_config_file();
+    let state = crate::test_support::test_state_with(cfg);
+
+    // A path outside every rule never pays.
+    assert!(
+      state
+        .check_route_rate_limit(Some("api.example.com"), "/free")
+        .await
+    );
+    // The burst is two; the third request inside the same instant is refused.
+    assert!(
+      state
+        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .await
+    );
+    assert!(
+      state
+        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .await
+    );
+    assert!(
+      !state
+        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .await
+    );
+  });
 }

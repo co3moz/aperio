@@ -682,3 +682,203 @@ fn the_sample_rate_defaults_to_every_trace_and_refuses_nonsense() {
     assert_eq!(resolve_sample_rate(), 1.0, "{raw}");
   }
 }
+
+// ---------------------------------------------------------------------------
+// emit_phase_spans: the per-request trace breakdown.
+// ---------------------------------------------------------------------------
+
+/// Runs `f` inside a sampled `proxy.request` span wired to an in-memory
+/// exporter, and returns every span exported when it ends. This is the whole
+/// machinery `emit_phase_spans` needs to do anything at all: the enabled
+/// flag, a global provider that samples, and a current span with a context.
+fn with_recording_tracer(f: impl FnOnce()) -> Vec<opentelemetry_sdk::trace::SpanData> {
+  use opentelemetry::trace::TracerProvider as _;
+  use tracing_subscriber::layer::SubscriberExt;
+  // ENV_LOCK, not the config lock: the global tracer provider is what needs
+  // serializing here, and the init() test that also replaces it holds this
+  // lock. Two different locks over one global is no lock at all, which is
+  // exactly how these tests raced under a full parallel run.
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let exporter = opentelemetry_sdk::trace::InMemorySpanExporter::default();
+  let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+    .with_simple_exporter(exporter.clone())
+    .build();
+  opentelemetry::global::set_tracer_provider(provider.clone());
+  let was_enabled = OTEL_ENABLED.swap(true, std::sync::atomic::Ordering::Relaxed);
+  let tracer = provider.tracer("aperio-server");
+  let subscriber =
+    tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(tracer));
+  tracing::subscriber::with_default(subscriber, || {
+    let span = request_span(
+      &axum::http::HeaderMap::new(),
+      "GET",
+      "/x",
+      Some("app.example.com"),
+    );
+    let _entered = span.enter();
+    f();
+  });
+  provider.force_flush().unwrap();
+  OTEL_ENABLED.store(was_enabled, std::sync::atomic::Ordering::Relaxed);
+  exporter.get_finished_spans().unwrap()
+}
+
+fn timeline_with(subphases: bool, client_offsets: bool) -> crate::state::RequestTimeline {
+  crate::state::RequestTimeline {
+    client_ready_us: subphases.then_some(10),
+    admitted_us: subphases.then_some(20),
+    selected_us: subphases.then_some(30),
+    dispatched_us: 40,
+    client_received_us: client_offsets.then_some(50),
+    backend_sent_us: client_offsets.then_some(60),
+    backend_first_byte_us: client_offsets.then_some(70),
+    backend_done_us: client_offsets.then_some(80),
+    client_responded_us: client_offsets.then_some(90),
+    response_received_us: 100,
+    finished_us: 110,
+    estimated_anchor: client_offsets,
+  }
+}
+
+#[test]
+fn phase_spans_cover_the_full_breakdown_when_everything_was_measured() {
+  let spans = with_recording_tracer(|| {
+    emit_phase_spans(std::time::Instant::now(), &timeline_with(true, true));
+  });
+  let names: Vec<&str> = spans.iter().map(|s| s.name.as_ref()).collect();
+  for expected in [
+    "await client",
+    "admission",
+    "routing",
+    "dispatch prep",
+    "queue & routing",
+    "tunnel → client",
+    "client → backend",
+    "backend (first byte)",
+    "backend body",
+    "client → tunnel",
+    "tunnel → server",
+    "tunnel round-trip",
+    "server → visitor",
+  ] {
+    assert!(names.contains(&expected), "missing {expected}: {names:?}");
+  }
+  // The client/backend breakdown is an estimate and says so; the measured
+  // server-side phases carry no such flag.
+  let estimated = |name: &str| {
+    spans
+      .iter()
+      .find(|s| s.name == name)
+      .unwrap()
+      .attributes
+      .iter()
+      .any(|kv| kv.key.as_str() == "aperio.estimated")
+  };
+  assert!(estimated("backend body"));
+  assert!(!estimated("routing"));
+}
+
+#[test]
+fn phase_spans_collapse_to_the_observed_boundaries_without_the_detail() {
+  // No server sub-phases and no client offsets: the three real boundaries
+  // are still emitted, nothing is invented.
+  let spans = with_recording_tracer(|| {
+    emit_phase_spans(std::time::Instant::now(), &timeline_with(false, false));
+  });
+  let names: Vec<&str> = spans.iter().map(|s| s.name.as_ref()).collect();
+  for expected in ["queue & routing", "tunnel round-trip", "server → visitor"] {
+    assert!(names.contains(&expected), "missing {expected}: {names:?}");
+  }
+  assert!(!names.contains(&"await client"), "{names:?}");
+  assert!(!names.contains(&"backend body"), "{names:?}");
+}
+
+#[test]
+fn phase_spans_are_free_when_otel_is_off_or_the_request_is_sampled_out() {
+  // Off: the function returns before touching the timeline.
+  emit_phase_spans(std::time::Instant::now(), &timeline_with(true, true));
+  // On but with no sampled parent span: still nothing exported.
+  let spans = with_recording_tracer(|| {});
+  assert_eq!(spans.len(), 1, "only the request span itself: {spans:?}");
+}
+
+// ---------------------------------------------------------------------------
+// build_provider and the startup probes.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_provider_builds_for_both_transports_and_both_sampling_modes() {
+  // Building an exporter opens no connection, so both transports can be
+  // proven constructible without a collector. The HTTP exporter's client
+  // wants a runtime handle at hand, so one is entered, the way `init` runs
+  // inside the server's own runtime.
+  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let _g = EnvSnapshot::take();
+  let rt = tokio::runtime::Builder::new_multi_thread()
+    .worker_threads(1)
+    .enable_all()
+    .build()
+    .unwrap();
+  let _enter = rt.enter();
+  for (protocol, endpoint) in [
+    (OtlpProtocol::Http, "http://127.0.0.1:4318/v1/traces"),
+    (OtlpProtocol::Grpc, "http://127.0.0.1:4317"),
+  ] {
+    let target = OtlpTarget {
+      protocol,
+      endpoint: endpoint.to_string(),
+      note: None,
+    };
+    let provider = build_provider(&target).expect(endpoint);
+    // The Some branch of the shutdown guard, while a provider is at hand.
+    OtelGuard(Some(provider)).shutdown();
+  }
+  // A fractional rate picks the ratio-based sampler branch.
+  set("APERIO_OTEL_SAMPLE_RATE", "0.25");
+  let target = OtlpTarget {
+    protocol: OtlpProtocol::Http,
+    endpoint: "http://127.0.0.1:4318/v1/traces".to_string(),
+    note: None,
+  };
+  assert!(build_provider(&target).is_ok());
+}
+
+/// A local listener answering one canned HTTP response, for the probes.
+fn canned_http_listener(
+  response: &'static str,
+) -> (std::net::SocketAddr, std::thread::JoinHandle<()>) {
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let addr = listener.local_addr().unwrap();
+  let handle = std::thread::spawn(move || {
+    if let Ok((mut socket, _)) = listener.accept() {
+      use std::io::{Read, Write};
+      let mut buf = [0u8; 1024];
+      let _ = socket.read(&mut buf);
+      let _ = socket.write_all(response.as_bytes());
+    }
+  });
+  (addr, handle)
+}
+
+#[test]
+fn the_http_probe_accepts_a_200_and_warns_on_anything_else() {
+  // A collector that accepts the empty export.
+  let (addr, server) =
+    canned_http_listener("HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+  probe_http(format!("http://{addr}/v1/traces"));
+  server.join().unwrap();
+
+  // One that answers, but not with success: the transport is proven right,
+  // the warning is about everything else. Port 4317 adds the protocol hint.
+  let (addr, server) = canned_http_listener(
+    "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+  );
+  probe_http(format!("http://{addr}/v1/traces"));
+  server.join().unwrap();
+
+  // And one that is not there at all.
+  probe_target(
+    OtlpProtocol::Http,
+    "http://127.0.0.1:9/v1/traces".to_string(),
+  );
+}

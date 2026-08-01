@@ -86,3 +86,67 @@ fn is_internal_judges_the_special_ranges() {
     Ipv4Addr::new(10, 0, 0, 1).to_ipv6_mapped()
   )));
 }
+
+#[tokio::test]
+async fn a_hostname_is_resolved_for_the_cidr_entries() {
+  // An all-IP allowlist still covers named destinations: the name is
+  // resolved and each address is offered to the CIDR entries. `localhost`
+  // is the one name every resolver answers without a network.
+  let policy = OutboundPolicy {
+    allowlist: parse_patterns("127.0.0.0/8, ::1/128").unwrap(),
+    block_private: false,
+  };
+  assert!(policy.check("http://localhost:9999/hook").await.is_ok());
+
+  // A CIDR that does not contain what the name resolves to refuses it.
+  let policy = OutboundPolicy {
+    allowlist: parse_patterns("192.0.2.0/24").unwrap(),
+    block_private: false,
+  };
+  assert!(policy.check("http://localhost:9999/hook").await.is_err());
+}
+
+#[tokio::test]
+async fn block_private_resolves_a_hostname_before_judging_it() {
+  // The classic bypass is a public-looking name resolving to loopback or
+  // the metadata address; the gate must judge the addresses, not the name.
+  let policy = OutboundPolicy {
+    allowlist: Vec::new(),
+    block_private: true,
+  };
+  let err = policy
+    .check("http://localhost:9999/hook")
+    .await
+    .unwrap_err();
+  assert!(err.contains("internal address"), "{err}");
+
+  // A name that does not resolve at all is refused with the resolver's
+  // reason rather than silently allowed.
+  let err = policy
+    .check("http://does-not-exist.invalid/hook")
+    .await
+    .unwrap_err();
+  assert!(err.contains("cannot resolve"), "{err}");
+}
+
+#[test]
+fn a_bad_cidr_fails_the_whole_parse() {
+  // An entry with a `/` is a CIDR claim and is held to the CIDR grammar; a
+  // malformed one must fail the parse rather than become a partial policy.
+  // (`999.0.0.1` without a slash is deliberately NOT an error: it does not
+  // parse as an IP, so it is a hostname, however unlikely.)
+  assert!(parse_patterns("10.0.0.0/999").is_err());
+  assert!(parse_patterns("10.0.0.0/8/extra").is_err());
+}
+
+#[tokio::test]
+async fn a_url_without_a_host_is_refused_by_a_restricted_policy() {
+  let policy = OutboundPolicy {
+    allowlist: Vec::new(),
+    block_private: true,
+  };
+  let err = policy.check("not a url").await.unwrap_err();
+  assert!(err.contains("invalid url"), "{err}");
+  let err = policy.check("unix:/var/run/x.sock").await.unwrap_err();
+  assert!(err.contains("no host"), "{err}");
+}

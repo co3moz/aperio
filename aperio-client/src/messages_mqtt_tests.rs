@@ -487,3 +487,61 @@ async fn read_packet_buffered(stream: &mut TcpStream, buf: &mut BytesMut) -> Opt
     buf.extend_from_slice(&chunk[..n]);
   }
 }
+
+#[tokio::test]
+async fn ping_disconnect_and_protocol_errors_end_the_way_mqtt_says() {
+  let bus = MessageBus::new(Vec::new());
+  let addr = start(bus.clone()).await;
+
+  // A keep-alive ping is answered.
+  let mut stream = connect(&addr).await;
+  send(&mut stream, |b| {
+    mqttbytes::v4::PingReq.write(b).unwrap();
+  })
+  .await;
+  assert!(matches!(
+    read_packet(&mut stream).await,
+    Some(Packet::PingResp)
+  ));
+
+  // DISCONNECT ends the session cleanly: the socket closes.
+  send(&mut stream, |b| {
+    mqttbytes::v4::Disconnect.write(b).unwrap();
+  })
+  .await;
+  assert!(read_packet(&mut stream).await.is_none());
+
+  // A first packet that is not CONNECT is a protocol error; no CONNACK, the
+  // connection just closes.
+  let mut rogue = TcpStream::connect(&addr).await.unwrap();
+  let mut out = BytesMut::new();
+  mqttbytes::v4::PingReq.write(&mut out).unwrap();
+  rogue.write_all(&out).await.unwrap();
+  assert!(read_packet(&mut rogue).await.is_none());
+
+  // Garbage after a valid CONNECT closes the session too.
+  let mut broken = connect(&addr).await;
+  broken.write_all(&[0xff, 0xff, 0xff, 0xff]).await.unwrap();
+  assert!(read_packet(&mut broken).await.is_none());
+}
+
+#[tokio::test]
+async fn a_qos1_publish_is_answered_with_puback_even_when_refused() {
+  let bus = MessageBus::new(Vec::new());
+  let addr = start(bus.clone()).await;
+  let mut stream = connect(&addr).await;
+
+  // No tunnel is attached, so the publish is refused upstream; the PUBACK
+  // still comes back, because 3.1.1 has no way to say no and a well-behaved
+  // library would otherwise retry forever.
+  send(&mut stream, |b| {
+    let mut publish = Publish::new("deploy/web", QoS::AtLeastOnce, "v2".as_bytes().to_vec());
+    publish.pkid = 7;
+    publish.write(b).unwrap();
+  })
+  .await;
+  match read_packet(&mut stream).await {
+    Some(Packet::PubAck(ack)) => assert_eq!(ack.pkid, 7),
+    other => panic!("expected PUBACK, got {other:?}"),
+  }
+}

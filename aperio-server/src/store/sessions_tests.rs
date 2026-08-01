@@ -204,3 +204,45 @@ fn test_load_skips_unparseable_session_row() {
   assert_eq!(store.len(), 1);
   assert!(store.get("good").is_some());
 }
+
+#[test]
+fn clearing_a_deleted_orgs_selection_keeps_the_sessions() {
+  let dir = temp_dir();
+  let mut store = SessionStore::load(&dir);
+  let now = crate::store::tokens::now_secs();
+  let mut selected = info(now + 3600, Some("alice"));
+  selected.selected_org = Some("acme".to_string());
+  store.insert("tok-a", selected);
+  let mut other = info(now + 3600, Some("bob"));
+  other.selected_org = Some("globex".to_string());
+  store.insert("tok-b", other);
+
+  assert_eq!(store.clear_selected_org("acme"), 1);
+  // The session survives with its selection gone; the other is untouched.
+  assert_eq!(store.selected_org("tok-a"), Some(None));
+  assert_eq!(
+    store.selected_org("tok-b"),
+    Some(Some("globex".to_string()))
+  );
+  assert_eq!(store.selected_org("no-such-token"), None);
+
+  // And the cleared selection is what disk remembers too.
+  let reloaded = SessionStore::load(&dir);
+  assert_eq!(reloaded.selected_org("tok-a"), Some(None));
+}
+
+#[test]
+fn an_expired_row_is_dropped_at_load_not_resurrected() {
+  let dir = temp_dir();
+  {
+    let mut store = SessionStore::load(&dir);
+    store.insert("fresh", info(crate::store::tokens::now_secs() + 3600, None));
+    store.insert("stale", info(1, None));
+  }
+  let store = SessionStore::load(&dir);
+  assert!(store.get("fresh").is_some());
+  assert!(
+    store.get("stale").is_none(),
+    "expired while the server was down"
+  );
+}

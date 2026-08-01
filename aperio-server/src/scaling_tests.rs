@@ -252,3 +252,254 @@ fn forget_drops_all_state_for_a_bind() {
   // A fresh record starts clean, with no inherited cooldown.
   assert!(matches!(runtime.begin(&record, now), Begin::Fire));
 }
+
+/// A local endpoint answering one canned status per accepted connection,
+/// forever, so cooldown-spanning tests can call it repeatedly.
+async fn canned_endpoint(status: u16) -> std::net::SocketAddr {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut socket, _)) = listener.accept().await else {
+        return;
+      };
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = [0u8; 2048];
+        let _ = socket.read(&mut buf).await;
+        let response =
+          format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        let _ = socket.write_all(response.as_bytes()).await;
+      });
+    }
+  });
+  addr
+}
+
+/// A test config that lets a scaling call reach a local plain-http endpoint.
+fn local_call_config() -> crate::settings::ServerConfig {
+  let mut cfg = crate::test_support::test_config();
+  cfg.scaling_enabled = true;
+  cfg.scaling_allow_http = true;
+  cfg.scaling_allow_private = true;
+  cfg
+}
+
+#[tokio::test]
+async fn a_successful_call_holds_the_visitor_and_lands_on_the_audit_trail() {
+  let addr = canned_endpoint(200).await;
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let mut rec = record("cold.example.com");
+  rec.url = format!("http://{addr}/scale");
+  rec.secret = Some("hook-secret".to_string());
+
+  let ask = request_capacity(&state, &rec, Reason::ColdStart, 0).await;
+  assert_eq!(ask, Ask::Hold);
+  let events = state.audit.lock().await.recent();
+  let entry = events
+    .iter()
+    .find(|e| e.event == "scaling_requested")
+    .expect("the ask is audited");
+  assert!(entry.details.contains("desired=1"), "{}", entry.details);
+  assert!(
+    !entry.details.contains("hook-secret"),
+    "the secret never reaches the log: {}",
+    entry.details
+  );
+
+  // Asking again inside the cooldown is a skip that still holds: an
+  // instance is plausibly on its way.
+  let ask = request_capacity(&state, &rec, Reason::ColdStart, 0).await;
+  assert_eq!(ask, Ask::Hold);
+}
+
+#[tokio::test]
+async fn a_failing_endpoint_does_not_hold_and_the_last_failure_disarms() {
+  let addr = canned_endpoint(500).await;
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let mut rec = record("failing.example.com");
+  rec.url = format!("http://{addr}/scale");
+  rec.cooldown_secs = 0;
+
+  // The first failures, recorded directly and dated in the past so the
+  // backoff they set has already expired when the real call happens.
+  let past = Instant::now() - Duration::from_secs(600);
+  {
+    let mut runtime = state.scaling_runtime.lock().await;
+    for _ in 0..BREAKER_THRESHOLD - 1 {
+      runtime.finish(&rec.id, false, Duration::ZERO, past);
+    }
+  }
+
+  // The one real call is the last straw: it fails, does not hold the
+  // visitor, and trips the breaker.
+  let ask = request_capacity(&state, &rec, Reason::ScaleOut, 2).await;
+  assert_eq!(ask, Ask::DoNotHold);
+  assert!(state.scaling_runtime.lock().await.is_disarmed(&rec.id));
+  let events = state.audit.lock().await.recent();
+  assert!(
+    events.iter().any(|e| e.event == "scaling_failed"),
+    "a failed ask is audited as a failure"
+  );
+
+  // A disarmed record is skipped without holding: nothing is coming.
+  let ask = request_capacity(&state, &rec, Reason::ScaleOut, 2).await;
+  assert_eq!(ask, Ask::DoNotHold);
+}
+
+#[tokio::test]
+async fn an_absent_endpoint_is_a_failure_not_a_hang() {
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let mut rec = record("gone.example.com");
+  rec.url = "http://127.0.0.1:9/scale".to_string();
+  let ask = request_capacity(&state, &rec, Reason::ColdStart, 0).await;
+  assert_eq!(ask, Ask::DoNotHold);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cold_start_wait_holds_until_a_routable_client_appears() {
+  let addr = canned_endpoint(200).await;
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let mut rec = record("cold.example.com");
+  rec.url = format!("http://{addr}/scale");
+  rec.min = 0;
+  rec.cold_start_secs = 30;
+  state
+    .scaling_store
+    .lock()
+    .await
+    .upsert(rec, None, crate::store::tokens::now_secs());
+
+  // A second, path-scoped record proves the more specific one wins the
+  // lookup; give it a dead endpoint so a wrong pick would fail the test.
+  let mut scoped = record("cold.example.com");
+  scoped.id = ScalingRecord::key(None, "cold.example.com", Some("/api"));
+  scoped.path = Some("/api".to_string());
+  scoped.url = "http://127.0.0.1:9/never".to_string();
+  state
+    .scaling_store
+    .lock()
+    .await
+    .upsert(scoped, None, crate::store::tokens::now_secs());
+
+  let waiter = {
+    let state = state.clone();
+    tokio::spawn(async move {
+      cold_start_wait(
+        &state,
+        Some("cold.example.com"),
+        "/",
+        "203.0.113.9".parse().unwrap(),
+      )
+      .await;
+    })
+  };
+  // Let the ask land, then connect the instance it was waiting for.
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  assert!(
+    !waiter.is_finished(),
+    "still holding, nothing serves it yet"
+  );
+  {
+    let mut clients = state.clients.lock().await;
+    let mut c = mock_client(Some("cold.example.com"), None, None, None);
+    c.max_concurrent = Some(4);
+    clients.insert("c-new".to_string(), c);
+  }
+  let _ = state.client_connected.send(true);
+  tokio::time::timeout(std::time::Duration::from_secs(40), waiter)
+    .await
+    .expect("released once a routable client appeared")
+    .unwrap();
+}
+
+#[tokio::test]
+async fn cold_start_wait_never_wakes_what_should_stay_down() {
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  // No hostname at all: nothing to look up.
+  cold_start_wait(&state, None, "/", "203.0.113.9".parse().unwrap()).await;
+
+  // A flagged hostname is meant to be down; returning immediately is the
+  // whole assertion, a call would hang on the dead endpoint's timeout.
+  let mut rec = record("flagged.example.com");
+  rec.url = "http://127.0.0.1:9/never".to_string();
+  state
+    .scaling_store
+    .lock()
+    .await
+    .upsert(rec, None, crate::store::tokens::now_secs());
+  state.maintenance.lock().await.insert(
+    "flagged.example.com".to_string(),
+    crate::state::MaintenanceFlag::default(),
+  );
+  cold_start_wait(
+    &state,
+    Some("flagged.example.com"),
+    "/",
+    "203.0.113.9".parse().unwrap(),
+  )
+  .await;
+
+  // A record without scale-to-zero (min > 0) is not a cold-start trap.
+  let mut warm = record("warm.example.com");
+  warm.min = 1;
+  warm.url = "http://127.0.0.1:9/never".to_string();
+  state
+    .scaling_store
+    .lock()
+    .await
+    .upsert(warm, None, crate::store::tokens::now_secs());
+  cold_start_wait(
+    &state,
+    Some("warm.example.com"),
+    "/",
+    "203.0.113.9".parse().unwrap(),
+  )
+  .await;
+}
+
+#[tokio::test]
+async fn a_visitor_the_owning_tokens_would_reject_cannot_bill_a_cold_start() {
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let token_id = {
+    let mut tokens = state.token_store.lock().await;
+    tokens
+      .create(
+        "fenced".into(),
+        vec!["cold.example.com".into()],
+        vec![],
+        vec!["10.0.0.0/8".into()],
+        None,
+        None,
+        None,
+        false,
+        false,
+        false,
+        None,
+        vec![],
+        None,
+      )
+      .0
+      .id
+      .clone()
+  };
+  let mut rec = record("cold.example.com");
+  rec.owners = vec![token_id];
+  rec.url = "http://127.0.0.1:9/never".to_string();
+
+  // Outside the owners' allowed_ips: refused before any endpoint is called,
+  // which is why the dead URL never matters.
+  assert!(!visitor_allowed(&state, &rec, "203.0.113.9".parse().unwrap()).await);
+  cold_start_wait(
+    &state,
+    Some("cold.example.com"),
+    "/",
+    "203.0.113.9".parse().unwrap(),
+  )
+  .await;
+  // Inside them: admitted.
+  assert!(visitor_allowed(&state, &rec, "10.1.2.3".parse().unwrap()).await);
+  // An owner with no restriction admits everyone.
+  rec.owners = vec!["unknown-token".to_string()];
+  assert!(visitor_allowed(&state, &rec, "203.0.113.9".parse().unwrap()).await);
+}

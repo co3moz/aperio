@@ -52,6 +52,13 @@ const KEYS: &[&str] = &[
   "APERIO_RETENTION_STATS",
   "APERIO_DB_MAX_BYTES",
   "APERIO_LB_STRATEGY",
+  "APERIO_SCALING",
+  "APERIO_SCALING_RECORD_TTL",
+  "APERIO_SCALING_ALLOW_HTTP",
+  "APERIO_EDGE_TOKEN",
+  "APERIO_EDGE_SERVICE_URL",
+  "APERIO_EDGE_ENTRYPOINTS",
+  "APERIO_EDGE_INCLUDE_OFFLINE",
   "APERIO_FAILOVER",
   "APERIO_RANDOM_SUBDOMAIN",
   "APERIO_TRUSTED_PROXIES",
@@ -457,4 +464,94 @@ fn test_no_shadowing_for_distinct_routes() {
   lint_route_shadowing(&mut r, &routes);
   // Only /api/v1 (index 3) is shadowed by /api (index 0).
   assert_eq!(r.warnings, 1);
+}
+
+#[test]
+fn version_report_paths_warn_refuse_and_pass() {
+  // No `version:` at all is a warning: an upgrade cannot warn a file that
+  // never says what it targets.
+  let _g = EnvGuard::acquire();
+  set("APERIO_SERVER_TOKEN", "0123456789abcdef");
+  let _ = crate::config_file::reload();
+  assert_eq!(run(), 0);
+
+  // A version older than a recorded Breaking change writing one of its keys
+  // is reported; the Security path refuses outright with dashboard_auth set.
+  load_config("version: 0.5.0\nserver:\n  token: 0123456789abcdef\ndashboard_auth: legacy\n");
+  assert_eq!(run(), 1, "a Security entry must fail the check");
+
+  // The same old version without the affected key is a warning, not a fail.
+  load_config("version: 0.7.9\nserver:\n  token: 0123456789abcdef\ngateway_timeout: 10\n");
+  assert_eq!(run(), 0);
+
+  // A garbage version is an error.
+  load_config("version: not-a-version\nserver:\n  token: 0123456789abcdef\n");
+  assert_eq!(run(), 1);
+}
+
+#[test]
+fn scaling_and_edge_partial_configuration_is_called_out() {
+  let _g = EnvGuard::acquire();
+  set("APERIO_SERVER_TOKEN", "0123456789abcdef");
+  let _ = crate::config_file::reload();
+
+  // Scaling knobs without the switch: inert, and said so.
+  set("APERIO_SCALING_RECORD_TTL", "3600");
+  assert_eq!(run(), 0);
+  // The switch plus the risky knob: still passes, with the warning branch.
+  set("APERIO_SCALING", "1");
+  set("APERIO_SCALING_ALLOW_HTTP", "true");
+  assert_eq!(run(), 0);
+
+  // Edge keys without the token that enables them.
+  set("APERIO_EDGE_ENTRYPOINTS", "websecure");
+  assert_eq!(run(), 0);
+  // Token present: the service URL is checked for shape.
+  set("APERIO_EDGE_TOKEN", "edge-secret");
+  set("APERIO_EDGE_SERVICE_URL", "not-a-url");
+  assert_eq!(run(), 1);
+  set("APERIO_EDGE_SERVICE_URL", "http://aperio:8080");
+  set("APERIO_EDGE_INCLUDE_OFFLINE", "1");
+  assert_eq!(run(), 0);
+}
+
+#[test]
+fn expose_rules_are_linted_for_names_orgs_and_keys() {
+  let _g = EnvGuard::acquire();
+  set("APERIO_SERVER_TOKEN", "0123456789abcdef");
+
+  // Every failure shape at once: a udp protocol, port 0, a bad tunnel name,
+  // a tunnel/org mismatch, a missing claim, and a short key.
+  load_config(concat!(
+    "server:\n  token: 0123456789abcdef\n",
+    "expose:\n",
+    "  - port: 2222\n    protocol: udp\n    tunnel: ssh\n",
+    "  - port: 0\n    tunnel: ssh\n",
+    "  - port: 2223\n    tunnel: Bad-Name\n",
+    "  - port: 2224\n    tunnel: payments@pg\n    org: other\n",
+    "  - port: 2225\n",
+    "  - port: 2226\n    key: short\n",
+  ));
+  assert_eq!(run(), 1);
+
+  // And the two warn-only shapes: a token-matched rule and a long key.
+  load_config(concat!(
+    "server:\n  token: 0123456789abcdef\n",
+    "expose:\n",
+    "  - port: 2222\n    tunnel: ssh\n    token: ci\n",
+    "  - port: 2223\n    key: long-enough-secret\n",
+  ));
+  assert_eq!(run(), 0);
+}
+
+#[test]
+fn error_pages_must_be_readable_files() {
+  let _g = EnvGuard::acquire();
+  set("APERIO_SERVER_TOKEN", "0123456789abcdef");
+  let page = write_temp_page();
+  load_config(&format!(
+    "server:\n  token: 0123456789abcdef\nerror_pages:\n  - hostname: app.example.com\n    503_page: {}\n    504_page: /definitely/not/there.html\n",
+    page.display()
+  ));
+  assert_eq!(run(), 1, "one unreadable page fails the check");
 }

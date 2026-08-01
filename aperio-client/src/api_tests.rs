@@ -407,3 +407,189 @@ fn test_credential_prefers_the_api_key_over_the_tunnel_token() {
   s.token = None;
   assert!(credential(&s).is_none());
 }
+
+// ---------------------------------------------------------------------------
+// The command arms nothing exercised: one spot check per family, through the
+// same parser a shell would use.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_command_family_builds_its_call() {
+  for (args, method, path_part) in [
+    (vec!["token", "list"], "GET", "/aperio/api/tokens"),
+    (vec!["token", "revoke", "tok-1"], "DELETE", "/tokens/tok-1"),
+    (vec!["webhook", "list"], "GET", "/aperio/api/webhooks"),
+    (vec!["webhook", "delete", "w-1"], "DELETE", "/webhooks/w-1"),
+    (vec!["inbox", "list"], "GET", "/aperio/api/inbox"),
+    (
+      vec!["user", "reset-totp", "u-1"],
+      "DELETE",
+      "/users/u-1/totp",
+    ),
+    (vec!["org", "delete", "o-1"], "DELETE", "/orgs/o-1"),
+    (vec!["org", "usage", "o-1"], "GET", "/orgs/o-1/usage"),
+    (
+      vec!["admin-key", "revoke", "k-1"],
+      "DELETE",
+      "/admin-keys/k-1",
+    ),
+    (vec!["request", "show", "r-1"], "GET", "/requests/r-1"),
+    (vec!["settings", "get"], "GET", "/aperio/api/settings"),
+    (vec!["slow-endpoints"], "GET", "/slow-endpoints"),
+    (vec!["route-trends"], "GET", "/route-trends"),
+    (vec!["traffic-csv"], "GET", "/export/traffic.csv"),
+    (vec!["export"], "GET", "/aperio/api/export"),
+  ] {
+    let call = call_for(&args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+    assert_eq!(call.method.as_str(), method, "{args:?}");
+    assert!(call.path.contains(path_part), "{args:?} -> {}", call.path);
+  }
+}
+
+#[test]
+fn token_create_carries_the_scope_and_flags() {
+  let (command, mut opts) = parse(&[
+    "token",
+    "create",
+    "--name",
+    "deploy",
+    "--allow-public",
+    "--allowed-ip",
+    "10.0.0.0/8",
+    "--expire",
+    "2h",
+  ]);
+  opts.hostname = Some("a.example.com,b.example.com".to_string());
+  opts.path = Some("/api".to_string());
+  let call = build_call(&command, &settings(), &opts).unwrap();
+  let body = call.body.unwrap();
+  assert_eq!(
+    body["hostnames"],
+    serde_json::json!(["a.example.com", "b.example.com"])
+  );
+  assert_eq!(body["paths"], serde_json::json!(["/api"]));
+  assert_eq!(body["allowed_ips"], serde_json::json!(["10.0.0.0/8"]));
+  assert_eq!(body["allow_public"], serde_json::json!(true));
+  assert_eq!(body["ttl_seconds"], serde_json::json!(7200));
+}
+
+// ---------------------------------------------------------------------------
+// send(): the HTTP half, against a local server answering canned responses.
+// ---------------------------------------------------------------------------
+
+/// Answers each accepted connection with one canned response and remembers
+/// what arrived.
+fn canned_server(
+  response: &'static str,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let addr = listener.local_addr().unwrap();
+  let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  let seen_writer = seen.clone();
+  std::thread::spawn(move || {
+    while let Ok((mut socket, _)) = listener.accept() {
+      use std::io::{Read, Write};
+      let mut buf = [0u8; 4096];
+      let n = socket.read(&mut buf).unwrap_or(0);
+      seen_writer
+        .lock()
+        .unwrap()
+        .push(String::from_utf8_lossy(&buf[..n]).to_string());
+      let _ = socket.write_all(response.as_bytes());
+    }
+  });
+  (format!("http://{addr}"), seen)
+}
+
+fn http() -> reqwest::Client {
+  reqwest::Client::builder()
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn send_decodes_json_passes_text_through_and_maps_the_empty_body() {
+  let (server, seen) = canned_server(
+    "HTTP/1.1 200 OK\r\ncontent-length: 13\r\nconnection: close\r\n\r\n{\"tokens\":[]}",
+  );
+  let call = Call::get("/aperio/api/tokens").query("limit", Some("5".to_string()));
+  let value = send(&http(), &server, Some("apk_secret"), call)
+    .await
+    .unwrap();
+  assert_eq!(value["tokens"], serde_json::json!([]));
+  let request = seen.lock().unwrap().join("");
+  assert!(request.contains("limit=5"), "{request}");
+  assert!(
+    request.contains("authorization: Bearer apk_secret"),
+    "{request}"
+  );
+
+  // Plain text (the CSV export) comes back as a string to print verbatim.
+  let (server, _) =
+    canned_server("HTTP/1.1 200 OK\r\ncontent-length: 8\r\nconnection: close\r\n\r\na,b\n1,2\n");
+  let value = send(&http(), &server, None, Call::get("/x")).await.unwrap();
+  assert_eq!(value, Value::String("a,b\n1,2\n".to_string()));
+
+  // An empty success body is Null, the caller's "done, nothing to print".
+  let (server, _) =
+    canned_server("HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+  let value = send(&http(), &server, None, Call::get("/x")).await.unwrap();
+  assert_eq!(value, Value::Null);
+}
+
+#[tokio::test]
+async fn send_reads_a_redirect_as_the_authentication_error_it_is() {
+  let (server, _) = canned_server(
+    "HTTP/1.1 302 Found\r\nlocation: /aperio/login\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+  );
+  let err = send(&http(), &server, None, Call::get("/x"))
+    .await
+    .unwrap_err();
+  assert!(err.contains("authentication required"), "{err}");
+  assert!(err.contains("--api-key"), "{err}");
+}
+
+#[tokio::test]
+async fn send_surfaces_the_servers_own_words_on_an_error() {
+  let (server, _) = canned_server(
+    "HTTP/1.1 403 Forbidden\r\ncontent-length: 26\r\nconnection: close\r\n\r\nthat hostname is not yours",
+  );
+  let err = send(&http(), &server, None, Call::get("/x"))
+    .await
+    .unwrap_err();
+  assert!(err.contains("403"), "{err}");
+  assert!(err.contains("that hostname is not yours"), "{err}");
+
+  // And a bodyless failure still names the status.
+  let (server, _) =
+    canned_server("HTTP/1.1 500 Oops\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+  let err = send(&http(), &server, None, Call::get("/x"))
+    .await
+    .unwrap_err();
+  assert!(err.contains("server returned 500"), "{err}");
+
+  // A body travels as JSON; prove it reached the wire.
+  let (server, seen) =
+    canned_server("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}");
+  let call = Call::post("/x", serde_json::json!({"topic": "deploy"}));
+  send(&http(), &server, None, call).await.unwrap();
+  let request = seen.lock().unwrap().join("");
+  assert!(request.contains("\"topic\":\"deploy\""), "{request}");
+}
+
+#[test]
+fn stdin_and_file_readers_answer_their_error_cases() {
+  assert_eq!(read_maybe_stdin("plain-value").unwrap(), "plain-value");
+  let err = read_json_file("/definitely/not/here.json").unwrap_err();
+  assert!(err.contains("failed to read"), "{err}");
+  let dir = std::env::temp_dir().join(format!("aperio-api-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let bad = dir.join("not-json.json");
+  std::fs::write(&bad, "{nope").unwrap();
+  let err = read_json_file(bad.to_str().unwrap()).unwrap_err();
+  assert!(err.contains("not valid JSON"), "{err}");
+  let good = dir.join("good.json");
+  std::fs::write(&good, "{\"a\":1}").unwrap();
+  assert_eq!(read_json_file(good.to_str().unwrap()).unwrap()["a"], 1);
+}

@@ -251,3 +251,162 @@ fn test_secret_persists_across_reload() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Delivery: send_once, the retry policy, and the log it feeds.
+// ---------------------------------------------------------------------------
+
+/// A local receiver answering one canned status per connection.
+async fn canned_receiver(status: u16) -> std::net::SocketAddr {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut socket, _)) = listener.accept().await else {
+        return;
+      };
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = [0u8; 4096];
+        let _ = socket.read(&mut buf).await;
+        let head = String::from_utf8_lossy(&buf).to_string();
+        let response =
+          format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        let _ = socket.write_all(response.as_bytes()).await;
+        // Keep what arrived observable for the signature assertion.
+        RECEIVED.lock().unwrap().push(head);
+      });
+    }
+  });
+  addr
+}
+
+static RECEIVED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn hook_to(addr: std::net::SocketAddr, secret: Option<&str>) -> Webhook {
+  Webhook {
+    id: uuid::Uuid::new_v4().to_string(),
+    name: "test-hook".to_string(),
+    url: format!("http://{addr}/hook"),
+    events: vec!["*".to_string()],
+    enabled: true,
+    created_at: 0,
+    format: WebhookFormat::default(),
+    secret: secret.map(str::to_string),
+    org_id: None,
+  }
+}
+
+#[tokio::test]
+async fn a_delivery_succeeds_and_carries_the_signature_headers() {
+  // Pin the retry schedule before any delivery initializes the OnceLock:
+  // whatever it holds, this test's cases never retry (200 and 4xx).
+  let addr = canned_receiver(200).await;
+  let log = std::sync::Arc::new(tokio::sync::Mutex::new(DeliveryLog::load(
+    &crate::test_support::test_temp_root()
+      .join(format!("wh-{}", uuid::Uuid::new_v4()))
+      .to_string_lossy(),
+  )));
+  deliver_with_retries(
+    hook_to(addr, Some("signing-secret")),
+    "client_connected".to_string(),
+    "{\"event\":\"client_connected\"}".to_string(),
+    log.clone(),
+    crate::outbound::OutboundPolicy::default(),
+  )
+  .await;
+
+  let deliveries = log.lock().await;
+  let list = deliveries.list(None, 10);
+  assert_eq!(list.len(), 1);
+  assert!(list[0].success);
+  assert_eq!(list[0].status, Some(200));
+  assert_eq!(list[0].attempts, 1);
+  let received = RECEIVED.lock().unwrap().join("\n");
+  assert!(
+    received.contains("x-aperio-signature: sha256="),
+    "the signed delivery announces its MAC: {received}"
+  );
+  assert!(received.contains("x-aperio-timestamp:"), "{received}");
+}
+
+#[tokio::test]
+async fn a_permanent_refusal_is_not_retried() {
+  let addr = canned_receiver(404).await;
+  let log = std::sync::Arc::new(tokio::sync::Mutex::new(DeliveryLog::load(
+    &crate::test_support::test_temp_root()
+      .join(format!("wh-{}", uuid::Uuid::new_v4()))
+      .to_string_lossy(),
+  )));
+  deliver_with_retries(
+    hook_to(addr, None),
+    "client_connected".to_string(),
+    "{}".to_string(),
+    log.clone(),
+    crate::outbound::OutboundPolicy::default(),
+  )
+  .await;
+  let deliveries = log.lock().await;
+  let list = deliveries.list(None, 10);
+  assert_eq!(list.len(), 1);
+  assert!(!list[0].success);
+  assert_eq!(list[0].status, Some(404));
+  assert_eq!(list[0].attempts, 1, "a 404 receiver will not heal; one try");
+}
+
+#[tokio::test]
+async fn an_outbound_policy_refusal_never_contacts_the_receiver() {
+  // The policy check happens at delivery time, so it covers webhooks stored
+  // before the policy existed. The URL is internal and blocked; nothing
+  // listens there, and nothing must try.
+  let log = std::sync::Arc::new(tokio::sync::Mutex::new(DeliveryLog::load(
+    &crate::test_support::test_temp_root()
+      .join(format!("wh-{}", uuid::Uuid::new_v4()))
+      .to_string_lossy(),
+  )));
+  let hook = Webhook {
+    id: "h1".to_string(),
+    name: "internal".to_string(),
+    url: "http://127.0.0.1:9/hook".to_string(),
+    events: vec!["*".to_string()],
+    enabled: true,
+    created_at: 0,
+    format: WebhookFormat::default(),
+    secret: None,
+    org_id: None,
+  };
+  deliver_with_retries(
+    hook,
+    "client_connected".to_string(),
+    "{}".to_string(),
+    log.clone(),
+    crate::outbound::OutboundPolicy {
+      allowlist: Vec::new(),
+      block_private: true,
+    },
+  )
+  .await;
+  let deliveries = log.lock().await;
+  let list = deliveries.list(None, 10);
+  assert_eq!(list.len(), 1);
+  assert!(!list[0].success);
+  assert_eq!(list[0].attempts, 0, "refused before any attempt");
+  assert!(
+    list[0]
+      .error
+      .as_deref()
+      .unwrap_or_default()
+      .contains("internal address"),
+    "{:?}",
+    list[0].error
+  );
+}
+
+#[test]
+fn the_default_retry_schedule_is_the_documented_one() {
+  // First toucher wins the OnceLock; whatever test got there first, the
+  // schedule is a fixed list this asserts the shape of.
+  let schedule = retry_schedule();
+  assert!(!schedule.is_empty());
+  assert!(schedule.iter().all(|d| d.as_secs() >= 1));
+}

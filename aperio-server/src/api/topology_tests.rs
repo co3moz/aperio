@@ -187,3 +187,83 @@ async fn an_expired_tokens_binds_are_not_expected_services() {
     graph.offline.iter().map(|o| &o.bind).collect::<Vec<_>>()
   );
 }
+
+// Not `#[tokio::test]`: the config file is written and reloaded under the
+// shared config lock, which must not be held across a runtime's await points.
+#[test]
+fn expose_ports_report_who_serves_them_without_leaking_the_key() {
+  // The uncovered half of the map: the `expose:` section, matched to a live
+  // client the same way the relay matches one, by tunnel name + token, or by
+  // the deprecated shared key. The key itself must never appear.
+  let _guard = config_lock();
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  rt.block_on(async {
+  let file = test_temp_root().join(format!("topo-expose-{}.yaml", uuid::Uuid::new_v4()));
+  std::fs::write(
+    &file,
+    "expose:\n  - port: 15432\n    tunnel: pg_main\n  - port: 15433\n    key: shared-secret\n  - port: 15434\n    tunnel: nothing_declares_this\n",
+  )
+  .unwrap();
+  unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
+  crate::config_file::load();
+
+  let state = Arc::new(test_state());
+  let decl = |name: &str, expose: Option<&str>| crate::protocol::TunnelDecl {
+    name: Some(name.to_string()),
+    custom_name: None,
+    target: "127.0.0.1:5432".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    idle_timeout: None,
+    expose: expose.map(str::to_string),
+  };
+  let mut by_name = mock_client(Some("a.example.com"), None, None, None);
+  by_name.tunnels = vec![decl("pg_main", None)];
+  let mut by_key = mock_client(Some("b.example.com"), None, None, None);
+  by_key.tunnels = vec![decl("other", Some("shared-secret"))];
+  // A draining client serves nothing, whatever it declares.
+  let mut draining = mock_client(Some("c.example.com"), None, None, None);
+  draining.tunnels = vec![decl("nothing_declares_this", None)];
+  draining.draining = true;
+  {
+    let mut clients = state.clients.lock().await;
+    clients.insert("c-name".to_string(), by_name);
+    clients.insert("c-key".to_string(), by_key);
+    clients.insert("c-drain".to_string(), draining);
+  }
+
+  let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
+    .await
+    .0;
+  unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
+  let _ = crate::config_file::reload();
+
+  assert_eq!(graph.exposes.len(), 3);
+  let by_port = |p: u16| graph.exposes.iter().find(|e| e.port == p).unwrap();
+  assert_eq!(by_port(15432).served_by.as_deref(), Some("c-name"));
+  assert_eq!(by_port(15433).served_by.as_deref(), Some("c-key"));
+  assert!(!by_port(15434).served, "a draining client serves nothing");
+  let raw = serde_json::to_string(&graph.exposes).unwrap();
+  assert!(
+    !raw.contains("shared-secret"),
+    "the key never leaves: {raw}"
+  );
+
+  // A tenant sees no exposes at all: they are the operator's ports.
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
+  let graph = topology_handler(State(state), cookie_headers(&token))
+    .await
+    .0;
+  assert!(graph.exposes.is_empty());
+  });
+}

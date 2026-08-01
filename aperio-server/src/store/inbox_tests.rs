@@ -86,3 +86,32 @@ fn test_truncate_oldest() {
   assert_eq!(store.truncate_oldest(2), 0);
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn insert_and_import_hold_the_cap() {
+  let dir = crate::test_support::test_temp_root().join(format!("inbox-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let mut store = InboxStore::load(&dir.to_string_lossy());
+
+  // One over the cap: the oldest live entry gives way.
+  for i in 0..=INBOX_MAX_ENTRIES {
+    store.insert(entry(&format!("e{i}"), None));
+  }
+  assert_eq!(store.list_all().len(), INBOX_MAX_ENTRIES);
+  assert!(
+    store.list_all().iter().all(|e| e.id != "e0"),
+    "the oldest went"
+  );
+
+  // An oversized import keeps the newest slice, chronologically.
+  let mut incoming: Vec<InboxEntry> = (0..INBOX_MAX_ENTRIES + 25)
+    .map(|i| {
+      let mut e = entry(&format!("i{i}"), None);
+      e.timestamp = format!("2026-01-01T00:{:02}:{:02}+00:00", i / 60, i % 60);
+      e
+    })
+    .collect();
+  incoming.reverse(); // arrives shuffled; import re-sorts
+  assert_eq!(store.import(incoming), INBOX_MAX_ENTRIES);
+  assert!(store.list_all().iter().all(|e| e.id != "i0"));
+}

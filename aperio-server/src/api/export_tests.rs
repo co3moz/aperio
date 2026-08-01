@@ -431,3 +431,112 @@ async fn a_dump_of_history_imports_back() {
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(target.persistent_stats.lock().await.lifetime_requests(), 1);
 }
+
+/// A minimal inbox row for the history-section tests.
+fn inbox_entry(id: &str) -> crate::store::inbox::InboxEntry {
+  crate::store::inbox::InboxEntry {
+    id: id.to_string(),
+    timestamp: chrono::Local::now().to_rfc3339(),
+    method: "POST".to_string(),
+    uri: "/hook".to_string(),
+    host: None,
+    headers: Vec::new(),
+    body: None,
+    body_truncated: false,
+    status: 200,
+    service: None,
+    org_id: None,
+  }
+}
+
+#[tokio::test]
+async fn the_history_sections_travel_and_stay_org_fenced() {
+  // The three history sections nobody exports until a migration: uptime,
+  // inbox and admin keys. Each carries an org_id, so leaving organizations
+  // out of the dump must drop the tenant rows, not orphan them.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  {
+    let mut live = std::collections::HashMap::new();
+    live.insert(
+      "host:master.example".to_string(),
+      (crate::store::uptime::Availability::Up, None),
+    );
+    live.insert(
+      "host:acme.example".to_string(),
+      (crate::store::uptime::Availability::Up, Some(org.clone())),
+    );
+    state
+      .uptime
+      .lock()
+      .await
+      .tick(crate::store::tokens::now_secs(), live);
+  }
+  {
+    let mut inbox = state.inbox_store.lock().await;
+    let mut master_row = inbox_entry("m1");
+    master_row.org_id = None;
+    inbox.insert(master_row);
+    let mut org_row = inbox_entry("a1");
+    org_row.org_id = Some(org.clone());
+    inbox.insert(org_row);
+  }
+  {
+    let mut keys = state.admin_key_store.lock().await;
+    keys.create("master-key".into(), Role::Admin, None, None);
+    keys.create("acme-key".into(), Role::Admin, Some(org.clone()), None);
+  }
+
+  // With organizations: both sides of every section travel.
+  let full = json_body(
+    export_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      include("organizations,uptime,inbox,admin_keys"),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(full["uptime"].as_object().unwrap().len(), 2);
+  assert_eq!(full["inbox"].as_array().unwrap().len(), 2);
+  assert_eq!(full["admin_keys"].as_array().unwrap().len(), 2);
+
+  // Without them: only master's rows.
+  let fenced = json_body(
+    export_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers,
+      include("uptime,inbox,admin_keys"),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(fenced["uptime"].as_object().unwrap().len(), 1);
+  assert_eq!(fenced["inbox"].as_array().unwrap().len(), 1);
+  assert_eq!(fenced["admin_keys"].as_array().unwrap().len(), 1);
+
+  // And a fresh server imports the full dump back, every section applied.
+  let target = Arc::new(test_state());
+  let target_headers = admin_headers(&target).await;
+  let dump: ImportDump = serde_json::from_value(full).unwrap();
+  let resp = import_handler(
+    State(target.clone()),
+    ConnectInfo(test_peer()),
+    target_headers,
+    Json(dump),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(target.uptime.lock().await.snapshot().len(), 2);
+  assert_eq!(target.inbox_store.lock().await.list_all().len(), 2);
+  assert_eq!(target.admin_key_store.lock().await.list().len(), 2);
+}

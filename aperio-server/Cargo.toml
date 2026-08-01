@@ -103,6 +103,9 @@ vendored-openssl = ["dep:openssl", "openssl/vendored"]
 # `start_paused` in tests: the live stream ticks every two seconds, and a test
 # that actually waits them is a test nobody runs.
 tokio = { version = "1.38", features = ["full", "test-util"] }
+# The in-memory span exporter, so the phase-span emitter can be asserted on
+# real exported spans instead of being the one untestable corner of tracing.
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 criterion = "0.8.2"
 # For the envelope-codec benchmark: what MessagePack would cost against the
 # JSON the tunnel speaks today, measured on our own messages.

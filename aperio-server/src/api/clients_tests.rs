@@ -879,3 +879,122 @@ async fn live_stream_ends_when_the_session_it_opened_with_is_revoked() {
     "the stream must close within a tick of the session going away"
   );
 }
+
+#[tokio::test]
+async fn client_config_renders_every_optional_knob_and_server_overrule() {
+  // One maximal connection, so every branch of the yaml renderer runs: the
+  // dashboard overrules, the refused announcements, and each optional line.
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.declared_hostname = Some("app.example.com".to_string());
+    h.declared_hostnames = vec!["app.example.com".to_string()];
+    h.assigned_hostnames = vec![
+      "app.example.com".to_string(),
+      "wild-fox.example.com".to_string(),
+    ];
+    h.random_hostname = Some("wild-fox.example.com".to_string());
+    h.override_hostname_binds = vec!["forced.example.com".to_string()];
+    h.declared_path = Some("/api".to_string());
+    h.override_path_bind = Some("/forced".to_string());
+    h.public_denied_warned = true;
+    h.visitor_auth_denied_warned = true;
+    h.priority = 2;
+    h.public = true;
+    h.visitor_auth = Some("user:pass".to_string());
+    h.allowed_ips = vec!["10.0.0.0/8".to_string(), "203.0.113.7".to_string()];
+    h.denied = Some("https://example.com/no".to_string());
+    h.cache = false;
+    h.resilience = true;
+    h.webhook_inbox = true;
+    h.max_request_body = Some(1048576);
+    h.response_timeout = Some(120);
+    h.tcp_enabled = true;
+    h.tunnels = vec![crate::protocol::TunnelDecl {
+      name: Some("pg".to_string()),
+      custom_name: None,
+      target: "127.0.0.1:5432".to_string(),
+      protocol: "tcp".to_string(),
+      encrypt: true,
+      idle_timeout: None,
+      expose: None,
+    }];
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+
+  for line in [
+    "priority: 2",
+    "public: true",
+    "auth: \"<set by the client>\"",
+    "allowed_ips: [\"10.0.0.0/8\", \"203.0.113.7\"]",
+    "denied: \"https://example.com/no\"",
+    "resilience: true",
+    "webhook_inbox: true",
+    "max_request_body: 1048576",
+    "response_timeout: 120",
+    "tcp_target: \"<set by the client>\"",
+    "tunnels:",
+    "    encrypt: true",
+  ] {
+    assert!(yaml.contains(line), "missing `{line}` in:\n{yaml}");
+  }
+
+  // The three server-side refusals and the two overrules are all notes.
+  let notes = body["notes"].as_array().unwrap();
+  let fields: Vec<&str> = notes.iter().filter_map(|n| n["field"].as_str()).collect();
+  for field in ["public", "auth", "hostname", "path"] {
+    assert!(fields.contains(&field), "{fields:?}");
+  }
+  let hostname_note = notes.iter().find(|n| n["field"] == "hostname").unwrap();
+  assert_eq!(hostname_note["effective"], "forced.example.com");
+  assert!(
+    hostname_note["declared"]
+      .as_str()
+      .unwrap()
+      .contains("wild-fox.example.com"),
+    "the assigned hostname is part of what the overrule replaced"
+  );
+}
+
+#[tokio::test]
+async fn enabling_an_unknown_or_foreign_client_is_not_found() {
+  // The kill switch answers 404 both for an id that does not exist and for
+  // another organization's client: a tenant must not learn which is which.
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |_| {}).await;
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
+
+  let resp = client_enabled_handler(
+    State(state.clone()),
+    Path("missing".to_string()),
+    axum::extract::ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Json(ClientEnabledRequest { enabled: false }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+  let resp = client_enabled_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    axum::extract::ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    Json(ClientEnabledRequest { enabled: false }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  // And the master client is untouched.
+  assert!(state.clients.lock().await.get("c1").unwrap().admin_enabled);
+}

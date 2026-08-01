@@ -348,3 +348,185 @@ async fn the_visitor_gate_is_reported_when_one_is_configured() {
   assert_eq!(gate["verdict"], "passes");
   assert!(gate["detail"].as_str().unwrap().contains("sign in"));
 }
+
+#[tokio::test]
+async fn a_maintenance_window_and_reason_are_in_the_detail() {
+  let state = Arc::new(test_state());
+  state.maintenance.lock().await.insert(
+    "app.example.com".to_string(),
+    MaintenanceFlag {
+      org: None,
+      reason: Some("db migration".to_string()),
+      until: Some(crate::store::tokens::now_secs() + 600),
+      since: crate::store::tokens::now_secs(),
+      actor: "ops".to_string(),
+    },
+  );
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+  assert_eq!(body["outcome"], "maintenance");
+  let detail = step(&body, "maintenance")["detail"].as_str().unwrap();
+  assert!(detail.contains("db migration"), "{detail}");
+  assert!(detail.contains("lifting at unix"), "{detail}");
+}
+
+#[tokio::test]
+async fn a_static_route_that_answers_is_the_decision() {
+  let mut cfg = test_config();
+  cfg.static_routes =
+    crate::static_routes::StaticRoutes::compile(vec![crate::static_routes::RouteRule {
+      hostname: Some("old.example.com".to_string()),
+      path: None,
+      redirect: Some("https://new.example.com".to_string()),
+      permanent: true,
+      preserve_path: false,
+      respond: None,
+    }])
+    .unwrap();
+  let state = Arc::new(test_state_with(cfg));
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers.clone(), q("old.example.com", None)).await).await;
+  assert_eq!(body["outcome"], "static_route");
+  let detail = step(&body, "static_route")["detail"].as_str().unwrap();
+  assert!(detail.contains("301"), "{detail}");
+  assert!(detail.contains("https://new.example.com"), "{detail}");
+
+  // A hostname the rules do not answer passes the stage instead.
+  let body = json_body(explain(&state, headers, q("other.example.com", None)).await).await;
+  assert_eq!(step(&body, "static_route")["verdict"], "passes");
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn a_waf_that_matches_nothing_passes_with_the_caveat() {
+  let body = with_server_config("waf:\n  - path: \"^/\\\\.git\"\n", || {
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap();
+    rt.block_on(async {
+      let mut cfg = test_config();
+      cfg.waf = crate::waf::from_config_file();
+      let state = Arc::new(test_state_with(cfg));
+      let headers = admin_headers(&state).await;
+      json_body(explain(&state, headers, q("app.example.com/ok", None)).await).await
+    })
+  });
+  let waf = step(&body, "waf");
+  assert_eq!(waf["verdict"], "passes");
+  assert!(
+    waf["detail"]
+      .as_str()
+      .unwrap()
+      .contains("need a real request"),
+    "the caveat says header and body rules cannot be dry-run"
+  );
+}
+
+#[tokio::test]
+async fn the_visitor_gate_names_the_servers_password() {
+  let mut cfg = test_config();
+  cfg.auth_credentials = Some("user:pw".to_string());
+  let state = Arc::new(test_state_with(cfg));
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+  let gate = step(&body, "visitor_gate");
+  assert_eq!(gate["verdict"], "passes");
+  assert!(
+    gate["detail"]
+      .as_str()
+      .unwrap()
+      .contains("server's visitor password"),
+    "{gate}"
+  );
+  assert_eq!(gate["setting"], "server_auth");
+}
+
+#[tokio::test]
+async fn every_ineligible_reason_is_named() {
+  // The question behind most 504s: a client is connected, so why is nothing
+  // serving? Each way a client can be passed over is spelled out.
+  let state = Arc::new(test_state());
+  {
+    let mut clients = state.clients.lock().await;
+    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    draining.draining = true;
+    clients.insert("c-drain".to_string(), draining);
+    let mut sick = mock_client(Some("app.example.com"), None, None, None);
+    sick.backend_healthy = false;
+    clients.insert("c-sick".to_string(), sick);
+    let mut wrong_path = mock_client(Some("app.example.com"), Some("/api"), None, None);
+    wrong_path.declared_path = Some("/api".to_string());
+    clients.insert("c-path".to_string(), wrong_path);
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/other", None)).await).await;
+  let detail = step(&body, "routing")["detail"].as_str().unwrap();
+  assert!(detail.contains("c-drain (draining)"), "{detail}");
+  assert!(
+    detail.contains("c-sick (its backend health probe is failing)"),
+    "{detail}"
+  );
+  assert!(
+    detail.contains("c-path (its path bind does not match)"),
+    "{detail}"
+  );
+}
+
+// Not `#[tokio::test]`: the config file has to be written and reloaded
+// synchronously, under the shared lock, before a runtime exists.
+#[test]
+fn an_armed_cold_start_and_a_fallback_are_reported_in_that_order() {
+  let body = with_server_config(
+    "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n",
+    || {
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+      rt.block_on(async {
+        let mut cfg = test_config();
+        cfg.scaling_enabled = true;
+        cfg.fallbacks = crate::fallbacks::from_config_file();
+        let state = Arc::new(test_state_with(cfg));
+        {
+          let mut store = state.scaling_store.lock().await;
+          let record = crate::store::scaling::ScalingRecord {
+            id: crate::store::scaling::ScalingRecord::key(None, "app.example.com", None),
+            org_id: None,
+            hostname: "app.example.com".to_string(),
+            path: None,
+            url: "https://api.provider.example/scale".to_string(),
+            secret: None,
+            min: 0,
+            max: 4,
+            cold_start_secs: 45,
+            target_utilization: 0.8,
+            window_secs: 15,
+            cooldown_secs: 60,
+            owners: vec!["tok".to_string()],
+            config_hash: String::new(),
+            created_at: 0,
+            last_seen: 0,
+          };
+          store.upsert(record, Some("tok"), crate::store::tokens::now_secs());
+        }
+        let headers = admin_headers(&state).await;
+        json_body(explain(&state, headers, q("app.example.com", None)).await).await
+      })
+    },
+  );
+  let cold = step(&body, "cold_start");
+  assert!(
+    cold["detail"]
+      .as_str()
+      .unwrap()
+      .contains("held while capacity"),
+    "{cold}"
+  );
+  assert_eq!(body["outcome"], "fallback");
+  let fb = step(&body, "fallback")["detail"].as_str().unwrap();
+  assert!(fb.contains("302"), "{fb}");
+  assert!(fb.contains("https://status.example.com"), "{fb}");
+}

@@ -702,3 +702,49 @@ fn a_bare_name_that_two_organizations_carry_is_refused_rather_than_guessed() {
   assert!(err.contains("payments@postgres"), "{err}");
   assert!(err.contains("billing@postgres"), "{err}");
 }
+
+#[tokio::test]
+async fn discovery_error_answers_are_nothing_not_a_crash() {
+  init_tracing();
+  let http = reqwest::Client::new();
+  // A rejected token, a garbage body, and a plain server error: each is
+  // "nothing from this token", never a panic. (404 is deliberately absent
+  // here: it exits the process by design, a server predating discovery.)
+  let unauthorized = spawn_http(|_| (401, String::new())).await;
+  assert!(
+    list_for(&http, &format!("{unauthorized}/aperio/tunnels"), "t")
+      .await
+      .is_empty()
+  );
+  let garbage = spawn_http(|_| (200, "not json".to_string())).await;
+  assert!(
+    list_for(&http, &format!("{garbage}/aperio/tunnels"), "t")
+      .await
+      .is_empty()
+  );
+  let flaky = spawn_http(|_| (500, String::new())).await;
+  assert!(
+    list_for(&http, &format!("{flaky}/aperio/tunnels"), "t")
+      .await
+      .is_empty()
+  );
+  // A server that is not there at all.
+  assert!(
+    list_for(&http, "http://127.0.0.1:9/aperio/tunnels", "t")
+      .await
+      .is_empty()
+  );
+}
+
+#[test]
+fn the_ws_url_carries_the_tunnel_name() {
+  let url = tunnel_ws_url(
+    "https://tunnel.example.com",
+    "/aperio/tunnel-stream",
+    "pg_main",
+  )
+  .unwrap();
+  assert!(url.starts_with("wss://tunnel.example.com"), "{url}");
+  assert!(url.contains("tunnel=pg_main"), "{url}");
+  assert!(tunnel_ws_url("not a url", "/x", "pg").is_err());
+}

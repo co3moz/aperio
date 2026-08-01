@@ -637,3 +637,27 @@ fn an_unnamed_tunnel_is_addressable_by_its_derived_name() {
   };
   assert_eq!(crate::tunnel::registry::name_of(&decl), "127_0_0_1_22_tcp");
 }
+
+#[test]
+fn a_rule_labels_itself_the_way_the_file_spelled_it() {
+  // Every spelling of ownership, rendered for logs and the audit trail.
+  let mut rule = named_rule("payments@pg", None);
+  assert_eq!(rule.label(), "tunnel payments@pg");
+  assert_eq!(rule.qualified_name(), "payments@pg");
+
+  rule = named_rule("pg", None);
+  rule.org = Some("payments".to_string());
+  assert_eq!(rule.qualified_name(), "payments@pg");
+
+  rule = named_rule("pg", Some("ci"));
+  assert_eq!(rule.qualified_name(), "pg (token ci)");
+
+  rule = named_rule("pg", None);
+  assert_eq!(rule.qualified_name(), "master@pg");
+
+  let keyed = key_rule("shared-secret");
+  assert_eq!(keyed.label(), "a key-matched tunnel");
+  let mut bare = key_rule("x");
+  bare.key = None;
+  assert_eq!(bare.label(), "nothing");
+}
