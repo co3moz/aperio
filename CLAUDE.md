@@ -16,6 +16,14 @@ These rules apply to all future work in this repository.
 
 21. **Never run a benchmark or a load test without asking first.** This machine runs other work; a number measured while something else is compiling or serving is not a number, and the load itself takes the machine away from its owner. That includes `wrk`, `ab`, `criterion`/`cargo bench`, any loop that hammers a local server, and any long release build started only to time it. Ask, name what you want to run and roughly how long it takes, and wait for a yes. When the answer is no, or when nobody is there to ask, reason from the code and say plainly that the claim is unmeasured rather than measuring it anyway. Correctness checks that happen to take a while (`cargo test`, `bash tests/e2e.sh`, one release build to verify it compiles) are not benchmarks and need no permission.
 
+22. **Rust unit tests live in a sibling `<file>_tests.rs`, never inline.** A module's tests go in a file next to it, wired in with the three lines at the bottom of the module:
+    ```rust
+    #[cfg(test)]
+    #[path = "cache_tests.rs"]
+    mod tests;
+    ```
+    The test file opens with a `//!` doc comment saying what about this module the tests are pinning down, and starts with `use super::*;`, everything private to the module is still reachable, so nothing has to be made `pub` for a test. This is not cosmetic: a module and its tests grow at different rates, and an inline `mod tests` puts a thousand lines of test between the reader and the end of the file it belongs to. It also keeps `<file>.rs` honest about its own length. Applies to every crate; `#[cfg(test)]` helpers that the production code itself uses (a constructor, a fixture) stay in place, only the `mod tests` block moves.
+
 ## Configuration surfaces
 15. **Every setting must be reachable from yaml. No exceptions.** A setting that exists only as an environment variable is a bug, not a design choice: yaml is the primary surface, it is what the JSON Schemas describe, what editors complete, and what an operator reads to understand a deployment. When adding a setting, add its yaml key in the same change, a field on `FileConfig`/`ServiceEntry` in `aperio-config` for the client, a documented field on `ServerFileConfig` for the server (the server materializes scalar keys into env vars generically, but an undeclared key is invisible to the schema and to editors, so it still counts as missing).
 16. **An environment variable should exist wherever it can.** Env is the secondary surface, needed for containers and secret injection, so add it unless the value genuinely cannot be expressed as a flat scalar (a list of mappings such as `routes:`/`headers:`/`expose:` is the legitimate exception; a scalar, a list of scalars, or a grouped block's child is not). Names follow the standard: yaml `<key>` is `APERIO_<KEY>`, a grouped `<group>.<child>` is `APERIO_<GROUP>_<CHILD>`, and `host`/`port`/`log_level` map to their bare names.
