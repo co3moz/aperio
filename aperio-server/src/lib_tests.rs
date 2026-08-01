@@ -2127,3 +2127,27 @@ fn one_hot_reload_tick_applies_a_changed_file_and_audits_it() {
     );
   });
 }
+
+#[tokio::test]
+async fn bind_listener_binds_plain_reuseport_and_reports_a_taken_port() {
+  use crate::bind_listener;
+  // Plain bind on an ephemeral port.
+  let plain = bind_listener("127.0.0.1", 0, false).await.unwrap();
+  let taken = plain.local_addr().unwrap().port();
+
+  // The SO_REUSEPORT path builds its socket by hand; prove it yields a
+  // working listener too.
+  let shared = bind_listener("127.0.0.1", 0, true).await.unwrap();
+  assert!(shared.local_addr().unwrap().port() > 0);
+
+  // A port someone plainly holds is refused for a plain second bind: this is
+  // the branch serve_until_shutdown turns into its startup error.
+  assert!(bind_listener("127.0.0.1", taken, false).await.is_err());
+
+  // And a hostname that resolves to nothing is an error, not a hang.
+  assert!(
+    bind_listener("definitely-not-a-host.invalid", 0, true)
+      .await
+      .is_err()
+  );
+}

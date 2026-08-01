@@ -2196,6 +2196,85 @@ pub mod testkit {
   }
 
   impl Composed {
+    /// Runs the real serve loop, graceful shutdown included: it returns only
+    /// once the shutdown signal has run. The caller owns the process-global
+    /// consequences (the signal handlers, and shutdown_signal's ten-second
+    /// force-exit fallback), which is why only a single-test integration
+    /// binary should call this.
+    pub async fn serve_until_shutdown(self) {
+      crate::serve_until_shutdown(self.state, self.router).await;
+    }
+
+    /// Inserts a minimal connected-client record and returns the receiving
+    /// end of its tunnel channel, so a test can observe what the server
+    /// writes to clients (the shutdown notice, for one).
+    pub async fn insert_probe_client(
+      &self,
+    ) -> tokio::sync::mpsc::Receiver<axum::extract::ws::Message> {
+      let (tx, rx) = tokio::sync::mpsc::channel(16);
+      let handle = crate::state::ClientHandle {
+        service_custom_name: None,
+        tx,
+        disconnect: Arc::new(tokio::sync::Notify::new()),
+        connected_at: std::time::Instant::now(),
+        client_ip: "127.0.0.1".to_string(),
+        request_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        declared_path: None,
+        assigned_path: None,
+        declared_hostname: Some("probe.example.com".to_string()),
+        declared_hostnames: vec!["probe.example.com".to_string()],
+        assigned_hostnames: Vec::new(),
+        random_hostname: None,
+        override_path_bind: None,
+        override_hostname_binds: Vec::new(),
+        capture: true,
+        connections: None,
+        declared_client_id: None,
+        config_notes: Vec::new(),
+        last_ping_at: Some(std::time::Instant::now()),
+        perms: crate::state::ClientPerms::master(),
+        max_concurrent: None,
+        inflight_limiter: None,
+        draining: false,
+        admin_enabled: true,
+        tcp_enabled: false,
+        client_version: None,
+        client_protocol: None,
+        backend_healthy: true,
+        backend_probed: true,
+        priority: 0,
+        reported_instance_id: None,
+        instance_group: None,
+        subscriptions: Vec::new(),
+        bandwidth_bps: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        service_name: None,
+        public: false,
+        public_denied_warned: false,
+        visitor_auth: None,
+        visitor_auth_denied_warned: false,
+        allowed_ips: Vec::new(),
+        allowed_ips_invalid_warned: false,
+        scaling_invalid_warned: false,
+        tunnels: Vec::new(),
+        cache: false,
+        cache_ignored_warned: false,
+        resilience: false,
+        max_request_body: None,
+        response_timeout: None,
+        webhook_inbox: false,
+        denied: None,
+        recent_failures: std::collections::VecDeque::new(),
+        ejected_until: None,
+      };
+      self
+        .state
+        .clients
+        .lock()
+        .await
+        .insert("probe-client".to_string(), handle);
+      rx
+    }
+
     /// Serves the composed app on an ephemeral loopback port and returns the
     /// address; the serve task runs until the returned handle is aborted.
     pub async fn serve_ephemeral(&self) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
