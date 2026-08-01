@@ -127,6 +127,9 @@ webauthn-authenticator-rs = { version = "=0.5.5", features = ["softpasskey"] }
 # In-process WebSocket client to drive the tunnel handshake in ws/tcp tests.
 tokio-tungstenite = "0.24"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
 [[bench]]
 name = "hot_paths"
 harness = false
