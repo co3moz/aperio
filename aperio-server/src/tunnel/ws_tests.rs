@@ -1522,3 +1522,80 @@ async fn ws_handler_rejects_when_tunnels_full() {
   let res = tokio_tungstenite::connect_async(client_request(&url, "test")).await;
   assert!(res.is_err(), "full tunnel table must reject the upgrade");
 }
+
+// ---------------------------------------------------------------------------
+// The writer task's two pure pieces, split out by the #21 decomposition.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn writer_transform_compresses_what_it_should_and_only_that() {
+  use crate::protocol::{FRAME_REQUEST_FULL, FRAME_REQUEST_FULL_ZLIB, encode_full_request_frame};
+
+  // Off: everything passes through untouched.
+  let text = Message::Text("{\"type\":\"Pong\"}".to_string().into());
+  assert!(matches!(writer_transform(text, false), Message::Text(_)));
+
+  // On: a text frame goes out deflated as binary.
+  let text = Message::Text("{\"type\":\"Pong\"}".to_string().into());
+  let out = writer_transform(text, true);
+  let Message::Binary(b) = out else {
+    panic!("a compressed text frame is binary");
+  };
+  assert_eq!(b.first(), Some(&0x78), "a zlib stream, tag byte and all");
+
+  // A v6 full-request frame with a compressible body is re-tagged zlib.
+  let body = vec![b'a'; 4096];
+  let frame = encode_full_request_frame(FRAME_REQUEST_FULL, "req-1", "{}", &body).unwrap();
+  let out = writer_transform(Message::Binary(frame.into()), true);
+  let Message::Binary(b) = out else {
+    panic!("still binary");
+  };
+  assert_eq!(b.first(), Some(&FRAME_REQUEST_FULL_ZLIB));
+  assert!(b.len() < 4096, "deflate won: {} bytes", b.len());
+
+  // An incompressible body keeps its plain tag: paying for the bytes twice
+  // helps nobody.
+  let noise: Vec<u8> = (0..4096u32)
+    .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+    .collect();
+  let frame = encode_full_request_frame(FRAME_REQUEST_FULL, "req-2", "{}", &noise).unwrap();
+  let out = writer_transform(Message::Binary(frame.clone().into()), true);
+  let Message::Binary(b) = out else {
+    panic!("still binary");
+  };
+  assert_eq!(b.first(), Some(&FRAME_REQUEST_FULL));
+  assert_eq!(b.len(), frame.len(), "unchanged");
+
+  // A binary chunk frame (any other tag) is never touched.
+  let chunk =
+    crate::protocol::encode_binary_frame(crate::protocol::FRAME_RESPONSE_CHUNK, "id", b"data")
+      .unwrap();
+  let out = writer_transform(Message::Binary(chunk.clone().into()), true);
+  let Message::Binary(b) = out else {
+    panic!("still binary");
+  };
+  assert_eq!(b.as_ref(), chunk.as_slice());
+}
+
+#[test]
+fn the_pacer_charges_debt_only_past_the_burst() {
+  let start = Instant::now();
+  let mut pacer = SendPacer::new(start);
+  let rate = 1000u64; // bytes per second
+
+  // The first second's burst is free... once earned: a fresh bucket starts
+  // empty, so the very first frame already owes its own transmission time.
+  let debt = pacer.debt(500, rate, start).expect("an empty bucket owes");
+  assert!((debt.as_secs_f64() - 0.5).abs() < 0.001, "{debt:?}");
+
+  // A second later the bucket has refilled to the full burst; a small frame
+  // inside it owes nothing.
+  let later = start + Duration::from_secs(2);
+  assert!(pacer.debt(500, rate, later).is_none());
+
+  // A frame larger than the whole burst drives it negative and pays the
+  // remainder as sleep: 2500 bytes against a 500-token bucket at 1000 B/s
+  // owes two seconds.
+  let debt = pacer.debt(2500, rate, later).expect("past the burst");
+  assert!((debt.as_secs_f64() - 2.0).abs() < 0.001, "{debt:?}");
+}
