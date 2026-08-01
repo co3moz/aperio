@@ -86,7 +86,7 @@ export function MaintenanceSection() {
             <Input
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
-              placeholder={t('app.example.com, *.example.com, or *')}
+              placeholder={t('app.example.com, *.example.com, *-pi.example.com, or *')}
               className="max-w-xs"
             />
             <Input

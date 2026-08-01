@@ -957,7 +957,7 @@ export const ja: Record<string, string> = {
   'Captured inbound webhook payloads': '受信した Webhook Payload の記録',
   'Programmatic admin credentials, hashes only': 'プログラム用の管理資格情報、ハッシュのみ',
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'メンテナンス中の Hostname はありません。登録された Hostname の訪問者には、クライアントが接続されたまま 503 ページが表示されます。サーバー再起動でクリアされます。ドメイン配下のすべての Subdomain には *.example.com を、ドメイン自体も含めたい場合は別途登録してください。',
-  'app.example.com, *.example.com, or *': 'app.example.com、*.example.com、または *',
+  'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com、*.example.com、*-pi.example.com、または *',
   'every subdomain': 'すべての Subdomain',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'スニペットに含まれないもの: {settings}。ファイル側に対応する書き方がありません。ファイルの 503/504 キーはパスを取りますが、ここに入っているのは HTML そのものです。そのためダッシュボードの override のままになります。',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ファイル側のキーは起動時に読まれるため、リロードではなく再起動が必要です。',

@@ -963,7 +963,7 @@ export const tr: Record<string, string> = {
   'Captured inbound webhook payloads': 'Yakalanan gelen webhook payloadları',
   'Programmatic admin credentials, hashes only': 'Programatik yönetim kimlik bilgileri, yalnızca hashler',
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': "Bakımda hostname yok. Listelenen bir hostname'in ziyaretçileri, istemcileri bağlı kalırken 503 sayfası görür; sunucu yeniden başlatılınca temizlenir. Bir domainin tüm subdomainleri için *.example.com kullanın; domainin kendisini de istiyorsanız onu da ekleyin.",
-  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com veya *',
+  'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com, *.example.com, *-pi.example.com veya *',
   'every subdomain': 'tüm subdomainler',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Snippet’te yok: {settings}. Dosyanın bunlar için bir yazımı yok, 503/504 anahtarları bir dosya yolu alıyor, buradaysa HTML’in kendisi duruyor; dolayısıyla panel override’ı olarak kalıyorlar.',
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: dosyadaki anahtar başlangıçta okunuyor, yani bu yeniden yükleme ile değil ancak yeniden başlatmayla uygulanır.',

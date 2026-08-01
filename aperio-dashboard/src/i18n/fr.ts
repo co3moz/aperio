@@ -959,7 +959,7 @@ export const fr: Record<string, string> = {
   'Captured inbound webhook payloads': 'Payloads de webhooks entrants capturés',
   'Programmatic admin credentials, hashes only': "Identifiants d'administration programmatiques, hachages uniquement",
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Aucun hostname en maintenance. Les visiteurs d’un hostname listé voient la page 503 pendant que ses clients restent connectés ; effacé au redémarrage du serveur. Utilisez *.example.com pour tous les sous-domaines d’un domaine, et ajoutez le domaine lui-même si vous le voulez aussi.',
-  'app.example.com, *.example.com, or *': 'app.example.com, *.example.com ou *',
+  'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com, *.example.com, *-pi.example.com ou *',
   'every subdomain': 'tous les sous-domaines',
   'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': "Absents du snippet : {settings}. Le fichier n'a pas de graphie pour eux, ses clés 503/504 prennent un chemin alors qu'ici c'est le HTML lui-même, ils restent donc des overrides du tableau de bord.",
   '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': "{settings} : la clé du fichier est lue au démarrage, cela demande donc un redémarrage plutôt qu'un rechargement.",
