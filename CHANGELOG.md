@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **The routine sweeps left the request path.** The per-IP and per-route rate-bucket cleanups and the expired-session sweep used to run inline, under their lock, on the back of whichever request happened to draw the five-minute tick; with a large map that request, and everyone queued behind the lock, paid for the whole retain. They run on a background beat now. The inline size failsafes stay, and an expired session is still refused on lookup regardless of the sweep. Unmeasured, reasoned from the code: the change removes a periodic tail-latency spike, not average cost.
+
 ### Fixed
 
 - **The `dashboard:` block's schema example no longer refuses to start the server.** The example still showed an `auth` key inside the block, the separate dashboard password whose removal was 0.6.0's security note, and the block rejects unknown keys, so pasting the example produced a file the server could not parse, written on the schema's own advice. The example is fixed and a test now parses every example in both schemas, so an editor completion can no longer suggest a configuration the parser refuses.

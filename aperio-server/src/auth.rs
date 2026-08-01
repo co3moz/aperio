@@ -776,17 +776,9 @@ pub(crate) fn constant_time_eq_str(a: &str, b: &str) -> bool {
 /// - `Some(Some(host))`, a valid session scoped to `host` only.
 /// - `None`, no valid session.
 async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<String>> {
-  // Lazy garbage collection of expired sessions (runs at most once per 5 minutes).
-  {
-    let mut last_gc = state.last_session_gc.lock().await;
-    if last_gc.elapsed() > Duration::from_secs(300) {
-      let mut sessions = state.sessions.lock().await;
-      let now = crate::store::sessions::now_secs();
-      sessions.retain(|info| info.expires_at > now);
-      *last_gc = Instant::now();
-    }
-  }
-
+  // Expired sessions are swept by the background gc beat (`gc_tick_once`);
+  // the lookup below still refuses an expired entry on its own, so a session
+  // never outlives its expiry between beats, it only occupies memory.
   let token = session_cookie(headers)?;
   // Reject cookie values that are not valid UUIDs (session tokens are always
   // generated with uuid::Uuid::new_v4). This avoids unnecessary HashMap lookups

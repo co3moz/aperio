@@ -1029,3 +1029,65 @@ fn a_route_rate_limit_spends_its_burst_and_then_refuses() {
     );
   });
 }
+
+#[tokio::test]
+async fn one_gc_beat_sweeps_stale_buckets_and_expired_sessions() {
+  let state = crate::test_support::test_state_with(crate::test_support::test_config());
+  // A stale and a fresh rate bucket, dated by hand.
+  let old = Instant::now() - Duration::from_secs(700);
+  state.rate_limiter.lock().await.insert(
+    "203.0.113.9".parse().unwrap(),
+    RateLimitState {
+      tokens: 1.0,
+      last_updated: old,
+    },
+  );
+  assert!(
+    state
+      .check_rate_limit("198.51.100.7".parse().unwrap())
+      .await
+  );
+  state.route_rate.lock().await.insert(
+    "stale-route".to_string(),
+    RateLimitState {
+      tokens: 1.0,
+      last_updated: old,
+    },
+  );
+  let session = |expires_at: u64| crate::store::sessions::SessionInfo {
+    expires_at,
+    created_at: 0,
+    ip: None,
+    user_agent: None,
+    scope_host: None,
+    username: None,
+    role: crate::store::users::Role::Admin,
+    selected_org: None,
+    bound_org: None,
+  };
+  {
+    let mut sessions = state.sessions.lock().await;
+    sessions.insert("expired", session(1));
+    sessions.insert("live", session(crate::store::tokens::now_secs() + 3600));
+  }
+
+  state.gc_tick_once(Instant::now()).await;
+
+  let rates = state.rate_limiter.lock().await;
+  assert!(
+    !rates.contains_key(&"203.0.113.9".parse().unwrap()),
+    "stale IP swept"
+  );
+  assert!(
+    rates.contains_key(&"198.51.100.7".parse().unwrap()),
+    "fresh IP kept"
+  );
+  drop(rates);
+  assert!(
+    state.route_rate.lock().await.is_empty(),
+    "stale route swept"
+  );
+  let sessions = state.sessions.lock().await;
+  assert!(sessions.get("expired").is_none());
+  assert!(sessions.get("live").is_some());
+}

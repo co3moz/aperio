@@ -253,8 +253,6 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     token_daily_bytes: Mutex::new(HashMap::new()),
     token_seen_ips: Mutex::new(HashMap::new()),
     route_rate: Mutex::new(HashMap::new()),
-    last_session_gc: Mutex::new(Instant::now()),
-    last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),

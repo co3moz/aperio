@@ -1228,8 +1228,6 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     token_daily_bytes: Mutex::new(HashMap::new()),
     token_seen_ips: Mutex::new(HashMap::new()),
     route_rate: Mutex::new(HashMap::new()),
-    last_session_gc: Mutex::new(Instant::now()),
-    last_rate_gc: Mutex::new(Instant::now()),
     active_tunnel_count: AtomicUsize::new(0),
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
@@ -1891,6 +1889,17 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   // Scheduled physical DB snapshots (APERIO_BACKUP_*): inert unless both an
   // interval and a directory are configured.
   backup::spawn(state.clone());
+
+  // Routine sweeps of the per-IP/per-route rate buckets and expired
+  // sessions, off the request path: the sweep used to ride on whichever
+  // request drew the five-minute tick, with the lock held.
+  let gc_state = state.clone();
+  tokio::spawn(async move {
+    loop {
+      tokio::time::sleep(Duration::from_secs(300)).await;
+      gc_state.gc_tick_once(Instant::now()).await;
+    }
+  });
 
   // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
   // that waited out the window.

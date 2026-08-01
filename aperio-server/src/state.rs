@@ -1677,8 +1677,6 @@ pub(crate) struct AppState {
   /// Per-route request-rate buckets (key = matched `rate_limits:` rule),
   /// enforcing the section's aggregate rps/burst per host+path. GC'd on size.
   pub(crate) route_rate: Mutex<HashMap<String, RateLimitState>>,
-  pub(crate) last_session_gc: Mutex<Instant>,
-  pub(crate) last_rate_gc: Mutex<Instant>,
   pub(crate) active_tunnel_count: AtomicUsize,
   /// Active WebSocket proxy streams: stream_id → sender to relay tunnel WsData to public WS.
   pub(crate) ws_streams: Mutex<HashMap<String, WsStreamHandle>>,
@@ -2247,6 +2245,34 @@ impl AppState {
     }
   }
 
+  /// One beat of the background garbage collector: sweeps the per-IP and
+  /// per-route rate buckets and the expired sessions.
+  ///
+  /// These retains used to run inline, under their lock, on the back of
+  /// whichever request happened to draw the five-minute tick; a big map made
+  /// that request (and everyone queued behind the lock) pay for the sweep.
+  /// The size failsafes at the call sites stay, they are what bounds the maps
+  /// between beats; this is the routine sweep that keeps the failsafes from
+  /// ever being the mechanism.
+  pub(crate) async fn gc_tick_once(&self, now: Instant) {
+    self
+      .rate_limiter
+      .lock()
+      .await
+      .retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+    self
+      .route_rate
+      .lock()
+      .await
+      .retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+    let now_secs = crate::store::sessions::now_secs();
+    self
+      .sessions
+      .lock()
+      .await
+      .retain(|info| info.expires_at > now_secs);
+  }
+
   /// The maintenance flag in force for `host`, if any: an exact entry, a
   /// `*.suffix` wildcard covering it, or the server-wide `*`.
   ///
@@ -2373,17 +2399,11 @@ impl AppState {
     let mut limit_map = self.rate_limiter.lock().await;
     let now = Instant::now();
 
-    // Periodic garbage collection of stale IP buckets to prevent memory leak.
-    // Runs at most once per 5 minutes; evicts entries untouched for over 10 minutes.
-    {
-      let mut last_gc = self.last_rate_gc.lock().await;
-      if last_gc.elapsed() > Duration::from_secs(300) {
-        limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
-        *last_gc = now;
-      }
-    }
-
-    // Failsafe: if the map still grew too large between GC runs, trim aggressively.
+    // Stale buckets are swept by the background gc beat (`gc_tick_once`), not
+    // here: a retain over tens of thousands of entries used to run on the
+    // back of whichever request drew the five-minute tick, with the lock
+    // held, which is a tail-latency spike by design. Only the size failsafe
+    // stays inline, since it is what bounds the map between beats.
     if limit_map.len() > 1000 {
       limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
     }

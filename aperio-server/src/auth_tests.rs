@@ -800,11 +800,13 @@ async fn session_scope_gc_prunes_expired() {
   )
   .await;
   let live = seed_session(&state, Role::Admin, None, None).await;
-  // Force the lazy GC to run on the next validate_session call.
-  *state.last_session_gc.lock().await = Instant::now() - Duration::from_secs(400);
+  // An expired session grants nothing even before any sweep runs...
   assert!(validate_session(&state, &cookie_headers(&live)).await);
-  // The expired session was pruned by the GC sweep.
+  assert!(!validate_session(&state, &cookie_headers(&expired)).await);
+  // ...and the background gc beat is what removes the row itself.
+  state.gc_tick_once(Instant::now()).await;
   assert!(state.sessions.lock().await.get(&expired).is_none());
+  assert!(state.sessions.lock().await.get(&live).is_some());
 }
 
 // --- caller_org / is_master_admin / effective_org ---------------------------
