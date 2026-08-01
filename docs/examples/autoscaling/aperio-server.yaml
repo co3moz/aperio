@@ -1,0 +1,17 @@
+server:
+  token: apr_autoscaling_change_me
+port: 8080
+
+# Honor client `scaling:` declarations. Off by default, because the client is
+# a lower-trust credential than an operator and this makes it cause outbound
+# calls from the server.
+scaling:
+  enabled: true
+  # The endpoint must be HTTPS on a public address unless explicitly allowed
+  # otherwise; both switches exist for a provider API that genuinely lives on
+  # plain HTTP or on the internal network.
+  allow_http: false
+  allow_private: false
+  # Seconds after which an unrefreshed autoscaling record is dropped, so a
+  # decommissioned service does not keep a cold-start trap behind.
+  record_ttl: 2592000

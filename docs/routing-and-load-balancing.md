@@ -72,3 +72,4 @@ Copy-and-adapt config pairs for this topic:
 - [`sticky_sessions`](examples/sticky_sessions/): sticky sessions
 - [`random_subdomain`](examples/random_subdomain/): preview subdomains
 - [`routes`](examples/routes/): client-less routes
+- [`traffic_rules`](examples/traffic_rules/): per-route rate limits, WAF-lite, fallbacks, per-hostname error pages

@@ -196,4 +196,4 @@ Everything the dashboard does goes through a REST API under `/aperio/api/`, and 
 
 Copy-and-adapt config pairs for this topic:
 
-- [`dashboard`](examples/dashboard/): separate password, IP fencing, headless off
+- [`dashboard`](examples/dashboard/): signing in with the master token or a named user, IP fencing, headless off

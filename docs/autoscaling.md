@@ -150,6 +150,8 @@ Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also 
 
 ## Related
 
+Copy-and-adapt config pair for this topic: [`autoscaling`](examples/autoscaling/).
+
 - [Client Resilience](client-resilience.md), graceful drain, which is what makes `idle_timeout` invisible to visitors.
 - [Performance Tuning](performance-tuning.md), the concurrency knobs autoscaling reads.
 - [Observability](observability.md), the audit and webhook events.

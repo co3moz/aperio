@@ -4,7 +4,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 
 ## Conventions
 
-- **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) still works but is deprecated and goes away in 0.7.0. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.
+- **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) still works but is deprecated and goes away in 0.9.0. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.
 - `https://tunnel.example.com`, the public URL of your Aperio server.
 - `apr_<scenario>_change_me`, a placeholder token; replace it with a long random string of your own.
 - One folder per scenario. Where a feature reads differently with one service than with several, the folder shows both.
@@ -19,6 +19,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [load_balancing](load_balancing/) | Primary/standby failover tiers via `priority`, including a machine that is primary for some routes and standby for others. |
 | [sticky_sessions](sticky_sessions/) | Pin each visitor to the client that first served them. |
 | [failover](failover/) | In-flight failover: re-dispatch requests when a client dies mid-request. |
+| [autoscaling](autoscaling/) | Scale out through an endpoint you control, scale in by idling out, and cold-start from zero. |
 | [cache](cache/) | Server-side GET response cache, opted in per service. |
 | [resilience](resilience/) | Serve cached (even stale) responses while no healthy client is connected. |
 | [messaging](messaging/) | Clients signalling each other over the tunnel they already hold: subscribe, publish, and run a command on receipt. |
@@ -27,6 +28,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |
 | [public_expose](public_expose/) | Expose a declared tunnel on a raw public server port, owned by a named token. |
 | [routes](routes/) | Client-less routes: redirects and fixed responses served by the server alone. |
+| [traffic_rules](traffic_rules/) | Server-side request rules: per-route rate limits, WAF-lite, fallbacks, per-hostname error pages. |
 | [visitor_auth](visitor_auth/) | Visitor login gates: server-wide password, client-set override, and `public:`. |
 | [allowed_ips](allowed_ips/) | Restrict a service to specific visitor IPs/CIDRs, per service. |
 | [random_subdomain](random_subdomain/) | Preview environments on random subdomains, kept out of search engines. |
@@ -36,7 +38,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 | [oidc](oidc/) | Put an identity-provider (SSO) login in front of everything the tunnel serves. |
 | [share_links](share_links/) | Temporary, scoped visitor access to a gated site, no accounts. |
 | [organizations](organizations/) | Multi-tenancy: isolate one server into separate organizations. |
-| [dashboard](dashboard/) | The admin dashboard: separate password, IP fencing, headless off. |
+| [dashboard](dashboard/) | The admin dashboard: signing in with the master token or a named user, IP fencing, headless off. |
 | [tuning](tuning/) | Capacity knobs: concurrency, parallel connections, bandwidth, timeouts, per service and shared. |
 
 Tip: point your editor at the generated JSON Schemas for completion and validation while editing these files, see [Configuration → Editor autocompletion](../configuration.md#editor-autocompletion-json-schema).

@@ -106,3 +106,4 @@ Copy-and-adapt config pairs for this topic:
 - [`behind_proxy`](examples/behind_proxy/): behind a reverse proxy / CDN
 - [`oidc`](examples/oidc/): SSO login in front
 - [`allowed_ips`](examples/allowed_ips/): per-service visitor IP allowlists
+- [`traffic_rules`](examples/traffic_rules/): per-route rate limits, WAF-lite, fallbacks, per-hostname error pages

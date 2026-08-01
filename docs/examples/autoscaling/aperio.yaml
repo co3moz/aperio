@@ -1,0 +1,38 @@
+# The Aperio server to dial out to, and the token that authorizes this client.
+# The token must match `server.token` in aperio-server.yaml.
+server:
+  url: https://tunnel.example.com
+  token: apr_autoscaling_change_me
+
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: app.example.com
+
+# The scale-OUT half: where the server asks for capacity. The endpoint is
+# yours (a provider API, a small shim in front of one); the server POSTs the
+# desired instance count to it and never starts anything itself.
+scaling:
+  url: https://api.provider.example/apps/web/scale
+  # Sent as `Authorization: Bearer` on the call. Write-only: the server never
+  # echoes it back and never logs it.
+  secret: ${SCALE_SECRET}
+  # 0 opts into scale-to-zero: a request for the unserved hostname triggers a
+  # cold start instead of a 504.
+  min: 0
+  max: 8
+  # How long a visitor is held while a cold start completes. Their request
+  # waits at the server and is dispatched the moment this client connects.
+  cold_start: 45s
+  # Ask for one more instance once the pool runs hotter than this for
+  # `window`, and never more often than `cooldown`: a new instance needs time
+  # to appear before it makes sense to ask again.
+  target_utilization: 0.8
+  window: 15s
+  cooldown: 60s
+
+# The scale-IN half: the server never stops anything, an idle client retires
+# itself. Graceful (routing stops first, in-flight requests finish), and the
+# timer only starts after the first served request, so a slow boot cannot
+# make the instance exit before it is ever used.
+idle_timeout: 10m

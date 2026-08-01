@@ -6,7 +6,7 @@ server:
 
 # What this client exposes. A file always describes its backends under
 # `services:`, even when there is exactly one, the top-level `target:` that
-# used to do this is deprecated and goes away in 0.7.0.
+# used to do this is deprecated and goes away in 0.9.0.
 # A bare port (`3000`) or hostname (`example.com`) is normalized to a URL.
 services:
   - target: http://localhost:3000

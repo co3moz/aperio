@@ -17,9 +17,15 @@ services:
     target: http://localhost:5000
     hostname: reports.example.com
     timeout: 300                 # report generation is slow by nature
+    response_timeout: 300        # ask the server to wait this long too, or it
+                                 # gives up at its own gateway timeout first
     max_response_body: 209715200 # up to 200 MB exports
+    max_request_body: 52428800   # uploads over 50 MB answer 413 at the server,
+                                 # before they enter the tunnel
 
   - name: media
     target: http://localhost:6000
     hostname: media.example.com
     bandwidth: 8mbit             # server paces responses to this rate
+    capture: false               # keep this firehose out of the request
+                                 # inspector; traffic and statistics still count

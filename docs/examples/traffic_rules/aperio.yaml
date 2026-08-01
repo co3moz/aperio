@@ -1,0 +1,14 @@
+# The client side of this pair is deliberately plain: every rule in
+# aperio-server.yaml is enforced by the server before a request reaches the
+# tunnel, so the client neither declares nor sees any of it.
+server:
+  url: https://tunnel.example.com
+  token: apr_traffic_rules_change_me
+
+services:
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+  - name: app
+    target: http://localhost:3000
+    hostname: app.example.com

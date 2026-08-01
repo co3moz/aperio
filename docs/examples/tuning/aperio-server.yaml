@@ -5,3 +5,9 @@ port: 8080
 # Global ceilings still apply across all services and clients.
 max_concurrent_requests: 200
 max_body_size: 10485760
+
+# Parallel tunnel connections one client may open for a single service. The
+# number is announced to the client on connect, so a `connections:` above it
+# costs one refused connection instead of a fan of them; a token's own
+# `max_connections` may lower it further for its holder, never raise it.
+max_connections_per_service: 8
