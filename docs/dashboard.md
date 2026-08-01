@@ -81,12 +81,13 @@ Admins see every live dashboard session on the Users page, who is signed in, fro
 
 Put a hostname into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
 
-Three shapes are accepted, the same two an organization's hostname allowlist is written in plus the server-wide one:
+Four shapes are accepted, the same three an organization's hostname allowlist is written in plus the server-wide one:
 
 | Entry | Covers |
 |---|---|
 | `robogon.com` | that hostname, and nothing under it |
 | `*.robogon.com` | every subdomain at any depth (`test.robogon.com`, `a.b.robogon.com`), **not** the apex, so list `robogon.com` as well if you want both |
+| `*-pi.robogon.com` | one label around the placeholder (`test-pi.robogon.com`, never `test.robogon.com` or the apex), a fleet naming convention as one flag |
 | `*` | every hostname on the server; reserved for the master organization |
 
 A flag carries a **reason** and, optionally, a **window**. The reason is shown on the 503 page and in the list, so the visitor and the next operator read the same sentence; a custom 503 page opts in by writing `{reason}` and `{until}` where it wants them, an existing page is unchanged. The window (`ttl_seconds`, or the dropdown) makes the flag lift by itself and makes `Retry-After` truthful instead of a fixed 300, because the flag that causes an outage is the one switched on for twenty minutes of work and left up. Without one it stays until someone turns it off, as before. The list shows who set each flag and when.

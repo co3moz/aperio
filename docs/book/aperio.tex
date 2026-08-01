@@ -1166,7 +1166,14 @@ Appendix~\ref{app:protocol}; the shapes that matter here are:
   \item Per-stream flow control (\code{StreamPause}/\code{StreamResume}),
         which lets the server throttle one producer without touching
         anything else on the connection.
+  \item Messages between clients (\code{Subscribe}/\code{Publish} and
+        their acknowledgements), Chapter~\ref{ch:messaging}.
 \end{itemize}
+
+Since protocol v5 a buffered response body travels as bytes in the same
+binary frame as its JSON envelope rather than base64 inside it, and
+since v6 a buffered request body does too; the change is negotiated, so
+an older peer on either side keeps receiving base64 in JSON.
 
 \section{HTTP/2 and gRPC}
 
@@ -1540,8 +1547,9 @@ as a named user, or through OIDC.
         why they did not.
   \item[Maintenance] The per-hostname 503 switch. An entry is a hostname,
         a \code{*.example.com} subdomain wildcard (every subdomain, not the
-        apex, so an operator who wants both lists both), or \code{*} for
-        the whole server, which is master's alone. A flag carries a reason,
+        apex, so an operator who wants both lists both), a partial leftmost
+        label (\code{*-pi.example.com}), or \code{*} for the whole server,
+        which is master's alone. A flag carries a reason,
         shown to the visitor on the 503 page and to the next operator in
         the list, and optionally a window after which it lifts by itself,
         which also makes \code{Retry-After} truthful. Flags live in memory
@@ -2061,6 +2069,126 @@ aperio-client api tunnel create --name pr-123 --expire 2h
 Omit the hostname to get a random subdomain. A GitHub Action wraps the
 whole flow: provision, run the client, post the URL on the pull request,
 tear down.
+
+\chapter{Messages between clients}
+\label{ch:messaging}
+
+\section{The third direction}
+
+A client can be reached from outside, and can reach a private service
+through a peer. Messaging is the third thing: the clients of one
+organisation telling each other that something happened. One publish, and
+every client of the organisation that subscribed to that topic hears
+about it, wherever it runs.
+
+Nothing new is dialled and nothing new is opened. The message travels
+over the WebSocket connection the client already maintains, so it works
+from behind NAT, needs no port, and is authenticated by the token the
+client connected with. Filters are MQTT's, because that is the syntax
+people already know: \code{+} matches exactly one level, \code{\#}
+matches the rest and is only legal last.
+
+\begin{codecard}[aperioyaml]{The subscribing side, in aperio.yaml}
+subscribe:
+  - deploy/#
+  - topic: deploy/api      # listen, and run this on receipt
+    run: ./deploy.sh
+    timeout: 120
+\end{codecard}
+
+\begin{codecard}[aperiosh]{The publishing side, from anywhere with an admin credential}
+aperio-client api POST /publish -d '{"topic":"deploy/web","payload":"v1.9.2"}'
+\end{codecard}
+
+The answer says how far it went (\code{clients}, \code{connections});
+a publish nobody subscribes to is not an error, it reaches nobody. The
+payload ceiling is 256\,KB: a message is a signal, and moving data is
+what tunnels are for. A subscription belongs to the client
+\emph{process}, not to its connections, so a client with a
+\code{services:} list holds several tunnel connections and still
+receives each message once; there is nothing to deduplicate.
+
+\section{Who may use which topics}
+
+Messaging is a token capability, off unless the token carries it. A
+dynamic token holds a \code{topics} list of filters, and one rule covers
+both directions: a token that may subscribe to \code{deploy/\#} may
+publish on it, and a token with an empty list can do neither. The list
+is a fence rather than a wish: a subscription is permitted when a
+granted filter \emph{covers} it, so \code{deploy/\#} grants
+\code{deploy/web} and refuses \code{\#}, otherwise subscribing to
+everything would be the way around a scope that named one subtree. A
+refused subscription is reported by name in the client's log, so a
+missing topic looks like a missing permission and not like a message
+that never arrived. The master token is unrestricted, and an ephemeral
+tunnel token carries no topics at all: it is a guest of the organisation
+for one hostname and has no business signalling the rest of it.
+
+A message never crosses an organisation, and the master organisation is
+not a superset of its children.
+
+\section{Delivery, and what is deliberately absent}
+
+\code{qos: 0}, the default, sends to whoever is connected and forgets.
+\code{qos: 1} is at-least-once: the server keeps the message until each
+subscriber acknowledges it, resending every three seconds and giving up
+after thirty; the subscriber remembers seen ids briefly, so a
+redelivery caused by a lost acknowledgement is dropped rather than
+handed to the application twice. The window is the whole of the
+promise, and it is deliberately short: it covers a connection that died
+between the write and the acknowledgement, not a subscriber that is
+away.
+
+Nothing is stored for a client that is offline, at any QoS, and
+\code{qos: 2} is treated as 1: there is no store-and-forward here to
+build exactly-once on, and granting a level the machinery does not have
+would be worse than saying what it does. A slow subscriber misses
+messages rather than slowing everyone down; the drop is counted in
+\code{aperio\_messages\_dropped\_total}, which is the metric worth an
+alert, because nothing else in the system will say that a client
+silently missed a message. For a broker's semantics, retained messages,
+offline sessions, run a broker of your own behind a tunnel instead.
+
+\section{Receiving locally}
+
+Three ways for the machine to act on a message, cheapest first. A
+\code{run:} command on the subscription executes through the shell with
+the body on \textbf{stdin} and the topic in the environment; the
+payload never becomes part of the command line, the run is timed, and
+concurrent runs are capped, since a publisher in a loop must not fork a
+thousand processes here. \code{messages\_listen} opens a local HTTP
+face: \code{GET /subscribe?topic=...} streams matching messages as
+server-sent events and \code{POST /publish} sends one, so \code{curl
+-N} is a working subscriber. \code{messages\_mqtt\_listen} opens a
+local MQTT 3.1.1 face for an application that would rather use the MQTT
+library it already has; it is a translator rather than a broker, and
+the protocol never leaves the machine. Both faces are loopback by
+default and have no authentication of their own, which is why binding
+them anywhere else is warned about.
+
+\section{The server's own events}
+
+Everything the server reports through webhooks is also published on the
+reserved \code{\$aperio/} namespace, the event name with its
+underscores as levels (\code{\$aperio/client/connected},
+\code{\$aperio/maintenance/on}), with the same JSON payload a webhook
+would receive. A client cannot publish into the namespace, so a
+\code{\$aperio/} message always came from the server; and a bare
+\code{\#} does not match it, so subscribing to everything while
+debugging does not enroll you in infrastructure events you never asked
+to parse. Ask for them by name:
+
+\begin{codecard}[aperioyaml]{React to the fleet, not only to your own traffic}
+subscribe:
+  - $aperio/client/#
+  - topic: $aperio/scaling/requested
+    run: ./notify-ops.sh
+\end{codecard}
+
+This composes with the rest of the system on purpose: autoscaling
+requests, maintenance toggles and token lifecycle events arrive as
+messages, so a client can react to infrastructure without standing up
+an HTTP receiver for it.
 
 \chapter{Performance and capacity}
 \label{ch:performance}
@@ -2623,7 +2751,7 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it --- \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
 \rowsep
-\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (see \emph{Messages Between Clients}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
+\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (Chapter~\ref{ch:messaging}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
 \rowsep
 \code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
 \rowsep
@@ -2675,7 +2803,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/api/activity} & Request volume in five-second buckets over the last 15 minutes, for the activity chart's long view. & dashboard session \\
 \code{GET /aperio/api/explain} & Dry run: which rule would answer a request to a hostname and path, and what every other stage saw. Spends no rate limit and wakes nothing. & dashboard session (operator+) \\
-\code{GET/POST /aperio/api/maintenance} & List / toggle maintenance mode for a hostname, a \code{*.example.com} subdomain wildcard, or \code{*} (master only). \code{reason} and \code{ttl\_seconds} are optional. & dashboard session \\
+\code{GET/POST /aperio/api/maintenance} & List / toggle maintenance mode for a hostname, a \code{*.example.com} subdomain wildcard, a partial label (\code{*-pi.example.com}), or \code{*} (master only). \code{reason} and \code{ttl\_seconds} are optional. & dashboard session \\
 \rowsep
 \code{POST /aperio/api/share} & Generate a signed share link (see \emph{Share Links}). & dashboard session \\
 \rowsep
@@ -2712,11 +2840,17 @@ complete list, it is authoritative, and it always matches the running build.
 \label{app:protocol}
 
 One WebSocket carries every kind of traffic for a service, multiplexed by
-request id. Messages are JSON objects tagged with \code{type}; protocol
-v2 additionally moves chunk payloads onto binary frames with a compact
-\code{[tag][id\_len][id][payload]} header instead of base64, and protocol
-v3, the current version, adds the per-stream pause/resume pair
-(Section~\ref{sec:flow-control}).
+request id. Messages are JSON objects tagged with \code{type}. The
+current protocol version is 6, negotiated per connection, and each step
+is additive: v2 moves chunk payloads onto binary frames with a compact
+\code{[tag][id\_len][id][payload]} header instead of base64; v3 adds the
+per-stream pause/resume pair (Section~\ref{sec:flow-control}); v4 adds
+the messaging family (Chapter~\ref{ch:messaging}); v5 carries a buffered
+response body as bytes in the same binary frame as its envelope, and v6
+does the same for a buffered request body, the direction an upload
+travels. Both full-body frames have a zlib sibling used when the
+connection negotiated compression and deflating actually made the
+payload smaller.
 
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
 \toprule
@@ -2777,6 +2911,16 @@ compression of tunnel frames at connect time. \\
 control (v3): the producing client stops reading that one stream's source
 while its server-side backlog is too large, and carries on once it
 drains. \\
+\rowsep
+\code{Subscribe} / \code{Unsubscribe} & client & Topic filters this
+process wants (v4), replacing or trimming its set; refused filters come
+back by name in \code{SubscribeRefused}. \\
+\rowsep
+\code{Publish} & both & One message between the clients of an
+organisation (v4), or from the server on \code{\$aperio/}; carries an id
+and a QoS. \code{PublishAck} acknowledges a \code{qos: 1} delivery so
+the server stops resending it; \code{PublishRefused} answers a publish
+the token may not make. \\
 \bottomrule
 \end{longtable}
 

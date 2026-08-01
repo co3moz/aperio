@@ -25,8 +25,9 @@ const MAX_TTL_SECS: u64 = 365 * 24 * 3600;
 pub(crate) struct MaintenanceRequest {
   /// Hostname to toggle: an exact hostname (`robogon.com`), a subdomain
   /// wildcard (`*.robogon.com`, every subdomain at any depth but not the
-  /// apex, so an operator who wants both sets both), or `*` for every
-  /// hostname on the server.
+  /// apex, so an operator who wants both sets both), a partial leftmost
+  /// label (`*-pi.robogon.com`, one label around the placeholder), or `*`
+  /// for every hostname on the server.
   pub(crate) hostname: String,
   pub(crate) enabled: bool,
   /// Why, in one line. Shown on the 503 page and in the dashboard, so a
@@ -57,7 +58,7 @@ pub(crate) struct MaintenanceEntry {
 
 /// Lists hostnames currently in maintenance mode.
 #[utoipa::path(get, path = "/aperio/api/maintenance", tag = "dashboard",
-  description = "Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it).",
+  description = "Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it, `*-pi.example.com` = one label's shape).",
   responses((status = 200, description = "Maintenance flags", body = Vec<MaintenanceEntry>)))]
 pub(crate) async fn maintenance_list_handler(
   State(state): State<Arc<AppState>>,
@@ -88,7 +89,7 @@ pub(crate) async fn maintenance_list_handler(
 /// Enables/disables maintenance mode for a hostname. In-memory only, like
 /// bind overrides: a server restart clears all maintenance flags.
 #[utoipa::path(post, path = "/aperio/api/maintenance", tag = "dashboard",
-  description = "Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, or `*` (503 page while on). In-memory; cleared by a restart.",
+  description = "Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, a partial label like `*-pi.example.com`, or `*` (503 page while on). In-memory; cleared by a restart.",
   request_body = MaintenanceRequest,
   responses((status = 200, description = "Maintenance state changed")))]
 pub(crate) async fn maintenance_set_handler(
