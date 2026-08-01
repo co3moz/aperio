@@ -59,7 +59,9 @@ async fn submit_telemetry(state: &AppState, ev: crate::state::TelemetryEvent) {
   }
 }
 
-/// Runs the collector until the state (and its senders) go away.
+/// Runs the collector for the life of the process: the state it holds keeps
+/// a sender, so the channel never closes and the loop never ends, which is
+/// the intended shape for a process-lifetime service.
 pub(crate) fn spawn_telemetry_collector(
   state: Arc<AppState>,
   mut rx: mpsc::Receiver<crate::state::TelemetryEvent>,
@@ -93,6 +95,12 @@ static DROPPED_LINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 /// aside, moves behind it: a synchronous `write` on a slow disk used to block
 /// the tokio worker mid-request, and the mutex around it serialized every
 /// request in the process on one file descriptor.
+///
+/// The trade this makes at shutdown: lines still queued at the instant the
+/// process exits are lost, where the old synchronous write was not. The
+/// window is the writer's lag behind the queue, normally microseconds, and
+/// losing a telemetry line beats a request waiting on its own log, which is
+/// the same judgement the full-queue drop below makes.
 pub(crate) fn spawn_writer(path: String, file: std::fs::File) -> mpsc::Sender<AccessLogCmd> {
   let (tx, mut rx) = mpsc::channel::<AccessLogCmd>(4096);
   tokio::spawn(async move {
