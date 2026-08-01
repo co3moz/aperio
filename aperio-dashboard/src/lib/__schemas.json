@@ -2087,7 +2087,6 @@
         "examples": [
           true,
           {
-            "auth": "ops:s3cret",
             "enabled": true
           }
         ]

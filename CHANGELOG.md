@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **The `dashboard:` block's schema example no longer refuses to start the server.** The example still showed an `auth` key inside the block, the separate dashboard password whose removal was 0.6.0's security note, and the block rejects unknown keys, so pasting the example produced a file the server could not parse, written on the schema's own advice. The example is fixed and a test now parses every example in both schemas, so an editor completion can no longer suggest a configuration the parser refuses.
+
 - **A maintenance flag set with a partial-label pattern now serves its 503.** The maintenance endpoint takes every shape the allowlist takes, and the partial one (`*-pi.robogon.com`) was accepted, stored and listed, and then matched no request at all: the read path only knew `*.domain`. An operator who flagged a fleet by its naming convention was told the flag was on while every device kept serving. The matcher now understands all three shapes, same as the fence that authorized the flag in the first place.
 
 - **The explain view names which visitor gate would stop a request.** It only ever reported a password a *client* declared for its own service, so a server-wide `server_auth` or an OIDC configuration read as "no visitor gate" on a hostname that very much has one. All three are reported now, and the step names which of them applies, since a client's password and the server's live in different places and are changed by different people.

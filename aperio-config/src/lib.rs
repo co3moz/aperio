@@ -2090,7 +2090,7 @@ pub struct ServerFileConfig {
   pub cache: Option<CacheSetting>,
   /// The built-in dashboard
   #[serde(default)]
-  #[schemars(extend("examples" = [true, {"enabled": true, "auth": "ops:s3cret"}]))]
+  #[schemars(extend("examples" = [true, {"enabled": true}]))]
   pub dashboard: Option<DashboardSetting>,
   /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server
   #[serde(default)]

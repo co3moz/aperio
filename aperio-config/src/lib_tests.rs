@@ -1054,3 +1054,52 @@ fn filters_and_topics_reject_what_would_silently_match_nothing() {
   assert!(validate_topic("deploy/#").is_err());
   assert!(validate_topic("deploy/+").is_err());
 }
+
+/// Walks one schema's property examples and parses each as a one-key document
+/// of the given config type. Returns what was checked, so the caller can
+/// assert the walk found anything at all.
+fn examples_accepted_by<T: serde::de::DeserializeOwned>(schema: &str, kind: &str) -> usize {
+  let root: serde_json::Value = serde_json::from_str(schema).expect("the schema is JSON");
+  let mut checked = 0;
+  let mut walk = |props: &serde_json::Map<String, serde_json::Value>,
+                  wrap: &dyn Fn(&str, &serde_json::Value) -> serde_json::Value| {
+    for (key, prop) in props {
+      let Some(examples) = prop.get("examples").and_then(|e| e.as_array()) else {
+        continue;
+      };
+      for example in examples {
+        let doc = wrap(key, example);
+        if let Err(e) = serde_json::from_value::<T>(doc.clone()) {
+          panic!(
+            "the {kind} schema's example for `{key}` is a config the parser refuses: {e}\n{doc}"
+          );
+        }
+        checked += 1;
+      }
+    }
+  };
+  let top = root["properties"].as_object().expect("root properties");
+  walk(top, &|key, example| serde_json::json!({ key: example }));
+  // The per-service entry carries most of the client's examples; each is
+  // checked inside the wrapper it would actually be written in.
+  if let Some(entry) = root["$defs"]["ServiceEntry"]["properties"].as_object() {
+    walk(
+      entry,
+      &|key, example| serde_json::json!({ "services": [{ key: example }] }),
+    );
+  }
+  checked
+}
+
+#[test]
+fn every_schema_example_is_a_configuration_the_parser_accepts() {
+  // The examples are what an editor completes and what the docs quote, so a
+  // wrong one is a config file that refuses to start, written on our advice.
+  // The case that prompted this: the `dashboard:` example still carried the
+  // `auth` key whose removal was 0.6.0's Security entry, and the block is
+  // deny_unknown_fields, so pasting the example was fatal.
+  let client = examples_accepted_by::<FileConfig>(&schema_json(), "client");
+  let server = examples_accepted_by::<ServerFileConfig>(&server_schema_json(), "server");
+  assert!(client > 80, "the client walk found only {client} examples");
+  assert!(server > 60, "the server walk found only {server} examples");
+}
