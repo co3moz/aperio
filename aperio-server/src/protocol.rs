@@ -62,6 +62,15 @@ pub const FRAME_REQUEST_FULL_ZLIB: u8 = 6;
 /// stream (often TLS or an AEAD-sealed tunnel already), which is also why
 /// these frames have no zlib sibling: the bytes rarely deflate, and the
 /// win here is the per-byte codec cost, not the wire size.
+///
+/// **Known trade-off, deliberate.** These payloads used to ride inside a
+/// *text* frame, which the writer deflated whole when the connection
+/// negotiated `tunnel_compression`. A binary frame skips that path, so a
+/// deployment with compression on and a *compressible* protocol tunnelled
+/// over TCP (a plain-text wire protocol, say) sends more bytes than it did
+/// before v7, while paying less CPU per byte. Adding zlib siblings here
+/// would recover it; that is a deliberate non-goal, since the payload that
+/// motivates the relay path is the opaque kind.
 pub const FRAME_TCP_DATA: u8 = 7;
 
 /// Binary frame tag for one relayed UDP datagram (either direction), v7.

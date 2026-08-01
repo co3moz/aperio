@@ -2859,7 +2859,11 @@ chunk, a UDP datagram and a binary WebSocket frame travel as tagged
 binary frames rather than base64 inside their JSON message. These have
 no zlib sibling on purpose, a relay payload is an opaque byte stream
 (often already TLS or an end-to-end-sealed tunnel), so the win is the
-per-byte codec rather than the wire size.
+per-byte codec rather than the wire size. The trade that buys: these
+payloads used to ride inside a text frame, which the writer deflated
+whole when the connection negotiated compression, so a compressible
+protocol tunnelled over TCP with \code{tunnel\_compression} on now
+sends more bytes for less CPU than it did before v7.
 
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
 \toprule
