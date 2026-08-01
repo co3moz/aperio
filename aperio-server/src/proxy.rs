@@ -183,7 +183,7 @@ fn spawn_swr_revalidation(
           cache_key,
           tunnel_res.status,
           tunnel_res.headers,
-          body,
+          body.into(),
           ttl,
           state.config().cache_max_bytes,
           resilient,
@@ -596,7 +596,7 @@ fn cache_hit_response(
   } else {
     match range_outcome {
       crate::cache::RangeOutcome::Partial(start, end) => {
-        let slice = hit.body[start..=end].to_vec();
+        let slice = hit.body.slice(start..=end);
         (slice.len() as u64, Body::from(slice))
       }
       crate::cache::RangeOutcome::Unsatisfiable => (0u64, Body::empty()),
@@ -1775,9 +1775,9 @@ async fn proxy_http_request(
               cache_key.clone(),
               tunnel_res.status,
               tunnel_res.headers.clone(),
-              // The cache owns its copy: it outlives this response, and the
-              // `Bytes` here is a view into the frame that carried it.
-              res_bytes.to_vec(),
+              // The cache owns its copy, but a `Bytes` clone is a refcount
+              // bump, not a byte copy, so the lock is held only that long.
+              res_bytes.clone(),
               ttl,
               state.config().cache_max_bytes,
               selected.resilience,

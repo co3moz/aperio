@@ -41,7 +41,7 @@ pub(crate) fn if_none_match_matches(if_none_match: &str, etag: &str) -> bool {
 struct CachedResponse {
   status: u16,
   headers: Vec<(String, String)>,
-  body: Vec<u8>,
+  body: axum::body::Bytes,
   stored_at: Instant,
   expires_at: Instant,
   /// Surrogate cache tags (CDN-style `Surrogate-Key` header) for tag-based
@@ -80,7 +80,7 @@ pub(crate) enum SwrLookup {
 pub(crate) struct CacheHit {
   pub(crate) status: u16,
   pub(crate) headers: Vec<(String, String)>,
-  pub(crate) body: Vec<u8>,
+  pub(crate) body: axum::body::Bytes,
   /// Seconds since the entry was stored (the `Age` header).
   pub(crate) age_secs: u64,
   /// True when the entry is past its advertised lifetime (outage serving).
@@ -316,7 +316,7 @@ impl ResponseCache {
     key: String,
     status: u16,
     headers: Vec<(String, String)>,
-    body: Vec<u8>,
+    body: axum::body::Bytes,
     ttl: Duration,
     max_bytes: u64,
     resilient: bool,

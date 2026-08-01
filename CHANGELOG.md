@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **A cache hit stops copying the body under the lock.** The response cache held its bodies as `Vec<u8>` and cloned the whole vector while holding the cache lock on every hit, so a hot large response serialized every other cacheable request behind a full memcpy. The body is `Bytes` now; the clone is a refcount bump, and the lock is held only that long. The cache's own recency and hit accounting still need a write lock (turning that into a read lock is a separate, larger rework of the cache internals, recorded rather than rushed). Unmeasured, reasoned from the code.
+
 - **The live-clients map is a read/write lock.** Routing, statistics, pub/sub fan-out and the maps all read the connected-client set on every request, while only a connect, a disconnect, or a heartbeat's announcement mutates it; under the previous mutex those readers serialized with each other and with every heartbeat on one queue. They take a shared read lock now, so concurrent requests read it at once; the mutating paths take the write lock, unchanged in behavior. Unmeasured, reasoned from the code.
 
 - **Per-request bookkeeping moved off the request's back.** Recording a request for the dashboard (the slowest-endpoints report, the sparkline trends, the activity ring, the recent-traffic list) took four sequential global locks on the serving worker. The request now queues one event and a collector task does the writes; when the queue is full or absent the write happens inline exactly as before, so nothing is lost either way. Unmeasured, reasoned from the code: this removes cross-request lock contention, not work.

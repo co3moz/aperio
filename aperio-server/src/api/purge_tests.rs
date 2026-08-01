@@ -70,7 +70,7 @@ async fn cache_insert(state: &AppState, key: &str, tags: Vec<&str>) {
     key.to_string(),
     200,
     vec![("content-type".to_string(), "text/plain".to_string())],
-    b"body".to_vec(),
+    axum::body::Bytes::from_static(b"body"),
     Duration::from_secs(60),
     64 * 1024,
     false,

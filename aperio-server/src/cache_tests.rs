@@ -65,7 +65,7 @@ fn test_cache_store_and_expiry() {
     "h|/a".to_string(),
     200,
     headers.clone(),
-    b"hello".to_vec(),
+    axum::body::Bytes::from_static(b"hello"),
     Duration::from_secs(60),
     1024,
     false,
@@ -74,7 +74,7 @@ fn test_cache_store_and_expiry() {
   );
   let hit = cache.get("h|/a", Duration::ZERO).expect("hit");
   assert_eq!(hit.status, 200);
-  assert_eq!(hit.body, b"hello");
+  assert_eq!(hit.body.as_ref(), b"hello");
   assert!(cache.get("h|/b", Duration::ZERO).is_none());
 
   // Zero-TTL entries expire immediately.
@@ -82,7 +82,7 @@ fn test_cache_store_and_expiry() {
     "h|/z".to_string(),
     200,
     headers.clone(),
-    b"gone".to_vec(),
+    axum::body::Bytes::from_static(b"gone"),
     Duration::from_secs(0),
     1024,
     false,
@@ -96,7 +96,7 @@ fn test_cache_store_and_expiry() {
     "h|/big".to_string(),
     200,
     headers.clone(),
-    vec![0u8; 512],
+    vec![0u8; 512].into(),
     Duration::from_secs(60),
     1024,
     false,
@@ -117,7 +117,7 @@ fn test_cache_eviction_respects_budget() {
       format!("h|/{}", i),
       200,
       headers.clone(),
-      vec![0u8; 200],
+      vec![0u8; 200].into(),
       Duration::from_secs(*ttl),
       1000,
       false,
@@ -129,7 +129,7 @@ fn test_cache_eviction_respects_budget() {
     "h|/new".to_string(),
     200,
     headers.clone(),
-    vec![0u8; 240],
+    vec![0u8; 240].into(),
     Duration::from_secs(60),
     1000,
     false,
@@ -171,7 +171,7 @@ fn test_etag_synthesis_and_matching() {
     "h|/no-etag".to_string(),
     200,
     Vec::new(),
-    b"hello".to_vec(),
+    axum::body::Bytes::from_static(b"hello"),
     Duration::from_secs(60),
     4096,
     false,
@@ -191,7 +191,7 @@ fn test_etag_synthesis_and_matching() {
     "h|/has-etag".to_string(),
     200,
     vec![("ETag".to_string(), "\"origin\"".to_string())],
-    b"hello".to_vec(),
+    axum::body::Bytes::from_static(b"hello"),
     Duration::from_secs(60),
     4096,
     false,
@@ -220,7 +220,7 @@ fn test_serve_stale_outage_semantics() {
     "h|/r".to_string(),
     200,
     headers.clone(),
-    b"stale-ok".to_vec(),
+    axum::body::Bytes::from_static(b"stale-ok"),
     Duration::from_secs(0),
     1024,
     true,
@@ -230,7 +230,7 @@ fn test_serve_stale_outage_semantics() {
   assert!(cache.get("h|/r", max_stale).is_none(), "fresh path misses");
   let hit = cache.get_for_outage("h|/r", max_stale).expect("stale hit");
   assert!(hit.stale);
-  assert_eq!(hit.body, b"stale-ok");
+  assert_eq!(hit.body.as_ref(), b"stale-ok");
   // The fresh-path miss must not have dropped the resilient entry.
   assert!(cache.get_for_outage("h|/r", max_stale).is_some());
 
@@ -239,7 +239,7 @@ fn test_serve_stale_outage_semantics() {
     "h|/n".to_string(),
     200,
     headers.clone(),
-    b"plain".to_vec(),
+    axum::body::Bytes::from_static(b"plain"),
     Duration::from_secs(0),
     1024,
     false,
@@ -256,7 +256,7 @@ fn test_serve_stale_outage_semantics() {
     "h|/f".to_string(),
     200,
     headers,
-    b"fresh".to_vec(),
+    axum::body::Bytes::from_static(b"fresh"),
     Duration::from_secs(60),
     1024,
     true,
@@ -281,7 +281,7 @@ fn test_swr_lookup_and_leader_election() {
     "h|/swr".to_string(),
     200,
     headers.clone(),
-    b"stale-ok".to_vec(),
+    axum::body::Bytes::from_static(b"stale-ok"),
     Duration::ZERO,
     1024,
     false,
@@ -293,7 +293,7 @@ fn test_swr_lookup_and_leader_election() {
     SwrLookup::StaleRevalidate { hit, lead } => {
       assert!(lead);
       assert!(hit.stale);
-      assert_eq!(hit.body, b"stale-ok");
+      assert_eq!(hit.body.as_ref(), b"stale-ok");
     }
     _ => panic!("expected a stale-while-revalidate hit"),
   }
@@ -306,7 +306,7 @@ fn test_swr_lookup_and_leader_election() {
     "h|/swr".to_string(),
     200,
     headers,
-    b"fresh".to_vec(),
+    axum::body::Bytes::from_static(b"fresh"),
     Duration::from_secs(60),
     1024,
     false,
@@ -314,7 +314,7 @@ fn test_swr_lookup_and_leader_election() {
     Vec::new(),
   );
   match cache.lookup("h|/swr", Duration::ZERO) {
-    SwrLookup::Fresh(hit) => assert_eq!(hit.body, b"fresh"),
+    SwrLookup::Fresh(hit) => assert_eq!(hit.body.as_ref(), b"fresh"),
     _ => panic!("expected a fresh hit after the refresh"),
   }
   // Entries without an SWR window still miss once expired.
@@ -322,7 +322,7 @@ fn test_swr_lookup_and_leader_election() {
     "h|/plain".to_string(),
     200,
     vec![],
-    b"x".to_vec(),
+    axum::body::Bytes::from_static(b"x"),
     Duration::ZERO,
     1024,
     false,
@@ -343,7 +343,7 @@ fn test_purge_matching() {
       key.to_string(),
       200,
       vec![],
-      b"y".to_vec(),
+      axum::body::Bytes::from_static(b"y"),
       Duration::from_secs(60),
       1024,
       false,
@@ -405,7 +405,7 @@ fn stats_track_hits_and_misses() {
     "h|/a".to_string(),
     200,
     vec![],
-    b"x".to_vec(),
+    axum::body::Bytes::from_static(b"x"),
     Duration::from_secs(60),
     4096,
     false,
@@ -428,7 +428,7 @@ fn purge_by_surrogate_drops_tagged_entries() {
       key.to_string(),
       200,
       vec![],
-      b"x".to_vec(),
+      axum::body::Bytes::from_static(b"x"),
       Duration::from_secs(60),
       4096,
       false,

@@ -266,7 +266,7 @@ fn hit(
   crate::cache::CacheHit {
     status,
     headers,
-    body: body.to_vec(),
+    body: body.to_vec().into(),
     age_secs: 3,
     stale,
   }
@@ -425,7 +425,7 @@ async fn stale_cache_serves_resilient_entry() {
     crate::cache::cache_key(None, "/x"),
     200,
     vec![("content-type".to_string(), "text/plain".to_string())],
-    b"stale-body".to_vec(),
+    b"stale-body".to_vec().into(),
     std::time::Duration::from_secs(0),
     64 * 1024 * 1024,
     true, // resilient
@@ -593,7 +593,7 @@ async fn handler_serves_cache_hit_without_tunnel() {
     crate::cache::cache_key(None, "/cached"),
     200,
     vec![("content-type".to_string(), "text/plain".to_string())],
-    b"cached-body".to_vec(),
+    b"cached-body".to_vec().into(),
     std::time::Duration::from_secs(60),
     64 * 1024 * 1024,
     false,
@@ -963,7 +963,7 @@ async fn handler_swr_serves_stale_and_revalidates() {
     crate::cache::cache_key(None, "/swr"),
     200,
     vec![("content-type".to_string(), "text/plain".to_string())],
-    b"stale".to_vec(),
+    b"stale".to_vec().into(),
     std::time::Duration::from_secs(0), // already expired
     64 * 1024 * 1024,
     false,
