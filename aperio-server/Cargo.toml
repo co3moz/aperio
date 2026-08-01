@@ -110,6 +110,11 @@ criterion = "0.8.2"
 # Drives the composed router in-process (ServiceExt::oneshot) for the
 # startup-wiring tests that used to be possible only through e2e.
 tower = { version = "0.5", features = ["util"] }
+# The integration tests speak to the composed server over a socket and mint
+# their own throwaway data dirs; both crates are already regular deps, listed
+# here again because an integration test only links dev-dependencies.
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
 # For the envelope-codec benchmark: what MessagePack would cost against the
 # JSON the tunnel speaks today, measured on our own messages.
 rmp-serde = "1.3"

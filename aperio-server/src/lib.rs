@@ -2136,6 +2136,61 @@ async fn shutdown_signal(state: Arc<AppState>) {
   });
 }
 
+/// In-process composition facade for the integration tests in `tests/`.
+///
+/// Hidden rather than private: an integration test is its own crate, so the
+/// only way to hand it the composed server is a `pub` item, and the only
+/// honest way to say "this is not API" is `#[doc(hidden)]` plus this notice.
+/// Nothing here is stable, nothing here is for embedding Aperio.
+#[doc(hidden)]
+pub mod testkit {
+  use std::sync::Arc;
+
+  /// The composed server: the state behind it stays opaque.
+  pub struct Composed {
+    state: Arc<crate::state::AppState>,
+    pub router: axum::Router,
+  }
+
+  /// Runs the real startup path (environment, stores, settings layering,
+  /// router assembly) inside the calling process. `None` = the same refusals
+  /// `build_state` logs. Spawns no background loops: the test decides what
+  /// runs beside it.
+  pub async fn compose() -> Option<Composed> {
+    let bundle = crate::build_state().await?;
+    let router = crate::build_router(bundle.state.clone(), bundle.metrics_enabled);
+    Some(Composed {
+      state: bundle.state,
+      router,
+    })
+  }
+
+  impl Composed {
+    /// Serves the composed app on an ephemeral loopback port and returns the
+    /// address; the serve task runs until the returned handle is aborted.
+    pub async fn serve_ephemeral(&self) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+      let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let addr = listener.local_addr().unwrap();
+      let app = self.router.clone();
+      let handle = tokio::spawn(async move {
+        axum::serve(
+          listener,
+          app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+      });
+      (addr, handle)
+    }
+
+    /// How many live tunnel clients the state currently tracks, so a test
+    /// can assert on the state the HTTP surface is serving from.
+    pub async fn connected_clients(&self) -> usize {
+      self.state.clients.lock().await.len()
+    }
+  }
+}
+
 #[cfg(test)]
 #[path = "test_support.rs"]
 mod test_support;
