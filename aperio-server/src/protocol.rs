@@ -196,6 +196,7 @@ pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<V
 /// decision is the same everywhere and getting it wrong on one of the four
 /// senders is exactly the bug this centralizes away: a v7 frame handed to a
 /// v6 peer is silently dropped, so the stream would hang with no error.
+#[cfg(not(fuzzing))]
 pub fn relay_frame(
   protocol: u32,
   tag: u8,
