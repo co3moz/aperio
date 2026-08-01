@@ -14,6 +14,16 @@ use std::time::Duration;
 /// known var on drop so nothing leaks between tests.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// `DISK_WARNED` is process-global too (one guard loop per process), so the
+/// disk-guard tests, each of which seeds it and asserts what a cycle did to
+/// it, corrupt each other when they interleave: one test's cycle stores
+/// `false` between another's cycle and its assertion. Reproduced at 21
+/// failures in 40 runs of the three tests alone; every disk-guard test takes
+/// this lock first. A tokio mutex because the guard is held across the
+/// cycle's awaits, and an async lock neither trips the held-across-await
+/// lint nor can be poisoned by a failing test.
+static DISK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const ALL_VARS: [&str; 5] = [
   "APERIO_RETENTION_CAPTURES",
   "APERIO_RETENTION_ACCESS_LOG",
@@ -365,6 +375,7 @@ fn db_size_sums_the_sqlite_sidecars() {
 
 #[tokio::test]
 async fn disk_guard_below_reset_ratio_clears_warning_and_returns() {
+  let _serial = DISK_LOCK.lock().await;
   DISK_WARNED.store(true, Ordering::SeqCst);
   let dir = crate::test_support::test_temp_root().join(format!("dg-low-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
@@ -389,6 +400,7 @@ async fn disk_guard_below_reset_ratio_clears_warning_and_returns() {
 
 #[tokio::test]
 async fn disk_guard_warns_once_near_the_cap() {
+  let _serial = DISK_LOCK.lock().await;
   DISK_WARNED.store(false, Ordering::SeqCst);
   let dir = crate::test_support::test_temp_root().join(format!("dg-warn-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
@@ -412,6 +424,7 @@ async fn disk_guard_warns_once_near_the_cap() {
 
 #[tokio::test]
 async fn disk_guard_prunes_over_the_cap() {
+  let _serial = DISK_LOCK.lock().await;
   DISK_WARNED.store(false, Ordering::SeqCst);
   let dir = crate::test_support::test_temp_root().join(format!("dg-over-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
