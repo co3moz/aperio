@@ -107,6 +107,9 @@ tokio = { version = "1.38", features = ["full", "test-util"] }
 # real exported spans instead of being the one untestable corner of tracing.
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 criterion = "0.8.2"
+# Drives the composed router in-process (ServiceExt::oneshot) for the
+# startup-wiring tests that used to be possible only through e2e.
+tower = { version = "0.5", features = ["util"] }
 # For the envelope-codec benchmark: what MessagePack would cost against the
 # JSON the tunnel speaks today, measured on our own messages.
 rmp-serde = "1.3"

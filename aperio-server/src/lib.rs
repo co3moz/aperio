@@ -426,6 +426,39 @@ async fn async_main() {
 
   info!("Starting Aperio Server...");
 
+  let Some(StartupBundle {
+    state,
+    metrics_enabled,
+  }) = build_state().await
+  else {
+    // The refusal has been logged by build_state with its reason.
+    return;
+  };
+
+  let app = build_router(state.clone(), metrics_enabled);
+
+  let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+  spawn_background(&state, &host);
+
+  serve_until_shutdown(state.clone(), app).await;
+
+  // Final stats flush so nothing recorded since the last tick is lost.
+  state.persistent_stats.lock().await.save_if_dirty();
+  state.uptime.lock().await.save_if_dirty();
+
+  // Flush any buffered OTLP spans before exit.
+  otel_guard.shutdown();
+}
+
+/// Everything the server resolves before it can exist: the environment (with
+/// the yaml file already folded in by `config_file::load`), the persisted
+/// stores, the settings-override layering, and the assembled `AppState`.
+///
+/// `None` means "refuse to start", and the reason has already been logged:
+/// an invalid trusted-proxy list, admin allowlist, or outbound allowlist.
+/// Split out of `async_main` (planned_features #21) so startup can be
+/// exercised in-process instead of only as a spawned server.
+pub(crate) async fn build_state() -> Option<StartupBundle> {
   // Enforce APERIO_SERVER_TOKEN environment variable
   let token = std::env::var("APERIO_SERVER_TOKEN").unwrap_or_else(|_| {
     error!("CRITICAL SECURITY ERROR: APERIO_SERVER_TOKEN environment variable must be set!");
@@ -561,7 +594,7 @@ async fn async_main() {
         error!(
           "APERIO_TRUSTED_PROXIES is invalid ({e}); refusing to start with a partial trusted set"
         );
-        return;
+        return None;
       }
     },
     Err(_) => Vec::new(),
@@ -575,7 +608,7 @@ async fn async_main() {
         error!(
           "APERIO_ADMIN_ALLOWED_IPS is invalid ({e}); refusing to start with a partial allowlist"
         );
-        return;
+        return None;
       }
     },
     Err(_) => Vec::new(),
@@ -706,7 +739,7 @@ async fn async_main() {
           error!(
             "APERIO_OUTBOUND_ALLOWLIST is invalid ({e}); refusing to start with a partial allowlist"
           );
-          return;
+          return None;
         }
       },
       Err(_) => Vec::new(),
@@ -1254,8 +1287,28 @@ async fn async_main() {
       .await;
   }
 
+  Some(StartupBundle {
+    state,
+    metrics_enabled,
+  })
+}
+
+/// What `build_state` hands to the router: the state itself plus the one
+/// resolved flag that is not stored on it.
+pub(crate) struct StartupBundle {
+  pub(crate) state: Arc<AppState>,
+  pub(crate) metrics_enabled: bool,
+}
+
+/// Assembles the whole HTTP surface: the proxy fallback, the dashboard and
+/// its API (when enabled), the auth and tunnel endpoints, the admin 404
+/// fence, and the outermost catch-panic layer. Pure assembly: nothing here
+/// spawns, binds, or reads the environment, so a test can drive the result
+/// with `tower::ServiceExt::oneshot`.
+pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Router {
   let mut app = Router::new().fallback(any(proxy_handler));
 
+  let dashboard_enabled = state.dashboard_enabled;
   if dashboard_enabled {
     let mut dash_router = Router::new()
       .route("/", get(dashboard_handler))
@@ -1721,6 +1774,23 @@ async fn async_main() {
     );
   }
 
+  // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
+  // clean 500 for that one request instead of abruptly dropping the
+  // connection. The panic is still logged by the global hook (see
+  // `install_panic_logger`); every other in-flight request and the process
+  // are unaffected.
+  app
+    .with_state(state)
+    .layer(tower_http::catch_panic::CatchPanicLayer::new())
+}
+
+/// Spawns every background loop the server runs: the stats flush, the
+/// autoscaling sampler and sweep, the uptime ticker, config hot-reload,
+/// alerting, token-expiry warnings, the public expose listeners, retention,
+/// backups, and the QoS 1 ack sweeper. Side effects only; the caller keeps
+/// the state.
+pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
+  let state = state.clone();
   // Flush persistent stats periodically and once more on shutdown.
   let stats_flush_state = state.clone();
   tokio::spawn(async move {
@@ -1889,33 +1959,32 @@ async fn async_main() {
     });
   }
 
-  let shutdown_state = state.clone();
+  // Experimental public TCP expose ports (aperio-server.yaml `expose:`).
+  expose::spawn_listeners(state.clone(), host, expose::from_config_file());
 
-  // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
-  // clean 500 for that one request instead of abruptly dropping the connection.
-  // The panic is still logged by the global hook (see `install_panic_logger`);
-  // every other in-flight request and the process are unaffected.
-  let app = app
-    .with_state(state)
-    .layer(tower_http::catch_panic::CatchPanicLayer::new());
+  // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
+  // is configured.
+  retention::spawn(state.clone());
 
+  // Scheduled physical DB snapshots (APERIO_BACKUP_*): inert unless both an
+  // interval and a directory are configured.
+  backup::spawn(state.clone());
+
+  // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
+  // that waited out the window.
+  crate::tunnel::pubsub::run_ack_sweeper(state);
+}
+
+/// Binds the listener (plain or SO_REUSEPORT), switches Nagle off per
+/// accepted socket, and serves the app until the shutdown signal, exiting
+/// the process when the port cannot be bound, exactly as before the split.
+async fn serve_until_shutdown(state: Arc<AppState>, app: Router) {
   let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
   let port = std::env::var("PORT")
     .ok()
     .and_then(|p| p.parse::<u16>().ok())
     .unwrap_or(8080);
-
-  // Experimental public TCP expose ports (aperio-server.yaml `expose:`).
-  expose::spawn_listeners(shutdown_state.clone(), &host, expose::from_config_file());
-
-  // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
-  // is configured.
-  retention::spawn(shutdown_state.clone());
-
-  // Scheduled physical DB snapshots (APERIO_BACKUP_*): inert unless both an
-  // interval and a directory are configured.
-  backup::spawn(shutdown_state.clone());
 
   // Zero-downtime restarts (APERIO_REUSEPORT): bind with SO_REUSEPORT so a new
   // process can bind the same host:port while the old one is still draining its
@@ -1932,9 +2001,6 @@ async fn async_main() {
       std::process::exit(1);
     }
   };
-  // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
-  // that waited out the window.
-  crate::tunnel::pubsub::run_ack_sweeper(shutdown_state.clone());
 
   info!(
     "Aperio Server v{} listening on {}:{} with connection info tracing enabled{}",
@@ -1959,16 +2025,9 @@ async fn async_main() {
     listener,
     app.into_make_service_with_connect_info::<SocketAddr>(),
   )
-  .with_graceful_shutdown(shutdown_signal(shutdown_state.clone()))
+  .with_graceful_shutdown(shutdown_signal(state.clone()))
   .await
   .unwrap();
-
-  // Final stats flush so nothing recorded since the last tick is lost.
-  shutdown_state.persistent_stats.lock().await.save_if_dirty();
-  shutdown_state.uptime.lock().await.save_if_dirty();
-
-  // Flush any buffered OTLP spans before exit.
-  otel_guard.shutdown();
 }
 
 /// Minimum dashboard role a route requires. User management and server
