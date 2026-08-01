@@ -126,6 +126,7 @@ async fn test_rate_limiting() {
   let (client_connected_tx, _) = watch::channel(false);
   let state = AppState {
     clients: Mutex::new(HashMap::new()),
+    telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
@@ -284,6 +285,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
   let (client_connected_tx, _) = watch::channel(false);
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
+    telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
@@ -464,6 +466,7 @@ async fn test_proxy_handler_success() {
   let (client_connected_tx, _) = watch::channel(true);
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
+    telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,

@@ -99,6 +99,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
   let (client_connected_tx, _) = watch::channel(false);
   Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
+    telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,

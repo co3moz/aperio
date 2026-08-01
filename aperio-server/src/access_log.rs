@@ -14,6 +14,66 @@ pub(crate) fn sanitize_uri(uri: &str) -> &str {
 
 /// Appends one JSON line to the access log file when APERIO_ACCESS_LOG is
 /// configured. The same data is always emitted as a structured tracing event.
+
+/// Writes one telemetry event into the bookkeeping structures. Called from
+/// the collector task in production; called inline when the queue is full or
+/// no collector runs (unit tests), so behavior is identical either way, only
+/// who pays the lock waits differs.
+pub(crate) async fn record_telemetry(state: &AppState, ev: crate::state::TelemetryEvent) {
+  let host = ev.log.host.as_deref();
+  let org = ev.log.org_id.as_deref();
+  if ev.success {
+    state
+      .endpoint_stats
+      .lock()
+      .await
+      .record(host, &ev.log.uri, ev.status, ev.duration_ms, org);
+    state
+      .route_trends
+      .lock()
+      .await
+      .record(host, ev.status, org, ev.now_secs);
+  }
+  state
+    .activity
+    .lock()
+    .await
+    .record(org, !ev.success || ev.status >= 500, ev.now_secs);
+  let mut logs = state.recent_logs.lock().await;
+  if logs.len() >= 100 {
+    logs.pop_front();
+  }
+  // Fan out to live dashboard SSE subscribers (ignored when there are none).
+  let _ = state.traffic_tx.send(ev.log.clone());
+  logs.push_back(ev.log);
+}
+
+/// Hands one event to the collector, or does the work inline when the queue
+/// cannot take it: full means the collector is behind (rare, and inline is
+/// exactly the old behavior), closed means no collector runs at all (unit
+/// tests, which need the write to be visible the moment the call returns).
+async fn submit_telemetry(state: &AppState, ev: crate::state::TelemetryEvent) {
+  if let Err(err) = state.telemetry_tx.try_send(ev) {
+    let ev = match err {
+      tokio::sync::mpsc::error::TrySendError::Full(ev)
+      | tokio::sync::mpsc::error::TrySendError::Closed(ev) => ev,
+    };
+    record_telemetry(state, ev).await;
+  }
+}
+
+/// Runs the collector until the state (and its senders) go away.
+pub(crate) fn spawn_telemetry_collector(
+  state: Arc<AppState>,
+  mut rx: mpsc::Receiver<crate::state::TelemetryEvent>,
+) {
+  tokio::spawn(async move {
+    while let Some(ev) = rx.recv().await {
+      record_telemetry(&state, ev).await;
+    }
+  });
+}
+
 /// What the request path hands the access-log writer task.
 pub(crate) enum AccessLogCmd {
   /// One rendered JSON line to append.
@@ -137,55 +197,39 @@ pub(crate) async fn log_request_success(
 ) {
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
-  // Feed the slowest-endpoints report (recent-window latency per host|path).
-  state.endpoint_stats.lock().await.record(
-    host,
-    safe_uri,
-    status,
-    duration.as_millis() as u64,
-    org.as_deref(),
-  );
-  // Feed the per-route status trend (dashboard sparklines) and the volume
-  // ring behind the activity chart's long view.
-  let now_secs = crate::store::tokens::now_secs();
-  state
-    .route_trends
-    .lock()
-    .await
-    .record(host, status, org.as_deref(), now_secs);
-  state
-    .activity
-    .lock()
-    .await
-    .record(org.as_deref(), status >= 500, now_secs);
   // One clock read for this request. `Local::now()` resolves the timezone on
   // every call, and this function used to do it twice: once for the dashboard
   // entry, once for the access-log line.
   let now = Local::now();
-  {
-    let mut logs = state.recent_logs.lock().await;
-    if logs.len() >= 100 {
-      logs.pop_front();
-    }
-    // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
-    // which may be in a different timezone than the server, a naive local
-    // string would be re-interpreted in the browser's zone and drift.
-    let timestamp = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
-    let entry = RequestLog {
-      id: id.clone(),
-      timestamp,
-      method: method.to_string(),
-      uri: safe_uri.to_string(),
-      status: Some(status),
-      duration_ms: duration.as_millis(),
-      error: None,
-      host: host.map(str::to_string),
-      org_id: org,
-    };
-    // Fan out to live dashboard SSE subscribers (ignored when there are none).
-    let _ = state.traffic_tx.send(entry.clone());
-    logs.push_back(entry);
-  }
+  // Everything the dashboard's bookkeeping wants, in one event for the
+  // collector task: the endpoint report, the sparkline trend, the activity
+  // ring and the recent-log entry used to be four sequential global lock
+  // waits on the request's own back.
+  //
+  // RFC3339 with the UTC offset: the dashboard runs in the visitor's
+  // browser, which may be in a different timezone than the server, a naive
+  // local string would be re-interpreted in the browser's zone and drift.
+  submit_telemetry(
+    state,
+    crate::state::TelemetryEvent {
+      log: RequestLog {
+        id: id.clone(),
+        timestamp: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        method: method.to_string(),
+        uri: safe_uri.to_string(),
+        status: Some(status),
+        duration_ms: duration.as_millis(),
+        error: None,
+        host: host.map(str::to_string),
+        org_id: org,
+      },
+      status,
+      duration_ms: duration.as_millis() as u64,
+      success: true,
+      now_secs: crate::store::tokens::now_secs(),
+    },
+  )
+  .await;
   // Structured access event: with the JSON log format every field below
   // becomes a top-level key, directly usable by log pipelines. Skipped
   // wholesale when `access_events` is off, which is not the same as lowering
@@ -240,38 +284,31 @@ pub(crate) async fn log_request_failure(
   state.duration_histogram.observe(duration);
   let safe_uri = sanitize_uri(uri);
   let id = uuid::Uuid::new_v4().to_string();
-  // A refusal is traffic too, and the chart that leaves it out shows a quiet
-  // server at the moment it is turning everything away.
-  state
-    .activity
-    .lock()
-    .await
-    .record(org.as_deref(), true, crate::store::tokens::now_secs());
   let now = Local::now();
-  {
-    let mut logs = state.recent_logs.lock().await;
-    if logs.len() >= 100 {
-      logs.pop_front();
-    }
-    // RFC3339 with the UTC offset: the dashboard runs in the visitor's browser,
-    // which may be in a different timezone than the server, a naive local
-    // string would be re-interpreted in the browser's zone and drift.
-    let timestamp = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
-    let entry = RequestLog {
-      id: id.clone(),
-      timestamp,
-      method: method.to_string(),
-      uri: safe_uri.to_string(),
-      status: Some(status),
-      duration_ms: duration.as_millis(),
-      error: error.map(|s| s.to_string()),
-      host: None,
-      org_id: org,
-    };
-    // Fan out to live dashboard SSE subscribers (ignored when there are none).
-    let _ = state.traffic_tx.send(entry.clone());
-    logs.push_back(entry);
-  }
+  // A refusal is traffic too, and the chart that leaves it out shows a quiet
+  // server at the moment it is turning everything away; `success: false`
+  // makes the collector count it as exactly that.
+  submit_telemetry(
+    state,
+    crate::state::TelemetryEvent {
+      log: RequestLog {
+        id: id.clone(),
+        timestamp: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        method: method.to_string(),
+        uri: safe_uri.to_string(),
+        status: Some(status),
+        duration_ms: duration.as_millis(),
+        error: error.map(|s| s.to_string()),
+        host: None,
+        org_id: org,
+      },
+      status,
+      duration_ms: duration.as_millis() as u64,
+      success: false,
+      now_secs: crate::store::tokens::now_secs(),
+    },
+  )
+  .await;
   warn!(
     target: "aperio_access",
     request_id = %id,

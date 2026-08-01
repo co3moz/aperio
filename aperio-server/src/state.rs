@@ -1607,8 +1607,28 @@ impl MaintenanceFlag {
 }
 
 /// Core shared state of the Aperio server, accessed concurrently by multiple handlers.
+/// One served (or refused) request's bookkeeping, handed to the telemetry
+/// collector task instead of being written under four global locks on the
+/// request's own back.
+pub(crate) struct TelemetryEvent {
+  /// The dashboard log entry; its fields (host, uri, org) also feed the
+  /// per-endpoint and per-route records.
+  pub(crate) log: RequestLog,
+  pub(crate) status: u16,
+  pub(crate) duration_ms: u64,
+  /// True for a served request (feeds the endpoint/trend records); false for
+  /// a refusal, which only the activity ring counts, as a failure.
+  pub(crate) success: bool,
+  pub(crate) now_secs: u64,
+}
+
 pub(crate) struct AppState {
   pub(crate) clients: Mutex<HashMap<String, ClientHandle>>,
+  /// Queue into the telemetry collector task, which owns the writes to
+  /// `endpoint_stats`/`route_trends`/`activity`/`recent_logs`. The request
+  /// path try_sends one event; a full or absent queue falls back to writing
+  /// inline, so nothing is ever lost, only contended for the old way.
+  pub(crate) telemetry_tx: tokio::sync::mpsc::Sender<TelemetryEvent>,
   /// QoS 1 messages handed to a client process and not yet acknowledged,
   /// keyed by that process. Bounded in count and in age: it covers a
   /// connection that died between the write and the acknowledgement, not a

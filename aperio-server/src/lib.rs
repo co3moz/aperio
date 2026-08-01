@@ -1191,8 +1191,14 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
   // the read side), never apply backpressure to request handling.
   let (traffic_tx, _) = tokio::sync::broadcast::channel(256);
 
+  // The telemetry collector: one task owns the per-request bookkeeping
+  // writes, the request path only queues. Sized generously; a full queue
+  // falls back to inline writes rather than losing the event.
+  let (telemetry_tx, telemetry_rx) = tokio::sync::mpsc::channel(8192);
+
   let state = Arc::new(AppState {
     clients: Mutex::new(HashMap::new()),
+    telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
@@ -1267,6 +1273,8 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     duration_histogram: DurationHistogram::default(),
     limit_counters: Default::default(),
   });
+
+  crate::access_log::spawn_telemetry_collector(state.clone(), telemetry_rx);
 
   // Recorded once the audit log exists: a dropped override changed how this
   // server behaves, and the operator who set it from a browser is not the one

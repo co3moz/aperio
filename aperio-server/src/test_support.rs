@@ -215,7 +215,12 @@ pub(crate) fn test_config() -> ServerConfig {
 /// A full [`AppState`] with the given config and fresh throwaway stores.
 pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
   let (client_connected_tx, _) = watch::channel(false);
+  // Receiver dropped on purpose: with no collector task, every telemetry
+  // try_send fails Closed and the caller records inline, which keeps unit
+  // tests synchronous (assert right after the call, nothing in flight).
+  let (telemetry_tx, _) = tokio::sync::mpsc::channel(1);
   AppState {
+    telemetry_tx,
     clients: Mutex::new(HashMap::new()),
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
