@@ -180,7 +180,6 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     activity: Mutex::new(crate::state::Activity::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log: None,
-    access_log_path: None,
     duration_histogram: DurationHistogram::default(),
     limit_counters: Default::default(),
   })

@@ -1,6 +1,7 @@
 use chrono::Local;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::state::{AppState, RequestLog};
@@ -13,11 +14,110 @@ pub(crate) fn sanitize_uri(uri: &str) -> &str {
 
 /// Appends one JSON line to the access log file when APERIO_ACCESS_LOG is
 /// configured. The same data is always emitted as a structured tracing event.
+/// What the request path hands the access-log writer task.
+pub(crate) enum AccessLogCmd {
+  /// One rendered JSON line to append.
+  Line(String),
+  /// Rewrite the file, dropping every line the filter matches; the writer
+  /// owns the only handle, so a rewrite here can never race an append. The
+  /// reply is how many lines were dropped.
+  Rewrite {
+    drop_line: Box<dyn Fn(&str) -> bool + Send>,
+    reply: tokio::sync::oneshot::Sender<usize>,
+  },
+}
+
+/// Lines dropped because the writer's queue was full, counted so the loss is
+/// visible; warned about once per thousand rather than once per line.
+static DROPPED_LINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Spawns the one task that touches the access-log file, and returns its
+/// queue. Everything the request path used to do inline, the JSON render
+/// aside, moves behind it: a synchronous `write` on a slow disk used to block
+/// the tokio worker mid-request, and the mutex around it serialized every
+/// request in the process on one file descriptor.
+pub(crate) fn spawn_writer(path: String, file: std::fs::File) -> mpsc::Sender<AccessLogCmd> {
+  let (tx, mut rx) = mpsc::channel::<AccessLogCmd>(4096);
+  tokio::spawn(async move {
+    let mut file = file;
+    while let Some(cmd) = rx.recv().await {
+      match cmd {
+        AccessLogCmd::Line(line) => {
+          use std::io::Write;
+          let _ = writeln!(file, "{}", line);
+        }
+        AccessLogCmd::Rewrite { drop_line, reply } => {
+          let removed = rewrite_file(&path, &mut file, drop_line.as_ref());
+          let _ = reply.send(removed);
+        }
+      }
+    }
+  });
+  tx
+}
+
+/// The rewrite itself: filter the lines, replace the file atomically, reopen
+/// the append handle past the truncated content. Runs on the writer task
+/// only, which is what makes it safe without a lock.
+fn rewrite_file(path: &str, file: &mut std::fs::File, drop_line: &dyn Fn(&str) -> bool) -> usize {
+  let Ok(raw) = std::fs::read_to_string(path) else {
+    return 0;
+  };
+  let mut kept = String::with_capacity(raw.len());
+  let mut removed = 0usize;
+  for line in raw.lines() {
+    if drop_line(line) {
+      removed += 1;
+    } else {
+      kept.push_str(line);
+      kept.push('\n');
+    }
+  }
+  if removed > 0 {
+    if crate::store::atomic_write(std::path::Path::new(path), kept.as_bytes()).is_err() {
+      warn!("Failed to rewrite the access log {}", path);
+      return 0;
+    }
+    match std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(path)
+    {
+      Ok(f) => *file = f,
+      Err(e) => warn!("Failed to reopen the access log {}: {}", path, e),
+    }
+  }
+  removed
+}
+
+/// Asks the writer to rewrite the file, dropping matching lines. `None` when
+/// no access log is configured or the writer is gone.
+pub(crate) async fn rewrite(
+  state: &AppState,
+  drop_line: Box<dyn Fn(&str) -> bool + Send>,
+) -> Option<usize> {
+  let tx = state.access_log.as_ref()?;
+  let (reply, rx) = tokio::sync::oneshot::channel();
+  tx.send(AccessLogCmd::Rewrite { drop_line, reply })
+    .await
+    .ok()?;
+  rx.await.ok()
+}
+
 fn append_access_line(state: &AppState, entry: &serde_json::Value) {
-  if let Some(file) = &state.access_log {
-    use std::io::Write;
-    if let Ok(mut f) = file.lock() {
-      let _ = writeln!(f, "{}", entry);
+  let Some(tx) = &state.access_log else {
+    return;
+  };
+  // try_send, never send: a full queue means the disk is not keeping up, and
+  // the request being served must not wait for it. The dropped line is
+  // counted rather than silent.
+  if tx.try_send(AccessLogCmd::Line(entry.to_string())).is_err() {
+    let dropped = DROPPED_LINES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if dropped % 1000 == 1 {
+      warn!(
+        "Access log writer is not keeping up; {} line(s) dropped so far",
+        dropped
+      );
     }
   }
 }

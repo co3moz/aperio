@@ -819,27 +819,28 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     .ok()
     .map(|p| p.trim().to_string())
     .filter(|p| !p.is_empty());
-  let access_log =
-    access_log_configured.as_ref().and_then(|path| {
-      match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-      {
-        Ok(file) => {
-          info!("Structured access log enabled: {}", path);
-          Some(std::sync::Mutex::new(file))
-        }
-        Err(e) => {
-          error!(
-            "Failed to open APERIO_ACCESS_LOG {}: {}, access log file disabled",
-            path, e
-          );
-          None
-        }
+  let access_log = access_log_configured.as_ref().and_then(|path| {
+    match std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(path)
+    {
+      Ok(file) => {
+        info!("Structured access log enabled: {}", path);
+        // One writer task owns the file from here on: the request path
+        // queues lines instead of taking a process-wide mutex around a
+        // synchronous write.
+        Some(crate::access_log::spawn_writer(path.clone(), file))
       }
-    });
-  let access_log_path = access_log.as_ref().and(access_log_configured);
+      Err(e) => {
+        error!(
+          "Failed to open APERIO_ACCESS_LOG {}: {}, access log file disabled",
+          path, e
+        );
+        None
+      }
+    }
+  });
 
   // Optional custom maintenance page (APERIO_503_PAGE=/app/maintenance.html).
   let custom_503_page =
@@ -1263,7 +1264,6 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
-    access_log_path,
     duration_histogram: DurationHistogram::default(),
     limit_counters: Default::default(),
   });

@@ -286,7 +286,6 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     activity: Mutex::new(crate::state::Activity::default()),
     maintenance: Mutex::new(HashMap::new()),
     access_log: None,
-    access_log_path: None,
     duration_histogram: DurationHistogram::default(),
     limit_counters: Default::default(),
   }

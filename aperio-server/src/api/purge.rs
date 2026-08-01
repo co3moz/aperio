@@ -61,49 +61,34 @@ fn capture_matches_host(headers: &[(String, String)], host: &str) -> bool {
 /// Rewrites the access log file in place, dropping lines whose `host` or
 /// `token` field matches. Returns the number of removed lines (None = no
 /// file configured or the rewrite failed).
-fn rewrite_access_log(
+async fn rewrite_access_log(
   state: &AppState,
   hostname: Option<&str>,
   token: Option<&str>,
 ) -> Option<usize> {
-  let path = state.access_log_path.as_deref()?;
-  let file_lock = state.access_log.as_ref()?;
-  // Hold the append lock across the whole rewrite so no line is written
-  // between read and truncate.
-  let mut guard = file_lock.lock().ok()?;
-  let raw = std::fs::read_to_string(path).ok()?;
-  let mut kept = String::with_capacity(raw.len());
-  let mut removed = 0usize;
-  for line in raw.lines() {
-    let matches = serde_json::from_str::<serde_json::Value>(line)
-      .map(|v| {
-        let field = |key: &str| {
-          v.get(key)
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_ascii_lowercase())
-        };
-        hostname.is_some_and(|h| field("host").as_deref() == Some(h))
-          || token.is_some_and(|t| field("token").as_deref() == Some(t))
-      })
-      .unwrap_or(false);
-    if matches {
-      removed += 1;
-    } else {
-      kept.push_str(line);
-      kept.push('\n');
-    }
-  }
-  if removed > 0 {
-    std::fs::write(path, kept).ok()?;
-    // Reopen the append handle: the old descriptor's offset points past the
-    // truncated content.
-    *guard = std::fs::OpenOptions::new()
-      .create(true)
-      .append(true)
-      .open(path)
-      .ok()?;
-  }
-  Some(removed)
+  let hostname = hostname.map(str::to_string);
+  let token = token.map(str::to_string);
+  crate::access_log::rewrite(
+    state,
+    Box::new(move |line| {
+      serde_json::from_str::<serde_json::Value>(line)
+        .map(|v| {
+          let field = |key: &str| {
+            v.get(key)
+              .and_then(|x| x.as_str())
+              .map(|s| s.to_ascii_lowercase())
+          };
+          hostname
+            .as_deref()
+            .is_some_and(|h| field("host").as_deref() == Some(h))
+            || token
+              .as_deref()
+              .is_some_and(|t| field("token").as_deref() == Some(t))
+        })
+        .unwrap_or(false)
+    }),
+  )
+  .await
 }
 
 /// Selectors for a response-cache purge; both absent = clear the whole cache.
@@ -304,7 +289,7 @@ pub(crate) async fn purge_handler(
   }
 
   // Structured access log file (host/token fields; no IPs are persisted).
-  let access_log_removed = rewrite_access_log(&state, hostname.as_deref(), token.as_deref());
+  let access_log_removed = rewrite_access_log(&state, hostname.as_deref(), token.as_deref()).await;
 
   info!(
     "Selective purge by {}: hostname={:?} token={:?} ip={:?} → logs={} captures={} stats_rows={} stage_windows={} cache_entries={} access_log_lines={:?}",

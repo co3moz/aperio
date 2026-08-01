@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The access log stopped blocking requests.** The per-request line used to be written synchronously, under a process-wide lock, from whichever worker served the request: a slow disk stalled that worker and the lock serialized every request in the process on one file descriptor. One writer task owns the file now; the request path queues the line and moves on, and a queue the disk cannot drain drops lines and says how many rather than slowing traffic. Retention pruning and the right-to-erasure purge rewrite the file through the same task, so a rewrite can never race an append. Unmeasured, reasoned from the code.
+
 - **The routine sweeps left the request path.** The per-IP and per-route rate-bucket cleanups and the expired-session sweep used to run inline, under their lock, on the back of whichever request happened to draw the five-minute tick; with a large map that request, and everyone queued behind the lock, paid for the whole retain. They run on a background beat now. The inline size failsafes stay, and an expired session is still refused on lookup regardless of the sweep. Unmeasured, reasoned from the code: the change removes a periodic tail-latency spike, not average cost.
 
 ### Fixed

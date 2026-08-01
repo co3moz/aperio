@@ -1754,10 +1754,7 @@ pub(crate) struct AppState {
   /// Structured access log file (APERIO_ACCESS_LOG): one JSON line per
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.
-  pub(crate) access_log: Option<std::sync::Mutex<std::fs::File>>,
-  /// Path of the structured access log file (kept alongside the handle so
-  /// the right-to-erasure purge can rewrite the file in place).
-  pub(crate) access_log_path: Option<String>,
+  pub(crate) access_log: Option<tokio::sync::mpsc::Sender<crate::access_log::AccessLogCmd>>,
   /// Request duration histogram exposed on `/aperio/metrics`.
   pub(crate) duration_histogram: DurationHistogram,
   /// Refusals by limit, for `aperio_rate_limited_total`. A load test asks

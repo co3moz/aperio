@@ -437,8 +437,8 @@ async fn purge_rewrites_access_log() {
     "{\"other\":\"x\"}\n"
   );
   std::fs::write(&path, contents).unwrap();
-  state.access_log_path = Some(path.to_string_lossy().into_owned());
-  state.access_log = Some(std::sync::Mutex::new(
+  state.access_log = Some(crate::access_log::spawn_writer(
+    path.to_string_lossy().into_owned(),
     std::fs::OpenOptions::new()
       .create(true)
       .append(true)
@@ -479,8 +479,8 @@ async fn purge_access_log_no_match_leaves_file_intact() {
     crate::test_support::test_temp_root().join(format!("purge-log-{}.jsonl", uuid::Uuid::new_v4()));
   let contents = "{\"host\":\"b.com\",\"token\":\"t2\"}\n";
   std::fs::write(&path, contents).unwrap();
-  state.access_log_path = Some(path.to_string_lossy().into_owned());
-  state.access_log = Some(std::sync::Mutex::new(
+  state.access_log = Some(crate::access_log::spawn_writer(
+    path.to_string_lossy().into_owned(),
     std::fs::OpenOptions::new()
       .create(true)
       .append(true)

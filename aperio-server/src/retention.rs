@@ -55,53 +55,24 @@ impl RetentionReport {
 /// Rewrites the access log file in place, dropping lines whose `ts` field is
 /// older than the cutoff. Holds the append lock across the rewrite (same
 /// discipline as the right-to-erasure purge).
-fn prune_access_log(state: &AppState, cutoff: u64) -> usize {
-  let Some(path) = state.access_log_path.as_deref() else {
-    return 0;
-  };
-  let Some(file_lock) = state.access_log.as_ref() else {
-    return 0;
-  };
-  let Ok(mut guard) = file_lock.lock() else {
-    return 0;
-  };
-  let Ok(raw) = std::fs::read_to_string(path) else {
-    return 0;
-  };
-  let mut kept = String::with_capacity(raw.len());
-  let mut removed = 0usize;
-  for line in raw.lines() {
-    let expired = serde_json::from_str::<serde_json::Value>(line)
-      .ok()
-      .and_then(|v| {
-        v.get("ts")
-          .and_then(|t| t.as_str())
-          .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-      })
-      .is_some_and(|dt| (dt.timestamp() as u64) < cutoff);
-    if expired {
-      removed += 1;
-    } else {
-      kept.push_str(line);
-      kept.push('\n');
-    }
-  }
-  if removed > 0 {
-    if crate::store::atomic_write(std::path::Path::new(path), kept.as_bytes()).is_err() {
-      warn!("Retention: failed to rewrite the access log {}", path);
-      return 0;
-    }
-    // Reopen the append handle past the truncated content.
-    match std::fs::OpenOptions::new()
-      .create(true)
-      .append(true)
-      .open(path)
-    {
-      Ok(f) => *guard = f,
-      Err(e) => warn!("Retention: failed to reopen the access log {}: {}", path, e),
-    }
-  }
-  removed
+async fn prune_access_log(state: &AppState, cutoff: u64) -> usize {
+  // The writer task owns the file; it does the rewrite so no append can race
+  // it. The predicate travels to it.
+  crate::access_log::rewrite(
+    state,
+    Box::new(move |line| {
+      serde_json::from_str::<serde_json::Value>(line)
+        .ok()
+        .and_then(|v| {
+          v.get("ts")
+            .and_then(|t| t.as_str())
+            .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        })
+        .is_some_and(|dt| (dt.timestamp() as u64) < cutoff)
+    }),
+  )
+  .await
+  .unwrap_or(0)
 }
 
 /// Runs one pruner cycle over every configured surface.
@@ -124,7 +95,7 @@ pub(crate) async fn run_cycle(state: &Arc<AppState>) -> RetentionReport {
   }
 
   if let Some(days) = retention_days("APERIO_RETENTION_ACCESS_LOG") {
-    report.access_log_lines = prune_access_log(state, cutoff_ts(days));
+    report.access_log_lines = prune_access_log(state, cutoff_ts(days)).await;
   }
 
   if let Some(days) = retention_days("APERIO_RETENTION_AUDIT") {

@@ -232,8 +232,10 @@ async fn run_cycle_prunes_access_log() {
     .append(true)
     .open(&path)
     .unwrap();
-  state.access_log = Some(std::sync::Mutex::new(handle));
-  state.access_log_path = Some(path.to_string_lossy().into_owned());
+  state.access_log = Some(crate::access_log::spawn_writer(
+    path.to_string_lossy().into_owned(),
+    handle,
+  ));
   let state = std::sync::Arc::new(state);
 
   let report = run_cycle(&state).await;
@@ -260,8 +262,10 @@ async fn run_cycle_access_log_keeps_everything_when_recent() {
     .append(true)
     .open(&path)
     .unwrap();
-  state.access_log = Some(std::sync::Mutex::new(handle));
-  state.access_log_path = Some(path.to_string_lossy().into_owned());
+  state.access_log = Some(crate::access_log::spawn_writer(
+    path.to_string_lossy().into_owned(),
+    handle,
+  ));
   let state = std::sync::Arc::new(state);
 
   let report = run_cycle(&state).await;
@@ -270,28 +274,25 @@ async fn run_cycle_access_log_keeps_everything_when_recent() {
 
 #[tokio::test]
 async fn prune_access_log_returns_zero_without_a_configured_file() {
-  // A default state has no access-log path/handle: both early-return arms.
+  // A default state has no access-log writer: the early-return arm.
   let state = test_state();
-  assert_eq!(prune_access_log(&state, now()), 0);
+  assert_eq!(prune_access_log(&state, now()).await, 0);
 
-  // Path present but the file does not exist → read fails → 0.
+  // Writer present but the file is missing on disk: the read fails inside
+  // the writer's rewrite, which answers 0 rather than erroring.
+  let dir = crate::test_support::test_temp_root();
+  let handle_path = dir.join(format!("al-handle-{}", uuid::Uuid::new_v4()));
+  let missing_path = dir.join(format!("missing-{}.log", uuid::Uuid::new_v4()));
   let mut state2 = test_state();
-  state2.access_log = Some(std::sync::Mutex::new(
+  state2.access_log = Some(crate::access_log::spawn_writer(
+    missing_path.to_string_lossy().into_owned(),
     std::fs::OpenOptions::new()
       .create(true)
       .append(true)
-      .open(
-        crate::test_support::test_temp_root().join(format!("al-handle-{}", uuid::Uuid::new_v4())),
-      )
+      .open(&handle_path)
       .unwrap(),
   ));
-  state2.access_log_path = Some(
-    crate::test_support::test_temp_root()
-      .join(format!("missing-{}.log", uuid::Uuid::new_v4()))
-      .to_string_lossy()
-      .into_owned(),
-  );
-  assert_eq!(prune_access_log(&state2, now()), 0);
+  assert_eq!(prune_access_log(&state2, now()).await, 0);
 }
 
 #[tokio::test]
