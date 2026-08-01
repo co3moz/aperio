@@ -408,6 +408,52 @@ async fn a_subdomain_wildcard_is_one_switch_for_a_whole_domain() {
 }
 
 #[tokio::test]
+async fn a_partial_label_flag_serves_its_503_too() {
+  // The set handler accepts every shape the allowlist normalizer accepts,
+  // and the partial one (`*-pi.robogon.com`) was accepted, stored, listed,
+  // and then matched no request at all: the read path only knew `*.`. A flag
+  // that answers 200 and serves nothing is worse than a refusal, the
+  // operator walks away believing the site is down.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("fleet", vec!["*-pi.robogon.com".into()], None)
+    .unwrap()
+    .id;
+  let headers = master_with_org(&state, &org).await;
+
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("*-pi.robogon.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  assert!(
+    state
+      .maintenance_for(Some("test-pi.robogon.com"))
+      .await
+      .is_some(),
+    "the flag covers the names the pattern matches"
+  );
+  assert!(
+    state
+      .maintenance_for(Some("test.robogon.com"))
+      .await
+      .is_none(),
+    "and nothing outside the shape"
+  );
+  assert!(
+    state.maintenance_for(Some("robogon.com")).await.is_none(),
+    "never the apex"
+  );
+}
+
+#[tokio::test]
 async fn a_subtree_needs_an_entry_that_owns_the_subtree() {
   // The org may serve robogon.com and nothing under it, so it cannot switch
   // off everything under it either.

@@ -2273,11 +2273,14 @@ impl AppState {
         }
         host.is_some_and(|h| {
           // An exact flag first, since that is the common case and needs no
-          // matching, then the subdomain wildcards: `*.robogon.com` is one
-          // switch for every service under a domain, which is what an
-          // operator means by "put robogon into maintenance".
+          // matching, then anything with a placeholder in it: `*.robogon.com`
+          // is one switch for every service under a domain, and the partial
+          // shape (`*-pi.robogon.com`) is accepted by the same normalizer the
+          // set handler runs, so it has to match here too. This arm used to
+          // take only the `*.` shape, which made a partial flag a stored 200
+          // that never served a single 503.
           *pattern == h
-            || (pattern.starts_with("*.") && crate::store::orgs::pattern_matches_host(pattern, h))
+            || (pattern.contains('*') && crate::store::orgs::pattern_matches_host(pattern, h))
         })
       })
       .map(|(_, flag)| flag.clone())
