@@ -1796,12 +1796,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   tokio::spawn(async move {
     loop {
       tokio::time::sleep(Duration::from_secs(30)).await;
-      stats_flush_state
-        .persistent_stats
-        .lock()
-        .await
-        .save_if_dirty();
-      stats_flush_state.uptime.lock().await.save_if_dirty();
+      flush_stats_once(&stats_flush_state).await;
     }
   });
 
@@ -1827,12 +1822,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
     .unwrap_or(10);
   tokio::spawn(async move {
     loop {
-      let live = observe_service_availability(&uptime_state).await;
-      let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-      uptime_state.uptime.lock().await.tick(now, live);
+      uptime_tick_once(&uptime_state).await;
       tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
     }
   });
@@ -1856,31 +1846,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
         .and_then(|m| m.modified().ok());
       loop {
         tokio::time::sleep(Duration::from_secs(5)).await;
-        let mtime = std::fs::metadata(&watch_path)
-          .ok()
-          .and_then(|m| m.modified().ok());
-        if mtime == last_mtime {
-          continue;
-        }
-        last_mtime = mtime;
-        match config_file::reload() {
-          Ok(_) => {
-            let diff = reload_state.reload_from_file().await;
-            info!(
-              "Reloaded {}: live settings and headers/routes re-applied (structural keys need a restart)",
-              watch_path.display()
-            );
-            let detail = if diff.is_empty() {
-              format!("{} (no live-setting changes)", watch_path.display())
-            } else {
-              format!("{} | {}", watch_path.display(), diff.join(", "))
-            };
-            reload_state
-              .audit("config_reloaded", "system", "system", &detail)
-              .await;
-          }
-          Err(e) => warn!("Config reload of {} failed: {}", watch_path.display(), e),
-        }
+        last_mtime = hot_reload_tick_once(&reload_state, &watch_path, last_mtime).await;
       }
     });
   }
@@ -1910,51 +1876,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
           .duration_since(std::time::UNIX_EPOCH)
           .map(|d| d.as_secs())
           .unwrap_or(0);
-        let expiring: Vec<(String, String, u64, Option<String>)> = {
-          let store = warn_state.token_store.lock().await;
-          store
-            .list()
-            .iter()
-            .filter_map(|t| {
-              let exp = t.expires_at?;
-              let expires_within = exp > now && exp - now <= expiry_warning_secs;
-              (expires_within && !warned.contains(&(t.id.clone(), exp)))
-                .then(|| (t.id.clone(), t.name.clone(), exp, t.org_id.clone()))
-            })
-            .collect()
-        };
-        for (id, name, exp, org) in expiring {
-          warned.insert((id.clone(), exp));
-          warn!(
-            "Token '{}' expires in {} minutes (at unix {})",
-            name,
-            (exp - now) / 60,
-            exp
-          );
-          warn_state
-            .audit_in(
-              "token_expiring",
-              "system",
-              "system",
-              org.clone(),
-              &format!("name={} expires_at={}", name, exp),
-            )
-            .await;
-          warn_state
-            .emit_event_in(
-              "token_expiring",
-              serde_json::json!({
-                "id": id,
-                "name": name,
-                "expires_at": exp,
-                "seconds_left": exp - now,
-              }),
-              org,
-            )
-            .await;
-        }
-        // Drop warned entries whose expiry has passed or moved (refresh).
-        warned.retain(|(_, exp)| *exp > now);
+        token_expiry_tick_once(&warn_state, expiry_warning_secs, now, &mut warned).await;
       }
     });
   }
@@ -1973,6 +1895,114 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
   // that waited out the window.
   crate::tunnel::pubsub::run_ack_sweeper(state);
+}
+
+/// One beat of the stats flush loop: writes whatever is dirty.
+pub(crate) async fn flush_stats_once(state: &Arc<AppState>) {
+  state.persistent_stats.lock().await.save_if_dirty();
+  state.uptime.lock().await.save_if_dirty();
+}
+
+/// One beat of the availability ticker: observe every service entity and
+/// accrue the elapsed time into the uptime history.
+pub(crate) async fn uptime_tick_once(state: &Arc<AppState>) {
+  let live = observe_service_availability(state).await;
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_secs())
+    .unwrap_or(0);
+  state.uptime.lock().await.tick(now, live);
+}
+
+/// One beat of the hot-reload watcher: compares the file's mtime against the
+/// last one seen and re-applies the live-editable settings when it moved.
+/// Returns the mtime to compare against next time.
+pub(crate) async fn hot_reload_tick_once(
+  state: &Arc<AppState>,
+  watch_path: &std::path::Path,
+  last_mtime: Option<std::time::SystemTime>,
+) -> Option<std::time::SystemTime> {
+  let mtime = std::fs::metadata(watch_path)
+    .ok()
+    .and_then(|m| m.modified().ok());
+  if mtime == last_mtime {
+    return last_mtime;
+  }
+  match config_file::reload() {
+    Ok(_) => {
+      let diff = state.reload_from_file().await;
+      info!(
+        "Reloaded {}: live settings and headers/routes re-applied (structural keys need a restart)",
+        watch_path.display()
+      );
+      let detail = if diff.is_empty() {
+        format!("{} (no live-setting changes)", watch_path.display())
+      } else {
+        format!("{} | {}", watch_path.display(), diff.join(", "))
+      };
+      state
+        .audit("config_reloaded", "system", "system", &detail)
+        .await;
+    }
+    Err(e) => warn!("Config reload of {} failed: {}", watch_path.display(), e),
+  }
+  mtime
+}
+
+/// One beat of the token-expiry warning ticker: warns (once per token per
+/// expiry) for every token whose remaining lifetime dropped under the window,
+/// and forgets warnings whose expiry passed or moved.
+pub(crate) async fn token_expiry_tick_once(
+  state: &Arc<AppState>,
+  expiry_warning_secs: u64,
+  now: u64,
+  warned: &mut std::collections::HashSet<(String, u64)>,
+) {
+  let expiring: Vec<(String, String, u64, Option<String>)> = {
+    let store = state.token_store.lock().await;
+    store
+      .list()
+      .iter()
+      .filter_map(|t| {
+        let exp = t.expires_at?;
+        let expires_within = exp > now && exp - now <= expiry_warning_secs;
+        (expires_within && !warned.contains(&(t.id.clone(), exp)))
+          .then(|| (t.id.clone(), t.name.clone(), exp, t.org_id.clone()))
+      })
+      .collect()
+  };
+  for (id, name, exp, org) in expiring {
+    warned.insert((id.clone(), exp));
+    warn!(
+      "Token '{}' expires in {} minutes (at unix {})",
+      name,
+      (exp - now) / 60,
+      exp
+    );
+    state
+      .audit_in(
+        "token_expiring",
+        "system",
+        "system",
+        org.clone(),
+        &format!("name={} expires_at={}", name, exp),
+      )
+      .await;
+    state
+      .emit_event_in(
+        "token_expiring",
+        serde_json::json!({
+          "id": id,
+          "name": name,
+          "expires_at": exp,
+          "seconds_left": exp - now,
+        }),
+        org,
+      )
+      .await;
+  }
+  // Drop warned entries whose expiry has passed or moved (refresh).
+  warned.retain(|(_, exp)| *exp > now);
 }
 
 /// Binds the listener (plain or SO_REUSEPORT), switches Nagle off per
