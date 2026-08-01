@@ -154,7 +154,7 @@ pub(crate) async fn subscribers_handler(
   headers: HeaderMap,
 ) -> Json<Vec<SubscriberView>> {
   let org = crate::auth::effective_org(&state, &headers).await;
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   // Grouped by process, like every other per-client view: one client running
   // three services is one subscriber, not three.
   let mut by_process: std::collections::BTreeMap<String, SubscriberView> =

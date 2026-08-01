@@ -54,7 +54,7 @@ async fn record_outlier_failure(state: &AppState, client_id: &str) {
     return;
   }
   let now = Instant::now();
-  let mut clients = state.clients.lock().await;
+  let mut clients = state.clients.write().await;
   if let Some(handle) = clients.get_mut(client_id)
     && handle.record_failure(
       now,
@@ -461,7 +461,7 @@ pub(crate) async fn proxy_handler(
   if state.dashboard_enabled
     && method == axum::http::Method::GET
     && uri.path() == "/"
-    && state.clients.lock().await.is_empty()
+    && state.clients.read().await.is_empty()
     && state.persistent_stats.lock().await.lifetime_requests() == 0
   {
     return Response::builder()

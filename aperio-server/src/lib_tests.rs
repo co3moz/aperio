@@ -125,7 +125,7 @@ async fn test_rate_limiting() {
 
   let (client_connected_tx, _) = watch::channel(false);
   let state = AppState {
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
@@ -284,7 +284,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
 
   let (client_connected_tx, _) = watch::channel(false);
   let state = Arc::new(AppState {
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
@@ -465,7 +465,7 @@ async fn test_proxy_handler_success() {
 
   let (client_connected_tx, _) = watch::channel(true);
   let state = Arc::new(AppState {
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
@@ -544,7 +544,7 @@ async fn test_proxy_handler_success() {
   let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
   let client_req_count = Arc::new(AtomicU64::new(0));
 
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "mock-client-1".to_string(),
     ClientHandle {
       service_custom_name: None,
@@ -1617,7 +1617,7 @@ async fn test_observe_service_availability_states() {
   // Healthy client, keyed by its service_name → Up.
   let mut up = mock_client(None, None, None, None);
   up.service_name = Some("web".to_string());
-  state.clients.lock().await.insert("c-up".to_string(), up);
+  state.clients.write().await.insert("c-up".to_string(), up);
 
   // Connected but draining → Degraded, keyed by reported_instance_id (no name).
   let mut drain = mock_client(None, None, None, None);
@@ -1625,7 +1625,7 @@ async fn test_observe_service_availability_states() {
   drain.reported_instance_id = Some("inst-drain".to_string());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c-drain".to_string(), drain);
 
@@ -1634,7 +1634,7 @@ async fn test_observe_service_availability_states() {
   bad_backend.backend_healthy = false;
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c-badbackend".to_string(), bad_backend);
 
@@ -1644,7 +1644,7 @@ async fn test_observe_service_availability_states() {
   disabled.service_name = Some("disabled-svc".to_string());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c-disabled".to_string(), disabled);
 
@@ -1671,7 +1671,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
   stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c-stale".to_string(), stale);
 
@@ -1681,7 +1681,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
   healthy.last_ping_at = Some(Instant::now());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c-healthy".to_string(), healthy);
 
@@ -1689,7 +1689,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
   assert_eq!(snap.get("svc").unwrap().0, Availability::Up);
 
   // With only the stale connection left, the entity reads Down.
-  state.clients.lock().await.remove("c-healthy");
+  state.clients.write().await.remove("c-healthy");
   let snap = observe_service_availability(&state).await;
   assert_eq!(snap.get("svc").unwrap().0, Availability::Down);
 }
@@ -1960,7 +1960,7 @@ fn build_state_refuses_a_partial_trust_configuration() {
 async fn one_uptime_tick_observes_and_accrues() {
   use crate::{flush_stats_once, uptime_tick_once};
   let state = std::sync::Arc::new(test_state());
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     crate::test_support::mock_client(Some("up.example.com"), None, None, None),
   );

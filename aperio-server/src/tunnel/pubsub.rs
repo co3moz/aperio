@@ -178,7 +178,7 @@ pub(crate) async fn set_subscriptions(
   add: bool,
 ) -> Vec<(String, String)> {
   let mut refused = Vec::new();
-  let mut clients = state.clients.lock().await;
+  let mut clients = state.clients.write().await;
   let Some(handle) = clients.get_mut(connection_id) else {
     return refused;
   };
@@ -266,7 +266,7 @@ pub(crate) async fn publish(
     String,
     tokio::sync::mpsc::Sender<axum::extract::ws::Message>,
   )> = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let mut seen: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
     for (connection_id, handle) in clients.iter() {
@@ -366,7 +366,7 @@ pub(crate) async fn publish(
 /// went out on, and it is the same subscriber either way.
 pub(crate) async fn acknowledge(state: &AppState, connection_id: &str, id: &str) {
   let process = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let Some(handle) = clients.get(connection_id) else {
       return;
     };
@@ -418,7 +418,7 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
   for (process, messages) in due {
     // Any live connection of that process will do; they all reach it.
     let target = {
-      let clients = state.clients.lock().await;
+      let clients = state.clients.read().await;
       clients
         .values()
         .find(|h| {

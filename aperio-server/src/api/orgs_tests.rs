@@ -829,7 +829,7 @@ async fn hostnames_apply_to_live_connections() {
     c.perms.org_id = Some(org_id.clone());
     c.declared_hostnames = vec![host.to_string()];
     c.assigned_hostnames = vec![host.to_string()];
-    state.clients.lock().await.insert(id.to_string(), c);
+    state.clients.write().await.insert(id.to_string(), c);
   }
 
   let headers = admin_headers(&state).await;
@@ -846,7 +846,7 @@ async fn hostnames_apply_to_live_connections() {
   // The allowlist is cached per connection at connect time, so tightening it
   // has to be pushed out; otherwise a just-revoked hostname kept being served
   // until the client happened to reconnect.
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   assert_eq!(
     clients.get("keep").unwrap().perms.org_hostnames,
     vec!["*.acme.com".to_string()]

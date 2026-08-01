@@ -36,7 +36,7 @@ fn q(pairs: &[(&str, &str)]) -> Query<HashMap<String, String>> {
 /// Registers a connected client serving `hostname`.
 async fn with_client(state: &Arc<AppState>, id: &str, hostname: &str) {
   let handle = mock_client(Some(hostname), None, None, None);
-  state.clients.lock().await.insert(id.to_string(), handle);
+  state.clients.write().await.insert(id.to_string(), handle);
 }
 
 #[tokio::test]

@@ -77,7 +77,7 @@ fn authorize(
 /// churn routers for no reason.
 pub(crate) async fn served_hostnames(state: &AppState) -> Vec<String> {
   let mut hosts: Vec<String> = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     clients
       .values()
       .flat_map(|c| c.effective_hostnames().into_iter().cloned())

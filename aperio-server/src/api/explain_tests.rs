@@ -71,7 +71,7 @@ async fn a_tenant_cannot_ask_about_another_orgs_hostname() {
 async fn the_maintenance_flag_is_named_as_the_thing_answering() {
   // The case this exists for: a 503 with nothing on screen explaining it.
   let state = Arc::new(test_state());
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("app.example.com"), None, None, None),
   );
@@ -118,7 +118,7 @@ async fn a_client_that_could_serve_but_will_not_is_named_with_the_reason() {
   let state = Arc::new(test_state());
   let mut handle = mock_client(Some("app.example.com"), None, None, None);
   handle.draining = true;
-  state.clients.lock().await.insert("c1".to_string(), handle);
+  state.clients.write().await.insert("c1".to_string(), handle);
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
 
@@ -137,7 +137,7 @@ async fn a_client_that_could_serve_but_will_not_is_named_with_the_reason() {
 #[tokio::test]
 async fn a_reachable_route_reports_the_clients_that_would_take_it() {
   let state = Arc::new(test_state());
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("app.example.com"), None, None, None),
   );
@@ -280,7 +280,7 @@ async fn a_static_route_answers_before_any_client_does() {
   }])
   .unwrap();
   let state = Arc::new(test_state_with(cfg));
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("app.example.com"), None, None, None),
   );
@@ -338,7 +338,7 @@ async fn the_visitor_gate_is_reported_when_one_is_configured() {
   let mut cfg = test_config();
   cfg.auth_credentials = Some("user:password".to_string());
   let state = Arc::new(test_state_with(cfg));
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("app.example.com"), None, None, None),
   );
@@ -449,7 +449,7 @@ async fn every_ineligible_reason_is_named() {
   // serving? Each way a client can be passed over is spelled out.
   let state = Arc::new(test_state());
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     let mut draining = mock_client(Some("app.example.com"), None, None, None);
     draining.draining = true;
     clients.insert("c-drain".to_string(), draining);

@@ -28,7 +28,7 @@ async fn insert_live_client(state: &AppState, id: &str) -> mpsc::Receiver<Messag
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  state.clients.lock().await.insert(id.to_string(), c);
+  state.clients.write().await.insert(id.to_string(), c);
   rx
 }
 
@@ -142,7 +142,7 @@ async fn ws_denied_visitor_redirect_302() {
   let mut c = mock_client(None, None, None, None);
   c.allowed_ips = vec!["10.0.0.0/8".to_string()];
   c.denied = Some("https://denied.example/ws".to_string());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, ws_request("/ws", false)).await;
   assert_eq!(resp.status(), StatusCode::FOUND);
   assert_eq!(
@@ -157,7 +157,7 @@ async fn ws_denied_visitor_stealth_504() {
   mark_connected(&state).await;
   let mut c = mock_client(None, None, None, None);
   c.allowed_ips = vec!["10.0.0.0/8".to_string()];
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, ws_request("/ws", false)).await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }

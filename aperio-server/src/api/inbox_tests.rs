@@ -207,7 +207,7 @@ async fn refire_with_client_reaches_dispatch() {
   // status without a live backend).
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
   let headers = admin_headers(&state).await;
@@ -226,7 +226,7 @@ async fn refire_success_returns_backend_status() {
   let state = Arc::new(test_state());
   seed(&state, entry("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   respond_to_pending(state.clone(), Some(ok_tunnel_response()));
   let headers = admin_headers(&state).await;
   let resp = inbox_refire_handler(
@@ -247,7 +247,7 @@ async fn refire_connection_lost_is_502() {
   let state = Arc::new(test_state());
   seed(&state, entry("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   // Drop the pending sender without answering -> RecvError -> 502.
   respond_to_pending(state.clone(), None);
   let headers = admin_headers(&state).await;
@@ -266,7 +266,7 @@ async fn refire_response_timeout_is_504() {
   let state = Arc::new(test_state());
   seed(&state, entry("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   // No responder: the send succeeds but the wait times out (1s in test config).
   let headers = admin_headers(&state).await;
   let resp = inbox_refire_handler(

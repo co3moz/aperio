@@ -192,7 +192,7 @@ async fn measure_reports_pool_capacity_and_utilization() {
   // A client on a different hostname must not count.
   let other = mock_client(Some("other.example.com"), None, None, None);
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     clients.insert("a".into(), a);
     clients.insert("b".into(), b);
     clients.insert("other".into(), other);
@@ -225,7 +225,7 @@ async fn measure_excludes_clients_that_cannot_take_a_request() {
   let mut standby = mock_client(Some("app.example.com"), None, None, None);
   standby.priority = 1;
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     clients.insert("d".into(), draining);
     clients.insert("u".into(), unhealthy);
     clients.insert("x".into(), disabled);
@@ -401,7 +401,7 @@ async fn cold_start_wait_holds_until_a_routable_client_appears() {
     "still holding, nothing serves it yet"
   );
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     let mut c = mock_client(Some("cold.example.com"), None, None, None);
     c.max_concurrent = Some(4);
     clients.insert("c-new".to_string(), c);

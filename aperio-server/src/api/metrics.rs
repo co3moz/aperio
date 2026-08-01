@@ -76,7 +76,7 @@ pub(crate) async fn metrics_handler(
   }
 
   let stats = state.stats.lock().await.clone();
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let connected = clients.len();
   let per_client: Vec<(String, u64)> = clients
     .iter()
@@ -94,7 +94,7 @@ pub(crate) async fn metrics_handler(
   // subscriptions for a client that asked for two, which is an artifact of
   // how the set is kept rather than anything an operator asked about.
   let (subscribers, subscriptions) = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let mut per_process: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
       std::collections::HashMap::new();
     for (id, handle) in clients.iter() {

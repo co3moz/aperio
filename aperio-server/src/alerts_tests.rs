@@ -223,7 +223,7 @@ async fn ticker_fires_and_resolves_both_rules() {
   // One service entity, initially Down (threshold is zero).
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("svc1".to_string(), mock_client(None, None, None, None));
 

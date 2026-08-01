@@ -580,7 +580,7 @@ async fn login_visitor_credentials_host_scoped() {
   // A connected client bound to `site.test` sets a per-service visitor password.
   let mut client = mock_client(Some("site.test"), None, None, None);
   client.visitor_auth = Some("guest:letmein".to_string());
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   let state = Arc::new(state);
   let res = call_login(
     state.clone(),

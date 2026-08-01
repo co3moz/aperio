@@ -685,7 +685,7 @@ async fn test_disconnect_token_clients() {
     org_hostnames: Vec::new(),
     max_connections: None,
   };
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   state
     .token_seen_ips
     .lock()
@@ -918,7 +918,7 @@ async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
     org_id: Some(id.clone()),
     ..ClientPerms::master()
   };
-  state.clients.lock().await.insert("c1".to_string(), handle);
+  state.clients.write().await.insert("c1".to_string(), handle);
   assert!(state.org_may_claim_hostname(Some(&id), "x.com").await);
   assert!(!state.org_may_claim_hostname(Some(&id), "y.com").await);
 }

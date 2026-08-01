@@ -629,7 +629,7 @@ pub(crate) async fn orgs_usage_handler(
   let (users, tokens) = counts.get(&org_id_opt).copied().unwrap_or((0, 0));
   let clients = state
     .clients
-    .lock()
+    .write()
     .await
     .values()
     .filter(|c| c.perms.org_id.as_deref() == org_key)

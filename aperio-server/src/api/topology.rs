@@ -120,7 +120,7 @@ pub(crate) async fn topology_handler(
     // Match each expose key to a currently-serving client, mirroring
     // `expose::find_declarer`, without ever leaking the key itself.
     let threshold = cfg.client_down_threshold;
-    let live = state.clients.lock().await;
+    let live = state.clients.read().await;
     let exposes = crate::expose::configured_rules()
       .into_iter()
       .map(|e| {

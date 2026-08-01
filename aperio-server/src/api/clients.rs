@@ -41,7 +41,7 @@ fn declared_hostnames_of(handle: &crate::state::ClientHandle) -> Vec<String> {
 /// `/api/stats` endpoint and the SSE live stream.
 pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
   let raw_stats = state.stats.lock().await.clone();
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
 
   // Instance ids reported by more than one live connection: a
   // misconfiguration worth flagging (`--bind-tunnels` / failover `wait`
@@ -587,7 +587,7 @@ pub(crate) async fn client_override_handler(
     }
   }
   let found = {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     match clients.get_mut(&client_id) {
       Some(handle) if handle.perms.org_id == org => {
         handle.override_hostname_binds = new_hostnames.clone();
@@ -889,7 +889,7 @@ pub(crate) async fn client_config_handler(
   // existence never leaks.
   let org = crate::auth::effective_org(&state, &headers).await;
   let cache_enabled = state.config().cache_enabled;
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   match clients.get(&client_id) {
     Some(handle) if handle.perms.org_id == org => {
       Json(client_config_view(&client_id, handle, cache_enabled)).into_response()
@@ -929,7 +929,7 @@ pub(crate) async fn client_enabled_handler(
   // Org isolation: a caller may only enable/disable a client of their org.
   let org = crate::auth::effective_org(&state, &headers).await;
   let found = {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     match clients.get_mut(&client_id) {
       Some(handle) if handle.perms.org_id == org => {
         handle.admin_enabled = payload.enabled;

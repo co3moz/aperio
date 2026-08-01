@@ -202,7 +202,7 @@ pub(crate) struct Capacity {
 /// the ones a bigger pool would have absorbed. Raw request counts are far too
 /// noisy to scale on.
 pub(crate) async fn measure(state: &AppState, hostname: &str, path: Option<&str>) -> Capacity {
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let down_threshold = state.config().client_down_threshold;
   let mut out = Capacity::default();
   for client in clients.values() {

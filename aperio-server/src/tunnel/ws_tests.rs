@@ -80,7 +80,7 @@ async fn connect(url: &str, token: &str) -> Client {
 async fn wait_client_id(state: &AppState) -> String {
   for _ in 0..400 {
     {
-      let clients = state.clients.lock().await;
+      let clients = state.clients.read().await;
       if let Some(k) = clients.keys().next() {
         return k.clone();
       }
@@ -92,7 +92,7 @@ async fn wait_client_id(state: &AppState) -> String {
 
 async fn wait_no_clients(state: &AppState) {
   for _ in 0..400 {
-    if state.clients.lock().await.is_empty() {
+    if state.clients.write().await.is_empty() {
       return;
     }
     tokio::time::sleep(Duration::from_millis(5)).await;
@@ -196,7 +196,7 @@ async fn deliver_chunk_owned_attributes_bytes() {
   let mut c = mock_client(None, None, None, None);
   c.perms.org_id = Some("org1".into());
   c.perms.token_id = Some("tok1".into());
-  state.clients.lock().await.insert("owner".into(), c);
+  state.clients.write().await.insert("owner".into(), c);
 
   let (tx, mut rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(4);
   state.response_streams.lock().await.insert(
@@ -281,7 +281,7 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
   let state = Arc::new(test_state());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("owner".into(), mock_client(None, None, None, None));
 
@@ -338,7 +338,7 @@ async fn backlog_cap_drops_a_producer_that_cannot_be_paused() {
   let state = Arc::new(test_state());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("owner".into(), mock_client(None, None, None, None));
 
@@ -1137,7 +1137,7 @@ async fn draining_marks_client() {
   send(&mut ws, &TunnelMessage::Draining {}).await;
   send(&mut ws, &base_ping()).await;
   read_until_pong(&mut ws).await;
-  assert!(state.clients.lock().await.get(&cid).unwrap().draining);
+  assert!(state.clients.write().await.get(&cid).unwrap().draining);
 
   ws.close(None).await.unwrap();
   wait_no_clients(&state).await;
@@ -1212,7 +1212,7 @@ async fn ping_master_applies_all_binds() {
   read_until_pong(&mut ws).await;
 
   {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let h = clients.get(&cid).unwrap();
     assert_eq!(h.declared_path.as_deref(), Some("/api"));
     assert_eq!(h.declared_hostnames.len(), 2);
@@ -1248,7 +1248,7 @@ async fn ping_master_applies_all_binds() {
   assert!(
     state
       .clients
-      .lock()
+      .write()
       .await
       .get(&cid)
       .unwrap()
@@ -1279,7 +1279,7 @@ async fn ping_master_invalid_visitor_and_denied() {
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
 
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let h = clients.get(&cid).unwrap();
   assert!(h.visitor_auth.is_none());
   assert!(h.denied.is_none());
@@ -1311,7 +1311,7 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
 
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let h = clients.get(&cid).unwrap();
   assert!(!h.public);
   assert!(h.visitor_auth.is_none());

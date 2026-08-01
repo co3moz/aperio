@@ -210,7 +210,7 @@ async fn check_share_access_without_any_credential_is_none() {
 async fn state_owning(host: &str) -> std::sync::Arc<AppState> {
   let state = test_state();
   let client = mock_client(Some(host), None, None, None);
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   std::sync::Arc::new(state)
 }
 

@@ -94,7 +94,7 @@ async fn self_health_forbids_non_master_admin() {
 async fn self_health_returns_snapshot_for_master_admin() {
   let state = Arc::new(test_state());
   // Seed a connected client so `connected_clients` is exercised as non-zero.
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     crate::test_support::mock_client(None, None, None, None),
   );

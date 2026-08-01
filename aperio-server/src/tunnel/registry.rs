@@ -211,7 +211,7 @@ pub(crate) async fn resolve(
     }
   }
   let down_threshold = state.config().client_down_threshold;
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
 
   let mut seen = Rejection::Unknown;
   for (cid, handle) in clients.iter() {
@@ -288,7 +288,7 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
     .iter()
     .map(|o| (o.id.clone(), o.name.clone()))
     .collect();
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let mut out: Vec<TunnelView> = Vec::new();
   for handle in clients.values() {
     if !include(&handle.perms) {

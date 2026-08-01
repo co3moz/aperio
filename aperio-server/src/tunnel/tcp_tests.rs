@@ -120,7 +120,7 @@ async fn connect_consumer(url: &str) -> WsClient {
 async fn seed_client(state: &AppState, id: &str, f: impl FnOnce(&mut ClientHandle)) {
   let mut c = mock_client(None, None, None, None);
   f(&mut c);
-  state.clients.lock().await.insert(id.to_string(), c);
+  state.clients.write().await.insert(id.to_string(), c);
 }
 
 /// Mints a dynamic token in the store and returns its secret.
@@ -578,7 +578,7 @@ async fn tcp_relay_full_roundtrip() {
     let mut c = mock_client(None, None, None, None);
     c.tx = ctx;
     c.tcp_enabled = true;
-    state.clients.lock().await.insert("c1".into(), c);
+    state.clients.write().await.insert("c1".into(), c);
   }
   let url = start_tunnel_server(state.clone()).await;
   let mut consumer = connect_consumer(&format!("{url}/tcp")).await;
@@ -636,7 +636,7 @@ async fn udp_relay_full_roundtrip() {
     let mut c = mock_client(None, None, None, None);
     c.tx = ctx;
     c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
-    state.clients.lock().await.insert("c1".into(), c);
+    state.clients.write().await.insert("c1".into(), c);
   }
   let url = start_tunnel_server(state.clone()).await;
   let mut consumer = connect_consumer(&format!("{url}/udp?client=c1&target=127.0.0.1:9")).await;

@@ -7,7 +7,7 @@ use axum::extract::State;
 #[tokio::test]
 async fn health_reports_status_and_counts() {
   let state = Arc::new(test_state());
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("app.example.com"), None, None, None),
   );

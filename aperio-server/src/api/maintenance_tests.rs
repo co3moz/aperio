@@ -188,7 +188,7 @@ async fn an_unfenced_org_still_needs_a_client_serving_it() {
 async fn enable_specific_hostname_served_ok() {
   let state = Arc::new(test_state());
   // A master-org client serving example.com.
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("example.com"), None, None, None),
   );
@@ -210,7 +210,7 @@ async fn enable_specific_hostname_served_ok() {
 async fn enable_other_orgs_hostname_refused() {
   let state = Arc::new(test_state());
   // Client serves example.com but belongs to the master org (org_id None).
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("example.com"), None, None, None),
   );
@@ -231,7 +231,7 @@ async fn enable_other_orgs_hostname_refused() {
 #[tokio::test]
 async fn enable_twice_is_idempotent() {
   let state = Arc::new(test_state());
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("example.com"), None, None, None),
   );

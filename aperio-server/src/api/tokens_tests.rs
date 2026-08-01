@@ -582,7 +582,7 @@ async fn revoke_success_and_disconnects_clients() {
   handle.perms.token_id = Some(id.clone());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("client-1".to_string(), handle);
 

@@ -77,7 +77,7 @@ async fn a_tenant_sees_its_clients_and_none_of_the_servers_own_routing() {
     .id;
   let mut handle = mock_client(Some("acme.example.com"), None, None, None);
   handle.perms.org_id = Some(org.clone());
-  state.clients.lock().await.insert("c1".to_string(), handle);
+  state.clients.write().await.insert("c1".to_string(), handle);
 
   let token = seed_session(&state, Role::Admin, None, Some(org)).await;
   let graph = topology_handler(State(state.clone()), cookie_headers(&token))
@@ -133,7 +133,7 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
       None,
     );
   }
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("live.example.com"), None, None, None),
   );
@@ -229,7 +229,7 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
   draining.tunnels = vec![decl("nothing_declares_this", None)];
   draining.draining = true;
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     clients.insert("c-name".to_string(), by_name);
     clients.insert("c-key".to_string(), by_key);
     clients.insert("c-drain".to_string(), draining);

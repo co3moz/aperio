@@ -1623,7 +1623,12 @@ pub(crate) struct TelemetryEvent {
 }
 
 pub(crate) struct AppState {
-  pub(crate) clients: Mutex<HashMap<String, ClientHandle>>,
+  /// Every live tunnel connection. An RwLock rather than a Mutex: routing,
+  /// stats, pubsub fan-out and the maps read it on every request, and only
+  /// connect/disconnect and the heartbeat's announcement processing mutate
+  /// it. Under a Mutex those readers serialized on one queue with each other
+  /// and with every heartbeat.
+  pub(crate) clients: tokio::sync::RwLock<HashMap<String, ClientHandle>>,
   /// Queue into the telemetry collector task, which owns the writes to
   /// `endpoint_stats`/`route_trends`/`activity`/`recent_logs`. The request
   /// path try_sends one event; a full or absent queue falls back to writing
@@ -1811,7 +1816,7 @@ impl AppState {
   pub(crate) async fn client_supports_pause(&self, client_id: &str) -> bool {
     self
       .clients
-      .lock()
+      .read()
       .await
       .get(client_id)
       .and_then(|h| h.client_protocol)
@@ -2038,7 +2043,7 @@ impl AppState {
   pub(crate) async fn disconnect_token_clients(&self, token_id: &str) -> usize {
     let mut dropped = 0usize;
     {
-      let clients = self.clients.lock().await;
+      let clients = self.clients.read().await;
       for handle in clients.values() {
         if handle.perms.token_id.as_deref() == Some(token_id) {
           handle.disconnect.notify_one();
@@ -2066,7 +2071,7 @@ impl AppState {
   /// potentially for as long as the client stayed up.
   pub(crate) async fn apply_org_hostnames(&self, org_id: &str, hostnames: &[String]) -> usize {
     let mut dropped = 0usize;
-    let mut clients = self.clients.lock().await;
+    let mut clients = self.clients.write().await;
     for handle in clients.values_mut() {
       if handle.perms.org_id.as_deref() != Some(org_id) {
         continue;
@@ -2241,7 +2246,7 @@ impl AppState {
         if target.starts_with("*.") {
           return false;
         }
-        let clients = self.clients.lock().await;
+        let clients = self.clients.read().await;
         served(&|owner| owner == Some(id), &clients)
           .iter()
           .any(|h| h == target)
@@ -2254,7 +2259,7 @@ impl AppState {
         {
           return false;
         }
-        let clients = self.clients.lock().await;
+        let clients = self.clients.read().await;
         !served(&|owner| owner.is_some(), &clients)
           .iter()
           .any(|h| pattern_covers_pattern(target, h))
@@ -2350,7 +2355,7 @@ impl AppState {
     };
     let count = self
       .clients
-      .lock()
+      .read()
       .await
       .values()
       .filter(|c| c.perms.org_id.as_deref() == org)

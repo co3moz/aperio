@@ -99,7 +99,7 @@ async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str
         // the serving token's daily byte quota, a streamed response body would
         // otherwise escape the quota that a buffered response is charged for.
         let (org, token_id) = {
-          let clients = state.clients.lock().await;
+          let clients = state.clients.read().await;
           match clients.get(client_id) {
             Some(c) => (c.perms.org_id.clone(), c.perms.token_id.clone()),
             None => (None, None),
@@ -835,7 +835,7 @@ impl ConnCtx {
       // publishes on.
       let notice = TunnelMessage::SubscribeRefused { topic, reason: why };
       if let Ok(json) = serde_json::to_string(&notice) {
-        let clients = state.clients.lock().await;
+        let clients = state.clients.read().await;
         if let Some(handle) = clients.get(client_id) {
           let _ = handle.tx.try_send(Message::Text(json.into()));
         }
@@ -920,7 +920,7 @@ impl ConnCtx {
       warn!("Client {client_id} cannot publish to '{topic}': {why}");
       let notice = TunnelMessage::PublishRefused { topic, reason: why };
       if let Ok(json) = serde_json::to_string(&notice) {
-        let clients = state.clients.lock().await;
+        let clients = state.clients.read().await;
         if let Some(handle) = clients.get(client_id) {
           let _ = handle.tx.try_send(Message::Text(json.into()));
         }
@@ -992,7 +992,7 @@ impl ConnCtx {
     // must never be locked while the clients map is).
     let mut scaling_ctx: Option<ScalingBindCtx> = None;
     {
-      let mut clients = state.clients.lock().await;
+      let mut clients = state.clients.write().await;
       if let Some(handle) = clients.get_mut(client_id) {
         // Declared binds must be permitted by the token used to connect.
         if let Some(p) = normalized_path {
@@ -1422,7 +1422,7 @@ impl ConnCtx {
           Ok(record) => record,
           Err(e) => {
             let warned = {
-              let mut clients = state.clients.lock().await;
+              let mut clients = state.clients.write().await;
               match clients.get_mut(client_id) {
                 Some(handle) => {
                   let already = handle.scaling_invalid_warned;
@@ -1638,7 +1638,7 @@ impl ConnCtx {
       client_id
     );
     {
-      let mut clients = state.clients.lock().await;
+      let mut clients = state.clients.write().await;
       if let Some(handle) = clients.get_mut(client_id) {
         handle.draining = true;
       }
@@ -1688,7 +1688,7 @@ impl ConnCtx {
       )
       .await;
     {
-      let mut clients = state.clients.lock().await;
+      let mut clients = state.clients.write().await;
       let removed = clients.remove(client_id);
       let now_empty = clients.is_empty();
 
@@ -1927,7 +1927,7 @@ pub(crate) async fn handle_socket(
 
   // Register active client
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     clients.insert(
       client_id.clone(),
       ClientHandle {

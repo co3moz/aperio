@@ -1197,7 +1197,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
   let (telemetry_tx, telemetry_rx) = tokio::sync::mpsc::channel(8192);
 
   let state = Arc::new(AppState {
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
@@ -2144,7 +2144,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
   info!("Shutdown signal received, closing Aperio Server connections...");
 
   if let Ok(json) = serde_json::to_string(&TunnelMessage::ServerShutdown {}) {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let notified = clients.len();
     for client in clients.values() {
       // try_send: a client with a full queue must not stall the shutdown.
@@ -2164,7 +2164,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
   // notify.
   let _ = state.shutdown.send(true);
   {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     for client in clients.values() {
       client.disconnect.notify_waiters();
     }
@@ -2286,7 +2286,7 @@ pub mod testkit {
       self
         .state
         .clients
-        .lock()
+        .write()
         .await
         .insert("probe-client".to_string(), handle);
       rx
@@ -2312,7 +2312,7 @@ pub mod testkit {
     /// How many live tunnel clients the state currently tracks, so a test
     /// can assert on the state the HTTP surface is serving from.
     pub async fn connected_clients(&self) -> usize {
-      self.state.clients.lock().await.len()
+      self.state.clients.read().await.len()
     }
   }
 }
@@ -2335,7 +2335,7 @@ pub(crate) async fn observe_service_availability(
 ) -> std::collections::HashMap<String, (crate::store::uptime::Availability, Option<String>)> {
   use crate::store::uptime::Availability;
   let down_threshold = state.config().client_down_threshold;
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let mut out: std::collections::HashMap<String, (Availability, Option<String>)> =
     std::collections::HashMap::new();
   for (conn_id, handle) in clients.iter() {

@@ -29,7 +29,7 @@ async fn subscriber(
   };
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert(connection_id.to_string(), handle);
   let refused = set_subscriptions(
@@ -242,7 +242,7 @@ async fn unusable_filters_are_reported_and_the_rest_still_apply() {
   let mut handle = mock_client(None, None, None, None);
   handle.tx = tx;
   handle.instance_group = Some("p".to_string());
-  state.clients.lock().await.insert("c".to_string(), handle);
+  state.clients.write().await.insert("c".to_string(), handle);
 
   let refused = set_subscriptions(
     &state,
@@ -289,7 +289,7 @@ async fn a_client_at_the_filter_limit_is_told_rather_than_silently_capped() {
     .collect();
   let mut handle = mock_client(None, None, None, None);
   handle.instance_group = Some("p".to_string());
-  state.clients.lock().await.insert("c".to_string(), handle);
+  state.clients.write().await.insert("c".to_string(), handle);
 
   let refused = set_subscriptions(&state, "c", filters, true).await;
   assert!(refused.is_empty());
@@ -312,7 +312,7 @@ async fn a_slow_subscriber_does_not_hold_up_the_others() {
   stuck.subscriptions = vec!["#".to_string()];
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("stuck".to_string(), stuck);
   let mut healthy = subscriber(&state, "ok", Some("ok"), None, &["#"]).await;
@@ -428,7 +428,7 @@ async fn a_subscription_outside_the_token_is_refused_by_name() {
   let mut handle = mock_client(None, None, None, None);
   handle.instance_group = Some("p".to_string());
   handle.perms = scoped(&["deploy/#"]);
-  state.clients.lock().await.insert("c".to_string(), handle);
+  state.clients.write().await.insert("c".to_string(), handle);
 
   let refused = set_subscriptions(
     &state,
@@ -441,7 +441,7 @@ async fn a_subscription_outside_the_token_is_refused_by_name() {
   assert_eq!(refused[0].0, "secrets/#");
   assert!(refused[0].1.contains("token"), "{refused:?}");
 
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   assert_eq!(clients["c"].subscriptions, vec!["deploy/web".to_string()]);
 }
 
@@ -560,7 +560,7 @@ async fn a_client_that_stops_acknowledging_costs_a_bounded_amount() {
   handle.tx = tx;
   handle.instance_group = Some("p".to_string());
   handle.subscriptions = vec!["#".to_string()];
-  state.clients.lock().await.insert("c".to_string(), handle);
+  state.clients.write().await.insert("c".to_string(), handle);
 
   for i in 0..(MAX_PENDING_PER_PROCESS + 50) {
     publish(

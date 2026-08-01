@@ -12,9 +12,6 @@ pub(crate) fn sanitize_uri(uri: &str) -> &str {
   uri.split('?').next().unwrap_or(uri)
 }
 
-/// Appends one JSON line to the access log file when APERIO_ACCESS_LOG is
-/// configured. The same data is always emitted as a structured tracing event.
-
 /// Writes one telemetry event into the bookkeeping structures. Called from
 /// the collector task in production; called inline when the queue is full or
 /// no collector runs (unit tests), so behavior is identical either way, only

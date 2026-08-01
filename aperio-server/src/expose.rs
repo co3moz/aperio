@@ -266,7 +266,7 @@ async fn find_declarer(
     },
     None => None,
   };
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   for (cid, c) in clients.iter() {
     if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
       continue;

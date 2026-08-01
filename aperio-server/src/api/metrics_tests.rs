@@ -98,7 +98,7 @@ fn tmp_dir(kind: &str) -> String {
 fn build_state(config: ServerConfig) -> Arc<AppState> {
   let (client_connected_tx, _) = watch::channel(false);
   Arc::new(AppState {
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
@@ -269,7 +269,7 @@ async fn metrics_no_token_renders_all_families() {
   // A connected client makes the per-client loop emit a labelled line.
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("client-1".to_string(), mock_client());
   // Seed per-token / per-hostname persistent counters with a label that
@@ -520,12 +520,12 @@ async fn metrics_report_the_messaging_counters() {
     handle.tx = tx;
     handle.instance_group = Some("one-process".to_string());
     handle.subscriptions = filters;
-    state.clients.lock().await.insert(id.to_string(), handle);
+    state.clients.write().await.insert(id.to_string(), handle);
   }
   // A connection with no subscription must not count as a subscriber.
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("quiet".to_string(), mock_client());
 
@@ -583,7 +583,7 @@ async fn a_dropped_delivery_is_counted_because_it_is_the_one_to_alert_on() {
   stuck.subscriptions = vec!["#".to_string()];
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("stuck".to_string(), stuck);
 

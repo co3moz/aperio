@@ -100,7 +100,7 @@ pub(crate) async fn dashboard_asset_handler(
   description = "Liveness probe: server version, tunnel protocol version, and connected client count. No authentication.",
   responses((status = 200, description = "Server is up", body = serde_json::Value)))]
 pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-  let clients_count = state.clients.lock().await.len();
+  let clients_count = state.clients.read().await.len();
   let stats = state.stats.lock().await;
   let uptime = state.server_start_time.elapsed().as_secs();
 

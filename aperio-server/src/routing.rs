@@ -417,7 +417,7 @@ pub(crate) async fn pick_proxy_client(
   affinity: Option<&str>,
   visitor_ip: Option<IpAddr>,
 ) -> PickOutcome {
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
     &clients,
     uri_path,
@@ -498,7 +498,7 @@ pub(crate) async fn route_exists(
   request_host: Option<&str>,
   visitor_ip: Option<IpAddr>,
 ) -> bool {
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let Some((pool, _)) = select_client_pool(
     &clients,
     uri_path,
@@ -533,7 +533,7 @@ pub(crate) async fn route_is_public(
   if request_path_has_traversal(uri_path) {
     return false;
   }
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let Some((pool, _)) = select_client_pool(
     &clients,
     uri_path,
@@ -634,7 +634,7 @@ pub(crate) async fn route_visitor_auth(
   if request_path_has_traversal(uri_path) {
     return None;
   }
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let (pool, _) = select_client_pool(
     &clients,
     uri_path,
@@ -669,7 +669,7 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
   if state.config().ignore_client_auth {
     return false;
   }
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   clients.values().any(|c| {
     c.visitor_auth.is_some()
       && match request_host {

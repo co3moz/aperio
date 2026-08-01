@@ -221,7 +221,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
   let (telemetry_tx, _) = tokio::sync::mpsc::channel(1);
   AppState {
     telemetry_tx,
-    clients: Mutex::new(HashMap::new()),
+    clients: tokio::sync::RwLock::new(HashMap::new()),
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,

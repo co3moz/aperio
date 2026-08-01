@@ -55,7 +55,7 @@ pub(crate) async fn self_health_handler(
     .map(|p| p.to_path_buf())
     .unwrap_or_else(|| std::path::PathBuf::from("."));
   let cache = state.response_cache.lock().await.stats();
-  let clients = state.clients.lock().await.len();
+  let clients = state.clients.read().await.len();
   Json(serde_json::json!({
     "uptime_seconds": state.server_start_time.elapsed().as_secs(),
     "connected_clients": clients,

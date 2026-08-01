@@ -115,7 +115,7 @@ async fn insert_client(
 ) {
   let mut c = crate::test_support::mock_client(None, None, None, None);
   mutate(&mut c);
-  state.clients.lock().await.insert(cid.to_string(), c);
+  state.clients.write().await.insert(cid.to_string(), c);
 }
 
 #[tokio::test]
@@ -208,7 +208,7 @@ async fn relay_end_to_end_pumps_bytes_both_directions() {
     let mut c = crate::test_support::mock_client(None, None, None, None);
     c.tx = tx;
     c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
-    state.clients.lock().await.insert("c1".to_string(), c);
+    state.clients.write().await.insert("c1".to_string(), c);
   }
 
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -304,7 +304,7 @@ async fn relay_bails_when_the_client_channel_is_closed() {
   {
     let mut c = crate::test_support::mock_client(None, None, None, None); // rx already dropped
     c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
-    state.clients.lock().await.insert("dead".to_string(), c);
+    state.clients.write().await.insert("dead".to_string(), c);
   }
 
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -328,7 +328,7 @@ async fn relay_closes_when_tunnel_signals_close() {
     let mut c = crate::test_support::mock_client(None, None, None, None);
     c.tx = tx;
     c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
-    state.clients.lock().await.insert("c1".to_string(), c);
+    state.clients.write().await.insert("c1".to_string(), c);
   }
 
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

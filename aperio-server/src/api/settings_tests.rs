@@ -275,7 +275,7 @@ async fn changing_subdomain_suffix_reassigns_connected_clients() {
   let state = Arc::new(test_state());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
 
@@ -293,7 +293,7 @@ async fn changing_subdomain_suffix_reassigns_connected_clients() {
     Some("*.example.com")
   );
   // The connected client was handed a fresh random hostname.
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   let c = clients.get("c1").unwrap();
   assert!(c.random_hostname.is_some());
   assert!(
@@ -310,7 +310,7 @@ async fn enabling_compression_offers_it_to_connected_clients() {
   let state = Arc::new(test_state());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
 

@@ -807,7 +807,7 @@ async fn two_client_pool() -> std::sync::Arc<AppState> {
   for id in ["a", "b"] {
     let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
     c.reported_instance_id = Some(id.to_string());
-    state.clients.lock().await.insert(id.to_string(), c);
+    state.clients.write().await.insert(id.to_string(), c);
   }
   state
 }

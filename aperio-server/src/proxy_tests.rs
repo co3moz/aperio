@@ -236,7 +236,7 @@ async fn record_outlier_failure_guarded_by_config() {
   let state = test_state_with(test_config());
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
   record_outlier_failure(&state, "c1").await;
@@ -248,7 +248,7 @@ async fn record_outlier_failure_guarded_by_config() {
   let state = test_state_with(cfg);
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
   record_outlier_failure(&state, "c1").await;
@@ -395,7 +395,7 @@ async fn visitor_gate_per_route_visitor_auth() {
   let state = Arc::new(test_state_with(test_config()));
   let mut c = mock_client(None, None, None, None);
   c.visitor_auth = Some("pw".to_string());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let uri: axum::http::Uri = "/svc".parse().unwrap();
   let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
@@ -476,7 +476,7 @@ async fn insert_live_client(state: &AppState, id: &str) -> mpsc::Receiver<Messag
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  state.clients.lock().await.insert(id.to_string(), c);
+  state.clients.write().await.insert(id.to_string(), c);
   rx
 }
 
@@ -587,7 +587,7 @@ async fn handler_serves_cache_hit_without_tunnel() {
   // Client marked cacheable; its receiver stays dropped since we never dispatch.
   let mut c = mock_client(None, None, None, None);
   c.cache = true;
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   // Pre-seed a fresh cache entry for GET /cached.
   state.response_cache.lock().await.insert(
     crate::cache::cache_key(None, "/cached"),
@@ -720,7 +720,7 @@ async fn handler_stores_cacheable_response() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.cache = true;
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let mut r = text_response(200);
   r.headers.push((
     "cache-control".to_string(),
@@ -747,7 +747,7 @@ async fn handler_negatively_caches_404() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.cache = true;
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(404))]);
   let resp = run(state.clone(), get("/missing")).await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -762,7 +762,7 @@ async fn handler_webhook_inbox_records_post() {
   c.tx = tx;
   c.webhook_inbox = true;
   c.service_name = Some("svc".to_string());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   let mut req = axum::extract::Request::new(Body::from("hook"));
   *req.method_mut() = Method::POST;
@@ -884,7 +884,7 @@ async fn handler_streamed_upload_round_trip() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.client_protocol = Some(2);
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   // Body above the 256 KiB stream threshold, declared via content-length.
   let big = vec![b'a'; 300 * 1024];
@@ -957,7 +957,7 @@ async fn handler_swr_serves_stale_and_revalidates() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.cache = true;
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   // A cacheable entry that is past its TTL but within its SWR window.
   state.response_cache.lock().await.insert(
     crate::cache::cache_key(None, "/swr"),
@@ -994,7 +994,7 @@ async fn handler_denied_visitor_stealth_504() {
   // The caller (127.0.0.1) is not in the client's allowlist → rejected, and no
   // `denied:` redirect is declared → stealth 504 (identical to unclaimed).
   c.allowed_ips = vec!["10.0.0.0/8".to_string()];
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/secret")).await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }
@@ -1006,7 +1006,7 @@ async fn handler_denied_visitor_redirect_302() {
   let mut c = mock_client(None, None, None, None);
   c.allowed_ips = vec!["10.0.0.0/8".to_string()];
   c.denied = Some("https://denied.example/blocked".to_string());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/secret")).await;
   assert_eq!(resp.status(), StatusCode::FOUND);
   assert_eq!(
@@ -1066,7 +1066,7 @@ async fn handler_inflight_limiter_admits_request() {
   c.tx = tx;
   c.max_concurrent = Some(2);
   c.inflight_limiter = Some(StdArc::new(Semaphore::new(2)));
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   let resp = run(state, get("/limited")).await;
   assert_eq!(resp.status(), StatusCode::OK);
@@ -1082,7 +1082,7 @@ async fn handler_single_flight_follower_serves_from_cache() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.cache = true;
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   // Only the leader dispatches; it stores a cacheable answer, then the follower
   // wakes and re-checks the cache instead of stampeding the backend.
   let mut r = text_response(200);
@@ -1163,7 +1163,7 @@ async fn handler_dispatch_send_failure_returns_502() {
   // default Fail mode).
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
   let resp = run(state, get("/dead")).await;
@@ -1185,7 +1185,7 @@ async fn handler_inflight_limiter_timeout_returns_429() {
   // No permits available → the acquire never succeeds within the gateway
   // timeout → 429.
   c.inflight_limiter = Some(StdArc::new(Semaphore::new(0)));
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/blocked")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
@@ -1242,7 +1242,7 @@ async fn handler_token_daily_quota_returns_429() {
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.token_id = Some(token.id.clone());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/quota")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
@@ -1306,7 +1306,7 @@ async fn handler_response_timeout_override_and_header_strip() {
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.response_timeout = Some(5); // per-service response-timeout override
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let mut r = text_response(200);
   // Hop-by-hop headers must be stripped from the visitor response.
   r.headers
@@ -1345,7 +1345,7 @@ async fn handler_streamed_upload_truncates_oversized_body() {
   let (tx, rx) = mpsc::channel::<Message>(256);
   c.tx = tx;
   c.client_protocol = Some(2);
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   // Chunked upload (no content-length) streams; the pump truncates once the
   // running total exceeds the body limit.
@@ -1388,7 +1388,7 @@ async fn handler_org_month_quota_returns_429() {
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.org_id = Some(org.id.clone());
-  state.clients.lock().await.insert("c1".to_string(), c);
+  state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/orgquota")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }

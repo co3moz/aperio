@@ -22,7 +22,7 @@ async fn insert_client(
 ) {
   let mut handle = mock_client(Some("svc.example.com"), Some("/api"), None, None);
   f(&mut handle);
-  state.clients.lock().await.insert(id.to_string(), handle);
+  state.clients.write().await.insert(id.to_string(), handle);
 }
 
 fn log(id: &str, org: Option<&str>) -> RequestLog {
@@ -508,7 +508,7 @@ async fn override_set_then_clear() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let h = clients.get("c1").unwrap();
     assert_eq!(
       h.override_hostname_binds,
@@ -528,7 +528,7 @@ async fn override_set_then_clear() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let h = clients.get("c1").unwrap();
     assert!(h.override_hostname_binds.is_empty());
     assert!(h.override_path_bind.is_none());
@@ -559,7 +559,7 @@ async fn override_accepts_a_list_of_hostnames() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(
-    state.clients.lock().await["c1"].override_hostname_binds,
+    state.clients.write().await["c1"].override_hostname_binds,
     vec![
       "new.example.com".to_string(),
       "wild-fox.tunnel.example.com".to_string()
@@ -577,7 +577,7 @@ async fn override_accepts_a_list_of_hostnames() {
   .await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
   assert_eq!(
-    state.clients.lock().await["c1"]
+    state.clients.write().await["c1"]
       .override_hostname_binds
       .len(),
     2
@@ -594,7 +594,7 @@ async fn override_accepts_a_list_of_hostnames() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert!(
-    state.clients.lock().await["c1"]
+    state.clients.write().await["c1"]
       .override_hostname_binds
       .is_empty()
   );
@@ -650,7 +650,7 @@ async fn override_cross_org_client_is_404() {
     "cross-org client hidden as 404"
   );
   // The override must not have been applied.
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   assert!(
     clients
       .get("c1")
@@ -680,7 +680,7 @@ async fn enabled_toggle_and_unknown() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
-  assert!(!state.clients.lock().await.get("c1").unwrap().admin_enabled);
+  assert!(!state.clients.write().await.get("c1").unwrap().admin_enabled);
 
   // Re-enable.
   let resp = client_enabled_handler(
@@ -692,7 +692,7 @@ async fn enabled_toggle_and_unknown() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
-  assert!(state.clients.lock().await.get("c1").unwrap().admin_enabled);
+  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
 
   // Unknown client.
   let resp = client_enabled_handler(
@@ -725,7 +725,7 @@ async fn enabled_cross_org_client_is_404() {
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   // Untouched.
-  assert!(state.clients.lock().await.get("c1").unwrap().admin_enabled);
+  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +815,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   .await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   assert!(
-    state.clients.lock().await["c1"]
+    state.clients.write().await["c1"]
       .override_hostname_binds
       .is_empty()
   );
@@ -831,7 +831,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(
-    state.clients.lock().await["c1"].override_hostname_binds,
+    state.clients.write().await["c1"].override_hostname_binds,
     vec!["app.acme.com".to_string()]
   );
 }
@@ -996,5 +996,5 @@ async fn enabling_an_unknown_or_foreign_client_is_not_found() {
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   // And the master client is untouched.
-  assert!(state.clients.lock().await.get("c1").unwrap().admin_enabled);
+  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
 }

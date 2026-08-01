@@ -332,7 +332,7 @@ pub(crate) async fn explain_handler(
 
   // 7. Routing: which clients could take it, and why the others could not.
   let (pool, ineligible) = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     let down_threshold = cfg.client_down_threshold;
     let pool = crate::routing::select_client_pool(
       &clients,

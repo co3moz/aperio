@@ -164,7 +164,7 @@ async fn replay_with_client_reaches_dispatch() {
   seed(&state, captured("a", None, false)).await;
   state
     .clients
-    .lock()
+    .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
   let headers = admin_headers(&state).await;
@@ -187,7 +187,7 @@ async fn replay_routes_by_host_header() {
   c.req_headers
     .push(("host".to_string(), "svc.example.com:443".to_string()));
   seed(&state, c).await;
-  state.clients.lock().await.insert(
+  state.clients.write().await.insert(
     "c1".to_string(),
     mock_client(Some("svc.example.com"), None, None, None),
   );
@@ -207,7 +207,7 @@ async fn replay_success_counts_2xx() {
   let state = Arc::new(test_state());
   seed(&state, captured("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   respond_to_pending(state.clone(), Some(ok_tunnel_response()));
   let headers = admin_headers(&state).await;
   let resp = request_replay_handler(
@@ -231,7 +231,7 @@ async fn replay_success_counts_5xx_as_failure() {
   let state = Arc::new(test_state());
   seed(&state, captured("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   let mut res = ok_tunnel_response();
   res.status = 503;
   respond_to_pending(state.clone(), Some(res));
@@ -253,7 +253,7 @@ async fn replay_connection_lost_is_502() {
   let state = Arc::new(test_state());
   seed(&state, captured("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   respond_to_pending(state.clone(), None);
   let headers = admin_headers(&state).await;
   let resp = request_replay_handler(
@@ -271,7 +271,7 @@ async fn replay_response_timeout_is_504() {
   let state = Arc::new(test_state());
   seed(&state, captured("a", None, false)).await;
   let (client, _rx) = live_client();
-  state.clients.lock().await.insert("c1".to_string(), client);
+  state.clients.write().await.insert("c1".to_string(), client);
   let headers = admin_headers(&state).await;
   let resp = request_replay_handler(
     State(state.clone()),

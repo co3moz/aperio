@@ -175,7 +175,7 @@ pub(crate) async fn inbox_refire_handler(
   // Route exactly like live traffic for the entry's host/path.
   let uri_path = entry.uri.split('?').next().unwrap_or(&entry.uri);
   let client_info = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     match select_client_pool(
       &clients,
       uri_path,

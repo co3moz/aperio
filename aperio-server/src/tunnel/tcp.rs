@@ -142,7 +142,7 @@ pub(crate) async fn tcp_ws_handler(
       // fenced by `may_bind`, and this one was not, so a token of one
       // organization could open a raw socket into another organization's
       // declared target simply by naming nothing.
-      let clients = state.clients.lock().await;
+      let clients = state.clients.read().await;
       let found = clients
         .iter()
         .find(|(_, c)| {
@@ -421,7 +421,7 @@ pub(crate) async fn tunnels_list_handler(
   };
 
   let id = client_id.trim();
-  let clients = state.clients.lock().await;
+  let clients = state.clients.read().await;
   // Any connection of the process answers: they all announce the same list.
   // The id may be the connection id, the reported instance id, or the raw
   // `client_id` from the file, which is the one an operator actually has.

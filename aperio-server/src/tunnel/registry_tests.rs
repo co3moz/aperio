@@ -95,7 +95,7 @@ async fn insert(
 ) {
   let mut c = crate::test_support::mock_client(None, None, None, None);
   mutate(&mut c);
-  state.clients.lock().await.insert(cid.to_string(), c);
+  state.clients.write().await.insert(cid.to_string(), c);
 }
 
 #[tokio::test]

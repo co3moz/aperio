@@ -332,7 +332,7 @@ async fn reassign_random_hostnames(state: &Arc<AppState>) {
   let pattern = state.config().random_subdomain_suffix.clone();
   let mut notifications = Vec::new();
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     for (id, c) in clients.iter_mut() {
       if let Some(ref old) = c.random_hostname {
         c.assigned_hostnames.retain(|h| h != old);
@@ -359,7 +359,7 @@ async fn reassign_random_hostnames(state: &Arc<AppState>) {
 /// new connections.
 async fn offer_compression_to_connected(state: &Arc<AppState>) {
   let txs: Vec<_> = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     clients.values().map(|c| c.tx.clone()).collect()
   };
   if txs.is_empty() {

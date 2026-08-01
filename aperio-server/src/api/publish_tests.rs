@@ -128,7 +128,7 @@ async fn subscribers_are_grouped_by_process_and_scoped_to_the_organization() {
   // A connection with no subscription is not a subscriber.
   let quiet = mock_client(Some("d.example.com"), None, None, None);
   {
-    let mut clients = state.clients.lock().await;
+    let mut clients = state.clients.write().await;
     clients.insert("c1".into(), a1);
     clients.insert("c2".into(), a2);
     clients.insert("c3".into(), other);

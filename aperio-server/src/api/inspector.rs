@@ -92,7 +92,7 @@ pub(crate) async fn request_replay_handler(
       lower.split(':').next().map(|s| s.to_string())
     });
   let client_info = {
-    let clients = state.clients.lock().await;
+    let clients = state.clients.read().await;
     match select_client_pool(
       &clients,
       uri_path,
