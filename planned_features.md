@@ -540,6 +540,28 @@ free number.
   v1 has no offline delivery. (From the 2026-07 client-to-client messaging
   discussion.)
 
+- [ ] **#21 Split `aperio-server` into a library and a thin binary, and break
+  the `ws.rs` read loop into per-message handlers.** The server is a binary
+  crate, so its top 2,100 lines (`main.rs`: env resolution, router assembly,
+  background task spawning, shutdown) and the 1,450-line `handle_socket` loop
+  in `tunnel/ws.rs` are reachable only by running the whole process, which is
+  why they sit at the bottom of every coverage report (486 and 324 missed
+  regions as of 0.8.0) and why any test of startup wiring has to be an e2e
+  phase. Plan, in order, each step shippable alone: (1) `src/lib.rs` takes
+  every existing `mod`, `main.rs` shrinks to a call into the lib, CLI
+  subcommands included; (2) `async_main` decomposes into
+  `Settings::from_env()`, `build_state()`, `build_router()`,
+  `spawn_background()` and `serve()`, so router-level tests can drive the
+  full middleware stack in-process with `tower::ServiceExt::oneshot`; (3) a
+  `tests/` integration crate boots the composed app without a subprocess;
+  (4) `handle_socket`'s match arms become named handlers over a small
+  `ConnCtx`, the loop keeps only decode-and-dispatch, and the writer task's
+  compression transform becomes a free function, each testable with the
+  channel-mock pattern the pubsub and expose tests already use. No behavior
+  change anywhere; e2e green after every step. The client binary is the same
+  recipe later, as its own item when this one proves the shape. (From the
+  2026-08 coverage push toward 95%.)
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
