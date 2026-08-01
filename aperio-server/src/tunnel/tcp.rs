@@ -284,6 +284,9 @@ async fn relay_udp_consumer(
   target: String,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
+  // Read once per stream: the announcement precedes routability, so the
+  // client's protocol cannot change mid-stream in a way that matters.
+  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   state.udp_streams.lock().await.insert(
     stream_id.clone(),
@@ -310,24 +313,27 @@ async fn relay_udp_consumer(
   let stream_id_up = stream_id.clone();
   let client_tx_up = client_tx.clone();
   let up_task = tokio::spawn(async move {
-    use base64::prelude::*;
     while let Some(Ok(msg)) = ws_receiver.next().await {
       let bytes = match msg {
         Message::Binary(b) => b,
         Message::Close(_) => break,
         _ => continue,
       };
-      let data_msg = TunnelMessage::UdpDatagram {
-        stream_id: stream_id_up.clone(),
-        data: BASE64_STANDARD.encode(&bytes),
-      };
-      let Ok(json) = serde_json::to_string(&data_msg) else {
+      // v7 takes the datagram raw; an older client takes base64 in JSON.
+      let Some(frame) = crate::protocol::relay_frame(
+        protocol,
+        crate::protocol::FRAME_UDP_DATAGRAM,
+        &stream_id_up,
+        &bytes,
+        |data| TunnelMessage::UdpDatagram {
+          stream_id: stream_id_up.clone(),
+          data,
+        },
+      ) else {
         continue;
       };
       // Best-effort: drop the datagram when the tunnel is congested.
-      if let Err(mpsc::error::TrySendError::Closed(_)) =
-        client_tx_up.try_send(Message::Text(json.into()))
-      {
+      if let Err(mpsc::error::TrySendError::Closed(_)) = client_tx_up.try_send(frame) {
         break;
       }
     }
@@ -450,6 +456,8 @@ async fn relay_tcp_consumer(
   target: Option<String>,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
+  // Read once per stream, like the pause support below.
+  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   // The tunnel read loop feeds a pump rather than this channel: a consumer
   // that stops reading must not stall the other streams on that tunnel;
@@ -488,7 +496,6 @@ async fn relay_tcp_consumer(
   let stream_id_up = stream_id.clone();
   let client_tx_up = client_tx.clone();
   let up_task = tokio::spawn(async move {
-    use base64::prelude::*;
     while let Some(Ok(msg)) = ws_receiver.next().await {
       let bytes = match msg {
         Message::Binary(b) => b,
@@ -496,13 +503,20 @@ async fn relay_tcp_consumer(
         Message::Close(_) => break,
         _ => continue,
       };
-      let data_msg = TunnelMessage::TcpData {
-        stream_id: stream_id_up.clone(),
-        data: BASE64_STANDARD.encode(&bytes),
+      // v7 takes the bytes raw; an older client takes base64 in JSON.
+      let Some(frame) = crate::protocol::relay_frame(
+        protocol,
+        crate::protocol::FRAME_TCP_DATA,
+        &stream_id_up,
+        &bytes,
+        |data| TunnelMessage::TcpData {
+          stream_id: stream_id_up.clone(),
+          data,
+        },
+      ) else {
+        break;
       };
-      if let Ok(json) = serde_json::to_string(&data_msg)
-        && client_tx_up.send(Message::Text(json.into())).await.is_err()
-      {
+      if client_tx_up.send(frame).await.is_err() {
         break;
       }
     }

@@ -1,7 +1,6 @@
 //! Experimental TCP tunneling: relaying server-initiated streams to the
 //! configured local TCP target, and the consumer-side local bridge.
 
-use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,6 +41,9 @@ pub(crate) async fn handle_tcp_open(
   e2e: Option<crate::e2e::E2eParams>,
   activity: crate::service::ActivityClock,
   pauses: crate::flow::PauseRegistry,
+  // The tunnel protocol the server announced: v7 takes relay payloads as raw
+  // binary frames, anything older takes base64 inside JSON.
+  protocol: u32,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -67,13 +69,18 @@ pub(crate) async fn handle_tcp_open(
   // afterwards is AEAD-sealed; the server only sees ciphertext.
   let (mut sealer, mut opener) = if let Some(params) = e2e {
     let hs = crate::e2e::Handshake::new(crate::e2e::Role::Responder, params.psk);
-    let hs_msg = TunnelMessage::TcpData {
-      stream_id: stream_id.clone(),
-      data: BASE64_STANDARD.encode(&hs.frame),
-    };
-    let sent = match serde_json::to_string(&hs_msg) {
-      Ok(json) => tunnel_tx.send(Message::Text(json)).await.is_ok(),
-      Err(_) => false,
+    let sent = match crate::protocol::relay_frame(
+      protocol,
+      crate::protocol::FRAME_TCP_DATA,
+      &stream_id,
+      &hs.frame,
+      |data| TunnelMessage::TcpData {
+        stream_id: stream_id.clone(),
+        data,
+      },
+    ) {
+      Some(frame) => tunnel_tx.send(frame).await.is_ok(),
+      None => false,
     };
     let peer_frame = if sent {
       tokio::time::timeout(Duration::from_secs(10), bytes_rx.recv())
@@ -144,13 +151,19 @@ pub(crate) async fn handle_tcp_open(
             },
             None => buf[..n].to_vec(),
           };
-          let msg = TunnelMessage::TcpData {
-            stream_id: stream_id_up.clone(),
-            data: BASE64_STANDARD.encode(&payload),
+          let Some(frame) = crate::protocol::relay_frame(
+            protocol,
+            crate::protocol::FRAME_TCP_DATA,
+            &stream_id_up,
+            &payload,
+            |data| TunnelMessage::TcpData {
+              stream_id: stream_id_up.clone(),
+              data,
+            },
+          ) else {
+            break;
           };
-          if let Ok(json) = serde_json::to_string(&msg)
-            && tunnel_tx_up.send(Message::Text(json)).await.is_err()
-          {
+          if tunnel_tx_up.send(frame).await.is_err() {
             break;
           }
         }

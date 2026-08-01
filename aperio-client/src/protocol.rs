@@ -16,7 +16,9 @@ use tracing::warn;
 /// instead of base64 inside JSON.
 /// v6: the same for a buffered *request* body, server to client, which is
 /// the other direction of the same cost (an upload was still base64 in JSON).
-pub(crate) const PROTOCOL_VERSION: u32 = 6;
+/// v7: TCP/UDP/WS relay payloads travel as raw binary frames instead of
+/// base64 inside JSON, closing the last base64 leg of the tunnel.
+pub(crate) const PROTOCOL_VERSION: u32 = 7;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -64,6 +66,26 @@ pub(crate) const FRAME_REQUEST_FULL: u8 = 5;
 
 /// The same frame with a zlib-deflated payload (server → client), v6.
 pub(crate) const FRAME_REQUEST_FULL_ZLIB: u8 = 6;
+
+/// Binary frame tag for one chunk of a relayed TCP stream (either
+/// direction), v7. The payload is the raw bytes; the id is the stream id.
+///
+/// Until v7 a `TcpData` chunk travelled base64-encoded inside JSON, a third
+/// more bytes on the wire plus an encode, a JSON parse and a decode per
+/// 16 KB chunk, in both directions. The relay payload is an opaque byte
+/// stream (often TLS or an AEAD-sealed tunnel already), which is also why
+/// these frames have no zlib sibling: the bytes rarely deflate, and the
+/// win here is the per-byte codec cost, not the wire size.
+pub(crate) const FRAME_TCP_DATA: u8 = 7;
+
+/// Binary frame tag for one relayed UDP datagram (either direction), v7.
+/// Same layout and reasoning as `FRAME_TCP_DATA`; one frame is one datagram.
+pub(crate) const FRAME_UDP_DATAGRAM: u8 = 8;
+
+/// Binary frame tag for one binary frame of a passed-through WebSocket
+/// (either direction), v7. Text WS frames keep the JSON `WsData` shape:
+/// they were never base64-encoded, so there is nothing to save.
+pub(crate) const FRAME_WS_DATA_BIN: u8 = 9;
 
 /// Deflates a frame payload. Returns `None` when the result is not smaller,
 /// which is the normal answer for an already-compressed or random body: there
@@ -162,6 +184,27 @@ pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<V
 
 /// Chunk feeder for one streamed request body in flight.
 pub(crate) type RequestBodyFeeder = mpsc::Sender<Result<Vec<u8>, std::io::Error>>;
+
+/// One relay payload, in the shape the peer negotiated: a v7 server takes
+/// the raw bytes in a tagged binary frame, anything older takes the JSON
+/// message with the payload base64-encoded. The server has the mirror of
+/// this; see its doc for why the decision lives in one function.
+pub(crate) fn relay_frame(
+  protocol: u32,
+  tag: u8,
+  stream_id: &str,
+  bytes: &[u8],
+  json_fallback: impl FnOnce(String) -> TunnelMessage,
+) -> Option<Message> {
+  if protocol >= 7
+    && let Some(frame) = encode_binary_frame(tag, stream_id, bytes)
+  {
+    return Some(Message::Binary(frame));
+  }
+  use base64::prelude::*;
+  let msg = json_fallback(BASE64_STANDARD.encode(bytes));
+  serde_json::to_string(&msg).ok().map(Message::Text)
+}
 
 /// Decodes a v2 binary chunk frame into (tag, id, payload).
 pub(crate) fn decode_binary_frame(data: &[u8]) -> Option<(u8, &str, &[u8])> {

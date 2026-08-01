@@ -1,7 +1,6 @@
 //! WebSocket pass-through: upgrades a tunnel stream into a live WebSocket
 //! connection to the local backend and relays frames in both directions.
 
-use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,6 +43,8 @@ pub(crate) async fn handle_upgrade_request(
   client_timeout_secs: u64,
   activity: crate::service::ActivityClock,
   pauses: crate::flow::PauseRegistry,
+  // The tunnel protocol the server announced; v7 takes binary WS frames raw.
+  protocol: u32,
 ) {
   info!("Handling WebSocket upgrade for stream {}", stream_id);
 
@@ -254,17 +255,34 @@ pub(crate) async fn handle_upgrade_request(
           // Live traffic in either direction keeps `idle_timeout` at bay:
           // a stream outliving the window must not be cut mid-session.
           activity_up.stamp();
+          // v7 takes a binary frame raw; text frames were never encoded, so
+          // they keep the JSON shape whatever the peer speaks.
+          if let Message::Binary(data) = &msg {
+            let Some(frame) = crate::protocol::relay_frame(
+              protocol,
+              crate::protocol::FRAME_WS_DATA_BIN,
+              &stream_id_clone,
+              data,
+              |encoded| TunnelMessage::WsData {
+                stream_id: stream_id_clone.clone(),
+                data: encoded,
+                is_text: false,
+              },
+            ) else {
+              break;
+            };
+            if tunnel_tx_clone.send(frame).await.is_err() {
+              break;
+            }
+            continue;
+          }
           let tunnel_msg = match msg {
             Message::Text(text) => TunnelMessage::WsData {
               stream_id: stream_id_clone.clone(),
               data: text.to_string(),
               is_text: true,
             },
-            Message::Binary(data) => TunnelMessage::WsData {
-              stream_id: stream_id_clone.clone(),
-              data: BASE64_STANDARD.encode(&data),
-              is_text: false,
-            },
+            Message::Binary(_) => unreachable!("handled above"),
             Message::Close(frame) => TunnelMessage::WsClose {
               stream_id: stream_id_clone.clone(),
               code: frame.as_ref().map(|f| f.code.into()).unwrap_or(1000),

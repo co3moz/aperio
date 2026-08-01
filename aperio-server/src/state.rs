@@ -1813,6 +1813,20 @@ impl AppState {
   /// control (v3+), i.e. it honors `StreamPause`/`StreamResume`. Read when a
   /// stream starts; a client is only routable once its first Ping announced
   /// the version, so the answer is stable by then.
+  /// The tunnel protocol version this connection announced (via Ping), or 1
+  /// for a client that has not announced yet. Read once per relay stream:
+  /// the announcement precedes routability, so the answer is stable by the
+  /// time any stream targets the connection.
+  pub(crate) async fn client_protocol(&self, client_id: &str) -> u32 {
+    self
+      .clients
+      .read()
+      .await
+      .get(client_id)
+      .and_then(|h| h.client_protocol)
+      .unwrap_or(1)
+  }
+
   pub(crate) async fn client_supports_pause(&self, client_id: &str) -> bool {
     self
       .clients

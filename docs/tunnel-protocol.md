@@ -8,7 +8,7 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
-The current `PROTOCOL_VERSION` is **6**. Every version below is negotiated on
+The current `PROTOCOL_VERSION` is **7**. Every version below is negotiated on
 connect, so a client and a server that disagree still work: each feature falls
 back to what the older side understands, and the mismatch is logged on both
 sides and shown on the dashboard.
@@ -16,6 +16,12 @@ sides and shown on the dashboard.
 Since protocol v5 a **buffered response travels as one binary frame**: the envelope and the body in a single message, with the body as bytes. Before v5 the body was base64-encoded into the JSON, which is a third more bytes on the wire, an encode pass on the client and a decode pass on the server, and a string the size of the response held on both sides. The frame is only sent to a server that announced v5; an older one still gets base64 in JSON, and a v5 server still understands it.
 
 Protocol **v6** does the same in the other direction: a **buffered request body** (an upload under the streaming threshold) travels as bytes in the dispatch frame instead of base64 inside the `Request` JSON. Same layout, same negotiation, sent only to a client that announced v6. Both frames have a compressed sibling that the sending side's writer produces when the connection negotiated tunnel compression and only when deflating actually made the payload smaller; without it a binary frame would bypass compression entirely, since compression applies to text frames.
+
+Protocol **v7** closes the last base64 leg: the **relay payloads** travel as raw binary frames too. A TCP chunk (`FRAME_TCP_DATA`), a UDP datagram (`FRAME_UDP_DATAGRAM`) and a *binary* WebSocket frame (`FRAME_WS_DATA_BIN`) carry their bytes verbatim in a `[tag][id_len][stream id][payload]` frame, where before they were base64-encoded inside a `TcpData` / `UdpDatagram` / `WsData` JSON message: a third more bytes on the wire, plus an encode, a JSON parse and a decode on every 16 KB chunk, in both directions. Text WebSocket frames keep the JSON shape, since they were never encoded and there is nothing to save.
+
+Unlike the body frames, these have **no compressed sibling**. A relay payload is an opaque byte stream, often already TLS or an end-to-end-sealed tunnel, so deflating it usually costs more than it saves; the win here is the per-byte codec, not the wire size.
+
+The negotiation is per stream and per direction: each side asks what the peer announced when the stream opens, and a peer below v7 keeps receiving exactly what it received before. A stream id too long to fit the frame's one-byte length prefix also falls back to the JSON shape rather than being dropped.
 
 Response bodies over 32 KB are streamed through the tunnel in chunks (256 KB against a server too old for binary frames, where streaming buys nothing but bounded memory), and request bodies (uploads) over 256 KB with protocol v2, so memory usage stays bounded on both sides regardless of size. The response threshold is where two costs cross: streaming pays a head, a frame per chunk and a tail per response, while a buffered body is base64-encoded, which is a third more bytes on the wire and a pass over every one of them. The client truncates backend responses larger than `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`) (default 50 MB).
 

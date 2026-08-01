@@ -404,6 +404,25 @@ impl ConnCtx {
             deliver_response_chunk(state, client_id, &fid, payload.to_vec()).await;
             None
           }
+          // v7: relay payloads as raw bytes. Same ownership checks as their
+          // JSON shapes, which stay for older clients.
+          Some((crate::protocol::FRAME_TCP_DATA, sid, payload)) => {
+            let sid = sid.to_string();
+            self.deliver_tcp_bytes(&sid, payload.to_vec()).await;
+            None
+          }
+          Some((crate::protocol::FRAME_UDP_DATAGRAM, sid, payload)) => {
+            let sid = sid.to_string();
+            self.deliver_udp_bytes(&sid, payload.to_vec()).await;
+            None
+          }
+          Some((crate::protocol::FRAME_WS_DATA_BIN, sid, payload)) => {
+            let sid = sid.to_string();
+            self
+              .deliver_ws_frame(&sid, Message::Binary(payload.to_vec().into()))
+              .await;
+            None
+          }
           // v5: envelope and body in one frame, deflated or not. The
           // body is kept aside as bytes and picked up by the `Response`
           // arm below, which is the only place that knows what to do with
@@ -684,17 +703,24 @@ impl ConnCtx {
     let TunnelMessage::TcpData { stream_id, data } = msg else {
       return;
     };
+    // Base64 fallback path; a v7 client sends FRAME_TCP_DATA binary frames.
+    use base64::prelude::*;
+    match BASE64_STANDARD.decode(&data) {
+      Ok(bytes) => self.deliver_tcp_bytes(&stream_id, bytes).await,
+      Err(_) => {
+        warn!("Failed to decode Base64 TcpData for stream {}", stream_id);
+      }
+    }
+  }
+
+  /// Delivers one chunk of a TCP relay this client owns, however it arrived
+  /// (base64 in JSON, or a v7 binary frame).
+  async fn deliver_tcp_bytes(&self, stream_id: &str, bytes: Vec<u8>) {
     let state = &self.state;
     let client_id = &self.client_id;
-    let client_ip = &self.client_ip;
-    let perms = &self.perms;
-    let tx_write = &self.tx_write;
-    let server_max_connections = self.server_max_connections;
-    let _ = (client_ip, perms, tx_write, server_max_connections);
-
     let consumer_tx = {
       let streams = state.tcp_streams.lock().await;
-      match streams.get(&stream_id) {
+      match streams.get(stream_id) {
         Some(h) if h.client_id == *client_id => Some(h.tx.clone()),
         Some(_) => {
           warn!(
@@ -707,25 +733,16 @@ impl ConnCtx {
       }
     };
     if let Some(consumer_tx) = consumer_tx {
-      use base64::prelude::*;
-      match BASE64_STANDARD.decode(&data) {
-        Ok(bytes) => {
-          // Non-blocking, like the HTTP chunk path: the stream's
-          // pump waits on a slow consumer so this loop does not,
-          // and its flow control pauses the producer if need be.
-          if let Err(e) = consumer_tx.push(TcpConsumerMsg::Data(bytes)) {
-            debug!("Dropping TCP stream {} ({:?})", stream_id, e);
-            state.tcp_streams.lock().await.remove(&stream_id);
-          }
-        }
-        Err(_) => {
-          warn!("Failed to decode Base64 TcpData for stream {}", stream_id);
-        }
+      // Non-blocking, like the HTTP chunk path: the stream's pump waits on a
+      // slow consumer so this loop does not, and its flow control pauses the
+      // producer if need be.
+      if let Err(e) = consumer_tx.push(TcpConsumerMsg::Data(bytes)) {
+        debug!("Dropping TCP stream {} ({:?})", stream_id, e);
+        state.tcp_streams.lock().await.remove(stream_id);
       }
     }
   }
 
-  /// Handles the close of a TCP relay stream.
   async fn on_tcp_close(&self, msg: TunnelMessage) {
     let TunnelMessage::TcpClose { stream_id } = msg else {
       return;
@@ -750,17 +767,26 @@ impl ConnCtx {
     let TunnelMessage::UdpDatagram { stream_id, data } = msg else {
       return;
     };
+    // Base64 fallback path; a v7 client sends FRAME_UDP_DATAGRAM frames.
+    use base64::prelude::*;
+    match BASE64_STANDARD.decode(&data) {
+      Ok(bytes) => self.deliver_udp_bytes(&stream_id, bytes).await,
+      Err(_) => {
+        warn!(
+          "Failed to decode Base64 UdpDatagram for stream {}",
+          stream_id
+        );
+      }
+    }
+  }
+
+  /// Delivers one relayed datagram this client owns, however it arrived.
+  async fn deliver_udp_bytes(&self, stream_id: &str, bytes: Vec<u8>) {
     let state = &self.state;
     let client_id = &self.client_id;
-    let client_ip = &self.client_ip;
-    let perms = &self.perms;
-    let tx_write = &self.tx_write;
-    let server_max_connections = self.server_max_connections;
-    let _ = (client_ip, perms, tx_write, server_max_connections);
-
     let consumer_tx = {
       let streams = state.udp_streams.lock().await;
-      match streams.get(&stream_id) {
+      match streams.get(stream_id) {
         Some(h) if h.client_id == *client_id => Some(h.tx.clone()),
         Some(_) => {
           warn!(
@@ -773,27 +799,15 @@ impl ConnCtx {
       }
     };
     if let Some(consumer_tx) = consumer_tx {
-      use base64::prelude::*;
-      match BASE64_STANDARD.decode(&data) {
-        Ok(bytes) => {
-          // Best-effort: a congested consumer drops datagrams.
-          if let Err(mpsc::error::TrySendError::Closed(_)) =
-            consumer_tx.try_send(TcpConsumerMsg::Data(bytes))
-          {
-            state.udp_streams.lock().await.remove(&stream_id);
-          }
-        }
-        Err(_) => {
-          warn!(
-            "Failed to decode Base64 UdpDatagram for stream {}",
-            stream_id
-          );
-        }
+      // Best-effort: a congested consumer drops datagrams.
+      if let Err(mpsc::error::TrySendError::Closed(_)) =
+        consumer_tx.try_send(TcpConsumerMsg::Data(bytes))
+      {
+        state.udp_streams.lock().await.remove(stream_id);
       }
     }
   }
 
-  /// Handles the close of a UDP relay stream.
   async fn on_udp_close(&self, msg: TunnelMessage) {
     let TunnelMessage::UdpClose { stream_id } = msg else {
       return;
@@ -1542,52 +1556,47 @@ impl ConnCtx {
     else {
       return;
     };
+    let ws_msg = if is_text {
+      Message::Text(data.into())
+    } else {
+      // Base64 fallback path; a v7 client sends FRAME_WS_DATA_BIN frames.
+      use base64::prelude::*;
+      match BASE64_STANDARD.decode(&data) {
+        Ok(bytes) => Message::Binary(bytes.into()),
+        Err(_) => {
+          warn!("Failed to decode Base64 WsData for stream {}", stream_id);
+          return;
+        }
+      }
+    };
+    self.deliver_ws_frame(&stream_id, ws_msg).await;
+  }
+
+  /// Relays one frame of a passed-through WebSocket this client owns,
+  /// however it arrived. The sender is cloned out of the lock so `ws_streams`
+  /// is never held across the hand-off: a slow public WS consumer applying
+  /// backpressure would otherwise stall the whole tunnel read loop.
+  async fn deliver_ws_frame(&self, stream_id: &str, ws_msg: Message) {
     let state = &self.state;
     let client_id = &self.client_id;
-    let client_ip = &self.client_ip;
-    let perms = &self.perms;
-    let tx_write = &self.tx_write;
-    let server_max_connections = self.server_max_connections;
-    let _ = (client_ip, perms, tx_write, server_max_connections);
-
-    // Relay WebSocket frame to the public WS via the registered
-    // channel, but only if this client owns the stream, matching the
-    // ownership check every other stream type performs. Clone the
-    // sender out of the lock so `ws_streams` is never held across the
-    // bounded, awaited send: a slow public WS consumer applying
-    // backpressure would otherwise stall the whole tunnel read loop
-    // and block every other client's ws_streams access.
     let chunk_tx = {
       let streams = state.ws_streams.lock().await;
-      match streams.get(&stream_id) {
+      match streams.get(stream_id) {
         Some(handle) if handle.client_id == *client_id => Some(handle.tx.clone()),
         _ => None,
       }
     };
     if let Some(chunk_tx) = chunk_tx {
-      let ws_msg = if is_text {
-        Message::Text(data.into())
-      } else {
-        use base64::prelude::*;
-        match BASE64_STANDARD.decode(&data) {
-          Ok(bytes) => Message::Binary(bytes.into()),
-          Err(_) => {
-            warn!("Failed to decode Base64 WsData for stream {}", stream_id);
-            return;
-          }
-        }
-      };
-      // Non-blocking, mirroring deliver_response_chunk: the stream's
-      // pump waits on a stalling consumer so this loop does not,
-      // and its flow control pauses the producer if need be.
+      // Non-blocking, mirroring deliver_response_chunk: the stream's pump
+      // waits on a stalling consumer so this loop does not, and its flow
+      // control pauses the producer if need be.
       if let Err(e) = chunk_tx.push(WsStreamMessage::Data(ws_msg)) {
         debug!("Dropping WS stream {} ({:?})", stream_id, e);
-        state.ws_streams.lock().await.remove(&stream_id);
+        state.ws_streams.lock().await.remove(stream_id);
       }
     }
   }
 
-  /// Handles the close of a passed-through WebSocket.
   async fn on_ws_close(&self, msg: TunnelMessage) {
     let TunnelMessage::WsClose {
       stream_id,

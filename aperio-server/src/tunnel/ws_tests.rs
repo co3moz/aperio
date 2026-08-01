@@ -1607,3 +1607,106 @@ fn the_pacer_charges_debt_only_past_the_burst() {
   let debt = pacer.debt(2500, rate, later).expect("past the burst");
   assert!((debt.as_secs_f64() - 2.0).abs() < 0.001, "{debt:?}");
 }
+
+/// Sends one raw binary frame (a v7 relay payload) over the tunnel socket.
+async fn send_frame(ws: &mut Client, tag: u8, stream_id: &str, payload: &[u8]) {
+  let frame = crate::protocol::encode_binary_frame(tag, stream_id, payload).expect("encodable");
+  ws.send(TMessage::Binary(frame)).await.unwrap();
+}
+
+#[tokio::test]
+async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
+  // The v7 shapes of TcpData/UdpDatagram/WsData(binary): same delivery, same
+  // ownership rule. The fence is the point: a client must not be able to
+  // write into another client's relay stream by switching frame shape.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  let (tcp_tx, mut tcp_rx) = mpsc::channel::<TcpConsumerMsg>(8);
+  state.tcp_streams.lock().await.insert(
+    "t7".into(),
+    TcpStreamHandle {
+      tx: crate::state::test_pump(tcp_tx),
+      client_id: cid.clone(),
+    },
+  );
+  let (udp_tx, mut udp_rx) = mpsc::channel::<TcpConsumerMsg>(8);
+  state.udp_streams.lock().await.insert(
+    "u7".into(),
+    crate::state::UdpStreamHandle {
+      tx: udp_tx,
+      client_id: cid.clone(),
+    },
+  );
+  let (ws_tx, mut ws_rx) = mpsc::channel::<crate::state::WsStreamMessage>(8);
+  state.ws_streams.lock().await.insert(
+    "w7".into(),
+    crate::state::WsStreamHandle {
+      tx: crate::state::test_pump(ws_tx),
+      client_id: cid.clone(),
+    },
+  );
+  // A stream this connection does not own, one of each kind.
+  let (foreign_tcp, mut foreign_rx) = mpsc::channel::<TcpConsumerMsg>(8);
+  state.tcp_streams.lock().await.insert(
+    "foreign".into(),
+    TcpStreamHandle {
+      tx: crate::state::test_pump(foreign_tcp),
+      client_id: "somebody-else".into(),
+    },
+  );
+
+  send_frame(&mut ws, crate::protocol::FRAME_TCP_DATA, "t7", &[4u8, 5]).await;
+  match tokio::time::timeout(Duration::from_secs(2), tcp_rx.recv())
+    .await
+    .unwrap()
+    .unwrap()
+  {
+    TcpConsumerMsg::Data(d) => assert_eq!(d, vec![4, 5]),
+    _ => panic!("expected a data frame"),
+  }
+
+  send_frame(&mut ws, crate::protocol::FRAME_UDP_DATAGRAM, "u7", b"dgram").await;
+  match tokio::time::timeout(Duration::from_secs(2), udp_rx.recv())
+    .await
+    .unwrap()
+    .unwrap()
+  {
+    TcpConsumerMsg::Data(d) => assert_eq!(d, b"dgram"),
+    _ => panic!("expected a datagram"),
+  }
+
+  send_frame(&mut ws, crate::protocol::FRAME_WS_DATA_BIN, "w7", &[9u8, 9]).await;
+  match tokio::time::timeout(Duration::from_secs(2), ws_rx.recv())
+    .await
+    .unwrap()
+    .unwrap()
+  {
+    crate::state::WsStreamMessage::Data(Message::Binary(b)) => assert_eq!(b.as_ref(), &[9, 9]),
+    _ => panic!("expected a binary WS frame"),
+  }
+
+  // The fence: a v7 frame for a stream owned by another connection delivers
+  // nothing, exactly as its JSON shape does not.
+  send_frame(&mut ws, crate::protocol::FRAME_TCP_DATA, "foreign", b"x").await;
+  // Round-trip a legitimate frame afterwards: if the foreign one had been
+  // delivered it would have arrived before this.
+  send_frame(&mut ws, crate::protocol::FRAME_TCP_DATA, "t7", b"after").await;
+  match tokio::time::timeout(Duration::from_secs(2), tcp_rx.recv())
+    .await
+    .unwrap()
+    .unwrap()
+  {
+    TcpConsumerMsg::Data(d) => assert_eq!(d, b"after"),
+    _ => panic!("expected the owned delivery"),
+  }
+  assert!(
+    foreign_rx.try_recv().is_err(),
+    "a frame for another client's stream delivers nothing"
+  );
+
+  ws.close(None).await.unwrap();
+  wait_no_clients(&state).await;
+}

@@ -7,7 +7,6 @@
 //! congested datagrams are dropped rather than queued unboundedly, and idle
 //! relays expire instead of lingering forever.
 
-use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -60,6 +59,8 @@ pub(crate) async fn handle_udp_open(
   mut abort_rx: mpsc::Receiver<()>,
   idle_timeout: Duration,
   activity: crate::service::ActivityClock,
+  // The tunnel protocol the server announced; v7 takes datagrams raw.
+  protocol: u32,
 ) {
   info!("Opening UDP relay {} to {}", stream_id, target_addr);
   let close_stream = |reason: &'static str| {
@@ -117,15 +118,20 @@ pub(crate) async fn handle_udp_open(
       recv = socket.recv(&mut buf) => match recv {
         Ok(n) => {
           activity.stamp();
-          let msg = TunnelMessage::UdpDatagram {
-            stream_id: stream_id.clone(),
-            data: BASE64_STANDARD.encode(&buf[..n]),
+          let Some(frame) = crate::protocol::relay_frame(
+            protocol,
+            crate::protocol::FRAME_UDP_DATAGRAM,
+            &stream_id,
+            &buf[..n],
+            |data| TunnelMessage::UdpDatagram {
+              stream_id: stream_id.clone(),
+              data,
+            },
+          ) else {
+            continue;
           };
-          let Ok(json) = serde_json::to_string(&msg) else { continue };
           // Best-effort: drop the datagram when the tunnel is congested.
-          if let Err(mpsc::error::TrySendError::Closed(_)) =
-            tunnel_tx.try_send(Message::Text(json))
-          {
+          if let Err(mpsc::error::TrySendError::Closed(_)) = tunnel_tx.try_send(frame) {
             break;
           }
         }

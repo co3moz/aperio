@@ -1,4 +1,5 @@
 use super::*;
+use base64::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
@@ -219,6 +220,8 @@ async fn test_handle_tcp_open_relays_plaintext() {
     None,
     activity.clone(),
     Default::default(),
+    // The pre-v7 shape: base64 TcpData inside JSON.
+    6,
   ));
 
   // tunnel -> backend -> echoed back -> relayed out as base64 TcpData.
@@ -269,6 +272,7 @@ async fn test_handle_tcp_open_connect_fails() {
     None,
     crate::service::ActivityClock::default(),
     Default::default(),
+    6,
   )
   .await;
 
@@ -301,6 +305,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
+    6,
   ));
 
   // Drive the initiator side of the handshake.
@@ -347,6 +352,7 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
+    6,
   ));
 
   // A bogus peer frame fails handshake completion -> TcpClose + cleanup,
@@ -690,6 +696,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
+    6,
   ));
 
   // Complete the handshake as the initiator.
@@ -734,10 +741,57 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     None,
     crate::service::ActivityClock::default(),
     Default::default(),
+    6,
   ));
 
   bytes_tx.send(b"echo-me".to_vec()).await.unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
   assert!(active.lock().await.is_empty());
   drop(bytes_tx);
+}
+
+#[tokio::test]
+async fn a_v7_server_gets_the_relay_bytes_raw() {
+  // The other half of the negotiation the test above pins: the same relay,
+  // told its peer speaks v7, sends a tagged binary frame instead of base64
+  // inside JSON. Same bytes, a third fewer of them, and no codec either way.
+  init_tracing();
+  let port = tcp_echo_once_port().await;
+  let target = format!("127.0.0.1:{}", port);
+
+  let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
+  let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(64);
+  active.lock().await.insert("t7".to_string(), dummy_handle());
+
+  let h = tokio::spawn(handle_tcp_open(
+    "t7".to_string(),
+    target,
+    tun_tx,
+    active.clone(),
+    bytes_rx,
+    abort_rx,
+    None,
+    crate::service::ActivityClock::default(),
+    Default::default(),
+    7,
+  ));
+
+  bytes_tx.send(b"hello".to_vec()).await.unwrap();
+  let frame = tokio::time::timeout(Duration::from_secs(2), tun_rx.recv())
+    .await
+    .expect("timed out waiting for the relay frame")
+    .expect("tunnel channel closed");
+  let Message::Binary(bytes) = frame else {
+    panic!("a v7 peer gets a binary frame, not {frame:?}");
+  };
+  let (tag, stream_id, payload) =
+    crate::protocol::decode_binary_frame(&bytes).expect("a well-formed frame");
+  assert_eq!(tag, crate::protocol::FRAME_TCP_DATA);
+  assert_eq!(stream_id, "t7");
+  assert_eq!(payload, b"hello");
+
+  drop(bytes_tx);
+  let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
 }

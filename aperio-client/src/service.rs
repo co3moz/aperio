@@ -155,6 +155,55 @@ async fn deliver_to_relay<T>(tx: &mpsc::Sender<T>, kind: &str, stream_id: &str, 
   }
 }
 
+/// Delivers one relayed TCP chunk to its backend stream, however it arrived
+/// (base64 in JSON from an older server, or a v7 binary frame).
+async fn deliver_tcp_bytes(
+  streams: &Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
+  stream_id: &str,
+  bytes: Vec<u8>,
+) {
+  let tx = {
+    let map = streams.lock().await;
+    map.get(stream_id).map(|h| h.tx.clone())
+  };
+  if let Some(tx) = tx
+    && !deliver_to_relay(&tx, "TCP", stream_id, bytes).await
+  {
+    streams.lock().await.remove(stream_id);
+  }
+}
+
+/// Delivers one relayed datagram. Best-effort by contract, unlike the WS and
+/// TCP paths: a datagram relay that waits for a congested consumer is no
+/// longer a datagram relay, so a full channel drops it and keeps the stream.
+async fn deliver_udp_bytes(
+  streams: &Arc<Mutex<HashMap<String, UdpStreamHandle>>>,
+  stream_id: &str,
+  bytes: Vec<u8>,
+) {
+  let streams = streams.lock().await;
+  if let Some(handle) = streams.get(stream_id) {
+    let _ = handle.tx.try_send(bytes);
+  }
+}
+
+/// Delivers one frame of a passed-through WebSocket to its backend stream.
+async fn deliver_ws_frame(
+  streams: &Arc<Mutex<HashMap<String, WsStreamHandle>>>,
+  stream_id: &str,
+  msg: Message,
+) {
+  let tx = {
+    let map = streams.lock().await;
+    map.get(stream_id).map(|h| h.tx.clone())
+  };
+  if let Some(tx) = tx
+    && !deliver_to_relay(&tx, "WebSocket", stream_id, msg).await
+  {
+    streams.lock().await.remove(stream_id);
+  }
+}
+
 /// Hands one chunk of a streamed request body to the backend request it
 /// belongs to, without letting a slow consumer stall the tunnel.
 ///
@@ -1114,6 +1163,20 @@ pub(crate) async fn run_service(
                                               feed_request_chunk(&active_request_streams, fid, payload.to_vec()).await;
                                               None
                                           }
+                                          // v7: relay payloads as raw bytes, the same
+                                          // deliveries their JSON shapes make below.
+                                          Some((crate::protocol::FRAME_TCP_DATA, sid, payload)) => {
+                                              deliver_tcp_bytes(&active_tcp_streams, sid, payload.to_vec()).await;
+                                              None
+                                          }
+                                          Some((crate::protocol::FRAME_UDP_DATAGRAM, sid, payload)) => {
+                                              deliver_udp_bytes(&active_udp_streams, sid, payload.to_vec()).await;
+                                              None
+                                          }
+                                          Some((crate::protocol::FRAME_WS_DATA_BIN, sid, payload)) => {
+                                              deliver_ws_frame(&active_ws_streams, sid, Message::Binary(payload.to_vec())).await;
+                                              None
+                                          }
                                           // v6: envelope and buffered body in one frame,
                                           // deflated by the server's writer when this
                                           // connection negotiated compression.
@@ -1275,6 +1338,9 @@ pub(crate) async fn run_service(
                                               let client_timeout = spec.timeout_secs;
                                               let activity = shared.activity_clock();
                                               let pauses = stream_pauses.clone();
+                                              // The peer's version decides how this stream's binary
+                                              // frames travel back.
+                                              let peer = server_protocol.load(Ordering::Relaxed);
 
                                               tokio::spawn(async move {
                                                   handle_upgrade_request(
@@ -1290,6 +1356,7 @@ pub(crate) async fn run_service(
                                                       client_timeout,
                                                       activity,
                                                       pauses,
+                                                      peer,
                                                   )
                                                   .await;
                                               });
@@ -1306,26 +1373,20 @@ pub(crate) async fn run_service(
                                               // backend that stopped reading wedge the read loop, which
                                               // also carries Pong, and take every stream on this
                                               // connection down with it.
-                                              let tx = {
-                                                  let streams = active_ws_streams.lock().await;
-                                                  streams.get(&stream_id).map(|h| h.tx.clone())
-                                              };
-                                              if let Some(tx) = tx {
-                                                  let ws_msg = if is_text {
-                                                      Message::Text(data)
-                                                  } else {
-                                                      match BASE64_STANDARD.decode(&data) {
-                                                          Ok(bytes) => Message::Binary(bytes),
-                                                          Err(_) => {
-                                                              warn!("Failed to decode Base64 WsData for stream {}", stream_id);
-                                                              continue;
-                                                          }
+                                              let ws_msg = if is_text {
+                                                  Message::Text(data)
+                                              } else {
+                                                  // Base64 fallback; a v7 server sends
+                                                  // FRAME_WS_DATA_BIN frames.
+                                                  match BASE64_STANDARD.decode(&data) {
+                                                      Ok(bytes) => Message::Binary(bytes),
+                                                      Err(_) => {
+                                                          warn!("Failed to decode Base64 WsData for stream {}", stream_id);
+                                                          continue;
                                                       }
-                                                  };
-                                                  if !deliver_to_relay(&tx, "WebSocket", &stream_id, ws_msg).await {
-                                                      active_ws_streams.lock().await.remove(&stream_id);
                                                   }
-                                              }
+                                              };
+                                              deliver_ws_frame(&active_ws_streams, &stream_id, ws_msg).await;
                                           }
                                           TunnelMessage::WsClose {
                                               stream_id,
@@ -1373,9 +1434,13 @@ pub(crate) async fn run_service(
                                                       let streams = active_tcp_streams.clone();
                                                       let activity = shared.activity_clock();
                                                       let pauses = stream_pauses.clone();
+                                                      // The peer's version, read when the stream opens:
+                                                      // it decides whether this relay's payloads travel
+                                                      // as v7 binary frames or base64 in JSON.
+                                                      let peer = server_protocol.load(Ordering::Relaxed);
                                                       tokio::spawn(async move {
                                                           let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses).await;
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses, peer).await;
                                                       });
                                                   }
                                                   None => {
@@ -1415,8 +1480,9 @@ pub(crate) async fn run_service(
                                                       let tx = tx_write.clone();
                                                       let streams = active_udp_streams.clone();
                                                       let activity = shared.activity_clock();
+                                                      let peer = server_protocol.load(Ordering::Relaxed);
                                                       tokio::spawn(async move {
-                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout, activity).await;
+                                                          handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout, activity, peer).await;
                                                       });
                                                   }
                                                   None => {
@@ -1429,17 +1495,11 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::UdpDatagram { stream_id, data } => {
-                                              let streams = active_udp_streams.lock().await;
-                                              if let Some(handle) = streams.get(&stream_id) {
-                                                  match BASE64_STANDARD.decode(&data) {
-                                                      // Best-effort by contract, unlike the WS and TCP
-                                                      // arms above: a datagram relay that waits for a
-                                                      // congested consumer is no longer a datagram
-                                                      // relay, so a full channel drops the datagram and
-                                                      // keeps the stream.
-                                                      Ok(bytes) => { let _ = handle.tx.try_send(bytes); }
-                                                      Err(_) => warn!("Failed to decode Base64 UdpDatagram for stream {}", stream_id),
-                                                  }
+                                              // Base64 fallback; a v7 server sends
+                                              // FRAME_UDP_DATAGRAM frames.
+                                              match BASE64_STANDARD.decode(&data) {
+                                                  Ok(bytes) => deliver_udp_bytes(&active_udp_streams, &stream_id, bytes).await,
+                                                  Err(_) => warn!("Failed to decode Base64 UdpDatagram for stream {}", stream_id),
                                               }
                                           }
                                           TunnelMessage::UdpClose { stream_id } => {
@@ -1454,19 +1514,11 @@ pub(crate) async fn run_service(
                                               // that accepts the connection and then stops reading must
                                               // never wedge the tunnel read loop and starve the liveness
                                               // watchdog, but a merely slow one keeps its stream.
-                                              let tx = {
-                                                  let streams = active_tcp_streams.lock().await;
-                                                  streams.get(&stream_id).map(|h| h.tx.clone())
-                                              };
-                                              if let Some(tx) = tx {
-                                                  match BASE64_STANDARD.decode(&data) {
-                                                      Ok(bytes) => {
-                                                          if !deliver_to_relay(&tx, "TCP", &stream_id, bytes).await {
-                                                              active_tcp_streams.lock().await.remove(&stream_id);
-                                                          }
-                                                      }
-                                                      Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
-                                                  }
+                                              // Base64 fallback; a v7 server sends
+                                              // FRAME_TCP_DATA frames.
+                                              match BASE64_STANDARD.decode(&data) {
+                                                  Ok(bytes) => deliver_tcp_bytes(&active_tcp_streams, &stream_id, bytes).await,
+                                                  Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
                                               }
                                           }
                                           TunnelMessage::TcpClose { stream_id } => {

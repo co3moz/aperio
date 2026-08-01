@@ -566,8 +566,8 @@ free number.
   as its own idea if it ever earns it. (From the 2026-08 coverage push
   toward 95%.)
 
-- [ ] **#22 Protocol v7: TCP/UDP/WS relay payloads as binary frames instead of
-  base64+JSON.** The HTTP body path went binary in v5/v6, but the passthrough
+- [x] **#22 Protocol v7: TCP/UDP/WS relay payloads as binary frames instead of
+  base64+JSON.** shipped: The HTTP body path went binary in v5/v6, but the passthrough
   relays did not: `TcpData`, `UdpDatagram` and binary `WsData` still carry
   their payload base64-encoded inside a JSON envelope, a third more bytes on
   the wire plus an encode/parse/decode on every 16 KB chunk, both directions.
@@ -583,7 +583,10 @@ free number.
   needs old<->new interop reasoning, which is why it is not folded into the
   2026-08 perf pass that did the other five bottlenecks. Do it as one relay
   type fully (TCP, both directions, with an e2e assertion that a v6 peer still
-  works), then UDP and WS follow the proven shape. (From the 2026-08
+  works), then UDP and WS follow the proven shape. shipped as planned: one `relay_frame` helper per
+  side owns the negotiation (so none of the four senders can get it wrong
+  independently), the receivers gained tag arms next to their JSON ones, and
+  the ownership fence is asserted on the binary path too. (From the 2026-08
   bottleneck analysis; the base64 relays were finding #5 there.)
 
 ## Withdrawn

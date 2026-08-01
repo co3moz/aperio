@@ -127,7 +127,7 @@ async fn find_declarer_matches_healthy_declaring_client() {
   .await;
 
   let found = find_declarer(&state, &key_rule("mykey12345")).await;
-  let (cid, _tx, target) = found.expect("declaring client found");
+  let (cid, _tx, target, _protocol) = found.expect("declaring client found");
   assert_eq!(cid, "c1");
   assert_eq!(target, "127.0.0.1:9000");
 }
@@ -431,7 +431,7 @@ async fn a_named_rule_matches_the_tunnel_of_the_named_token() {
   .await;
 
   let found = find_declarer(&state, &named_rule("ssh_bastion", Some("bastion-host"))).await;
-  let (cid, _tx, target) = found.expect("the declaring client is found by name");
+  let (cid, _tx, target, _protocol) = found.expect("the declaring client is found by name");
   assert_eq!(cid, "c1");
   assert_eq!(target, "127.0.0.1:9000");
 }
@@ -532,7 +532,7 @@ async fn a_named_rule_matches_the_organization_that_owns_the_tunnel() {
     // The same claim written as the prefix instead of the key.
     org_rule("payments@postgres", None),
   ] {
-    let (cid, _tx, _target) = find_declarer(&state, &rule)
+    let (cid, _tx, _target, _protocol) = find_declarer(&state, &rule)
       .await
       .expect("the owning organization's client is found");
     assert_eq!(cid, "payments-client", "{}", rule.qualified_name());
@@ -560,7 +560,7 @@ async fn a_named_rule_with_no_organization_is_the_master_one() {
     c.perms.org_id = None;
   })
   .await;
-  let (cid, _tx, _target) = find_declarer(&state, &org_rule("postgres", Some("master")))
+  let (cid, _tx, _target, _protocol) = find_declarer(&state, &org_rule("postgres", Some("master")))
     .await
     .expect("the master organization's client is found");
   assert_eq!(cid, "master-client");
@@ -597,9 +597,10 @@ async fn a_token_rule_written_before_organizations_still_matches_as_it_did() {
     c.perms.org_id = Some(payments);
   })
   .await;
-  let (cid, _tx, _target) = find_declarer(&state, &named_rule("postgres", Some("bastion-host")))
-    .await
-    .expect("the token rule still matches across organizations");
+  let (cid, _tx, _target, _protocol) =
+    find_declarer(&state, &named_rule("postgres", Some("bastion-host")))
+      .await
+      .expect("the token rule still matches across organizations");
   assert_eq!(cid, "payments-client");
 }
 

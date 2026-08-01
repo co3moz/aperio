@@ -17,7 +17,7 @@ step "Health endpoint"
 HEALTH="$(curl -s "$BASE/aperio/health")"
 assert_contains "$HEALTH" '"status":"healthy"' "health reports healthy"
 assert_contains "$HEALTH" '"protocol":' "health reports the tunnel protocol version"
-assert_contains "$HEALTH" '"protocol":6' "the protocol version is the one this build speaks"
+assert_contains "$HEALTH" '"protocol":7' "the protocol version is the one this build speaks"
 assert_contains "$HEALTH" '"ui_language"' "health reports the default UI language"
 
 step "First-run redirect and 504 when no client is connected"

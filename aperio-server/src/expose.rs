@@ -244,7 +244,12 @@ pub(crate) fn spawn_listeners(state: Arc<AppState>, host: &str, rules: Vec<Expos
 async fn find_declarer(
   state: &Arc<AppState>,
   rule: &ExposeRule,
-) -> Option<(String, mpsc::Sender<axum::extract::ws::Message>, String)> {
+) -> Option<(
+  String,
+  mpsc::Sender<axum::extract::ws::Message>,
+  String,
+  u32,
+)> {
   // Which organization may claim this port, resolved before the client map is
   // locked. An unknown name matches nothing at all: a typo in a server file
   // must not widen a port to whoever answers first.
@@ -303,7 +308,12 @@ async fn find_declarer(
       }
     });
     if let Some(decl) = matched {
-      return Some((cid.clone(), c.tx.clone(), decl.target.clone()));
+      return Some((
+        cid.clone(),
+        c.tx.clone(),
+        decl.target.clone(),
+        c.client_protocol.unwrap_or(1),
+      ));
     }
   }
   None
@@ -318,12 +328,11 @@ async fn relay_public_tcp(
   rule: &ExposeRule,
 ) {
   use axum::extract::ws::Message;
-  use base64::prelude::*;
 
   if !state.check_rate_limit(peer.ip()).await {
     return;
   }
-  let Some((client_id, client_tx, target)) = find_declarer(&state, rule).await else {
+  let Some((client_id, client_tx, target, protocol)) = find_declarer(&state, rule).await else {
     debug!(
       "public expose on port {}: no connected client serves {}; dropping {peer}",
       rule.port,
@@ -385,13 +394,20 @@ async fn relay_public_tcp(
       match read_half.read(&mut buf).await {
         Ok(0) | Err(_) => break,
         Ok(n) => {
-          let data_msg = TunnelMessage::TcpData {
-            stream_id: stream_id_up.clone(),
-            data: BASE64_STANDARD.encode(&buf[..n]),
+          // v7 takes the bytes raw; an older client takes base64 in JSON.
+          let Some(frame) = crate::protocol::relay_frame(
+            protocol,
+            crate::protocol::FRAME_TCP_DATA,
+            &stream_id_up,
+            &buf[..n],
+            |data| TunnelMessage::TcpData {
+              stream_id: stream_id_up.clone(),
+              data,
+            },
+          ) else {
+            break;
           };
-          if let Ok(json) = serde_json::to_string(&data_msg)
-            && client_tx_up.send(Message::Text(json.into())).await.is_err()
-          {
+          if client_tx_up.send(frame).await.is_err() {
             break;
           }
         }

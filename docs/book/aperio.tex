@@ -1162,7 +1162,9 @@ Appendix~\ref{app:protocol}; the shapes that matter here are:
         has to be held in memory on either side.
   \item WebSocket pass-through, where the visitor's upgrade is relayed and
         frames flow in both directions.
-  \item Raw TCP and UDP relays for emergency tunnels.
+  \item Raw TCP and UDP relays for emergency tunnels; since v7 their
+        payloads travel as binary frames rather than base64 in JSON, as
+        does a binary WebSocket frame.
   \item Per-stream flow control (\code{StreamPause}/\code{StreamResume}),
         which lets the server throttle one producer without touching
         anything else on the connection.
@@ -1202,10 +1204,12 @@ system, which is why it is fuzzed continuously
 \section{Flow control}
 \label{sec:flow-control}
 
-The current protocol version is 6. Version 3 added flow control for
+The current protocol version is 7. Version 3 added flow control for
 everything that streams; version 5 moved a buffered response body out of
-JSON and into the frame that carries its envelope, and version 6 did the
-same for a buffered request body, in the direction an upload travels.
+JSON and into the frame that carries its envelope, version 6 did the same
+for a buffered request body, in the direction an upload travels, and
+version 7 did it for the relay payloads, the last leg that was still
+base64.
 
 The awkward case is a visitor who reads more slowly than the backend
 produces. One connection's read loop is shared by every request and stream
@@ -2850,7 +2854,12 @@ response body as bytes in the same binary frame as its envelope, and v6
 does the same for a buffered request body, the direction an upload
 travels. Both full-body frames have a zlib sibling used when the
 connection negotiated compression and deflating actually made the
-payload smaller.
+payload smaller. v7 carries the relay payloads the same way: a TCP
+chunk, a UDP datagram and a binary WebSocket frame travel as tagged
+binary frames rather than base64 inside their JSON message. These have
+no zlib sibling on purpose, a relay payload is an opaque byte stream
+(often already TLS or an end-to-end-sealed tunnel), so the win is the
+per-byte codec rather than the wire size.
 
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
 \toprule
@@ -2887,7 +2896,8 @@ stops the response. \\
 relayed to the backend and its answer relayed back. \\
 \rowsep
 \code{WsData} / \code{WsClose} & both & Frames of a passed-through
-WebSocket, and its close. \\
+WebSocket, and its close. Since v7 a binary frame travels as
+\code{FRAME\_WS\_DATA\_BIN} instead; a text frame keeps this shape. \\
 \rowsep
 \code{HostnameAssigned} & server & The generated random subdomain for this
 client. \\
@@ -2899,10 +2909,12 @@ here, in-flight ones finish. \\
 reconnecting immediately rather than backing off. \\
 \rowsep
 \code{TcpOpen} / \code{TcpData} / \code{TcpClose} & both & A raw TCP relay
-for emergency tunnels. \\
+for emergency tunnels. Since v7 the payload travels as
+\code{FRAME\_TCP\_DATA} rather than base64 inside \code{TcpData}. \\
 \rowsep
 \code{UdpOpen} / \code{UdpDatagram} / \code{UdpClose} & both & The
-best-effort datagram equivalent, with an idle timeout. \\
+best-effort datagram equivalent, with an idle timeout. Since v7 the
+datagram travels as \code{FRAME\_UDP\_DATAGRAM}. \\
 \rowsep
 \code{CompressionStart} / \code{CompressionAck} & both & Negotiates zlib
 compression of tunnel frames at connect time. \\
