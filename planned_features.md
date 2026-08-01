@@ -540,7 +540,7 @@ free number.
   v1 has no offline delivery. (From the 2026-07 client-to-client messaging
   discussion.)
 
-- [ ] **#21 Split `aperio-server` into a library and a thin binary, and break
+- [x] **#21 Split `aperio-server` into a library and a thin binary, and break
   the `ws.rs` read loop into per-message handlers.** The server is a binary
   crate, so its top 2,100 lines (`main.rs`: env resolution, router assembly,
   background task spawning, shutdown) and the 1,450-line `handle_socket` loop
@@ -558,9 +558,13 @@ free number.
   `ConnCtx`, the loop keeps only decode-and-dispatch, and the writer task's
   compression transform becomes a free function, each testable with the
   channel-mock pattern the pubsub and expose tests already use. No behavior
-  change anywhere; e2e green after every step. The client binary is the same
-  recipe later, as its own item when this one proves the shape. (From the
-  2026-08 coverage push toward 95%.)
+  change anywhere; e2e green after every step. The client binary got the same
+  lib/bin split in the same pass. shipped: 045f8a8 (lib/bin), 89ffe09
+  (async_main stages + router tests), d59837b (integration crate), 9d94505
+  (ConnCtx handlers + writer_transform/SendPacer tests), plus the client
+  split. Decomposing the client's supervisor loop the same way remains open
+  as its own idea if it ever earns it. (From the 2026-08 coverage push
+  toward 95%.)
 
 ## Withdrawn
 
