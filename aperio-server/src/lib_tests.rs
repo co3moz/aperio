@@ -1833,7 +1833,9 @@ use axum::response::Response as ComposedResponse;
 
 /// Boots the real startup path (env -> stores -> state -> router) inside the
 /// test process, under the shared config lock, with a throwaway data dir.
-fn composed_app<T>(f: impl FnOnce(std::sync::Arc<ComposedState>, Router) -> T) -> T {
+fn composed_app<T>(
+  f: impl FnOnce(std::sync::Arc<ComposedState>, Router, &tokio::runtime::Runtime) -> T,
+) -> T {
   let _lock = crate::test_support::config_lock();
   let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
@@ -1849,11 +1851,12 @@ fn composed_app<T>(f: impl FnOnce(std::sync::Arc<ComposedState>, Router) -> T) -
     .enable_all()
     .build()
     .unwrap();
-  let out = rt.block_on(async {
+  let (state, app) = rt.block_on(async {
     let bundle = build_state().await.expect("a clean env must build");
     let app = build_router(bundle.state.clone(), bundle.metrics_enabled);
-    f(bundle.state, app)
+    (bundle.state, app)
   });
+  let out = f(state, app, &rt);
   for (k, _) in vars {
     unsafe { std::env::remove_var(k) };
   }
@@ -1882,11 +1885,7 @@ fn get_req(path: &str) -> axum::http::Request<ComposedBody> {
 
 #[test]
 fn the_composed_router_answers_its_own_surface() {
-  composed_app(|state, app| {
-    let rt = tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()
-      .unwrap();
+  composed_app(|state, app, rt| {
     rt.block_on(async {
       // Liveness needs no credential; monitors depend on that.
       let resp = drive(&app, get_req("/aperio/health")).await;
@@ -1918,11 +1917,12 @@ fn the_composed_router_answers_its_own_surface() {
       let resp = drive(&app, get_req("/aperio/metrics")).await;
       assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
-      // An unknown hostname through the proxy fallback is a 404 route answer,
-      // not a panic; the exact status is routing's business, the assertion is
-      // that the composed stack answered.
+      // A request through the proxy fallback is answered by the composed
+      // stack; what it answers is routing's business, the assertion is that
+      // it answered and that no handler panicked (the catch-panic layer
+      // would turn that into a 500).
       let resp = drive(&app, get_req("/")).await;
-      assert!(resp.status().is_client_error() || resp.status().is_server_error());
+      assert_ne!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
       // The state the router serves is the one build_state assembled.
       assert!(state.dashboard_enabled);

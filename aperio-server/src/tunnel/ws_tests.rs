@@ -1555,8 +1555,16 @@ fn writer_transform_compresses_what_it_should_and_only_that() {
 
   // An incompressible body keeps its plain tag: paying for the bytes twice
   // helps nobody.
-  let noise: Vec<u8> = (0..4096u32)
-    .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+  let mut x: u32 = 0x9E37_79B9;
+  let noise: Vec<u8> = (0..4096)
+    .map(|_| {
+      // xorshift32: cheap, deterministic, and dense enough that deflate
+      // cannot win against its own header overhead.
+      x ^= x << 13;
+      x ^= x >> 17;
+      x ^= x << 5;
+      (x >> 24) as u8
+    })
     .collect();
   let frame = encode_full_request_frame(FRAME_REQUEST_FULL, "req-2", "{}", &noise).unwrap();
   let out = writer_transform(Message::Binary(frame.clone().into()), true);
