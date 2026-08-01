@@ -566,6 +566,26 @@ free number.
   as its own idea if it ever earns it. (From the 2026-08 coverage push
   toward 95%.)
 
+- [ ] **#22 Protocol v7: TCP/UDP/WS relay payloads as binary frames instead of
+  base64+JSON.** The HTTP body path went binary in v5/v6, but the passthrough
+  relays did not: `TcpData`, `UdpDatagram` and binary `WsData` still carry
+  their payload base64-encoded inside a JSON envelope, a third more bytes on
+  the wire plus an encode/parse/decode on every 16 KB chunk, both directions.
+  For anyone moving bulk over `expose:` or an emergency TCP tunnel this is the
+  throughput ceiling and a large slice of the CPU. Plan: three new frame tags
+  (`FRAME_TCP_DATA`, `FRAME_UDP_DATAGRAM`, `FRAME_WS_DATA` for binary WS only,
+  text WS is already un-encoded), `PROTOCOL_VERSION` to 7, negotiated so an
+  older peer on either side keeps getting base64+JSON. The care this needs and
+  the reason it is its own item: the payload is sent from four sites with
+  three different ways of knowing the peer's version, the server relays
+  (`tunnel/tcp.rs`, `expose.rs`) and the client relays (the binder `tcp.rs`,
+  the serving `service.rs`), and it is received in three read loops; every one
+  needs old<->new interop reasoning, which is why it is not folded into the
+  2026-08 perf pass that did the other five bottlenecks. Do it as one relay
+  type fully (TCP, both directions, with an e2e assertion that a v6 peer still
+  works), then UDP and WS follow the proven shape. (From the 2026-08
+  bottleneck analysis; the base64 relays were finding #5 there.)
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
