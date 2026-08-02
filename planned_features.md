@@ -759,14 +759,14 @@ recorded in Withdrawn under #84 so they are not proposed again.
   cautions: the numbers are per client process, not per service, and inside a
   container the naive readings mislead unless the cgroup files are preferred. shipped: `rtt_ms`, `jitter_ms` and `reconnects` measured from the client's own ping/pong (no protocol change beyond reporting them), plus `cpu_percent` and `rss_bytes` from `/proc`, Linux only and absent elsewhere rather than approximated. Stored on `ClientHandle`, carried by `/aperio/api/stats`, shown on the clients table. An absence overwrites the previous value so a figure cannot age while looking live.
 
-- [ ] **#38 Batch the server's writes to a client, as the client already does
+- [x] **#38 Batch the server's writes to a client, as the client already does
   to the server.** (triage 45) #24 taught the client's tunnel writer to drain
   its queue with `feed()` and flush once per batch instead of paying a syscall
   per frame. The server's writer (`tunnel/ws.rs`) still sends one message at a
   time, and it is the busier side under fan-out. `SendPacer` sits in that loop
   already for bandwidth pacing, so the batching has to spend the pacer's budget
   for the whole batch rather than per frame. The technique is proven on the
-  other side, which is what makes this cheap.
+  other side, which is what makes this cheap. shipped: the writer feeds what is already queued and flushes once per batch. The pacer is still spent per frame, and a paced connection flushes before sleeping its debt, so batching cannot turn shaping into bursts or leave finished frames sitting in the buffer.
 
 - [ ] **#39 A "test fire" button when creating a webhook.** (triage 45) A
   webhook that was configured wrong is discovered the next time something

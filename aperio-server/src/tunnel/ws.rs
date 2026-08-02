@@ -1963,25 +1963,64 @@ pub(crate) async fn handle_socket(
     // client's network can drain. Frames larger than the burst drive the
     // bucket negative and pay the remainder as sleep time.
     let mut pacer = SendPacer::new(Instant::now());
-    while let Some(msg) = rx_write.recv().await {
-      let msg = writer_transform(msg, compress_out_writer.load(Ordering::SeqCst));
-      let rate = bandwidth_writer.load(Ordering::Relaxed);
-      if rate > 0 {
-        let size = match &msg {
-          Message::Text(t) => t.len(),
-          Message::Binary(b) => b.len(),
-          _ => 0,
-        };
-        if let Some(debt) = pacer.debt(size, rate, Instant::now()) {
-          tokio::time::sleep(debt).await;
+    // Everything already queued behind a message rides the same flush
+    // (planned_features #38, the mirror of what #24 did on the client's
+    // writer). Each message used to pay its own flush, which is a syscall per
+    // frame, and this is the busier side under fan-out. The messages are
+    // whole frames by the time they arrive here, so batching them costs no
+    // latency: a message is not held waiting for company, only joined by what
+    // was already waiting.
+    'writer: while let Some(msg) = rx_write.recv().await {
+      let mut msg = writer_transform(msg, compress_out_writer.load(Ordering::SeqCst));
+      loop {
+        // The pacer is spent per frame even inside a batch: it exists to keep
+        // the server from pushing faster than the client's link can drain,
+        // and a batch that skipped it would do exactly that in bursts.
+        let rate = bandwidth_writer.load(Ordering::Relaxed);
+        if rate > 0 {
+          let size = match &msg {
+            Message::Text(t) => t.len(),
+            Message::Binary(b) => b.len(),
+            _ => 0,
+          };
+          if let Some(debt) = pacer.debt(size, rate, Instant::now()) {
+            // Flush what is already fed before sleeping, so a paced
+            // connection does not hold finished frames in the buffer for the
+            // length of its debt.
+            if let Err(e) = ws_sender.flush().await {
+              error!(
+                "Error flushing to websocket client {}: {:?}",
+                writer_client_id, e
+              );
+              break 'writer;
+            }
+            tokio::time::sleep(debt).await;
+          }
         }
-      }
-      if let Err(e) = ws_sender.send(msg).await {
-        error!(
-          "Error writing to websocket client {}: {:?}",
-          writer_client_id, e
-        );
-        break;
+        // Take the next one first: whether anything is waiting decides
+        // between feeding this frame (more to come) and sending it (flush).
+        match rx_write.try_recv() {
+          Ok(next) => {
+            if let Err(e) = ws_sender.feed(msg).await {
+              error!(
+                "Error writing to websocket client {}: {:?}",
+                writer_client_id, e
+              );
+              break 'writer;
+            }
+            msg = writer_transform(next, compress_out_writer.load(Ordering::SeqCst));
+          }
+          Err(_) => {
+            if let Err(e) = ws_sender.send(msg).await {
+              error!(
+                "Error writing to websocket client {}: {:?}",
+                writer_client_id, e
+              );
+              break 'writer;
+            }
+            break;
+          }
+        }
       }
     }
   });
