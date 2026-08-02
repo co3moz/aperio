@@ -851,6 +851,11 @@ pub(crate) async fn run_service(
   // Index into `spec.ws_urls` for cross-server failover: advanced after each
   // failed/dropped connection so the client rotates across the server fleet.
   let mut server_idx = 0usize;
+  // Self-reported health for this connection: the ping task fills it in, the
+  // read loop times the pongs, and the reconnect counter lives across
+  // attempts, which is the point of it.
+  let health_report = Arc::new(crate::health_report::HealthReport::default());
+  let mut connected_once = false;
   'outer: loop {
     if *cancel.borrow() {
       break;
@@ -922,6 +927,13 @@ pub(crate) async fn run_service(
               ceiling.tx.send_replace(Some(permitted));
             }
             let connected_at = Instant::now();
+            // Every established connection after the first is a reconnect,
+            // and the count is what tells a flapping link from a quiet one:
+            // two clients both answering pings look identical otherwise.
+            if connected_once {
+              health_report.reconnected();
+            }
+            connected_once = true;
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
             // Channel to write messages to the WebSocket
@@ -1029,6 +1041,7 @@ pub(crate) async fn run_service(
             };
             let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
+            let self_health_ping = health_report.clone();
             let shared_ping = shared.clone();
             let reload_drain_ping = Duration::from_secs(spec.reload_drain_secs);
             let service_name_ping = spec.name.clone();
@@ -1097,7 +1110,15 @@ pub(crate) async fn run_service(
 
                 // One read, so the pair in this heartbeat is one observation.
                 let reported_health = health_ping.report();
+                // Likewise for the self-reported figures: everything in this
+                // heartbeat describes the same moment.
+                let (rtt_ms, jitter_ms, reconnects) = self_health_ping.link();
                 let ping_msg = TunnelMessage::Ping {
+                  cpu_percent: self_health_ping.cpu_percent(),
+                  rss_bytes: crate::health_report::rss_bytes(),
+                  rtt_ms,
+                  jitter_ms,
+                  reconnects: Some(reconnects),
                   client_id: client_id_ping.clone(),
                   timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1132,10 +1153,15 @@ pub(crate) async fn run_service(
                   connections: Some(connections_ping),
                   config_notes: config_notes_ping.clone(),
                 };
-                if let Ok(ping_str) = serde_json::to_string(&ping_msg)
-                  && tx_ping.send(Message::Text(ping_str)).await.is_err()
-                {
-                  break;
+                if let Ok(ping_str) = serde_json::to_string(&ping_msg) {
+                  // Timed from the moment it is queued, which is the same
+                  // queue every other frame waits in: a round trip that
+                  // excluded the writer's backlog would report the link as
+                  // healthy while the connection was the thing falling behind.
+                  self_health_ping.ping_sent();
+                  if tx_ping.send(Message::Text(ping_str)).await.is_err() {
+                    break;
+                  }
                 }
                 // Wake early when the backend health verdict flips, so a
                 // change is reported at once rather than up to 5s later.
@@ -1692,6 +1718,7 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::Pong { timestamp, version, protocol } => {
                                               debug!("Pong received: {}", timestamp);
+                                              health_report.pong_received();
                                               if let Some(p) = protocol {
                                                   server_protocol.store(p, Ordering::Relaxed);
                                               }

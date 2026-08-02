@@ -90,6 +90,16 @@ pub(crate) struct ClientDetail {
   /// False only while a configured health check has not completed its first
   /// probe (dashboard shows "checking" instead of "backend down").
   pub(crate) backend_probed: bool,
+  /// What the client reports about itself (planned_features #37): CPU as a
+  /// percentage of one core and resident memory of the client process, then
+  /// round-trip time, jitter and reconnects of this tunnel connection. All
+  /// `None` from a client that does not report them, and the process figures
+  /// are `None` where they cannot be read without guessing.
+  pub(crate) cpu_percent: Option<f64>,
+  pub(crate) rss_bytes: Option<u64>,
+  pub(crate) rtt_ms: Option<u64>,
+  pub(crate) jitter_ms: Option<u64>,
+  pub(crate) reconnects: Option<u32>,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   pub(crate) priority: u32,
   /// Announced downstream link capacity in bytes/second (None = unlimited).
@@ -734,6 +744,16 @@ pub(crate) struct ClientHandle {
   /// False only while a configured health check has not completed its first
   /// probe (dashboard shows "checking" instead of "backend down").
   pub(crate) backend_probed: bool,
+  /// What the client reports about itself (planned_features #37): CPU as a
+  /// percentage of one core and resident memory of the client process, then
+  /// round-trip time, jitter and reconnects of this tunnel connection. All
+  /// `None` from a client that does not report them, and the process figures
+  /// are `None` where they cannot be read without guessing.
+  pub(crate) cpu_percent: Option<f64>,
+  pub(crate) rss_bytes: Option<u64>,
+  pub(crate) rtt_ms: Option<u64>,
+  pub(crate) jitter_ms: Option<u64>,
+  pub(crate) reconnects: Option<u32>,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   pub(crate) priority: u32,
   /// Client-process instance ID self-reported via Ping. Unlike the

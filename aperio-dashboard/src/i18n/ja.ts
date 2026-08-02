@@ -989,4 +989,9 @@ export const ja: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': '監査ログ全体を検索中。ライブ更新は停止しています',
   'Showing recent events. Filter to search the whole log.': '最近のイベントを表示中。ログ全体を検索するにはフィルタしてください。',
   'details, event or user': '詳細、イベント、ユーザー',
+  'Tunnel round trip, as the client measures it': 'クライアントが計測したトンネルの往復時間',
+  'jitter': 'ジッター',
+  'reconnects': '再接続回数',
+  'client CPU': 'クライアント CPU',
+  'client memory': 'クライアントメモリ',
 }

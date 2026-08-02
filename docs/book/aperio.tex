@@ -1427,6 +1427,23 @@ individual link \emph{cannot be revoked}. It expires, or you rotate the
 master token and invalidate every outstanding link at once. Scope links
 to a path and the shortest useful lifetime.
 
+\section{What a client reports about itself}
+
+A heartbeat carries more than "still here". Each one announces the round-trip
+time of that tunnel connection as the client measures it, the jitter between
+consecutive round trips, how many times the connection has been
+re-established, and the client process's CPU and resident memory. The
+dashboard shows them on the clients table and \code{/aperio/api/stats}
+carries them.
+
+The round trip is the one that earns its place: from the server's side a slow
+backend and a slow tunnel are indistinguishable, and this separates them. The
+two process figures are read from \code{/proc}, so they are Linux only and
+absent elsewhere rather than approximated, and inside a container they
+describe the process rather than the cgroup. A client that reports nothing
+shows nothing: the absence is stored rather than the last value kept, which
+would age silently while looking current.
+
 \section{Network fences}
 
 Three blunt but effective controls:

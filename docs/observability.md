@@ -73,6 +73,31 @@ Every proxied request is emitted as a structured `aperio_access` tracing event o
 
 This window is deliberately small: it answers "what is happening right now" for scripts and for the dashboard, not "what happened last Tuesday". The durable record is the access log file above; searching *that* is not offered here, because its lines carry no organization field and could not be scoped safely to a tenant.
 
+## What a client reports about itself
+
+Beyond "is it pinging" and "does its backend answer", each client announces a
+few figures about itself on every heartbeat, visible in the dashboard's
+clients table (hover the last-ping cell) and in `/aperio/api/stats`:
+
+| Figure | Meaning |
+| --- | --- |
+| `rtt_ms` | Round trip of this tunnel connection, as the client measures it from its own ping to the matching pong. Smoothed, so one slow exchange does not become the reading. |
+| `jitter_ms` | Smoothed variation between consecutive round trips: whether the link is *steady*, which is a different question from whether it is fast. |
+| `reconnects` | Times this connection has been re-established since the client process started. Two clients both answering pings look identical without it; a flapping link does not. |
+| `cpu_percent` | CPU used by the client process since the previous heartbeat, as a percentage of one core. |
+| `rss_bytes` | Resident memory of the client process. |
+
+The two process figures are read from `/proc` and are therefore **Linux only**;
+elsewhere they are absent rather than approximated, because a wrong number is
+worse than no number. Inside a container they describe the process, not the
+cgroup, so they say what the client is using and not how close the container is
+to being killed. A client that reports nothing (an older build, or a platform
+that cannot read a figure) shows nothing: the server stores the absence rather
+than keeping the last value, which would age silently while looking live.
+
+Round-trip time is the figure that separates "the backend is slow" from "the
+tunnel is slow", which is otherwise indistinguishable from the server's side.
+
 ## Audit log
 
 Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.

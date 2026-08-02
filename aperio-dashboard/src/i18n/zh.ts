@@ -972,4 +972,9 @@ export const zh: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': '正在搜索完整审计日志；实时更新已暂停',
   'Showing recent events. Filter to search the whole log.': '显示最近事件。使用筛选可搜索完整日志。',
   'details, event or user': '详情、事件或用户',
+  'Tunnel round trip, as the client measures it': '隧道往返时间，由客户端测量',
+  'jitter': '抖动',
+  'reconnects': '重连次数',
+  'client CPU': '客户端 CPU',
+  'client memory': '客户端内存',
 }

@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, ApiError, type ClientDetail } from '@/lib/api'
-import { formatBandwidth, formatCount, formatLastPing, formatUptime, NO_VALUE } from '@/lib/format'
+import { formatBandwidth, formatBytes, formatCount, formatLastPing, formatUptime, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
@@ -663,6 +663,22 @@ export function ClientsSection({
                     <div className="flex items-center gap-2">
                       <StatusDot active={c.healthy && c.backend_healthy} />
                       <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago)}</span>
+                      {c.rtt_ms != null && (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={<span className="font-mono text-xs text-muted-foreground" />}
+                          >
+                            {c.rtt_ms}ms
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t('Tunnel round trip, as the client measures it')}
+                            {c.jitter_ms != null && ` · ${t('jitter')} ${c.jitter_ms}ms`}
+                            {c.reconnects ? ` · ${c.reconnects} ${t('reconnects')}` : ''}
+                            {c.cpu_percent != null && ` · ${t('client CPU')} ${Math.round(c.cpu_percent)}%`}
+                            {c.rss_bytes != null && ` · ${t('client memory')} ${formatBytes(c.rss_bytes)}`}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                       {!c.healthy && <TintBadge tint="red">{t('DOWN')}</TintBadge>}
                       {c.healthy && !c.backend_healthy && !c.backend_probed && (
                         <HintBadge

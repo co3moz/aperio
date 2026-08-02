@@ -995,4 +995,9 @@ export const tr: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': 'Tüm denetim kaydı aranıyor; canlı güncelleme duraklatıldı',
   'Showing recent events. Filter to search the whole log.': 'Son olaylar gösteriliyor. Tüm kaydı aramak için filtreleyin.',
   'details, event or user': 'ayrıntı, olay veya kullanıcı',
+  'Tunnel round trip, as the client measures it': 'Tünel gidiş dönüş süresi, istemcinin ölçtüğü gibi',
+  'jitter': 'titreşim',
+  'reconnects': 'yeniden bağlanma',
+  'client CPU': 'client CPU',
+  'client memory': 'client belleği',
 }

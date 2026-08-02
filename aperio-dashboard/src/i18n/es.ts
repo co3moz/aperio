@@ -991,4 +991,9 @@ export const es: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': 'Buscando en todo el registro de auditoría; actualizaciones en vivo pausadas',
   'Showing recent events. Filter to search the whole log.': 'Mostrando eventos recientes. Filtra para buscar en todo el registro.',
   'details, event or user': 'detalles, evento o usuario',
+  'Tunnel round trip, as the client measures it': 'Ida y vuelta del túnel, según lo mide el cliente',
+  'jitter': 'fluctuación',
+  'reconnects': 'reconexiones',
+  'client CPU': 'CPU del cliente',
+  'client memory': 'memoria del cliente',
 }

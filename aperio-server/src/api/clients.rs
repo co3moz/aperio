@@ -96,6 +96,11 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
         .is_some_and(|p| p != PROTOCOL_VERSION),
       backend_healthy: handle.backend_healthy,
       backend_probed: handle.backend_probed,
+      cpu_percent: handle.cpu_percent,
+      rss_bytes: handle.rss_bytes,
+      rtt_ms: handle.rtt_ms,
+      jitter_ms: handle.jitter_ms,
+      reconnects: handle.reconnects,
       priority: handle.priority,
       bandwidth_bps: match handle.bandwidth_bps.load(Ordering::Relaxed) {
         0 => None,

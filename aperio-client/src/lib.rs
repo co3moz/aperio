@@ -11,6 +11,7 @@ mod config;
 mod dial;
 mod e2e;
 mod flow;
+mod health_report;
 mod messages_http;
 mod messages_mqtt;
 mod messages_run;

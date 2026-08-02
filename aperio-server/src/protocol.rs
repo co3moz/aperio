@@ -480,6 +480,22 @@ pub enum TunnelMessage {
     /// for. Additive; older peers omit it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     config_notes: Vec<ConfigNote>,
+    /// What the client observes about itself (planned_features #37): CPU as a
+    /// percentage of one core and resident memory of the client process, and
+    /// round-trip time, jitter and reconnect count of this tunnel connection.
+    /// All additive and all optional: an older client omits them, and the
+    /// process figures are absent on platforms where they cannot be read
+    /// without guessing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cpu_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rss_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rtt_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jitter_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reconnects: Option<u32>,
   },
   Pong {
     timestamp: u64,

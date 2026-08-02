@@ -991,4 +991,9 @@ export const fr: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': 'Recherche dans tout le journal d\'audit ; mises à jour en direct en pause',
   'Showing recent events. Filter to search the whole log.': 'Événements récents affichés. Filtrez pour chercher dans tout le journal.',
   'details, event or user': 'détails, événement ou utilisateur',
+  'Tunnel round trip, as the client measures it': 'Aller-retour du tunnel, tel que le client le mesure',
+  'jitter': 'gigue',
+  'reconnects': 'reconnexions',
+  'client CPU': 'CPU du client',
+  'client memory': 'mémoire du client',
 }

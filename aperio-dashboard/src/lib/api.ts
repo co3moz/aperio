@@ -56,6 +56,13 @@ export interface ClientDetail {
   backend_healthy: boolean
   /** False only while a configured health check hasn't completed its first probe. */
   backend_probed: boolean
+  /** What the client reports about itself (null when it does not, and the
+   *  process figures are null where they cannot be read without guessing). */
+  cpu_percent: number | null
+  rss_bytes: number | null
+  rtt_ms: number | null
+  jitter_ms: number | null
+  reconnects: number | null
   priority: number
   bandwidth_bps: number | null
   healthy: boolean

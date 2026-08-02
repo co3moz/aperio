@@ -146,6 +146,11 @@ fn base_ping() -> TunnelMessage {
     protocol: None,
     backend_healthy: true,
     backend_probed: true,
+    cpu_percent: None,
+    rss_bytes: None,
+    rtt_ms: None,
+    jitter_ms: None,
+    reconnects: None,
     priority: 0,
     bandwidth_bps: None,
     service: None,
@@ -1767,4 +1772,75 @@ async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
 
   ws.close(None).await.unwrap();
   wait_no_clients(&state).await;
+}
+
+// --- self-reported client health (planned_features #37) ---------------------
+
+#[tokio::test]
+async fn a_ping_carrying_client_health_stores_it_on_the_handle() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut cpu_percent,
+    ref mut rss_bytes,
+    ref mut rtt_ms,
+    ref mut jitter_ms,
+    ref mut reconnects,
+    ..
+  } = ping
+  {
+    *cpu_percent = Some(12.5);
+    *rss_bytes = Some(48 * 1024 * 1024);
+    *rtt_ms = Some(23);
+    *jitter_ms = Some(4);
+    *reconnects = Some(2);
+  }
+  send(&mut ws, &ping).await;
+
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("the client is registered");
+  assert_eq!(handle.cpu_percent, Some(12.5));
+  assert_eq!(handle.rss_bytes, Some(48 * 1024 * 1024));
+  assert_eq!(handle.rtt_ms, Some(23));
+  assert_eq!(handle.jitter_ms, Some(4));
+  assert_eq!(handle.reconnects, Some(2));
+}
+
+#[tokio::test]
+async fn a_client_that_stops_reporting_shows_nothing_rather_than_a_stale_value() {
+  // An older client, or a platform where a figure cannot be read, omits it.
+  // Keeping the last value would let a number age silently while looking live.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut p = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut rtt_ms,
+    ref mut cpu_percent,
+    ..
+  } = p
+  {
+    *rtt_ms = Some(99);
+    *cpu_percent = Some(50.0);
+  }
+  send(&mut ws, &p).await;
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+  assert_eq!(
+    state.clients.read().await.get(&id).unwrap().rtt_ms,
+    Some(99)
+  );
+
+  send(&mut ws, &base_ping()).await;
+  let _ = read_until_pong(&mut ws).await;
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).unwrap();
+  assert_eq!(handle.rtt_ms, None, "the absence is stored, not ignored");
+  assert_eq!(handle.cpu_percent, None);
 }

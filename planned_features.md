@@ -750,14 +750,14 @@ recorded in Withdrawn under #84 so they are not proposed again.
   expanded from the client's environment so secrets are not written into the
   file. shipped: an `env:` map on the `subscribe:` entry, applied before `APERIO_MESSAGE_TOPIC`/`APERIO_MESSAGE_ID` so a declaration cannot shadow them. `${VAR}` expansion was left out; it belongs with the config templating idea (#63) rather than to this one key.
 
-- [ ] **#37 The client reports its own health, not just its backend's.**
+- [x] **#37 The client reports its own health, not just its backend's.**
   (triage 50) Everything the server knows about a client is "is it pinging" and
   "does its backend answer". Merged from two proposals: process figures (CPU
   percent, RSS) and link figures (tunnel round-trip time from the existing
   ping/pong, jitter, reconnect count), all as additive `Ping` fields and new
   `ClientHandle` columns, surfaced in the dashboard's clients table. Two
   cautions: the numbers are per client process, not per service, and inside a
-  container the naive readings mislead unless the cgroup files are preferred.
+  container the naive readings mislead unless the cgroup files are preferred. shipped: `rtt_ms`, `jitter_ms` and `reconnects` measured from the client's own ping/pong (no protocol change beyond reporting them), plus `cpu_percent` and `rss_bytes` from `/proc`, Linux only and absent elsewhere rather than approximated. Stored on `ClientHandle`, carried by `/aperio/api/stats`, shown on the clients table. An absence overwrites the previous value so a figure cannot age while looking live.
 
 - [ ] **#38 Batch the server's writes to a client, as the client already does
   to the server.** (triage 45) #24 taught the client's tunnel writer to drain

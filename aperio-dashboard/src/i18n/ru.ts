@@ -991,4 +991,9 @@ export const ru: Record<string, string> = {
   'Searching the whole audit log; live updates are paused': 'Поиск по всему журналу аудита; live-обновления приостановлены',
   'Showing recent events. Filter to search the whole log.': 'Показаны недавние события. Отфильтруйте, чтобы искать по всему журналу.',
   'details, event or user': 'детали, событие или пользователь',
+  'Tunnel round trip, as the client measures it': 'Время оборота по туннелю, по измерению клиента',
+  'jitter': 'джиттер',
+  'reconnects': 'переподключений',
+  'client CPU': 'CPU клиента',
+  'client memory': 'память клиента',
 }

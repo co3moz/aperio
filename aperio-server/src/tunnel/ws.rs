@@ -1059,6 +1059,11 @@ impl ConnCtx {
       scaling,
       connections,
       config_notes,
+      cpu_percent,
+      rss_bytes,
+      rtt_ms,
+      jitter_ms,
+      reconnects,
     } = msg
     else {
       return true;
@@ -1254,6 +1259,15 @@ impl ConnCtx {
         // Log backend health transitions reported by the client's
         // own probe; the eligibility filter honours the flag.
         handle.backend_probed = backend_probed;
+        // Self-reported client health. Stored as sent, including absences: a
+        // client that stops reporting a figure (an older build, or a platform
+        // where it cannot be read) should show nothing rather than the last
+        // value it happened to send, which would age silently.
+        handle.cpu_percent = cpu_percent;
+        handle.rss_bytes = rss_bytes;
+        handle.rtt_ms = rtt_ms;
+        handle.jitter_ms = jitter_ms;
+        handle.reconnects = reconnects;
         if handle.backend_healthy != backend_healthy {
           handle.backend_healthy = backend_healthy;
           if backend_healthy {
@@ -2062,6 +2076,11 @@ pub(crate) async fn handle_socket(
         client_protocol: None,
         backend_healthy: true,
         backend_probed: true,
+        cpu_percent: None,
+        rss_bytes: None,
+        rtt_ms: None,
+        jitter_ms: None,
+        reconnects: None,
         priority: 0,
         reported_instance_id: None,
         instance_group: instance_group.clone(),
