@@ -259,7 +259,9 @@ async fn relay_end_to_end_pumps_bytes_both_directions() {
     let handle = streams.get(&stream_id).expect("stream registered");
     handle
       .tx
-      .push(crate::state::TcpConsumerMsg::Data(b"world".to_vec()))
+      .push(crate::state::TcpConsumerMsg::Data(
+        axum::body::Bytes::from_static(b"world"),
+      ))
       .unwrap();
   }
   let mut buf = [0u8; 5];

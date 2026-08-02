@@ -601,7 +601,9 @@ async fn tcp_relay_full_roundtrip() {
 
   // Tunnel -> consumer via the registered relay channel.
   let relay_tx = wait_for_tcp_stream(&state).await;
-  relay_tx.push(TcpConsumerMsg::Data(vec![1, 2, 3])).unwrap();
+  relay_tx
+    .push(TcpConsumerMsg::Data(vec![1, 2, 3].into()))
+    .unwrap();
   let got = tokio::time::timeout(std::time::Duration::from_secs(2), consumer.next())
     .await
     .expect("consumer frame timeout")
@@ -654,7 +656,7 @@ async fn udp_relay_full_roundtrip() {
 
   let relay_tx = wait_for_udp_stream(&state).await;
   relay_tx
-    .send(TcpConsumerMsg::Data(vec![9, 8]))
+    .send(TcpConsumerMsg::Data(vec![9, 8].into()))
     .await
     .unwrap();
   let got = tokio::time::timeout(std::time::Duration::from_secs(2), consumer.next())

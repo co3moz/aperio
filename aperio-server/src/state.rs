@@ -1019,8 +1019,11 @@ pub(crate) type OidcStateEntry = (String, Option<String>, String, Instant);
 
 /// One frame of a streamed response body relayed from the tunnel: data
 /// chunks, then optionally one trailer block (e.g. gRPC's `grpc-status`).
+/// `Bytes` rather than `Vec<u8>` for the same reason as
+/// `TunnelResponse::body_raw`: the WebSocket message the chunk arrived in is
+/// refcounted, so the frame is a slice of it rather than a copy of it.
 pub(crate) enum BodyFrame {
-  Data(Vec<u8>),
+  Data(axum::body::Bytes),
   Trailers(Vec<(String, String)>),
 }
 
@@ -1429,8 +1432,9 @@ pub(crate) struct ResponseStreamHandle {
 }
 
 /// Message relayed from the tunnel to a public TCP consumer WebSocket.
+/// `Bytes` for the same zero-copy reason as `BodyFrame::Data`.
 pub(crate) enum TcpConsumerMsg {
-  Data(Vec<u8>),
+  Data(axum::body::Bytes),
   Close,
 }
 

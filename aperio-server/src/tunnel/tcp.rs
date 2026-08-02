@@ -350,7 +350,7 @@ async fn relay_udp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
-          if ws_sender.send(Message::Binary(bytes.into())).await.is_err() {
+          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
             break;
           }
         }
@@ -534,7 +534,7 @@ async fn relay_tcp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
-          if ws_sender.send(Message::Binary(bytes.into())).await.is_err() {
+          if ws_sender.send(Message::Binary(bytes)).await.is_err() {
             break;
           }
         }

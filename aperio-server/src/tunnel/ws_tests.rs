@@ -190,13 +190,29 @@ async fn make_dynamic_token(state: &AppState, allow_public: bool) -> (String, St
 
 // --- deliver_response_chunk (direct) ---------------------------------------
 
+/// A `ConnCtx` detached from any real socket, for driving the delivery path
+/// directly.
+fn test_ctx(state: &Arc<AppState>, client_id: &str) -> ConnCtx {
+  let (tx_write, _rx) = mpsc::channel::<Message>(8);
+  ConnCtx {
+    state: state.clone(),
+    client_id: client_id.into(),
+    client_ip: "127.0.0.1".into(),
+    tx_write,
+    compress_out: Arc::new(AtomicBool::new(false)),
+    perms: ClientPerms::master(),
+    server_max_connections: 0,
+    max_inflated: 8 * 1024 * 1024,
+    stream_cache: std::sync::Mutex::new(HashMap::new()),
+  }
+}
+
 #[tokio::test]
-async fn deliver_chunk_owned_attributes_bytes() {
+async fn deliver_chunk_owned_attributes_bytes_when_the_stream_ends() {
   let state = Arc::new(test_state());
-  let mut c = mock_client(None, None, None, None);
-  c.perms.org_id = Some("org1".into());
-  c.perms.token_id = Some("tok1".into());
-  state.clients.write().await.insert("owner".into(), c);
+  let mut ctx = test_ctx(&state, "owner");
+  ctx.perms.org_id = Some("org1".into());
+  ctx.perms.token_id = Some("tok1".into());
 
   let (tx, mut rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(4);
   state.response_streams.lock().await.insert(
@@ -207,12 +223,16 @@ async fn deliver_chunk_owned_attributes_bytes() {
     },
   );
 
-  deliver_response_chunk(&state, "owner", "r1", vec![1, 2, 3]).await;
+  ctx.deliver_response_chunk("r1", vec![1, 2, 3].into()).await;
 
   match rx.recv().await.unwrap().unwrap() {
-    BodyFrame::Data(d) => assert_eq!(d, vec![1, 2, 3]),
+    BodyFrame::Data(d) => assert_eq!(d.as_ref(), &[1, 2, 3]),
     _ => panic!("expected data frame"),
   }
+  // Accounting is batched: below the flush threshold nothing is charged yet;
+  // settling the stream flushes the remainder to every counter.
+  assert_eq!(state.stats.lock().await.total_bytes_transferred, 0);
+  ctx.finish_stream_accounting("r1").await;
   assert_eq!(state.stats.lock().await.total_bytes_transferred, 3);
   assert_eq!(
     *state
@@ -227,6 +247,35 @@ async fn deliver_chunk_owned_attributes_bytes() {
 }
 
 #[tokio::test]
+async fn deliver_chunk_crossing_the_batch_threshold_flushes_inline() {
+  let state = Arc::new(test_state());
+  let mut ctx = test_ctx(&state, "owner");
+  ctx.perms.org_id = Some("org1".into());
+  ctx.perms.token_id = Some("tok1".into());
+
+  let (tx, mut rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(4);
+  state.response_streams.lock().await.insert(
+    "r1".into(),
+    ResponseStreamHandle {
+      tx: crate::state::test_pump(tx),
+      client_id: "owner".into(),
+    },
+  );
+
+  let big = STREAM_ACCOUNT_FLUSH_BYTES as usize;
+  ctx
+    .deliver_response_chunk("r1", vec![0u8; big].into())
+    .await;
+  let _ = rx.recv().await.unwrap().unwrap();
+
+  // At the threshold the charge lands without waiting for the stream to end.
+  assert_eq!(state.stats.lock().await.total_bytes_transferred, big as u64);
+  // Settling afterwards adds nothing twice.
+  ctx.finish_stream_accounting("r1").await;
+  assert_eq!(state.stats.lock().await.total_bytes_transferred, big as u64);
+}
+
+#[tokio::test]
 async fn deliver_chunk_not_owned_is_rejected() {
   let state = Arc::new(test_state());
   let (tx, mut rx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(4);
@@ -238,16 +287,20 @@ async fn deliver_chunk_not_owned_is_rejected() {
     },
   );
 
-  deliver_response_chunk(&state, "intruder", "r1", vec![9]).await;
+  let ctx = test_ctx(&state, "intruder");
+  ctx.deliver_response_chunk("r1", vec![9].into()).await;
 
   assert!(rx.try_recv().is_err());
   assert!(state.response_streams.lock().await.contains_key("r1"));
+  // A rejected sender must not gain a cached handle to the stream either.
+  assert!(ctx.stream_cache.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn deliver_chunk_unknown_stream_is_noop() {
   let state = Arc::new(test_state());
-  deliver_response_chunk(&state, "owner", "missing", vec![1]).await;
+  let ctx = test_ctx(&state, "owner");
+  ctx.deliver_response_chunk("missing", vec![1].into()).await;
   assert!(state.response_streams.lock().await.is_empty());
 }
 
@@ -266,14 +319,17 @@ async fn deliver_chunk_consumer_gone_drops_stream() {
 
   // The first chunk may still be accepted into the pump's queue before the
   // pump notices the dead consumer; the stream must be gone shortly after.
+  let ctx = test_ctx(&state, "owner");
   for _ in 0..100 {
-    deliver_response_chunk(&state, "owner", "r1", vec![1]).await;
+    ctx.deliver_response_chunk("r1", vec![1].into()).await;
     if !state.response_streams.lock().await.contains_key("r1") {
       break;
     }
     tokio::time::sleep(Duration::from_millis(10)).await;
   }
   assert!(!state.response_streams.lock().await.contains_key("r1"));
+  // The failed push evicted the cached handle too.
+  assert!(ctx.stream_cache.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -306,10 +362,11 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
   // filled, stalling every other stream on the same tunnel. The chunks are
   // buffered (well under the backlog cap), NOT dropped: a slow-but-alive
   // visitor must not lose its stream just because the producer ran ahead.
+  let ctx = test_ctx(&state, "owner");
   for _ in 0..10 {
     tokio::time::timeout(
       Duration::from_secs(5),
-      deliver_response_chunk(&state, "owner", "r1", vec![1, 2, 3]),
+      ctx.deliver_response_chunk("r1", vec![1, 2, 3].into()),
     )
     .await
     .expect("a stalled visitor must not block the tunnel read loop");
@@ -324,7 +381,7 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
   // removes it, exactly as the old blocking send's timeout did.
   tokio::time::sleep(Duration::from_millis(300)).await;
   for _ in 0..100 {
-    deliver_response_chunk(&state, "owner", "r1", vec![1, 2, 3]).await;
+    ctx.deliver_response_chunk("r1", vec![1, 2, 3].into()).await;
     if !state.response_streams.lock().await.contains_key("r1") {
       break;
     }
@@ -360,10 +417,11 @@ async fn backlog_cap_drops_a_producer_that_cannot_be_paused() {
 
   // Push past STREAM_BACKLOG_LIMIT (16 MiB) in 4 MiB chunks; the read loop
   // stays unblocked throughout and the stream is dropped at the cap.
+  let ctx = test_ctx(&state, "owner");
   for _ in 0..6 {
     tokio::time::timeout(
       Duration::from_secs(5),
-      deliver_response_chunk(&state, "owner", "r1", vec![0u8; 4 * 1024 * 1024]),
+      ctx.deliver_response_chunk("r1", vec![0u8; 4 * 1024 * 1024].into()),
     )
     .await
     .expect("the backlog cap must not block the read loop");
@@ -392,7 +450,7 @@ async fn slow_consumer_pauses_and_resumes_a_v3_producer() {
 
   // 1 MiB chunks: two land in the consumer channel, the next two build up
   // 2 MiB of backlog and cross STREAM_PAUSE_BYTES -> StreamPause goes out.
-  let chunk = || Ok(BodyFrame::Data(vec![0u8; 1024 * 1024]));
+  let chunk = || Ok(BodyFrame::Data(vec![0u8; 1024 * 1024].into()));
   assert_eq!(chunk().cost(), 1024 * 1024);
   for _ in 0..4 {
     pumped.push(chunk()).unwrap();
@@ -1674,7 +1732,7 @@ async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
     .unwrap()
     .unwrap()
   {
-    TcpConsumerMsg::Data(d) => assert_eq!(d, b"dgram"),
+    TcpConsumerMsg::Data(d) => assert_eq!(d.as_ref(), b"dgram"),
     _ => panic!("expected a datagram"),
   }
 
@@ -1699,7 +1757,7 @@ async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
     .unwrap()
     .unwrap()
   {
-    TcpConsumerMsg::Data(d) => assert_eq!(d, b"after"),
+    TcpConsumerMsg::Data(d) => assert_eq!(d.as_ref(), b"after"),
     _ => panic!("expected the owned delivery"),
   }
   assert!(

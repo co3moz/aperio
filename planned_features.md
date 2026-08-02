@@ -589,8 +589,15 @@ free number.
   the ownership fence is asserted on the binary path too. (From the 2026-08
   bottleneck analysis; the base64 relays were finding #5 there.)
 
-- [ ] **#23 Streamed-response receive path on the server: drop the per-chunk
-  lock and the per-chunk copy.** Found by reading the code against a 2 MB-body
+- [x] **#23 Streamed-response receive path on the server: drop the per-chunk
+  lock and the per-chunk copy.** shipped: `ConnCtx` caches each stream's pump
+  sender after one ownership-checked registry lookup, chunk payloads travel
+  as `Bytes` slices of the arriving WebSocket message end to end
+  (`BodyFrame::Data` and `TcpConsumerMsg::Data` are `Bytes` now, covering the
+  TCP/UDP/WS relay arms too), and the per-chunk byte accounting became 1 MiB
+  batches settled at stream end, disconnect, or error, so the shared stats
+  and quota locks are taken per megabyte rather than per chunk. Found by
+  reading the code against a 2 MB-body
   wrk run (the 2026-08 tunnel bandwidth look; numbers unmeasured beyond that
   run). Every streamed chunk arriving over the tunnel goes through
   `deliver_response_chunk` (`aperio-server/src/tunnel/ws.rs`), which (a) locks

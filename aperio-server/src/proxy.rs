@@ -2035,9 +2035,7 @@ fn frame_from_body_item(
   item: Result<crate::state::BodyFrame, std::io::Error>,
 ) -> Result<http_body::Frame<axum::body::Bytes>, axum::BoxError> {
   match item {
-    Ok(crate::state::BodyFrame::Data(bytes)) => {
-      Ok(http_body::Frame::data(axum::body::Bytes::from(bytes)))
-    }
+    Ok(crate::state::BodyFrame::Data(bytes)) => Ok(http_body::Frame::data(bytes)),
     Ok(crate::state::BodyFrame::Trailers(trailers)) => {
       Ok(http_body::Frame::trailers(trailer_header_map(&trailers)))
     }

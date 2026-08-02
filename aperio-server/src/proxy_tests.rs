@@ -210,7 +210,7 @@ fn trailer_header_map_skips_invalid() {
 fn frame_from_body_item_variants() {
   use crate::state::BodyFrame;
   // Data frame.
-  let f = frame_from_body_item(Ok(BodyFrame::Data(vec![1, 2, 3])));
+  let f = frame_from_body_item(Ok(BodyFrame::Data(vec![1, 2, 3].into())));
   assert!(f.unwrap().into_data().is_ok());
   // Trailer frame.
   let f = frame_from_body_item(Ok(BodyFrame::Trailers(vec![(
@@ -779,7 +779,9 @@ async fn handler_streams_response_body_with_trailers() {
   let rx = insert_live_client(&state, "c1").await;
   let (btx, brx) = mpsc::channel::<Result<BodyFrame, std::io::Error>>(8);
   btx
-    .send(Ok(BodyFrame::Data(b"streamed".to_vec())))
+    .send(Ok(BodyFrame::Data(axum::body::Bytes::from_static(
+      b"streamed",
+    ))))
     .await
     .unwrap();
   btx

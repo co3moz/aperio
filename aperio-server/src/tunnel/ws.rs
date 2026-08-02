@@ -12,7 +12,7 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 /// that just connected. The client sizes its fan of connections from it, so
 /// the number lives on the server where the resource is.
 pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -64,71 +64,21 @@ async fn take_owned_stream<T>(
   }
 }
 
-/// Delivers one streamed response chunk to the waiting public consumer,
-/// verifying stream ownership and accounting the bytes. Shared by the JSON
-/// (base64) and protocol v2 binary frame paths.
-async fn deliver_response_chunk(state: &Arc<AppState>, client_id: &str, id: &str, bytes: Vec<u8>) {
-  // Look up the stream and verify the sender owns it.
-  let chunk_tx = {
-    let streams = state.response_streams.lock().await;
-    match streams.get(id) {
-      Some(handle) if handle.client_id == client_id => Some(handle.tx.clone()),
-      Some(_) => {
-        warn!(
-          "ResponseChunk for request ID {} rejected: not owned by client {}",
-          id, client_id
-        );
-        None
-      }
-      None => None,
-    }
-  };
-  if let Some(chunk_tx) = chunk_tx {
-    let len = bytes.len() as u64;
-    // Never block here: this runs on the read loop the whole tunnel shares.
-    // The stream's pump task absorbs a stalling consumer, its flow control
-    // pauses the producer past the byte watermark, and only a consumer gone
-    // for good (or a producer that cannot be paused) ends the stream.
-    let send_res = chunk_tx.push(Ok(crate::state::BodyFrame::Data(bytes)));
-    match send_res {
-      Ok(()) => {
-        let mut stats = state.stats.lock().await;
-        stats.total_bytes_transferred += len;
-        drop(stats);
-        // Attribute streamed bytes to the sending client's organization and to
-        // the serving token's daily byte quota, a streamed response body would
-        // otherwise escape the quota that a buffered response is charged for.
-        let (org, token_id) = {
-          let clients = state.clients.read().await;
-          match clients.get(client_id) {
-            Some(c) => (c.perms.org_id.clone(), c.perms.token_id.clone()),
-            None => (None, None),
-          }
-        };
-        state
-          .persistent_stats
-          .lock()
-          .await
-          .record_bytes_sent(len, org.as_deref());
-        state.add_token_bytes(token_id.as_deref(), len).await;
-      }
-      Err(crate::state::PumpPushError::ConsumerGone) => {
-        debug!(
-          "Dropping streamed response {} (consumer gone or stalled)",
-          id
-        );
-        state.response_streams.lock().await.remove(id);
-      }
-      Err(crate::state::PumpPushError::BacklogFull) => {
-        warn!(
-          "Dropping streamed response {}: backlog cap hit and the producing client honors no pause",
-          id
-        );
-        state.response_streams.lock().await.remove(id);
-      }
-    }
-  }
+/// One stream this connection is feeding: the pump sender it already proved
+/// ownership of, plus bytes delivered but not yet flushed to the shared
+/// counters. Lives in the connection's `stream_cache` so the per-chunk hot
+/// path touches no global lock (planned_features #23).
+struct StreamCacheEntry {
+  tx: crate::state::PumpedSender<Result<crate::state::BodyFrame, std::io::Error>>,
+  unreported: u64,
 }
+
+/// Byte-accounting batch size for streamed responses: the shared counters
+/// (server stats, org bytes, token daily quota) are updated once per this
+/// many delivered bytes rather than once per chunk, and the remainder is
+/// flushed when the stream ends. Quotas are megabytes-to-gigabytes sized, so
+/// lagging a stream's charge by under this much changes no decision.
+const STREAM_ACCOUNT_FLUSH_BYTES: u64 = 1024 * 1024;
 
 /// Upgrade WebSocket endpoint. Extracts and verifies security tokens.
 pub(crate) async fn ws_handler(
@@ -379,9 +329,133 @@ struct ConnCtx {
   perms: ClientPerms,
   server_max_connections: u32,
   max_inflated: usize,
+  /// Streams this connection has delivered chunks to, keyed by request id.
+  /// A `std` mutex: only this connection's read loop touches it, and it is
+  /// never held across an await.
+  stream_cache: std::sync::Mutex<HashMap<String, StreamCacheEntry>>,
 }
 
 impl ConnCtx {
+  /// Delivers one streamed response chunk to the waiting public consumer.
+  /// Shared by the JSON (base64) and protocol v2 binary frame paths.
+  ///
+  /// The hot path here is deliberately cheap: the stream's sender is looked
+  /// up in the global `response_streams` map (with the ownership check) only
+  /// for the first chunk and cached per connection afterwards, and the byte
+  /// accounting is batched per `STREAM_ACCOUNT_FLUSH_BYTES` instead of
+  /// taking three shared locks per chunk. Ownership caching is sound because
+  /// request ids are UUIDs that are never reused, and every stream is fed by
+  /// exactly the connection that received its request.
+  async fn deliver_response_chunk(&self, id: &str, bytes: axum::body::Bytes) {
+    let len = bytes.len() as u64;
+    let cached = {
+      let cache = self.stream_cache.lock().unwrap();
+      cache.get(id).map(|e| e.tx.clone())
+    };
+    let chunk_tx = match cached {
+      Some(tx) => tx,
+      None => {
+        let looked_up = {
+          let streams = self.state.response_streams.lock().await;
+          match streams.get(id) {
+            Some(handle) if handle.client_id == self.client_id => Some(handle.tx.clone()),
+            Some(_) => {
+              warn!(
+                "ResponseChunk for request ID {} rejected: not owned by client {}",
+                id, self.client_id
+              );
+              None
+            }
+            None => None,
+          }
+        };
+        let Some(tx) = looked_up else { return };
+        self.stream_cache.lock().unwrap().insert(
+          id.to_string(),
+          StreamCacheEntry {
+            tx: tx.clone(),
+            unreported: 0,
+          },
+        );
+        tx
+      }
+    };
+    // Never block here: this runs on the read loop the whole tunnel shares.
+    // The stream's pump task absorbs a stalling consumer, its flow control
+    // pauses the producer past the byte watermark, and only a consumer gone
+    // for good (or a producer that cannot be paused) ends the stream.
+    match chunk_tx.push(Ok(crate::state::BodyFrame::Data(bytes))) {
+      Ok(()) => {
+        let flush = {
+          let mut cache = self.stream_cache.lock().unwrap();
+          match cache.get_mut(id) {
+            Some(entry) => {
+              entry.unreported += len;
+              if entry.unreported >= STREAM_ACCOUNT_FLUSH_BYTES {
+                std::mem::take(&mut entry.unreported)
+              } else {
+                0
+              }
+            }
+            None => len,
+          }
+        };
+        if flush > 0 {
+          self.flush_stream_bytes(flush).await;
+        }
+      }
+      Err(e) => {
+        match e {
+          crate::state::PumpPushError::ConsumerGone => debug!(
+            "Dropping streamed response {} (consumer gone or stalled)",
+            id
+          ),
+          crate::state::PumpPushError::BacklogFull => warn!(
+            "Dropping streamed response {}: backlog cap hit and the producing client honors no pause",
+            id
+          ),
+        }
+        self.state.response_streams.lock().await.remove(id);
+        self.finish_stream_accounting(id).await;
+      }
+    }
+  }
+
+  /// Charges `n` streamed bytes to the shared counters: server stats, the
+  /// organization's byte totals and the serving token's daily quota, a
+  /// streamed response body would otherwise escape the quota that a buffered
+  /// response is charged for. Organization and token come from this
+  /// connection's own permissions, which is what the per-chunk `clients`
+  /// lookup used to resolve to.
+  async fn flush_stream_bytes(&self, n: u64) {
+    let mut stats = self.state.stats.lock().await;
+    stats.total_bytes_transferred += n;
+    drop(stats);
+    self
+      .state
+      .persistent_stats
+      .lock()
+      .await
+      .record_bytes_sent(n, self.perms.org_id.as_deref());
+    self
+      .state
+      .add_token_bytes(self.perms.token_id.as_deref(), n)
+      .await;
+  }
+
+  /// Drops a stream from the delivery cache and flushes whatever bytes it
+  /// had not reported yet. Called wherever a stream ends: End, Abort, a
+  /// failed push, a poisoned base64 chunk, and connection cleanup.
+  async fn finish_stream_accounting(&self, id: &str) {
+    let pending = {
+      let mut cache = self.stream_cache.lock().unwrap();
+      cache.remove(id).map(|e| e.unreported).unwrap_or(0)
+    };
+    if pending > 0 {
+      self.flush_stream_bytes(pending).await;
+    }
+  }
+
   /// Turns one incoming WebSocket message into the envelope text the
   /// dispatcher matches on, delivering v2 chunk frames on the spot and
   /// carrying a v5 full-response body out as bytes.
@@ -399,28 +473,33 @@ impl ConnCtx {
         // v2 binary chunk frames carry a tag byte that never collides
         // with zlib-compressed JSON frames (0x78).
         match decode_binary_frame(&b) {
+          // The payload of a chunk frame is the tail of the message, and the
+          // message is refcounted: every delivery below slices `b` instead
+          // of copying out of it.
           Some((FRAME_RESPONSE_CHUNK, fid, payload)) => {
             let fid = fid.to_string();
-            deliver_response_chunk(state, client_id, &fid, payload.to_vec()).await;
+            let payload = b.slice(b.len() - payload.len()..);
+            self.deliver_response_chunk(&fid, payload).await;
             None
           }
           // v7: relay payloads as raw bytes. Same ownership checks as their
           // JSON shapes, which stay for older clients.
           Some((crate::protocol::FRAME_TCP_DATA, sid, payload)) => {
             let sid = sid.to_string();
-            self.deliver_tcp_bytes(&sid, payload.to_vec()).await;
+            let payload = b.slice(b.len() - payload.len()..);
+            self.deliver_tcp_bytes(&sid, payload).await;
             None
           }
           Some((crate::protocol::FRAME_UDP_DATAGRAM, sid, payload)) => {
             let sid = sid.to_string();
-            self.deliver_udp_bytes(&sid, payload.to_vec()).await;
+            let payload = b.slice(b.len() - payload.len()..);
+            self.deliver_udp_bytes(&sid, payload).await;
             None
           }
           Some((crate::protocol::FRAME_WS_DATA_BIN, sid, payload)) => {
             let sid = sid.to_string();
-            self
-              .deliver_ws_frame(&sid, Message::Binary(payload.to_vec().into()))
-              .await;
+            let payload = b.slice(b.len() - payload.len()..);
+            self.deliver_ws_frame(&sid, Message::Binary(payload)).await;
             None
           }
           // v5: envelope and body in one frame, deflated or not. The
@@ -618,7 +697,6 @@ impl ConnCtx {
       return;
     };
     let state = &self.state;
-    let client_id = &self.client_id;
     let client_ip = &self.client_ip;
     let perms = &self.perms;
     let tx_write = &self.tx_write;
@@ -628,10 +706,11 @@ impl ConnCtx {
     // Base64 fallback path; v2 clients send raw binary frames.
     use base64::prelude::*;
     match BASE64_STANDARD.decode(&data) {
-      Ok(bytes) => deliver_response_chunk(state, client_id, &id, bytes).await,
+      Ok(bytes) => self.deliver_response_chunk(&id, bytes.into()).await,
       Err(_) => {
         warn!("Failed to decode Base64 ResponseChunk for request {}", id);
         state.response_streams.lock().await.remove(&id);
+        self.finish_stream_accounting(&id).await;
       }
     }
   }
@@ -665,6 +744,9 @@ impl ConnCtx {
         id, client_id
       ),
     }
+    // Settle the byte accounting either way: the cache only ever holds
+    // streams this connection owns, so a foreign id is a no-op here.
+    self.finish_stream_accounting(&id).await;
   }
 
   /// Handles a stream the backend failed mid-way.
@@ -696,6 +778,8 @@ impl ConnCtx {
         id, client_id
       ),
     }
+    // Same settling as ResponseEnd: charge what the stream had delivered.
+    self.finish_stream_accounting(&id).await;
   }
 
   /// Handles bytes of a TCP relay stream.
@@ -706,7 +790,7 @@ impl ConnCtx {
     // Base64 fallback path; a v7 client sends FRAME_TCP_DATA binary frames.
     use base64::prelude::*;
     match BASE64_STANDARD.decode(&data) {
-      Ok(bytes) => self.deliver_tcp_bytes(&stream_id, bytes).await,
+      Ok(bytes) => self.deliver_tcp_bytes(&stream_id, bytes.into()).await,
       Err(_) => {
         warn!("Failed to decode Base64 TcpData for stream {}", stream_id);
       }
@@ -715,7 +799,7 @@ impl ConnCtx {
 
   /// Delivers one chunk of a TCP relay this client owns, however it arrived
   /// (base64 in JSON, or a v7 binary frame).
-  async fn deliver_tcp_bytes(&self, stream_id: &str, bytes: Vec<u8>) {
+  async fn deliver_tcp_bytes(&self, stream_id: &str, bytes: axum::body::Bytes) {
     let state = &self.state;
     let client_id = &self.client_id;
     let consumer_tx = {
@@ -770,7 +854,7 @@ impl ConnCtx {
     // Base64 fallback path; a v7 client sends FRAME_UDP_DATAGRAM frames.
     use base64::prelude::*;
     match BASE64_STANDARD.decode(&data) {
-      Ok(bytes) => self.deliver_udp_bytes(&stream_id, bytes).await,
+      Ok(bytes) => self.deliver_udp_bytes(&stream_id, bytes.into()).await,
       Err(_) => {
         warn!(
           "Failed to decode Base64 UdpDatagram for stream {}",
@@ -781,7 +865,7 @@ impl ConnCtx {
   }
 
   /// Delivers one relayed datagram this client owns, however it arrived.
-  async fn deliver_udp_bytes(&self, stream_id: &str, bytes: Vec<u8>) {
+  async fn deliver_udp_bytes(&self, stream_id: &str, bytes: axum::body::Bytes) {
     let state = &self.state;
     let client_id = &self.client_id;
     let consumer_tx = {
@@ -1680,6 +1764,16 @@ impl ConnCtx {
     let client_ip = &self.client_ip;
     let perms = &self.perms;
     info!("Tunnel client disconnected: {}", client_id);
+    // Settle the batched byte accounting of every stream this connection was
+    // feeding, and drop the cached senders so removing the handles below is
+    // what ends the pumps.
+    let pending: u64 = {
+      let mut cache = self.stream_cache.lock().unwrap();
+      cache.drain().map(|(_, e)| e.unreported).sum()
+    };
+    if pending > 0 {
+      self.flush_stream_bytes(pending).await;
+    }
     state
       .audit_in(
         "client_disconnected",
@@ -2036,6 +2130,7 @@ pub(crate) async fn handle_socket(
     perms,
     server_max_connections,
     max_inflated,
+    stream_cache: std::sync::Mutex::new(HashMap::new()),
   };
 
   // Read loop. Ends on the client closing the socket, or when `disconnect` is
