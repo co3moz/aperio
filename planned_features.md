@@ -638,6 +638,389 @@ free number.
   `Bytes`-based release would also let the frame be built once without the
   final copy into the write buffer.
 
+<!--
+Everything from #26 down came out of the 2026-08 proposal triage: a batch of
+suggestions was checked against the code one by one, scored, merged where
+several described one feature, and dropped where the premise turned out to be
+false. The parenthesised number is that triage score (100 = must have, 0 =
+noise), kept so the next prioritisation starts from the reasoning rather than
+from scratch. Ten proposals described things that already exist and are
+recorded in Withdrawn under #84 so they are not proposed again.
+-->
+
+- [ ] **#26 `routes:` becomes a first-class policy block, not just a
+  destination.** (triage 70) Today a `routes:` entry only says where a
+  hostname/path goes; every knob that should be per-route lives somewhere
+  coarser: the gateway timeout is server-global, header rules are server-wide
+  or per-service, rate limits are a separate `rate_limits:` list that repeats
+  the same hostname and path, and there is no per-route body ceiling or
+  cache-control. Merged from six proposals that each asked for one field, and
+  worth doing as one change because they all land on the same struct
+  (`RouteRule`, `aperio-config/src/lib.rs`) and the same lookup in
+  `routing.rs`: `timeout`, `headers: {request, response}` reusing the existing
+  `HeaderDirectives`, an inline `rate_limit: {burst, per_second}` (the
+  standalone `rate_limits:` list stays, the inline one wins for that route),
+  `max_response_body`, `cache_control`, and a `methods:` filter on rate limit
+  rules. The care it needs: precedence has to be stated once and tested (route
+  beats service beats server), and every added field must degrade to today's
+  behaviour when unset.
+
+- [ ] **#27 A deny list for visitor IPs.** (triage 65) `allowed_ips` is a
+  whitelist on a token or a service, `admin_allowed_ips` fences the admin
+  surface, and the WAF matches on path, method, header and body size, but
+  there is no way to say "this address never gets in" server-wide or per
+  organization. Blocking one scanner today means either an allowlist (which
+  breaks everyone else) or a fronting proxy. The pieces already exist:
+  `parse_trusted_proxies` parses IP/CIDR lists, and the per-IP rate limiter
+  shows where the check belongs in the request path. Wants to be checked
+  early, before routing and before the rate-limit bucket is charged, and to
+  answer with the same stealth response an unclaimed route gives rather than
+  confirming that the address was recognised.
+
+- [ ] **#28 The audit log becomes searchable and exportable.** (triage 65)
+  `audit_handler` (`aperio-server/src/api/webhooks.rs:23`) takes no parameters
+  at all: it returns the recent events for the caller's org and nothing else.
+  For a log that is deliberately tamper-evident, hash-chained, retained by
+  policy and org-isolated, not being able to answer "what did this user do last
+  Tuesday" is the gap that makes it ceremonial rather than useful. Wants query
+  parameters for event kind, actor, organization and a time range, then CSV and
+  JSON export of exactly the filtered set (the traffic export at
+  `/aperio/api/export/traffic.csv` is the shape to copy). Filtering must happen
+  after the org fence, never instead of it, and the export must go through the
+  same redaction the inspector uses.
+
+- [ ] **#29 Backend resilience: retry with backoff, and a circuit breaker per
+  backend.** (triage 60) The server can fail a request over to another client
+  (`failover`, `retry_on_5xx`) and can eject a client that misbehaves
+  (`outlier_ejection`), but the client's own hop to its backend has nothing:
+  one refused connection or one 502 is the visitor's answer. Merged from two
+  proposals because they are two halves of one policy: `retry: {attempts,
+  backoff}` for the transient case and `circuit_breaker: {failures, window,
+  open_for}` for the backend that is simply down, so retries stop hammering it.
+  `scaling.rs` already has a breaker for autoscaling callbacks and is the shape
+  to reuse. The part that needs care is method idempotency (the same reasoning
+  `failover_all_methods` already encodes) and not retrying a response whose
+  body has started streaming.
+
+- [ ] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
+  UUID per request (`proxy.rs:1138`) and uses it everywhere internally, but it
+  neither reads an inbound `X-Request-Id` nor passes any id to the backend. So
+  a visitor's trace id dies at the edge, and a backend log line cannot be
+  joined to the server's own access log for the same request. Take the inbound
+  header when present (validated and length-capped, it is attacker-controlled),
+  mint one otherwise, send it to the backend and echo it on the response. Cheap
+  and standard, and it makes the profiling script and the inspector line up
+  with whatever the operator already runs.
+
+- [ ] **#31 Filters on the request inspector.** (triage 55) The inspector keeps
+  recent transactions with a microsecond timeline and is one of the reasons to
+  run the dashboard, but the only ways in are "the most recent N" and "this
+  exact id". Merged from two proposals: field filters (`status`, `method`,
+  `path`) and a time range (`before`/`after`, where only `before` plus a limit
+  exists today). The interesting case is the one an operator actually has,
+  "show me the 500s from the last ten minutes", which needs both.
+
+- [ ] **#32 Scheduled maintenance windows.** (triage 55) Maintenance mode is a
+  manual toggle with an optional TTL, so a window at 02:00 on a Sunday means
+  somebody sets an alarm. Wants `from`/`to`, a `days` list and an explicit
+  `tz`, evaluated server-side. The cost to be honest about is correctness
+  around time zones and daylight saving, which is why the timezone has to be
+  explicit rather than inferred from the host.
+
+- [ ] **#33 Draining a service that a config reload removed.** (triage 55) When
+  a service disappears from a reloaded config the client stops serving it
+  immediately, so requests already in flight through that service are dropped
+  and the visitor sees a failure caused by an edit that was meant to be
+  invisible. The protocol already has `Draining` and the server already knows
+  how to stop dispatching to a draining client; this is about using both on the
+  reload path with a bounded wait. Closer to a correctness fix than a feature,
+  which is why it scores above several flashier ideas.
+
+- [ ] **#34 `restart_policy` for a process started with `run:`.** (triage 55)
+  `run:` starts a backend alongside the tunnel, and if that process dies the
+  tunnel stays up serving a target that is no longer there. Wants
+  `always` / `on-failure` / `never` with a backoff, and it should interact with
+  the health probe rather than duplicate it: a restarting backend is unhealthy,
+  which the routing layer already understands.
+
+- [ ] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
+  a supported, documented shape for gRPC backends, but the health probe is a
+  plain HTTP GET, so the documentation ends up advising an explicit URL
+  instead. Speak `grpc.health.v1.Health/Check` when the target is an h2 one,
+  falling back to the current GET when a probe path is set explicitly.
+
+- [ ] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
+  takes a command line and nothing else, so anything the child needs
+  (`DATABASE_URL`, a port, a profile) has to come from the client's own
+  environment, which also means it cannot differ per service. `env: {KEY:
+  value}` per entry, with the usual rule that a value looking like `${VAR}` is
+  expanded from the client's environment so secrets are not written into the
+  file.
+
+- [ ] **#37 The client reports its own health, not just its backend's.**
+  (triage 50) Everything the server knows about a client is "is it pinging" and
+  "does its backend answer". Merged from two proposals: process figures (CPU
+  percent, RSS) and link figures (tunnel round-trip time from the existing
+  ping/pong, jitter, reconnect count), all as additive `Ping` fields and new
+  `ClientHandle` columns, surfaced in the dashboard's clients table. Two
+  cautions: the numbers are per client process, not per service, and inside a
+  container the naive readings mislead unless the cgroup files are preferred.
+
+- [ ] **#38 Batch the server's writes to a client, as the client already does
+  to the server.** (triage 45) #24 taught the client's tunnel writer to drain
+  its queue with `feed()` and flush once per batch instead of paying a syscall
+  per frame. The server's writer (`tunnel/ws.rs`) still sends one message at a
+  time, and it is the busier side under fan-out. `SendPacer` sits in that loop
+  already for bandwidth pacing, so the batching has to spend the pacer's budget
+  for the whole batch rather than per frame. The technique is proven on the
+  other side, which is what makes this cheap.
+
+- [ ] **#39 A "test fire" button when creating a webhook.** (triage 45) A
+  webhook that was configured wrong is discovered the next time something
+  actually happens, which is exactly the wrong moment. Send a synthetic event
+  through the real delivery path (including the outbound policy check and the
+  signature) and show the response. The delivery log and the refire endpoint
+  already do most of this.
+
+- [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
+  authenticates with a bearer token, optionally pinned and IP-fenced. Some
+  deployments want a client certificate as well, so a leaked token alone is not
+  enough. Rustls supports it on both sides; the work is less in the handshake
+  than in the operational surface: where certificates come from, how they are
+  rotated, and what the server does with the identity once verified (map it to
+  a token, or to an organization).
+
+- [ ] **#41 `include:` for splitting a config across files.** (triage 45) One
+  `aperio.yaml` per deployment stops scaling when there are twenty services or
+  when different teams own different entries. `include: [services/prod.yaml]`
+  with a documented merge order, path resolution relative to the including
+  file, and a depth cap so a cycle cannot hang startup. The hot reload watcher
+  has to watch every included file, not just the root one.
+
+- [ ] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
+  #23 did this on the server: chunk payloads travel as refcounted slices of the
+  WebSocket message instead of copies. The client's read loop still calls
+  `payload.to_vec()` five times (`service.rs:1175-1205`, request chunks, TCP,
+  UDP, WS frames and the full-response body). The blocker is that
+  tokio-tungstenite 0.23 hands out `Vec<u8>` rather than `Bytes`, so this needs
+  the dependency upgrade first, which is why it is not simply the mirror of a
+  change already made.
+
+- [ ] **#43 Shadow traffic to a second backend.** (triage 45) Send a copy of a
+  route's requests to a staging service and discard its answer, so a new
+  version sees production traffic before it serves any. `shadow: {target}`
+  under a route. What makes it more than a fan-out: the shadow must never
+  affect the visitor (no waiting on it, no error from it), must be bounded so
+  it cannot double the client's concurrency budget, and needs an explicit
+  answer for request bodies, which have to be buffered to be sent twice.
+
+- [ ] **#44 PROXY protocol v2 on the raw listeners.** (triage 40) For HTTP the
+  real visitor IP arrives through `X-Forwarded-For` with the trusted-proxy
+  machinery. The `expose:` TCP listeners have no such channel, so behind
+  HAProxy or an NLB in TCP mode every connection looks like it came from the
+  load balancer, which quietly defeats per-IP limits and audit trails on those
+  ports. PROXY v2 is the standard answer and only applies to listeners
+  explicitly configured to expect it, since trusting the header unconditionally
+  would let any peer claim any address.
+
+- [ ] **#45 A notification centre in the dashboard.** (triage 40) Token expiry,
+  a client that dropped, maintenance left on, an alert that fired: all of these
+  are already events on the `$aperio/` bus, and all of them are currently found
+  by noticing something in a table. A bell with unread state, fed from the
+  existing SSE stream, org-scoped like everything else.
+
+- [ ] **#46 One WebSocket for several services of the same client process.**
+  (triage 40) Each service opens its own tunnel connection, so a client with
+  five services pays five readers, five writers and five sockets. The 2026-08
+  connection sweep found that on a machine where client and server share CPU,
+  fewer connections is measurably faster, which is the argument for this. The
+  argument against is that a connection currently *is* the unit of identity,
+  binds, `max_concurrent` and flow control, so multiplexing means teaching the
+  registry to hold several services behind one socket. Real work, not a tidy-up.
+
+- [ ] **#47 Identity headers to the backend.** (triage 40) The only
+  `x-aperio-*` headers a backend can see are the cache markers. A multi-tenant
+  backend that wants to know which organization or which token served a request
+  has to infer it. Add opt-in `X-Aperio-Org` / `X-Aperio-Client-Id` /
+  `X-Aperio-Token-Name`, opt-in because they are new trust surface: they must
+  be stripped from the inbound request unconditionally so a visitor can never
+  forge them.
+
+- [ ] **#48 `lazy_connect`: do not dial the server until the first request.**
+  (triage 40) A client configured for ten services holds ten idle connections
+  even when nobody is using nine of them. Only worth it in fleets of mostly
+  idle clients, and it trades away the property people like most about a
+  tunnel, that the URL works the instant the client starts.
+
+- [ ] **#49 User-defined alert rules, including disk and memory.** (triage 40)
+  Two threshold rules exist and are hard-coded: error rate and client-down
+  (`alerts.rs`). Everything else an operator might want to be told about,
+  starting with the disk filling up and the server's own RSS climbing (both
+  already measured for the self-health panel), needs a rule engine rather than
+  another pair of environment variables. Merged from three proposals for that
+  reason: the general shape is the feature, the two specific alerts are its
+  first users.
+
+- [ ] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
+  already does single-range `206` responses, so the hard part of HTTP file
+  serving is done, but it has no validator: every reload of an unchanged file
+  ships the whole body again. An ETag from size and mtime, plus
+  `If-None-Match`, is a small amount of code next to what is already there.
+
+- [ ] **#51 Weighted routing and header-based canaries.** (triage 35) The load
+  balancer picks between clients by priority tier and round robin, so "send 20
+  percent to the new version" or "send my requests to the new version if I set
+  this header" cannot be expressed. Both are the same mechanism seen from two
+  angles, which is why they are one entry. Depends on #26 landing first, since
+  a weight belongs on a route.
+
+- [ ] **#52 The server hands out alternate addresses.** (triage 35) A client
+  knows exactly one server URL, so a planned migration or a regional failover
+  means editing every client's config. The server could include a list of
+  alternates in its handshake, to be tried in order when the primary refuses.
+  Small protocol addition, but it needs a story for how a client decides the
+  primary is really gone rather than briefly restarting.
+
+- [ ] **#53 Static Prometheus labels from the client.** (triage 35)
+  `metrics_labels: {env: prod, region: eu-west}` announced on connect and
+  attached to that client's series, so one Prometheus can serve several
+  environments without relabelling rules. Needs a cap on label count and
+  cardinality, since labels come from clients and cardinality is how a metrics
+  backend dies.
+
+- [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
+  store are written in the clear, and that store holds hashed credentials,
+  sessions and organization data. AES-256-GCM with the key from an environment
+  reference. Worth doing only with a real answer for key handling, since a key
+  sitting next to the backup is decoration.
+
+- [ ] **#55 Sampling for the access log.** (triage 35) The per-request access
+  line is all or nothing. At high volume operators want a fraction, the way OTel
+  export already takes `sample_rate`. Note the trap the OTel implementation
+  already avoided: sampling must be per request and consistent, and failures
+  should always be logged regardless of the sample decision, since a sampled-out
+  error is the one line anybody needed.
+
+- [ ] **#56 Client-to-client edges in the topology view.** (triage 35)
+  `--bind-tunnels` lets one client dial another client's exposed tunnel, so
+  those dependencies are real, but the topology graph only draws client to
+  route. A dependency the graph does not show is a dependency nobody remembers
+  at the moment it breaks.
+
+- [ ] **#57 Command-line parity with the dashboard.** (triage 35)
+  `aperio-client api` covers most admin operations but not all of them (token
+  update, org hostnames, scaling disarm among the gaps), so automation
+  occasionally has to fall back to raw curl. An ongoing chore rather than a
+  project: the rule worth adopting is that a new dashboard action ships with
+  its subcommand.
+
+- [ ] **#58 A configurable shutdown drain.** (triage 35) Shutdown already
+  broadcasts `ServerShutdown`, waits 200 ms for those frames to flush, and then
+  ends long-lived connections so axum's graceful shutdown can complete. What is
+  not configurable is how long to wait for in-flight requests before that,
+  which is the number an operator behind a load balancer actually wants to set.
+  Merged from two proposals describing the same knob from opposite ends.
+
+- [ ] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
+  that matter per backend are only available globally: connect timeout, idle
+  timeout for pooled connections, the buffered/streamed threshold, the minimum
+  TLS version for an `https://` backend, and the heartbeat interval. Merged
+  because they are one pattern (a global default with a per-entry override) and
+  the value of any single one is small; the value of the pattern is that a
+  slow backend and a fast one stop having to share a number.
+
+- [ ] **#60 Two dashboard readability wins.** (triage 30) Syntax highlighting
+  for captured JSON, XML and HTML bodies in the inspector (currently raw text),
+  and a calendar range picker for the activity and traffic charts, which today
+  offer a live window and a fixed long window and nothing in between. Grouped
+  because each is a contained frontend change with no backend surface.
+
+- [ ] **#61 Probe endpoints for container orchestrators.** (triage 30)
+  `/aperio/health` returns a JSON body with counters and takes two locks to
+  build it, which is more than a `HEALTHCHECK` every five seconds needs, and
+  there is no separate readiness signal for the window where the server is up
+  but the store has not finished opening. A bodiless `/aperio/healthz`, plus
+  `ready` and `live` split the way Kubernetes expects. An aggregate
+  `/aperio/api/health/tunnels` was proposed alongside and is folded in here,
+  though `/api/stats` and `/api/clients` already answer that question.
+
+- [ ] **#62 Client process lifecycle knobs.** (triage 30) `pid_file` for init
+  systems that want one, `startup_delay` before a service registers, and
+  `depends_on` so one service waits for another's tunnel. Grouped because they
+  are the same category of small operational sugar, and worth being sceptical
+  about: a process supervisor does all three better, which is why none of them
+  scores higher.
+
+- [ ] **#63 Config authoring help.** (triage 30) Template variables
+  (`${HOSTNAME}`, `${ENV}`) so one file serves several environments, and a
+  warning from `check` when a literal secret appears in the file rather than an
+  environment reference. Grouped as two sides of "the config file is written by
+  hand and we can help".
+
+- [ ] **#64 Differentiated rate budgets for the admin API.** (triage 30, cut
+  from a proposed 85 whose premise was wrong.) The admin surface *is* rate
+  limited: `check_rate_limit` runs on login, token creation, the tunnels API,
+  the WebAuthn ceremonies, expose and the TCP endpoints, all against the same
+  per-IP bucket. What is missing is a budget per endpoint class, so that a
+  login attempt, a token creation and a full export are not charged the same,
+  which is a much smaller idea than "the admin API has no rate limiting".
+
+- [ ] **#65 Client-side load shedding.** (triage 30) When the client's own host
+  is saturated it keeps accepting whatever `max_concurrent` allows, so the
+  queue grows and every visitor waits instead of some failing fast. Lowering
+  the effective concurrency under load pressure needs the process metrics from
+  #37 first, and needs care not to oscillate.
+
+- [ ] **#66 An access log for the relays.** (triage 30) HTTP requests get a
+  structured line each; TCP and UDP relay connections get nothing, so a
+  database tunnel leaves no record of who connected, for how long, or how much
+  moved. Connection-level lines (open, close, bytes each way) rather than
+  per-packet, which would be unusable.
+
+- [ ] **#67 Chunked transfer fidelity.** (triage 30) `Transfer-Encoding` is
+  stripped and the body is re-framed by our own streaming, which is correct for
+  every case we know of but means a backend's chunk boundaries are not the
+  visitor's chunk boundaries. It matters for protocols where a chunk is a
+  message. Worth a written answer even if the answer stays "we re-frame".
+
+- [ ] **#68 Autoscaling refinements.** (triage 30) Cooldown is global while
+  every other scaling parameter is per bind, and scale-in is left to the client
+  noticing it is idle, so the server can ask for more capacity but never for
+  less. Grouped, and both only matter to deployments that use autoscaling at
+  all.
+
+- [ ] **#69 Per-organization inspector retention.** (triage 25) Capture
+  retention is a global entry cap and a global TTL, so a noisy organization can
+  evict a quiet one's captures. A per-org ceiling is the multi-tenant hygiene
+  that the byte quotas and client quotas already have.
+
+- [ ] **#70 Shell completion for the CLI.** (triage 25) `clap_complete` turns
+  this into a subcommand and a build step, and the client has enough
+  subcommands and flags to make it worth having.
+
+- [ ] **#71 TLS termination on an `expose:` port.** (triage 25) Exposed ports
+  carry raw TCP or an end-to-end encrypted stream, so a service that wants TLS
+  in front of it has to terminate it itself. Per-port `tls_cert` / `tls_key`.
+  Modest value: the fronting proxy that most deployments already have does this.
+
+- [ ] **#72 Configurable TLS floor and cipher list for the tunnel.** (triage 25)
+  Rustls defaults are used as they come, which is the right default and an
+  awkward answer to a compliance questionnaire that wants the floor pinned to
+  1.3 in writing. Cheap, and mostly a documentation feature.
+
+- [ ] **#73 `permessage-deflate` instead of application-level compression.**
+  (triage 25) Tunnel compression is negotiated and applied by us, one message at
+  a time. The RFC 7692 extension does it in the transport with context takeover
+  across messages, which compresses better on streams of similar frames. Worth
+  it only if a measurement shows the ratio difference matters, and note the v7
+  finding that compression is a loss for payloads that are already compressed.
+
+- [ ] **#74 Forwarding the client's own logs.** (triage 20) Streaming the
+  client's stderr to the server, or to syslog, so a fleet's logs land in one
+  place. Low because every container runtime and init system already does this,
+  and because client logs can contain backend URLs and header values, which
+  makes shipping them somewhere new a decision rather than a convenience.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -703,4 +1086,90 @@ nothing reuses them.
   in `handle_incoming_request` (`aperio-client/src/proxy/http.rs`), which would
   put the reqwest, h2, unix and serve paths under one shape, and decomposing the
   client's supervisor loop (`service.rs`), which #21 already leaves open.
+
+- **#75 An `Expect-CT` response header.** Withdrawn 2026-08-02. The header is
+  obsolete: Certificate Transparency is enforced by the browsers themselves and
+  Chrome removed `Expect-CT` support, so shipping it would add a setting that
+  does nothing and implies a protection nobody is getting.
+
+- **#76 Client binary self-update.** Withdrawn 2026-08-02. Having the client ask
+  the server for a new binary, download it and restart into it puts a
+  code-execution channel inside the tunnel: whoever controls the server, or
+  anyone who can impersonate it for one response, controls every client host.
+  Package managers, container images and the existing release artifacts already
+  solve this with signatures and an audit trail we would have to reinvent
+  badly. The version *mismatch* problem is real and is already handled by
+  reporting it, which is the part worth keeping.
+
+- **#77 A QUIC / HTTP-3 tunnel transport.** Withdrawn 2026-08-02. Large,
+  invasive, and aimed at a problem no measurement has shown: the 2026-08 sweep
+  found the ceiling in byte movement and per-connection CPU, not in the
+  WebSocket transport. It also points the wrong way for the deployments that
+  need a tunnel most, since the restrictive networks that make tunnelling
+  necessary are the ones that block or throttle UDP. Revisit only with a
+  measurement from a real deployment showing the transport itself is the limit.
+
+- **#78 Response body rewriting (`sub_filter`, JSON path edits).** Withdrawn
+  2026-08-02. Rewriting a body means buffering it, which undoes the streaming
+  path deliberately built and then made zero-copy in #23 and #24, and it
+  interacts badly with compression, `Content-Length` and range requests. Header
+  transforms stay because a header is small and bounded; a body is neither.
+
+- **#79 SLO tracking, anomaly detection and a geographic traffic map.**
+  Withdrawn 2026-08-02. All three are the job of the observability stack the
+  metrics endpoint already feeds, and each carries a cost we would own forever:
+  error budgets need a definition of "good" per service that only the operator
+  has, anomaly detection needs tuning nobody will do, and a map needs a GeoIP
+  database with its own licensing and update schedule. Exporting good metrics is
+  the contribution; drawing conclusions from them is somebody else's product.
+
+- **#80 cgroup limits for `run:`, cloud upload for backups, per-organization
+  data directories.** Withdrawn 2026-08-02. Each re-implements a layer that
+  already exists underneath us: container runtimes and systemd enforce resource
+  limits, a cron job with the vendor's own CLI uploads a file better than three
+  embedded cloud SDKs would, and data residency is a deployment topology
+  question, not a directory layout inside one SQLite store.
+
+- **#81 Unmeasured micro-optimizations: parallel health probes, client-side
+  request coalescing, backend TLS session resumption.** Withdrawn 2026-08-02.
+  The probe runs once every ten seconds, so multiplexing it optimises nothing;
+  the server already single-flights concurrent identical cacheable GETs, so
+  doing it again at the client adds a lock to the hot path for a case that is
+  handled; and reqwest already pools connections, which is what makes session
+  resumption moot. Each was justified by a claim about the code that did not
+  hold.
+
+- **#82 Binding a dashboard session to the IP it was created from.** Withdrawn
+  2026-08-02. It signs out anyone whose address changes, which on mobile
+  networks, VPNs and CGNAT is normal traffic rather than an attack, and it does
+  not stop the theft it targets, since a stolen cookie is usually replayed from
+  a path the attacker can shape. Session lifetime, rotation and the existing
+  lockout are the defences worth having.
+
+- **#83 Directory listing for `serve:`, port ranges for `expose:`, reserved
+  bandwidth per service.** Withdrawn 2026-08-02. Sugar with either a footgun or
+  no demand behind it: an autoindex exposes files nobody meant to publish and is
+  a common source of accidental disclosure, a port range is ten `expose:`
+  entries written differently, and genuine bandwidth reservation needs
+  admission control across all clients rather than the per-stream pacing we have.
+
+- **#84 Ten proposals describing features that already exist.** Withdrawn
+  2026-08-02, recorded so they are not proposed a third time. Each arrived with
+  a claim that the code had no such thing; each was checked and the claim was
+  wrong. Dashboard brute-force lockout, escalating per IP, is
+  `aperio-server/src/auth.rs` with `login_lockout.threshold` / `.secs`.
+  Per-organization bandwidth limits are the `max_bytes_month` quota in
+  `store/orgs.rs`. Per-token statistics are `by_token` and `by_token_periods` in
+  `store/stats.rs`, exposed through the metrics API. The `config_reloaded`
+  audit entry already carries the diff (`lib.rs`, built from
+  `settings::config_reload_diff`). Token rotation already has an overlap
+  window, `rotate(id, grace_seconds)` in `store/tokens.rs`, exercised by the e2e
+  suite. The client already pools backend connections, since reqwest does so by
+  default and the client is built once per service. Programmatic API access
+  already exists as admin API keys carrying a role and an organization
+  (`auth::admin_key_identity`, `/aperio/api/admin-keys`). Statistics retention
+  already exists as `APERIO_RETENTION_STATS`. The self-health dashboard panel
+  and the config builder panel are both fully implemented, not placeholders.
+  The lesson worth keeping: "grep found nothing" is evidence about a spelling,
+  not about a feature.
 
