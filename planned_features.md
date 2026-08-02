@@ -783,12 +783,12 @@ recorded in Withdrawn under #84 so they are not proposed again.
   rotated, and what the server does with the identity once verified (map it to
   a token, or to an organization).
 
-- [ ] **#41 `include:` for splitting a config across files.** (triage 45) One
+- [x] **#41 `include:` for splitting a config across files.** (triage 45) One
   `aperio.yaml` per deployment stops scaling when there are twenty services or
   when different teams own different entries. `include: [services/prod.yaml]`
   with a documented merge order, path resolution relative to the including
   file, and a depth cap so a cycle cannot hang startup. The hot reload watcher
-  has to watch every included file, not just the root one.
+  has to watch every included file, not just the root one. shipped: merged at the yaml level (keys replace, sequences of mappings concatenate), paths relative to the including file, five-deep cap, cycles reported. The hot-reload watcher tracks every contributing file and re-reads the set on each change, so adding an include is noticed.
 
 - [ ] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
   #23 did this on the server: chunk payloads travel as refcounted slices of the

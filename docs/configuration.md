@@ -211,6 +211,25 @@ APERIO_PATH=/api
 
 The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
 
+### Splitting the config across files (`include:`)
+
+One `aperio.yaml` stops scaling when there are twenty services, or when different teams own different entries. `include:` reads other files first:
+
+```yaml
+# aperio.yaml
+include:
+  - shared/health.yaml     # relative to *this* file, not the working directory
+  - services/prod.yaml
+timeout: 30                # this file wins over anything an include set
+services:
+  - name: web              # appended after the included services
+    target: http://localhost:3000
+```
+
+The rule is one sentence: **an included file's keys are used unless the including file sets them, and sequences of mappings concatenate.** That second half is what makes it useful, `services:`, `subscribe:` and `expose:` are collections a file adds to, while `allowed_ips:` and the rest are values it sets. Includes are merged in the order written, so a later one wins over an earlier one, and the including file wins over all of them.
+
+Paths resolve relative to the file that wrote them, so a fragment means the same thing whichever directory the client is started from. Chains may nest five deep; a cycle, a missing file, or a malformed `include:` is an error naming the file rather than a silently partial configuration. Hot-reload watches every file that contributed, not just the root, and re-reads the set on each change so adding or removing an include is picked up too.
+
 ### Multiple services
 
 One client process can expose several targets: add an entry per backend to `services:`, and the client opens one tunnel connection per entry, each with its own binds, health probe, and knobs:

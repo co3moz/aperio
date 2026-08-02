@@ -1084,6 +1084,14 @@ pub struct FileConfig {
   /// through. Default: `5`.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
+  /// Other config files to read before this one, each path relative to the
+  /// file that names it. Their keys are used unless this file sets them, and
+  /// sequences of mappings (`services:`, `subscribe:`, `expose:`) concatenate
+  /// with the includes first, so a fragment adds services rather than
+  /// replacing them. Later includes win over earlier ones, and this file wins
+  /// over all of them. Chains may nest up to five deep; a cycle is an error.
+  #[schemars(extend("examples" = [["services/prod.yaml", "shared/health.yaml"]]))]
+  pub include: Option<Vec<String>>,
   /// Seconds to let in-flight requests finish when a configuration reload
   /// stops a service, before its tunnel connection is dropped. The client
   /// announces `Draining` first, so the server sends it nothing new while it

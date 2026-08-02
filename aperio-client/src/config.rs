@@ -16,7 +16,7 @@
 
 use clap::{Args, Parser, Subcommand};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 
 use crate::protocol::TunnelDecl;
@@ -288,37 +288,158 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
   }
 }
 
-/// Parses a freshly re-read `aperio.yaml` for the hot-reload supervisor: the
-/// same folding-and-deprecation pass as the initial load, so a file written
-/// in the grouped form (`health:` blocks) keeps those settings on reload
-/// too. Parsing without folding silently dropped every grouped block, which
-/// turned health probing off on the first reload until a restart.
-pub(crate) fn parse_reloaded_config(raw: &str, path: &str) -> Result<FileConfig, String> {
-  let mut cfg = serde_yaml::from_str::<FileConfig>(raw).map_err(|e| e.to_string())?;
-  fold_and_warn(&mut cfg, path);
-  Ok(cfg)
+/// How deep an `include:` chain may go. Deep enough for the layouts anyone
+/// actually writes (a root file, a per-environment file, a shared fragment),
+/// shallow enough that a mistake is reported instead of being followed.
+const MAX_INCLUDE_DEPTH: usize = 5;
+
+/// Reads one config file and everything it includes, into a single mapping
+/// (planned_features #41).
+///
+/// The merge rule is one sentence: **an included file's keys are used unless
+/// the including file sets them, and sequences of mappings concatenate.** The
+/// second half is what makes this worth having, since `services:`,
+/// `subscribe:` and `expose:` are collections a file adds to, while
+/// `allowed_ips:` and the rest are values it sets. Includes are merged in the
+/// order written, so a later one wins over an earlier one, and the including
+/// file wins over all of them.
+///
+/// Paths resolve relative to the file that wrote them, not to the working
+/// directory: an included fragment has to mean the same thing whichever
+/// directory the client is started from.
+fn read_with_includes(
+  path: &Path,
+  depth: usize,
+  seen: &mut Vec<PathBuf>,
+) -> Result<serde_yaml::Mapping, String> {
+  let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+  if seen.contains(&canonical) {
+    return Err(format!(
+      "{} is included in a cycle; each file may appear once in a chain",
+      path.display()
+    ));
+  }
+  if depth > MAX_INCLUDE_DEPTH {
+    return Err(format!(
+      "include chain is deeper than {MAX_INCLUDE_DEPTH} files at {}",
+      path.display()
+    ));
+  }
+  seen.push(canonical);
+
+  let raw =
+    std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+  let mut doc: serde_yaml::Mapping = match serde_yaml::from_str(&raw) {
+    Ok(serde_yaml::Value::Mapping(m)) => m,
+    Ok(serde_yaml::Value::Null) => serde_yaml::Mapping::new(),
+    Ok(_) => return Err(format!("{} must be a mapping of settings", path.display())),
+    Err(e) => return Err(format!("invalid yaml in {}: {e}", path.display())),
+  };
+
+  let includes = match doc.remove(serde_yaml::Value::String("include".into())) {
+    None => Vec::new(),
+    Some(serde_yaml::Value::String(one)) => vec![one],
+    Some(serde_yaml::Value::Sequence(items)) => {
+      let mut out = Vec::with_capacity(items.len());
+      for item in items {
+        match item {
+          serde_yaml::Value::String(p) => out.push(p),
+          _ => {
+            return Err(format!(
+              "{}: every `include:` entry must be a file path",
+              path.display()
+            ));
+          }
+        }
+      }
+      out
+    }
+    Some(_) => {
+      return Err(format!(
+        "{}: `include:` must be a file path or a list of them",
+        path.display()
+      ));
+    }
+  };
+
+  let base = path.parent().unwrap_or_else(|| Path::new("."));
+  let mut merged = serde_yaml::Mapping::new();
+  for entry in includes {
+    let child = base.join(&entry);
+    let child_doc = read_with_includes(&child, depth + 1, seen)?;
+    merge_mapping(&mut merged, child_doc);
+  }
+  merge_mapping(&mut merged, doc);
+  Ok(merged)
 }
 
-pub(crate) fn load_file_config(explicit: Option<&str>) -> FileConfig {
+/// Merges `overlay` onto `base`: a sequence of mappings is appended, anything
+/// else replaces. See [`read_with_includes`] for why the two differ.
+fn merge_mapping(base: &mut serde_yaml::Mapping, overlay: serde_yaml::Mapping) {
+  for (key, value) in overlay {
+    let appended = match (base.get(&key), &value) {
+      (Some(serde_yaml::Value::Sequence(existing)), serde_yaml::Value::Sequence(incoming)) => {
+        let is_collection =
+          |s: &Vec<serde_yaml::Value>| s.iter().any(|v| matches!(v, serde_yaml::Value::Mapping(_)));
+        (is_collection(existing) || is_collection(incoming)).then(|| {
+          let mut joined = existing.clone();
+          joined.extend(incoming.clone());
+          serde_yaml::Value::Sequence(joined)
+        })
+      }
+      _ => None,
+    };
+    match appended {
+      Some(joined) => {
+        base.insert(key, joined);
+      }
+      None => {
+        base.insert(key, value);
+      }
+    }
+  }
+}
+
+/// Parses a config file and its includes into a [`FileConfig`]. The paths that
+/// contributed are returned so the hot-reload watcher can watch all of them,
+/// not only the root: an edit to an included fragment is a config change like
+/// any other.
+pub(crate) fn parse_config_tree(path: &Path) -> Result<(FileConfig, Vec<PathBuf>), String> {
+  let mut seen = Vec::new();
+  let merged = read_with_includes(path, 0, &mut seen)?;
+  let mut cfg: FileConfig = serde_yaml::from_value(serde_yaml::Value::Mapping(merged))
+    .map_err(|e| format!("{}: {e}", path.display()))?;
+  fold_and_warn(&mut cfg, &path.display().to_string());
+  Ok((cfg, seen))
+}
+
+/// The config file plus every file it includes, with the list of paths that
+/// contributed so the hot-reload watcher can watch all of them.
+pub(crate) fn load_file_config_tree(explicit: Option<&str>) -> (FileConfig, Vec<PathBuf>) {
   let path = explicit.unwrap_or("aperio.yaml");
-  match std::fs::read_to_string(path) {
-    Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
-      Ok(mut cfg) => {
+  if !Path::new(path).exists() {
+    if explicit.is_some() {
+      error!("Failed to read config file {}: not found", path);
+      std::process::exit(1);
+    }
+    return (FileConfig::default(), Vec::new());
+  }
+  match parse_config_tree(Path::new(path)) {
+    Ok((cfg, files)) => {
+      if files.len() > 1 {
+        info!(
+          "Loaded configuration from {} (+{} included)",
+          path,
+          files.len() - 1
+        );
+      } else {
         info!("Loaded configuration from {}", path);
-        fold_and_warn(&mut cfg, path);
-        cfg
       }
-      Err(e) => {
-        error!("Failed to parse {}: {}", path, e);
-        std::process::exit(1);
-      }
-    },
+      (cfg, files)
+    }
     Err(e) => {
-      if explicit.is_some() {
-        error!("Failed to read config file {}: {}", path, e);
-        std::process::exit(1);
-      }
-      FileConfig::default()
+      error!("Failed to parse {}: {}", path, e);
+      std::process::exit(1);
     }
   }
 }

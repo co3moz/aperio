@@ -26,8 +26,8 @@ mod udp;
 use aperio_config::format_bandwidth;
 use check::run_check;
 use config::{
-  CliMode, ClientSettings, build_ws_url, load_file_config, load_home_config, parse_bandwidth,
-  parse_cli, resolve_settings, resolve_sources,
+  CliMode, ClientSettings, build_ws_url, load_home_config, parse_bandwidth, parse_cli,
+  resolve_settings, resolve_sources,
 };
 use protocol::ConfigNote;
 
@@ -108,7 +108,7 @@ pub async fn run() {
 
   // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
   let home_cfg = load_home_config();
-  let file_cfg = load_file_config(cli.opts.config.as_deref());
+  let (file_cfg, config_files) = crate::config::load_file_config_tree(cli.opts.config.as_deref());
   // At startup an unusable setting is still fatal; only a hot-reload keeps the
   // previous configuration and carries on.
   let mut settings = match resolve_settings(&cli, &home_cfg, &file_cfg) {
@@ -356,18 +356,40 @@ pub async fn run() {
   let (reload_tx, mut reload_rx) = watch::channel(0u64);
   if std::path::Path::new(&config_path).exists() {
     let watch_path = config_path.clone();
-    let mut last_mtime = std::fs::metadata(&watch_path)
-      .ok()
-      .and_then(|m| m.modified().ok());
-    info!("- Watching {} for configuration changes", watch_path);
+    // Every file that contributed, so editing an included fragment is a
+    // configuration change like any other. The set is re-read on each tick
+    // because an edit can add or remove an include, and watching only what
+    // the first parse found would then miss the very file being worked on.
+    let mtimes = |paths: &[std::path::PathBuf]| -> Vec<Option<std::time::SystemTime>> {
+      paths
+        .iter()
+        .map(|p| std::fs::metadata(p).ok().and_then(|m| m.modified().ok()))
+        .collect()
+    };
+    let mut watched = config_files.clone();
+    let mut last_mtime = mtimes(&watched);
+    if watched.len() > 1 {
+      info!(
+        "- Watching {} and {} included file(s) for configuration changes",
+        watch_path,
+        watched.len() - 1
+      );
+    } else {
+      info!("- Watching {} for configuration changes", watch_path);
+    }
     tokio::spawn(async move {
       loop {
         tokio::time::sleep(Duration::from_secs(5)).await;
-        let mtime = std::fs::metadata(&watch_path)
-          .ok()
-          .and_then(|m| m.modified().ok());
+        let mtime = mtimes(&watched);
         if mtime != last_mtime {
           last_mtime = mtime;
+          // Re-read which files make up the configuration now.
+          if let Ok((_, files)) =
+            crate::config::parse_config_tree(std::path::Path::new(&watch_path))
+          {
+            watched = files;
+            last_mtime = mtimes(&watched);
+          }
           info!(
             "Configuration file {} changed; reloading and restarting services",
             watch_path
@@ -384,9 +406,11 @@ pub async fn run() {
     if reload_rx.changed().await.is_err() {
       break;
     }
-    let reloaded = std::fs::read_to_string(&config_path)
-      .map_err(|e| e.to_string())
-      .and_then(|raw| config::parse_reloaded_config(&raw, &config_path));
+    // Includes are followed on reload exactly as on the first load: a
+    // configuration split across files has to reload as the same
+    // configuration, not as its root fragment.
+    let reloaded =
+      config::parse_config_tree(std::path::Path::new(&config_path)).map(|(cfg, _)| cfg);
     match reloaded {
       Ok(new_file_cfg) => {
         let mut s = match resolve_settings(&cli, &load_home_config(), &new_file_cfg) {

@@ -120,22 +120,135 @@ fn test_health_group_folds_per_service_entry() {
   );
 }
 
+/// Writes files into a fresh temp directory and returns it.
+fn config_dir(files: &[(&str, &str)]) -> std::path::PathBuf {
+  let dir = std::env::temp_dir().join(format!("aperio-cfg-{}", uuid::Uuid::new_v4()));
+  for (name, body) in files {
+    let path = dir.join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, body).unwrap();
+  }
+  dir
+}
+
 #[test]
-fn test_parse_reloaded_config_folds_groups() {
-  // The hot-reload supervisor must apply the same folding pass as the
-  // initial load: a file written in the grouped `health:` form used to lose
-  // the whole block on reload, silently turning health probing off.
-  let cfg = parse_reloaded_config(
-    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n",
+fn test_parse_config_tree_folds_groups() {
+  // The reload path must apply the same folding pass as the initial load: a
+  // file written in the grouped `health:` form used to lose the whole block
+  // on reload, silently turning health probing off.
+  let dir = config_dir(&[(
     "aperio.yaml",
-  )
-  .unwrap();
+    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n",
+  )]);
+  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
   assert_eq!(cfg.target_health.as_deref(), Some("/healthz"));
   assert_eq!(cfg.health_interval, Some(7));
+  assert_eq!(files.len(), 1, "one file contributed");
 
   // Unparseable input reports the error instead of panicking, so the
   // supervisor keeps the previous configuration.
-  assert!(parse_reloaded_config(": not yaml", "aperio.yaml").is_err());
+  let bad = config_dir(&[("aperio.yaml", ": not yaml")]);
+  assert!(parse_config_tree(&bad.join("aperio.yaml")).is_err());
+  let _ = std::fs::remove_dir_all(&dir);
+  let _ = std::fs::remove_dir_all(&bad);
+}
+
+// --- include: (planned_features #41) ----------------------------------------
+
+#[test]
+fn an_include_contributes_its_settings_and_the_including_file_wins() {
+  let dir = config_dir(&[
+    (
+      "aperio.yaml",
+      "include: [shared.yaml]\ntimeout: 99\nservices:\n  - name: web\n    target: http://localhost:1\n",
+    ),
+    (
+      "shared.yaml",
+      "timeout: 5\nmax_redirects: 3\nservices:\n  - name: api\n    target: http://localhost:2\n",
+    ),
+  ]);
+  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  // A key only the include sets is used.
+  assert_eq!(cfg.max_redirects, Some(3));
+  // A key both set belongs to the including file.
+  assert_eq!(cfg.timeout, Some(99));
+  // Services concatenate, includes first, so a fragment adds rather than
+  // replaces.
+  let names: Vec<_> = cfg
+    .services
+    .as_ref()
+    .expect("both files contributed services")
+    .iter()
+    .map(|s| s.name.clone().unwrap_or_default())
+    .collect();
+  assert_eq!(names, vec!["api", "web"]);
+  assert_eq!(files.len(), 2, "both files are reported for watching");
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn includes_resolve_relative_to_the_file_that_wrote_them() {
+  // Not to the working directory: a fragment has to mean the same thing
+  // whichever directory the client is started from.
+  let dir = config_dir(&[
+    ("aperio.yaml", "include: [conf/base.yaml]\n"),
+    ("conf/base.yaml", "include: [nested.yaml]\ntimeout: 11\n"),
+    ("conf/nested.yaml", "max_redirects: 4\n"),
+  ]);
+  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  assert_eq!(cfg.timeout, Some(11));
+  assert_eq!(
+    cfg.max_redirects,
+    Some(4),
+    "the nested include resolved next to its parent"
+  );
+  assert_eq!(files.len(), 3);
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn later_includes_win_over_earlier_ones() {
+  let dir = config_dir(&[
+    ("aperio.yaml", "include: [a.yaml, b.yaml]\n"),
+    ("a.yaml", "timeout: 1\n"),
+    ("b.yaml", "timeout: 2\n"),
+  ]);
+  let (cfg, _) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  assert_eq!(cfg.timeout, Some(2));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_cycle_is_reported_rather_than_followed() {
+  let dir = config_dir(&[
+    ("aperio.yaml", "include: [loop.yaml]\n"),
+    ("loop.yaml", "include: [aperio.yaml]\n"),
+  ]);
+  let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
+    panic!("expected an error")
+  };
+  assert!(err.contains("cycle"), "got {err}");
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_missing_or_malformed_include_is_an_error_naming_the_file() {
+  let dir = config_dir(&[("aperio.yaml", "include: [nope.yaml]\n")]);
+  let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
+    panic!("expected an error")
+  };
+  assert!(
+    err.contains("nope.yaml"),
+    "the message names the file: {err}"
+  );
+
+  let bad = config_dir(&[("aperio.yaml", "include: 42\n")]);
+  let Err(err) = parse_config_tree(&bad.join("aperio.yaml")) else {
+    panic!("expected an error")
+  };
+  assert!(err.contains("`include:`"), "got {err}");
+  let _ = std::fs::remove_dir_all(&dir);
+  let _ = std::fs::remove_dir_all(&bad);
 }
 
 #[test]
