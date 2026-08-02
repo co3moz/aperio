@@ -33,6 +33,7 @@ fn base_settings() -> ClientSettings {
     timeout_secs: 30,
     max_concurrent: None,
     connections: None,
+    metrics_labels: Default::default(),
     priority: 0,
     bandwidth: None,
     max_message_size: 32 * 1024 * 1024,

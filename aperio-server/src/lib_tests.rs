@@ -571,6 +571,7 @@ async fn test_proxy_handler_success() {
   state.clients.write().await.insert(
     "mock-client-1".to_string(),
     ClientHandle {
+      metrics_labels: Vec::new(),
       service_custom_name: None,
       tx: tx_write,
       disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
@@ -893,6 +894,7 @@ fn mock_client(
 ) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
+    metrics_labels: Vec::new(),
     service_custom_name: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),

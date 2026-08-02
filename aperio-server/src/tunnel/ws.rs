@@ -1059,6 +1059,7 @@ impl ConnCtx {
       scaling,
       connections,
       config_notes,
+      metrics_labels,
       cpu_percent,
       rss_bytes,
       rtt_ms,
@@ -1229,6 +1230,12 @@ impl ConnCtx {
         ));
         if handle.config_notes != config_notes {
           handle.config_notes = config_notes;
+        }
+        // Sanitized on arrival rather than on the way out: a series, once
+        // scraped, is in the metrics backend whatever the server does later.
+        let metrics_labels = crate::metrics_labels::sanitize(&metrics_labels);
+        if handle.metrics_labels != metrics_labels {
+          handle.metrics_labels = metrics_labels;
         }
         if handle.webhook_inbox != webhook_inbox {
           handle.webhook_inbox = webhook_inbox;
@@ -2104,6 +2111,7 @@ pub(crate) async fn handle_socket(
         connections: None,
         declared_client_id: None,
         config_notes: Vec::new(),
+        metrics_labels: Vec::new(),
         last_ping_at: None,
         perms: perms.clone(),
         max_concurrent: None,

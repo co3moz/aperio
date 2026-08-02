@@ -730,6 +730,9 @@ pub(crate) struct ClientHandle {
   /// count, …), announced via Ping. Display-only, surfaced in the dashboard's
   /// per-connection config view.
   pub(crate) config_notes: Vec<crate::protocol::ConfigNote>,
+  /// Static Prometheus labels this client announced, already validated and
+  /// capped (planned_features #53). Attached to its own metric series only.
+  pub(crate) metrics_labels: Vec<(String, String)>,
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
   /// Client build version announced via Ping (None until the first Ping,

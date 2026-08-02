@@ -318,6 +318,7 @@ pub(crate) fn mock_client(
 ) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
+    metrics_labels: Vec::new(),
     service_custom_name: None,
     tx,
     disconnect: Arc::new(tokio::sync::Notify::new()),

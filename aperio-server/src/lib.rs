@@ -31,6 +31,7 @@ mod fallbacks;
 mod headers;
 mod limits;
 mod maintenance_windows;
+mod metrics_labels;
 mod oidc;
 mod outbound;
 mod print_config;
@@ -2360,6 +2361,7 @@ pub mod testkit {
         connections: None,
         declared_client_id: None,
         config_notes: Vec::new(),
+        metrics_labels: Vec::new(),
         last_ping_at: Some(std::time::Instant::now()),
         perms: crate::state::ClientPerms::master(),
         max_concurrent: None,

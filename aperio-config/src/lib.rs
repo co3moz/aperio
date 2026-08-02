@@ -780,6 +780,13 @@ pub struct ServiceEntry {
   /// back when they stop. Default: `1`.
   #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
   pub connections: Option<Connections>,
+  /// Static Prometheus labels attached to this client's own metric series,
+  /// e.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several
+  /// environments without relabelling rules. At most 8 labels; names must be
+  /// `[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including
+  /// the names it writes itself (`client_id`, `job`, `instance`, …).
+  #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
+  pub metrics_labels: Option<std::collections::BTreeMap<String, String>>,
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
@@ -1074,6 +1081,13 @@ pub struct FileConfig {
   /// back when they stop. Default: `1`.
   #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
   pub connections: Option<Connections>,
+  /// Static Prometheus labels attached to this client's own metric series,
+  /// e.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several
+  /// environments without relabelling rules. At most 8 labels; names must be
+  /// `[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including
+  /// the names it writes itself (`client_id`, `job`, `instance`, …).
+  #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
+  pub metrics_labels: Option<std::collections::BTreeMap<String, String>>,
   /// Largest response body, in bytes, the client will relay to a visitor.
   /// Default: `52428800` (50 MB).
   #[schemars(extend("examples" = [10485760]))]

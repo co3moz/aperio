@@ -172,13 +172,6 @@ readable without scrolling past what is already done.
   Small protocol addition, but it needs a story for how a client decides the
   primary is really gone rather than briefly restarting.
 
-- [ ] **#53 Static Prometheus labels from the client.** (triage 35)
-  `metrics_labels: {env: prod, region: eu-west}` announced on connect and
-  attached to that client's series, so one Prometheus can serve several
-  environments without relabelling rules. Needs a cap on label count and
-  cardinality, since labels come from clients and cardinality is how a metrics
-  backend dies.
-
 - [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
   store are written in the clear, and that store holds hashed credentials,
   sessions and organization data. AES-256-GCM with the key from an environment
@@ -478,6 +471,19 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#53 Static Prometheus labels from the client.** (triage 35)
+  `metrics_labels: {env: prod, region: eu-west}` announced on connect and
+  attached to that client's series, so one Prometheus can serve several
+  environments without relabelling rules. Needs a cap on label count and
+  cardinality, since labels come from clients and cardinality is how a metrics
+  backend dies. shipped: announced in the Ping, attached to
+  `aperio_client_requests_total`, and sanitized on arrival rather than on the
+  way out, because a series once scraped is in the backend whatever the server
+  does afterwards. At most 8 labels, Prometheus-legal names only, reserved
+  names refused, values bounded and escaped, and an invalid label is dropped
+  rather than costing the client its metrics. `APERIO_METRICS_LABELS` takes the
+  flat `k=v,k=v` spelling a container platform can inject.
 
 - [x] **#55 Sampling for the access log.** (triage 35) The per-request access
   line is all or nothing. At high volume operators want a fraction, the way OTel

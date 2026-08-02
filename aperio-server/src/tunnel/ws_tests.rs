@@ -169,6 +169,7 @@ fn base_ping() -> TunnelMessage {
     scaling: None,
     connections: None,
     config_notes: Vec::new(),
+    metrics_labels: Default::default(),
   }
 }
 

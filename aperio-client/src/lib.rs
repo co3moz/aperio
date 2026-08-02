@@ -1074,6 +1074,7 @@ fn build_specs(
       max_concurrent: settings.max_concurrent,
       connections,
       connections_min,
+      metrics_labels: settings.metrics_labels.clone(),
       pool_load: std::sync::Arc::new(service::PoolLoad::default()),
       priority: settings.priority,
       bandwidth_bps: budget_bps,
@@ -1214,6 +1215,10 @@ fn build_specs(
           .filter(|n| *n > 0),
         connections,
         connections_min,
+        metrics_labels: entry
+          .metrics_labels
+          .clone()
+          .unwrap_or_else(|| settings.metrics_labels.clone()),
         pool_load: std::sync::Arc::new(service::PoolLoad::default()),
         priority: entry.priority.unwrap_or(settings.priority),
         // Only what this entry asked for: the top-level value is the budget

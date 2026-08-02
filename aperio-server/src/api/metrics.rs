@@ -78,9 +78,18 @@ pub(crate) async fn metrics_handler(
   let stats = state.stats.lock().await.clone();
   let clients = state.clients.read().await;
   let connected = clients.len();
-  let per_client: Vec<(String, u64)> = clients
+  // The client's own announced labels ride along with its counter, so a
+  // Prometheus scraping several environments can group by `env` without
+  // relabelling rules written against client ids.
+  let per_client: Vec<(String, u64, String)> = clients
     .iter()
-    .map(|(id, c)| (id.clone(), c.request_count.load(Ordering::SeqCst)))
+    .map(|(id, c)| {
+      (
+        id.clone(),
+        c.request_count.load(Ordering::SeqCst),
+        crate::metrics_labels::render(&c.metrics_labels),
+      )
+    })
     .collect();
   drop(clients);
   let persistent = state.persistent_stats.lock().await.snapshot();
@@ -235,10 +244,10 @@ pub(crate) async fn metrics_handler(
     "# HELP aperio_client_requests_total Requests handled per connected tunnel client.\n",
   );
   out.push_str("# TYPE aperio_client_requests_total counter\n");
-  for (id, count) in per_client {
+  for (id, count, labels) in per_client {
     out.push_str(&format!(
-      "aperio_client_requests_total{{client_id=\"{}\"}} {}\n",
-      id, count
+      "aperio_client_requests_total{{client_id=\"{}\"{}}} {}\n",
+      id, labels, count
     ));
   }
 

@@ -411,6 +411,13 @@ pub(crate) enum TunnelMessage {
     /// for. Additive; older peers omit it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     config_notes: Vec<ConfigNote>,
+    /// Static Prometheus labels this client announces (`metrics_labels:`),
+    /// attached to its own series so one Prometheus can serve several
+    /// environments without relabelling rules. Validated and capped by the
+    /// server on arrival: label cardinality is how a metrics backend dies,
+    /// and these come from clients.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    metrics_labels: std::collections::BTreeMap<String, String>,
     /// What the client observes about itself (planned_features #37): CPU as a
     /// percentage of one core and resident memory of the client process, and
     /// round-trip time, jitter and reconnect count of this tunnel connection.

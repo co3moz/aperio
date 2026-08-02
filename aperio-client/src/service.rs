@@ -363,6 +363,8 @@ pub(crate) struct ServiceSpec {
   /// for a fixed pool; lower for an elastic one, where the supervisor opens
   /// this many and grows towards `connections` under load.
   pub(crate) connections_min: u32,
+  /// Static Prometheus labels announced for this service's metric series.
+  pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
   /// Requests in flight across this service's whole pool, shared by every one
   /// of its connections because `ServiceSpec` is cloned per connection and the
   /// `Arc` comes along. This is what the elastic supervisor reads; a config
@@ -1134,6 +1136,7 @@ pub(crate) async fn run_service(
             // elastic pool sitting at its floor would otherwise claim its
             // ceiling and look like connections had gone missing.
             let connections_ping = spec.pool_load.open().unwrap_or(spec.connections);
+            let metrics_labels_ping = spec.metrics_labels.clone();
             let config_notes_ping = spec.config_notes.clone();
             let scaling_ping = spec.scaling.clone();
 
@@ -1221,6 +1224,7 @@ pub(crate) async fn run_service(
                   denied: denied_ping.clone(),
                   scaling: scaling_ping.clone(),
                   connections: Some(connections_ping),
+                  metrics_labels: metrics_labels_ping.clone(),
                   config_notes: config_notes_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg) {

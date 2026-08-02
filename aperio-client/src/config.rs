@@ -528,6 +528,9 @@ pub(crate) struct ClientSettings {
   pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
+  /// Static Prometheus labels announced to the server (yaml `metrics_labels`,
+  /// env `APERIO_METRICS_LABELS` as `k=v,k=v`).
+  pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
   /// Parallel tunnel connections per service (yaml `connections`, env
   /// `APERIO_CONNECTIONS` / `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`;
   /// 1 = default). A range makes the pool elastic.
@@ -767,6 +770,35 @@ fn split_csv(raw: &str) -> Vec<String> {
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty())
     .collect()
+}
+
+/// Resolves `metrics_labels:` across the file and the environment.
+///
+/// The environment spelling is a flat `k=v,k=v` list rather than a nested
+/// structure, because that is what a container platform can actually inject.
+/// It replaces the file's map rather than merging into it: a half-overridden
+/// label set is harder to reason about than either of the two it came from.
+fn resolve_metrics_labels(
+  local: &FileConfig,
+  home: &FileConfig,
+) -> std::collections::BTreeMap<String, String> {
+  let from_env = || {
+    let raw = env_str("APERIO_METRICS_LABELS")?;
+    let parsed: std::collections::BTreeMap<String, String> = raw
+      .split(',')
+      .filter_map(|pair| pair.split_once('='))
+      .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+      .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+      .collect();
+    (!parsed.is_empty()).then_some(parsed)
+  };
+  layered(
+    None,
+    local.metrics_labels.clone(),
+    from_env(),
+    home.metrics_labels.clone(),
+  )
+  .unwrap_or_default()
 }
 
 /// Resolves the top-level `connections:` across the file and the environment.
@@ -1093,6 +1125,7 @@ pub(crate) fn resolve_settings(
     )
     .filter(|n| *n > 0),
     connections: resolve_connections(local, home),
+    metrics_labels: resolve_metrics_labels(local, home),
     priority: layered(
       o.priority,
       local.priority,

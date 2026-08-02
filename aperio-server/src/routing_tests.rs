@@ -31,6 +31,7 @@ fn base_handle() -> ClientHandle {
     connections: None,
     declared_client_id: None,
     config_notes: Vec::new(),
+    metrics_labels: Vec::new(),
     last_ping_at: None,
     perms: ClientPerms::master(),
     max_concurrent: None,
