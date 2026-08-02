@@ -652,3 +652,55 @@ nothing reuses them.
   `TIME_WAIT`, which left efficiency as the only argument and no number behind
   it. Revisit only with a profile from a real deployment.
 
+- **#25 `aperio-lib`: the client as an embeddable library, with the host
+  framework dispatching requests in-process.** Withdrawn 2026-08-02, from a
+  design discussion, nothing was built. The idea: ship the client as a library
+  with native bindings (Node first, then Java / .NET / Rust), so an
+  express/fastify app hands requests straight to its own router (fastify's
+  `inject()`) and the loopback HTTP hop between client and backend disappears.
+  Four reasons it was dropped, in the order that decided it:
+
+  1. **The performance case is small and setup-specific.** The loopback hop
+     costs roughly 50-150 us per small request (two syscall pairs, an HTTP/1
+     serialize and a parse) and about two memcpy passes over a large body.
+     Against a real deployment's 5-50 ms tunnel round trip that is under one
+     percent of latency. It only looks large in a loopback benchmark where the
+     machine is CPU-bound, which is exactly the measurement that motivated the
+     question. The same class of saving was already collected by #23 and #24
+     without changing the architecture.
+  2. **`inject()` gives up streaming and, worse, fidelity.** light-my-request
+     buffers the whole response, so the 256 KB streaming path, SSE and long
+     polling regress. And it bypasses the real socket, so connection-level
+     middleware, timeouts and anything reading `req.socket` behave differently:
+     tunnelled traffic would take a *different code path* than a real request.
+     For a preview and debugging tool that fidelity is the product, not an
+     implementation detail worth trading.
+  3. **Most of the transport win is already available, language-agnostically.**
+     A `unix://` target skips the TCP stack today with no new code (it still
+     dials fresh per request, see #8). Whatever UDS does not recover is roughly
+     the ceiling of what embedding could add.
+  4. **The cost is a permanent one, not a one-off.** The only sane shape is one
+     Rust core plus thin bindings (reimplementing the protocol per language is a
+     combinatorial interop matrix against a protocol that reached v7 in a single
+     cycle). Even that shape needs a `Backend` trait, a decomposed supervisor
+     loop, programmatic config, its own runtime, panic isolation at the FFI
+     boundary and a logging bridge; then roughly seven prebuilt artifacts per
+     release per language, plus issue triage in each ecosystem. It also gives up
+     the separate-process supervisor: today a client crash cannot take the app
+     down, and either side restarts alone.
+
+  **What would justify revisiting is ergonomics, not speed:** environments where
+  a sidecar cannot run at all (some PaaS and serverless), or wanting
+  "`npm install` plus three lines" as a product feature. Then the scope is Node
+  only, HTTP only (no relays, no `serve:`, no pub/sub, no bind-tunnels), with
+  the real socket as the default dispatch and `inject()` as an opt-in fast path
+  the user knowingly accepts the fidelity trade for. Before any of it, measure
+  the hop: `scripts/profile-request.sh` against the same backend over
+  `http://localhost:...` and over `unix://...` prices it in an afternoon.
+
+  Two prerequisites from that list are worth doing on their own merits whether
+  or not this is ever revisited: extracting a `Backend` trait from the if-chain
+  in `handle_incoming_request` (`aperio-client/src/proxy/http.rs`), which would
+  put the reqwest, h2, unix and serve paths under one shape, and decomposing the
+  client's supervisor loop (`service.rs`), which #21 already leaves open.
+
