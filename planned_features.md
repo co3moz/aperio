@@ -184,13 +184,6 @@ readable without scrolling past what is already done.
   route. A dependency the graph does not show is a dependency nobody remembers
   at the moment it breaks.
 
-- [ ] **#57 Command-line parity with the dashboard.** (triage 35)
-  `aperio-client api` covers most admin operations but not all of them (token
-  update, org hostnames, scaling disarm among the gaps), so automation
-  occasionally has to fall back to raw curl. An ongoing chore rather than a
-  project: the rule worth adopting is that a new dashboard action ships with
-  its subcommand.
-
 - [ ] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
   that matter per backend are only available globally: connect timeout, idle
   timeout for pooled connections, the buffered/streamed threshold, the minimum
@@ -464,6 +457,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#57 Command-line parity with the dashboard.** (triage 35)
+  `aperio-client api` covers most admin operations but not all of them, so
+  automation occasionally has to fall back to raw curl. An ongoing chore rather
+  than a project: the rule worth adopting is that a new dashboard action ships
+  with its subcommand. shipped: eleven gaps closed (`client config`,
+  `webhook test`, `org custom-name`, `org oidc`, `publish`, `subscribers`,
+  `explain`, `schema`, `activity`, `audit-csv`, `edge-traefik`/`edge-ask`), and
+  the rule is now a test rather than a habit: it scans the server's own route
+  declarations and fails when one has no subcommand. Four routes are exempt
+  with the reason next to them (the SSE stream, and the browser-bound WebAuthn
+  and TOTP enrolment ceremonies, which a one-shot call cannot perform). The
+  gaps the entry named from triage, token update and org hostnames, turned out
+  to already exist.
 
 - [x] **#58 A configurable shutdown drain.** (triage 35) Shutdown already
   broadcasts `ServerShutdown`, waits 200 ms for those frames to flush, and then

@@ -593,3 +593,90 @@ fn stdin_and_file_readers_answer_their_error_cases() {
   std::fs::write(&good, "{\"a\":1}").unwrap();
   assert_eq!(read_json_file(good.to_str().unwrap()).unwrap()["a"], 1);
 }
+
+// ---------------------------------------------------------------------------
+// Command-line parity with the dashboard (planned_features #57)
+// ---------------------------------------------------------------------------
+
+/// Admin API routes the CLI deliberately does not cover, with the reason.
+///
+/// Everything else the server exposes must be reachable from `aperio-client
+/// api`, so automation never has to fall back to raw curl. The point of the
+/// list is that skipping a route is a decision somebody wrote down, not an
+/// omission nobody noticed.
+const CLI_EXEMPT: &[(&str, &str)] = &[
+  (
+    "/aperio/api/definitely-not-a-route",
+    "a test fixture, not a route",
+  ),
+  (
+    "/aperio/api/stream",
+    "an SSE stream; a one-shot call cannot consume it",
+  ),
+  (
+    "/aperio/api/me/passkeys",
+    "WebAuthn enrolment: a browser ceremony bound to the dashboard session",
+  ),
+  (
+    "/aperio/api/me/totp",
+    "TOTP enrolment for the logged-in dashboard user, bound to its session",
+  ),
+];
+
+#[test]
+fn every_admin_route_is_reachable_from_the_cli() {
+  // Scans the server's own route declarations rather than a list kept here:
+  // a list would drift the moment somebody adds an endpoint, which is the
+  // failure this test exists to prevent.
+  let mut routes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+  fn walk(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+      return;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        walk(&path, out);
+      } else if path.extension().is_some_and(|e| e == "rs")
+        && !path.to_string_lossy().contains("_tests")
+        && let Ok(text) = std::fs::read_to_string(&path)
+      {
+        for (i, _) in text.match_indices("path = \"/aperio/api/") {
+          let rest = &text[i + "path = \"".len()..];
+          if let Some(end) = rest.find('"') {
+            out.insert(rest[..end].to_string());
+          }
+        }
+      }
+    }
+  }
+  walk(std::path::Path::new("../aperio-server/src"), &mut routes);
+  assert!(
+    routes.len() > 50,
+    "only {} routes found; the scan is looking in the wrong place",
+    routes.len()
+  );
+
+  let called = std::fs::read_to_string("src/api.rs").expect("the CLI's own source");
+  let missing: Vec<&String> = routes
+    .iter()
+    .filter(|route| {
+      // Path parameters are written `{id}` in the declaration and formatted in
+      // the CLI, so compare on the literal prefix before the first one.
+      let literal = route.split('{').next().unwrap_or(route);
+      !called.contains(literal)
+        && !CLI_EXEMPT
+          .iter()
+          .any(|(exempt, _)| route.starts_with(exempt))
+    })
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "admin routes with no `aperio-client api` subcommand (add one, or exempt it with a reason in CLI_EXEMPT):\n  {}",
+    missing
+      .iter()
+      .map(|r| r.as_str())
+      .collect::<Vec<_>>()
+      .join("\n  ")
+  );
+}

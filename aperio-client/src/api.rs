@@ -94,6 +94,31 @@ pub(crate) enum ApiCommand {
   /// Audit trail
   #[command(subcommand)]
   Audit(AuditCmd),
+  /// Message bus: publish to this organization's subscribers
+  Publish(PublishArgs),
+  /// Message bus: who is subscribed, and to what
+  Subscribers,
+  /// Dry run: which rule would answer a request, and what each stage saw
+  Explain(ExplainArgs),
+  /// A JSON Schema for a config file: `client` or `server`
+  Schema {
+    /// Which schema: client or server
+    kind: String,
+  },
+  /// Edge integration: Traefik dynamic configuration for the served hostnames
+  #[command(name = "edge-traefik")]
+  EdgeTraefik,
+  /// Edge integration: whether this server serves a hostname
+  #[command(name = "edge-ask")]
+  EdgeAsk {
+    /// Hostname to ask about
+    hostname: String,
+  },
+  /// Request volume in five-second buckets over the last 15 minutes
+  Activity,
+  /// The audit trail as CSV
+  #[command(name = "audit-csv")]
+  AuditCsv,
   /// Live server statistics snapshot
   Stats,
   /// Traffic history buckets
@@ -131,6 +156,33 @@ pub(crate) enum ApiCommand {
   Import(FileArgs),
   /// Fetch the OpenAPI document describing this server's API
   Openapi,
+}
+
+#[derive(Args)]
+pub(crate) struct PublishArgs {
+  /// Topic to publish on (wildcards are filter syntax and are refused here)
+  topic: String,
+  /// The message, as text
+  #[arg(long, value_name = "TEXT", conflicts_with = "payload_base64")]
+  payload: Option<String>,
+  /// The message, Base64-encoded, for anything that is not text
+  #[arg(long = "payload-base64", value_name = "B64")]
+  payload_base64: Option<String>,
+  /// 1 keeps the message until each subscriber acknowledges it
+  #[arg(long, value_name = "0|1", default_value_t = 0)]
+  qos: u8,
+}
+
+#[derive(Args)]
+pub(crate) struct ExplainArgs {
+  /// Hostname, or a full URL
+  hostname: String,
+  /// Request path (default /)
+  #[arg(long, value_name = "PATH")]
+  path: Option<String>,
+  /// Request method (default GET)
+  #[arg(long, value_name = "METHOD")]
+  method: Option<String>,
 }
 
 #[derive(Args)]
@@ -287,6 +339,11 @@ pub(crate) enum ClientCmd {
   },
   /// Overrule a client's hostname/path bind server-side
   Override(ClientOverrideArgs),
+  /// The configuration a connected client resolved, as it is running it
+  Config {
+    /// Client connection id
+    id: String,
+  },
 }
 
 #[derive(Args)]
@@ -339,6 +396,12 @@ pub(crate) enum WebhookCmd {
   /// Re-send one delivery
   Redeliver {
     /// Delivery id
+    id: String,
+  },
+  /// Fire one synthetic event through the real delivery path and report what
+  /// the receiver answered
+  Test {
+    /// Webhook id
     id: String,
   },
 }
@@ -469,6 +532,17 @@ pub(crate) enum OrgCmd {
   },
   /// Set an organization's quotas (0 clears one)
   Quota(OrgQuotaArgs),
+  /// Set an organization's display name (omit --name to go back to the handle)
+  #[command(name = "custom-name")]
+  CustomName {
+    /// Organization id
+    id: String,
+    /// What to call it on screen
+    #[arg(long, value_name = "NAME")]
+    name: Option<String>,
+  },
+  /// Set or clear a child organization's OIDC override (no --issuer clears it)
+  Oidc(OrgOidcArgs),
   /// Show an organization's resource usage
   Usage {
     /// Organization id
@@ -479,6 +553,24 @@ pub(crate) enum OrgCmd {
     /// Organization id; omit for the master organization
     id: Option<String>,
   },
+}
+
+#[derive(Args)]
+pub(crate) struct OrgOidcArgs {
+  /// Organization id
+  id: String,
+  /// Issuer URL; omit to clear the override
+  #[arg(long, value_name = "URL")]
+  issuer: Option<String>,
+  /// OIDC client id
+  #[arg(long = "client-id", value_name = "ID")]
+  client_id: Option<String>,
+  /// OIDC client secret (write-only; never echoed back)
+  #[arg(long = "client-secret", value_name = "SECRET")]
+  client_secret: Option<String>,
+  /// Email address allowed to sign in; repeat for several
+  #[arg(long = "allowed-email", value_name = "EMAIL")]
+  allowed_emails: Vec<String>,
 }
 
 #[derive(Args)]
@@ -958,6 +1050,9 @@ fn build_call(
         Value::Object(body),
       )
     }
+    ApiCommand::Client(ClientCmd::Config { id }) => {
+      Call::get(format!("/aperio/api/clients/{}/config", id))
+    }
 
     ApiCommand::Cache(CacheCmd::Stats) => Call::get("/aperio/api/cache/stats"),
     ApiCommand::Cache(CacheCmd::Purge(a)) => {
@@ -990,6 +1085,9 @@ fn build_call(
       format!("/aperio/api/webhooks/deliveries/{}/redeliver", id),
       Value::Null,
     ),
+    ApiCommand::Webhook(WebhookCmd::Test { id }) => {
+      Call::post(format!("/aperio/api/webhooks/{}/test", id), Value::Null)
+    }
 
     ApiCommand::Inbox(InboxCmd::List) => Call::get("/aperio/api/inbox"),
     ApiCommand::Inbox(InboxCmd::Show { id }) => Call::get(format!("/aperio/api/inbox/{}", id)),
@@ -1051,6 +1149,19 @@ fn build_call(
         Value::Object(body),
       )
     }
+    ApiCommand::Org(OrgCmd::CustomName { id, name }) => Call::put(
+      format!("/aperio/api/orgs/{}/custom-name", id),
+      json!({ "custom_name": name }),
+    ),
+    ApiCommand::Org(OrgCmd::Oidc(a)) => Call::put(
+      format!("/aperio/api/orgs/{}/oidc", a.id),
+      json!({
+        "issuer": a.issuer.clone().unwrap_or_default(),
+        "client_id": a.client_id.clone().unwrap_or_default(),
+        "client_secret": a.client_secret.clone().unwrap_or_default(),
+        "allowed_emails": a.allowed_emails.clone(),
+      }),
+    ),
     ApiCommand::Org(OrgCmd::Usage { id }) => Call::get(format!("/aperio/api/orgs/{}/usage", id)),
     ApiCommand::Org(OrgCmd::Select { id }) => {
       Call::post("/aperio/api/orgs/select", json!({ "id": id }))
@@ -1089,6 +1200,30 @@ fn build_call(
     ApiCommand::Audit(AuditCmd::List) => Call::get("/aperio/api/audit"),
     ApiCommand::Audit(AuditCmd::Verify) => Call::get("/aperio/api/audit/verify"),
 
+    ApiCommand::Publish(a) => {
+      let mut body = Map::new();
+      body.insert("topic".into(), json!(a.topic));
+      body.insert("qos".into(), json!(a.qos));
+      if let Some(text) = &a.payload {
+        body.insert("payload".into(), json!(text));
+      }
+      if let Some(b64) = &a.payload_base64 {
+        body.insert("payload_base64".into(), json!(b64));
+      }
+      Call::post("/aperio/api/publish", Value::Object(body))
+    }
+    ApiCommand::Subscribers => Call::get("/aperio/api/subscribers"),
+    ApiCommand::Explain(a) => Call::get("/aperio/api/explain")
+      .query("hostname", Some(a.hostname.clone()))
+      .query("path", a.path.clone())
+      .query("method", a.method.clone()),
+    ApiCommand::Schema { kind } => Call::get(format!("/aperio/api/config/schema/{}", kind)),
+    ApiCommand::EdgeTraefik => Call::get("/aperio/api/edge/traefik"),
+    ApiCommand::EdgeAsk { hostname } => {
+      Call::get("/aperio/api/edge/ask").query("hostname", Some(hostname.clone()))
+    }
+    ApiCommand::Activity => Call::get("/aperio/api/activity"),
+    ApiCommand::AuditCsv => Call::get("/aperio/api/export/audit.csv"),
     ApiCommand::Stats => Call::get("/aperio/api/stats"),
     ApiCommand::History(a) => Call::get("/aperio/api/stats/history")
       .query("unit", a.unit.clone())

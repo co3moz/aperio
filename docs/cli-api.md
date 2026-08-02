@@ -112,6 +112,7 @@ aperio-client api client disable <client-id>      # kill switch: out of the rout
 aperio-client api client enable  <client-id>
 aperio-client api client override <client-id> --hostname other.example.com
 aperio-client api client override <client-id> --clear
+aperio-client api client config <client-id>       # the config it resolved, as it is running it
 ```
 
 Client ids come from `api stats` or `api topology`.
@@ -134,6 +135,7 @@ aperio-client api webhook create --name ops --url https://hooks.example.com/x \
 aperio-client api webhook delete <id>
 aperio-client api webhook deliveries [--webhook-id <id>] [--limit 50]
 aperio-client api webhook redeliver <delivery-id>
+aperio-client api webhook test <id>               # one synthetic event down the real path
 ```
 
 Where the server has an [outbound policy](threat-model.md) configured, `webhook create` refuses a URL the policy does not permit and reports why.
@@ -161,6 +163,8 @@ aperio-client api org list
 aperio-client api org create --name acme [--hostname acme.com,*.acme.example.com]
 aperio-client api org hostnames <id> [--hostname "*.acme.example.com"]
 aperio-client api org quota <id> [--max-clients 10] [--max-tokens 20] [--max-users 5] [--max-bytes-month 0]
+aperio-client api org custom-name <id> [--name "Acme Inc."]   # omit --name to show the handle again
+aperio-client api org oidc <id> [--issuer https://idp.example.com --client-id ... --client-secret ... --allowed-email a@acme.com]
 aperio-client api org usage <id>
 aperio-client api org delete <id>
 aperio-client api org select [<id>]
@@ -207,7 +211,31 @@ aperio-client api audit list
 aperio-client api audit verify
 aperio-client api request show <request-id>
 aperio-client api request replay <request-id>
+aperio-client api activity                        # five-second buckets, last 15 minutes
+aperio-client api audit-csv                       # the audit trail as CSV
+aperio-client api explain app.example.com --path /api --method POST
+aperio-client api schema client                   # the JSON Schema for aperio.yaml
+aperio-client api schema server
 ```
+
+`api explain` is a dry run: it reports which rule would answer a request and what every other stage saw, consuming no rate limit and waking nothing.
+
+### Message bus
+
+```bash
+aperio-client api publish orders/new --payload '{"id": 7}' [--qos 1]
+aperio-client api publish sensors/raw --payload-base64 AAEC
+aperio-client api subscribers                     # who is subscribed, and to what
+```
+
+### Edge integration
+
+```bash
+aperio-client api edge-traefik                    # Traefik dynamic configuration
+aperio-client api edge-ask app.example.com        # does this server serve it?
+```
+
+Both need `APERIO_EDGE_TOKEN` on the server; see [Edge proxy](edge-proxy.md).
 
 ### Settings, backup, and purging
 
