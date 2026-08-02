@@ -229,7 +229,7 @@ pub(crate) async fn send_full_response(
   let Some(frame) = crate::protocol::encode_full_response_frame(id, &json, body) else {
     return false;
   };
-  tunnel_tx.send(Message::Binary(frame)).await.is_ok()
+  tunnel_tx.send(Message::Binary(frame.into())).await.is_ok()
 }
 
 /// Sends one streamed response chunk: a raw binary frame for v2 servers, or
@@ -250,7 +250,10 @@ pub(crate) async fn send_response_chunk(
       tracing::warn!("Refusing to frame a response chunk: request id is too long to encode");
       return Err(());
     };
-    tunnel_tx.send(Message::Binary(frame)).await.map_err(|_| ())
+    tunnel_tx
+      .send(Message::Binary(frame.into()))
+      .await
+      .map_err(|_| ())
   } else {
     let msg = TunnelMessage::ResponseChunk {
       id: id.to_string(),
@@ -510,7 +513,7 @@ pub(crate) struct ForwardRequest {
 pub(crate) async fn handle_incoming_request(
   ctx: &ForwardContext,
   req: ForwardRequest,
-  streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
+  streamed_body: Option<mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>>,
   binary_chunks: bool,
   full_body_frames: bool,
 ) -> Option<TunnelMessage> {

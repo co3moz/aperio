@@ -160,7 +160,7 @@ async fn deliver_to_relay<T>(tx: &mpsc::Sender<T>, kind: &str, stream_id: &str, 
 async fn deliver_tcp_bytes(
   streams: &Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
   stream_id: &str,
-  bytes: Vec<u8>,
+  bytes: bytes::Bytes,
 ) {
   let tx = {
     let map = streams.lock().await;
@@ -179,7 +179,7 @@ async fn deliver_tcp_bytes(
 async fn deliver_udp_bytes(
   streams: &Arc<Mutex<HashMap<String, UdpStreamHandle>>>,
   stream_id: &str,
-  bytes: Vec<u8>,
+  bytes: bytes::Bytes,
 ) {
   let streams = streams.lock().await;
   if let Some(handle) = streams.get(stream_id) {
@@ -215,7 +215,7 @@ async fn deliver_ws_frame(
 async fn feed_request_chunk(
   streams: &Arc<Mutex<HashMap<String, RequestBodyFeeder>>>,
   id: &str,
-  bytes: Vec<u8>,
+  bytes: bytes::Bytes,
 ) {
   let feeder = {
     let map = streams.lock().await;
@@ -895,11 +895,11 @@ pub(crate) async fn run_service(
 
     match ws_req {
       Ok(req) => {
-        let ws_config = WebSocketConfig {
-          max_message_size: Some(spec.max_message_size),
-          max_frame_size: Some(spec.max_message_size),
-          ..Default::default()
-        };
+        // Built from the default rather than as a literal: the config struct
+        // is non-exhaustive, so its future fields keep their own defaults.
+        let mut ws_config = WebSocketConfig::default();
+        ws_config.max_message_size = Some(spec.max_message_size);
+        ws_config.max_frame_size = Some(spec.max_message_size);
         // Dial under the cancel signal so a shutdown aborts an in-progress
         // connect/handshake immediately instead of waiting for it to finish
         // (a half-open server can otherwise stall the handshake with no
@@ -965,7 +965,7 @@ pub(crate) async fn run_service(
             let writer_task = tokio::spawn(async move {
               let transform = |msg: Message| match msg {
                 Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
-                  Message::Binary(compress_frame(&t))
+                  Message::Binary(compress_frame(&t).into())
                 }
                 // A full-response frame carries a body that used to travel
                 // inside a text frame and be compressed with it. Compressed
@@ -981,7 +981,7 @@ pub(crate) async fn run_service(
                     Some((_, id, payload)) => match crate::protocol::deflate_payload(payload) {
                       Some(deflated) => {
                         match encode_binary_frame(FRAME_RESPONSE_FULL_ZLIB, id, &deflated) {
-                          Some(frame) => Message::Binary(frame),
+                          Some(frame) => Message::Binary(frame.into()),
                           None => Message::Binary(b),
                         }
                       }
@@ -1086,7 +1086,7 @@ pub(crate) async fn run_service(
                   } else {
                     info!("Draining before applying the configuration change...");
                     if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
-                      let _ = tx_ping.send(Message::Text(json)).await;
+                      let _ = tx_ping.send(Message::Text(json.into())).await;
                     }
                     drain_inflight_for(&shared_ping, reload_drain_ping).await;
                   }
@@ -1159,7 +1159,7 @@ pub(crate) async fn run_service(
                   // excluded the writer's backlog would report the link as
                   // healthy while the connection was the thing falling behind.
                   self_health_ping.ping_sent();
-                  if tx_ping.send(Message::Text(ping_str)).await.is_err() {
+                  if tx_ping.send(Message::Text(ping_str.into())).await.is_err() {
                     break;
                   }
                 }
@@ -1255,7 +1255,7 @@ pub(crate) async fn run_service(
                   _ = shutdown_requested(&shared) => {
                       // Announce drain, let in-flight requests finish, then exit.
                       if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
-                          let _ = tx_write.send(Message::Text(json)).await;
+                          let _ = tx_write.send(Message::Text(json.into())).await;
                       }
                       drain_inflight(&shared).await;
                       // Give the Draining frame a moment to flush before closing.
@@ -1270,27 +1270,32 @@ pub(crate) async fn run_service(
                               // as bytes rather than base64.
                               let mut frame_body: Option<Vec<u8>> = None;
                               let text_opt = match msg {
-                                  Message::Text(t) => Some(t),
+                                  Message::Text(t) => Some(t.to_string()),
                                   Message::Binary(b) => {
                                       // v2 binary chunk frames carry a tag byte that never
                                       // collides with zlib streams (0x78).
+                                      // Payloads are the tail of the frame and
+                                      // the frame is refcounted, so each of
+                                      // these is a slice rather than a copy
+                                      // (planned_features #42).
                                       match decode_binary_frame(&b) {
                                           Some((FRAME_REQUEST_CHUNK, fid, payload)) => {
-                                              feed_request_chunk(&active_request_streams, fid, payload.to_vec()).await;
+                                              let payload = b.slice(b.len() - payload.len()..);
+                                              feed_request_chunk(&active_request_streams, fid, payload).await;
                                               None
                                           }
                                           // v7: relay payloads as raw bytes, the same
                                           // deliveries their JSON shapes make below.
                                           Some((crate::protocol::FRAME_TCP_DATA, sid, payload)) => {
-                                              deliver_tcp_bytes(&active_tcp_streams, sid, payload.to_vec()).await;
+                                              deliver_tcp_bytes(&active_tcp_streams, sid, b.slice(b.len() - payload.len()..)).await;
                                               None
                                           }
                                           Some((crate::protocol::FRAME_UDP_DATAGRAM, sid, payload)) => {
-                                              deliver_udp_bytes(&active_udp_streams, sid, payload.to_vec()).await;
+                                              deliver_udp_bytes(&active_udp_streams, sid, b.slice(b.len() - payload.len()..)).await;
                                               None
                                           }
                                           Some((crate::protocol::FRAME_WS_DATA_BIN, sid, payload)) => {
-                                              deliver_ws_frame(&active_ws_streams, sid, Message::Binary(payload.to_vec())).await;
+                                              deliver_ws_frame(&active_ws_streams, sid, Message::Binary(b.slice(b.len() - payload.len()..))).await;
                                               None
                                           }
                                           // v6: envelope and buffered body in one frame,
@@ -1365,7 +1370,7 @@ pub(crate) async fn run_service(
                                                   if let Some(response) = response
                                                       && let Ok(resp_str) = serde_json::to_string(&response)
                                                   {
-                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str)).await;
+                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
                                               });
@@ -1381,7 +1386,7 @@ pub(crate) async fn run_service(
                                               // request starts immediately and is fed chunk-by-chunk
                                               // as RequestChunk frames arrive.
                                               let (body_tx, body_rx) =
-                                                  mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+                                                  mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(32);
                                               active_request_streams.lock().await.insert(id.clone(), body_tx);
                                               let ctx = forward_ctx.clone();
                                               let limiter = local_limiter.clone();
@@ -1418,7 +1423,7 @@ pub(crate) async fn run_service(
                                                   if let Some(response) = response
                                                       && let Ok(resp_str) = serde_json::to_string(&response)
                                                   {
-                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str)).await;
+                                                      let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
                                               });
@@ -1427,7 +1432,7 @@ pub(crate) async fn run_service(
                                               // Base64 fallback path; v2 servers send binary frames.
                                               match BASE64_STANDARD.decode(&data) {
                                                   Ok(bytes) => {
-                                                      feed_request_chunk(&active_request_streams, &id, bytes).await;
+                                                      feed_request_chunk(&active_request_streams, &id, bytes.into()).await;
                                                   }
                                                   Err(_) => warn!(
                                                       "Failed to decode Base64 RequestChunk for {}",
@@ -1490,12 +1495,12 @@ pub(crate) async fn run_service(
                                               // also carries Pong, and take every stream on this
                                               // connection down with it.
                                               let ws_msg = if is_text {
-                                                  Message::Text(data)
+                                                  Message::Text(data.into())
                                               } else {
                                                   // Base64 fallback; a v7 server sends
                                                   // FRAME_WS_DATA_BIN frames.
                                                   match BASE64_STANDARD.decode(&data) {
-                                                      Ok(bytes) => Message::Binary(bytes),
+                                                      Ok(bytes) => Message::Binary(bytes.into()),
                                                       Err(_) => {
                                                           warn!("Failed to decode Base64 WsData for stream {}", stream_id);
                                                           continue;
@@ -1540,7 +1545,7 @@ pub(crate) async fn run_service(
                                                       // very next tunnel frame and would be dropped if the
                                                       // spawned task had not registered yet. The channel
                                                       // buffers bytes until the backend connect completes.
-                                                      let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(64);
+                                                      let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(64);
                                                       let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
                                                       active_tcp_streams.lock().await.insert(
                                                           stream_id.clone(),
@@ -1566,7 +1571,7 @@ pub(crate) async fn run_service(
                                                       }
                                                       let close = TunnelMessage::TcpClose { stream_id };
                                                       if let Ok(json) = serde_json::to_string(&close) {
-                                                          let _ = tx_write.send(Message::Text(json)).await;
+                                                          let _ = tx_write.send(Message::Text(json.into())).await;
                                                       }
                                                   }
                                               }
@@ -1587,7 +1592,7 @@ pub(crate) async fn run_service(
                                                   Some((target_addr, idle_timeout)) => {
                                                       // Register synchronously, like TcpOpen: datagrams
                                                       // can arrive on the very next tunnel frame.
-                                                      let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(64);
+                                                      let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(64);
                                                       let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
                                                       active_udp_streams.lock().await.insert(
                                                           stream_id.clone(),
@@ -1605,7 +1610,7 @@ pub(crate) async fn run_service(
                                                       warn!("UdpOpen for undeclared target {}; refusing", target);
                                                       let close = TunnelMessage::UdpClose { stream_id };
                                                       if let Ok(json) = serde_json::to_string(&close) {
-                                                          let _ = tx_write.send(Message::Text(json)).await;
+                                                          let _ = tx_write.send(Message::Text(json.into())).await;
                                                       }
                                                   }
                                               }
@@ -1614,7 +1619,7 @@ pub(crate) async fn run_service(
                                               // Base64 fallback; a v7 server sends
                                               // FRAME_UDP_DATAGRAM frames.
                                               match BASE64_STANDARD.decode(&data) {
-                                                  Ok(bytes) => deliver_udp_bytes(&active_udp_streams, &stream_id, bytes).await,
+                                                  Ok(bytes) => deliver_udp_bytes(&active_udp_streams, &stream_id, bytes.into()).await,
                                                   Err(_) => warn!("Failed to decode Base64 UdpDatagram for stream {}", stream_id),
                                               }
                                           }
@@ -1633,7 +1638,7 @@ pub(crate) async fn run_service(
                                               // Base64 fallback; a v7 server sends
                                               // FRAME_TCP_DATA frames.
                                               match BASE64_STANDARD.decode(&data) {
-                                                  Ok(bytes) => deliver_tcp_bytes(&active_tcp_streams, &stream_id, bytes).await,
+                                                  Ok(bytes) => deliver_tcp_bytes(&active_tcp_streams, &stream_id, bytes.into()).await,
                                                   Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
                                               }
                                           }
@@ -1703,7 +1708,7 @@ pub(crate) async fn run_service(
                                           TunnelMessage::CompressionStart {} => {
                                               info!("Server offered tunnel compression; enabling zlib frames");
                                               if let Ok(json) = serde_json::to_string(&TunnelMessage::CompressionAck {}) {
-                                                  let _ = tx_write.send(Message::Text(json)).await;
+                                                  let _ = tx_write.send(Message::Text(json.into())).await;
                                               }
                                               compress_out.store(true, Ordering::SeqCst);
                                           }

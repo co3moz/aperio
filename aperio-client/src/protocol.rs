@@ -192,7 +192,7 @@ pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<V
 }
 
 /// Chunk feeder for one streamed request body in flight.
-pub(crate) type RequestBodyFeeder = mpsc::Sender<Result<Vec<u8>, std::io::Error>>;
+pub(crate) type RequestBodyFeeder = mpsc::Sender<Result<bytes::Bytes, std::io::Error>>;
 
 /// One relay payload, in the shape the peer negotiated: a v7 server takes
 /// the raw bytes in a tagged binary frame, anything older takes the JSON
@@ -208,11 +208,13 @@ pub(crate) fn relay_frame(
   if protocol >= 7
     && let Some(frame) = encode_binary_frame(tag, stream_id, bytes)
   {
-    return Some(Message::Binary(frame));
+    return Some(Message::Binary(frame.into()));
   }
   use base64::prelude::*;
   let msg = json_fallback(BASE64_STANDARD.encode(bytes));
-  serde_json::to_string(&msg).ok().map(Message::Text)
+  serde_json::to_string(&msg)
+    .ok()
+    .map(|json| Message::Text(json.into()))
 }
 
 /// Decodes a v2 binary chunk frame into (tag, id, payload).
@@ -642,7 +644,7 @@ pub(crate) async fn send_tunnel_msg(
   msg: &TunnelMessage,
 ) -> Result<(), ()> {
   match serde_json::to_string(msg) {
-    Ok(json) => tx.send(Message::Text(json)).await.map_err(|_| ()),
+    Ok(json) => tx.send(Message::Text(json.into())).await.map_err(|_| ()),
     Err(_) => Err(()),
   }
 }

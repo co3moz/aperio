@@ -152,7 +152,7 @@ async fn test_ws_echo_text_and_binary() {
 
   // Binary frame round-trip.
   backend_tx
-    .send(Message::Binary(vec![1, 2, 3, 4]))
+    .send(Message::Binary(vec![1, 2, 3, 4].into()))
     .await
     .unwrap();
   match next_tunnel_msg(&mut rx).await {

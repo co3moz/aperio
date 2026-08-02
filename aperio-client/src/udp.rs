@@ -37,7 +37,7 @@ const UDP_MAX_DATAGRAM: usize = 64 * 1024;
 /// Handle to an active UDP relay on the declaring client.
 pub(crate) struct UdpStreamHandle {
   /// Datagrams from the tunnel, to be sent to the local target.
-  pub(crate) tx: mpsc::Sender<Vec<u8>>,
+  pub(crate) tx: mpsc::Sender<bytes::Bytes>,
   /// Aborts the relay tasks (UdpClose from the server).
   pub(crate) abort_tx: mpsc::Sender<()>,
 }
@@ -55,7 +55,7 @@ pub(crate) async fn handle_udp_open(
   target_addr: String,
   tunnel_tx: mpsc::Sender<Message>,
   active_streams: Arc<Mutex<HashMap<String, UdpStreamHandle>>>,
-  mut datagram_rx: mpsc::Receiver<Vec<u8>>,
+  mut datagram_rx: mpsc::Receiver<bytes::Bytes>,
   mut abort_rx: mpsc::Receiver<()>,
   idle_timeout: Duration,
   activity: crate::service::ActivityClock,
@@ -70,7 +70,7 @@ pub(crate) async fn handle_udp_open(
       debug!("UDP relay {} closing: {}", stream_id, reason);
       let close = TunnelMessage::UdpClose { stream_id };
       if let Ok(json) = serde_json::to_string(&close) {
-        let _ = tunnel_tx.send(Message::Text(json)).await;
+        let _ = tunnel_tx.send(Message::Text(json.into())).await;
       }
     }
   };
@@ -254,7 +254,7 @@ async fn bridge_udp_session(
       _ = tokio::time::sleep(idle_timeout) => break,
       out = rx.recv() => match out {
         Some(bytes) => {
-          if ws_tx.send(Message::Binary(bytes)).await.is_err() {
+          if ws_tx.send(Message::Binary(bytes.into())).await.is_err() {
             break;
           }
         }

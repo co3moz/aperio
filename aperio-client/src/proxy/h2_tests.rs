@@ -262,9 +262,9 @@ async fn test_h2_echo_streamed_request_body() {
   let port = start_h2c_backend().await;
   let ctx = h2_ctx(port, drained_tx());
   // Feed the request body through the streamed-body channel.
-  let (btx, brx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
-  btx.send(Ok(b"streamed-".to_vec())).await.unwrap();
-  btx.send(Ok(b"req".to_vec())).await.unwrap();
+  let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
+  btx.send(Ok(b"streamed-".to_vec().into())).await.unwrap();
+  btx.send(Ok(b"req".to_vec().into())).await.unwrap();
   drop(btx);
   let result = handle_incoming_request_h2(&ctx, req("h2-sreq", "POST", "/echo"), Some(brx), false)
     .await

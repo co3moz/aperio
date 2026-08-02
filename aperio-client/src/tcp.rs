@@ -17,7 +17,7 @@ use crate::protocol::TunnelMessage;
 /// Handle to an active raw TCP stream connected to the local TCP target.
 pub(crate) struct TcpStreamHandle {
   /// Sender to forward decoded TcpData bytes to the TCP writer task.
-  pub(crate) tx: mpsc::Sender<Vec<u8>>,
+  pub(crate) tx: mpsc::Sender<bytes::Bytes>,
   /// Abort handle to stop the relay tasks.
   pub(crate) abort_tx: mpsc::Sender<()>,
 }
@@ -36,7 +36,7 @@ pub(crate) async fn handle_tcp_open(
   target_addr: String,
   tunnel_tx: mpsc::Sender<Message>,
   active_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
-  mut bytes_rx: mpsc::Receiver<Vec<u8>>,
+  mut bytes_rx: mpsc::Receiver<bytes::Bytes>,
   mut abort_rx: mpsc::Receiver<()>,
   e2e: Option<crate::e2e::E2eParams>,
   activity: crate::service::ActivityClock,
@@ -60,7 +60,7 @@ pub(crate) async fn handle_tcp_open(
   let send_close = |tx: mpsc::Sender<Message>, id: String| async move {
     let close = TunnelMessage::TcpClose { stream_id: id };
     if let Ok(json) = serde_json::to_string(&close) {
-      let _ = tx.send(Message::Text(json)).await;
+      let _ = tx.send(Message::Text(json.into())).await;
     }
   };
 
@@ -173,7 +173,7 @@ pub(crate) async fn handle_tcp_open(
       stream_id: stream_id_up.clone(),
     };
     if let Ok(json) = serde_json::to_string(&close) {
-      let _ = tunnel_tx_up.send(Message::Text(json)).await;
+      let _ = tunnel_tx_up.send(Message::Text(json.into())).await;
     }
   });
 
@@ -188,7 +188,7 @@ pub(crate) async fn handle_tcp_open(
             activity.stamp();
             let plain = match &mut opener {
               Some(o) => match o.open(&bytes) {
-                Some(p) => p,
+                Some(p) => bytes::Bytes::from(p),
                 None => {
                   // Tampering, reordering, or a PSK mismatch: kill the
                   // stream rather than feed corrupt bytes to the backend.
@@ -338,7 +338,11 @@ pub(crate) async fn bridge_connection(
   // End-to-end handshake with the declaring client (encrypted tunnels).
   let (mut sealer, mut opener) = if encrypt {
     let hs = crate::e2e::Handshake::new(crate::e2e::Role::Initiator, psk);
-    if ws_tx.send(Message::Binary(hs.frame.clone())).await.is_err() {
+    if ws_tx
+      .send(Message::Binary(hs.frame.clone().into()))
+      .await
+      .is_err()
+    {
       return;
     }
     // The first binary frame from the peer is its handshake.
@@ -380,7 +384,7 @@ pub(crate) async fn bridge_connection(
             },
             None => buf[..n].to_vec(),
           };
-          if ws_tx.send(Message::Binary(payload)).await.is_err() {
+          if ws_tx.send(Message::Binary(payload.into())).await.is_err() {
             break;
           }
         }
@@ -395,7 +399,7 @@ pub(crate) async fn bridge_connection(
         Message::Binary(bytes) => {
           let plain = match &mut opener {
             Some(o) => match o.open(&bytes) {
-              Some(p) => p,
+              Some(p) => bytes::Bytes::from(p),
               None => {
                 // Key mismatch (wrong PSK / MITM) or tampering: fail closed.
                 error!("E2E decryption failed on the tunnel stream; closing");

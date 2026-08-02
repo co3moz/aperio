@@ -27,7 +27,9 @@ async fn ws_echo_server() -> String {
       && let Ok(mut ws) = accept_async(stream).await
     {
       // A leading non-binary frame exercises the bridge's ignore arm.
-      let _ = ws.send(Message::Text("non-binary".to_string())).await;
+      let _ = ws
+        .send(Message::Text("non-binary".to_string().into()))
+        .await;
       while let Some(Ok(msg)) = ws.next().await {
         match msg {
           Message::Binary(b) => {
@@ -77,7 +79,7 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
   }
 }
 
-fn handle(tx: mpsc::Sender<Vec<u8>>, abort_tx: mpsc::Sender<()>) -> UdpStreamHandle {
+fn handle(tx: mpsc::Sender<bytes::Bytes>, abort_tx: mpsc::Sender<()>) -> UdpStreamHandle {
   UdpStreamHandle { tx, abort_tx }
 }
 
@@ -96,7 +98,7 @@ async fn test_handle_udp_open_relays_and_aborts() {
   let backend_addr = backend.local_addr().unwrap().to_string();
 
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(16);
 
@@ -121,7 +123,7 @@ async fn test_handle_udp_open_relays_and_aborts() {
   ));
 
   // tunnel -> backend
-  dg_tx.send(b"ping".to_vec()).await.unwrap();
+  dg_tx.send(b"ping".to_vec().into()).await.unwrap();
   let mut buf = [0u8; 64];
   let (n, from) = tokio::time::timeout(Duration::from_secs(2), backend.recv_from(&mut buf))
     .await
@@ -160,7 +162,7 @@ async fn test_handle_udp_open_relays_and_aborts() {
 async fn test_handle_udp_open_target_unreachable() {
   init_tracing();
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(1);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(1);
   let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(8);
   active
@@ -197,7 +199,7 @@ async fn test_handle_udp_open_idle_expiry() {
   let addr = backend.local_addr().unwrap().to_string();
 
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(1);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(1);
   let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(8);
   active
@@ -233,7 +235,7 @@ async fn test_handle_udp_open_datagram_sender_closed() {
   let addr = backend.local_addr().unwrap().to_string();
 
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(1);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(1);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(8);
 
@@ -266,7 +268,7 @@ async fn test_handle_udp_open_tunnel_closed_stops_relay() {
   let addr = backend.local_addr().unwrap().to_string();
 
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(4);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(4);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, tun_rx) = mpsc::channel::<Message>(8);
   // Close the tunnel receiver: the next relayed datagram hits TrySendError::Closed.
@@ -287,7 +289,7 @@ async fn test_handle_udp_open_tunnel_closed_stops_relay() {
   // Prime the connected socket so the backend learns the relay's address,
   // then bounce a datagram back, the relay tries to forward it to the
   // closed tunnel and breaks.
-  dg_tx.send(b"x".to_vec()).await.unwrap();
+  dg_tx.send(b"x".to_vec().into()).await.unwrap();
   let mut buf = [0u8; 16];
   let (_n, from) = tokio::time::timeout(Duration::from_secs(2), backend.recv_from(&mut buf))
     .await
@@ -477,7 +479,7 @@ async fn test_handle_udp_open_send_recv_errors() {
   let target = format!("127.0.0.1:{}", dead_port);
 
   let active: Arc<Mutex<HashMap<String, UdpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (dg_tx, dg_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, _tun_rx) = mpsc::channel::<Message>(16);
   active
@@ -498,7 +500,7 @@ async fn test_handle_udp_open_send_recv_errors() {
   ));
 
   for _ in 0..5 {
-    let _ = dg_tx.send(b"x".to_vec()).await;
+    let _ = dg_tx.send(b"x".to_vec().into()).await;
     tokio::time::sleep(Duration::from_millis(20)).await;
   }
   tokio::time::sleep(Duration::from_millis(100)).await;

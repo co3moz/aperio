@@ -228,7 +228,7 @@ pub(crate) async fn handle_upgrade_request(
   };
 
   if let Ok(json) = serde_json::to_string(&upgrade_resp)
-    && tunnel_tx.send(Message::Text(json)).await.is_err()
+    && tunnel_tx.send(Message::Text(json.into())).await.is_err()
   {
     error!("Failed to send UpgradeResponse for stream {}", stream_id);
     active_streams.lock().await.remove(&stream_id);
@@ -298,7 +298,10 @@ pub(crate) async fn handle_upgrade_request(
           };
 
           if let Ok(json) = serde_json::to_string(&tunnel_msg)
-            && tunnel_tx_clone.send(Message::Text(json)).await.is_err()
+            && tunnel_tx_clone
+              .send(Message::Text(json.into()))
+              .await
+              .is_err()
           {
             break;
           }
@@ -320,7 +323,7 @@ pub(crate) async fn handle_upgrade_request(
       reason: String::new(),
     };
     if let Ok(json) = serde_json::to_string(&close_msg) {
-      let _ = tunnel_tx_clone.send(Message::Text(json)).await;
+      let _ = tunnel_tx_clone.send(Message::Text(json.into())).await;
     }
   });
 
@@ -379,7 +382,7 @@ async fn send_upgrade_error(stream_id: &str, tunnel_tx: &mpsc::Sender<Message>, 
     headers: vec![("content-type".to_string(), "text/plain".to_string())],
   };
   if let Ok(json) = serde_json::to_string(&resp) {
-    let _ = tunnel_tx.send(Message::Text(json)).await;
+    let _ = tunnel_tx.send(Message::Text(json.into())).await;
   }
 }
 

@@ -801,9 +801,9 @@ async fn test_streamed_request_body_forwarded() {
   });
 
   // Feed the request body through the streamed-body channel (v2 path).
-  let (btx, brx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
-  btx.send(Ok(b"stream-".to_vec())).await.unwrap();
-  btx.send(Ok(b"payload".to_vec())).await.unwrap();
+  let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
+  btx.send(Ok(b"stream-".to_vec().into())).await.unwrap();
+  btx.send(Ok(b"payload".to_vec().into())).await.unwrap();
   drop(btx);
 
   let ctx = test_ctx(&target_url, test_tunnel_tx());

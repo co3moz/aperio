@@ -78,7 +78,7 @@ fn build_origin_uri(ctx: &ForwardContext, uri_str: &str) -> String {
 pub(crate) async fn handle_incoming_request_unix(
   ctx: &ForwardContext,
   req: ForwardRequest,
-  streamed_body: Option<mpsc::Receiver<Result<Vec<u8>, std::io::Error>>>,
+  streamed_body: Option<mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>>,
   binary_chunks: bool,
 ) -> Option<TunnelMessage> {
   let ForwardRequest {
@@ -154,9 +154,7 @@ pub(crate) async fn handle_incoming_request_unix(
 
   let body: UnixBody = if let Some(rx) = streamed_body {
     let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-      rx.recv()
-        .await
-        .map(|item| (item.map(|bytes| Frame::data(Bytes::from(bytes))), rx))
+      rx.recv().await.map(|item| (item.map(Frame::data), rx))
     });
     BoxBody::new(StreamBody::new(stream))
   } else if let Some(bytes) = raw_body {

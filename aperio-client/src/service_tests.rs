@@ -172,7 +172,7 @@ async fn loopback_ws() -> (TcpListener, String) {
 /// Serializes and sends a server→client tunnel message on the mock socket.
 async fn srv_send(ws: &mut WebSocketStream<TcpStream>, msg: &TunnelMessage) {
   let json = serde_json::to_string(msg).unwrap();
-  ws.send(Message::Text(json)).await.unwrap();
+  ws.send(Message::Text(json.into())).await.unwrap();
 }
 
 /// A backend that accepts one TCP connection and replies `200 OK` to the
@@ -416,7 +416,7 @@ async fn test_run_service_message_loop() {
     })
     .unwrap(),
   );
-  ws.send(Message::Binary(compressed)).await.unwrap();
+  ws.send(Message::Binary(compressed.into())).await.unwrap();
 
   // An unhandled (client-bound-irrelevant) message hits the catch-all arm.
   srv_send(&mut ws, &TunnelMessage::CompressionAck {}).await;
@@ -464,7 +464,9 @@ async fn test_run_service_message_loop() {
   .await;
   // Binary v2 chunk frame for the same request id.
   ws.send(Message::Binary(
-    crate::protocol::encode_binary_frame(FRAME_REQUEST_CHUNK, "r2", b"world").unwrap(),
+    crate::protocol::encode_binary_frame(FRAME_REQUEST_CHUNK, "r2", b"world")
+      .unwrap()
+      .into(),
   ))
   .await
   .unwrap();
@@ -1125,11 +1127,11 @@ fn should_retire_idle_covers_inflight_and_cold_start() {
 
 /// The map the read loop consults, and the backend end of the one stream in it.
 type StreamMap = Arc<Mutex<HashMap<String, RequestBodyFeeder>>>;
-type BackendEnd = mpsc::Receiver<Result<Vec<u8>, std::io::Error>>;
+type BackendEnd = mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>;
 
 /// A stream map holding one feeder, with the buffer size given.
 fn one_stream(capacity: usize) -> (StreamMap, BackendEnd) {
-  let (tx, rx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(capacity);
+  let (tx, rx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(capacity);
   let map = Arc::new(Mutex::new(HashMap::from([("req-1".to_string(), tx)])));
   (map, rx)
 }
@@ -1137,7 +1139,7 @@ fn one_stream(capacity: usize) -> (StreamMap, BackendEnd) {
 #[tokio::test]
 async fn a_chunk_reaches_the_backend_and_the_lock_is_free_while_it_does() {
   let (streams, mut rx) = one_stream(4);
-  feed_request_chunk(&streams, "req-1", b"hello".to_vec()).await;
+  feed_request_chunk(&streams, "req-1", b"hello".to_vec().into()).await;
   assert_eq!(rx.recv().await.unwrap().unwrap(), b"hello".to_vec());
   // The map is not held across the send: another task can read it right after.
   assert!(streams.lock().await.contains_key("req-1"));
@@ -1147,7 +1149,7 @@ async fn a_chunk_reaches_the_backend_and_the_lock_is_free_while_it_does() {
 async fn a_chunk_for_an_unknown_stream_is_dropped_quietly() {
   let (streams, _rx) = one_stream(4);
   // A late chunk for a request that already ended is normal, not an error.
-  feed_request_chunk(&streams, "gone", b"x".to_vec()).await;
+  feed_request_chunk(&streams, "gone", b"x".to_vec().into()).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1157,10 +1159,10 @@ async fn a_consumer_that_stops_reading_loses_its_upload_not_the_tunnel() {
   // fifteen seconds later the liveness check tore down every request on the
   // connection because of one slow backend.
   let (streams, _rx) = one_stream(1);
-  feed_request_chunk(&streams, "req-1", b"first".to_vec()).await; // fills it
+  feed_request_chunk(&streams, "req-1", b"first".to_vec().into()).await; // fills it
 
   let start = tokio::time::Instant::now();
-  feed_request_chunk(&streams, "req-1", b"second".to_vec()).await;
+  feed_request_chunk(&streams, "req-1", b"second".to_vec().into()).await;
   let waited = start.elapsed();
 
   assert!(
@@ -1177,7 +1179,7 @@ async fn a_consumer_that_stops_reading_loses_its_upload_not_the_tunnel() {
 async fn a_consumer_that_catches_up_keeps_its_upload() {
   // Merely slow is not abandoned: the chunk lands as soon as there is room.
   let (streams, mut rx) = one_stream(1);
-  feed_request_chunk(&streams, "req-1", b"first".to_vec()).await;
+  feed_request_chunk(&streams, "req-1", b"first".to_vec().into()).await;
 
   let reader = tokio::spawn(async move {
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1190,7 +1192,7 @@ async fn a_consumer_that_catches_up_keeps_its_upload() {
     }
     out
   });
-  feed_request_chunk(&streams, "req-1", b"second".to_vec()).await;
+  feed_request_chunk(&streams, "req-1", b"second".to_vec().into()).await;
   assert!(
     streams.lock().await.contains_key("req-1"),
     "a backend that catches up keeps its stream"
@@ -1202,16 +1204,16 @@ async fn a_consumer_that_catches_up_keeps_its_upload() {
 
 #[tokio::test]
 async fn a_relay_frame_is_delivered_when_the_consumer_has_room() {
-  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(2);
-  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec()).await);
+  let (tx, mut rx) = mpsc::channel::<bytes::Bytes>(2);
+  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec().into()).await);
   assert_eq!(rx.recv().await.unwrap(), b"first".to_vec());
 }
 
 #[tokio::test]
 async fn a_relay_whose_consumer_is_gone_is_finished() {
-  let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
+  let (tx, rx) = mpsc::channel::<bytes::Bytes>(1);
   drop(rx);
-  assert!(!deliver_to_relay(&tx, "TCP", "s1", b"x".to_vec()).await);
+  assert!(!deliver_to_relay(&tx, "TCP", "s1", b"x".to_vec().into()).await);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1219,8 +1221,8 @@ async fn a_relay_consumer_that_is_merely_slow_keeps_its_stream() {
   // The regression this covers: `try_send` alone dropped a lossless stream the
   // moment its buffer filled, so a large file over a tunneled socket died on a
   // burst its backend would have absorbed a moment later.
-  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1);
-  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec()).await); // fills it
+  let (tx, mut rx) = mpsc::channel::<bytes::Bytes>(1);
+  assert!(deliver_to_relay(&tx, "TCP", "s1", b"first".to_vec().into()).await); // fills it
 
   let reader = tokio::spawn(async move {
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1234,7 +1236,7 @@ async fn a_relay_consumer_that_is_merely_slow_keeps_its_stream() {
     seen
   });
   assert!(
-    deliver_to_relay(&tx, "TCP", "s1", b"second".to_vec()).await,
+    deliver_to_relay(&tx, "TCP", "s1", b"second".to_vec().into()).await,
     "a consumer that catches up inside the budget keeps its stream"
   );
   assert_eq!(reader.await.unwrap().len(), 2);
@@ -1242,11 +1244,11 @@ async fn a_relay_consumer_that_is_merely_slow_keeps_its_stream() {
 
 #[tokio::test(start_paused = true)]
 async fn a_relay_consumer_that_stops_reading_loses_its_stream_not_the_tunnel() {
-  let (tx, _rx) = mpsc::channel::<Vec<u8>>(1);
-  assert!(deliver_to_relay(&tx, "WebSocket", "s1", b"first".to_vec()).await);
+  let (tx, _rx) = mpsc::channel::<bytes::Bytes>(1);
+  assert!(deliver_to_relay(&tx, "WebSocket", "s1", b"first".to_vec().into()).await);
 
   let start = tokio::time::Instant::now();
-  let alive = deliver_to_relay(&tx, "WebSocket", "s1", b"second".to_vec()).await;
+  let alive = deliver_to_relay(&tx, "WebSocket", "s1", b"second".to_vec().into()).await;
   let waited = start.elapsed();
 
   assert!(!alive, "the stalled stream is finished");

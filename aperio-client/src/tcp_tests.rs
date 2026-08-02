@@ -66,8 +66,14 @@ async fn responder_ws_port() -> u16 {
     let hs = crate::e2e::Handshake::new(crate::e2e::Role::Responder, None);
     // A leading non-binary frame makes the peer's handshake-wait loop skip a
     // non-binary message before the real handshake frame.
-    let _ = ws.send(Message::Text("pre-handshake".to_string())).await;
-    if ws.send(Message::Binary(hs.frame.clone())).await.is_err() {
+    let _ = ws
+      .send(Message::Text("pre-handshake".to_string().into()))
+      .await;
+    if ws
+      .send(Message::Binary(hs.frame.clone().into()))
+      .await
+      .is_err()
+    {
       return;
     }
     let Some(session) = hs.complete(&init_frame) else {
@@ -82,7 +88,7 @@ async fn responder_ws_port() -> u16 {
           let Some(out) = sealer.seal(&plain) else {
             break;
           };
-          if ws.send(Message::Binary(out)).await.is_err() {
+          if ws.send(Message::Binary(out.into())).await.is_err() {
             break;
           }
         }
@@ -107,7 +113,7 @@ async fn bad_handshake_ws_port() -> u16 {
       loop {
         match ws.next().await {
           Some(Ok(Message::Binary(_))) => {
-            let _ = ws.send(Message::Binary(vec![0u8; 10])).await;
+            let _ = ws.send(Message::Binary(vec![0u8; 10].into())).await;
             break;
           }
           Some(Ok(_)) => continue,
@@ -192,7 +198,7 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
 /// A registered stream handle whose channels are unrelated to the ones driven
 /// by the test, it exists only so the module's `remove()` has an entry.
 fn dummy_handle() -> TcpStreamHandle {
-  let (tx, _rx) = mpsc::channel::<Vec<u8>>(1);
+  let (tx, _rx) = mpsc::channel::<bytes::Bytes>(1);
   let (abort_tx, _abort_rx) = mpsc::channel::<()>(1);
   TcpStreamHandle { tx, abort_tx }
 }
@@ -204,7 +210,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
   let target = format!("127.0.0.1:{}", port);
 
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(64);
   active.lock().await.insert("t1".to_string(), dummy_handle());
@@ -225,7 +231,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
   ));
 
   // tunnel -> backend -> echoed back -> relayed out as base64 TcpData.
-  bytes_tx.send(b"hello".to_vec()).await.unwrap();
+  bytes_tx.send(b"hello".to_vec().into()).await.unwrap();
   match next_tunnel_msg(&mut tun_rx).await {
     TunnelMessage::TcpData { stream_id, data } => {
       assert_eq!(stream_id, "t1");
@@ -256,7 +262,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
 async fn test_handle_tcp_open_connect_fails() {
   init_tracing();
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (_bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(1);
+  let (_bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(1);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(8);
   active.lock().await.insert("t2".to_string(), dummy_handle());
@@ -290,7 +296,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
   let target = format!("127.0.0.1:{}", port);
 
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(16);
   active.lock().await.insert("e1".to_string(), dummy_handle());
@@ -310,7 +316,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
 
   // Drive the initiator side of the handshake.
   let hs = crate::e2e::Handshake::new(crate::e2e::Role::Initiator, None);
-  bytes_tx.send(hs.frame.clone()).await.unwrap();
+  bytes_tx.send(hs.frame.clone().into()).await.unwrap();
   let resp_frame = match next_tunnel_msg(&mut tun_rx).await {
     TunnelMessage::TcpData { data, .. } => BASE64_STANDARD.decode(data).unwrap(),
     other => panic!("expected responder handshake, got {:?}", other),
@@ -321,7 +327,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
 
   // Sealed payload -> responder opens -> backend echoes -> responder seals.
   let sealed = sealer.seal(b"ping").unwrap();
-  bytes_tx.send(sealed).await.unwrap();
+  bytes_tx.send(sealed.into()).await.unwrap();
   let ciphertext = match next_tunnel_msg(&mut tun_rx).await {
     TunnelMessage::TcpData { data, .. } => BASE64_STANDARD.decode(data).unwrap(),
     other => panic!("expected sealed echo, got {:?}", other),
@@ -337,7 +343,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
 async fn test_handle_tcp_open_e2e_handshake_fails() {
   init_tracing();
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(2);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(2);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(8);
   active.lock().await.insert("e2".to_string(), dummy_handle());
@@ -357,7 +363,7 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
 
   // A bogus peer frame fails handshake completion -> TcpClose + cleanup,
   // before any connect to the target is attempted.
-  bytes_tx.send(vec![9u8; 36]).await.unwrap();
+  bytes_tx.send(vec![9u8; 36].into()).await.unwrap();
   let mut saw_close = false;
   for _ in 0..4 {
     if matches!(
@@ -530,7 +536,11 @@ async fn tamper_responder_ws_port() -> u16 {
       }
     };
     let hs = crate::e2e::Handshake::new(crate::e2e::Role::Responder, None);
-    if ws.send(Message::Binary(hs.frame.clone())).await.is_err() {
+    if ws
+      .send(Message::Binary(hs.frame.clone().into()))
+      .await
+      .is_err()
+    {
       return;
     }
     if hs.complete(&init_frame).is_none() {
@@ -540,7 +550,7 @@ async fn tamper_responder_ws_port() -> u16 {
     // cannot be opened.
     while let Some(Ok(msg)) = ws.next().await {
       if let Message::Binary(_) = msg {
-        let _ = ws.send(Message::Binary(vec![0u8; 40])).await;
+        let _ = ws.send(Message::Binary(vec![0u8; 40].into())).await;
         break;
       }
     }
@@ -558,7 +568,9 @@ async fn text_then_close_ws_port() -> u16 {
     if let Ok((stream, _)) = listener.accept().await
       && let Ok(mut ws) = accept_async(stream).await
     {
-      let _ = ws.send(Message::Text("non-binary".to_string())).await;
+      let _ = ws
+        .send(Message::Text("non-binary".to_string().into()))
+        .await;
       let _ = ws.send(Message::Close(None)).await;
       while ws.next().await.is_some() {}
     }
@@ -681,7 +693,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
   let target = format!("127.0.0.1:{}", port);
 
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(16);
   active.lock().await.insert("ed".to_string(), dummy_handle());
@@ -701,7 +713,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
 
   // Complete the handshake as the initiator.
   let hs = crate::e2e::Handshake::new(crate::e2e::Role::Initiator, None);
-  bytes_tx.send(hs.frame.clone()).await.unwrap();
+  bytes_tx.send(hs.frame.clone().into()).await.unwrap();
   let resp_frame = match next_tunnel_msg(&mut tun_rx).await {
     TunnelMessage::TcpData { data, .. } => BASE64_STANDARD.decode(data).unwrap(),
     other => panic!("expected responder handshake, got {:?}", other),
@@ -710,7 +722,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
 
   // Feed a frame the opener cannot decrypt -> the tunnel->backend task fails
   // closed and tears the stream down.
-  bytes_tx.send(vec![0u8; 40]).await.unwrap();
+  bytes_tx.send(vec![0u8; 40].into()).await.unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
   assert!(active.lock().await.is_empty());
   drop(bytes_tx);
@@ -723,7 +735,7 @@ async fn test_handle_tcp_open_up_task_send_failure() {
   let target = format!("127.0.0.1:{}", port);
 
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, tun_rx) = mpsc::channel::<Message>(16);
   // Drop the tunnel receiver: when the backend echoes, the backend->tunnel
@@ -744,7 +756,7 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     6,
   ));
 
-  bytes_tx.send(b"echo-me".to_vec()).await.unwrap();
+  bytes_tx.send(b"echo-me".to_vec().into()).await.unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
   assert!(active.lock().await.is_empty());
   drop(bytes_tx);
@@ -760,7 +772,7 @@ async fn a_v7_server_gets_the_relay_bytes_raw() {
   let target = format!("127.0.0.1:{}", port);
 
   let active: Arc<Mutex<HashMap<String, TcpStreamHandle>>> = Arc::new(Mutex::new(HashMap::new()));
-  let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>(8);
+  let (bytes_tx, bytes_rx) = mpsc::channel::<bytes::Bytes>(8);
   let (_abort_tx, abort_rx) = mpsc::channel::<()>(1);
   let (tun_tx, mut tun_rx) = mpsc::channel::<Message>(64);
   active.lock().await.insert("t7".to_string(), dummy_handle());
@@ -778,7 +790,7 @@ async fn a_v7_server_gets_the_relay_bytes_raw() {
     7,
   ));
 
-  bytes_tx.send(b"hello".to_vec()).await.unwrap();
+  bytes_tx.send(b"hello".to_vec().into()).await.unwrap();
   let frame = tokio::time::timeout(Duration::from_secs(2), tun_rx.recv())
     .await
     .expect("timed out waiting for the relay frame")

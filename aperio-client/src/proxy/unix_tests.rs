@@ -270,9 +270,9 @@ async fn test_unix_echo_body() {
 async fn test_unix_echo_streamed_request_body() {
   let sock = start_unix_backend().await;
   let ctx = base_ctx(&sock, drained_tx());
-  let (btx, brx) = mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
-  btx.send(Ok(b"aaa".to_vec())).await.unwrap();
-  btx.send(Ok(b"bbb".to_vec())).await.unwrap();
+  let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
+  btx.send(Ok(b"aaa".to_vec().into())).await.unwrap();
+  btx.send(Ok(b"bbb".to_vec().into())).await.unwrap();
   drop(btx);
   let result = handle_incoming_request_unix(&ctx, req("u-sreq", "POST", "/echo"), Some(brx), false)
     .await

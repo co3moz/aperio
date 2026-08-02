@@ -790,14 +790,14 @@ recorded in Withdrawn under #84 so they are not proposed again.
   file, and a depth cap so a cycle cannot hang startup. The hot reload watcher
   has to watch every included file, not just the root one. shipped: merged at the yaml level (keys replace, sequences of mappings concatenate), paths relative to the including file, five-deep cap, cycles reported. The hot-reload watcher tracks every contributing file and re-reads the set on each change, so adding an include is noticed.
 
-- [ ] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
+- [x] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
   #23 did this on the server: chunk payloads travel as refcounted slices of the
   WebSocket message instead of copies. The client's read loop still calls
   `payload.to_vec()` five times (`service.rs:1175-1205`, request chunks, TCP,
   UDP, WS frames and the full-response body). The blocker is that
   tokio-tungstenite 0.23 hands out `Vec<u8>` rather than `Bytes`, so this needs
   the dependency upgrade first, which is why it is not simply the mirror of a
-  change already made.
+  change already made. shipped: tokio-tungstenite 0.23 to 0.29, which also removed the second copy of the WebSocket stack the workspace was compiling (axum already pulled 0.29). Relay, datagram, proxied-WS and request-body chunks are now slices of the arriving frame; the binder's own local-socket channels stay `Vec<u8>`, since those datagrams are built rather than received.
 
 - [ ] **#43 Shadow traffic to a second backend.** (triage 45) Send a copy of a
   route's requests to a staging service and discard its answer, so a new

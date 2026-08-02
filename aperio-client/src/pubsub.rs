@@ -151,7 +151,7 @@ impl MessageBus {
     };
     let writers: Vec<_> = self.writers.lock().await.clone();
     for (_, tx) in writers {
-      let _ = tx.send(Message::Text(json.clone())).await;
+      let _ = tx.send(Message::Text(json.clone().into())).await;
     }
     debug!("Dropped topic filter '{filter}': no local subscriber holds it");
   }
@@ -182,7 +182,7 @@ impl MessageBus {
     }
     if let Ok(json) = serde_json::to_string(&TunnelMessage::Subscribe {
       topics: topics.clone(),
-    }) && tx.send(Message::Text(json)).await.is_ok()
+    }) && tx.send(Message::Text(json.into())).await.is_ok()
     {
       debug!(
         "Subscribed to {} topic filter(s): {}",
@@ -233,7 +233,7 @@ impl MessageBus {
     };
     let writers: Vec<_> = self.writers.lock().await.clone();
     for (_, tx) in writers {
-      if tx.send(Message::Text(json.clone())).await.is_ok() {
+      if tx.send(Message::Text(json.clone().into())).await.is_ok() {
         return;
       }
     }
@@ -285,7 +285,7 @@ impl MessageBus {
       return Err("no tunnel connection is up to publish on".to_string());
     }
     for (label, tx) in writers {
-      if tx.send(Message::Text(json.clone())).await.is_ok() {
+      if tx.send(Message::Text(json.clone().into())).await.is_ok() {
         return Ok(());
       }
       warn!("Connection '{label}' would not take a publish; trying the next");
