@@ -73,6 +73,20 @@ Every proxied request is emitted as a structured `aperio_access` tracing event o
 
 Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
 
+**Searching it.** The recent-200 view answers "what just happened"; a log that is hash-chained and retained by policy also has to answer "what did this user do last Tuesday", which is past the end of that ring. `GET /aperio/api/audit` takes filters, and any filter switches it from the ring to a search of the durable log itself, the active file plus every rotated generation:
+
+| Parameter | Meaning |
+| --- | --- |
+| `event` | Exact event kind, e.g. `login_success` |
+| `actor` | Exact acting user |
+| `q` | Case-insensitive substring of the details, the event kind or the actor |
+| `from`, `to` | Inclusive bounds, either unix seconds or `YYYY-MM-DD` (UTC; `to` covers the whole day) |
+| `limit` | Maximum events returned, default 200, capped at 5000 |
+
+Results come back newest first. `GET /aperio/api/export/audit.csv` takes exactly the same parameters and returns the matching rows as CSV (default limit 5000, capped at 50000), for the auditor who wants them in a spreadsheet. The dashboard's *Audit Log* section exposes both: filter fields, and an export button that carries the current filter.
+
+The organization fence is applied around the search, never inside it: filters can only narrow what a caller may already see, and a filtered request from a child-org user cannot reach another organization's events.
+
 ## Webhooks
 
 Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). Where an [outbound policy](threat-model.md) is configured, a URL it does not permit is rejected at creation with the reason rather than failing quietly later. A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:

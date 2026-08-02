@@ -2838,7 +2838,9 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio} & Admin dashboard. & dashboard session \\
 \rowsep
-\code{GET /aperio/api/stats}, \code{/api/logs}, \code{/api/audit} & Live stats, request log, audit events. & dashboard session \\
+\code{GET /aperio/api/stats}, \code{/api/logs}, \code{/api/audit} & Live stats, request log, audit events. \code{/api/audit} takes \code{event}, \code{actor}, \code{q}, \code{from}, \code{to} and \code{limit}; any of them searches the durable log (active file plus rotated generations) instead of the recent ring, newest first. & dashboard session \\
+\rowsep
+\code{GET /aperio/api/export/audit.csv} & The same audit query as CSV, from the durable log, with a download filename. The organization fence is applied around the search, so a filter can only narrow what the caller may already see. & dashboard session \\
 \rowsep
 \code{GET/POST /aperio/api/tokens}, \code{PUT/DELETE /aperio/api/tokens/:id} & Dynamic token management. & dashboard session \\
 \rowsep

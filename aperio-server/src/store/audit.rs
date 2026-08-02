@@ -11,6 +11,71 @@ const AUDIT_RECENT_CAP: usize = 200;
 /// `prev` value of the first event in a brand-new log (no predecessor).
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
+/// The predicates an audit search may carry. All optional, combined with AND.
+///
+/// Deliberately not here: the organization. That fence is applied by the
+/// caller around this filter, so a search can never widen what a caller may
+/// see, only narrow it.
+#[derive(Default, Clone)]
+pub struct AuditFilter {
+  /// Exact event kind (`login_success`, `token_created`, ...).
+  pub event: Option<String>,
+  /// Exact actor name.
+  pub actor: Option<String>,
+  /// Case-insensitive substring of the details field.
+  pub contains: Option<String>,
+  /// Inclusive lower bound, unix seconds.
+  pub from_ts: Option<u64>,
+  /// Inclusive upper bound, unix seconds.
+  pub to_ts: Option<u64>,
+}
+
+impl AuditFilter {
+  /// True when nothing is constrained, so the caller can keep using the
+  /// in-memory ring instead of reading files for the default view.
+  pub fn is_empty(&self) -> bool {
+    self.event.is_none()
+      && self.actor.is_none()
+      && self.contains.is_none()
+      && self.from_ts.is_none()
+      && self.to_ts.is_none()
+  }
+
+  /// True when an event satisfies every set predicate.
+  pub fn matches(&self, ev: &AuditEvent) -> bool {
+    if let Some(ref kind) = self.event
+      && &ev.event != kind
+    {
+      return false;
+    }
+    if let Some(ref actor) = self.actor
+      && &ev.actor != actor
+    {
+      return false;
+    }
+    if let Some(ref needle) = self.contains {
+      let needle = needle.to_lowercase();
+      if !ev.details.to_lowercase().contains(&needle)
+        && !ev.event.to_lowercase().contains(&needle)
+        && !ev.actor.to_lowercase().contains(&needle)
+      {
+        return false;
+      }
+    }
+    if let Some(from) = self.from_ts
+      && ev.ts < from
+    {
+      return false;
+    }
+    if let Some(to) = self.to_ts
+      && ev.ts > to
+    {
+      return false;
+    }
+    true
+  }
+}
+
 /// A single administrative/security event.
 #[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct AuditEvent {
@@ -227,6 +292,56 @@ impl AuditLog {
   /// Recent events, oldest first.
   pub fn recent(&self) -> Vec<AuditEvent> {
     self.recent.iter().cloned().collect()
+  }
+
+  /// Searches the whole retained log, not just the in-memory tail: the active
+  /// file plus every rotated generation, newest event first, capped at
+  /// `limit`.
+  ///
+  /// `recent()` answers "what just happened" from a 200-entry ring and is what
+  /// the unfiltered dashboard view uses. This answers "what did this user do
+  /// last Tuesday", which is the question a hash-chained, retention-governed
+  /// log exists to answer and which the ring cannot reach. It reads from disk,
+  /// so it is for an operator's query rather than for a polling view.
+  ///
+  /// Every predicate is optional and they combine with AND. `org` is applied
+  /// by the caller *before* this, never here: organization isolation is not a
+  /// search filter.
+  pub fn search(&self, filter: &AuditFilter, limit: usize) -> Vec<AuditEvent> {
+    let mut out: Vec<AuditEvent> = Vec::new();
+    // Newest first means the active file first, then generations in
+    // increasing age. Each file is read fully but only matching lines are
+    // kept, and the walk stops as soon as the cap is reached.
+    let mut paths = vec![self.path.clone()];
+    let mut n = 1usize;
+    loop {
+      let gen_path = PathBuf::from(format!("{}.{}", self.path.display(), n));
+      if !gen_path.exists() {
+        break;
+      }
+      paths.push(gen_path);
+      n += 1;
+    }
+    for path in paths {
+      if out.len() >= limit {
+        break;
+      }
+      let Ok(raw) = std::fs::read_to_string(&path) else {
+        continue;
+      };
+      for line in raw.lines().rev() {
+        if out.len() >= limit {
+          break;
+        }
+        let Ok(ev) = serde_json::from_str::<AuditEvent>(line) else {
+          continue;
+        };
+        if filter.matches(&ev) {
+          out.push(ev);
+        }
+      }
+    }
+    out
   }
 
   /// Verifies the tamper-evident hash chain across the active file and every

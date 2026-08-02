@@ -1425,6 +1425,10 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
         axum::routing::post(request_replay_handler),
       )
       .route("/api/audit", get(audit_handler))
+      .route(
+        "/api/export/audit.csv",
+        get(crate::api::webhooks::audit_csv_handler),
+      )
       .route("/api/audit/verify", get(audit_verify_handler))
       .route(
         "/api/self-health",

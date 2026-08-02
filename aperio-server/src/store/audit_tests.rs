@@ -385,3 +385,127 @@ fn test_verify_reports_clean_and_tampered() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- search (planned_features #28) ------------------------------------------
+
+#[test]
+fn search_reaches_past_the_recent_ring_and_across_rotations() {
+  let (dir, dir_str) = temp_dir();
+  // More events than the 200-entry ring holds, so the needle is only
+  // reachable from the files, and a rotation threshold that produces several
+  // generations while keeping enough of them that retention is not what the
+  // search is fighting.
+  let mut log = AuditLog::load(&dir_str, 20_000, 20);
+  for i in 0..300 {
+    log.record("noise", "tester", "1.2.3.4", None, &format!("i={i}"));
+  }
+  log.record(
+    "token_created",
+    "alice",
+    "10.0.0.1",
+    None,
+    "name=deploy-key",
+  );
+  for i in 0..300 {
+    log.record("noise", "tester", "1.2.3.4", None, &format!("j={i}"));
+  }
+
+  let by_event = log.search(
+    &AuditFilter {
+      event: Some("token_created".into()),
+      ..Default::default()
+    },
+    50,
+  );
+  assert_eq!(
+    by_event.len(),
+    1,
+    "the needle is found despite the ring cap"
+  );
+  assert_eq!(by_event[0].actor, "alice");
+
+  let by_actor = log.search(
+    &AuditFilter {
+      actor: Some("alice".into()),
+      ..Default::default()
+    },
+    50,
+  );
+  assert_eq!(by_actor.len(), 1);
+
+  // A substring search covers the details, and is case-insensitive.
+  let by_text = log.search(
+    &AuditFilter {
+      contains: Some("DEPLOY-KEY".into()),
+      ..Default::default()
+    },
+    50,
+  );
+  assert_eq!(by_text.len(), 1);
+
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn search_respects_the_limit_and_returns_newest_first() {
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 0, 0);
+  for i in 0..20 {
+    log.record("thing", "tester", "1.2.3.4", None, &format!("n={i}"));
+  }
+  let found = log.search(&AuditFilter::default(), 5);
+  assert_eq!(found.len(), 5, "the cap is honored");
+  assert_eq!(
+    found[0].details, "n=19",
+    "the newest event comes first, which is what a log reader expects"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_time_range_is_inclusive_on_both_ends() {
+  let (dir, dir_str) = temp_dir();
+  let mut log = AuditLog::load(&dir_str, 0, 0);
+  log.record("a", "tester", "1.2.3.4", None, "one");
+  let ts = log.recent()[0].ts;
+
+  // The event's own second is inside a range that starts and ends on it.
+  assert_eq!(
+    log
+      .search(
+        &AuditFilter {
+          from_ts: Some(ts),
+          to_ts: Some(ts),
+          ..Default::default()
+        },
+        10
+      )
+      .len(),
+    1
+  );
+  // One second past the end excludes it.
+  assert!(
+    log
+      .search(
+        &AuditFilter {
+          from_ts: Some(ts + 1),
+          ..Default::default()
+        },
+        10
+      )
+      .is_empty()
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_empty_filter_reports_itself_empty_so_the_ring_can_be_used() {
+  assert!(AuditFilter::default().is_empty());
+  assert!(
+    !AuditFilter {
+      event: Some("x".into()),
+      ..Default::default()
+    }
+    .is_empty()
+  );
+}

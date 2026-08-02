@@ -759,6 +759,31 @@ assert_contains "$AUDIT" 'webhook_created' "audit log records the webhook creati
 assert_contains "$AUDIT" '"actor":"aperio"' "audit records the acting dashboard user"
 assert_contains "$AUDIT" '"actor":"system"' "system events are attributed to system"
 
+# Filtering searches the durable log rather than the recent ring, so the
+# filtered answer must contain the asked-for kind and nothing else.
+FILTERED="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit?event=webhook_created")"
+assert_contains "$FILTERED" 'webhook_created' "an event filter finds its own kind"
+if echo "$FILTERED" | grep -q 'client_connected'; then
+  fail "the event filter returned an event of another kind"
+fi
+echo "  ok: an event filter narrows the audit log to one kind"
+# A substring search covers the details field.
+QUERIED="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit?q=webhook")"
+assert_contains "$QUERIED" 'webhook' "a substring search matches the details"
+# A range in the future is empty rather than unfiltered: the filter is really
+# applied, not silently dropped when it excludes everything.
+FUTURE="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit?from=2999-01-01")"
+[ "$(echo "$FUTURE" | tr -d ' \n')" = "[]" ] \
+  || fail "a future-dated range should match nothing, got: $FUTURE"
+echo "  ok: a time range that excludes everything returns nothing"
+# The CSV export answers the same query with a header row and a download name.
+CSV_HEAD="$(curl -s -D - -o /dev/null -b "$COOKIES" "$BASE/aperio/api/export/audit.csv?event=webhook_created")"
+assert_contains "$CSV_HEAD" 'text/csv' "the audit export is served as CSV"
+assert_contains "$CSV_HEAD" 'aperio-audit.csv' "the audit export carries a download filename"
+CSV="$(curl -s -b "$COOKIES" "$BASE/aperio/api/export/audit.csv?event=webhook_created")"
+assert_contains "$CSV" 'timestamp,ts,event,actor,actor_ip,org,details' "the CSV has its header row"
+assert_contains "$CSV" 'webhook_created' "the CSV export honors the same filter"
+
 step "OpenAPI spec"
 SPEC="$(curl -s -b "$COOKIES" "$BASE/aperio/api/openapi.json")"
 assert_contains "$SPEC" '"openapi"' "openapi document is served"

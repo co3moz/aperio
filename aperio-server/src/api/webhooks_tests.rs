@@ -61,7 +61,12 @@ async fn audit_handler_returns_org_scoped_events() {
     );
   }
   let headers = admin_headers(&state).await; // master org (None)
-  let resp = audit_handler(State(state.clone()), headers).await;
+  let resp = audit_handler(
+    State(state.clone()),
+    headers,
+    axum::extract::Query(Default::default()),
+  )
+  .await;
   let events = resp.0;
   assert_eq!(events.len(), 1);
   assert_eq!(events[0].details, "master event");

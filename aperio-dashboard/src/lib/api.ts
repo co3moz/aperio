@@ -349,6 +349,31 @@ export interface AuditEvent {
   details: string
 }
 
+/** Search predicates for the audit log; every field is optional and they
+ *  combine with AND. Dates are `YYYY-MM-DD` (UTC), `to` covering the whole
+ *  day. An empty filter asks for the recent ring rather than a log search. */
+export interface AuditFilter {
+  q?: string
+  event?: string
+  actor?: string
+  from?: string
+  to?: string
+  limit?: number
+}
+
+/** Renders a filter as a query string, dropping blank fields so an untouched
+ *  form still asks the cheap, unfiltered question. */
+export function auditQuery(filter?: AuditFilter): string {
+  if (!filter) return ''
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filter)) {
+    const v = typeof value === 'number' ? String(value) : value?.trim()
+    if (v) params.set(key, v)
+  }
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
 /** Dashboard-editable server settings (see SettingsOverrides in the server). */
 export type SettingsValues = Record<string, string | number | boolean | null>
 
@@ -777,7 +802,7 @@ export const api = {
   webhookDeliveries: () => request<WebhookDelivery[]>('/webhooks/deliveries'),
   redeliverWebhook: (id: string) =>
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
-  audit: () => request<AuditEvent[]>('/audit'),
+  audit: (filter?: AuditFilter) => request<AuditEvent[]>(`/audit${auditQuery(filter)}`),
   activity: () => request<ActivitySeries>('/activity'),
   maintenance: () => request<MaintenanceEntry[]>('/maintenance'),
   explain: (hostname: string) =>
