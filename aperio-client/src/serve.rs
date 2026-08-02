@@ -153,40 +153,126 @@ async fn handle(
       if let Ok(meta) = tokio::fs::metadata(&path).await
         && meta.is_file()
       {
-        return Response::builder()
+        let etag = file_etag(&meta);
+        let inm = req
+          .headers()
+          .get("if-none-match")
+          .and_then(|v| v.to_str().ok());
+        if let Some(ref tag) = etag
+          && if_none_match_hits(inm, tag)
+        {
+          return not_modified(tag);
+        }
+        let mut builder = Response::builder()
           .status(StatusCode::OK)
           .header("content-type", mime())
           .header("content-length", meta.len())
-          .header("accept-ranges", "bytes")
-          .body(buffered(Bytes::new()))
-          .unwrap_or_default();
+          .header("accept-ranges", "bytes");
+        if let Some(ref tag) = etag {
+          builder = builder.header("etag", tag);
+        }
+        return builder.body(buffered(Bytes::new())).unwrap_or_default();
       }
     } else if let Ok(file) = tokio::fs::File::open(&path).await
       && let Ok(meta) = file.metadata().await
       && meta.is_file()
     {
-      return serve_file(file, meta.len(), &mime(), req).await;
+      let etag = file_etag(&meta);
+      let inm = req
+        .headers()
+        .get("if-none-match")
+        .and_then(|v| v.to_str().ok());
+      if let Some(ref tag) = etag
+        && if_none_match_hits(inm, tag)
+      {
+        // The file is already in the visitor's cache: answer without opening
+        // the tunnel to its bytes at all.
+        return not_modified(tag);
+      }
+      return serve_file(file, meta.len(), &mime(), etag, req).await;
     }
   }
   not_found(root, opts, req, head_only).await
 }
 
+/// A validator for a file, from its size and modification time
+/// (planned_features #50).
+///
+/// The shape nginx uses, and for the same reason: the server has no content
+/// hash to hand and computing one per request would cost more than the
+/// transfer it saves. Size and mtime together change whenever the file does
+/// in any way anyone edits a file, so it is emitted as a *strong* validator,
+/// which is also what lets `If-Range` resume a download rather than restart
+/// it. The failure it cannot see, an edit that preserves both size and
+/// mtime, needs deliberate effort to produce.
+fn file_etag(meta: &std::fs::Metadata) -> Option<String> {
+  let modified = meta
+    .modified()
+    .ok()?
+    .duration_since(std::time::UNIX_EPOCH)
+    .ok()?;
+  Some(format!("\"{:x}-{:x}\"", modified.as_secs(), meta.len()))
+}
+
+/// True when `If-None-Match` covers this entity, so the answer is `304`.
+///
+/// `*` matches anything that exists. Otherwise the header is a list, and a
+/// weak comparison is the right one here: the RFC asks for weak comparison on
+/// `If-None-Match`, so `W/"x"` and `"x"` are the same entity for the purpose
+/// of "have I already got this".
+fn if_none_match_hits(header: Option<&str>, etag: &str) -> bool {
+  let Some(raw) = header else { return false };
+  let raw = raw.trim();
+  if raw == "*" {
+    return true;
+  }
+  raw.split(',').any(|candidate| {
+    let candidate = candidate.trim();
+    let candidate = candidate.strip_prefix("W/").unwrap_or(candidate);
+    candidate == etag
+  })
+}
+
+/// The `304` answer: the validator, and nothing else. A body would defeat the
+/// point, and `Content-Length` on a 304 misleads caches about what they hold.
+fn not_modified(etag: &str) -> Response<ServeBody> {
+  Response::builder()
+    .status(StatusCode::NOT_MODIFIED)
+    .header("etag", etag)
+    .body(buffered(Bytes::new()))
+    .unwrap_or_default()
+}
+
 /// Streams an opened file, honoring a single-range `Range` header (video
 /// scrubbing, resumable downloads): `206 Partial Content` with a
 /// `Content-Range`, or `416` when the range is unsatisfiable. Multi-range
-/// requests, malformed values, and requests carrying `If-Range` (this server
-/// emits no validators to match it against) fall back to the full `200`.
+/// requests and malformed values fall back to the full `200`.
+///
+/// `If-Range` is now honored rather than declined: the server emits a strong
+/// validator, so a resumed download whose file has not changed continues
+/// instead of starting over, and one whose file *has* changed gets the whole
+/// new file rather than a splice of two versions.
 async fn serve_file(
   mut file: tokio::fs::File,
   len: u64,
   mime: &str,
+  etag: Option<String>,
   req: &Request<hyper::body::Incoming>,
 ) -> Response<ServeBody> {
+  let if_range = req.headers().get("if-range").and_then(|v| v.to_str().ok());
+  let range_usable = match (if_range, etag.as_deref()) {
+    // No If-Range: an ordinary range request.
+    (None, _) => true,
+    // If-Range against our validator: continue only when they agree.
+    (Some(given), Some(tag)) => given.trim() == tag,
+    // A conditional range with nothing to compare it against.
+    (Some(_), None) => false,
+  };
   let range_header = req
     .headers()
     .get("range")
     .and_then(|v| v.to_str().ok())
-    .filter(|_| !req.headers().contains_key("if-range"));
+    .filter(|_| range_usable);
   if let Some(raw) = range_header {
     match parse_range(raw, len) {
       RangeOutcome::Satisfiable(start, end) => {
@@ -194,14 +280,16 @@ async fn serve_file(
           return simple(StatusCode::INTERNAL_SERVER_ERROR, "seek failed");
         }
         let span = end - start + 1;
-        return Response::builder()
+        let mut builder = Response::builder()
           .status(StatusCode::PARTIAL_CONTENT)
           .header("content-type", mime)
           .header("content-length", span)
           .header("content-range", format!("bytes {}-{}/{}", start, end, len))
-          .header("accept-ranges", "bytes")
-          .body(file_stream(file, span))
-          .unwrap_or_default();
+          .header("accept-ranges", "bytes");
+        if let Some(ref tag) = etag {
+          builder = builder.header("etag", tag);
+        }
+        return builder.body(file_stream(file, span)).unwrap_or_default();
       }
       RangeOutcome::Unsatisfiable => {
         return Response::builder()
@@ -213,13 +301,15 @@ async fn serve_file(
       RangeOutcome::Ignore => {}
     }
   }
-  Response::builder()
+  let mut builder = Response::builder()
     .status(StatusCode::OK)
     .header("content-type", mime)
     .header("content-length", len)
-    .header("accept-ranges", "bytes")
-    .body(file_stream(file, len))
-    .unwrap_or_default()
+    .header("accept-ranges", "bytes");
+  if let Some(ref tag) = etag {
+    builder = builder.header("etag", tag);
+  }
+  builder.body(file_stream(file, len)).unwrap_or_default()
 }
 
 /// What to do with a `Range` header value against a body of `len` bytes.

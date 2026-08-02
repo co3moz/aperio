@@ -57,9 +57,23 @@ Range: bytes=8-99     → 206, the end is clamped to the file
 Range: bytes=99-      → 416, Content-Range: bytes */10
 ```
 
-Three cases are deliberately served as a full `200` instead, which the HTTP spec permits for any `Range` a server chooses not to honor: **multi-range** requests (`bytes=0-1,4-5`), malformed values, and any request carrying **`If-Range`**. The last one is a correctness decision rather than a limitation: this server emits no `ETag` or `Last-Modified`, so it has no validator to compare an `If-Range` against, and guessing would risk splicing together a file that changed mid-download.
+Two cases are deliberately served as a full `200` instead, which the HTTP spec permits for any `Range` a server chooses not to honor: **multi-range** requests (`bytes=0-1,4-5`) and malformed values.
 
-If a [cached](caching.md) entry covers the URL, the server answers the range at the edge from the stored body instead, without traversing the tunnel at all. That path *does* honor `If-Range`, because a cached entry carries a validator.
+**`If-Range` is honored**, because responses now carry a validator (see below): a resumed download whose file has not changed continues from where it stopped, and one whose file *has* changed gets the whole new file rather than a splice of two versions.
+
+If a [cached](caching.md) entry covers the URL, the server answers the range at the edge from the stored body instead, without traversing the tunnel at all.
+
+### Validators (`ETag`)
+
+Every response carries a strong `ETag` built from the file's size and modification time, the same shape nginx uses and for the same reason: there is no content hash to hand, and computing one per request would cost more than the transfer it saves.
+
+```
+GET /app.js                        → 200, ETag: "68a1f0-2f"
+GET /app.js  If-None-Match: "68a1f0-2f"  → 304, no body
+GET /app.js  If-None-Match: "stale"      → 200, the file
+```
+
+`HEAD` answers the same way, so a cache can revalidate with either method, and the comparison is weak as the RFC requires, so `W/"x"` and `"x"` are the same entity. The one thing the validator cannot see is an edit that leaves both size and modification time unchanged, which takes deliberate effort to produce.
 
 ## Missing files
 

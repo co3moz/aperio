@@ -158,11 +158,11 @@ readable without scrolling past what is already done.
   reason: the general shape is the feature, the two specific alerts are its
   first users. shipped: `alert_rules:` with one metric, one bound and a `for` window that applies to firing and resolving alike. Four metrics rather than an expression language, because the value is in being able to write the rule at all. An unreadable metric (rss on non-Linux) is reported at startup instead of firing on a zero.
 
-- [ ] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
+- [x] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
   already does single-range `206` responses, so the hard part of HTTP file
   serving is done, but it has no validator: every reload of an unchanged file
   ships the whole body again. An ETag from size and mtime, plus
-  `If-None-Match`, is a small amount of code next to what is already there.
+  `If-None-Match`, is a small amount of code next to what is already there. shipped: a strong validator from size and mtime (nginx's shape), `If-None-Match` compared weakly per the RFC, and `304` on GET and HEAD. Being strong is what also let `If-Range` start working: it used to be declined because there was no validator to compare against, so a resumed download always restarted.
 
 - [ ] **#51 Weighted routing and header-based canaries.** (triage 35) The load
   balancer picks between clients by priority tier and round robin, so "send 20

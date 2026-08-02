@@ -412,3 +412,108 @@ async fn a_symlink_out_of_the_root_is_still_refused_after_the_async_move() {
   let _ = std::fs::remove_file(&outside);
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+// --- validators (planned_features #50) --------------------------------------
+
+#[test]
+fn if_none_match_compares_weakly_and_understands_a_list() {
+  use super::if_none_match_hits;
+  let tag = "\"68a1-2f\"";
+  assert!(if_none_match_hits(Some(tag), tag));
+  assert!(
+    if_none_match_hits(Some("*"), tag),
+    "* matches anything that exists"
+  );
+  // The RFC asks for weak comparison here, so a weak form of our own tag is
+  // still "you already have this".
+  assert!(if_none_match_hits(Some("W/\"68a1-2f\""), tag));
+  // A list, as a browser revalidating several candidates sends it.
+  assert!(if_none_match_hits(Some("\"other\", \"68a1-2f\""), tag));
+  assert!(!if_none_match_hits(Some("\"other\""), tag));
+  assert!(!if_none_match_hits(None, tag), "no header is not a hit");
+  assert!(!if_none_match_hits(Some(""), tag));
+}
+
+#[tokio::test]
+async fn a_request_carrying_the_validator_gets_304_without_a_body() {
+  let (base, root) = spawn(ServeOptions::default()).await;
+  let client = reqwest::Client::new();
+
+  let first = client
+    .get(format!("{base}/assets/app.js"))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(first.status(), 200);
+  let etag = first.headers()["etag"].to_str().unwrap().to_string();
+
+  let second = client
+    .get(format!("{base}/assets/app.js"))
+    .header("if-none-match", &etag)
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(second.status(), 304);
+  assert_eq!(
+    second.headers()["etag"].to_str().unwrap(),
+    etag,
+    "the 304 repeats the validator it matched"
+  );
+  assert!(
+    second
+      .headers()
+      .get("content-length")
+      .is_none_or(|v| v == "0"),
+    "a 304 carries no body"
+  );
+
+  // A stale validator gets the file itself, not a 304.
+  let stale = client
+    .get(format!("{base}/assets/app.js"))
+    .header("if-none-match", "\"nope\"")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(stale.status(), 200);
+
+  // HEAD answers the same way, so a cache can revalidate either way.
+  let head = client
+    .head(format!("{base}/assets/app.js"))
+    .header("if-none-match", &etag)
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(head.status(), 304);
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[tokio::test]
+async fn if_range_continues_a_download_only_while_the_file_is_unchanged() {
+  let (base, root) = spawn(ServeOptions::default()).await;
+  let client = reqwest::Client::new();
+  std::fs::write(root.join("big.bin"), vec![b'x'; 100]).unwrap();
+
+  let head = client.get(format!("{base}/big.bin")).send().await.unwrap();
+  let etag = head.headers()["etag"].to_str().unwrap().to_string();
+
+  // Matching validator: the range is honored, so a resume continues.
+  let cont = client
+    .get(format!("{base}/big.bin"))
+    .header("range", "bytes=10-19")
+    .header("if-range", &etag)
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(cont.status(), 206);
+
+  // Stale validator: the whole file rather than a splice of two versions.
+  let restart = client
+    .get(format!("{base}/big.bin"))
+    .header("range", "bytes=10-19")
+    .header("if-range", "\"stale\"")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(restart.status(), 200);
+  std::fs::remove_dir_all(&root).unwrap();
+}
