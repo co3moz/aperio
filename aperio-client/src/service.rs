@@ -664,12 +664,19 @@ pub(crate) async fn run_service(
     spec.target_health.as_ref().map(|health_path| {
     let health_changed = health_changed.clone();
     let probed = backend_probed.clone();
-    let health_url = if health_path.starts_with("http://") || health_path.starts_with("https://") {
+    let absolute = health_path.starts_with("http://") || health_path.starts_with("https://");
+    // An h2c/h2 target speaks HTTP/2 with prior knowledge and routes by gRPC
+    // method name, so the plain GET below cannot reach it: the probe uses the
+    // standard `grpc.health.v1.Health/Check` RPC instead, and the configured
+    // value names the gRPC service to ask about (`/` = the server as a
+    // whole). An absolute URL still means "probe this over ordinary HTTP",
+    // which is the escape hatch for a backend exposing a health endpoint on a
+    // separate port.
+    let grpc_service = (!absolute && crate::proxy::h2::is_h2_target(&spec.target))
+      .then(|| health_path.trim_matches('/').to_string());
+    let health_url = if absolute {
       health_path.clone()
     } else {
-      // Health probes speak plain HTTP(S) even against h2c/h2 targets:
-      // reqwest negotiates the version; gRPC servers usually expose gRPC
-      // health checking elsewhere, so an explicit URL is recommended there.
       let base = spec
         .target
         .replacen("h2c://", "http://", 1)
@@ -680,6 +687,12 @@ pub(crate) async fn run_service(
         health_path.trim_start_matches('/')
       )
     };
+    // Built once, outside the loop, like the HTTP probe client.
+    let grpc_client = grpc_service
+      .is_some()
+      .then(|| crate::proxy::h2::build_h2_client(&spec.target))
+      .flatten();
+    let grpc_target = spec.target.clone();
     let flag = backend_healthy.clone();
     // Health checks never follow redirects: a 3xx to some other page must
     // not let a broken backend look healthy via the redirect target.
@@ -693,10 +706,17 @@ pub(crate) async fn run_service(
         reqwest::Client::new()
       });
     let (interval, threshold) = (spec.health_interval, spec.health_threshold);
+    let probe_timeout = Duration::from_secs(spec.health_timeout);
+    let what = match grpc_service.as_deref() {
+      Some("") => format!("gRPC health of {} (whole server)", grpc_target),
+      Some(svc) => format!("gRPC health of {} service {}", grpc_target, svc),
+      None => health_url.clone(),
+    };
     info!(
       "[{}] Backend health check: {} (every {}s, timeout {}s, threshold {})",
-      label, health_url, interval, spec.health_timeout, threshold
+      label, what, interval, spec.health_timeout, threshold
     );
+    let health_url_log = what;
     tokio::spawn(async move {
       let mut consecutive_failures: u32 = 0;
       let mut first_result = true;
@@ -706,10 +726,20 @@ pub(crate) async fn run_service(
       // client also starts out-of-routing (unhealthy) until this first probe
       // lands, so the very first success is what makes the backend routable.
       loop {
-        let ok = matches!(
-          probe_client.get(&health_url).send().await,
-          Ok(resp) if resp.status().is_success()
-        );
+        let ok = match (&grpc_client, &grpc_service) {
+          (Some(client), Some(service)) => {
+            crate::proxy::h2::grpc_health_check(client, &grpc_target, service, probe_timeout).await
+          }
+          // An h2 target whose client could not be built cannot be probed;
+          // reporting it healthy would route traffic at a backend nothing has
+          // checked, so it stays unhealthy and says so through the log line
+          // the failure branch already writes.
+          (None, Some(_)) => false,
+          _ => matches!(
+            probe_client.get(&health_url).send().await,
+            Ok(resp) if resp.status().is_success()
+          ),
+        };
         // Before anything is announced. The heartbeat reads both flags
         // together, and the healthy-transition notify below wakes it: with
         // the store left until after, that heartbeat carried "healthy, never
@@ -725,9 +755,9 @@ pub(crate) async fn run_service(
           if !flag.swap(true, Ordering::SeqCst) {
             health_changed.notify_waiters();
             if first_result {
-              info!("Backend healthy: {}, now routable", health_url);
+              info!("Backend healthy: {}, now routable", health_url_log);
             } else {
-              info!("Backend health restored: {}", health_url);
+              info!("Backend health restored: {}", health_url_log);
             }
           }
         } else {
@@ -736,7 +766,7 @@ pub(crate) async fn run_service(
             health_changed.notify_waiters();
             warn!(
               "Backend health check failed {} consecutive time(s): {}, reporting unhealthy to the server (tunnel stays connected)",
-              consecutive_failures, health_url
+              consecutive_failures, health_url_log
             );
           } else if first_result {
             // Started unhealthy and the first probe also failed: make it clear
@@ -744,7 +774,7 @@ pub(crate) async fn run_service(
             // only fires on a healthy→unhealthy transition).
             info!(
               "Backend not healthy yet: {}, staying out of routing until a probe passes",
-              health_url
+              health_url_log
             );
           }
         }

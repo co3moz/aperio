@@ -736,11 +736,11 @@ recorded in Withdrawn under #84 so they are not proposed again.
   reload path with a bounded wait. Closer to a correctness fix than a feature,
   which is why it scores above several flashier ideas. shipped: the reload path now announces `Draining` and waits for in-flight requests, bounded by `reload_drain` (default 10s, 0 = the previous immediate drop).
 
-- [ ] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
+- [x] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
   a supported, documented shape for gRPC backends, but the health probe is a
   plain HTTP GET, so the documentation ends up advising an explicit URL
   instead. Speak `grpc.health.v1.Health/Check` when the target is an h2 one,
-  falling back to the current GET when a probe path is set explicitly.
+  falling back to the current GET when a probe path is set explicitly. shipped: against an `h2c://`/`h2://` target the probe calls `grpc.health.v1.Health/Check` and `health.endpoint` names the gRPC service (`/` = the whole server); healthy needs a 200, `grpc-status: 0` from headers or trailers, and `SERVING`. The two one-field protobuf messages are encoded by hand, so no prost/tonic dependency was added. An absolute URL still means a plain HTTP probe, and a target with no probe configured is untouched.
 
 - [ ] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
   takes a command line and nothing else, so anything the child needs

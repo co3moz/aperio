@@ -485,3 +485,95 @@ async fn test_h2_unparsable_incoming_uri_400() {
   };
   assert_eq!(status, 400);
 }
+
+// --- gRPC health checking (planned_features #35) ----------------------------
+
+#[test]
+fn a_request_for_the_whole_server_is_an_empty_message() {
+  let frame = super::health_request_frame("");
+  // Compression flag, then a four-byte length of zero: the empty
+  // HealthCheckRequest that asks about the server rather than one service.
+  assert_eq!(frame.as_ref(), &[0x00, 0x00, 0x00, 0x00, 0x00]);
+}
+
+#[test]
+fn a_named_service_is_encoded_as_field_one() {
+  let frame = super::health_request_frame("my.Service");
+  let msg = &frame[5..];
+  assert_eq!(msg[0], 0x0a, "field 1, length-delimited");
+  assert_eq!(msg[1] as usize, "my.Service".len());
+  assert_eq!(&msg[2..], b"my.Service");
+  // The frame header must agree with what follows it.
+  assert_eq!(
+    u32::from_be_bytes(frame[1..5].try_into().unwrap()) as usize,
+    msg.len()
+  );
+}
+
+/// Wraps a protobuf message in the gRPC length prefix, as a server would.
+fn framed(msg: &[u8]) -> Vec<u8> {
+  let mut out = vec![0u8];
+  out.extend_from_slice(&(msg.len() as u32).to_be_bytes());
+  out.extend_from_slice(msg);
+  out
+}
+
+#[test]
+fn serving_and_not_serving_are_read_from_the_response() {
+  // status = 1 (SERVING)
+  assert_eq!(
+    super::health_response_status(&framed(&[0x08, 0x01])),
+    Some(1)
+  );
+  // status = 2 (NOT_SERVING)
+  assert_eq!(
+    super::health_response_status(&framed(&[0x08, 0x02])),
+    Some(2)
+  );
+  // status = 3 (SERVICE_UNKNOWN)
+  assert_eq!(
+    super::health_response_status(&framed(&[0x08, 0x03])),
+    Some(3)
+  );
+}
+
+#[test]
+fn an_unreadable_response_is_not_read_as_serving() {
+  // A health check that cannot be parsed has not said the backend is healthy,
+  // so every one of these must fail to produce SERVING.
+  assert_eq!(super::health_response_status(&[]), None, "empty body");
+  assert_eq!(
+    super::health_response_status(&[0, 0, 0, 0]),
+    None,
+    "truncated header"
+  );
+  assert_eq!(
+    super::health_response_status(&framed(&[])),
+    None,
+    "an empty message names no status"
+  );
+  assert_eq!(
+    super::health_response_status(&framed(&[0x12, 0x01, 0x01])),
+    None,
+    "a different field number is a message shape we do not understand"
+  );
+  assert_eq!(
+    super::health_response_status(&framed(&[0x08, 0x80])),
+    None,
+    "a varint that never terminates"
+  );
+  // None of these equal SERVING, which is what the caller actually asks.
+  for body in [vec![], framed(&[]), framed(&[0x08, 0x02])] {
+    assert_ne!(super::health_response_status(&body), Some(1));
+  }
+}
+
+#[test]
+fn a_multi_byte_varint_status_is_decoded() {
+  // Not a status the protocol defines, but the decoder must not mis-read a
+  // continuation byte as a terminator.
+  assert_eq!(
+    super::health_response_status(&framed(&[0x08, 0xac, 0x02])),
+    Some(300)
+  );
+}

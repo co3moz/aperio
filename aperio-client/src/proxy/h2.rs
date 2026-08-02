@@ -403,3 +403,136 @@ pub(crate) async fn handle_incoming_request_h2(
 #[cfg(test)]
 #[path = "h2_tests.rs"]
 mod tests;
+
+// --- gRPC health checking (planned_features #35) ----------------------------
+
+/// The standard health-checking method, from `grpc/health/v1/health.proto`.
+const GRPC_HEALTH_METHOD: &str = "/grpc.health.v1.Health/Check";
+/// `ServingStatus.SERVING`, the only status that means "route to me".
+const GRPC_STATUS_SERVING: u64 = 1;
+
+/// Encodes a `HealthCheckRequest{ service }` and wraps it in a gRPC length
+/// prefix.
+///
+/// Both messages in this exchange are a single field, so they are written and
+/// read by hand rather than by pulling in prost and a build step to generate
+/// two structs. `service` is field 1, a length-delimited string (tag `0x0a`);
+/// an empty name is the protocol's way of asking about the server as a whole,
+/// and an empty message is how that is encoded.
+fn health_request_frame(service: &str) -> Bytes {
+  let mut msg: Vec<u8> = Vec::new();
+  if !service.is_empty() {
+    msg.push(0x0a);
+    // A service name long enough to need a multi-byte varint is not a real
+    // name; the length is written as one byte and longer names are refused
+    // by the caller.
+    msg.push(service.len() as u8);
+    msg.extend_from_slice(service.as_bytes());
+  }
+  let mut framed = Vec::with_capacity(5 + msg.len());
+  framed.push(0); // not compressed
+  framed.extend_from_slice(&(msg.len() as u32).to_be_bytes());
+  framed.extend_from_slice(&msg);
+  Bytes::from(framed)
+}
+
+/// Reads `HealthCheckResponse.status` out of a gRPC response body.
+///
+/// The body is one length-prefixed message whose only field is `status`
+/// (field 1, varint, tag `0x08`). Anything unreadable is reported as not
+/// serving rather than guessed at: a health check that cannot be parsed has
+/// not said the backend is healthy.
+fn health_response_status(body: &[u8]) -> Option<u64> {
+  // 5-byte gRPC frame header: one compression flag, four length bytes.
+  let msg = body.get(5..)?;
+  // `status` is the only field of the message, so it is the first one on the
+  // wire: tag 0x08 (field 1, varint). Anything else is a shape this does not
+  // understand, and guessing at it would be guessing about health.
+  if *msg.first()? != 0x08 {
+    return None;
+  }
+  let mut value: u64 = 0;
+  let mut shift = 0u32;
+  for byte in &msg[1..] {
+    value |= u64::from(byte & 0x7f) << shift;
+    if byte & 0x80 == 0 {
+      return Some(value);
+    }
+    shift += 7;
+    if shift > 63 {
+      return None;
+    }
+  }
+  // Ran off the end of the message mid-varint.
+  None
+}
+
+/// Asks a gRPC backend's health service whether it is serving.
+///
+/// This is what a health probe against an `h2c://`/`h2://` target should do:
+/// the plain GET the HTTP path uses cannot work against a server that speaks
+/// HTTP/2 with prior knowledge and routes by gRPC method name, which is why
+/// the documentation used to advise pointing the probe somewhere else
+/// entirely.
+///
+/// Healthy means all three of: an HTTP 200, a `grpc-status` of 0 (in the
+/// headers or the trailers, since a gRPC error may arrive either way), and a
+/// `SERVING` status in the message. Anything else, including a timeout, is
+/// unhealthy.
+pub(crate) async fn grpc_health_check(
+  client: &H2Client,
+  target: &str,
+  service: &str,
+  timeout: std::time::Duration,
+) -> bool {
+  let wire = target
+    .replacen("h2c://", "http://", 1)
+    .replacen("h2://", "https://", 1);
+  let uri = format!("{}{}", wire.trim_end_matches('/'), GRPC_HEALTH_METHOD);
+  let body: H2Body = Full::new(health_request_frame(service))
+    .map_err(|e| match e {})
+    .boxed();
+  let req = match hyper::Request::builder()
+    .method(hyper::Method::POST)
+    .uri(&uri)
+    .header("content-type", "application/grpc")
+    // Required by the gRPC HTTP/2 mapping, and what tells the server it may
+    // answer with trailers.
+    .header("te", "trailers")
+    .body(body)
+  {
+    Ok(r) => r,
+    Err(e) => {
+      warn!("gRPC health check could not build a request for {uri}: {e}");
+      return false;
+    }
+  };
+
+  let Ok(Ok(resp)) = tokio::time::timeout(timeout, client.request(req)).await else {
+    return false;
+  };
+  if resp.status() != hyper::StatusCode::OK {
+    return false;
+  }
+  // A trailers-only error response carries grpc-status in the headers.
+  let header_status = resp
+    .headers()
+    .get("grpc-status")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.parse::<i32>().ok());
+  if header_status.is_some_and(|s| s != 0) {
+    return false;
+  }
+  let Ok(collected) = resp.into_body().collect().await else {
+    return false;
+  };
+  let trailer_status = collected
+    .trailers()
+    .and_then(|t| t.get("grpc-status"))
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.parse::<i32>().ok());
+  if trailer_status.is_some_and(|s| s != 0) {
+    return false;
+  }
+  health_response_status(&collected.to_bytes()) == Some(GRPC_STATUS_SERVING)
+}

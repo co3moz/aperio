@@ -53,6 +53,28 @@ type FrameIter =
 async fn handle(
   req: hyper::Request<hyper::body::Incoming>,
 ) -> Result<hyper::Response<StreamBody<FrameIter>>, Infallible> {
+  // The standard health service, so the client's gRPC health probe has
+  // something real to talk to. `HealthCheckResponse { status: SERVING }` is
+  // field 1 as a varint, wrapped in the gRPC length prefix.
+  if req.uri().path() == "/grpc.health.v1.Health/Check" {
+    let msg = [0x08u8, 0x01];
+    let mut framed = vec![0u8];
+    framed.extend_from_slice(&(msg.len() as u32).to_be_bytes());
+    framed.extend_from_slice(&msg);
+    let mut trailers = hyper::HeaderMap::new();
+    trailers.insert("grpc-status", hyper::header::HeaderValue::from_static("0"));
+    let frames = vec![
+      Ok(Frame::data(Bytes::from(framed))),
+      Ok(Frame::trailers(trailers)),
+    ];
+    return Ok(
+      hyper::Response::builder()
+        .status(200)
+        .header("content-type", "application/grpc")
+        .body(StreamBody::new(futures_util::stream::iter(frames)))
+        .unwrap(),
+    );
+  }
   let body = req
     .into_body()
     .collect()

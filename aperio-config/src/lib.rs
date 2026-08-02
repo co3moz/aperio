@@ -487,6 +487,14 @@ impl SecurityHeaders {
 pub struct HealthConfig {
   /// Endpoint to probe: a path like `/health` or a full URL. Unset = no probe,
   /// and the service is routable as soon as the tunnel is up.
+  ///
+  /// Against an `h2c://`/`h2://` target this names the **gRPC service** to
+  /// health-check instead: the probe calls `grpc.health.v1.Health/Check`,
+  /// because a plain GET cannot reach a server that speaks HTTP/2 with prior
+  /// knowledge and routes by method name. `/` asks about the server as a
+  /// whole, which is the usual answer. An absolute `http(s)://` URL still
+  /// means an ordinary HTTP probe, for a backend exposing health on a
+  /// separate port.
   #[schemars(extend("examples" = ["/health"]))]
   pub endpoint: Option<String>,
   /// Seconds between probes. Default: `10`.
