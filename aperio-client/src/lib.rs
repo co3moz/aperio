@@ -887,6 +887,7 @@ fn build_specs(
       },
       pass_hostname: settings.pass_hostname,
       max_response_body: settings.max_response_body,
+      reload_drain_secs: settings.reload_drain_secs,
       retry_attempts: settings.retry_attempts,
       retry_backoff_ms: settings.retry_backoff_ms,
       retry_all_methods: settings.retry_all_methods,
@@ -1000,6 +1001,7 @@ fn build_specs(
         max_response_body: entry
           .max_response_body
           .unwrap_or(settings.max_response_body),
+        reload_drain_secs: settings.reload_drain_secs,
         retry_attempts: entry
           .retry
           .as_ref()

@@ -743,12 +743,12 @@ pub struct ServiceEntry {
   /// How many backend redirects to follow transparently before passing one through.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
-  /// Retry policy for backend requests that fail before a response arrives.
-  /// The default for every `services:` entry that does not set its own.
+  /// Retry policy for this service's backend requests; falls back to the
+  /// top-level `retry:`.
   #[schemars(extend("examples" = [{"attempts": 3, "backoff": 100}]))]
   pub retry: Option<RetryConfig>,
-  /// Circuit breaker for the backend. The default for every `services:` entry
-  /// that does not set its own.
+  /// Circuit breaker for this service's backend; falls back to the top-level
+  /// `circuit_breaker:`.
   #[schemars(extend("examples" = [{"failures": 5, "open_for": 30}]))]
   pub circuit_breaker: Option<CircuitBreakerConfig>,
   /// Raw TCP backend for this service instead of HTTP (experimental).
@@ -1068,12 +1068,20 @@ pub struct FileConfig {
   /// through. Default: `5`.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
-  /// Retry policy for this service's backend requests; falls back to the
-  /// top-level `retry:`.
+  /// Seconds to let in-flight requests finish when a configuration reload
+  /// stops a service, before its tunnel connection is dropped. The client
+  /// announces `Draining` first, so the server sends it nothing new while it
+  /// finishes. `0` drops the connection immediately, which is what happened
+  /// before this existed. Default: `10`
+  /// (env: APERIO_RELOAD_DRAIN).
+  #[schemars(extend("examples" = [10]))]
+  pub reload_drain: Option<u64>,
+  /// Retry policy for backend requests that fail before a response arrives.
+  /// The default for every `services:` entry that does not set its own.
   #[schemars(extend("examples" = [{"attempts": 3, "backoff": 100}]))]
   pub retry: Option<RetryConfig>,
-  /// Circuit breaker for this service's backend; falls back to the top-level
-  /// `circuit_breaker:`.
+  /// Circuit breaker for the backend. The default for every `services:` entry
+  /// that does not set its own.
   #[schemars(extend("examples" = [{"failures": 5, "open_for": 30}]))]
   pub circuit_breaker: Option<CircuitBreakerConfig>,
   /// Topic filters this client subscribes to, for messages from the other

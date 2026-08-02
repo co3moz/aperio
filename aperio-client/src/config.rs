@@ -388,6 +388,9 @@ pub(crate) struct ClientSettings {
   /// Backend retry policy: total attempts (1 = off), first backoff in
   /// milliseconds (doubled per attempt), and whether non-idempotent methods
   /// are retried too.
+  /// Seconds a config reload waits for in-flight requests before dropping a
+  /// stopped service's connection (0 = drop at once).
+  pub(crate) reload_drain_secs: u64,
   pub(crate) retry_attempts: u32,
   pub(crate) retry_backoff_ms: u64,
   pub(crate) retry_all_methods: bool,
@@ -866,6 +869,13 @@ pub(crate) fn resolve_settings(
       home.max_response_body,
     )
     .unwrap_or(50 * 1024 * 1024),
+    reload_drain_secs: layered(
+      None,
+      local.reload_drain,
+      env_parse("APERIO_RELOAD_DRAIN"),
+      home.reload_drain,
+    )
+    .unwrap_or(10),
     retry_attempts: layered(
       None,
       local.retry.as_ref().and_then(|r| r.attempts),

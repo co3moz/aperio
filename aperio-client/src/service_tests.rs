@@ -62,6 +62,7 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     trim_bind: false,
     pass_hostname: false,
     max_response_body: 50 * 1024 * 1024,
+    reload_drain_secs: 10,
     retry_attempts: 1,
     retry_backoff_ms: 100,
     retry_all_methods: false,
@@ -1252,5 +1253,58 @@ async fn a_relay_consumer_that_stops_reading_loses_its_stream_not_the_tunnel() {
   assert!(
     waited >= STREAM_STALL_BUDGET && waited < STREAM_STALL_BUDGET * 2,
     "the read loop waited {waited:?}, it must be bounded by the budget"
+  );
+}
+
+// --- reload drain budget (planned_features #33) -----------------------------
+
+#[tokio::test]
+async fn a_zero_budget_returns_at_once_even_with_requests_in_flight() {
+  // `reload_drain: 0` is the pre-#33 behavior, an immediate drop. It must not
+  // wait, and must not depend on the counter reaching zero.
+  let shared = test_shared();
+  shared.inflight_requests.store(3, Ordering::SeqCst);
+  let start = Instant::now();
+  drain_inflight_for(&shared, Duration::from_secs(0)).await;
+  assert!(start.elapsed() < Duration::from_millis(100));
+}
+
+#[tokio::test]
+async fn a_drain_returns_as_soon_as_the_last_request_finishes() {
+  let shared = test_shared();
+  shared.inflight_requests.store(1, Ordering::SeqCst);
+  let done = shared.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    done.inflight_requests.store(0, Ordering::SeqCst);
+  });
+  let start = Instant::now();
+  // A generous budget: what ends the wait is the work finishing, not the cap.
+  drain_inflight_for(&shared, Duration::from_secs(30)).await;
+  let waited = start.elapsed();
+  assert!(
+    waited >= Duration::from_millis(140),
+    "it waited for the request"
+  );
+  assert!(
+    waited < Duration::from_secs(5),
+    "it did not wait out the budget: {waited:?}"
+  );
+}
+
+#[tokio::test]
+async fn a_stalled_request_cannot_hold_a_reload_past_the_budget() {
+  let shared = test_shared();
+  shared.inflight_requests.store(1, Ordering::SeqCst);
+  let start = Instant::now();
+  drain_inflight_for(&shared, Duration::from_millis(300)).await;
+  let waited = start.elapsed();
+  assert!(
+    waited >= Duration::from_millis(300),
+    "the budget was honored"
+  );
+  assert!(
+    waited < Duration::from_secs(3),
+    "and it did give up: {waited:?}"
   );
 }

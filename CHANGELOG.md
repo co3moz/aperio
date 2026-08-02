@@ -50,6 +50,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A configuration reload no longer drops requests that are still in flight.** When a reload stopped a service, its tunnel connection was torn down the moment the change was noticed, so whatever was being served through it failed: a visitor saw an error caused by an edit that was meant to be invisible to them. The client now announces `Draining` first, which stops the server dispatching anything new to that connection, waits for the in-flight requests to finish, and only then drops it. The wait is bounded by `reload_drain` (default 10 seconds, `0` restores the old immediate drop), so one stalled request cannot hold a configuration change hostage.
+
 - **The `dashboard:` block's schema example no longer refuses to start the server.** The example still showed an `auth` key inside the block, the separate dashboard password whose removal was 0.6.0's security note, and the block rejects unknown keys, so pasting the example produced a file the server could not parse, written on the schema's own advice. The example is fixed and a test now parses every example in both schemas, so an editor completion can no longer suggest a configuration the parser refuses.
 
 - **A maintenance flag set with a partial-label pattern now serves its 503.** The maintenance endpoint takes every shape the allowlist takes, and the partial one (`*-pi.robogon.com`) was accepted, stored and listed, and then matched no request at all: the read path only knew `*.domain`. An operator who flagged a fleet by its naming convention was told the flag was on while every device kept serving. The matcher now understands all three shapes, same as the fence that authorized the flag in the first place.

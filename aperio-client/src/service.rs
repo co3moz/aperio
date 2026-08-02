@@ -291,6 +291,8 @@ pub(crate) struct ServiceSpec {
   pub(crate) max_response_body: usize,
   /// Backend resilience for this service: retry policy and circuit breaker,
   /// resolved from the entry with the top-level values as the fallback.
+  /// Seconds a config reload gives this service's in-flight requests.
+  pub(crate) reload_drain_secs: u64,
   pub(crate) retry_attempts: u32,
   pub(crate) retry_backoff_ms: u64,
   pub(crate) retry_all_methods: bool,
@@ -496,7 +498,19 @@ pub(crate) async fn shutdown_requested(shared: &Shared) {
 /// must not tear the process down while a sibling service is still answering
 /// a visitor.
 async fn drain_inflight(shared: &Shared) {
-  let deadline = Instant::now() + Duration::from_secs(30);
+  drain_inflight_for(shared, Duration::from_secs(30)).await
+}
+
+/// Waits for in-flight requests to finish, giving up after `budget`.
+///
+/// Used with a long budget by process shutdown and a short one by a config
+/// reload, where the point is to finish what is in flight without holding the
+/// new configuration back for a stalled request.
+async fn drain_inflight_for(shared: &Shared, budget: Duration) {
+  if budget.is_zero() {
+    return;
+  }
+  let deadline = Instant::now() + budget;
   loop {
     let inflight = shared.inflight_requests.load(Ordering::SeqCst);
     if inflight == 0 {
@@ -985,6 +999,8 @@ pub(crate) async fn run_service(
             };
             let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
+            let shared_ping = shared.clone();
+            let reload_drain_ping = Duration::from_secs(spec.reload_drain_secs);
             let service_name_ping = spec.name.clone();
             let service_custom_name_ping = spec.custom_name.clone();
             let tunnels_ping = spec.tunnels.clone();
@@ -1015,7 +1031,22 @@ pub(crate) async fn run_service(
                 // A pending config change drops the connection so the
                 // supervisor can respawn the service with fresh settings.
                 if *cancel_ping.borrow() {
-                  info!("Dropping connection to apply the configuration change...");
+                  // Announce the drain before dropping the socket. Without
+                  // this, a configuration edit killed whatever was in flight:
+                  // the visitor saw a failure caused by a change that was
+                  // meant to be invisible to them. `Draining` stops the
+                  // server dispatching anything new here, which is what makes
+                  // the wait below terminate rather than chase a moving
+                  // target.
+                  if reload_drain_ping.is_zero() {
+                    info!("Dropping connection to apply the configuration change...");
+                  } else {
+                    info!("Draining before applying the configuration change...");
+                    if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
+                      let _ = tx_ping.send(Message::Text(json)).await;
+                    }
+                    drain_inflight_for(&shared_ping, reload_drain_ping).await;
+                  }
                   let _ = abort_tx_ping.send(()).await;
                   break;
                 }

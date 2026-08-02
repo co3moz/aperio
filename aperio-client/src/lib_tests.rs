@@ -22,6 +22,7 @@ fn base_settings() -> ClientSettings {
     trim_bind: None,
     pass_hostname: false,
     max_response_body: 50 * 1024 * 1024,
+    reload_drain_secs: 10,
     retry_attempts: 1,
     retry_backoff_ms: 100,
     retry_all_methods: false,
