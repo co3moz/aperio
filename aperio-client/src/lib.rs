@@ -251,6 +251,11 @@ pub async fn run() {
             command.to_string(),
             entry.timeout,
             entry.max_concurrent,
+            entry
+              .env
+              .iter()
+              .map(|(k, v)| (k.clone(), v.clone()))
+              .collect(),
           )
         })
       })

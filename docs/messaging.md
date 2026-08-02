@@ -55,9 +55,13 @@ subscribe:
     run: ./deploy.sh
     timeout: 120                    # seconds before the run is killed (default 60)
     max_concurrent: 1               # runs at once (default 1)
+    env:                            # extra variables for this command
+      DEPLOY_ENV: staging
 ```
 
 The message body arrives on the command's **stdin**. `APERIO_MESSAGE_TOPIC` and `APERIO_MESSAGE_ID` are set in its environment. The command runs through the shell, so `run: systemctl reload nginx` works as written.
+
+An `env:` map adds variables for that subscription's command, on top of the client's own environment which it inherits anyway. They are applied *before* the two variables above, so a declaration cannot shadow them: a command reading `APERIO_MESSAGE_TOPIC` has to be able to trust that it describes the message it is handling.
 
 **This is a remote-execution primitive, and it is shaped accordingly.** A message published by another client of the organization causes a command to run on this machine, so:
 

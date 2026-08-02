@@ -46,6 +46,7 @@ async fn a_message_runs_the_command_with_its_payload_on_stdin() {
       format!("cat > {}", out.display()),
       Some(5),
       Some(1),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -72,6 +73,7 @@ async fn the_topic_and_id_reach_the_command_through_the_environment() {
       ),
       Some(5),
       Some(1),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -101,6 +103,7 @@ async fn a_payload_can_never_become_part_of_the_command() {
       format!("cat > {}", out.display()),
       Some(5),
       Some(1),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -142,6 +145,7 @@ async fn a_flood_cannot_start_more_runs_than_the_cap() {
       format!("touch {}/$$ && sleep 1", counter.display()),
       Some(5),
       Some(2),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -162,7 +166,15 @@ async fn a_flood_cannot_start_more_runs_than_the_cap() {
 async fn a_command_that_hangs_is_killed_rather_than_holding_the_slot() {
   let bus = MessageBus::new(vec!["slow/#".to_string()]);
   let started = Instant::now();
-  let outcome = run_once("sleep 30", "slow/one", "m-1", b"", Duration::from_secs(1)).await;
+  let outcome = run_once(
+    "sleep 30",
+    "slow/one",
+    "m-1",
+    b"",
+    Duration::from_secs(1),
+    &[],
+  )
+  .await;
   assert!(
     matches!(outcome, Ok(None)),
     "should report being killed, got {outcome:?}"
@@ -187,6 +199,7 @@ async fn a_message_on_another_topic_runs_nothing() {
       format!("touch {}", out.display()),
       Some(5),
       Some(1),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -213,6 +226,7 @@ async fn a_failing_command_does_not_stop_the_next_message() {
       ),
       Some(5),
       Some(1),
+      Vec::new(),
     )],
   );
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -223,4 +237,49 @@ async fn a_failing_command_does_not_stop_the_next_message() {
   // The runner is still listening after a non-zero exit.
   bus.deliver(delivery("deploy/web", b""));
   tokio::time::sleep(Duration::from_millis(400)).await;
+}
+
+// --- operator-declared environment (planned_features #36) -------------------
+
+/// Runs a command that writes one variable to a file, and returns what it saw.
+async fn env_seen_by_command(var: &str, env: &[(String, String)], topic: &str) -> String {
+  let out = std::env::temp_dir().join(format!("aperio-run-env-{}", uuid::Uuid::new_v4()));
+  let cmd = format!("printf '%s' \"${var}\" > {}", out.display());
+  let outcome = run_once(&cmd, topic, "m-1", b"", Duration::from_secs(10), env).await;
+  assert!(
+    matches!(outcome, Ok(Some(_))),
+    "the command ran: {outcome:?}"
+  );
+  let seen = std::fs::read_to_string(&out).unwrap_or_default();
+  let _ = std::fs::remove_file(&out);
+  seen
+}
+
+#[tokio::test]
+async fn declared_variables_reach_the_command() {
+  let env = vec![("DEPLOY_ENV".to_string(), "staging".to_string())];
+  assert_eq!(
+    env_seen_by_command("DEPLOY_ENV", &env, "deploy/web").await,
+    "staging"
+  );
+}
+
+#[tokio::test]
+async fn the_message_variables_cannot_be_overridden_by_a_declared_one() {
+  // A command reading APERIO_MESSAGE_TOPIC has to be able to trust that it
+  // describes the message it is handling, so the client's value wins over a
+  // declaration that would shadow it.
+  let env = vec![("APERIO_MESSAGE_TOPIC".to_string(), "spoofed".to_string())];
+  assert_eq!(
+    env_seen_by_command("APERIO_MESSAGE_TOPIC", &env, "deploy/real").await,
+    "deploy/real"
+  );
+}
+
+#[tokio::test]
+async fn no_declaration_leaves_the_message_variables_intact() {
+  assert_eq!(
+    env_seen_by_command("APERIO_MESSAGE_ID", &[], "deploy/web").await,
+    "m-1"
+  );
 }

@@ -44,6 +44,8 @@ pub(crate) struct Runner {
   pub(crate) command: String,
   pub(crate) timeout: Duration,
   pub(crate) max_concurrent: u32,
+  /// Operator-declared environment for this subscription's command.
+  pub(crate) env: Vec<(String, String)>,
   /// Runs in flight, so the cap is enforced without a lock on the hot path.
   running: Arc<AtomicU32>,
 }
@@ -54,12 +56,14 @@ impl Runner {
     command: String,
     timeout: Option<u64>,
     max: Option<u32>,
+    env: Vec<(String, String)>,
   ) -> Self {
     Runner {
       topic,
       command,
       timeout: Duration::from_secs(timeout.unwrap_or(DEFAULT_TIMEOUT).max(1)),
       max_concurrent: max.unwrap_or(DEFAULT_MAX_CONCURRENT).max(1),
+      env,
       running: Arc::new(AtomicU32::new(0)),
     }
   }
@@ -120,6 +124,7 @@ fn dispatch(runner: &Runner, delivery: &Delivery) {
 
   let command = runner.command.clone();
   let timeout = runner.timeout;
+  let run_env = runner.env.clone();
   let topic = delivery.topic.clone();
   let id = delivery.id.clone().unwrap_or_default();
   let payload = delivery.payload.clone();
@@ -127,7 +132,7 @@ fn dispatch(runner: &Runner, delivery: &Delivery) {
   tokio::spawn(async move {
     let started = std::time::Instant::now();
     info!("Message on '{topic}' is running `{command}`");
-    let outcome = run_once(&command, &topic, &id, &payload, timeout).await;
+    let outcome = run_once(&command, &topic, &id, &payload, timeout, &run_env).await;
     running.fetch_sub(1, Ordering::SeqCst);
     match outcome {
       Ok(Some(status)) if status.success() => {
@@ -158,12 +163,17 @@ async fn run_once(
   id: &str,
   payload: &[u8],
   timeout: Duration,
+  env: &[(String, String)],
 ) -> Result<Option<std::process::ExitStatus>, String> {
   let shell = if cfg!(windows) { "cmd" } else { "sh" };
   let flag = if cfg!(windows) { "/C" } else { "-c" };
   let mut child = Command::new(shell)
     .arg(flag)
     .arg(command)
+    // The operator's own variables first, so the two below always win: a
+    // command that reads APERIO_MESSAGE_TOPIC has to be able to trust that it
+    // describes the message it is handling.
+    .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
     // The message is data, so it travels where data goes. Nothing about it
     // is ever part of the command, which is the whole reason this is safe to
     // offer at all.

@@ -882,6 +882,14 @@ pub struct SubscribeEntry {
   /// `APERIO_MESSAGE_ID` are set in the environment. Unset = deliver only.
   #[schemars(extend("examples" = ["./deploy.sh", "systemctl reload nginx"]))]
   pub run: Option<String>,
+  /// Extra environment variables for `run:`, on top of what the client sets.
+  /// The command inherits the client's own environment as well; this is for
+  /// the values that belong to *this* subscription. `APERIO_MESSAGE_TOPIC`
+  /// and `APERIO_MESSAGE_ID` are set after these and cannot be overridden,
+  /// since a command reading them must be able to trust what it finds.
+  #[schemars(extend("examples" = [{"DEPLOY_ENV": "staging", "SLACK_CHANNEL": "#ops"}]))]
+  #[serde(default)]
+  pub env: std::collections::HashMap<String, String>,
   /// Seconds a run may take before it is killed. A command that hangs must
   /// not hold the subscription's one slot forever. Default: `60`.
   #[schemars(extend("examples" = [60]))]

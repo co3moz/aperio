@@ -2163,7 +2163,15 @@ subscribe:
   - topic: deploy/api      # listen, and run this on receipt
     run: ./deploy.sh
     timeout: 120
+    env:                   # extra variables for this command
+      DEPLOY_ENV: staging
 \end{codecard}
+
+An \code{env:} map adds variables for that subscription's command, on top
+of the client's own environment. They are applied before
+\code{APERIO\_MESSAGE\_TOPIC} and \code{APERIO\_MESSAGE\_ID}, so a
+declaration cannot shadow them: a command reading them has to be able to
+trust that they describe the message it is handling.
 
 \begin{codecard}[aperiosh]{The publishing side, from anywhere with an admin credential}
 aperio-client api POST /publish -d '{"topic":"deploy/web","payload":"v1.9.2"}'

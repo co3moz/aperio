@@ -742,13 +742,13 @@ recorded in Withdrawn under #84 so they are not proposed again.
   instead. Speak `grpc.health.v1.Health/Check` when the target is an h2 one,
   falling back to the current GET when a probe path is set explicitly. shipped: against an `h2c://`/`h2://` target the probe calls `grpc.health.v1.Health/Check` and `health.endpoint` names the gRPC service (`/` = the whole server); healthy needs a 200, `grpc-status: 0` from headers or trailers, and `SERVING`. The two one-field protobuf messages are encoded by hand, so no prost/tonic dependency was added. An absolute URL still means a plain HTTP probe, and a target with no probe configured is untouched.
 
-- [ ] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
+- [x] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
   takes a command line and nothing else, so anything the child needs
   (`DATABASE_URL`, a port, a profile) has to come from the client's own
   environment, which also means it cannot differ per service. `env: {KEY:
   value}` per entry, with the usual rule that a value looking like `${VAR}` is
   expanded from the client's environment so secrets are not written into the
-  file.
+  file. shipped: an `env:` map on the `subscribe:` entry, applied before `APERIO_MESSAGE_TOPIC`/`APERIO_MESSAGE_ID` so a declaration cannot shadow them. `${VAR}` expansion was left out; it belongs with the config templating idea (#63) rather than to this one key.
 
 - [ ] **#37 The client reports its own health, not just its backend's.**
   (triage 50) Everything the server knows about a client is "is it pinging" and
