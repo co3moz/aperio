@@ -1119,6 +1119,17 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     route_limits: route_limits::from_config_file(),
     waf: waf::from_config_file(),
     denied_ips: denied_ips_config,
+    request_id_enabled: std::env::var("APERIO_REQUEST_ID")
+      .map(|v| !matches!(v.trim(), "0" | "false" | "no"))
+      .unwrap_or(true),
+    request_id_header: std::env::var("APERIO_REQUEST_ID_HEADER")
+      .ok()
+      .map(|v| v.trim().to_ascii_lowercase())
+      .filter(|v| !v.is_empty() && v.parse::<axum::http::HeaderName>().is_ok())
+      .unwrap_or_else(|| "x-request-id".to_string()),
+    request_id_trust_inbound: std::env::var("APERIO_REQUEST_ID_TRUST_INBOUND")
+      .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+      .unwrap_or(false),
     fallbacks: fallbacks::from_config_file(),
     token_pinning: std::env::var("APERIO_TOKEN_PINNING")
       .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))

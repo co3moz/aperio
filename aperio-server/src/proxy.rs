@@ -216,6 +216,23 @@ fn body_frame_negotiated(protocol: Option<u32>, body: &[u8]) -> bool {
   protocol.is_some_and(|v| v >= 6) && !body.is_empty()
 }
 
+/// Whether a visitor-supplied request id may be adopted.
+///
+/// The value ends up in the access log, in the audit trail of what served
+/// what, and in a header sent to the backend, so it is bounded and restricted
+/// to characters that cannot break any of those: no control characters to
+/// forge a log line, no spaces or commas to look like two values, and a
+/// length a header and a log field can carry without truncation deciding
+/// where the id ends. Anything else is not rejected loudly, it simply is not
+/// adopted, and the server's own id is used instead.
+fn is_safe_request_id(v: &str) -> bool {
+  !v.is_empty()
+    && v.len() <= 128
+    && v
+      .bytes()
+      .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':' | b'/' | b'+'))
+}
+
 /// Builds the 503 maintenance response: the hostname's own `error_pages:`
 /// page, then the global APERIO_503_PAGE, then plain text.
 ///
@@ -1299,6 +1316,12 @@ async fn proxy_http_request(
   // span's context; when off, `trace_headers` is empty and inbound headers
   // pass through unchanged.
   let inject_trace = !trace_headers.is_empty();
+  // The request-id header the server manages: any inbound copy is dropped
+  // here and exactly one value is added below, so a visitor can neither
+  // smuggle a second one to the backend nor have an untrusted value
+  // forwarded when `trust_inbound` is off.
+  let request_id_header = state.config().request_id_header.clone();
+  let manage_request_id = state.config().request_id_enabled;
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
@@ -1307,6 +1330,9 @@ async fn proxy_http_request(
         if k_lower == "traceparent" || k_lower == "tracestate" {
           continue;
         }
+      }
+      if manage_request_id && k.as_str().eq_ignore_ascii_case(&request_id_header) {
+        continue;
       }
       if k.as_str() == "cookie" {
         let filtered: String = val_str
@@ -1332,6 +1358,21 @@ async fn proxy_http_request(
   }
   // Forward this span's trace context to the backend (empty when OTLP is off).
   serialized_headers.extend(trace_headers);
+
+  // A visitor-supplied request id is only adopted where the operator says the
+  // header is trustworthy, and only in a shape that is safe to log and to
+  // forward. Resolved once per visitor request, so every failover attempt
+  // carries the same value.
+  let adopted_request_id = (manage_request_id && state.config().request_id_trust_inbound)
+    .then(|| {
+      headers
+        .get(&request_id_header)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| is_safe_request_id(v))
+        .map(str::to_string)
+    })
+    .flatten();
 
   // Server-side `headers.request` rewrite rules (aperio-server.yaml), applied
   // before the inspector capture so replay and capture match what was sent.
@@ -1415,7 +1456,19 @@ async fn proxy_http_request(
     // Increment request stats for the chosen client.
     selected.request_count.fetch_add(1, Ordering::SeqCst);
 
+    // The internal id is always server-minted and is never the visitor's,
+    // because it keys `pending_requests`: a visitor able to choose it could
+    // collide with another request in flight and be handed its answer.
     let request_id = uuid::Uuid::new_v4().to_string();
+    // What the backend and the visitor see. An adopted inbound id stays the
+    // same across failover attempts, which is what makes it the visitor's
+    // trace; without one this is the attempt's own internal id, so the header
+    // matches the id in our access log and the inspector exactly.
+    let correlation_id = manage_request_id.then(|| {
+      adopted_request_id
+        .clone()
+        .unwrap_or_else(|| request_id.clone())
+    });
     let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
 
     // Insert oneshot receiver to await response mapping
@@ -1446,19 +1499,30 @@ async fn proxy_http_request(
       use base64::prelude::*;
       Some(BASE64_STANDARD.encode(&body_bytes))
     };
+    // The dispatched headers are this attempt's: the same list plus the
+    // request id, appended here rather than baked in above because the id can
+    // differ per attempt when none was adopted from the visitor.
+    let dispatch_headers = match correlation_id {
+      Some(ref id) => {
+        let mut h = serialized_headers.clone();
+        h.push((request_id_header.clone(), id.clone()));
+        h
+      }
+      None => serialized_headers.clone(),
+    };
     let dispatch_msg = if stream_request {
       TunnelMessage::RequestStart {
         id: request_id.clone(),
         method: method_str.clone(),
         uri: uri_str.clone(),
-        headers: serialized_headers.clone(),
+        headers: dispatch_headers,
       }
     } else {
       TunnelMessage::Request {
         id: request_id.clone(),
         method: method_str.clone(),
         uri: uri_str.clone(),
-        headers: serialized_headers.clone(),
+        headers: dispatch_headers,
         body: base64_body,
       }
     };
@@ -1727,6 +1791,19 @@ async fn proxy_http_request(
 
         let mut response_builder = Response::builder().status(status_code);
 
+        // Echo the correlation id, so a visitor reporting a problem can quote
+        // the id that is in our log and in the backend's. Set before the
+        // backend's own headers are copied, so a backend that echoes it too
+        // does not end up with the header twice.
+        if let Some(ref id) = correlation_id
+          && let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(request_id_header.as_bytes()),
+            HeaderValue::from_str(id),
+          )
+        {
+          response_builder = response_builder.header(name, value);
+        }
+
         // Sticky sessions: pin this visitor to the client that just served
         // them. The instance ID is preferred so affinity survives client
         // reconnects; the connection ID is the fallback.
@@ -1750,6 +1827,12 @@ async fn proxy_http_request(
           let k_lower = k.to_lowercase();
           // Strip connection management headers
           if k_lower == "connection" || k_lower == "keep-alive" || k_lower == "transfer-encoding" {
+            continue;
+          }
+          // The request id is ours to set: a backend that echoes the header
+          // back would otherwise leave the visitor with two copies of it, and
+          // a builder appends rather than replaces.
+          if correlation_id.is_some() && k_lower == request_id_header {
             continue;
           }
           if let (Ok(name), Ok(value)) = (

@@ -1445,6 +1445,28 @@ pub struct CircuitBreakerConfig {
   pub open_for: Option<u64>,
 }
 
+/// Request-id correlation (`request_id:`): the id the server already assigns
+/// every proxied request, made visible to the backend and to the visitor.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RequestIdGroup {
+  /// Send the id to the backend and echo it on the response. On by default
+  /// (env: APERIO_REQUEST_ID).
+  #[schemars(extend("examples" = [false]))]
+  pub enabled: Option<bool>,
+  /// Header carrying it. Default: `x-request-id`
+  /// (env: APERIO_REQUEST_ID_HEADER).
+  #[schemars(extend("examples" = ["x-correlation-id"]))]
+  pub header: Option<String>,
+  /// Adopt the visitor's own value when the request already carries one,
+  /// instead of ignoring it. Off by default: the header is attacker-supplied,
+  /// so trusting it lets a visitor choose what appears in your logs and in
+  /// your backend's. Turn it on behind a proxy that sets the header itself.
+  /// Default: `false` (env: APERIO_REQUEST_ID_TRUST_INBOUND).
+  #[schemars(extend("examples" = [true]))]
+  pub trust_inbound: Option<bool>,
+}
+
 /// One `routes:` entry of `aperio-server.yaml`. Either an *answer* rule, a
 /// hostname/path match paired with exactly one action (`redirect` or
 /// `respond`) served without a client, or a *policy* rule, which has neither
@@ -2124,6 +2146,10 @@ pub const SERVER_GROUPS: &[ServerGroup] = &[
     self_key: None,
   },
   ServerGroup {
+    key: "request_id",
+    self_key: Some("enabled"),
+  },
+  ServerGroup {
     key: "audit",
     self_key: None,
   },
@@ -2269,6 +2295,17 @@ pub struct ServerFileConfig {
   #[serde(default)]
   #[schemars(extend("examples" = [{"token": "change-me-to-a-long-random-string"}]))]
   pub server: Option<ServerCredentials>,
+  /// Request-id correlation: the id sent to the backend and echoed to the visitor
+  #[serde(default)]
+  #[schemars(extend("examples" = [{"enabled": true, "trust_inbound": false}]))]
+  pub request_id: Option<RequestIdGroup>,
+  /// Flat spelling of `request_id.header` (env: APERIO_REQUEST_ID_HEADER).
+  #[schemars(extend("examples" = ["x-correlation-id"]))]
+  pub request_id_header: Option<String>,
+  /// Flat spelling of `request_id.trust_inbound`
+  /// (env: APERIO_REQUEST_ID_TRUST_INBOUND).
+  #[schemars(extend("examples" = [true]))]
+  pub request_id_trust_inbound: Option<bool>,
   /// Per-stream flow control for streamed data (responses, WebSocket, TCP)
   #[serde(default)]
   #[schemars(extend("examples" = [{"pause_bytes": 2097152, "resume_bytes": 524288, "backlog_limit": 16777216}]))]

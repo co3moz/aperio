@@ -197,6 +197,31 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Version to confirm at release (CLAUDE.md rule 19): written before the
+    // number of the release carrying it was decided.
+    version: "0.9.0",
+    surface: ConfigSurface::Server,
+    // Migration rather than Breaking: nothing stops working and no key
+    // changed meaning, but every backend starts receiving a header it did
+    // not before, which is worth reading once before an upgrade.
+    //
+    // Always, not WhenSet, because it is a *default* that changed: the files
+    // affected are precisely the ones that mention none of these keys.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::Always,
+    fields: &[
+      "request_id",
+      "request_id_header",
+      "request_id_trust_inbound",
+    ],
+    summary: "the server now sends an `x-request-id` header to backends and echoes it to visitors; \
+              it did not set this header before",
+    action: "nothing, unless a backend rejects unknown headers, signs the header set, or a test \
+             asserts an exact list: set `request_id: {enabled: false}` (or APERIO_REQUEST_ID=0) to \
+             restore the previous behavior. A visitor's own `x-request-id` is still ignored unless \
+             `request_id.trust_inbound` is turned on.",
+  },
+  ConfigChange {
     version: "0.8.0",
     surface: ConfigSurface::Server,
     // Breaking rather than Migration: nothing was translated for anyone, and

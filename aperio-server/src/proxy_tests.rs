@@ -1417,3 +1417,23 @@ fn a_body_frame_is_decided_per_client_not_per_request() {
   // An empty body has nothing to carry either way, so it stays in the JSON.
   assert!(!body_frame_negotiated(Some(6), b""));
 }
+
+// --- request id correlation (planned_features #30) --------------------------
+
+#[test]
+fn a_safe_request_id_is_bounded_and_printable() {
+  use super::is_safe_request_id;
+  assert!(is_safe_request_id("7f2c1e40-0f2a-4a11-8f0b-9c0a1b2c3d4e"));
+  assert!(is_safe_request_id("trace/00-abc:1+2_3.4"));
+  // Empty, over-long, or carrying anything that could forge a log line or
+  // look like a second header value.
+  assert!(!is_safe_request_id(""));
+  assert!(!is_safe_request_id(&"a".repeat(129)));
+  assert!(!is_safe_request_id("has space"));
+  assert!(!is_safe_request_id("one,two"));
+  assert!(!is_safe_request_id("line\nbreak"));
+  assert!(!is_safe_request_id("tab\there"));
+  assert!(!is_safe_request_id("semi;colon"));
+  // Exactly at the cap is still fine.
+  assert!(is_safe_request_id(&"a".repeat(128)));
+}

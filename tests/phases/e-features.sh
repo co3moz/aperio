@@ -53,6 +53,25 @@ assert_contains "$BODY" "backend ${BACKEND_PORT} GET /hello" "same-host redirect
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: redir.e2e.local' "$BASE/ext")"
 assert_status 301 "$CODE" "cross-site redirect passes through to the visitor"
 
+step "Request-id correlation"
+# The id the server assigns reaches the backend and comes back to the visitor,
+# and the two are the same value, which is the whole point.
+HDRS="$(curl -s -D "$LOG_DIR/reqid-headers.txt" -H 'Host: redir.e2e.local' "$BASE/echo-headers")"
+BACKEND_ID="$(echo "$HDRS" | sed -n 's/^x-request-id: //p' | tr -d '\r')"
+[ -n "$BACKEND_ID" ] || fail "the backend received no x-request-id header"
+VISITOR_ID="$(sed -n 's/^[Xx]-[Rr]equest-[Ii]d: //p' "$LOG_DIR/reqid-headers.txt" | tr -d '\r')"
+[ "$BACKEND_ID" = "$VISITOR_ID" ] \
+  || fail "the echoed id ($VISITOR_ID) differs from the backend's ($BACKEND_ID)"
+echo "  ok: one request id reaches the backend and the visitor"
+# Untrusted by default: a visitor-supplied id is replaced, never forwarded.
+HDRS="$(curl -s -H 'Host: redir.e2e.local' -H 'X-Request-Id: forged-by-visitor' "$BASE/echo-headers")"
+if echo "$HDRS" | grep -q 'forged-by-visitor'; then
+  fail "a visitor-supplied request id reached the backend without trust_inbound"
+fi
+COUNT="$(echo "$HDRS" | grep -c '^x-request-id: ')"
+[ "$COUNT" = "1" ] || fail "the backend saw $COUNT request-id headers, expected exactly 1"
+echo "  ok: an untrusted inbound id is replaced, and never duplicated"
+
 step "Multi-service client (services: list)"
 MS_CFG="$LOG_DIR/multi-service.yaml"
 cat >"$MS_CFG" <<YAML
