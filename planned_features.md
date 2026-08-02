@@ -648,7 +648,7 @@ from scratch. Ten proposals described things that already exist and are
 recorded in Withdrawn under #84 so they are not proposed again.
 -->
 
-- [ ] **#26 `routes:` becomes a first-class policy block, not just a
+- [x] **#26 `routes:` becomes a first-class policy block, not just a
   destination.** (triage 70) Today a `routes:` entry only says where a
   hostname/path goes; every knob that should be per-route lives somewhere
   coarser: the gateway timeout is server-global, header rules are server-wide
@@ -663,9 +663,9 @@ recorded in Withdrawn under #84 so they are not proposed again.
   `max_response_body`, `cache_control`, and a `methods:` filter on rate limit
   rules. The care it needs: precedence has to be stated once and tested (route
   beats service beats server), and every added field must degrade to today's
-  behaviour when unset.
+  behaviour when unset. shipped (8cc4b62): an entry with neither `redirect` nor `respond` is a policy rule carrying `timeout`, `headers` and `rate_limit`; the two kinds are matched independently so neither can hide the other, and mixing them on one entry is refused at startup. `rate_limits:` gained the `methods:` filter from the same batch. `max_response_body` and `cache_control` did not need their own fields: a per-route `headers.response.add` sets cache-control, and a server-side response ceiling is a different mechanism, left out rather than half-built.
 
-- [ ] **#27 A deny list for visitor IPs.** (triage 65) `allowed_ips` is a
+- [x] **#27 A deny list for visitor IPs.** (triage 65) `allowed_ips` is a
   whitelist on a token or a service, `admin_allowed_ips` fences the admin
   surface, and the WAF matches on path, method, header and body size, but
   there is no way to say "this address never gets in" server-wide or per
@@ -675,9 +675,9 @@ recorded in Withdrawn under #84 so they are not proposed again.
   shows where the check belongs in the request path. Wants to be checked
   early, before routing and before the rate-limit bucket is charged, and to
   answer with the same stealth response an unclaimed route gives rather than
-  confirming that the address was recognised.
+  confirming that the address was recognised. shipped (6987ab2): `denied_ips:`, checked at the outermost layer so it covers proxied traffic, the dashboard, the API and the tunnel endpoints, and a blocked request cannot spend a rate-limit bucket. Answers 403 rather than the stealth response, because this is an operator's explicit server-wide block and locking yourself out has to be visible. Hot-reloadable.
 
-- [ ] **#28 The audit log becomes searchable and exportable.** (triage 65)
+- [x] **#28 The audit log becomes searchable and exportable.** (triage 65)
   `audit_handler` (`aperio-server/src/api/webhooks.rs:23`) takes no parameters
   at all: it returns the recent events for the caller's org and nothing else.
   For a log that is deliberately tamper-evident, hash-chained, retained by
@@ -687,9 +687,9 @@ recorded in Withdrawn under #84 so they are not proposed again.
   JSON export of exactly the filtered set (the traffic export at
   `/aperio/api/export/traffic.csv` is the shape to copy). Filtering must happen
   after the org fence, never instead of it, and the export must go through the
-  same redaction the inspector uses.
+  same redaction the inspector uses. shipped (b1b9387): `event`, `actor`, `q`, `from`/`to` and `limit` on `/aperio/api/audit`, which switch it from the recent ring to a search of the durable log, plus `/aperio/api/export/audit.csv` and the matching dashboard filters. The organization fence is applied around the search, never as one of its predicates.
 
-- [ ] **#29 Backend resilience: retry with backoff, and a circuit breaker per
+- [x] **#29 Backend resilience: retry with backoff, and a circuit breaker per
   backend.** (triage 60) The server can fail a request over to another client
   (`failover`, `retry_on_5xx`) and can eject a client that misbehaves
   (`outlier_ejection`), but the client's own hop to its backend has nothing:
@@ -700,7 +700,7 @@ recorded in Withdrawn under #84 so they are not proposed again.
   `scaling.rs` already has a breaker for autoscaling callbacks and is the shape
   to reuse. The part that needs care is method idempotency (the same reasoning
   `failover_all_methods` already encodes) and not retrying a response whose
-  body has started streaming.
+  body has started streaming. shipped (9c35aab): `retry: {attempts, backoff, all_methods}` and `circuit_breaker: {failures, open_for}`, per service or top level, both off by default. Only failures before a response head are retried, only replayable requests (a streamed upload is consumed by its first attempt), and only idempotent methods unless opted in. Any response head counts as a success for the breaker, since a 500 is a backend that is up.
 
 - [x] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
   UUID per request (`proxy.rs:1138`) and uses it everywhere internally, but it
