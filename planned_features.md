@@ -589,6 +589,40 @@ free number.
   the ownership fence is asserted on the binary path too. (From the 2026-08
   bottleneck analysis; the base64 relays were finding #5 there.)
 
+- [ ] **#23 Streamed-response receive path on the server: drop the per-chunk
+  lock and the per-chunk copy.** Found by reading the code against a 2 MB-body
+  wrk run (the 2026-08 tunnel bandwidth look; numbers unmeasured beyond that
+  run). Every streamed chunk arriving over the tunnel goes through
+  `deliver_response_chunk` (`aperio-server/src/tunnel/ws.rs`), which (a) locks
+  the global `state.response_streams` tokio `Mutex<HashMap>` to find the
+  stream's sender, and (b) is handed `payload.to_vec()`, a full copy, even
+  though the axum 0.8 ws `Message` already owns the bytes as `Bytes`, so a
+  `slice()` would be a refcount bump. The buffered path already got exactly
+  this fix (commit 2818322); the streamed path (bodies over 256 KB) did not.
+  At bulk throughput that is one global lock acquisition and one memcpy per
+  16-128 KB chunk across all connections. Plan: cache the `chunk_tx` per
+  stream in the connection's read loop after first lookup (the ownership
+  check only needs doing once per stream), or shard/replace the map
+  (`DashMap` or per-connection registry), and thread `Bytes` end to end like
+  the buffered path does. Same story for the TCP/UDP/WS relay arms next to
+  it, which also `to_vec()` each frame.
+
+- [ ] **#24 Client send path for streamed bodies: coalesce backend chunks
+  into full frames and batch the WebSocket flush.** Sibling of #23, same
+  origin. Once a response switches to streaming, the client forwards each
+  chunk exactly as reqwest yields it (`aperio-client/src/proxy/http.rs`,
+  `handle_incoming_request`), typically 16-64 KB per read, so a 2 MB body
+  becomes several dozen frames where 16 would do at `STREAM_CHUNK_SIZE`
+  (128 KB). Each frame costs an `encode_binary_frame` allocation and copy, an
+  mpsc hop, a client-side WebSocket mask pass over every byte, and a
+  `ws_sender.send` which is feed+flush, one syscall per frame. Plan:
+  accumulate backend chunks up to `STREAM_CHUNK_SIZE` (flushing on quiet, so
+  latency-sensitive trickles are not held), and in the writer task drain the
+  channel with `feed()` and flush once per drained batch instead of per
+  message. Upgrading tokio-tungstenite (0.23 on the client) to a
+  `Bytes`-based release would also let the frame be built once without the
+  final copy into the write buffer.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
