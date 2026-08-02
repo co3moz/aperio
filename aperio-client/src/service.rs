@@ -289,6 +289,13 @@ pub(crate) struct ServiceSpec {
   pub(crate) trim_bind: bool,
   pub(crate) pass_hostname: bool,
   pub(crate) max_response_body: usize,
+  /// Backend resilience for this service: retry policy and circuit breaker,
+  /// resolved from the entry with the top-level values as the fallback.
+  pub(crate) retry_attempts: u32,
+  pub(crate) retry_backoff_ms: u64,
+  pub(crate) retry_all_methods: bool,
+  pub(crate) breaker_failures: u32,
+  pub(crate) breaker_open_for_secs: u64,
   /// Largest request body, in bytes, visitors may upload to this service
   /// (announced via Ping; the server answers bigger uploads with an early
   /// 413 before they enter the tunnel; None = only the server's limit).
@@ -1113,6 +1120,16 @@ pub(crate) async fn run_service(
               h2_client: crate::proxy::h2::build_h2_client(&spec.target).map(Arc::new),
               unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
               timeout_secs: spec.timeout_secs,
+              // One breaker per service connection, shared by every request
+              // it serves: a breaker that could not see the other requests'
+              // failures would never trip.
+              resilience: crate::proxy::http::BackendResilience::new(
+                spec.retry_attempts,
+                spec.retry_backoff_ms,
+                spec.retry_all_methods,
+                spec.breaker_failures,
+                spec.breaker_open_for_secs,
+              ),
               target: spec.target.clone(),
               // Parsed once here rather than per request. `None` keeps the
               // answer the request path used to give for a target that is not

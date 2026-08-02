@@ -16,6 +16,7 @@ fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
     unix_socket: None,
     timeout_secs: 30,
     stream_pauses: Default::default(),
+    resilience: crate::proxy::http::BackendResilience::new(1, 100, false, 0, 30),
     target: target.to_string(),
     target_url: url::Url::parse(target).ok(),
     pass_hostname: false,
@@ -1082,4 +1083,76 @@ fn coalescer_pops_every_full_frame_of_a_large_chunk() {
 fn coalescer_take_on_empty_is_none() {
   let mut c = ChunkCoalescer::new();
   assert!(c.take().is_none());
+}
+
+// --- BackendResilience (planned_features #29) -------------------------------
+
+#[test]
+fn retry_is_limited_to_idempotent_methods_unless_opted_in() {
+  let cautious = BackendResilience::new(3, 10, false, 0, 30);
+  assert!(cautious.may_retry_method("GET"));
+  assert!(cautious.may_retry_method("head"), "the check ignores case");
+  assert!(cautious.may_retry_method("DELETE"));
+  // A retried write may reach the backend twice, so it is opt-in.
+  assert!(!cautious.may_retry_method("POST"));
+  assert!(!cautious.may_retry_method("PATCH"));
+
+  let eager = BackendResilience::new(3, 10, true, 0, 30);
+  assert!(eager.may_retry_method("POST"));
+}
+
+#[test]
+fn a_disabled_breaker_never_opens() {
+  let r = BackendResilience::new(1, 10, false, 0, 30);
+  for _ in 0..100 {
+    assert!(!r.record_failure(), "failures are not counted when off");
+    assert!(matches!(r.check(), BreakerVerdict::Proceed));
+  }
+}
+
+#[test]
+fn the_breaker_opens_on_consecutive_failures_and_reports_it_once() {
+  let r = BackendResilience::new(1, 10, false, 3, 30);
+  assert!(!r.record_failure());
+  assert!(!r.record_failure());
+  assert!(matches!(r.check(), BreakerVerdict::Proceed), "still closed");
+  assert!(
+    r.record_failure(),
+    "the third failure opens it, and says so"
+  );
+  // Further failures keep it open but do not re-announce it, so a flood
+  // produces one line rather than one per request.
+  assert!(!r.record_failure());
+  match r.check() {
+    BreakerVerdict::Open(left) => assert!(left.as_secs() <= 30),
+    BreakerVerdict::Proceed => panic!("expected the breaker to be open"),
+  }
+}
+
+#[test]
+fn a_success_resets_the_failure_run() {
+  let r = BackendResilience::new(1, 10, false, 3, 30);
+  r.record_failure();
+  r.record_failure();
+  r.record_success();
+  // The count restarted, so two more failures are not enough to open it.
+  assert!(!r.record_failure());
+  assert!(!r.record_failure());
+  assert!(matches!(r.check(), BreakerVerdict::Proceed));
+}
+
+#[test]
+fn the_open_window_lets_exactly_one_request_probe_the_backend() {
+  // A one-second window, so the test can wait it out without being slow.
+  let r = BackendResilience::new(1, 10, false, 1, 1);
+  assert!(r.record_failure(), "one failure is the threshold here");
+  assert!(matches!(r.check(), BreakerVerdict::Open(_)));
+  std::thread::sleep(std::time::Duration::from_millis(1100));
+  // The first caller after the window is the probe...
+  assert!(matches!(r.check(), BreakerVerdict::Proceed));
+  // ...and until it reports back, everyone else is let through too, because
+  // the window was cleared. What keeps a dead backend from being hammered is
+  // that the probe's failure opens a fresh window.
+  assert!(r.record_failure());
+  assert!(matches!(r.check(), BreakerVerdict::Open(_)));
 }

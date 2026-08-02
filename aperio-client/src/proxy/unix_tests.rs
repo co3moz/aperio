@@ -76,6 +76,7 @@ fn base_ctx(socket_path: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardConte
     unix_socket: Some(socket_path.to_string()),
     timeout_secs: 30,
     stream_pauses: Default::default(),
+    resilience: crate::proxy::http::BackendResilience::new(1, 100, false, 0, 30),
     target: format!("unix://{socket_path}"),
     target_url: url::Url::parse(&format!("unix://{socket_path}")).ok(),
     pass_hostname: false,

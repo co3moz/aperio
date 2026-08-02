@@ -385,6 +385,16 @@ pub(crate) struct ClientSettings {
   pub(crate) trim_bind: Option<bool>,
   pub(crate) pass_hostname: bool,
   pub(crate) max_response_body: usize,
+  /// Backend retry policy: total attempts (1 = off), first backoff in
+  /// milliseconds (doubled per attempt), and whether non-idempotent methods
+  /// are retried too.
+  pub(crate) retry_attempts: u32,
+  pub(crate) retry_backoff_ms: u64,
+  pub(crate) retry_all_methods: bool,
+  /// Backend circuit breaker: consecutive failures that open it (0 = off) and
+  /// how long it stays open before one request probes the backend again.
+  pub(crate) breaker_failures: u32,
+  pub(crate) breaker_open_for_secs: u64,
   /// Largest request body, in bytes, visitors may upload (None = only the
   /// server's global limit applies). Announced via Ping; the server rejects
   /// bigger uploads with an early 413 before they enter the tunnel.
@@ -856,6 +866,43 @@ pub(crate) fn resolve_settings(
       home.max_response_body,
     )
     .unwrap_or(50 * 1024 * 1024),
+    retry_attempts: layered(
+      None,
+      local.retry.as_ref().and_then(|r| r.attempts),
+      env_parse("APERIO_RETRY_ATTEMPTS"),
+      home.retry.as_ref().and_then(|r| r.attempts),
+    )
+    .unwrap_or(1)
+    .clamp(1, 10),
+    retry_backoff_ms: layered(
+      None,
+      local.retry.as_ref().and_then(|r| r.backoff),
+      env_parse("APERIO_RETRY_BACKOFF"),
+      home.retry.as_ref().and_then(|r| r.backoff),
+    )
+    .unwrap_or(100),
+    retry_all_methods: layered(
+      None,
+      local.retry.as_ref().and_then(|r| r.all_methods),
+      env_bool("APERIO_RETRY_ALL_METHODS"),
+      home.retry.as_ref().and_then(|r| r.all_methods),
+    )
+    .unwrap_or(false),
+    breaker_failures: layered(
+      None,
+      local.circuit_breaker.as_ref().and_then(|b| b.failures),
+      env_parse("APERIO_BREAKER_FAILURES"),
+      home.circuit_breaker.as_ref().and_then(|b| b.failures),
+    )
+    .unwrap_or(0),
+    breaker_open_for_secs: layered(
+      None,
+      local.circuit_breaker.as_ref().and_then(|b| b.open_for),
+      env_parse("APERIO_BREAKER_OPEN_FOR"),
+      home.circuit_breaker.as_ref().and_then(|b| b.open_for),
+    )
+    .unwrap_or(30)
+    .max(1),
     max_request_body: layered(
       None,
       local.max_request_body,

@@ -762,8 +762,11 @@ assert_contains "$AUDIT" '"actor":"system"' "system events are attributed to sys
 # Filtering searches the durable log rather than the recent ring, so the
 # filtered answer must contain the asked-for kind and nothing else.
 FILTERED="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit?event=webhook_created")"
-assert_contains "$FILTERED" 'webhook_created' "an event filter finds its own kind"
-if echo "$FILTERED" | grep -q 'client_connected'; then
+assert_contains "$FILTERED" '"event":"webhook_created"' "an event filter finds its own kind"
+# Matched on the event field, not a bare substring: a webhook_created entry
+# legitimately names the events it subscribed to in its details, so a loose
+# grep for another kind's name would fail on a correct answer.
+if echo "$FILTERED" | grep -q '"event":"client_connected"'; then
   fail "the event filter returned an event of another kind"
 fi
 echo "  ok: an event filter narrows the audit log to one kind"

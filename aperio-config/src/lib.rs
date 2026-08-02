@@ -743,6 +743,14 @@ pub struct ServiceEntry {
   /// How many backend redirects to follow transparently before passing one through.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
+  /// Retry policy for backend requests that fail before a response arrives.
+  /// The default for every `services:` entry that does not set its own.
+  #[schemars(extend("examples" = [{"attempts": 3, "backoff": 100}]))]
+  pub retry: Option<RetryConfig>,
+  /// Circuit breaker for the backend. The default for every `services:` entry
+  /// that does not set its own.
+  #[schemars(extend("examples" = [{"failures": 5, "open_for": 30}]))]
+  pub circuit_breaker: Option<CircuitBreakerConfig>,
   /// Raw TCP backend for this service instead of HTTP (experimental).
   #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
@@ -1060,6 +1068,14 @@ pub struct FileConfig {
   /// through. Default: `5`.
   #[schemars(extend("examples" = [5]))]
   pub max_redirects: Option<usize>,
+  /// Retry policy for this service's backend requests; falls back to the
+  /// top-level `retry:`.
+  #[schemars(extend("examples" = [{"attempts": 3, "backoff": 100}]))]
+  pub retry: Option<RetryConfig>,
+  /// Circuit breaker for this service's backend; falls back to the top-level
+  /// `circuit_breaker:`.
+  #[schemars(extend("examples" = [{"failures": 5, "open_for": 30}]))]
+  pub circuit_breaker: Option<CircuitBreakerConfig>,
   /// Topic filters this client subscribes to, for messages from the other
   /// clients of its organization. MQTT filter syntax: `+` is one level, `#`
   /// is the rest. `$aperio/...` carries the server's own events.
@@ -1389,6 +1405,44 @@ pub struct RespondRule {
   /// Response body.
   #[schemars(extend("examples" = ["<h1>Coming soon</h1>"]))]
   pub body: Option<String>,
+}
+
+/// Retrying a backend request that failed before any response arrived
+/// (`retry:` on a service, or at the top level as the default for every
+/// entry).
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetryConfig {
+  /// Total attempts, including the first. `1` disables retrying.
+  /// Default: `1`.
+  #[schemars(extend("examples" = [3]))]
+  pub attempts: Option<u32>,
+  /// Milliseconds to wait before the second attempt, doubled before each
+  /// further one. Default: `100`.
+  #[schemars(extend("examples" = [100]))]
+  pub backoff: Option<u64>,
+  /// Retry non-idempotent methods (POST, PATCH) as well. Off by default,
+  /// because a retried write may reach the backend twice; the same reasoning
+  /// as the server's `failover.all_methods`. Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub all_methods: Option<bool>,
+}
+
+/// Refusing to dial a backend that keeps failing (`circuit_breaker:` on a
+/// service, or at the top level as the default for every entry). Answers 502
+/// immediately while open, so a dead backend stops being hammered and the
+/// visitor stops waiting for a connection that will not come.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CircuitBreakerConfig {
+  /// Consecutive failures that open the breaker. `0` disables it.
+  /// Default: `0` (off).
+  #[schemars(extend("examples" = [5]))]
+  pub failures: Option<u32>,
+  /// Seconds the breaker stays open before one request is let through to
+  /// test the backend again. Default: `30`.
+  #[schemars(extend("examples" = [30]))]
+  pub open_for: Option<u64>,
 }
 
 /// One `routes:` entry of `aperio-server.yaml`. Either an *answer* rule, a

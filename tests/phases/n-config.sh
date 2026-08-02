@@ -81,7 +81,10 @@ sleep 2
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
 assert_status 200 "$CODE" "denying an unrelated address leaves everybody else alone"
 
-write_cfg "denied_ips: [127.0.0.1, ::1]
+# The IPv6 entry is quoted: bare `::1` inside a flow sequence is a yaml parse
+# error, which would leave the previous config in place and make this look
+# like the deny list failing rather than the file failing.
+write_cfg "denied_ips: [127.0.0.1, \"::1\"]
 "
 BLOCKED=""
 for _ in $(seq 1 10); do

@@ -887,6 +887,11 @@ fn build_specs(
       },
       pass_hostname: settings.pass_hostname,
       max_response_body: settings.max_response_body,
+      retry_attempts: settings.retry_attempts,
+      retry_backoff_ms: settings.retry_backoff_ms,
+      retry_all_methods: settings.retry_all_methods,
+      breaker_failures: settings.breaker_failures,
+      breaker_open_for_secs: settings.breaker_open_for_secs,
       max_request_body: settings.max_request_body,
       response_timeout: settings.response_timeout,
       timeout_secs: settings.timeout_secs,
@@ -995,6 +1000,33 @@ fn build_specs(
         max_response_body: entry
           .max_response_body
           .unwrap_or(settings.max_response_body),
+        retry_attempts: entry
+          .retry
+          .as_ref()
+          .and_then(|r| r.attempts)
+          .map(|n| n.clamp(1, 10))
+          .unwrap_or(settings.retry_attempts),
+        retry_backoff_ms: entry
+          .retry
+          .as_ref()
+          .and_then(|r| r.backoff)
+          .unwrap_or(settings.retry_backoff_ms),
+        retry_all_methods: entry
+          .retry
+          .as_ref()
+          .and_then(|r| r.all_methods)
+          .unwrap_or(settings.retry_all_methods),
+        breaker_failures: entry
+          .circuit_breaker
+          .as_ref()
+          .and_then(|b| b.failures)
+          .unwrap_or(settings.breaker_failures),
+        breaker_open_for_secs: entry
+          .circuit_breaker
+          .as_ref()
+          .and_then(|b| b.open_for)
+          .map(|s| s.max(1))
+          .unwrap_or(settings.breaker_open_for_secs),
         max_request_body: entry.max_request_body.or(settings.max_request_body),
         response_timeout: entry.response_timeout.or(settings.response_timeout),
         timeout_secs: entry.timeout.unwrap_or(settings.timeout_secs),

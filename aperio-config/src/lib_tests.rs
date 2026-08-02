@@ -265,6 +265,11 @@ const ENV_ALIASES: &[(&str, &str)] = &[
   // yaml `server.api_key`; predates the `server:` block, when it was a
   // top-level key.
   ("APERIO_API_KEY", "server.api_key"),
+  // yaml `circuit_breaker.*`; the block is spelled out in the file, where it
+  // is read once and has to be unambiguous, and shortened in the environment,
+  // where APERIO_CIRCUIT_BREAKER_FAILURES buys nothing over APERIO_BREAKER_.
+  ("APERIO_BREAKER_FAILURES", "circuit_breaker.failures"),
+  ("APERIO_BREAKER_OPEN_FOR", "circuit_breaker.open_for"),
 ];
 
 /// Environment variables the rule deliberately exempts, with the reason.
@@ -404,7 +409,17 @@ fn every_environment_variable_has_a_yaml_key() {
       schema_json(),
       // The client's nested blocks: their children map to
       // APERIO_<BLOCK>_<CHILD> exactly as the server's groups do.
-      vec!["health", "server", "scaling", "security_headers"],
+      // `circuit_breaker` is the one exception to the mechanical rule: its
+      // variables are APERIO_BREAKER_*, since APERIO_CIRCUIT_BREAKER_FAILURES
+      // is a mouthful for no added clarity, so the alias is declared below.
+      vec![
+        "health",
+        "server",
+        "scaling",
+        "security_headers",
+        "retry",
+        "circuit_breaker",
+      ],
     ),
   ] {
     let declared = schema_env_names(&schema, &groups);

@@ -83,6 +83,131 @@ impl ChunkCoalescer {
   }
 }
 
+/// Backend resilience for one service: how many attempts a failed request
+/// gets, and when to stop dialing a backend that keeps failing
+/// (planned_features #29).
+///
+/// The server can already fail a request over to another *client* and eject
+/// one that misbehaves. Neither helps the single client whose own backend is
+/// refusing connections: without this, one refused connect is the visitor's
+/// answer, and a dead backend is dialed once per request for as long as the
+/// traffic lasts.
+#[derive(Clone)]
+pub(crate) struct BackendResilience {
+  /// Total attempts including the first; 1 disables retrying.
+  pub(crate) attempts: u32,
+  /// Delay before the second attempt, doubled before each further one.
+  pub(crate) backoff: std::time::Duration,
+  /// Retry non-idempotent methods too. Off by default: a retried POST may
+  /// reach the backend twice, the same trade the server's
+  /// `failover.all_methods` names.
+  pub(crate) all_methods: bool,
+  /// Consecutive failures that open the breaker; 0 disables it.
+  pub(crate) breaker_failures: u32,
+  /// How long the breaker stays open before one request is let through.
+  pub(crate) breaker_open_for: std::time::Duration,
+  /// Shared state, because one `ForwardContext` serves every request of a
+  /// service and the breaker is only useful if they see each other's failures.
+  state: std::sync::Arc<std::sync::Mutex<BreakerState>>,
+}
+
+#[derive(Default)]
+struct BreakerState {
+  /// Consecutive failures since the last success.
+  failures: u32,
+  /// While set, the breaker is open until this instant.
+  open_until: Option<std::time::Instant>,
+}
+
+/// What the breaker says about dialing right now.
+pub(crate) enum BreakerVerdict {
+  /// Dial: either closed, or open and this is the probe that tests recovery.
+  Proceed,
+  /// Do not dial; the backend is being left alone for this long.
+  Open(std::time::Duration),
+}
+
+impl BackendResilience {
+  pub(crate) fn new(
+    attempts: u32,
+    backoff_ms: u64,
+    all_methods: bool,
+    breaker_failures: u32,
+    breaker_open_for_secs: u64,
+  ) -> Self {
+    BackendResilience {
+      attempts: attempts.max(1),
+      backoff: std::time::Duration::from_millis(backoff_ms),
+      all_methods,
+      breaker_failures,
+      breaker_open_for: std::time::Duration::from_secs(breaker_open_for_secs.max(1)),
+      state: Default::default(),
+    }
+  }
+
+  /// True when this method may be retried under the configured policy.
+  /// Idempotent by the HTTP definition, plus whatever `all_methods` adds.
+  pub(crate) fn may_retry_method(&self, method: &str) -> bool {
+    self.all_methods
+      || matches!(
+        method.to_ascii_uppercase().as_str(),
+        "GET" | "HEAD" | "PUT" | "DELETE" | "OPTIONS" | "TRACE"
+      )
+  }
+
+  /// Asks the breaker whether to dial. When the open window has elapsed this
+  /// returns `Proceed` and closes the window, so exactly one request probes
+  /// the backend; if it fails, `record_failure` opens the window again.
+  pub(crate) fn check(&self) -> BreakerVerdict {
+    if self.breaker_failures == 0 {
+      return BreakerVerdict::Proceed;
+    }
+    let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    match st.open_until {
+      Some(until) => {
+        let now = std::time::Instant::now();
+        if now >= until {
+          // The probe: the window is cleared here rather than on success, so
+          // a flood while the backend is still down produces one dial per
+          // window instead of one per request.
+          st.open_until = None;
+          BreakerVerdict::Proceed
+        } else {
+          BreakerVerdict::Open(until - now)
+        }
+      }
+      None => BreakerVerdict::Proceed,
+    }
+  }
+
+  /// A request reached the backend and got a response head.
+  pub(crate) fn record_success(&self) {
+    if self.breaker_failures == 0 {
+      return;
+    }
+    let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    st.failures = 0;
+    st.open_until = None;
+  }
+
+  /// A request failed before any response. Returns true when this failure
+  /// opened the breaker, so the caller can say so once rather than per
+  /// request.
+  pub(crate) fn record_failure(&self) -> bool {
+    if self.breaker_failures == 0 {
+      return false;
+    }
+    let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    st.failures = st.failures.saturating_add(1);
+    if st.failures >= self.breaker_failures {
+      let was_closed = st.open_until.is_none();
+      st.open_until = Some(std::time::Instant::now() + self.breaker_open_for);
+      return was_closed;
+    }
+    false
+  }
+}
+
 /// Sends a whole buffered response as one v5 binary frame: the envelope and
 /// the body in a single message, with the body as bytes.
 ///
@@ -272,6 +397,8 @@ pub(crate) struct ForwardContext {
   /// Pause switches for the streams this connection produces (server flow
   /// control, protocol v3); streamed response bodies register here.
   pub(crate) stream_pauses: crate::flow::PauseRegistry,
+  /// Retry policy and circuit breaker for this service's backend.
+  pub(crate) resilience: BackendResilience,
 }
 
 /// Builds the backend URL for an incoming proxied request: maps the path
@@ -511,10 +638,64 @@ pub(crate) async fn handle_incoming_request(
     }
   }
 
-  // Execute Request
+  // The breaker first: while it is open the backend is not dialed at all,
+  // which is the whole point, and the visitor gets its 502 immediately
+  // instead of waiting out a connect that is not going to succeed.
+  if let BreakerVerdict::Open(remaining) = ctx.resilience.check() {
+    warn!(
+      "Circuit breaker open for {}: request ID {} refused without dialing ({}s left)",
+      ctx.target,
+      id,
+      remaining.as_secs()
+    );
+    return Some(make_error_response(id, 502));
+  }
+
+  // Execute Request, retrying a failure that happened before any response.
+  //
+  // Two fences on what may be retried. The method must be idempotent (unless
+  // the operator opted in), and the request must be replayable at all:
+  // `try_clone` returns None for a streamed body, which the first attempt has
+  // already consumed. Once a response head arrives we are past this point, so
+  // an error later in the body is never retried here.
   let backend_sent_us = received_at.elapsed().as_micros() as u64;
-  match builder.send().await {
+  let retries_allowed = ctx.resilience.attempts > 1 && ctx.resilience.may_retry_method(&method_str);
+  let mut attempt = 1u32;
+  let mut backoff = ctx.resilience.backoff;
+  let outcome = loop {
+    let replay = if retries_allowed && attempt < ctx.resilience.attempts {
+      builder.try_clone()
+    } else {
+      None
+    };
+    let result = builder.send().await;
+    let Err(ref e) = result else {
+      break result;
+    };
+    let Some(next) = replay else {
+      break result;
+    };
+    warn!(
+      "Backend attempt {}/{} failed for request ID {}: {}; retrying in {}ms",
+      attempt,
+      ctx.resilience.attempts,
+      id,
+      e,
+      backoff.as_millis()
+    );
+    tokio::time::sleep(backoff).await;
+    backoff = backoff.saturating_mul(2);
+    attempt += 1;
+    builder = next;
+  };
+
+  match outcome {
     Ok(res) => {
+      // A response head arrived, so the backend is reachable and the breaker
+      // resets. Its status is deliberately not consulted: a 500 is a backend
+      // that is up and answering, and refusing to dial it would turn an
+      // application error into an outage.
+      ctx.resilience.record_success();
       let backend_first_byte_us = received_at.elapsed().as_micros() as u64;
       let status = res.status().as_u16();
 
@@ -725,6 +906,14 @@ pub(crate) async fn handle_incoming_request(
     }
     Err(e) => {
       warn!("Tunnel request FAILURE: ID={} Error={:?}", id, e);
+      if ctx.resilience.record_failure() {
+        warn!(
+          "Circuit breaker opened for {}: {} consecutive backend failures; not dialing again for {}s",
+          ctx.target,
+          ctx.resilience.breaker_failures,
+          ctx.resilience.breaker_open_for.as_secs()
+        );
+      }
       Some(make_error_response(id, 502))
     }
   }
