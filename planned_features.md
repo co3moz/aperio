@@ -702,7 +702,7 @@ recorded in Withdrawn under #84 so they are not proposed again.
   `failover_all_methods` already encodes) and not retrying a response whose
   body has started streaming.
 
-- [ ] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
+- [x] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
   UUID per request (`proxy.rs:1138`) and uses it everywhere internally, but it
   neither reads an inbound `X-Request-Id` nor passes any id to the backend. So
   a visitor's trace id dies at the edge, and a backend log line cannot be
@@ -710,38 +710,31 @@ recorded in Withdrawn under #84 so they are not proposed again.
   header when present (validated and length-capped, it is attacker-controlled),
   mint one otherwise, send it to the backend and echo it on the response. Cheap
   and standard, and it makes the profiling script and the inspector line up
-  with whatever the operator already runs.
+  with whatever the operator already runs. shipped: the id travels to the backend and is echoed to the visitor under `request_id.header`; adopting a visitor-supplied one is opt-in (`request_id.trust_inbound`) and bounded, and the internal id that keys in-flight requests stays server-minted so it can never be chosen by a visitor.
 
-- [ ] **#31 Filters on the request inspector.** (triage 55) The inspector keeps
+- [x] **#31 Filters on the request inspector.** (triage 55) The inspector keeps
   recent transactions with a microsecond timeline and is one of the reasons to
   run the dashboard, but the only ways in are "the most recent N" and "this
   exact id". Merged from two proposals: field filters (`status`, `method`,
   `path`) and a time range (`before`/`after`, where only `before` plus a limit
   exists today). The interesting case is the one an operator actually has,
-  "show me the 500s from the last ten minutes", which needs both.
+  "show me the 500s from the last ten minutes", which needs both. shipped, smaller than scored: the dashboard already filtered the traffic view by text, method and status in the browser, so what was missing was the same at the API. `/aperio/api/logs` now takes `status` (exact or class), `method`, `path` and `limit`. Searching the durable access log was deliberately left out: its lines carry no organization field, so a search over the file could not be scoped to a tenant.
 
-- [ ] **#32 Scheduled maintenance windows.** (triage 55) Maintenance mode is a
+- [x] **#32 Scheduled maintenance windows.** (triage 55) Maintenance mode is a
   manual toggle with an optional TTL, so a window at 02:00 on a Sunday means
   somebody sets an alarm. Wants `from`/`to`, a `days` list and an explicit
   `tz`, evaluated server-side. The cost to be honest about is correctness
   around time zones and daylight saving, which is why the timezone has to be
-  explicit rather than inferred from the host.
+  explicit rather than inferred from the host. shipped as `maintenance_windows:` in `aperio-server.yaml` rather than as a schedule on the runtime flag, because those flags are in-memory and a recurring window has to survive a restart. IANA time zones (hence chrono-tz), midnight-wrapping windows belong to the day they start, and a malformed entry refuses startup.
 
-- [ ] **#33 Draining a service that a config reload removed.** (triage 55) When
+- [x] **#33 Draining a service that a config reload removed.** (triage 55) When
   a service disappears from a reloaded config the client stops serving it
   immediately, so requests already in flight through that service are dropped
   and the visitor sees a failure caused by an edit that was meant to be
   invisible. The protocol already has `Draining` and the server already knows
   how to stop dispatching to a draining client; this is about using both on the
   reload path with a bounded wait. Closer to a correctness fix than a feature,
-  which is why it scores above several flashier ideas.
-
-- [ ] **#34 `restart_policy` for a process started with `run:`.** (triage 55)
-  `run:` starts a backend alongside the tunnel, and if that process dies the
-  tunnel stays up serving a target that is no longer there. Wants
-  `always` / `on-failure` / `never` with a backoff, and it should interact with
-  the health probe rather than duplicate it: a restarting backend is unhealthy,
-  which the routing layer already understands.
+  which is why it scores above several flashier ideas. shipped: the reload path now announces `Draining` and waits for in-flight requests, bounded by `reload_drain` (default 10s, 0 = the previous immediate drop).
 
 - [ ] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
   a supported, documented shape for gRPC backends, but the health probe is a
@@ -1173,3 +1166,22 @@ nothing reuses them.
   The lesson worth keeping: "grep found nothing" is evidence about a spelling,
   not about a feature.
 
+- **#34 `restart_policy` for a process started with `run:`.** Withdrawn
+  2026-08-02, on a false premise, found when the implementation started. There
+  is no long-lived process to restart: `run:` is not "start my backend
+  alongside the tunnel", it is a command inside a `subscribe:` entry that runs
+  **once per received message**, with the payload on stdin, a timeout and a
+  concurrency cap (`aperio-client/src/messages_run.rs`). A restart policy for
+  a command that exits after every message is not a small feature, it is a
+  category error. Retrying a *failed* message handler is a coherent idea, but
+  that is message-delivery semantics, next to QoS 1 and redelivery, not
+  process supervision, and would be its own entry.
+
+  The related proposal to pass environment variables to `run:` is also partly
+  answered already: `APERIO_MESSAGE_TOPIC` and `APERIO_MESSAGE_ID` are set for
+  every run. What is genuinely missing there is *operator-defined* env, which
+  stays open as a small idea.
+
+  The lesson is the same one #84 records: the triage scored this from the
+  proposal's description of `run:` without opening the file. Reading what a
+  name refers to is part of scoring it.
