@@ -779,6 +779,16 @@ FUTURE="$(curl -s -b "$COOKIES" "$BASE/aperio/api/audit?from=2999-01-01")"
 [ "$(echo "$FUTURE" | tr -d ' \n')" = "[]" ] \
   || fail "a future-dated range should match nothing, got: $FUTURE"
 echo "  ok: a time range that excludes everything returns nothing"
+
+# The request log takes the same shape of query.
+LOGS="$(curl -s -b "$COOKIES" "$BASE/aperio/api/logs?method=GET&limit=5")"
+assert_contains "$LOGS" '"method":"GET"' "the log query returns GET entries"
+if echo "$LOGS" | grep -q '"method":"POST"'; then
+  fail "the method filter returned another verb"
+fi
+COUNT="$("$PYTHON" -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$LOGS")"
+[ "$COUNT" -le 5 ] || fail "the log limit was ignored: got $COUNT entries"
+echo "  ok: the request log filters by method and honors its limit"
 # The CSV export answers the same query with a header row and a download name.
 CSV_HEAD="$(curl -s -D - -o /dev/null -b "$COOKIES" "$BASE/aperio/api/export/audit.csv?event=webhook_created")"
 assert_contains "$CSV_HEAD" 'text/csv' "the audit export is served as CSV"

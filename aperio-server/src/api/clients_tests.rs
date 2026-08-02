@@ -183,7 +183,12 @@ async fn logs_filtered_by_effective_org() {
     logs.push_back(log("c", None));
   }
   let headers = admin_headers(&state).await;
-  let resp = logs_handler(State(state.clone()), headers).await;
+  let resp = logs_handler(
+    State(state.clone()),
+    headers,
+    axum::extract::Query(Default::default()),
+  )
+  .await;
   let entries = resp.0;
   assert_eq!(entries.len(), 2, "only master-org logs visible to admin");
   assert!(entries.iter().all(|l| l.org_id.is_none()));
@@ -997,4 +1002,115 @@ async fn enabling_an_unknown_or_foreign_client_is_not_found() {
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   // And the master client is untouched.
   assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
+}
+
+// --- log filtering (planned_features #31) -----------------------------------
+
+/// A log entry with the fields the filters look at.
+fn log_of(
+  id: &str,
+  method: &str,
+  uri: &str,
+  status: Option<u16>,
+  error: Option<&str>,
+) -> RequestLog {
+  RequestLog {
+    id: id.to_string(),
+    timestamp: "2026-08-02T00:00:00Z".to_string(),
+    method: method.to_string(),
+    uri: uri.to_string(),
+    status,
+    duration_ms: 5,
+    error: error.map(|e| e.to_string()),
+    host: Some("svc.example.com".to_string()),
+    org_id: None,
+  }
+}
+
+async fn query(state: &Arc<AppState>, pairs: &[(&str, &str)]) -> Vec<RequestLog> {
+  let params: std::collections::HashMap<String, String> = pairs
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+  let headers = admin_headers(state).await;
+  logs_handler(State(state.clone()), headers, axum::extract::Query(params))
+    .await
+    .0
+}
+
+async fn seeded_state() -> Arc<AppState> {
+  let state = Arc::new(test_state());
+  {
+    let mut logs = state.recent_logs.lock().await;
+    logs.push_back(log_of("a", "GET", "/api/users", Some(200), None));
+    logs.push_back(log_of("b", "POST", "/api/login", Some(401), None));
+    logs.push_back(log_of("c", "GET", "/api/login", Some(500), None));
+    logs.push_back(log_of(
+      "d",
+      "DELETE",
+      "/things/9",
+      None,
+      Some("client gone"),
+    ));
+  }
+  state
+}
+
+#[tokio::test]
+async fn status_accepts_an_exact_code_and_a_class() {
+  let state = seeded_state().await;
+  let exact = query(&state, &[("status", "401")]).await;
+  assert_eq!(exact.len(), 1);
+  assert_eq!(exact[0].id, "b");
+
+  let class = query(&state, &[("status", "4xx")]).await;
+  assert_eq!(class.len(), 1, "401 is the only 4xx");
+
+  // A failed request with no status is a 5xx, as the dashboard buckets it,
+  // so it must not vanish from the query an operator runs to find failures.
+  let server_errors = query(&state, &[("status", "5xx")]).await;
+  let ids: Vec<&str> = server_errors.iter().map(|l| l.id.as_str()).collect();
+  assert_eq!(ids, vec!["c", "d"]);
+}
+
+#[tokio::test]
+async fn method_and_path_filter_and_combine() {
+  let state = seeded_state().await;
+  assert_eq!(
+    query(&state, &[("method", "get")]).await.len(),
+    2,
+    "case-insensitive"
+  );
+  assert_eq!(
+    query(&state, &[("path", "LOGIN")]).await.len(),
+    2,
+    "substring, case-insensitive"
+  );
+  // Predicates are AND, not OR.
+  let both = query(&state, &[("method", "GET"), ("path", "/api/login")]).await;
+  assert_eq!(both.len(), 1);
+  assert_eq!(both[0].id, "c");
+}
+
+#[tokio::test]
+async fn an_empty_parameter_is_not_a_filter() {
+  // A form that submits `?method=` must not mean "no method matches".
+  let state = seeded_state().await;
+  assert_eq!(query(&state, &[("method", "")]).await.len(), 4);
+  assert_eq!(query(&state, &[("status", "  ")]).await.len(), 4);
+}
+
+#[tokio::test]
+async fn a_limit_returns_the_newest_matches() {
+  let state = seeded_state().await;
+  let capped = query(&state, &[("limit", "2")]).await;
+  let ids: Vec<&str> = capped.iter().map(|l| l.id.as_str()).collect();
+  assert_eq!(
+    ids,
+    vec!["d", "c"],
+    "newest first, so a cap keeps the recent ones"
+  );
+  // Without a limit the order is unchanged, which the live view relies on.
+  let all = query(&state, &[]).await;
+  assert_eq!(all.first().unwrap().id, "a");
 }

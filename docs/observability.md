@@ -69,6 +69,10 @@ Both rules are off unless their threshold is set. One `alert_triggered` event (k
 
 Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
 
+**Querying the live window.** The server also keeps the most recent 100 requests in memory for the dashboard's traffic view. `GET /aperio/api/logs` returns them, and takes `status` (an exact code like `404`, or a class like `4xx`/`5xx`; a failed request with no status counts as `5xx`), `method`, `path` (a case-insensitive substring of the URI) and `limit` (newest first). The predicates combine with AND, an empty parameter is not a filter, and the caller's organization fence is applied before any of them.
+
+This window is deliberately small: it answers "what is happening right now" for scripts and for the dashboard, not "what happened last Tuesday". The durable record is the access log file above; searching *that* is not offered here, because its lines carry no organization field and could not be scoped safely to a tenant.
+
 ## Audit log
 
 Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.

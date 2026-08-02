@@ -403,18 +403,83 @@ pub(crate) async fn stats_handler(
   Json(snapshot)
 }
 
-/// Handler returning the list of recent HTTP logs in JSON.
+/// Handler returning recent HTTP logs in JSON, optionally filtered.
+///
+/// The window is the server's recent-request ring, so this answers "what has
+/// been happening" rather than "what happened last Tuesday"; the durable
+/// record is the access log file (`APERIO_ACCESS_LOG`). The filters exist so
+/// automation does not have to fetch the whole ring and re-implement the
+/// matching the dashboard already does client-side.
 #[utoipa::path(get, path = "/aperio/api/logs", tag = "dashboard",
-  description = "The most recent proxied requests (bounded ring buffer).",
-  responses((status = 200, description = "Recent request log entries", body = Vec<RequestLog>)))]
+  description = "Recent proxied requests (bounded ring buffer), optionally filtered by status, method and path.",
+  params(
+    ("status" = Option<String>, Query, description = "Exact code (404) or class (4xx, 5xx); a failed request with no status counts as 5xx"),
+    ("method" = Option<String>, Query, description = "HTTP method, case-insensitive"),
+    ("path" = Option<String>, Query, description = "Case-insensitive substring of the request URI"),
+    ("limit" = Option<usize>, Query, description = "Maximum entries, newest first (omit for the whole ring, oldest first)")),
+  responses((status = 200, description = "Request log entries", body = Vec<RequestLog>)))]
 pub(crate) async fn logs_handler(
   State(state): State<Arc<AppState>>,
   headers: axum::http::HeaderMap,
+  axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<Vec<RequestLog>> {
   let org = crate::auth::effective_org(&state, &headers).await;
+  let non_empty = |key: &str| {
+    params
+      .get(key)
+      .map(|v| v.trim().to_string())
+      .filter(|v| !v.is_empty())
+  };
+  // `status` takes an exact code (`404`) or a class (`4xx`, `5xx`), because
+  // both are what somebody actually asks for. A failed request with no status
+  // counts as 5xx, matching how the dashboard buckets it.
+  let status = non_empty("status").map(|v| v.to_ascii_lowercase());
+  let method = non_empty("method").map(|v| v.to_ascii_uppercase());
+  let path = non_empty("path").map(|v| v.to_lowercase());
+  let limit = params
+    .get("limit")
+    .and_then(|v| v.parse::<usize>().ok())
+    .unwrap_or(usize::MAX);
+
   let logs = state.recent_logs.lock().await;
-  // Only requests served by a client in the caller's effective org.
-  Json(logs.iter().filter(|l| l.org_id == org).cloned().collect())
+  let mut matched: Vec<RequestLog> = logs
+    .iter()
+    // Only requests served by a client in the caller's effective org. This
+    // runs first and is not one of the predicates: isolation is not something
+    // a query parameter gets to widen.
+    .filter(|l| l.org_id == org)
+    .filter(|l| match status {
+      None => true,
+      Some(ref want) => {
+        let effective = if l.error.is_some() {
+          500
+        } else {
+          l.status.unwrap_or(500)
+        };
+        match want.strip_suffix("xx").and_then(|d| d.parse::<u16>().ok()) {
+          Some(class) => effective / 100 == class,
+          None => want.parse::<u16>().ok() == Some(effective),
+        }
+      }
+    })
+    .filter(|l| match method {
+      None => true,
+      Some(ref want) => l.method.eq_ignore_ascii_case(want),
+    })
+    .filter(|l| match path {
+      None => true,
+      Some(ref want) => l.uri.to_lowercase().contains(want),
+    })
+    .cloned()
+    .collect();
+  // Newest first when a limit is given, so a capped query returns the most
+  // recent matches rather than the oldest ones. The unfiltered call keeps its
+  // original oldest-first order, which the dashboard's live view relies on.
+  if limit != usize::MAX {
+    matched.reverse();
+    matched.truncate(limit);
+  }
+  Json(matched)
 }
 
 /// Server-Sent Events stream powering the dashboard's live view, so it doesn't
