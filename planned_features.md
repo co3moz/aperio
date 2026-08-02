@@ -1,12 +1,21 @@
 # Planned Features
 
-Future feature ideas. Backlog items carry stable `#N` ids (never renumbered or
-reused); a shipped item keeps its id and flips to `[x]` in place with a short
-"shipped: ..." note. An idea that is dropped moves to **Withdrawn** at the
-bottom with the reason, so the decision is on record and its id stays retired.
-An entry that turns out to be bigger than one piece of work is split, the
-original id keeping the part it best describes and the rest taking the next
-free number.
+Feature ideas and what became of them. Items carry stable `#N` ids, never
+renumbered and never reused, so a commit message or a comment naming `#28`
+points at the same thing forever.
+
+The file has three sections, and an entry moves between them exactly once:
+
+- **Future ideas**, what is open. An entry that turns out to be bigger than
+  one piece of work is split, the original id keeping the part it best
+  describes and the rest taking the next free number.
+- **Withdrawn**, dropped with the reason, so the decision is on record rather
+  than re-argued from memory.
+- **Completed**, shipped, ticked `[x]` and moved here with a `shipped:` note
+  saying what was actually built and where that differed from the plan.
+
+Keeping the sections apart is the point: what is left to do should be
+readable without scrolling past what is already done.
 
 ## Future ideas
 
@@ -46,180 +55,6 @@ free number.
   cache (ci.yml `warm-release-cache`) already warms. Left open so the option is
   recorded; not worth starting while the cache holds.
 
-- [x] **#3 Re-validate the dashboard SSE live stream while it is open.** shipped:
-  `live_stream_handler` keeps the caller's headers and re-runs `dashboard_role`
-  on every stats tick, the same check the session middleware makes when the
-  stream is opened, and ends the stream the moment it comes back empty. A sign
-  out, a "sign out everywhere", an expiry or a disabled user therefore closes
-  the stream within one ~2 s tick instead of leaving it emitting traffic and
-  statistics for as long as the tab stays open. The org stays fixed for the
-  life of the connection, as before. A test seeds a session, reads the first
-  snapshot, removes the session and asserts the stream ends; it fails without
-  the check. (From the 2026-07 static security review.)
-
-- [x] **#4 Stream static-serve responses instead of reading whole files into
-  memory.** shipped in two parts. The body: `serve.rs` answers from an open
-  `tokio::fs::File` through a `BoxBody` stream instead of `tokio::fs::read`
-  into a `Full<Bytes>`, so peak memory no longer scales with file size times
-  concurrent requests, and a `HEAD` reports the length from metadata without
-  reading anything (`7f92cbb`, which also added single-range `Range` support
-  built on the same stream). The syscalls: `resolve` was doing a blocking
-  `canonicalize` and up to two `stat` calls on the Tokio worker thread polling
-  the request, so a slow filesystem stalled every other task on that worker,
-  not just this response; it is async now, through `tokio::fs`. The SPA
-  fallback had both problems at once (a blocking `is_file()` and reading the
-  whole index per navigation) and takes the same path as any other file. A
-  per-serve maximum file size was considered and deliberately not added:
-  streaming removed the reason for it, and a cap would only surprise an
-  operator who meant to publish a large file. (From the 2026-07 static
-  security review + a 2026-07 client review.)
-
-- [x] **#7 Run the backend health probe once per service, not per parallel
-  connection.** shipped: `BackendHealth::for_spec` builds one shared verdict per
-  service; `spawn_services` creates it once and passes it to every connection's
-  `run_service`, with only the first connection (`run_probe`) driving the
-  probe/`wait_for_backend` gate (`notify_waiters` wakes all connections on a
-  flip). Original note below.
-
-  Each parallel connection of a service (`connections: N`) runs its
-  own `run_service`, which builds its own `backend_healthy`/`backend_probed`
-  flags and spawns its own `probe_task` hitting the backend's `target_health`
-  endpoint independently (`aperio-client/src/service.rs`). So `connections: N`
-  makes N independent probes and reports `backend_healthy` per connection, N×
-  the health-check load on the backend, and connections can disagree during a
-  blip. Now that `connections` defaults to 2 this doubles the probe load by
-  default. Move the probe out of `run_service` into `spawn_services`
-  (`aperio-client/src/main.rs`): one probe per service writing a shared
-  `Arc<AtomicBool>` that every connection's `run_service` reads for its Ping.
-  Touches `run_service`'s signature (13 call sites, mostly tests). Low-moderate
-  severity. (From a 2026-07 client review.)
-
-- [x] **#10 Turn Topology into the full routing map (config + live), not a
-  second Clients table.** shipped: a dedicated `GET /api/topology`
-  (`aperio-server/src/api/topology.rs`) returns `{ clients, routes, exposes,
-  offline }`; `TopologySection.tsx` self-fetches it and renders, A: client-less
-  static `routes:` and public `expose:` ports (master-only); B: dashed
-  "declared but offline" nodes from token-granted binds no client serves
-  (per-org); C: passive outlier ejection (`ejected` now on every client detail)
-  coloured/labelled in the map. Deferred the route-limits overlay and
-  per-connection bytes/geo edge weights (server tracks bytes only in aggregate).
-  Original note below.
-
-  Today `TopologySection.tsx` derives its graph purely
-  from `stats.active_clients`, the same snapshot the Clients table renders, so
-  it only shows *connected* clients and adds nothing but live req/s edge labels.
-  It should become the one view that shows *how a request is routed*, including
-  routing that has no live tunnel client. Clean split: **Clients = who is
-  connected now (table); Topology = the routing map (config + live)**. Needs a
-  dedicated `GET /api/topology` handler returning a typed
-  `TopologyGraph { nodes, edges }` (org-scoped like the others), unioning the
-  in-memory client registry with the config-side route registries. Three parts:
-  - **A, client-less route nodes.** Fold in the server-side route definitions
-    that exist whether or not a client is connected: static routes
-    (`static_routes.rs` `RouteRule`: redirect/respond), expose rules
-    (`expose.rs` `ExposeRule`: public TCP port → tunnel key), and route rate
-    limits (`route_limits.rs`) as an overlay. These have no `ClientDetail` today
-    so Topology can't see them; they render as route nodes that terminate in a
-    redirect/respond/expose sink instead of a backend.
-  - **B, "declared but offline" gap.** From each token's granted binds
-    (`store/tokens.rs`: `hostnames`/`paths` a token *may* claim), emit a dim /
-    dashed route node when no active client currently claims that bind, the one
-    thing a table structurally cannot show (there is no row for an absent
-    client). This surfaces "the service that should be up but isn't" at a
-    glance. Decision needed: derive expected binds from granted token scopes
-    (broad) vs. an explicit "expected services" declaration (precise).
-  - **C, routing-health overlay.** Surface per-client routing state the graph
-    is the natural home for and that no screen shows today: `ejected_until`
-    (passive outlier ejection, a client silently pulled from rotation right
-    now), `draining`, and load-balance fan-out (N clients on one hostname shown
-    as a one-to-many group, not N unrelated rows). Colour nodes/edges by state.
-  Non-goal for now: per-connection **bytes**/**geo** edge weights, the server
-  tracks bytes only in aggregate (`PersistentStats`), not per connection, so
-  that needs new server-side counters and is out of scope. Ship A/B/C behind the
-  new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
-
-- [x] **#9 Give the WS and TCP relay arms the bounded hand-off the upload path
-  already has.** shipped: `deliver_to_relay` in `aperio-client/src/service.rs`,
-  the generic form of `feed_request_chunk`, is what the `WsData` and `TcpData`
-  arms use now. The map is released before the send, the frame goes over
-  without waiting when there is room, and a full channel is waited on for a
-  bounded two seconds (`STREAM_STALL_BUDGET`) before that one stream is
-  dropped with a log line naming it. So a lossless stream whose consumer is
-  merely slower than a burst survives, where `try_send` alone killed it, and a
-  consumer that has genuinely stopped still cannot stall the shared read loop
-  or the heartbeat on it. `UdpDatagram` keeps dropping on a full channel, now
-  with a comment saying that is its contract rather than an oversight.
-
-  The per-stream credit/window protocol the original entry proposed was
-  deliberately not built: the server already pauses producers in the other
-  direction (protocol v3), and a symmetric scheme means a protocol bump and
-  skew handling for a case a bounded wait covers. Revisit only if the wait
-  proves too blunt in practice. (From the 2026-07 unpushed-commits review.)
-
-- [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
-  server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
-  it resolves every address, applies an `ip_family` (auto/ipv4/ipv6; CLI
-  `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) preference, and tries
-  each in turn (IPv4-first interleaved) with a per-address connect timeout. Wired
-  into all three dial sites (service/check/tcp). Delivered the config knob + the
-  address-fallback tier; kept it as sequential-with-timeout rather than full
-  RFC 8305 concurrent racing. Original design below.
-
-  tokio-tungstenite 0.23 dials with a single
-  `TcpStream::connect("domain:port")` (`connect.rs:73`), so address selection and
-  IPv4/IPv6 fallback are left entirely to the OS resolver. On the musl/Alpine
-  client image this is unreliable: when a Cloudflare-fronted server hostname
-  publishes AAAA but the host has no working internet IPv6, the client tries the
-  IPv6 address and fails (`ENETUNREACH`), and, unlike a glibc `curl` on the same
-  host, does not fall back to the reachable IPv4. musl does not honor
-  `AI_ADDRCONFIG` the way glibc does, so even disabling IPv6 in the container
-  (`net.ipv6.conf.all.disable_ipv6=1`) does not help: getaddrinfo still returns
-  the AAAA and the client still tries it first (fails with `EADDRNOTAVAIL`). This
-  caused a real outage (2026-07); the only reliable workarounds are DNS-side
-  (drop AAAA / pin an IPv4 via `extra_hosts`), which is a footgun.
-  Proposed fix (client-only):
-  - **Tier 1, config escape hatch:** an `ip_family: auto | ipv4 | ipv6` field
-    (CLI `--ip-family`, env `APERIO_IP_FAMILY`). `ipv4` connects only to A
-    records, deterministically dodging unreachable AAAA. ~small change.
-  - **Tier 2, robust default (`auto`):** replace the single `TcpStream::connect`
-    with a shared connect helper that `lookup_host`s all addresses, applies the
-    `ip_family` filter, and does Happy Eyeballs (RFC 8305: race IPv4/IPv6 with a
-    small head-start, first to connect wins), with a per-address connect timeout.
-    Feed the connected socket to `client_async_tls_with_config` so TLS
-    (rustls/webpki-roots) is unchanged.
-  Apply the shared helper at all three dial sites so they behave consistently:
-  `service.rs:411` (main tunnel), `check.rs:190` (preflight check), `tcp.rs:304`
-  (TCP tunnel). Tests: unit for the family filter/ordering; an e2e phase dialing a
-  dual-stack loopback with `ip_family: ipv4`. Ship both tiers (auto default + the
-  knob). (From a 2026-07 field debugging session.)
-
-- [x] **#6 Probe the OTLP endpoint at startup when OTel export is enabled.**
-  shipped: `telemetry::init` now spawns a detached thread that TCP-connects to
-  the resolved endpoint host:port (`endpoint_host_port` parses host/port incl.
-  IPv6 literals + scheme-default ports) and logs INFO on success / WARN on
-  failure ("… unreachable, trace spans will be dropped"). Blocking IO on a
-  thread so it needs no Tokio runtime and never blocks startup. Original note
-  below.
-
-  With `APERIO_OTEL` on, the batch span exporter silently POSTs to
-  `otel_endpoint`; any failure (wrong host/port, DNS, collector down, wrong
-  protocol/path) is invisible, spans just never arrive, and the only visible log
-  is the harmless `BatchSpanProcessor.ExportingDueToTimer` heartbeat. In a 2026-07
-  session this made a misconfig indistinguishable from "no traffic to trace":
-  Jaeger stayed empty with no error. After building the provider in
-  `telemetry::build_provider` / `init` (`aperio-server/src/telemetry.rs`), do a
-  lightweight reachability probe to the resolved endpoint host:port (a short-
-  timeout TCP connect, or an HTTP request to the `/v1/traces` path) and log a
-  clear line: INFO on success ("OTLP endpoint <ep> reachable"), WARN on failure
-  ("OTLP endpoint <ep> unreachable: <err>, spans will be dropped"). Must NOT fail
-  startup, tracing is non-critical, so a bad collector must never take the server
-  down; run the probe non-blocking (spawn it, or a single short-timeout connect
-  before serving). Consider also surfacing the batch exporter's own runtime export
-  errors (currently swallowed) and/or a periodic re-check. Note the probe only
-  confirms the collector is listening, not that spans parse end-to-end, but it
-  catches the common wrong-endpoint / not-running / DNS cases immediately.
-  (From a 2026-07 field debugging session.)
-
 - [ ] **#11 Restart the background tickers when one panics; escalate the rest.**
   Under the default `unwind` strategy a panic only unwinds its own task, so the
   process survives, but a bare `tokio::spawn`ed background loop that panics
@@ -243,198 +78,6 @@ free number.
 
   Request-scoped work and one-shot tasks stay exactly as they are.
   (From a 2026-07 panic-resilience review, scoped 2026-07-31.)
-
-- [x] **#12 Capacity-aware autoscaling: the server signals desired capacity,
-  the client declares the actuator.** shipped: `scaling:` in `aperio.yaml`
-  announced via Ping and persisted per bind (`store/scaling.rs`), the
-  single-flight state machine with cooldown/backoff/breaker and the
-  SSRF-fenced actuator (`scaling.rs`), cold start on the empty-pool path,
-  the scale-out sampler over the per-client concurrency limiters, client
-  `idle_timeout` with graceful drain, `GET/DELETE /api/scaling`,
-  `aperio-client api scaling`, and the dashboard's Autoscaling section
-  (`ScalingSection.tsx`: live instances/utilization per record, breaker
-  state, disarm). One refinement was deliberately left out: a per-token
-  `allow_scaling` permission (today any token may arm a record for its own
-  bind, which the org fence and bind validation already constrain, and
-  `APERIO_SCALING` is the operator switch).
-
-  Original plan below. Two halves of one feature, planned
-  together because they share the same machinery: **0 to 1 (cold start)**, a
-  request arrives for a bind no client serves and the server calls a
-  client-declared URL to wake the service instead of answering 504; and **N to
-  N+1 (scale out)**, the connected pool is saturated and the server asks for
-  one more instance. Scale *in* stays client-driven (an idle client shuts
-  itself down), so the server never kills anything. Aperio is the sensor and
-  the policy, never the orchestrator: it emits a desired-capacity signal to a
-  URL the operator controls and the provider decides what to do with it.
-  - **Declaration.** One `scaling:` block in `aperio.yaml`, announced via Ping
-    and persisted server-side (it must outlive the client process):
-    `url`, `secret` (write-only), `min` (0 enables cold start), `max`,
-    `cold_start` budget, `target_utilization`, `window`, `cooldown`. Honored
-    only when the token carries a new `allow_scaling` permission (same trust
-    model as `public` / `visitor_auth`), with an `APERIO_IGNORE_CLIENT_SCALING`
-    server-side escape hatch. Also settable from the admin API so a client
-    never has to know about it.
-  - **Record identity.** Keyed by `(org_id, hostname_bind, path_bind)`: that is
-    all a request carries, so the lookup is O(1) on the miss path. Ownership is
-    a *set* of token ids (8 identical replicas may hold 8 different tokens);
-    the record disarms when the last owner token is revoked or expires.
-    Duplicate registration is deduped by a content hash of the config, so N
-    identical replicas are an idempotent no-op refresh (no audit spam, no
-    flapping). A differing config is last-writer-wins plus an audit entry, and
-    the dashboard flags a conflict when two live clients disagree.
-  - **One state machine per bind** (in memory, not persisted): Idle to Waking
-    to Idle, with single flight (a burst of requests produces exactly one
-    actuator call), cooldown with exponential backoff, and a circuit breaker
-    that disarms after K consecutive failures. The same machine serves both
-    triggers, only the reason differs.
-  - **Where it hooks in.** Cold start belongs on the empty-pool path
-    (`PickOutcome::NoRoute` in `proxy.rs`), *not* to `FailoverMode`: failover
-    only governs in-flight failures and never covered the empty pool, so wake
-    changes no existing guarantee. The record carries its own `on_empty: hold |
-    fail` policy for that path. Because the request was never dispatched,
-    holding it is safe for every method, so the `failover_all_methods` /
-    idempotency rules must NOT be reused here.
-  - **Scale-out signal.** Every client already carries an `inflight_limiter`
-    semaphore sized by its announced `max_concurrent`, so pool utilization is
-    `1 - (sum available_permits / sum max_concurrent)` over routable clients,
-    and requests over capacity already wait on that semaphore. Trigger on
-    sustained utilization above `target_utilization` for `window` *plus* real
-    semaphore wait time (p95), never on raw request counts, which are far too
-    noisy. Exclude standby-tier clients (priority > 0) under
-    `primary-standby`, and note that sticky routing cannot be relieved by
-    adding instances.
-  - **Known traps to design for.** (a) `try_acquire_request_slot` runs *before*
-    client selection, so a hold on the empty-pool path would pin a global
-    concurrency slot for the whole cold-start budget and starve healthy
-    services; the wait must release the permit or the route must resolve
-    earlier. (b) With an empty pool there are no candidates to evaluate
-    `allowed_ips` against, so a visitor who would have been denied can trigger
-    a paid cold start and learn the route exists; check the token's IP scope
-    before firing. (c) Bots, crawlers and uptime checks will keep a
-    scale-to-zero service awake forever unless the trigger is filtered by
-    method/path. (d) Wait for a *routable* candidate, not merely a connected
-    one (`backend_healthy` / `wait_for_backend` gate). (e) An `idle_timeout`
-    shorter than the cold start produces a death spiral; the client must not
-    start its idle timer before serving a request, and "woken but died without
-    serving" must count against the breaker. (f) Never fire while the bind is
-    in maintenance mode or its client was disabled from the dashboard: both are
-    explicit operator intent. (g) An owner token that expired while the service
-    slept would burn the budget on every request; check validity before firing.
-    (h) A server restart drops the in-memory state, so bound the blast radius
-    with a global concurrent-actuator semaphore. (i) Several aperio-servers in
-    HA each hold their own view, so the actuator must be idempotent; document
-    it. (j) With `resilience: true`, serve the stale cached answer immediately
-    and fire the actuator in the background rather than holding the visitor.
-    (k) The outbound call is SSRF from a lower-trust credential: https only, no
-    private or loopback targets by default, no redirects, short timeout,
-    response body ignored, optional host allowlist, secret never logged, every
-    firing audited.
-  - **Delivery order.** 1) Capacity telemetry only (utilization, semaphore wait,
-    saturation in `/api/stats`, Prometheus and the dashboard) so the signal can
-    be validated with zero risk. 2) The actuator plus the desired-capacity
-    state machine with `min: 0`, i.e. cold start. 3) Scale-out on the same
-    machine. 4) Policy refinements: hysteresis, cost guards (max scale events
-    per hour), per-org caps. Client-side `idle_timeout` with a graceful drain
-    ships with step 2, otherwise every cold-start cycle ends in a 502.
-
-- [x] **#13 Optional per-organization hostname allowlist.** shipped: `hostnames`
-  on the org record, enforced in `ClientPerms` (org fence + token fence) and at
-  token create/edit, ephemeral tunnel provisioning, and the dashboard bind
-  override; random subdomains exempt; `PUT /api/orgs/{id}/hostnames`,
-  `aperio-client api org create|hostnames`, dashboard Organizations page. An organization can
-  be given a list of hostname patterns (e.g. `acme.com`, `*.acme.example.com`)
-  that fences every bind created inside it, so a tenant cannot claim a hostname
-  it does not own. Today the only fence is the token's own `hostnames` list,
-  and `hostname_allowed` treats an empty list or `*` as "any hostname on this
-  server" (`state.rs`), so an org admin minting a wildcard token for their own
-  org can bind another tenant's hostname. Enforce the org fence in three
-  places: token create/update rejects permissions outside it, the Ping bind
-  validation re-checks it (tokens can predate the allowlist, so this is the
-  defence in depth that actually holds), and random-subdomain assignment stays
-  within it. Inside a fenced org, `*` then means "any hostname within the org's
-  patterns" instead of "anything". The master organization has no allowlist
-  (None = unrestricted, current behavior), and the field is optional so
-  existing deployments are unchanged. Surfaces as `hostnames` on the org record
-  (dashboard org form, `PUT /api/orgs/{id}`, `aperio-client api org`), next to
-  the existing quotas. Related: [[#12]] records are org-keyed, so the same
-  fence bounds which hostnames a scaling record may be armed for.
-
-- [x] **#14 Publish live hostnames to a dynamic edge proxy (Traefik, Caddy,
-  nginx).** shipped: `GET /aperio/api/edge/ask` (Caddy on-demand TLS) and
-  `GET /aperio/api/edge/traefik` (Traefik HTTP provider), both gated by
-  `APERIO_EDGE_TOKEN`, plus the wildcard-label setup documented in
-  `docs/edge-proxy.md`. Left out: writing the same document to a file for
-  Traefik's file provider (`APERIO_TRAEFIK_FILE`), which would remove the
-  network coupling on a single host. Original plan below. With Aperio behind a dynamic reverse proxy, every new tunnel
-  hostname needs a router and a certificate at the edge, which today means
-  hand-written config or a wildcard. The server already knows the full live
-  inventory (`/api/topology`: connected clients, their binds, token-granted
-  but offline binds, static routes, exposes), so it can serve that inventory in
-  the format each proxy consumes. Two endpoints, sharing one hostname
-  inventory: (a) a **Traefik HTTP provider** document
-  (`GET /aperio/api/edge/traefik`) returning `http.routers` / `http.services`
-  with a `Host(...)` rule per live hostname pointing back at this server, plus
-  the cert resolver, so Traefik picks up a new tunnel within its poll interval;
-  (b) a proxy-agnostic **hostname check** (`GET /aperio/api/edge/ask?domain=`)
-  answering 200 or 404 by whether the hostname is currently served, which is
-  exactly Caddy's on-demand TLS `ask` contract and doubles as a generic probe
-  for scripts and nginx templating. Both must be authenticated (admin key or a
-  dedicated read-only edge token), org-scoped, cacheable, and must never expose
-  the expose shared key or any secret. Decide before implementing: whether the
-  inventory should include declared-but-offline binds (needed for a cert to
-  exist before the first client connects, but it lets a tenant provoke an ACME
-  request for any hostname their token permits, so it should probably be
-  opt-in), and which proxy is the primary target for the first cut.
-
-- [x] **#15 Restrict where webhook and autoscaling callbacks may be sent.**
-  shipped: optional `outbound:` block / `APERIO_OUTBOUND_ALLOWLIST` +
-  `APERIO_OUTBOUND_BLOCK_PRIVATE`, enforced at webhook creation and at every
-  delivery, and layered on top of the scaling hook's own policy; defaults
-  keep the permissive behaviour. Whether the delivery log should hide the
-  raw status code from tenants was left unchanged (open question).
-  `POST /api/webhooks` and the `scaling.url` field accept any URL after a
-  schema check, and delivery attempts record the response status in the
-  delivery log. An Operator in a child organization can therefore use the
-  server as a blind SSRF probe: point a webhook at an internal address, fire an
-  event, and read back from the delivery log whether the port answered, which
-  maps the server's private network one port at a time. The reason this is not
-  simply fixed by blocking private addresses is that internal receivers are the
-  normal case: most deployments point webhooks at a service on the same
-  network, so blocking them by default would break working installations. Needs
-  a policy an operator chooses: an outbound allowlist (host/CIDR patterns the
-  server may call), and/or a `block_private_targets` switch, defaulting to
-  today's permissive behaviour with a clear note in the docs, plus consideration
-  of whether the delivery log should show a tenant the raw status code at all.
-  Decide the shape before implementing. (From the 2026-07 four-agent review.)
-
-- [x] **#16 Stream static files instead of reading each one fully into memory.**
-  shipped, and the same work as **#4**: two reviews found the one problem and
-  filed it twice. #16 delivered the streaming body and range support; #4
-  carried the rest of the request path (the blocking `canonicalize`/`stat`
-  calls, the SPA fallback) and finished it. Kept as its own id because ids are
-  never reused; read #4 for what shipped.
-
-- [x] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
-  field.** shipped: entries carry `applies: WhenSet | Always`, `check_upgrade`
-  takes the file's `ConfigKeys`, and a test refuses a `Security` entry that is
-  not `WhenSet`. `dashboard_auth` is now `Security` as it should always have
-  been. The `REMOVED_SETTINGS` check stays for the two cases the version
-  mechanism cannot see: a file with no `version:`, and an env-only deployment.
-  Original note below.
-
-  Original: Entries currently apply on the version range alone, so a config that
-  never set the changed key still gets the report on upgrade. That is tolerable
-  for a warning and wrong for a refusal: a `Security` entry would stop a server
-  whose file is entirely unaffected, which is the outage-generator failure mode
-  CLAUDE.md rule 18 warns about. The removal of `dashboard_auth` worked around
-  it with a dedicated presence check in `main.rs` (`REMOVED_SETTINGS`) plus a
-  `Breaking` entry, which is precise but does not generalize. Fix: pass the
-  parsed document into `check_upgrade` and filter entries to those whose
-  `fields` appear in it, keeping the range check as the outer gate. Then
-  `Security` becomes safe to use, the per-change presence checks can go, and
-  the report stops mentioning keys the operator does not have.
-  (From the 2026-07 dashboard_auth removal.)
 
 - [ ] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
   (1) of the original entry shipped (`stream.pause_bytes` /
@@ -460,321 +103,6 @@ free number.
   how the keying and its eviction are done here. Small next to #17 and worth
   doing in the same pass. (From the 2026-07 flow-control discussion.)
 
-- [x] **#19 Pub/sub between the clients of an organization, over the tunnel
-  that already exists.** shipped: four `TunnelMessage`
-  variants, per-organization routing keyed on `instance_group`,
-  `POST /aperio/api/publish`, `subscribe:`/`messages_listen:`/
-  `messages_mqtt_listen:` on the client, a token `topics` capability, and the
-  server's events mirrored onto `$aperio/`, and QoS 1 with a bounded send
-  window plus client-side duplicate suppression, and a `run:` sink with the
-  constraints the entry below names. Offline delivery stays out of scope, as
-  it argues. Original note follows.
-
-  Original: Clients can be reached from outside and can reach a
-  private service through a peer, but they have no way to *signal each other*.
-  The workaround today is an MQTT broker exposed as a `tunnels:` entry and
-  bound by every consumer: three moving parts, and a message crosses the tunnel
-  once to the broker and once more per subscriber, so a wide fan-out pays for
-  it. See [`docs/examples/mqtt`](docs/examples/mqtt/) for that shape, which
-  stays valid for anyone who wants their own broker's semantics.
-
-  **On the wire it is not MQTT.** Three `TunnelMessage` variants, `Subscribe`,
-  `Unsubscribe`, `Publish`, on the WebSocket connection the client already
-  holds, plus a per-organization topic → subscriber map on the server. No
-  second listener, no second connection, no second authentication path; the
-  connection arrives already identified, org-scoped and heartbeated. Embedding
-  a broker (rumqttd) was considered and rejected for that reason: with both
-  ends ours, MQTT on the wire is a dependency and a second connection lifecycle
-  for something no user would ever see.
-
-  **Subscriptions key on `instance_group`, not on the connection.** A client
-  with a `services:` list holds one connection per service, so a
-  connection-keyed subscription delivers N copies to one process. Keying on the
-  process identity the server already tracks means the duplicate never exists,
-  which is strictly better than a client-side seen-id cache with a time window
-  nobody can size correctly. A small seen-set stays justified for QoS 1 only,
-  where a lost ack makes a redelivery legitimate.
-
-  **What the server keeps is a send window, not a store**: per subscriber
-  process, un-acked messages bounded by count and by age (seconds, at most a
-  minute), oldest dropped on overflow with a metric, gone on restart. Offline
-  delivery ("give me what I missed while I was down") is explicitly out of
-  scope for v1. It is a different feature with retention, disk and backpressure
-  semantics, and for the case that motivates this one (a client reacting to an
-  event) replaying an hour-old message is a bug, not a service.
-
-  **The application boundary is where a well-known protocol earns its keep.**
-  Push is easy: a `POST /aperio/api/publish` endpoint, reachable through the
-  existing `aperio-client api` wrapper, no tunnel needed. Subscribe is the hard
-  half: something has to hand the message to the user's process. Two faces over
-  one subscription machine, in this order:
-
-  1. **A local HTTP port on the client**: SSE for subscribe, POST for publish.
-     No codec, no dependency, works from `curl -N` and from every language's
-     standard library, and it proves the whole path (server routing,
-     per-process delivery, fan-out, send window) before any protocol work.
-     **Agreed as the first face to build.**
-  2. **A local MQTT listener on the client**, so an app connects with the MQTT
-     library it already has and subscribes as usual, while the client
-     translates that into a subscription over the tunnel. A packet codec
-     (`mqttbytes`), never an embedded broker: a broker means local fan-out plus
-     an upward bridge, and a bridge means loop prevention. The compatibility
-     answer is written up front rather than discovered: granted QoS 0 or 1, no
-     retained, clean session always, no will.
-
-  **Reserve `$aperio/` for the server's own events**, the way MQTT reserves
-  `$SYS`, and publish the existing event bus on it (`client.connected`,
-  `request.failed`, `tunnel.bound`). The events already exist and already feed
-  webhooks; putting them on topics lets a client react to infrastructure events
-  without running a webhook receiver, and turns this from a new subsystem into
-  the thing that makes an existing one reachable.
-
-  **Authorization is a token capability with a topic prefix**, alongside
-  `allow_bind`, never crossing an organization. Any sink that runs something
-  locally on receipt is a remote-execution primitive by design and needs the
-  payload off the command line (stdin or an env var), a concurrency cap, a
-  timeout, and an audit line naming the publisher.
-
-  Freeze before writing code: `instance_group` keying, the send window's
-  numbers, the `$aperio/` split, the capability shape, and the sentence saying
-  v1 has no offline delivery. (From the 2026-07 client-to-client messaging
-  discussion.)
-
-- [x] **#21 Split `aperio-server` into a library and a thin binary, and break
-  the `ws.rs` read loop into per-message handlers.** The server is a binary
-  crate, so its top 2,100 lines (`main.rs`: env resolution, router assembly,
-  background task spawning, shutdown) and the 1,450-line `handle_socket` loop
-  in `tunnel/ws.rs` are reachable only by running the whole process, which is
-  why they sit at the bottom of every coverage report (486 and 324 missed
-  regions as of 0.8.0) and why any test of startup wiring has to be an e2e
-  phase. Plan, in order, each step shippable alone: (1) `src/lib.rs` takes
-  every existing `mod`, `main.rs` shrinks to a call into the lib, CLI
-  subcommands included; (2) `async_main` decomposes into
-  `Settings::from_env()`, `build_state()`, `build_router()`,
-  `spawn_background()` and `serve()`, so router-level tests can drive the
-  full middleware stack in-process with `tower::ServiceExt::oneshot`; (3) a
-  `tests/` integration crate boots the composed app without a subprocess;
-  (4) `handle_socket`'s match arms become named handlers over a small
-  `ConnCtx`, the loop keeps only decode-and-dispatch, and the writer task's
-  compression transform becomes a free function, each testable with the
-  channel-mock pattern the pubsub and expose tests already use. No behavior
-  change anywhere; e2e green after every step. The client binary got the same
-  lib/bin split in the same pass. shipped: 045f8a8 (lib/bin), 89ffe09
-  (async_main stages + router tests), d59837b (integration crate), 9d94505
-  (ConnCtx handlers + writer_transform/SendPacer tests), plus the client
-  split. Decomposing the client's supervisor loop the same way remains open
-  as its own idea if it ever earns it. (From the 2026-08 coverage push
-  toward 95%.)
-
-- [x] **#22 Protocol v7: TCP/UDP/WS relay payloads as binary frames instead of
-  base64+JSON.** shipped: The HTTP body path went binary in v5/v6, but the passthrough
-  relays did not: `TcpData`, `UdpDatagram` and binary `WsData` still carry
-  their payload base64-encoded inside a JSON envelope, a third more bytes on
-  the wire plus an encode/parse/decode on every 16 KB chunk, both directions.
-  For anyone moving bulk over `expose:` or an emergency TCP tunnel this is the
-  throughput ceiling and a large slice of the CPU. Plan: three new frame tags
-  (`FRAME_TCP_DATA`, `FRAME_UDP_DATAGRAM`, `FRAME_WS_DATA` for binary WS only,
-  text WS is already un-encoded), `PROTOCOL_VERSION` to 7, negotiated so an
-  older peer on either side keeps getting base64+JSON. The care this needs and
-  the reason it is its own item: the payload is sent from four sites with
-  three different ways of knowing the peer's version, the server relays
-  (`tunnel/tcp.rs`, `expose.rs`) and the client relays (the binder `tcp.rs`,
-  the serving `service.rs`), and it is received in three read loops; every one
-  needs old<->new interop reasoning, which is why it is not folded into the
-  2026-08 perf pass that did the other five bottlenecks. Do it as one relay
-  type fully (TCP, both directions, with an e2e assertion that a v6 peer still
-  works), then UDP and WS follow the proven shape. shipped as planned: one `relay_frame` helper per
-  side owns the negotiation (so none of the four senders can get it wrong
-  independently), the receivers gained tag arms next to their JSON ones, and
-  the ownership fence is asserted on the binary path too. (From the 2026-08
-  bottleneck analysis; the base64 relays were finding #5 there.)
-
-- [x] **#23 Streamed-response receive path on the server: drop the per-chunk
-  lock and the per-chunk copy.** shipped: `ConnCtx` caches each stream's pump
-  sender after one ownership-checked registry lookup, chunk payloads travel
-  as `Bytes` slices of the arriving WebSocket message end to end
-  (`BodyFrame::Data` and `TcpConsumerMsg::Data` are `Bytes` now, covering the
-  TCP/UDP/WS relay arms too), and the per-chunk byte accounting became 1 MiB
-  batches settled at stream end, disconnect, or error, so the shared stats
-  and quota locks are taken per megabyte rather than per chunk. Found by
-  reading the code against a 2 MB-body
-  wrk run (the 2026-08 tunnel bandwidth look; numbers unmeasured beyond that
-  run). Every streamed chunk arriving over the tunnel goes through
-  `deliver_response_chunk` (`aperio-server/src/tunnel/ws.rs`), which (a) locks
-  the global `state.response_streams` tokio `Mutex<HashMap>` to find the
-  stream's sender, and (b) is handed `payload.to_vec()`, a full copy, even
-  though the axum 0.8 ws `Message` already owns the bytes as `Bytes`, so a
-  `slice()` would be a refcount bump. The buffered path already got exactly
-  this fix (commit 2818322); the streamed path (bodies over 256 KB) did not.
-  At bulk throughput that is one global lock acquisition and one memcpy per
-  16-128 KB chunk across all connections. Plan: cache the `chunk_tx` per
-  stream in the connection's read loop after first lookup (the ownership
-  check only needs doing once per stream), or shard/replace the map
-  (`DashMap` or per-connection registry), and thread `Bytes` end to end like
-  the buffered path does. Same story for the TCP/UDP/WS relay arms next to
-  it, which also `to_vec()` each frame.
-
-- [x] **#24 Client send path for streamed bodies: coalesce backend chunks
-  into full frames and batch the WebSocket flush.** shipped: `ChunkCoalescer`
-  (`aperio-client/src/proxy/http.rs`) accumulates backend chunks into full
-  `STREAM_CHUNK_SIZE` frames on all three backend paths (http, h2, unix),
-  flushing the remainder the moment the backend has nothing more ready
-  (`now_or_never` poll) so trickles are never held, and the tunnel writer
-  drains its queue with `feed()` and flushes once per batch. The
-  tokio-tungstenite upgrade to a `Bytes`-based release was deliberately left
-  out, it is a dependency-wide change with its own interop surface; still
-  worth its own look if the final copy into the write buffer ever shows up
-  in a profile. Sibling of #23, same origin. Once a response switches to streaming, the client forwards each
-  chunk exactly as reqwest yields it (`aperio-client/src/proxy/http.rs`,
-  `handle_incoming_request`), typically 16-64 KB per read, so a 2 MB body
-  becomes several dozen frames where 16 would do at `STREAM_CHUNK_SIZE`
-  (128 KB). Each frame costs an `encode_binary_frame` allocation and copy, an
-  mpsc hop, a client-side WebSocket mask pass over every byte, and a
-  `ws_sender.send` which is feed+flush, one syscall per frame. Plan:
-  accumulate backend chunks up to `STREAM_CHUNK_SIZE` (flushing on quiet, so
-  latency-sensitive trickles are not held), and in the writer task drain the
-  channel with `feed()` and flush once per drained batch instead of per
-  message. Upgrading tokio-tungstenite (0.23 on the client) to a
-  `Bytes`-based release would also let the frame be built once without the
-  final copy into the write buffer.
-
-<!--
-Everything from #26 down came out of the 2026-08 proposal triage: a batch of
-suggestions was checked against the code one by one, scored, merged where
-several described one feature, and dropped where the premise turned out to be
-false. The parenthesised number is that triage score (100 = must have, 0 =
-noise), kept so the next prioritisation starts from the reasoning rather than
-from scratch. Ten proposals described things that already exist and are
-recorded in Withdrawn under #84 so they are not proposed again.
--->
-
-- [x] **#26 `routes:` becomes a first-class policy block, not just a
-  destination.** (triage 70) Today a `routes:` entry only says where a
-  hostname/path goes; every knob that should be per-route lives somewhere
-  coarser: the gateway timeout is server-global, header rules are server-wide
-  or per-service, rate limits are a separate `rate_limits:` list that repeats
-  the same hostname and path, and there is no per-route body ceiling or
-  cache-control. Merged from six proposals that each asked for one field, and
-  worth doing as one change because they all land on the same struct
-  (`RouteRule`, `aperio-config/src/lib.rs`) and the same lookup in
-  `routing.rs`: `timeout`, `headers: {request, response}` reusing the existing
-  `HeaderDirectives`, an inline `rate_limit: {burst, per_second}` (the
-  standalone `rate_limits:` list stays, the inline one wins for that route),
-  `max_response_body`, `cache_control`, and a `methods:` filter on rate limit
-  rules. The care it needs: precedence has to be stated once and tested (route
-  beats service beats server), and every added field must degrade to today's
-  behaviour when unset. shipped (8cc4b62): an entry with neither `redirect` nor `respond` is a policy rule carrying `timeout`, `headers` and `rate_limit`; the two kinds are matched independently so neither can hide the other, and mixing them on one entry is refused at startup. `rate_limits:` gained the `methods:` filter from the same batch. `max_response_body` and `cache_control` did not need their own fields: a per-route `headers.response.add` sets cache-control, and a server-side response ceiling is a different mechanism, left out rather than half-built.
-
-- [x] **#27 A deny list for visitor IPs.** (triage 65) `allowed_ips` is a
-  whitelist on a token or a service, `admin_allowed_ips` fences the admin
-  surface, and the WAF matches on path, method, header and body size, but
-  there is no way to say "this address never gets in" server-wide or per
-  organization. Blocking one scanner today means either an allowlist (which
-  breaks everyone else) or a fronting proxy. The pieces already exist:
-  `parse_trusted_proxies` parses IP/CIDR lists, and the per-IP rate limiter
-  shows where the check belongs in the request path. Wants to be checked
-  early, before routing and before the rate-limit bucket is charged, and to
-  answer with the same stealth response an unclaimed route gives rather than
-  confirming that the address was recognised. shipped (6987ab2): `denied_ips:`, checked at the outermost layer so it covers proxied traffic, the dashboard, the API and the tunnel endpoints, and a blocked request cannot spend a rate-limit bucket. Answers 403 rather than the stealth response, because this is an operator's explicit server-wide block and locking yourself out has to be visible. Hot-reloadable.
-
-- [x] **#28 The audit log becomes searchable and exportable.** (triage 65)
-  `audit_handler` (`aperio-server/src/api/webhooks.rs:23`) takes no parameters
-  at all: it returns the recent events for the caller's org and nothing else.
-  For a log that is deliberately tamper-evident, hash-chained, retained by
-  policy and org-isolated, not being able to answer "what did this user do last
-  Tuesday" is the gap that makes it ceremonial rather than useful. Wants query
-  parameters for event kind, actor, organization and a time range, then CSV and
-  JSON export of exactly the filtered set (the traffic export at
-  `/aperio/api/export/traffic.csv` is the shape to copy). Filtering must happen
-  after the org fence, never instead of it, and the export must go through the
-  same redaction the inspector uses. shipped (b1b9387): `event`, `actor`, `q`, `from`/`to` and `limit` on `/aperio/api/audit`, which switch it from the recent ring to a search of the durable log, plus `/aperio/api/export/audit.csv` and the matching dashboard filters. The organization fence is applied around the search, never as one of its predicates.
-
-- [x] **#29 Backend resilience: retry with backoff, and a circuit breaker per
-  backend.** (triage 60) The server can fail a request over to another client
-  (`failover`, `retry_on_5xx`) and can eject a client that misbehaves
-  (`outlier_ejection`), but the client's own hop to its backend has nothing:
-  one refused connection or one 502 is the visitor's answer. Merged from two
-  proposals because they are two halves of one policy: `retry: {attempts,
-  backoff}` for the transient case and `circuit_breaker: {failures, window,
-  open_for}` for the backend that is simply down, so retries stop hammering it.
-  `scaling.rs` already has a breaker for autoscaling callbacks and is the shape
-  to reuse. The part that needs care is method idempotency (the same reasoning
-  `failover_all_methods` already encodes) and not retrying a response whose
-  body has started streaming. shipped (9c35aab): `retry: {attempts, backoff, all_methods}` and `circuit_breaker: {failures, open_for}`, per service or top level, both off by default. Only failures before a response head are retried, only replayable requests (a streamed upload is consumed by its first attempt), and only idempotent methods unless opted in. Any response head counts as a success for the breaker, since a 500 is a backend that is up.
-
-- [x] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
-  UUID per request (`proxy.rs:1138`) and uses it everywhere internally, but it
-  neither reads an inbound `X-Request-Id` nor passes any id to the backend. So
-  a visitor's trace id dies at the edge, and a backend log line cannot be
-  joined to the server's own access log for the same request. Take the inbound
-  header when present (validated and length-capped, it is attacker-controlled),
-  mint one otherwise, send it to the backend and echo it on the response. Cheap
-  and standard, and it makes the profiling script and the inspector line up
-  with whatever the operator already runs. shipped: the id travels to the backend and is echoed to the visitor under `request_id.header`; adopting a visitor-supplied one is opt-in (`request_id.trust_inbound`) and bounded, and the internal id that keys in-flight requests stays server-minted so it can never be chosen by a visitor.
-
-- [x] **#31 Filters on the request inspector.** (triage 55) The inspector keeps
-  recent transactions with a microsecond timeline and is one of the reasons to
-  run the dashboard, but the only ways in are "the most recent N" and "this
-  exact id". Merged from two proposals: field filters (`status`, `method`,
-  `path`) and a time range (`before`/`after`, where only `before` plus a limit
-  exists today). The interesting case is the one an operator actually has,
-  "show me the 500s from the last ten minutes", which needs both. shipped, smaller than scored: the dashboard already filtered the traffic view by text, method and status in the browser, so what was missing was the same at the API. `/aperio/api/logs` now takes `status` (exact or class), `method`, `path` and `limit`. Searching the durable access log was deliberately left out: its lines carry no organization field, so a search over the file could not be scoped to a tenant.
-
-- [x] **#32 Scheduled maintenance windows.** (triage 55) Maintenance mode is a
-  manual toggle with an optional TTL, so a window at 02:00 on a Sunday means
-  somebody sets an alarm. Wants `from`/`to`, a `days` list and an explicit
-  `tz`, evaluated server-side. The cost to be honest about is correctness
-  around time zones and daylight saving, which is why the timezone has to be
-  explicit rather than inferred from the host. shipped as `maintenance_windows:` in `aperio-server.yaml` rather than as a schedule on the runtime flag, because those flags are in-memory and a recurring window has to survive a restart. IANA time zones (hence chrono-tz), midnight-wrapping windows belong to the day they start, and a malformed entry refuses startup.
-
-- [x] **#33 Draining a service that a config reload removed.** (triage 55) When
-  a service disappears from a reloaded config the client stops serving it
-  immediately, so requests already in flight through that service are dropped
-  and the visitor sees a failure caused by an edit that was meant to be
-  invisible. The protocol already has `Draining` and the server already knows
-  how to stop dispatching to a draining client; this is about using both on the
-  reload path with a bounded wait. Closer to a correctness fix than a feature,
-  which is why it scores above several flashier ideas. shipped: the reload path now announces `Draining` and waits for in-flight requests, bounded by `reload_drain` (default 10s, 0 = the previous immediate drop).
-
-- [x] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
-  a supported, documented shape for gRPC backends, but the health probe is a
-  plain HTTP GET, so the documentation ends up advising an explicit URL
-  instead. Speak `grpc.health.v1.Health/Check` when the target is an h2 one,
-  falling back to the current GET when a probe path is set explicitly. shipped: against an `h2c://`/`h2://` target the probe calls `grpc.health.v1.Health/Check` and `health.endpoint` names the gRPC service (`/` = the whole server); healthy needs a 200, `grpc-status: 0` from headers or trailers, and `SERVING`. The two one-field protobuf messages are encoded by hand, so no prost/tonic dependency was added. An absolute URL still means a plain HTTP probe, and a target with no probe configured is untouched.
-
-- [x] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
-  takes a command line and nothing else, so anything the child needs
-  (`DATABASE_URL`, a port, a profile) has to come from the client's own
-  environment, which also means it cannot differ per service. `env: {KEY:
-  value}` per entry, with the usual rule that a value looking like `${VAR}` is
-  expanded from the client's environment so secrets are not written into the
-  file. shipped: an `env:` map on the `subscribe:` entry, applied before `APERIO_MESSAGE_TOPIC`/`APERIO_MESSAGE_ID` so a declaration cannot shadow them. `${VAR}` expansion was left out; it belongs with the config templating idea (#63) rather than to this one key.
-
-- [x] **#37 The client reports its own health, not just its backend's.**
-  (triage 50) Everything the server knows about a client is "is it pinging" and
-  "does its backend answer". Merged from two proposals: process figures (CPU
-  percent, RSS) and link figures (tunnel round-trip time from the existing
-  ping/pong, jitter, reconnect count), all as additive `Ping` fields and new
-  `ClientHandle` columns, surfaced in the dashboard's clients table. Two
-  cautions: the numbers are per client process, not per service, and inside a
-  container the naive readings mislead unless the cgroup files are preferred. shipped: `rtt_ms`, `jitter_ms` and `reconnects` measured from the client's own ping/pong (no protocol change beyond reporting them), plus `cpu_percent` and `rss_bytes` from `/proc`, Linux only and absent elsewhere rather than approximated. Stored on `ClientHandle`, carried by `/aperio/api/stats`, shown on the clients table. An absence overwrites the previous value so a figure cannot age while looking live.
-
-- [x] **#38 Batch the server's writes to a client, as the client already does
-  to the server.** (triage 45) #24 taught the client's tunnel writer to drain
-  its queue with `feed()` and flush once per batch instead of paying a syscall
-  per frame. The server's writer (`tunnel/ws.rs`) still sends one message at a
-  time, and it is the busier side under fan-out. `SendPacer` sits in that loop
-  already for bandwidth pacing, so the batching has to spend the pacer's budget
-  for the whole batch rather than per frame. The technique is proven on the
-  other side, which is what makes this cheap. shipped: the writer feeds what is already queued and flushes once per batch. The pacer is still spent per frame, and a paced connection flushes before sleeping its debt, so batching cannot turn shaping into bursts or leave finished frames sitting in the buffer.
-
-- [x] **#39 A "test fire" button when creating a webhook.** (triage 45) A
-  webhook that was configured wrong is discovered the next time something
-  actually happens, which is exactly the wrong moment. Send a synthetic event
-  through the real delivery path (including the outbound policy check and the
-  signature) and show the response. The delivery log and the refire endpoint
-  already do most of this. shipped: `POST /aperio/api/webhooks/{id}/test` and a Test button. One attempt rather than the retry schedule, since the caller is waiting and a success on the fourth try reported as success would hide the failure being tested for, and its own event name so a receiver can ignore it.
-
 - [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
   authenticates with a bearer token, optionally pinned and IP-fenced. Some
   deployments want a client certificate as well, so a leaked token alone is not
@@ -782,22 +110,6 @@ recorded in Withdrawn under #84 so they are not proposed again.
   than in the operational surface: where certificates come from, how they are
   rotated, and what the server does with the identity once verified (map it to
   a token, or to an organization).
-
-- [x] **#41 `include:` for splitting a config across files.** (triage 45) One
-  `aperio.yaml` per deployment stops scaling when there are twenty services or
-  when different teams own different entries. `include: [services/prod.yaml]`
-  with a documented merge order, path resolution relative to the including
-  file, and a depth cap so a cycle cannot hang startup. The hot reload watcher
-  has to watch every included file, not just the root one. shipped: merged at the yaml level (keys replace, sequences of mappings concatenate), paths relative to the including file, five-deep cap, cycles reported. The hot-reload watcher tracks every contributing file and re-reads the set on each change, so adding an include is noticed.
-
-- [x] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
-  #23 did this on the server: chunk payloads travel as refcounted slices of the
-  WebSocket message instead of copies. The client's read loop still calls
-  `payload.to_vec()` five times (`service.rs:1175-1205`, request chunks, TCP,
-  UDP, WS frames and the full-response body). The blocker is that
-  tokio-tungstenite 0.23 hands out `Vec<u8>` rather than `Bytes`, so this needs
-  the dependency upgrade first, which is why it is not simply the mirror of a
-  change already made. shipped: tokio-tungstenite 0.23 to 0.29, which also removed the second copy of the WebSocket stack the workspace was compiling (axum already pulled 0.29). Relay, datagram, proxied-WS and request-body chunks are now slices of the arriving frame; the binder's own local-socket channels stay `Vec<u8>`, since those datagrams are built rather than received.
 
 - [ ] **#43 Shadow traffic to a second backend.** (triage 45) Send a copy of a
   route's requests to a staging service and discard its answer, so a new
@@ -830,14 +142,6 @@ recorded in Withdrawn under #84 so they are not proposed again.
   argument against is that a connection currently *is* the unit of identity,
   binds, `max_concurrent` and flow control, so multiplexing means teaching the
   registry to hold several services behind one socket. Real work, not a tidy-up.
-
-- [x] **#47 Identity headers to the backend.** (triage 40) The only
-  `x-aperio-*` headers a backend can see are the cache markers. A multi-tenant
-  backend that wants to know which organization or which token served a request
-  has to infer it. Add opt-in `X-Aperio-Org` / `X-Aperio-Client-Id` /
-  `X-Aperio-Token-Name`, opt-in because they are new trust surface: they must
-  be stripped from the inbound request unconditionally so a visitor can never
-  forge them. shipped: `identity_headers` (off by default) adds `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token` per dispatch attempt, so a failover names the client that actually served. The inbound strip is unconditional rather than tied to the setting: a header only stripped while a feature is on is a header forgeable by turning it off.
 
 - [ ] **#48 `lazy_connect`: do not dial the server until the first request.**
   (triage 40) A client configured for ten services holds ten idle connections
@@ -1185,3 +489,716 @@ nothing reuses them.
   The lesson is the same one #84 records: the triage scored this from the
   proposal's description of `run:` without opening the file. Reading what a
   name refers to is part of scoring it.
+
+## Completed
+
+Shipped ideas, newest id last. They keep their id forever: it is never
+renumbered and never reused, so a commit message or a comment naming `#28`
+still points at the same thing. Each entry keeps the reasoning it was
+written with, followed by a `shipped:` note saying what was actually built
+and where that differed from the plan.
+
+- [x] **#3 Re-validate the dashboard SSE live stream while it is open.** shipped:
+  `live_stream_handler` keeps the caller's headers and re-runs `dashboard_role`
+  on every stats tick, the same check the session middleware makes when the
+  stream is opened, and ends the stream the moment it comes back empty. A sign
+  out, a "sign out everywhere", an expiry or a disabled user therefore closes
+  the stream within one ~2 s tick instead of leaving it emitting traffic and
+  statistics for as long as the tab stays open. The org stays fixed for the
+  life of the connection, as before. A test seeds a session, reads the first
+  snapshot, removes the session and asserts the stream ends; it fails without
+  the check. (From the 2026-07 static security review.)
+
+- [x] **#4 Stream static-serve responses instead of reading whole files into
+  memory.** shipped in two parts. The body: `serve.rs` answers from an open
+  `tokio::fs::File` through a `BoxBody` stream instead of `tokio::fs::read`
+  into a `Full<Bytes>`, so peak memory no longer scales with file size times
+  concurrent requests, and a `HEAD` reports the length from metadata without
+  reading anything (`7f92cbb`, which also added single-range `Range` support
+  built on the same stream). The syscalls: `resolve` was doing a blocking
+  `canonicalize` and up to two `stat` calls on the Tokio worker thread polling
+  the request, so a slow filesystem stalled every other task on that worker,
+  not just this response; it is async now, through `tokio::fs`. The SPA
+  fallback had both problems at once (a blocking `is_file()` and reading the
+  whole index per navigation) and takes the same path as any other file. A
+  per-serve maximum file size was considered and deliberately not added:
+  streaming removed the reason for it, and a cap would only surprise an
+  operator who meant to publish a large file. (From the 2026-07 static
+  security review + a 2026-07 client review.)
+
+- [x] **#7 Run the backend health probe once per service, not per parallel
+  connection.** shipped: `BackendHealth::for_spec` builds one shared verdict per
+  service; `spawn_services` creates it once and passes it to every connection's
+  `run_service`, with only the first connection (`run_probe`) driving the
+  probe/`wait_for_backend` gate (`notify_waiters` wakes all connections on a
+  flip). Original note below.
+
+  Each parallel connection of a service (`connections: N`) runs its
+  own `run_service`, which builds its own `backend_healthy`/`backend_probed`
+  flags and spawns its own `probe_task` hitting the backend's `target_health`
+  endpoint independently (`aperio-client/src/service.rs`). So `connections: N`
+  makes N independent probes and reports `backend_healthy` per connection, N×
+  the health-check load on the backend, and connections can disagree during a
+  blip. Now that `connections` defaults to 2 this doubles the probe load by
+  default. Move the probe out of `run_service` into `spawn_services`
+  (`aperio-client/src/main.rs`): one probe per service writing a shared
+  `Arc<AtomicBool>` that every connection's `run_service` reads for its Ping.
+  Touches `run_service`'s signature (13 call sites, mostly tests). Low-moderate
+  severity. (From a 2026-07 client review.)
+
+- [x] **#10 Turn Topology into the full routing map (config + live), not a
+  second Clients table.** shipped: a dedicated `GET /api/topology`
+  (`aperio-server/src/api/topology.rs`) returns `{ clients, routes, exposes,
+  offline }`; `TopologySection.tsx` self-fetches it and renders, A: client-less
+  static `routes:` and public `expose:` ports (master-only); B: dashed
+  "declared but offline" nodes from token-granted binds no client serves
+  (per-org); C: passive outlier ejection (`ejected` now on every client detail)
+  coloured/labelled in the map. Deferred the route-limits overlay and
+  per-connection bytes/geo edge weights (server tracks bytes only in aggregate).
+  Original note below.
+
+  Today `TopologySection.tsx` derives its graph purely
+  from `stats.active_clients`, the same snapshot the Clients table renders, so
+  it only shows *connected* clients and adds nothing but live req/s edge labels.
+  It should become the one view that shows *how a request is routed*, including
+  routing that has no live tunnel client. Clean split: **Clients = who is
+  connected now (table); Topology = the routing map (config + live)**. Needs a
+  dedicated `GET /api/topology` handler returning a typed
+  `TopologyGraph { nodes, edges }` (org-scoped like the others), unioning the
+  in-memory client registry with the config-side route registries. Three parts:
+  - **A, client-less route nodes.** Fold in the server-side route definitions
+    that exist whether or not a client is connected: static routes
+    (`static_routes.rs` `RouteRule`: redirect/respond), expose rules
+    (`expose.rs` `ExposeRule`: public TCP port → tunnel key), and route rate
+    limits (`route_limits.rs`) as an overlay. These have no `ClientDetail` today
+    so Topology can't see them; they render as route nodes that terminate in a
+    redirect/respond/expose sink instead of a backend.
+  - **B, "declared but offline" gap.** From each token's granted binds
+    (`store/tokens.rs`: `hostnames`/`paths` a token *may* claim), emit a dim /
+    dashed route node when no active client currently claims that bind, the one
+    thing a table structurally cannot show (there is no row for an absent
+    client). This surfaces "the service that should be up but isn't" at a
+    glance. Decision needed: derive expected binds from granted token scopes
+    (broad) vs. an explicit "expected services" declaration (precise).
+  - **C, routing-health overlay.** Surface per-client routing state the graph
+    is the natural home for and that no screen shows today: `ejected_until`
+    (passive outlier ejection, a client silently pulled from rotation right
+    now), `draining`, and load-balance fan-out (N clients on one hostname shown
+    as a one-to-many group, not N unrelated rows). Colour nodes/edges by state.
+  Non-goal for now: per-connection **bytes**/**geo** edge weights, the server
+  tracks bytes only in aggregate (`PersistentStats`), not per connection, so
+  that needs new server-side counters and is out of scope. Ship A/B/C behind the
+  new endpoint; keep Clients as-is. (From a 2026-07 dashboard review.)
+
+- [x] **#9 Give the WS and TCP relay arms the bounded hand-off the upload path
+  already has.** shipped: `deliver_to_relay` in `aperio-client/src/service.rs`,
+  the generic form of `feed_request_chunk`, is what the `WsData` and `TcpData`
+  arms use now. The map is released before the send, the frame goes over
+  without waiting when there is room, and a full channel is waited on for a
+  bounded two seconds (`STREAM_STALL_BUDGET`) before that one stream is
+  dropped with a log line naming it. So a lossless stream whose consumer is
+  merely slower than a burst survives, where `try_send` alone killed it, and a
+  consumer that has genuinely stopped still cannot stall the shared read loop
+  or the heartbeat on it. `UdpDatagram` keeps dropping on a full channel, now
+  with a comment saying that is its contract rather than an oversight.
+
+  The per-stream credit/window protocol the original entry proposed was
+  deliberately not built: the server already pauses producers in the other
+  direction (protocol v3), and a symmetric scheme means a protocol bump and
+  skew handling for a case a bounded wait covers. Revisit only if the wait
+  proves too blunt in practice. (From the 2026-07 unpushed-commits review.)
+
+- [x] **#5 Client-side IP-family control + Happy Eyeballs when dialing the
+  server.** shipped: the client now owns the dial (`aperio-client/src/dial.rs`):
+  it resolves every address, applies an `ip_family` (auto/ipv4/ipv6; CLI
+  `--ip-family`, env `APERIO_IP_FAMILY`, yaml `ip_family`) preference, and tries
+  each in turn (IPv4-first interleaved) with a per-address connect timeout. Wired
+  into all three dial sites (service/check/tcp). Delivered the config knob + the
+  address-fallback tier; kept it as sequential-with-timeout rather than full
+  RFC 8305 concurrent racing. Original design below.
+
+  tokio-tungstenite 0.23 dials with a single
+  `TcpStream::connect("domain:port")` (`connect.rs:73`), so address selection and
+  IPv4/IPv6 fallback are left entirely to the OS resolver. On the musl/Alpine
+  client image this is unreliable: when a Cloudflare-fronted server hostname
+  publishes AAAA but the host has no working internet IPv6, the client tries the
+  IPv6 address and fails (`ENETUNREACH`), and, unlike a glibc `curl` on the same
+  host, does not fall back to the reachable IPv4. musl does not honor
+  `AI_ADDRCONFIG` the way glibc does, so even disabling IPv6 in the container
+  (`net.ipv6.conf.all.disable_ipv6=1`) does not help: getaddrinfo still returns
+  the AAAA and the client still tries it first (fails with `EADDRNOTAVAIL`). This
+  caused a real outage (2026-07); the only reliable workarounds are DNS-side
+  (drop AAAA / pin an IPv4 via `extra_hosts`), which is a footgun.
+  Proposed fix (client-only):
+  - **Tier 1, config escape hatch:** an `ip_family: auto | ipv4 | ipv6` field
+    (CLI `--ip-family`, env `APERIO_IP_FAMILY`). `ipv4` connects only to A
+    records, deterministically dodging unreachable AAAA. ~small change.
+  - **Tier 2, robust default (`auto`):** replace the single `TcpStream::connect`
+    with a shared connect helper that `lookup_host`s all addresses, applies the
+    `ip_family` filter, and does Happy Eyeballs (RFC 8305: race IPv4/IPv6 with a
+    small head-start, first to connect wins), with a per-address connect timeout.
+    Feed the connected socket to `client_async_tls_with_config` so TLS
+    (rustls/webpki-roots) is unchanged.
+  Apply the shared helper at all three dial sites so they behave consistently:
+  `service.rs:411` (main tunnel), `check.rs:190` (preflight check), `tcp.rs:304`
+  (TCP tunnel). Tests: unit for the family filter/ordering; an e2e phase dialing a
+  dual-stack loopback with `ip_family: ipv4`. Ship both tiers (auto default + the
+  knob). (From a 2026-07 field debugging session.)
+
+- [x] **#6 Probe the OTLP endpoint at startup when OTel export is enabled.**
+  shipped: `telemetry::init` now spawns a detached thread that TCP-connects to
+  the resolved endpoint host:port (`endpoint_host_port` parses host/port incl.
+  IPv6 literals + scheme-default ports) and logs INFO on success / WARN on
+  failure ("… unreachable, trace spans will be dropped"). Blocking IO on a
+  thread so it needs no Tokio runtime and never blocks startup. Original note
+  below.
+
+  With `APERIO_OTEL` on, the batch span exporter silently POSTs to
+  `otel_endpoint`; any failure (wrong host/port, DNS, collector down, wrong
+  protocol/path) is invisible, spans just never arrive, and the only visible log
+  is the harmless `BatchSpanProcessor.ExportingDueToTimer` heartbeat. In a 2026-07
+  session this made a misconfig indistinguishable from "no traffic to trace":
+  Jaeger stayed empty with no error. After building the provider in
+  `telemetry::build_provider` / `init` (`aperio-server/src/telemetry.rs`), do a
+  lightweight reachability probe to the resolved endpoint host:port (a short-
+  timeout TCP connect, or an HTTP request to the `/v1/traces` path) and log a
+  clear line: INFO on success ("OTLP endpoint <ep> reachable"), WARN on failure
+  ("OTLP endpoint <ep> unreachable: <err>, spans will be dropped"). Must NOT fail
+  startup, tracing is non-critical, so a bad collector must never take the server
+  down; run the probe non-blocking (spawn it, or a single short-timeout connect
+  before serving). Consider also surfacing the batch exporter's own runtime export
+  errors (currently swallowed) and/or a periodic re-check. Note the probe only
+  confirms the collector is listening, not that spans parse end-to-end, but it
+  catches the common wrong-endpoint / not-running / DNS cases immediately.
+  (From a 2026-07 field debugging session.)
+
+- [x] **#12 Capacity-aware autoscaling: the server signals desired capacity,
+  the client declares the actuator.** shipped: `scaling:` in `aperio.yaml`
+  announced via Ping and persisted per bind (`store/scaling.rs`), the
+  single-flight state machine with cooldown/backoff/breaker and the
+  SSRF-fenced actuator (`scaling.rs`), cold start on the empty-pool path,
+  the scale-out sampler over the per-client concurrency limiters, client
+  `idle_timeout` with graceful drain, `GET/DELETE /api/scaling`,
+  `aperio-client api scaling`, and the dashboard's Autoscaling section
+  (`ScalingSection.tsx`: live instances/utilization per record, breaker
+  state, disarm). One refinement was deliberately left out: a per-token
+  `allow_scaling` permission (today any token may arm a record for its own
+  bind, which the org fence and bind validation already constrain, and
+  `APERIO_SCALING` is the operator switch).
+
+  Original plan below. Two halves of one feature, planned
+  together because they share the same machinery: **0 to 1 (cold start)**, a
+  request arrives for a bind no client serves and the server calls a
+  client-declared URL to wake the service instead of answering 504; and **N to
+  N+1 (scale out)**, the connected pool is saturated and the server asks for
+  one more instance. Scale *in* stays client-driven (an idle client shuts
+  itself down), so the server never kills anything. Aperio is the sensor and
+  the policy, never the orchestrator: it emits a desired-capacity signal to a
+  URL the operator controls and the provider decides what to do with it.
+  - **Declaration.** One `scaling:` block in `aperio.yaml`, announced via Ping
+    and persisted server-side (it must outlive the client process):
+    `url`, `secret` (write-only), `min` (0 enables cold start), `max`,
+    `cold_start` budget, `target_utilization`, `window`, `cooldown`. Honored
+    only when the token carries a new `allow_scaling` permission (same trust
+    model as `public` / `visitor_auth`), with an `APERIO_IGNORE_CLIENT_SCALING`
+    server-side escape hatch. Also settable from the admin API so a client
+    never has to know about it.
+  - **Record identity.** Keyed by `(org_id, hostname_bind, path_bind)`: that is
+    all a request carries, so the lookup is O(1) on the miss path. Ownership is
+    a *set* of token ids (8 identical replicas may hold 8 different tokens);
+    the record disarms when the last owner token is revoked or expires.
+    Duplicate registration is deduped by a content hash of the config, so N
+    identical replicas are an idempotent no-op refresh (no audit spam, no
+    flapping). A differing config is last-writer-wins plus an audit entry, and
+    the dashboard flags a conflict when two live clients disagree.
+  - **One state machine per bind** (in memory, not persisted): Idle to Waking
+    to Idle, with single flight (a burst of requests produces exactly one
+    actuator call), cooldown with exponential backoff, and a circuit breaker
+    that disarms after K consecutive failures. The same machine serves both
+    triggers, only the reason differs.
+  - **Where it hooks in.** Cold start belongs on the empty-pool path
+    (`PickOutcome::NoRoute` in `proxy.rs`), *not* to `FailoverMode`: failover
+    only governs in-flight failures and never covered the empty pool, so wake
+    changes no existing guarantee. The record carries its own `on_empty: hold |
+    fail` policy for that path. Because the request was never dispatched,
+    holding it is safe for every method, so the `failover_all_methods` /
+    idempotency rules must NOT be reused here.
+  - **Scale-out signal.** Every client already carries an `inflight_limiter`
+    semaphore sized by its announced `max_concurrent`, so pool utilization is
+    `1 - (sum available_permits / sum max_concurrent)` over routable clients,
+    and requests over capacity already wait on that semaphore. Trigger on
+    sustained utilization above `target_utilization` for `window` *plus* real
+    semaphore wait time (p95), never on raw request counts, which are far too
+    noisy. Exclude standby-tier clients (priority > 0) under
+    `primary-standby`, and note that sticky routing cannot be relieved by
+    adding instances.
+  - **Known traps to design for.** (a) `try_acquire_request_slot` runs *before*
+    client selection, so a hold on the empty-pool path would pin a global
+    concurrency slot for the whole cold-start budget and starve healthy
+    services; the wait must release the permit or the route must resolve
+    earlier. (b) With an empty pool there are no candidates to evaluate
+    `allowed_ips` against, so a visitor who would have been denied can trigger
+    a paid cold start and learn the route exists; check the token's IP scope
+    before firing. (c) Bots, crawlers and uptime checks will keep a
+    scale-to-zero service awake forever unless the trigger is filtered by
+    method/path. (d) Wait for a *routable* candidate, not merely a connected
+    one (`backend_healthy` / `wait_for_backend` gate). (e) An `idle_timeout`
+    shorter than the cold start produces a death spiral; the client must not
+    start its idle timer before serving a request, and "woken but died without
+    serving" must count against the breaker. (f) Never fire while the bind is
+    in maintenance mode or its client was disabled from the dashboard: both are
+    explicit operator intent. (g) An owner token that expired while the service
+    slept would burn the budget on every request; check validity before firing.
+    (h) A server restart drops the in-memory state, so bound the blast radius
+    with a global concurrent-actuator semaphore. (i) Several aperio-servers in
+    HA each hold their own view, so the actuator must be idempotent; document
+    it. (j) With `resilience: true`, serve the stale cached answer immediately
+    and fire the actuator in the background rather than holding the visitor.
+    (k) The outbound call is SSRF from a lower-trust credential: https only, no
+    private or loopback targets by default, no redirects, short timeout,
+    response body ignored, optional host allowlist, secret never logged, every
+    firing audited.
+  - **Delivery order.** 1) Capacity telemetry only (utilization, semaphore wait,
+    saturation in `/api/stats`, Prometheus and the dashboard) so the signal can
+    be validated with zero risk. 2) The actuator plus the desired-capacity
+    state machine with `min: 0`, i.e. cold start. 3) Scale-out on the same
+    machine. 4) Policy refinements: hysteresis, cost guards (max scale events
+    per hour), per-org caps. Client-side `idle_timeout` with a graceful drain
+    ships with step 2, otherwise every cold-start cycle ends in a 502.
+
+- [x] **#13 Optional per-organization hostname allowlist.** shipped: `hostnames`
+  on the org record, enforced in `ClientPerms` (org fence + token fence) and at
+  token create/edit, ephemeral tunnel provisioning, and the dashboard bind
+  override; random subdomains exempt; `PUT /api/orgs/{id}/hostnames`,
+  `aperio-client api org create|hostnames`, dashboard Organizations page. An organization can
+  be given a list of hostname patterns (e.g. `acme.com`, `*.acme.example.com`)
+  that fences every bind created inside it, so a tenant cannot claim a hostname
+  it does not own. Today the only fence is the token's own `hostnames` list,
+  and `hostname_allowed` treats an empty list or `*` as "any hostname on this
+  server" (`state.rs`), so an org admin minting a wildcard token for their own
+  org can bind another tenant's hostname. Enforce the org fence in three
+  places: token create/update rejects permissions outside it, the Ping bind
+  validation re-checks it (tokens can predate the allowlist, so this is the
+  defence in depth that actually holds), and random-subdomain assignment stays
+  within it. Inside a fenced org, `*` then means "any hostname within the org's
+  patterns" instead of "anything". The master organization has no allowlist
+  (None = unrestricted, current behavior), and the field is optional so
+  existing deployments are unchanged. Surfaces as `hostnames` on the org record
+  (dashboard org form, `PUT /api/orgs/{id}`, `aperio-client api org`), next to
+  the existing quotas. Related: [[#12]] records are org-keyed, so the same
+  fence bounds which hostnames a scaling record may be armed for.
+
+- [x] **#14 Publish live hostnames to a dynamic edge proxy (Traefik, Caddy,
+  nginx).** shipped: `GET /aperio/api/edge/ask` (Caddy on-demand TLS) and
+  `GET /aperio/api/edge/traefik` (Traefik HTTP provider), both gated by
+  `APERIO_EDGE_TOKEN`, plus the wildcard-label setup documented in
+  `docs/edge-proxy.md`. Left out: writing the same document to a file for
+  Traefik's file provider (`APERIO_TRAEFIK_FILE`), which would remove the
+  network coupling on a single host. Original plan below. With Aperio behind a dynamic reverse proxy, every new tunnel
+  hostname needs a router and a certificate at the edge, which today means
+  hand-written config or a wildcard. The server already knows the full live
+  inventory (`/api/topology`: connected clients, their binds, token-granted
+  but offline binds, static routes, exposes), so it can serve that inventory in
+  the format each proxy consumes. Two endpoints, sharing one hostname
+  inventory: (a) a **Traefik HTTP provider** document
+  (`GET /aperio/api/edge/traefik`) returning `http.routers` / `http.services`
+  with a `Host(...)` rule per live hostname pointing back at this server, plus
+  the cert resolver, so Traefik picks up a new tunnel within its poll interval;
+  (b) a proxy-agnostic **hostname check** (`GET /aperio/api/edge/ask?domain=`)
+  answering 200 or 404 by whether the hostname is currently served, which is
+  exactly Caddy's on-demand TLS `ask` contract and doubles as a generic probe
+  for scripts and nginx templating. Both must be authenticated (admin key or a
+  dedicated read-only edge token), org-scoped, cacheable, and must never expose
+  the expose shared key or any secret. Decide before implementing: whether the
+  inventory should include declared-but-offline binds (needed for a cert to
+  exist before the first client connects, but it lets a tenant provoke an ACME
+  request for any hostname their token permits, so it should probably be
+  opt-in), and which proxy is the primary target for the first cut.
+
+- [x] **#15 Restrict where webhook and autoscaling callbacks may be sent.**
+  shipped: optional `outbound:` block / `APERIO_OUTBOUND_ALLOWLIST` +
+  `APERIO_OUTBOUND_BLOCK_PRIVATE`, enforced at webhook creation and at every
+  delivery, and layered on top of the scaling hook's own policy; defaults
+  keep the permissive behaviour. Whether the delivery log should hide the
+  raw status code from tenants was left unchanged (open question).
+  `POST /api/webhooks` and the `scaling.url` field accept any URL after a
+  schema check, and delivery attempts record the response status in the
+  delivery log. An Operator in a child organization can therefore use the
+  server as a blind SSRF probe: point a webhook at an internal address, fire an
+  event, and read back from the delivery log whether the port answered, which
+  maps the server's private network one port at a time. The reason this is not
+  simply fixed by blocking private addresses is that internal receivers are the
+  normal case: most deployments point webhooks at a service on the same
+  network, so blocking them by default would break working installations. Needs
+  a policy an operator chooses: an outbound allowlist (host/CIDR patterns the
+  server may call), and/or a `block_private_targets` switch, defaulting to
+  today's permissive behaviour with a clear note in the docs, plus consideration
+  of whether the delivery log should show a tenant the raw status code at all.
+  Decide the shape before implementing. (From the 2026-07 four-agent review.)
+
+- [x] **#16 Stream static files instead of reading each one fully into memory.**
+  shipped, and the same work as **#4**: two reviews found the one problem and
+  filed it twice. #16 delivered the streaming body and range support; #4
+  carried the rest of the request path (the blocking `canonicalize`/`stat`
+  calls, the SPA fallback) and finished it. Kept as its own id because ids are
+  never reused; read #4 for what shipped.
+
+- [x] **#18 Fire a `CONFIG_CHANGES` entry only when the file actually uses the
+  field.** shipped: entries carry `applies: WhenSet | Always`, `check_upgrade`
+  takes the file's `ConfigKeys`, and a test refuses a `Security` entry that is
+  not `WhenSet`. `dashboard_auth` is now `Security` as it should always have
+  been. The `REMOVED_SETTINGS` check stays for the two cases the version
+  mechanism cannot see: a file with no `version:`, and an env-only deployment.
+  Original note below.
+
+  Original: Entries currently apply on the version range alone, so a config that
+  never set the changed key still gets the report on upgrade. That is tolerable
+  for a warning and wrong for a refusal: a `Security` entry would stop a server
+  whose file is entirely unaffected, which is the outage-generator failure mode
+  CLAUDE.md rule 18 warns about. The removal of `dashboard_auth` worked around
+  it with a dedicated presence check in `main.rs` (`REMOVED_SETTINGS`) plus a
+  `Breaking` entry, which is precise but does not generalize. Fix: pass the
+  parsed document into `check_upgrade` and filter entries to those whose
+  `fields` appear in it, keeping the range check as the outer gate. Then
+  `Security` becomes safe to use, the per-change presence checks can go, and
+  the report stops mentioning keys the operator does not have.
+  (From the 2026-07 dashboard_auth removal.)
+
+- [x] **#19 Pub/sub between the clients of an organization, over the tunnel
+  that already exists.** shipped: four `TunnelMessage`
+  variants, per-organization routing keyed on `instance_group`,
+  `POST /aperio/api/publish`, `subscribe:`/`messages_listen:`/
+  `messages_mqtt_listen:` on the client, a token `topics` capability, and the
+  server's events mirrored onto `$aperio/`, and QoS 1 with a bounded send
+  window plus client-side duplicate suppression, and a `run:` sink with the
+  constraints the entry below names. Offline delivery stays out of scope, as
+  it argues. Original note follows.
+
+  Original: Clients can be reached from outside and can reach a
+  private service through a peer, but they have no way to *signal each other*.
+  The workaround today is an MQTT broker exposed as a `tunnels:` entry and
+  bound by every consumer: three moving parts, and a message crosses the tunnel
+  once to the broker and once more per subscriber, so a wide fan-out pays for
+  it. See [`docs/examples/mqtt`](docs/examples/mqtt/) for that shape, which
+  stays valid for anyone who wants their own broker's semantics.
+
+  **On the wire it is not MQTT.** Three `TunnelMessage` variants, `Subscribe`,
+  `Unsubscribe`, `Publish`, on the WebSocket connection the client already
+  holds, plus a per-organization topic → subscriber map on the server. No
+  second listener, no second connection, no second authentication path; the
+  connection arrives already identified, org-scoped and heartbeated. Embedding
+  a broker (rumqttd) was considered and rejected for that reason: with both
+  ends ours, MQTT on the wire is a dependency and a second connection lifecycle
+  for something no user would ever see.
+
+  **Subscriptions key on `instance_group`, not on the connection.** A client
+  with a `services:` list holds one connection per service, so a
+  connection-keyed subscription delivers N copies to one process. Keying on the
+  process identity the server already tracks means the duplicate never exists,
+  which is strictly better than a client-side seen-id cache with a time window
+  nobody can size correctly. A small seen-set stays justified for QoS 1 only,
+  where a lost ack makes a redelivery legitimate.
+
+  **What the server keeps is a send window, not a store**: per subscriber
+  process, un-acked messages bounded by count and by age (seconds, at most a
+  minute), oldest dropped on overflow with a metric, gone on restart. Offline
+  delivery ("give me what I missed while I was down") is explicitly out of
+  scope for v1. It is a different feature with retention, disk and backpressure
+  semantics, and for the case that motivates this one (a client reacting to an
+  event) replaying an hour-old message is a bug, not a service.
+
+  **The application boundary is where a well-known protocol earns its keep.**
+  Push is easy: a `POST /aperio/api/publish` endpoint, reachable through the
+  existing `aperio-client api` wrapper, no tunnel needed. Subscribe is the hard
+  half: something has to hand the message to the user's process. Two faces over
+  one subscription machine, in this order:
+
+  1. **A local HTTP port on the client**: SSE for subscribe, POST for publish.
+     No codec, no dependency, works from `curl -N` and from every language's
+     standard library, and it proves the whole path (server routing,
+     per-process delivery, fan-out, send window) before any protocol work.
+     **Agreed as the first face to build.**
+  2. **A local MQTT listener on the client**, so an app connects with the MQTT
+     library it already has and subscribes as usual, while the client
+     translates that into a subscription over the tunnel. A packet codec
+     (`mqttbytes`), never an embedded broker: a broker means local fan-out plus
+     an upward bridge, and a bridge means loop prevention. The compatibility
+     answer is written up front rather than discovered: granted QoS 0 or 1, no
+     retained, clean session always, no will.
+
+  **Reserve `$aperio/` for the server's own events**, the way MQTT reserves
+  `$SYS`, and publish the existing event bus on it (`client.connected`,
+  `request.failed`, `tunnel.bound`). The events already exist and already feed
+  webhooks; putting them on topics lets a client react to infrastructure events
+  without running a webhook receiver, and turns this from a new subsystem into
+  the thing that makes an existing one reachable.
+
+  **Authorization is a token capability with a topic prefix**, alongside
+  `allow_bind`, never crossing an organization. Any sink that runs something
+  locally on receipt is a remote-execution primitive by design and needs the
+  payload off the command line (stdin or an env var), a concurrency cap, a
+  timeout, and an audit line naming the publisher.
+
+  Freeze before writing code: `instance_group` keying, the send window's
+  numbers, the `$aperio/` split, the capability shape, and the sentence saying
+  v1 has no offline delivery. (From the 2026-07 client-to-client messaging
+  discussion.)
+
+- [x] **#21 Split `aperio-server` into a library and a thin binary, and break
+  the `ws.rs` read loop into per-message handlers.** The server is a binary
+  crate, so its top 2,100 lines (`main.rs`: env resolution, router assembly,
+  background task spawning, shutdown) and the 1,450-line `handle_socket` loop
+  in `tunnel/ws.rs` are reachable only by running the whole process, which is
+  why they sit at the bottom of every coverage report (486 and 324 missed
+  regions as of 0.8.0) and why any test of startup wiring has to be an e2e
+  phase. Plan, in order, each step shippable alone: (1) `src/lib.rs` takes
+  every existing `mod`, `main.rs` shrinks to a call into the lib, CLI
+  subcommands included; (2) `async_main` decomposes into
+  `Settings::from_env()`, `build_state()`, `build_router()`,
+  `spawn_background()` and `serve()`, so router-level tests can drive the
+  full middleware stack in-process with `tower::ServiceExt::oneshot`; (3) a
+  `tests/` integration crate boots the composed app without a subprocess;
+  (4) `handle_socket`'s match arms become named handlers over a small
+  `ConnCtx`, the loop keeps only decode-and-dispatch, and the writer task's
+  compression transform becomes a free function, each testable with the
+  channel-mock pattern the pubsub and expose tests already use. No behavior
+  change anywhere; e2e green after every step. The client binary got the same
+  lib/bin split in the same pass. shipped: 045f8a8 (lib/bin), 89ffe09
+  (async_main stages + router tests), d59837b (integration crate), 9d94505
+  (ConnCtx handlers + writer_transform/SendPacer tests), plus the client
+  split. Decomposing the client's supervisor loop the same way remains open
+  as its own idea if it ever earns it. (From the 2026-08 coverage push
+  toward 95%.)
+
+- [x] **#22 Protocol v7: TCP/UDP/WS relay payloads as binary frames instead of
+  base64+JSON.** shipped: The HTTP body path went binary in v5/v6, but the passthrough
+  relays did not: `TcpData`, `UdpDatagram` and binary `WsData` still carry
+  their payload base64-encoded inside a JSON envelope, a third more bytes on
+  the wire plus an encode/parse/decode on every 16 KB chunk, both directions.
+  For anyone moving bulk over `expose:` or an emergency TCP tunnel this is the
+  throughput ceiling and a large slice of the CPU. Plan: three new frame tags
+  (`FRAME_TCP_DATA`, `FRAME_UDP_DATAGRAM`, `FRAME_WS_DATA` for binary WS only,
+  text WS is already un-encoded), `PROTOCOL_VERSION` to 7, negotiated so an
+  older peer on either side keeps getting base64+JSON. The care this needs and
+  the reason it is its own item: the payload is sent from four sites with
+  three different ways of knowing the peer's version, the server relays
+  (`tunnel/tcp.rs`, `expose.rs`) and the client relays (the binder `tcp.rs`,
+  the serving `service.rs`), and it is received in three read loops; every one
+  needs old<->new interop reasoning, which is why it is not folded into the
+  2026-08 perf pass that did the other five bottlenecks. Do it as one relay
+  type fully (TCP, both directions, with an e2e assertion that a v6 peer still
+  works), then UDP and WS follow the proven shape. shipped as planned: one `relay_frame` helper per
+  side owns the negotiation (so none of the four senders can get it wrong
+  independently), the receivers gained tag arms next to their JSON ones, and
+  the ownership fence is asserted on the binary path too. (From the 2026-08
+  bottleneck analysis; the base64 relays were finding #5 there.)
+
+- [x] **#23 Streamed-response receive path on the server: drop the per-chunk
+  lock and the per-chunk copy.** shipped: `ConnCtx` caches each stream's pump
+  sender after one ownership-checked registry lookup, chunk payloads travel
+  as `Bytes` slices of the arriving WebSocket message end to end
+  (`BodyFrame::Data` and `TcpConsumerMsg::Data` are `Bytes` now, covering the
+  TCP/UDP/WS relay arms too), and the per-chunk byte accounting became 1 MiB
+  batches settled at stream end, disconnect, or error, so the shared stats
+  and quota locks are taken per megabyte rather than per chunk. Found by
+  reading the code against a 2 MB-body
+  wrk run (the 2026-08 tunnel bandwidth look; numbers unmeasured beyond that
+  run). Every streamed chunk arriving over the tunnel goes through
+  `deliver_response_chunk` (`aperio-server/src/tunnel/ws.rs`), which (a) locks
+  the global `state.response_streams` tokio `Mutex<HashMap>` to find the
+  stream's sender, and (b) is handed `payload.to_vec()`, a full copy, even
+  though the axum 0.8 ws `Message` already owns the bytes as `Bytes`, so a
+  `slice()` would be a refcount bump. The buffered path already got exactly
+  this fix (commit 2818322); the streamed path (bodies over 256 KB) did not.
+  At bulk throughput that is one global lock acquisition and one memcpy per
+  16-128 KB chunk across all connections. Plan: cache the `chunk_tx` per
+  stream in the connection's read loop after first lookup (the ownership
+  check only needs doing once per stream), or shard/replace the map
+  (`DashMap` or per-connection registry), and thread `Bytes` end to end like
+  the buffered path does. Same story for the TCP/UDP/WS relay arms next to
+  it, which also `to_vec()` each frame.
+
+- [x] **#24 Client send path for streamed bodies: coalesce backend chunks
+  into full frames and batch the WebSocket flush.** shipped: `ChunkCoalescer`
+  (`aperio-client/src/proxy/http.rs`) accumulates backend chunks into full
+  `STREAM_CHUNK_SIZE` frames on all three backend paths (http, h2, unix),
+  flushing the remainder the moment the backend has nothing more ready
+  (`now_or_never` poll) so trickles are never held, and the tunnel writer
+  drains its queue with `feed()` and flushes once per batch. The
+  tokio-tungstenite upgrade to a `Bytes`-based release was deliberately left
+  out, it is a dependency-wide change with its own interop surface; still
+  worth its own look if the final copy into the write buffer ever shows up
+  in a profile. Sibling of #23, same origin. Once a response switches to streaming, the client forwards each
+  chunk exactly as reqwest yields it (`aperio-client/src/proxy/http.rs`,
+  `handle_incoming_request`), typically 16-64 KB per read, so a 2 MB body
+  becomes several dozen frames where 16 would do at `STREAM_CHUNK_SIZE`
+  (128 KB). Each frame costs an `encode_binary_frame` allocation and copy, an
+  mpsc hop, a client-side WebSocket mask pass over every byte, and a
+  `ws_sender.send` which is feed+flush, one syscall per frame. Plan:
+  accumulate backend chunks up to `STREAM_CHUNK_SIZE` (flushing on quiet, so
+  latency-sensitive trickles are not held), and in the writer task drain the
+  channel with `feed()` and flush once per drained batch instead of per
+  message. Upgrading tokio-tungstenite (0.23 on the client) to a
+  `Bytes`-based release would also let the frame be built once without the
+  final copy into the write buffer.
+
+<!--
+Everything from #26 down came out of the 2026-08 proposal triage: a batch of
+suggestions was checked against the code one by one, scored, merged where
+several described one feature, and dropped where the premise turned out to be
+false. The parenthesised number is that triage score (100 = must have, 0 =
+noise), kept so the next prioritisation starts from the reasoning rather than
+from scratch. Ten proposals described things that already exist and are
+recorded in Withdrawn under #84 so they are not proposed again.
+-->
+
+- [x] **#26 `routes:` becomes a first-class policy block, not just a
+  destination.** (triage 70) Today a `routes:` entry only says where a
+  hostname/path goes; every knob that should be per-route lives somewhere
+  coarser: the gateway timeout is server-global, header rules are server-wide
+  or per-service, rate limits are a separate `rate_limits:` list that repeats
+  the same hostname and path, and there is no per-route body ceiling or
+  cache-control. Merged from six proposals that each asked for one field, and
+  worth doing as one change because they all land on the same struct
+  (`RouteRule`, `aperio-config/src/lib.rs`) and the same lookup in
+  `routing.rs`: `timeout`, `headers: {request, response}` reusing the existing
+  `HeaderDirectives`, an inline `rate_limit: {burst, per_second}` (the
+  standalone `rate_limits:` list stays, the inline one wins for that route),
+  `max_response_body`, `cache_control`, and a `methods:` filter on rate limit
+  rules. The care it needs: precedence has to be stated once and tested (route
+  beats service beats server), and every added field must degrade to today's
+  behaviour when unset. shipped (8cc4b62): an entry with neither `redirect` nor `respond` is a policy rule carrying `timeout`, `headers` and `rate_limit`; the two kinds are matched independently so neither can hide the other, and mixing them on one entry is refused at startup. `rate_limits:` gained the `methods:` filter from the same batch. `max_response_body` and `cache_control` did not need their own fields: a per-route `headers.response.add` sets cache-control, and a server-side response ceiling is a different mechanism, left out rather than half-built.
+
+- [x] **#27 A deny list for visitor IPs.** (triage 65) `allowed_ips` is a
+  whitelist on a token or a service, `admin_allowed_ips` fences the admin
+  surface, and the WAF matches on path, method, header and body size, but
+  there is no way to say "this address never gets in" server-wide or per
+  organization. Blocking one scanner today means either an allowlist (which
+  breaks everyone else) or a fronting proxy. The pieces already exist:
+  `parse_trusted_proxies` parses IP/CIDR lists, and the per-IP rate limiter
+  shows where the check belongs in the request path. Wants to be checked
+  early, before routing and before the rate-limit bucket is charged, and to
+  answer with the same stealth response an unclaimed route gives rather than
+  confirming that the address was recognised. shipped (6987ab2): `denied_ips:`, checked at the outermost layer so it covers proxied traffic, the dashboard, the API and the tunnel endpoints, and a blocked request cannot spend a rate-limit bucket. Answers 403 rather than the stealth response, because this is an operator's explicit server-wide block and locking yourself out has to be visible. Hot-reloadable.
+
+- [x] **#28 The audit log becomes searchable and exportable.** (triage 65)
+  `audit_handler` (`aperio-server/src/api/webhooks.rs:23`) takes no parameters
+  at all: it returns the recent events for the caller's org and nothing else.
+  For a log that is deliberately tamper-evident, hash-chained, retained by
+  policy and org-isolated, not being able to answer "what did this user do last
+  Tuesday" is the gap that makes it ceremonial rather than useful. Wants query
+  parameters for event kind, actor, organization and a time range, then CSV and
+  JSON export of exactly the filtered set (the traffic export at
+  `/aperio/api/export/traffic.csv` is the shape to copy). Filtering must happen
+  after the org fence, never instead of it, and the export must go through the
+  same redaction the inspector uses. shipped (b1b9387): `event`, `actor`, `q`, `from`/`to` and `limit` on `/aperio/api/audit`, which switch it from the recent ring to a search of the durable log, plus `/aperio/api/export/audit.csv` and the matching dashboard filters. The organization fence is applied around the search, never as one of its predicates.
+
+- [x] **#29 Backend resilience: retry with backoff, and a circuit breaker per
+  backend.** (triage 60) The server can fail a request over to another client
+  (`failover`, `retry_on_5xx`) and can eject a client that misbehaves
+  (`outlier_ejection`), but the client's own hop to its backend has nothing:
+  one refused connection or one 502 is the visitor's answer. Merged from two
+  proposals because they are two halves of one policy: `retry: {attempts,
+  backoff}` for the transient case and `circuit_breaker: {failures, window,
+  open_for}` for the backend that is simply down, so retries stop hammering it.
+  `scaling.rs` already has a breaker for autoscaling callbacks and is the shape
+  to reuse. The part that needs care is method idempotency (the same reasoning
+  `failover_all_methods` already encodes) and not retrying a response whose
+  body has started streaming. shipped (9c35aab): `retry: {attempts, backoff, all_methods}` and `circuit_breaker: {failures, open_for}`, per service or top level, both off by default. Only failures before a response head are retried, only replayable requests (a streamed upload is consumed by its first attempt), and only idempotent methods unless opted in. Any response head counts as a success for the breaker, since a 500 is a backend that is up.
+
+- [x] **#30 Honour and forward `X-Request-Id`.** (triage 55) The server mints a
+  UUID per request (`proxy.rs:1138`) and uses it everywhere internally, but it
+  neither reads an inbound `X-Request-Id` nor passes any id to the backend. So
+  a visitor's trace id dies at the edge, and a backend log line cannot be
+  joined to the server's own access log for the same request. Take the inbound
+  header when present (validated and length-capped, it is attacker-controlled),
+  mint one otherwise, send it to the backend and echo it on the response. Cheap
+  and standard, and it makes the profiling script and the inspector line up
+  with whatever the operator already runs. shipped: the id travels to the backend and is echoed to the visitor under `request_id.header`; adopting a visitor-supplied one is opt-in (`request_id.trust_inbound`) and bounded, and the internal id that keys in-flight requests stays server-minted so it can never be chosen by a visitor.
+
+- [x] **#31 Filters on the request inspector.** (triage 55) The inspector keeps
+  recent transactions with a microsecond timeline and is one of the reasons to
+  run the dashboard, but the only ways in are "the most recent N" and "this
+  exact id". Merged from two proposals: field filters (`status`, `method`,
+  `path`) and a time range (`before`/`after`, where only `before` plus a limit
+  exists today). The interesting case is the one an operator actually has,
+  "show me the 500s from the last ten minutes", which needs both. shipped, smaller than scored: the dashboard already filtered the traffic view by text, method and status in the browser, so what was missing was the same at the API. `/aperio/api/logs` now takes `status` (exact or class), `method`, `path` and `limit`. Searching the durable access log was deliberately left out: its lines carry no organization field, so a search over the file could not be scoped to a tenant.
+
+- [x] **#32 Scheduled maintenance windows.** (triage 55) Maintenance mode is a
+  manual toggle with an optional TTL, so a window at 02:00 on a Sunday means
+  somebody sets an alarm. Wants `from`/`to`, a `days` list and an explicit
+  `tz`, evaluated server-side. The cost to be honest about is correctness
+  around time zones and daylight saving, which is why the timezone has to be
+  explicit rather than inferred from the host. shipped as `maintenance_windows:` in `aperio-server.yaml` rather than as a schedule on the runtime flag, because those flags are in-memory and a recurring window has to survive a restart. IANA time zones (hence chrono-tz), midnight-wrapping windows belong to the day they start, and a malformed entry refuses startup.
+
+- [x] **#33 Draining a service that a config reload removed.** (triage 55) When
+  a service disappears from a reloaded config the client stops serving it
+  immediately, so requests already in flight through that service are dropped
+  and the visitor sees a failure caused by an edit that was meant to be
+  invisible. The protocol already has `Draining` and the server already knows
+  how to stop dispatching to a draining client; this is about using both on the
+  reload path with a bounded wait. Closer to a correctness fix than a feature,
+  which is why it scores above several flashier ideas. shipped: the reload path now announces `Draining` and waits for in-flight requests, bounded by `reload_drain` (default 10s, 0 = the previous immediate drop).
+
+- [x] **#35 gRPC health probing.** (triage 50) `h2c://` and `h2://` targets are
+  a supported, documented shape for gRPC backends, but the health probe is a
+  plain HTTP GET, so the documentation ends up advising an explicit URL
+  instead. Speak `grpc.health.v1.Health/Check` when the target is an h2 one,
+  falling back to the current GET when a probe path is set explicitly. shipped: against an `h2c://`/`h2://` target the probe calls `grpc.health.v1.Health/Check` and `health.endpoint` names the gRPC service (`/` = the whole server); healthy needs a 200, `grpc-status: 0` from headers or trailers, and `SERVING`. The two one-field protobuf messages are encoded by hand, so no prost/tonic dependency was added. An absolute URL still means a plain HTTP probe, and a target with no probe configured is untouched.
+
+- [x] **#36 Environment variables for the `run:` process.** (triage 50) `run:`
+  takes a command line and nothing else, so anything the child needs
+  (`DATABASE_URL`, a port, a profile) has to come from the client's own
+  environment, which also means it cannot differ per service. `env: {KEY:
+  value}` per entry, with the usual rule that a value looking like `${VAR}` is
+  expanded from the client's environment so secrets are not written into the
+  file. shipped: an `env:` map on the `subscribe:` entry, applied before `APERIO_MESSAGE_TOPIC`/`APERIO_MESSAGE_ID` so a declaration cannot shadow them. `${VAR}` expansion was left out; it belongs with the config templating idea (#63) rather than to this one key.
+
+- [x] **#37 The client reports its own health, not just its backend's.**
+  (triage 50) Everything the server knows about a client is "is it pinging" and
+  "does its backend answer". Merged from two proposals: process figures (CPU
+  percent, RSS) and link figures (tunnel round-trip time from the existing
+  ping/pong, jitter, reconnect count), all as additive `Ping` fields and new
+  `ClientHandle` columns, surfaced in the dashboard's clients table. Two
+  cautions: the numbers are per client process, not per service, and inside a
+  container the naive readings mislead unless the cgroup files are preferred. shipped: `rtt_ms`, `jitter_ms` and `reconnects` measured from the client's own ping/pong (no protocol change beyond reporting them), plus `cpu_percent` and `rss_bytes` from `/proc`, Linux only and absent elsewhere rather than approximated. Stored on `ClientHandle`, carried by `/aperio/api/stats`, shown on the clients table. An absence overwrites the previous value so a figure cannot age while looking live.
+
+- [x] **#38 Batch the server's writes to a client, as the client already does
+  to the server.** (triage 45) #24 taught the client's tunnel writer to drain
+  its queue with `feed()` and flush once per batch instead of paying a syscall
+  per frame. The server's writer (`tunnel/ws.rs`) still sends one message at a
+  time, and it is the busier side under fan-out. `SendPacer` sits in that loop
+  already for bandwidth pacing, so the batching has to spend the pacer's budget
+  for the whole batch rather than per frame. The technique is proven on the
+  other side, which is what makes this cheap. shipped: the writer feeds what is already queued and flushes once per batch. The pacer is still spent per frame, and a paced connection flushes before sleeping its debt, so batching cannot turn shaping into bursts or leave finished frames sitting in the buffer.
+
+- [x] **#39 A "test fire" button when creating a webhook.** (triage 45) A
+  webhook that was configured wrong is discovered the next time something
+  actually happens, which is exactly the wrong moment. Send a synthetic event
+  through the real delivery path (including the outbound policy check and the
+  signature) and show the response. The delivery log and the refire endpoint
+  already do most of this. shipped: `POST /aperio/api/webhooks/{id}/test` and a Test button. One attempt rather than the retry schedule, since the caller is waiting and a success on the fourth try reported as success would hide the failure being tested for, and its own event name so a receiver can ignore it.
+
+- [x] **#41 `include:` for splitting a config across files.** (triage 45) One
+  `aperio.yaml` per deployment stops scaling when there are twenty services or
+  when different teams own different entries. `include: [services/prod.yaml]`
+  with a documented merge order, path resolution relative to the including
+  file, and a depth cap so a cycle cannot hang startup. The hot reload watcher
+  has to watch every included file, not just the root one. shipped: merged at the yaml level (keys replace, sequences of mappings concatenate), paths relative to the including file, five-deep cap, cycles reported. The hot-reload watcher tracks every contributing file and re-reads the set on each change, so adding an include is noticed.
+
+- [x] **#42 Zero-copy chunk delivery on the client's receive path.** (triage 45)
+  #23 did this on the server: chunk payloads travel as refcounted slices of the
+  WebSocket message instead of copies. The client's read loop still calls
+  `payload.to_vec()` five times (`service.rs:1175-1205`, request chunks, TCP,
+  UDP, WS frames and the full-response body). The blocker is that
+  tokio-tungstenite 0.23 hands out `Vec<u8>` rather than `Bytes`, so this needs
+  the dependency upgrade first, which is why it is not simply the mirror of a
+  change already made. shipped: tokio-tungstenite 0.23 to 0.29, which also removed the second copy of the WebSocket stack the workspace was compiling (axum already pulled 0.29). Relay, datagram, proxied-WS and request-body chunks are now slices of the arriving frame; the binder's own local-socket channels stay `Vec<u8>`, since those datagrams are built rather than received.
+
+- [x] **#47 Identity headers to the backend.** (triage 40) The only
+  `x-aperio-*` headers a backend can see are the cache markers. A multi-tenant
+  backend that wants to know which organization or which token served a request
+  has to infer it. Add opt-in `X-Aperio-Org` / `X-Aperio-Client-Id` /
+  `X-Aperio-Token-Name`, opt-in because they are new trust surface: they must
+  be stripped from the inbound request unconditionally so a visitor can never
+  forge them. shipped: `identity_headers` (off by default) adds `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token` per dispatch attempt, so a failover names the client that actually served. The inbound strip is unconditional rather than tied to the setting: a header only stripped while a feature is on is a header forgeable by turning it off.
