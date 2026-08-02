@@ -219,6 +219,8 @@ pub(crate) struct ServerConfig {
   pub(crate) fallbacks: crate::fallbacks::Fallbacks,
   /// WAF-lite deny/size rules (the `waf:` section of aperio-server.yaml).
   pub(crate) waf: crate::waf::WafRules,
+  /// Source IPs refused at the outermost layer (`denied_ips:`).
+  pub(crate) denied_ips: crate::deny_list::DenyList,
   /// Trust-on-first-use token pinning (`APERIO_TOKEN_PINNING`). When on, the
   /// first client device key announced for a dynamic token is pinned, and a
   /// later connection with a different (or missing) key for that token is

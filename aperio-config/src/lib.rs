@@ -2382,6 +2382,15 @@ pub struct ServerFileConfig {
   /// (env: APERIO_ADMIN_ALLOWED_IPS).
   #[schemars(extend("examples" = [["10.0.0.0/8"]]))]
   pub admin_allowed_ips: Option<Vec<String>>,
+  /// Source IPs/CIDRs refused everything, checked before every other rule:
+  /// proxied traffic, the dashboard and its API, and the tunnel endpoints
+  /// alike. The inverse of `allowed_ips`, for blocking an abusive address
+  /// without turning on an allowlist that would lock out everyone unnamed.
+  /// Answers `403`. Hot-reloadable, so an address can be blocked without a
+  /// restart. An invalid entry refuses startup rather than applying a partial
+  /// deny list (env: APERIO_DENIED_IPS).
+  #[schemars(extend("examples" = [["203.0.113.7", "198.51.100.0/24"]]))]
+  pub denied_ips: Option<Vec<String>>,
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).

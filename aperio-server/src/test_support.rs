@@ -201,6 +201,7 @@ pub(crate) fn test_config() -> ServerConfig {
     route_limits: Default::default(),
     fallbacks: Default::default(),
     waf: Default::default(),
+    denied_ips: Default::default(),
     token_pinning: false,
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,

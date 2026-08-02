@@ -1873,6 +1873,7 @@ impl AppState {
     effective.route_limits = crate::route_limits::from_config_file();
     effective.fallbacks = crate::fallbacks::from_config_file();
     effective.waf = crate::waf::from_config_file();
+    effective.denied_ips = crate::deny_list::from_config();
     let old = self.config();
     let diff = crate::settings::config_reload_diff(&old, &effective);
     crate::api::settings::swap_config(self, effective).await;

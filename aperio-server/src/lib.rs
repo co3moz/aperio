@@ -23,6 +23,7 @@ mod backup;
 mod cache;
 mod check_config;
 mod config_file;
+mod deny_list;
 mod error_pages;
 mod expose;
 mod fallbacks;
@@ -619,6 +620,28 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
       admin_allowed_ips.len()
     );
   }
+  // The deny list is read from the live config document (so it hot-reloads),
+  // falling back to the environment. A malformed entry refuses the start
+  // rather than applying a partial block list: an operator who wrote a deny
+  // list believes those addresses cannot reach the server.
+  let denied_ips_config = match std::env::var("APERIO_DENIED_IPS") {
+    Ok(raw) if crate::config_file::structured("denied_ips").is_none() && !raw.trim().is_empty() => {
+      match crate::deny_list::DenyList::parse(&raw) {
+        Ok(list) => list,
+        Err(e) => {
+          error!("APERIO_DENIED_IPS is invalid ({e}); refusing to start with a partial deny list");
+          return None;
+        }
+      }
+    }
+    _ => crate::deny_list::from_config(),
+  };
+  if !denied_ips_config.is_empty() {
+    info!(
+      "Source IP deny list active ({} entries): matching addresses are refused before anything else",
+      denied_ips_config.len()
+    );
+  }
   let trust_proxy = trust_proxy || !trusted_proxies.is_empty();
   if !trusted_proxies.is_empty() {
     info!(
@@ -1095,6 +1118,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     error_pages: error_pages::from_config_file(),
     route_limits: route_limits::from_config_file(),
     waf: waf::from_config_file(),
+    denied_ips: denied_ips_config,
     fallbacks: fallbacks::from_config_file(),
     token_pinning: std::env::var("APERIO_TOKEN_PINNING")
       .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -1779,6 +1803,46 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
       }
     );
   }
+
+  // The source-IP deny list, outside every route and every other check: a
+  // blocked address must not reach a handler, spend a rate-limit bucket,
+  // occupy a request slot or open a tunnel. It covers proxied traffic, the
+  // dashboard and the tunnel endpoints alike, which is what an operator
+  // blocking an address means by it.
+  let deny_state = state.clone();
+  let app = app.layer(axum::middleware::from_fn(
+    move |req: axum::extract::Request, next: axum::middleware::Next| {
+      let state = deny_state.clone();
+      async move {
+        let cfg = state.config();
+        if !cfg.denied_ips.is_empty()
+          && let Some(peer) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<SocketAddr>>()
+            .map(|ci| ci.0.ip())
+        {
+          // The same address resolution the rest of the server uses, so a
+          // deployment behind a trusted proxy blocks the visitor rather than
+          // the proxy, and one without trust_proxy cannot be fooled by a
+          // forged header into unblocking anybody.
+          let client_ip = crate::routing::extract_client_ip(
+            req.headers(),
+            peer,
+            cfg.trust_proxy,
+            cfg.real_ip_header.as_deref(),
+            &cfg.trusted_proxies,
+          );
+          if cfg.denied_ips.blocks(client_ip) {
+            return Response::builder()
+              .status(StatusCode::FORBIDDEN)
+              .body(Body::from("Forbidden"))
+              .unwrap();
+          }
+        }
+        next.run(req).await
+      }
+    },
+  ));
 
   // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
   // clean 500 for that one request instead of abruptly dropping the

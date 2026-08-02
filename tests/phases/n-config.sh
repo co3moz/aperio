@@ -59,6 +59,55 @@ assert_contains "$BODY" "v2-reloaded" "the structured route reloaded to its new 
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
 assert_status 200 "$CODE" "a structural port change is ignored live (no restart)"
 
+step "denied_ips blocks a source address, and hot-reloads both ways"
+# The point of the feature is reacting to abuse without a restart, so the test
+# is the round trip: an unrelated address changes nothing, our own address is
+# refused everything, and removing the entry lets us back in.
+write_cfg() { # <denied_ips yaml fragment>
+  cat > "$CFG" <<YAML
+cache: true
+login_lockout_threshold: 9
+port: 9999
+${1}routes:
+  - path: /reload-probe
+    respond:
+      status: 200
+      body: "v2-reloaded"
+YAML
+}
+write_cfg "denied_ips: [203.0.113.7]
+"
+sleep 2
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
+assert_status 200 "$CODE" "denying an unrelated address leaves everybody else alone"
+
+write_cfg "denied_ips: [127.0.0.1, ::1]
+"
+BLOCKED=""
+for _ in $(seq 1 10); do
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
+  if [ "$CODE" = "403" ]; then BLOCKED=1; break; fi
+  sleep 1
+done
+[ -n "$BLOCKED" ] || fail "a denied source address was not blocked within 10s"
+echo "  ok: a denied address is refused (403) without a restart"
+# The block is server-wide, not just the proxy path: the dashboard API and a
+# client-less route are refused for the same address too.
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$RJAR" "$BASE/aperio/api/stats")"
+assert_status 403 "$CODE" "the deny list covers the admin API, not only proxied traffic"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: probe.e2e.local" "$BASE/reload-probe")"
+assert_status 403 "$CODE" "the deny list is checked before client-less routes answer"
+
+write_cfg ""
+RESTORED=""
+for _ in $(seq 1 10); do
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/aperio/health")"
+  if [ "$CODE" = "200" ]; then RESTORED=1; break; fi
+  sleep 1
+done
+[ -n "$RESTORED" ] || fail "removing the deny list did not restore access within 10s"
+echo "  ok: removing the entry restores access, also without a restart"
+
 step "The file wins over a dashboard override for the same key"
 # The failure this prevents: the file says one thing, a value changed once from
 # the dashboard says another, the dashboard wins, and nothing reports it. The
