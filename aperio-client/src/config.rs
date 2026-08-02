@@ -529,8 +529,9 @@ pub(crate) struct ClientSettings {
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
   /// Parallel tunnel connections per service (yaml `connections`, env
-  /// `APERIO_CONNECTIONS`; 1 = default).
-  pub(crate) connections: Option<u32>,
+  /// `APERIO_CONNECTIONS` / `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`;
+  /// 1 = default). A range makes the pool elastic.
+  pub(crate) connections: Option<aperio_config::Connections>,
   pub(crate) priority: u32,
   pub(crate) bandwidth: Option<String>,
   pub(crate) max_message_size: usize,
@@ -766,6 +767,37 @@ fn split_csv(raw: &str) -> Vec<String> {
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty())
     .collect()
+}
+
+/// Resolves the top-level `connections:` across the file and the environment.
+///
+/// The three variables are layered as one value rather than field by field:
+/// `APERIO_CONNECTIONS` and the `_MIN`/`_MAX` pair are two spellings of the
+/// same setting, and letting a stray `APERIO_CONNECTIONS_MAX` quietly turn a
+/// deliberate fixed count into an elastic pool is the kind of surprise this
+/// setting can least afford.
+fn resolve_connections(
+  local: &FileConfig,
+  home: &FileConfig,
+) -> Option<aperio_config::Connections> {
+  let from_env = || {
+    let min: Option<u32> = env_parse("APERIO_CONNECTIONS_MIN");
+    let max: Option<u32> = env_parse("APERIO_CONNECTIONS_MAX");
+    if min.is_some() || max.is_some() {
+      return Some(aperio_config::Connections::Range(
+        aperio_config::ConnectionRange { min, max },
+      ));
+    }
+    env_parse::<u32>("APERIO_CONNECTIONS")
+      .filter(|n| *n > 0)
+      .map(aperio_config::Connections::Fixed)
+  };
+  layered(
+    None,
+    local.connections.clone(),
+    from_env(),
+    home.connections.clone(),
+  )
 }
 
 /// Builds the autoscaling declaration, layering the yaml block against the
@@ -1060,13 +1092,7 @@ pub(crate) fn resolve_settings(
       home.max_concurrent,
     )
     .filter(|n| *n > 0),
-    connections: layered(
-      None,
-      local.connections,
-      env_parse("APERIO_CONNECTIONS"),
-      home.connections,
-    )
-    .filter(|n| *n > 0),
+    connections: resolve_connections(local, home),
     priority: layered(
       o.priority,
       local.priority,

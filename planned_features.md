@@ -143,12 +143,6 @@ readable without scrolling past what is already done.
   binds, `max_concurrent` and flow control, so multiplexing means teaching the
   registry to hold several services behind one socket. Real work, not a tidy-up.
 
-- [ ] **#48 `lazy_connect`: do not dial the server until the first request.**
-  (triage 40) A client configured for ten services holds ten idle connections
-  even when nobody is using nine of them. Only worth it in fleets of mostly
-  idle clients, and it trades away the property people like most about a
-  tunnel, that the URL works the instant the client starts.
-
 - [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
   Two threshold rules exist and are hard-coded: error rate and client-down
   (`alerts.rs`). Everything else an operator might want to be told about,
@@ -491,6 +485,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#48 `connections:` as a `{min, max}` range, an elastic pool.**
+  (triage 40) Reframed from `lazy_connect`: not dialing until the first
+  request trades away the property people like most about a tunnel, that the
+  URL works the instant the client starts, whereas sizing the *pool* with load
+  keeps that and still stops a service holding its busy-hour connection count
+  around the clock. shipped: `connections: {min: 1, max: 8}` opens the floor
+  and grows towards the ceiling, one connection at a time, on requests in
+  flight per connection; it shrinks on a much longer cooldown than it grows.
+  A plain `connections: N` is untouched, elasticity is opt-in, because our own
+  measurement has the throughput curve peaking at four connections on a
+  shared-CPU host. Bandwidth is still divided by `max` so a growing pool
+  cannot exceed the declared budget, and each connection announces the pool's
+  real size rather than its ceiling. `APERIO_CONNECTIONS_MIN` / `_MAX`.
 
 Shipped ideas, newest id last. They keep their id forever: it is never
 renumbered and never reused, so a commit message or a comment naming `#28`

@@ -73,6 +73,8 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     timeout_secs: 5,
     max_concurrent: None,
     connections: 1,
+    connections_min: 1,
+    pool_load: std::sync::Arc::new(PoolLoad::default()),
     priority: 0,
     bandwidth_bps: None,
     bandwidth_declared: None,
@@ -1309,4 +1311,52 @@ async fn a_stalled_request_cannot_hold_a_reload_past_the_budget() {
     waited < Duration::from_secs(3),
     "and it did give up: {waited:?}"
   );
+}
+
+// ---------------------------------------------------------------------------
+// PoolLoad (elastic connections, planned_features #48)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pool_load_reports_the_window_peak() {
+  let load = PoolLoad::default();
+  load.enter();
+  load.enter();
+  load.enter();
+  load.leave();
+  load.leave();
+  load.leave();
+  // The burst is what the supervisor has to see: by the time it looks, the
+  // three requests are long finished, and an instantaneous reading would say
+  // the pool was idle through the very moment it was busiest.
+  assert_eq!(load.take_peak(), 3);
+}
+
+#[test]
+fn test_pool_load_carries_running_requests_into_the_next_window() {
+  let load = PoolLoad::default();
+  load.enter();
+  load.enter();
+  assert_eq!(load.take_peak(), 2);
+  // Both are still running, so the new window starts at two rather than at
+  // zero: a slow request occupies the pool across ticks and a window that
+  // reset to zero would report an idle pool while it is fully occupied.
+  assert_eq!(load.take_peak(), 2);
+  load.leave();
+  load.leave();
+  // They were still running when this window opened, so the window that has
+  // just closed did hold two.
+  assert_eq!(load.take_peak(), 2);
+  // Only now, with nothing carried in, does the pool read as idle.
+  assert_eq!(load.take_peak(), 0);
+}
+
+#[test]
+fn test_pool_load_open_count_is_absent_until_a_supervisor_sets_it() {
+  let load = PoolLoad::default();
+  // A fixed pool has no supervisor, so the announcement falls back to the
+  // configured count rather than claiming zero connections.
+  assert_eq!(load.open(), None);
+  load.set_open(3);
+  assert_eq!(load.open(), Some(3));
 }

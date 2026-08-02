@@ -491,25 +491,164 @@ fn spawn_services(
       // permits and the rest size themselves from it instead of each finding
       // out by being closed.
       let ceiling = service::ConnectionCeiling::new();
-      (1..=spec.connections).map(move |conn| {
-        let mut spec = spec.clone();
-        if conn > 1 {
-          spec.client_id = format!("{}-c{}", spec.client_id, conn);
-        }
+      // An elastic pool runs as a single supervisor task that owns its own
+      // connections. That keeps the caller's contract intact, it still holds
+      // one cancel channel and one handle per entry, and it puts the decision
+      // to open or retire a connection next to the state it is made from.
+      if spec.connections_min < spec.connections {
         let (cancel_tx, cancel_rx) = watch::channel(false);
-        let handle = tokio::spawn(run_service(
-          spec,
+        let handle = tokio::spawn(run_elastic_pool(
+          spec.clone(),
           shared.clone(),
           cancel_rx,
-          health.clone(),
-          conn == 1,
-          conn,
-          ceiling.clone(),
+          health,
+          ceiling,
         ));
-        (cancel_tx, handle)
-      })
+        return vec![(cancel_tx, handle)];
+      }
+      (1..=spec.connections)
+        .map(|conn| spawn_connection(spec, shared, &health, &ceiling, conn))
+        .collect::<Vec<_>>()
     })
     .collect()
+}
+
+/// Starts connection number `conn` of a service.
+fn spawn_connection(
+  spec: &ServiceSpec,
+  shared: &Shared,
+  health: &service::BackendHealth,
+  ceiling: &service::ConnectionCeiling,
+  conn: u32,
+) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
+  let mut spec = spec.clone();
+  if conn > 1 {
+    spec.client_id = format!("{}-c{}", spec.client_id, conn);
+  }
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let handle = tokio::spawn(run_service(
+    spec,
+    shared.clone(),
+    cancel_rx,
+    health.clone(),
+    conn == 1,
+    conn,
+    ceiling.clone(),
+  ));
+  (cancel_tx, handle)
+}
+
+/// How often the elastic pool looks at its load.
+const POOL_TICK: Duration = Duration::from_secs(2);
+/// Requests in flight per connection above which the pool opens another one.
+///
+/// A tunnel connection multiplexes requests, so this is not a hard capacity,
+/// it is the point at which a connection's frames start queueing behind each
+/// other rather than going out as they arrive.
+const POOL_GROW_PER_CONNECTION: usize = 8;
+/// Load per connection below which the pool gives one back.
+///
+/// Deliberately well under the growth figure: the gap is the hysteresis that
+/// stops a service sitting between the two thresholds from opening and closing
+/// a connection every few seconds, which costs both ends more than the
+/// connection ever saved.
+const POOL_SHRINK_PER_CONNECTION: usize = 2;
+/// Quiet period after growing before the pool may grow again. One connection
+/// at a time, with a pause to see whether it helped.
+const POOL_GROW_COOLDOWN: Duration = Duration::from_secs(10);
+/// Quiet period before the pool gives a connection back. Much longer than the
+/// growth cooldown on purpose: being one connection too many costs a little
+/// memory, being one too few costs latency on live traffic, so the pool is
+/// eager to grow and reluctant to shrink.
+const POOL_SHRINK_COOLDOWN: Duration = Duration::from_secs(120);
+
+/// Runs a service whose `connections:` is a range, opening `min` connections
+/// and growing towards `max` while the pool is busy.
+///
+/// Growth is driven by requests in flight rather than by a request *rate*: a
+/// thousand requests a second that all answer in a millisecond need one
+/// connection, and ten slow uploads need room to run in parallel. In flight is
+/// the quantity that tells those apart.
+async fn run_elastic_pool(
+  spec: ServiceSpec,
+  shared: Shared,
+  mut cancel_rx: watch::Receiver<bool>,
+  health: service::BackendHealth,
+  ceiling: service::ConnectionCeiling,
+) {
+  let mut pool: Vec<(watch::Sender<bool>, tokio::task::JoinHandle<()>)> = Vec::new();
+  for conn in 1..=spec.connections_min {
+    pool.push(spawn_connection(&spec, &shared, &health, &ceiling, conn));
+  }
+  spec.pool_load.set_open(spec.connections_min);
+  info!(
+    "[{}] Elastic pool: {} connection(s) open, growing to {} under load",
+    spec.client_id, spec.connections_min, spec.connections
+  );
+  let mut grew_at = tokio::time::Instant::now();
+  let mut shrank_at = tokio::time::Instant::now();
+  let mut ticker = tokio::time::interval(POOL_TICK);
+  ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+  loop {
+    tokio::select! {
+      changed = cancel_rx.changed() => {
+        if changed.is_err() || *cancel_rx.borrow() {
+          break;
+        }
+      }
+      _ = ticker.tick() => {
+        let peak = spec.pool_load.take_peak();
+        let open = pool.len() as u32;
+        let now = tokio::time::Instant::now();
+        // The server's announced ceiling wins over the file: asking for a
+        // connection it will refuse just burns a handshake.
+        let permitted = ceiling.permitted().unwrap_or(spec.connections).min(spec.connections);
+        if open < permitted
+          && peak >= open as usize * POOL_GROW_PER_CONNECTION
+          && now.duration_since(grew_at) >= POOL_GROW_COOLDOWN
+        {
+          let conn = open + 1;
+          info!(
+            "[{}] {} request(s) in flight over {} connection(s); opening connection {}",
+            spec.client_id, peak, open, conn
+          );
+          pool.push(spawn_connection(&spec, &shared, &health, &ceiling, conn));
+          spec.pool_load.set_open(pool.len() as u32);
+          grew_at = now;
+          shrank_at = now;
+          continue;
+        }
+        if open > spec.connections_min
+          && peak <= (open as usize - 1) * POOL_SHRINK_PER_CONNECTION
+          && now.duration_since(shrank_at) >= POOL_SHRINK_COOLDOWN
+        {
+          if let Some((cancel_tx, handle)) = pool.pop() {
+            info!(
+              "[{}] {} request(s) in flight over {} connection(s); retiring connection {}",
+              spec.client_id, peak, open, open
+            );
+            let _ = cancel_tx.send(true);
+            // Awaited rather than detached: the retired connection's client id
+            // is `<id>-c<open>`, and the pool hands that same number out again
+            // the next time it grows. Letting a draining connection overlap
+            // with its replacement would put two clients with one id in front
+            // of the server, which is exactly the ambiguity the per-connection
+            // suffix exists to prevent.
+            let _ = handle.await;
+            spec.pool_load.set_open(pool.len() as u32);
+          }
+          shrank_at = tokio::time::Instant::now();
+          grew_at = shrank_at;
+        }
+      }
+    }
+  }
+  for (cancel_tx, _) in &pool {
+    let _ = cancel_tx.send(true);
+  }
+  for (_, handle) in pool {
+    let _ = handle.await;
+  }
 }
 
 /// Static file mode: rewrites every `serve:` directory, the top-level one
@@ -820,33 +959,38 @@ fn build_specs(
   // this only stops `connections: 100000` from spawning a hundred thousand
   // tasks before the first one has connected to find out.
   const CONNECTIONS_SANITY_BOUND: u32 = 256;
-  let clamp_connections = |raw: Option<u32>, what: &str| -> u32 {
-    let n = raw.unwrap_or(1).max(1);
-    if n > CONNECTIONS_SANITY_BOUND {
+  // Returns (floor, ceiling): equal for a fixed count, a range for an elastic
+  // pool.
+  let clamp_connections = |raw: Option<&aperio_config::Connections>, what: &str| -> (u32, u32) {
+    let (min, max) = match raw {
+      None => (1, 1),
+      Some(c) => (c.min(), c.max()),
+    };
+    if max > CONNECTIONS_SANITY_BOUND {
       warn!(
         "{} requests {} connections; clamping to {}. The server decides the real \
          ceiling and announces it on connect.",
-        what, n, CONNECTIONS_SANITY_BOUND
+        what, max, CONNECTIONS_SANITY_BOUND
       );
-      CONNECTIONS_SANITY_BOUND
-    } else {
-      n
+      return (min.min(CONNECTIONS_SANITY_BOUND), CONNECTIONS_SANITY_BOUND);
     }
+    (min, max)
   };
   // A clamped count is announced so the dashboard shows what the config asked
   // for next to what the client is really running.
-  let connections_note = |raw: Option<u32>, effective: u32| -> Vec<ConfigNote> {
-    let asked = raw.unwrap_or(1).max(1);
-    (asked != effective)
-      .then(|| ConfigNote {
-        field: "connections".to_string(),
-        declared: asked.to_string(),
-        effective: effective.to_string(),
-        reason: format!("clamped to {CONNECTIONS_SANITY_BOUND} parallel connections"),
-      })
-      .into_iter()
-      .collect()
-  };
+  let connections_note =
+    |raw: Option<&aperio_config::Connections>, effective: u32| -> Vec<ConfigNote> {
+      let asked = raw.map(|c| c.max()).unwrap_or(1).max(1);
+      (asked != effective)
+        .then(|| ConfigNote {
+          field: "connections".to_string(),
+          declared: asked.to_string(),
+          effective: effective.to_string(),
+          reason: format!("clamped to {CONNECTIONS_SANITY_BOUND} parallel connections"),
+        })
+        .into_iter()
+        .collect()
+    };
 
   if !settings.services.is_empty() && !cli_target_given {
     // The services: list wins, and the keys that describe a single service at
@@ -897,7 +1041,8 @@ fn build_specs(
         );
       }
     };
-    let connections = clamp_connections(settings.connections, "the service");
+    let (connections_min, connections) =
+      clamp_connections(settings.connections.as_ref(), "the service");
     let mut specs = vec![ServiceSpec {
       name: None,
       custom_name: settings.custom_name.clone(),
@@ -928,10 +1073,12 @@ fn build_specs(
       timeout_secs: settings.timeout_secs,
       max_concurrent: settings.max_concurrent,
       connections,
+      connections_min,
+      pool_load: std::sync::Arc::new(service::PoolLoad::default()),
       priority: settings.priority,
       bandwidth_bps: budget_bps,
       bandwidth_declared: settings.bandwidth.clone(),
-      config_notes: connections_note(settings.connections, connections),
+      config_notes: connections_note(settings.connections.as_ref(), connections),
       max_message_size: settings.max_message_size,
       max_redirects: settings.max_redirects,
       tcp_target: settings.tcp_target.clone(),
@@ -991,10 +1138,9 @@ fn build_specs(
           )
         })?;
       let path = entry.path.clone();
-      let connections = clamp_connections(
-        entry.connections.or(settings.connections),
-        &format!("service '{}'", describe()),
-      );
+      let declared_connections = entry.connections.as_ref().or(settings.connections.as_ref());
+      let (connections_min, connections) =
+        clamp_connections(declared_connections, &format!("service '{}'", describe()));
       Ok(ServiceSpec {
         name: entry.name.clone(),
         custom_name: entry
@@ -1067,12 +1213,14 @@ fn build_specs(
           .or(settings.max_concurrent)
           .filter(|n| *n > 0),
         connections,
+        connections_min,
+        pool_load: std::sync::Arc::new(service::PoolLoad::default()),
         priority: entry.priority.unwrap_or(settings.priority),
         // Only what this entry asked for: the top-level value is the budget
         // these requests are settled against, not a fallback default.
         bandwidth_bps: parse_bw(entry.bandwidth.as_deref()),
         bandwidth_declared: entry.bandwidth.clone(),
-        config_notes: connections_note(entry.connections.or(settings.connections), connections),
+        config_notes: connections_note(declared_connections, connections),
         max_message_size: settings.max_message_size,
         max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
         tcp_target: entry

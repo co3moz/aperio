@@ -9,7 +9,7 @@ use base64::prelude::*;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore, mpsc, watch};
 use tokio_tungstenite::tungstenite::{
@@ -255,6 +255,55 @@ async fn feed_request_chunk(
   streams.lock().await.remove(id);
 }
 
+/// How busy one service's pool of connections is.
+///
+/// The peak matters rather than the instant reading: the supervisor ticks
+/// every couple of seconds and a burst that fits entirely between two ticks is
+/// exactly the burst worth growing for. `take_peak` reads and resets, so each
+/// tick sees the window it is deciding about and nothing older.
+#[derive(Default, Debug)]
+pub(crate) struct PoolLoad {
+  inflight: AtomicUsize,
+  peak: AtomicUsize,
+  /// Connections the elastic supervisor currently has open, `0` for a fixed
+  /// pool that has no supervisor to report it.
+  open: AtomicU32,
+}
+
+impl PoolLoad {
+  /// Records the pool's size, for the announcement each connection makes.
+  pub(crate) fn set_open(&self, n: u32) {
+    self.open.store(n, Ordering::Relaxed);
+  }
+
+  /// The pool's size, or `None` when nothing is managing one.
+  pub(crate) fn open(&self) -> Option<u32> {
+    match self.open.load(Ordering::Relaxed) {
+      0 => None,
+      n => Some(n),
+    }
+  }
+
+  /// Counts a request in, keeping the window's high-water mark.
+  pub(crate) fn enter(&self) {
+    let now = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
+    self.peak.fetch_max(now, Ordering::Relaxed);
+  }
+
+  pub(crate) fn leave(&self) {
+    self.inflight.fetch_sub(1, Ordering::Relaxed);
+  }
+
+  /// The window's high-water mark, resetting it to what is in flight right
+  /// now. Not to zero: a request that has been running across the tick
+  /// boundary is still occupying the pool, and starting the next window at
+  /// zero would report an idle pool while it is anything but.
+  pub(crate) fn take_peak(&self) -> usize {
+    let current = self.inflight.load(Ordering::Relaxed);
+    self.peak.swap(current, Ordering::Relaxed)
+  }
+}
+
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
@@ -307,9 +356,19 @@ pub(crate) struct ServiceSpec {
   pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
-  /// Parallel tunnel connections for this service (1–16). The supervisor
-  /// spawns one service task per connection, each with a derived client id.
+  /// Most parallel tunnel connections for this service. The supervisor spawns
+  /// one service task per connection, each with a derived client id.
   pub(crate) connections: u32,
+  /// Connections opened at startup and never retired. Equal to `connections`
+  /// for a fixed pool; lower for an elastic one, where the supervisor opens
+  /// this many and grows towards `connections` under load.
+  pub(crate) connections_min: u32,
+  /// Requests in flight across this service's whole pool, shared by every one
+  /// of its connections because `ServiceSpec` is cloned per connection and the
+  /// `Arc` comes along. This is what the elastic supervisor reads; a config
+  /// reload rebuilds the specs and so starts the measurement over, which is
+  /// right, the pool it describes is a new one.
+  pub(crate) pool_load: std::sync::Arc<PoolLoad>,
   pub(crate) priority: u32,
   /// Rate a single connection of this service announces, in bytes/second
   /// (None = unlimited). Already settled against the client-wide budget and
@@ -621,6 +680,13 @@ impl ConnectionCeiling {
     }
     let _ = tokio::time::timeout(grace, rx.changed()).await;
     *rx.borrow()
+  }
+
+  /// What the server has announced so far, without waiting. `None` before the
+  /// first connection has learned anything, or against a server too old to
+  /// announce at all.
+  pub(crate) fn permitted(&self) -> Option<u32> {
+    *self.rx.borrow()
   }
 }
 
@@ -1063,7 +1129,11 @@ pub(crate) async fn run_service(
             let client_key_ping = device_key();
             let webhook_inbox_ping = spec.webhook_inbox;
             let denied_ping = spec.denied.clone();
-            let connections_ping = spec.connections;
+            // What the pool is running right now, not what it may grow to: the
+            // dashboard reads this as "this service has N connections", and an
+            // elastic pool sitting at its floor would otherwise claim its
+            // ceiling and look like connections had gone missing.
+            let connections_ping = spec.pool_load.open().unwrap_or(spec.connections);
             let config_notes_ping = spec.config_notes.clone();
             let scaling_ping = spec.scaling.clone();
 
@@ -1341,7 +1411,9 @@ pub(crate) async fn run_service(
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
                                               let raw_body = frame_body.take();
+                                              let pool = spec.pool_load.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
+                                              pool.enter();
                                               shared.mark_request_activity();
 
                                               // Handle incoming request concurrently
@@ -1373,6 +1445,7 @@ pub(crate) async fn run_service(
                                                       let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
+                                                  pool.leave();
                                               });
                                           }
                                           TunnelMessage::RequestStart {
@@ -1393,7 +1466,9 @@ pub(crate) async fn run_service(
                                               let inflight = shared.inflight_requests.clone();
                                               let streams = active_request_streams.clone();
                                               let proto = server_protocol.clone();
+                                              let pool = spec.pool_load.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
+                                              pool.enter();
                                               tokio::spawn(async move {
                                                   let _permit = match limiter {
                                                       Some(sem) => sem.acquire_owned().await.ok(),
@@ -1426,6 +1501,7 @@ pub(crate) async fn run_service(
                                                       let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                                   }
                                                   inflight.fetch_sub(1, Ordering::SeqCst);
+                                                  pool.leave();
                                               });
                                           }
                                           TunnelMessage::RequestChunk { id, data } => {

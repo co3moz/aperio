@@ -676,6 +676,60 @@ impl Hostnames {
   }
 }
 
+/// `connections:` as written in the file: a fixed count, or an elastic pool
+/// with a floor and a ceiling.
+///
+/// The scalar keeps meaning exactly what it always did, N connections opened
+/// at startup and kept, so no existing file changes behavior. Elasticity is
+/// something an operator opts into by writing a range, which is the honest
+/// default: our own measurements have a peak, past which more connections cost
+/// more than they return, so growing a pool without being asked would not be
+/// a safe assumption.
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum Connections {
+  /// `connections: 4`, opened at startup and kept.
+  Fixed(u32),
+  /// `connections: {min: 1, max: 8}`, grown and shrunk with load.
+  Range(ConnectionRange),
+}
+
+/// The `{min, max}` spelling of `connections:`.
+#[derive(Deserialize, Clone, Debug, Default, JsonSchema)]
+pub struct ConnectionRange {
+  /// Connections opened at startup and never dropped. Default: `1`.
+  #[schemars(extend("examples" = [1]))]
+  pub min: Option<u32>,
+  /// Most connections the pool may grow to under load. Default: `min`.
+  #[schemars(extend("examples" = [8]))]
+  pub max: Option<u32>,
+}
+
+impl Connections {
+  /// Connections opened at startup.
+  pub fn min(&self) -> u32 {
+    match self {
+      Connections::Fixed(n) => (*n).max(1),
+      Connections::Range(r) => r.min.unwrap_or(1).max(1),
+    }
+  }
+
+  /// Ceiling the pool may grow to. Never below the floor: a range written the
+  /// wrong way round is a typo, and honoring it literally would mean opening
+  /// fewer connections than the file's own `min` promises.
+  pub fn max(&self) -> u32 {
+    match self {
+      Connections::Fixed(n) => (*n).max(1),
+      Connections::Range(r) => r.max.unwrap_or_else(|| self.min()).max(self.min()),
+    }
+  }
+
+  /// True when this pool grows and shrinks rather than being a fixed size.
+  pub fn is_elastic(&self) -> bool {
+    self.max() > self.min()
+  }
+}
+
 /// One exposed backend when a single client serves several at once; any unset
 /// field falls back to the top-level value.
 #[derive(Deserialize, Default, Clone, JsonSchema)]
@@ -720,9 +774,12 @@ pub struct ServiceEntry {
   /// server's `max_connections_per_service` is the ceiling, announced on
   /// connect, and a token may lower it further;
   /// the server load-balances across them like separate clients, so a single
-  /// dropped connection leaves no visitor-facing gap. Default: `1`.
-  #[schemars(extend("examples" = [2]))]
-  pub connections: Option<u32>,
+  /// dropped connection leaves no visitor-facing gap.
+  /// A number opens exactly that many at startup; `{min: 1, max: 8}` opens the
+  /// floor and grows towards the ceiling while requests queue up, then shrinks
+  /// back when they stop. Default: `1`.
+  #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
+  pub connections: Option<Connections>,
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
@@ -1011,9 +1068,12 @@ pub struct FileConfig {
   /// Parallel tunnel connections opened for the exposed service (the server's
   /// `max_connections_per_service` is the ceiling); the server load-balances
   /// across them like separate clients, so a single dropped connection leaves
-  /// no visitor-facing gap. Default: `1`.
-  #[schemars(extend("examples" = [2]))]
-  pub connections: Option<u32>,
+  /// no visitor-facing gap.
+  /// A number opens exactly that many at startup; `{min: 1, max: 8}` opens the
+  /// floor and grows towards the ceiling while requests queue up, then shrinks
+  /// back when they stop. Default: `1`.
+  #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
+  pub connections: Option<Connections>,
   /// Largest response body, in bytes, the client will relay to a visitor.
   /// Default: `52428800` (50 MB).
   #[schemars(extend("examples" = [10485760]))]
@@ -2586,6 +2646,13 @@ pub struct ServerFileConfig {
   /// visitor can never forge one (env: APERIO_IDENTITY_HEADERS).
   #[schemars(extend("examples" = [true]))]
   pub identity_headers: Option<bool>,
+  /// Fraction of *successful* requests that produce an access line, 0.0 to
+  /// 1.0. Default `1.0` = every request, which is what this always did.
+  /// Failures are never sampled out: a sampled-away error is the one line
+  /// somebody needed. Applies to the `aperio_access` event and the
+  /// `access_log` file alike (env: APERIO_ACCESS_LOG_SAMPLE_RATE).
+  #[schemars(extend("examples" = [0.1]))]
+  pub access_log_sample_rate: Option<f64>,
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).

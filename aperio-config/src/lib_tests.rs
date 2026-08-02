@@ -419,6 +419,10 @@ fn every_environment_variable_has_a_yaml_key() {
         "security_headers",
         "retry",
         "circuit_breaker",
+        // `connections:` is a scalar or a `{min, max}` block, so its children
+        // are reachable as APERIO_CONNECTIONS_MIN / _MAX like any other
+        // grouped key.
+        "connections",
       ],
     ),
   ] {
@@ -1195,4 +1199,53 @@ fn every_docs_example_file_is_a_valid_configuration() {
   // path mistake here must fail loudly rather than check nothing.
   assert!(clients >= 29, "only {clients} client files found");
   assert!(servers >= 29, "only {servers} server files found");
+}
+
+// ---------------------------------------------------------------------------
+// connections: fixed or elastic (planned_features #48)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn connections_accepts_a_scalar_and_a_range() {
+  let fixed: Connections = serde_yaml::from_str("4").unwrap();
+  // The scalar spelling is unchanged: four connections, opened and kept, with
+  // no elasticity anybody has to think about.
+  assert_eq!((fixed.min(), fixed.max()), (4, 4));
+  assert!(!fixed.is_elastic());
+
+  let range: Connections = serde_yaml::from_str("{min: 2, max: 8}").unwrap();
+  assert_eq!((range.min(), range.max()), (2, 8));
+  assert!(range.is_elastic());
+}
+
+#[test]
+fn connections_defaults_each_half_of_a_range() {
+  // `min` alone: a floor with no headroom, which is a fixed pool.
+  let floor: Connections = serde_yaml::from_str("{min: 3}").unwrap();
+  assert_eq!((floor.min(), floor.max()), (3, 3));
+
+  // `max` alone: grows from one, which is the "start small" case.
+  let ceiling: Connections = serde_yaml::from_str("{max: 6}").unwrap();
+  assert_eq!((ceiling.min(), ceiling.max()), (1, 6));
+  assert!(ceiling.is_elastic());
+}
+
+#[test]
+fn connections_reads_an_inverted_range_as_the_floor() {
+  // A range written the wrong way round is a typo. Honoring `max` literally
+  // would open fewer connections than the file's own `min` promises, so the
+  // floor wins and the pool is simply fixed at it.
+  let inverted: Connections = serde_yaml::from_str("{min: 6, max: 2}").unwrap();
+  assert_eq!((inverted.min(), inverted.max()), (6, 6));
+  assert!(!inverted.is_elastic());
+}
+
+#[test]
+fn connections_never_reads_as_zero() {
+  // Zero connections is a service that cannot serve anything, and it is far
+  // likelier to be a mistake than a way of turning a service off.
+  let zero: Connections = serde_yaml::from_str("0").unwrap();
+  assert_eq!((zero.min(), zero.max()), (1, 1));
+  let zero_range: Connections = serde_yaml::from_str("{min: 0, max: 0}").unwrap();
+  assert_eq!((zero_range.min(), zero_range.max()), (1, 1));
 }

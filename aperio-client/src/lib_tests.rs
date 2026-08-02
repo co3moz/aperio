@@ -270,7 +270,7 @@ fn test_build_specs_connections() {
   // Configured values pass through and a per-entry value overrides the top
   // level. What the server permits is applied at connect time, not here.
   let mut settings = base_settings();
-  settings.connections = Some(3);
+  settings.connections = Some(aperio_config::Connections::Fixed(3));
   settings.services = vec![
     ServiceEntry {
       name: Some("web".to_string()),
@@ -280,13 +280,55 @@ fn test_build_specs_connections() {
     ServiceEntry {
       name: Some("api".to_string()),
       target: Some("http://localhost:4000".to_string()),
-      connections: Some(99),
+      connections: Some(aperio_config::Connections::Fixed(99)),
       ..Default::default()
     },
   ];
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert_eq!(specs[0].connections, 3);
   assert_eq!(specs[1].connections, 99);
+  // A fixed count is a pool that never moves: floor and ceiling are the same,
+  // so the supervisor opens all of them and leaves them alone.
+  assert_eq!(specs[0].connections_min, 3);
+  assert_eq!(specs[1].connections_min, 99);
+}
+
+#[test]
+fn test_build_specs_elastic_connections() {
+  // A range opens the floor and leaves the ceiling as headroom.
+  let mut settings = base_settings();
+  settings.connections = Some(aperio_config::Connections::Range(
+    aperio_config::ConnectionRange {
+      min: Some(2),
+      max: Some(8),
+    },
+  ));
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].connections_min, 2);
+  assert_eq!(specs[0].connections, 8);
+
+  // A range written the wrong way round is a typo, and the floor wins: the
+  // alternative is opening fewer connections than the file's own `min` says.
+  settings.connections = Some(aperio_config::Connections::Range(
+    aperio_config::ConnectionRange {
+      min: Some(6),
+      max: Some(2),
+    },
+  ));
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].connections_min, 6);
+  assert_eq!(specs[0].connections, 6);
+
+  // `max` alone is a fixed pool of that size, not an elastic one from 1.
+  settings.connections = Some(aperio_config::Connections::Range(
+    aperio_config::ConnectionRange {
+      min: None,
+      max: Some(4),
+    },
+  ));
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs[0].connections_min, 1);
+  assert_eq!(specs[0].connections, 4);
 }
 
 #[test]
@@ -662,7 +704,7 @@ fn bw_service(name: &str, bandwidth: Option<&str>, connections: u32) -> ServiceE
     name: Some(name.to_string()),
     target: Some("http://localhost:3000".to_string()),
     bandwidth: bandwidth.map(|s| s.to_string()),
-    connections: Some(connections),
+    connections: Some(aperio_config::Connections::Fixed(connections)),
     ..Default::default()
   }
 }
@@ -758,7 +800,7 @@ fn test_bandwidth_split_across_parallel_connections() {
   // the budget and the only service's request.
   let mut settings = base_settings();
   settings.bandwidth = Some("10mbit".to_string());
-  settings.connections = Some(4);
+  settings.connections = Some(aperio_config::Connections::Fixed(4));
   let specs = build_specs(&settings, "id", false).unwrap();
   assert_eq!(specs[0].bandwidth_bps, Some(312_500));
 }
@@ -927,11 +969,11 @@ fn test_build_specs_clamps_connections_warn() {
   // might mean, so it survives; an absurd one is cut back to something a
   // process can actually spawn.
   let mut settings = base_settings();
-  settings.connections = Some(50);
+  settings.connections = Some(aperio_config::Connections::Fixed(50));
   let specs = build_specs(&settings, "id", false).unwrap();
   assert_eq!(specs[0].connections, 50);
 
-  settings.connections = Some(100_000);
+  settings.connections = Some(aperio_config::Connections::Fixed(100_000));
   let specs = build_specs(&settings, "id", false).unwrap();
   assert_eq!(specs[0].connections, 256);
 }
@@ -1076,7 +1118,7 @@ async fn test_apply_serve_mode_top_level() {
 async fn test_spawn_services_derives_connection_ids() {
   init_tracing();
   let mut settings = base_settings();
-  settings.connections = Some(3);
+  settings.connections = Some(aperio_config::Connections::Fixed(3));
   let specs = build_specs(&settings, "base-id", false).unwrap();
   let shared = Shared {
     shutting_down: Arc::new(AtomicBool::new(false)),
@@ -1117,7 +1159,7 @@ fn test_log_spec_all_branches() {
     max_concurrent: Some(8),
     priority: Some(5),
     bandwidth: Some("8mbit".to_string()),
-    connections: Some(4),
+    connections: Some(aperio_config::Connections::Fixed(4)),
     tcp_target: Some("127.0.0.1:5432".to_string()),
     public: Some(true),
     auth: Some("user:pass".to_string()),

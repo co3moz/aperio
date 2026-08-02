@@ -2640,6 +2640,8 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_ACCESS\_LOG} & File path for the structured access log: one JSON line per proxied request (\code{request\_id}, \code{method}, \code{uri}, \code{status}, \code{duration\_ms}, \code{host}, \code{client\_id}, \code{token}, \code{error}), directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured \code{aperio\_access} tracing events. &  \\
 \rowsep
+\code{APERIO\_ACCESS\_LOG\_SAMPLE\_RATE} & Fraction of \textbf{successful} requests that produce an access line, \code{0.0} to \code{1.0}. Thins out both the \code{aperio\_access} event and the \code{APERIO\_ACCESS\_LOG} file. Sampling is deterministic (\code{0.1} = exactly one line in ten). A response of \code{500} or worse is always logged whatever the rate, and so is every refused or failed request. The dashboard's counters, the latency histogram and the rate charts are fed before sampling and stay exact. & \code{1.0} \\
+\rowsep
 \code{APERIO\_INSPECTOR\_REDACT} & \code{0}/\code{false} = disable secret masking in the request inspector. On (default), credential headers (\code{Authorization}, \code{Cookie}, \code{X-Api-Key}, \ldots{}) and secret-looking body fields (\code{password}, \code{token}, \code{api\_key}, \ldots{}) show as \code{[REDACTED]} in the inspector, the cURL copy, and the HAR export; the raw capture kept in memory for replay is always intact. & \code{1} (on) \\
 \rowsep
 \code{APERIO\_RETENTION\_CAPTURES} & Days to keep inspector captures and webhook inbox entries; a background pruner enforces the TTL at startup and hourly. \code{0}/unset = keep (bounded only by the entry caps). &  \\
@@ -2830,6 +2832,10 @@ settings are required: the token, the server URL, and the target.
 \code{APERIO\_MAX\_CONCURRENT} & \code{--max-concurrent} & \code{max\_concurrent} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. \\
 \rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
+\rowsep
+\code{APERIO\_CONNECTIONS\_MIN} &  & \code{connections.min} & Floor of an elastic pool: \code{connections: \{min: 1, max: 8\}} opens one connection and grows towards eight while requests queue up. A plain number stays a fixed pool. \\
+\rowsep
+\code{APERIO\_CONNECTIONS\_MAX} &  & \code{connections.max} & Ceiling of an elastic pool. The server's \code{max\_connections\_per\_service} still wins over it, and the \code{bandwidth} share is divided by this value rather than by the pool's current size. \\
 \rowsep
 \code{APERIO\_CACHE} &  & \code{cache} & Opt this service into the server-side GET response cache (needs \code{APERIO\_CACHE=1} on the \textbf{server}; strictly \code{Cache-Control}-driven). Per \code{services:} entry via \code{cache:}. \\
 \rowsep
