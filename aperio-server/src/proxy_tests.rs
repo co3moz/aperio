@@ -1437,3 +1437,24 @@ fn a_safe_request_id_is_bounded_and_printable() {
   // Exactly at the cap is still fine.
   assert!(is_safe_request_id(&"a".repeat(128)));
 }
+
+// --- identity headers (planned_features #47) --------------------------------
+
+#[test]
+fn the_aperio_header_namespace_is_recognised_case_insensitively() {
+  // The strip is a prefix test on the raw name, so this pins the shape of it:
+  // anything in the namespace goes, anything else stays, whatever the case.
+  let is_ours = |k: &str| k.len() > 9 && k[..9].eq_ignore_ascii_case("x-aperio-");
+  assert!(is_ours("x-aperio-org"));
+  assert!(is_ours("X-Aperio-Client-Id"));
+  assert!(is_ours("X-APERIO-TOKEN"));
+  // Not in the namespace.
+  assert!(!is_ours("x-aperio"), "the bare prefix names no header");
+  assert!(!is_ours("x-aperio-"), "nothing after the prefix");
+  assert!(!is_ours("x-request-id"));
+  assert!(!is_ours("authorization"));
+  assert!(
+    !is_ours("x-aperiox-thing"),
+    "a different namespace that starts alike"
+  );
+}

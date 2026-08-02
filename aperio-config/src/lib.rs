@@ -2549,6 +2549,14 @@ pub struct ServerFileConfig {
   /// deny list (env: APERIO_DENIED_IPS).
   #[schemars(extend("examples" = [["203.0.113.7", "198.51.100.0/24"]]))]
   pub denied_ips: Option<Vec<String>>,
+  /// Tell the backend which client, organization and token served the
+  /// request, as `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token`.
+  /// Off by default: they are new trust surface, and a backend that starts
+  /// believing them should do so deliberately. Inbound `x-aperio-*` headers
+  /// are stripped from every proxied request whatever this is set to, so a
+  /// visitor can never forge one (env: APERIO_IDENTITY_HEADERS).
+  #[schemars(extend("examples" = [true]))]
+  pub identity_headers: Option<bool>,
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).

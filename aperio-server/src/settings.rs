@@ -223,6 +223,8 @@ pub(crate) struct ServerConfig {
   pub(crate) maintenance_windows: crate::maintenance_windows::MaintenanceWindows,
   /// Source IPs refused at the outermost layer (`denied_ips:`).
   pub(crate) denied_ips: crate::deny_list::DenyList,
+  /// Announce the serving client, organization and token to the backend.
+  pub(crate) identity_headers: bool,
   /// Send the request id to the backend and echo it to the visitor.
   pub(crate) request_id_enabled: bool,
   /// Header it travels in, lowercased.

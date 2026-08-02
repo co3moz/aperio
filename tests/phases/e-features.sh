@@ -72,6 +72,15 @@ COUNT="$(echo "$HDRS" | grep -c '^x-request-id: ')"
 [ "$COUNT" = "1" ] || fail "the backend saw $COUNT request-id headers, expected exactly 1"
 echo "  ok: an untrusted inbound id is replaced, and never duplicated"
 
+# The x-aperio- namespace belongs to the server: a visitor's copy never
+# reaches a backend, whether or not identity announcement is on.
+HDRS="$(curl -s -H 'Host: cli.e2e.local' -H 'X-Aperio-Org: forged' -H 'X-Aperio-Client-Id: forged' \
+  "$BASE/echo-headers")"
+if echo "$HDRS" | grep -q 'forged'; then
+  fail "a visitor-supplied x-aperio- header reached the backend"
+fi
+echo "  ok: inbound x-aperio- headers are stripped before the backend"
+
 step "Multi-service client (services: list)"
 MS_CFG="$LOG_DIR/multi-service.yaml"
 cat >"$MS_CFG" <<YAML

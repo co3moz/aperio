@@ -1334,6 +1334,15 @@ async fn proxy_http_request(
       if manage_request_id && k.as_str().eq_ignore_ascii_case(&request_id_header) {
         continue;
       }
+      // The `x-aperio-` namespace belongs to the server, so a visitor's copy
+      // never reaches a backend. This is unconditional, and has to be: a
+      // backend that trusts `x-aperio-org` must be able to trust it whether
+      // or not the operator turned the announcement on, and a header that is
+      // only stripped while a feature is enabled is a header that can be
+      // forged by turning the feature off.
+      if k.as_str().len() > 9 && k.as_str()[..9].eq_ignore_ascii_case("x-aperio-") {
+        continue;
+      }
       if k.as_str() == "cookie" {
         let filtered: String = val_str
           .split(';')
@@ -1502,14 +1511,27 @@ async fn proxy_http_request(
     // The dispatched headers are this attempt's: the same list plus the
     // request id, appended here rather than baked in above because the id can
     // differ per attempt when none was adopted from the visitor.
-    let dispatch_headers = match correlation_id {
-      Some(ref id) => {
-        let mut h = serialized_headers.clone();
-        h.push((request_id_header.clone(), id.clone()));
-        h
+    let mut dispatch_headers = serialized_headers.clone();
+    if let Some(ref id) = correlation_id {
+      dispatch_headers.push((request_id_header.clone(), id.clone()));
+    }
+    // Who is serving this attempt, for a backend that is shared between
+    // tenants. Added here rather than above because a failover attempt can
+    // land on a different client, and a header naming the previous one would
+    // be worse than none.
+    if state.config().identity_headers {
+      dispatch_headers.push(("x-aperio-client-id".to_string(), selected.id.clone()));
+      if let Some(ref org) = selected.org_id {
+        dispatch_headers.push(("x-aperio-org".to_string(), org.clone()));
       }
-      None => serialized_headers.clone(),
-    };
+      dispatch_headers.push((
+        "x-aperio-token".to_string(),
+        selected
+          .token_name
+          .clone()
+          .unwrap_or_else(|| "master".to_string()),
+      ));
+    }
     let dispatch_msg = if stream_request {
       TunnelMessage::RequestStart {
         id: request_id.clone(),

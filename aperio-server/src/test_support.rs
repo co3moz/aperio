@@ -203,6 +203,7 @@ pub(crate) fn test_config() -> ServerConfig {
     waf: Default::default(),
     maintenance_windows: Default::default(),
     denied_ips: Default::default(),
+    identity_headers: false,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,

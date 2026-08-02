@@ -831,13 +831,13 @@ recorded in Withdrawn under #84 so they are not proposed again.
   binds, `max_concurrent` and flow control, so multiplexing means teaching the
   registry to hold several services behind one socket. Real work, not a tidy-up.
 
-- [ ] **#47 Identity headers to the backend.** (triage 40) The only
+- [x] **#47 Identity headers to the backend.** (triage 40) The only
   `x-aperio-*` headers a backend can see are the cache markers. A multi-tenant
   backend that wants to know which organization or which token served a request
   has to infer it. Add opt-in `X-Aperio-Org` / `X-Aperio-Client-Id` /
   `X-Aperio-Token-Name`, opt-in because they are new trust surface: they must
   be stripped from the inbound request unconditionally so a visitor can never
-  forge them.
+  forge them. shipped: `identity_headers` (off by default) adds `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token` per dispatch attempt, so a failover names the client that actually served. The inbound strip is unconditional rather than tied to the setting: a header only stripped while a feature is on is a header forgeable by turning it off.
 
 - [ ] **#48 `lazy_connect`: do not dial the server until the first request.**
   (triage 40) A client configured for ten services holds ten idle connections
