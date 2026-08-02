@@ -19,6 +19,11 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+# protocol.rs gates relay_frame behind cfg(not(fuzzing)); declare the cfg so
+# unexpected_cfgs stays quiet here too.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
 [dependencies]
 libfuzzer-sys = "0.4"
 serde = { version = "1", features = ["derive"] }
