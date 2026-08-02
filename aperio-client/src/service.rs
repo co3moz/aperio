@@ -1137,6 +1137,7 @@ pub(crate) async fn run_service(
             // ceiling and look like connections had gone missing.
             let connections_ping = spec.pool_load.open().unwrap_or(spec.connections);
             let metrics_labels_ping = spec.metrics_labels.clone();
+            let drain_secs_ping = Some(spec.reload_drain_secs);
             let config_notes_ping = spec.config_notes.clone();
             let scaling_ping = spec.scaling.clone();
 
@@ -1225,6 +1226,7 @@ pub(crate) async fn run_service(
                   scaling: scaling_ping.clone(),
                   connections: Some(connections_ping),
                   metrics_labels: metrics_labels_ping.clone(),
+                  drain_secs: drain_secs_ping,
                   config_notes: config_notes_ping.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg) {

@@ -77,6 +77,9 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,
@@ -198,6 +201,7 @@ fn mock_client() -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     metrics_labels: Vec::new(),
+    drain_secs: None,
     service_custom_name: None,
     tx,
     disconnect: Arc::new(tokio::sync::Notify::new()),

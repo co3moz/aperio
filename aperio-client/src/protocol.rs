@@ -418,6 +418,12 @@ pub(crate) enum TunnelMessage {
     /// and these come from clients.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     metrics_labels: std::collections::BTreeMap<String, String>,
+    /// Seconds this client gives its own in-flight requests when it is asked
+    /// to stand down (`reload_drain:`). Announced so the server can size its
+    /// shutdown drain from what its clients actually expect, rather than from
+    /// a number nobody revisits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    drain_secs: Option<u64>,
     /// What the client observes about itself (planned_features #37): CPU as a
     /// percentage of one core and resident memory of the client process, and
     /// round-trip time, jitter and reconnect count of this tunnel connection.

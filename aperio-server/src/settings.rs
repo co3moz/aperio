@@ -230,6 +230,14 @@ pub(crate) struct ServerConfig {
   /// Fraction of successful requests that produce an access line (1.0 =
   /// all). Failures are never sampled.
   pub(crate) access_log_sample_rate: f64,
+  /// Seconds to let in-flight proxied requests finish before shutdown ends
+  /// long-lived connections. `Some(n)` = wait up to n seconds, `None` = size
+  /// it from what connected clients announce (`auto`), capped.
+  pub(crate) shutdown_drain: Option<u64>,
+  /// True when `shutdown_drain` was written as `auto`.
+  pub(crate) shutdown_drain_auto: bool,
+  /// Seconds after which shutdown stops waiting for anything and exits.
+  pub(crate) shutdown_timeout: u64,
   /// Send the request id to the backend and echo it to the visitor.
   pub(crate) request_id_enabled: bool,
   /// Header it travels in, lowercased.

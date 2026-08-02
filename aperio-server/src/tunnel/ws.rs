@@ -1060,6 +1060,7 @@ impl ConnCtx {
       connections,
       config_notes,
       metrics_labels,
+      drain_secs,
       cpu_percent,
       rss_bytes,
       rtt_ms,
@@ -1237,6 +1238,7 @@ impl ConnCtx {
         if handle.metrics_labels != metrics_labels {
           handle.metrics_labels = metrics_labels;
         }
+        handle.drain_secs = drain_secs;
         if handle.webhook_inbox != webhook_inbox {
           handle.webhook_inbox = webhook_inbox;
           if webhook_inbox {
@@ -2112,6 +2114,7 @@ pub(crate) async fn handle_socket(
         declared_client_id: None,
         config_notes: Vec::new(),
         metrics_labels: Vec::new(),
+        drain_secs: None,
         last_ping_at: None,
         perms: perms.clone(),
         max_concurrent: None,

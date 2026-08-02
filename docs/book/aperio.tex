@@ -2640,6 +2640,10 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_ACCESS\_LOG} & File path for the structured access log: one JSON line per proxied request (\code{request\_id}, \code{method}, \code{uri}, \code{status}, \code{duration\_ms}, \code{host}, \code{client\_id}, \code{token}, \code{error}), directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured \code{aperio\_access} tracing events. &  \\
 \rowsep
+\code{APERIO\_SHUTDOWN\_DRAIN} & Seconds to let in-flight proxied requests finish before shutdown ends the connections carrying them. Behind a load balancer this decides whether a deploy is invisible or shows up as a handful of 502s. \code{auto} takes the longest drain budget connected clients announce, capped at 30s. & \code{0} \\
+\rowsep
+\code{APERIO\_SHUTDOWN\_TIMEOUT} & Seconds after which shutdown stops waiting for anything still holding a connection open and exits. & \code{10} \\
+\rowsep
 \code{APERIO\_ACCESS\_LOG\_SAMPLE\_RATE} & Fraction of \textbf{successful} requests that produce an access line, \code{0.0} to \code{1.0}. Thins out both the \code{aperio\_access} event and the \code{APERIO\_ACCESS\_LOG} file. Sampling is deterministic (\code{0.1} = exactly one line in ten). A response of \code{500} or worse is always logged whatever the rate, and so is every refused or failed request. The dashboard's counters, the latency histogram and the rate charts are fed before sampling and stay exact. & \code{1.0} \\
 \rowsep
 \code{APERIO\_INSPECTOR\_REDACT} & \code{0}/\code{false} = disable secret masking in the request inspector. On (default), credential headers (\code{Authorization}, \code{Cookie}, \code{X-Api-Key}, \ldots{}) and secret-looking body fields (\code{password}, \code{token}, \code{api\_key}, \ldots{}) show as \code{[REDACTED]} in the inspector, the cURL copy, and the HAR export; the raw capture kept in memory for replay is always intact. & \code{1} (on) \\

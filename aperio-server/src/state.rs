@@ -733,6 +733,10 @@ pub(crate) struct ClientHandle {
   /// Static Prometheus labels this client announced, already validated and
   /// capped (planned_features #53). Attached to its own metric series only.
   pub(crate) metrics_labels: Vec<(String, String)>,
+  /// Seconds this client says it gives its own in-flight requests when asked
+  /// to stand down. Advisory: it sizes `shutdown_drain: auto`, under the
+  /// operator's cap, and is never trusted on its own.
+  pub(crate) drain_secs: Option<u64>,
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
   /// Client build version announced via Ping (None until the first Ping,

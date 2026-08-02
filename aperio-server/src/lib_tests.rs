@@ -1,3 +1,4 @@
+use super::{SHUTDOWN_DRAIN_AUTO_CAP, shutdown_drain_budget};
 use crate::access_log::sanitize_uri;
 use crate::auth::{extract_and_verify_token, ip_allowed, safe_redirect_path, valid_ip_entry};
 use crate::protocol::TunnelMessage;
@@ -118,6 +119,9 @@ async fn test_rate_limiting() {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,
@@ -285,6 +289,9 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,
@@ -474,6 +481,9 @@ async fn test_proxy_handler_success() {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,
@@ -572,6 +582,7 @@ async fn test_proxy_handler_success() {
     "mock-client-1".to_string(),
     ClientHandle {
       metrics_labels: Vec::new(),
+      drain_secs: None,
       service_custom_name: None,
       tx: tx_write,
       disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
@@ -895,6 +906,7 @@ fn mock_client(
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     metrics_labels: Vec::new(),
+    drain_secs: None,
     service_custom_name: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
@@ -1105,6 +1117,9 @@ fn test_apply_settings_overrides() {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),
     request_id_trust_inbound: false,
@@ -2187,5 +2202,51 @@ async fn bind_listener_binds_plain_reuseport_and_reports_a_taken_port() {
     bind_listener("definitely-not-a-host.invalid", 0, true)
       .await
       .is_err()
+  );
+}
+
+// ---------------------------------------------------------------------------
+// shutdown_drain_budget (planned_features #58)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shutdown_drain_defaults_to_not_waiting() {
+  // Unset is the behavior the server has always had: notify, flush, close.
+  // Waiting is something an operator asks for, not something a version bump
+  // starts doing to their deploys.
+  assert_eq!(
+    shutdown_drain_budget(None, false, []),
+    std::time::Duration::ZERO
+  );
+}
+
+#[test]
+fn shutdown_drain_uses_the_configured_number_over_anything_announced() {
+  // The operator's number wins even when clients ask for more: this is the
+  // one place the platform's SIGKILL timer is known, and it is not known here.
+  assert_eq!(
+    shutdown_drain_budget(Some(5), true, [60, 90]),
+    std::time::Duration::from_secs(5)
+  );
+}
+
+#[test]
+fn shutdown_drain_auto_takes_the_longest_client_and_caps_it() {
+  // The longest, not the average: the drain is over when the slowest client
+  // has finished, and an average cuts short exactly the one that needed time.
+  assert_eq!(
+    shutdown_drain_budget(None, true, [3, 12, 7]),
+    std::time::Duration::from_secs(12)
+  );
+  // A client is not the operator, so what it announces cannot hold the
+  // process past what the platform will wait before SIGKILL.
+  assert_eq!(
+    shutdown_drain_budget(None, true, [3600]),
+    std::time::Duration::from_secs(SHUTDOWN_DRAIN_AUTO_CAP)
+  );
+  // `auto` with nothing connected has nothing to size itself from.
+  assert_eq!(
+    shutdown_drain_budget(None, true, []),
+    std::time::Duration::ZERO
   );
 }

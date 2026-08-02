@@ -191,13 +191,6 @@ readable without scrolling past what is already done.
   project: the rule worth adopting is that a new dashboard action ships with
   its subcommand.
 
-- [ ] **#58 A configurable shutdown drain.** (triage 35) Shutdown already
-  broadcasts `ServerShutdown`, waits 200 ms for those frames to flush, and then
-  ends long-lived connections so axum's graceful shutdown can complete. What is
-  not configurable is how long to wait for in-flight requests before that,
-  which is the number an operator behind a load balancer actually wants to set.
-  Merged from two proposals describing the same knob from opposite ends.
-
 - [ ] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
   that matter per backend are only available globally: connect timeout, idle
   timeout for pooled connections, the buffered/streamed threshold, the minimum
@@ -471,6 +464,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#58 A configurable shutdown drain.** (triage 35) Shutdown already
+  broadcasts `ServerShutdown`, waits 200 ms for those frames to flush, and then
+  ends long-lived connections so axum's graceful shutdown can complete. What is
+  not configurable is how long to wait for in-flight requests before that,
+  which is the number an operator behind a load balancer actually wants to set.
+  Merged from two proposals describing the same knob from opposite ends.
+  shipped: `shutdown_drain` in seconds, plus `auto`, which takes the longest
+  drain budget connected clients announce in their Ping (the longest, not the
+  average, since the drain is over when the slowest client has finished) and
+  caps it at 30s, because a client is not the operator and cannot be allowed
+  to hold the process past the platform's SIGKILL timer. Default stays `0`, so
+  no deploy starts waiting because of a version bump. The forced-exit fallback
+  is now `shutdown_timeout` instead of a hard-coded ten seconds.
 
 - [x] **#53 Static Prometheus labels from the client.** (triage 35)
   `metrics_labels: {env: prod, region: eu-west}` announced on connect and

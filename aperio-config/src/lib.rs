@@ -2223,6 +2223,18 @@ pub struct StreamGroup {
   pub backlog_limit: Option<u64>,
 }
 
+/// `shutdown_drain:` as a number of seconds, or the word `auto`.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum ShutdownDrain {
+  /// Wait this many seconds for in-flight requests.
+  Seconds(u64),
+  /// `auto`: take the longest drain budget connected clients announce,
+  /// capped, so the number follows the deployment instead of being a constant
+  /// nobody revisits.
+  Named(String),
+}
+
 /// `cache:` written either as the bare value it has always accepted, or as
 /// the block that carries its companion settings too. Default: `false`
 /// (disabled).
@@ -2667,6 +2679,19 @@ pub struct ServerFileConfig {
   /// `access_log` file alike (env: APERIO_ACCESS_LOG_SAMPLE_RATE).
   #[schemars(extend("examples" = [0.1]))]
   pub access_log_sample_rate: Option<f64>,
+  /// Seconds to let in-flight proxied requests finish before shutdown ends
+  /// the connections carrying them. Behind a load balancer this is the number
+  /// that decides whether a deploy is invisible or shows up as a handful of
+  /// 502s. `auto` sizes it from the drain budgets connected clients announce,
+  /// capped at 30 seconds. Default: `0` (do not wait)
+  /// (env: APERIO_SHUTDOWN_DRAIN).
+  #[schemars(extend("examples" = [10, "auto"]))]
+  pub shutdown_drain: Option<ShutdownDrain>,
+  /// Seconds after which shutdown stops waiting for anything still holding a
+  /// connection open (a proxied WebSocket, a TCP relay, a stalled peer) and
+  /// exits. Default: `10` (env: APERIO_SHUTDOWN_TIMEOUT).
+  #[schemars(extend("examples" = [30]))]
+  pub shutdown_timeout: Option<u64>,
 
   // --- Tunnel & cache ---
   /// zlib-compress tunnel frames (env: APERIO_TUNNEL_COMPRESSION).

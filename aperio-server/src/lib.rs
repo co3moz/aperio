@@ -1124,6 +1124,18 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
+    shutdown_drain: {
+      let raw = std::env::var("APERIO_SHUTDOWN_DRAIN").unwrap_or_default();
+      raw.trim().parse::<u64>().ok()
+    },
+    shutdown_drain_auto: std::env::var("APERIO_SHUTDOWN_DRAIN")
+      .map(|v| v.trim().eq_ignore_ascii_case("auto"))
+      .unwrap_or(false),
+    shutdown_timeout: std::env::var("APERIO_SHUTDOWN_TIMEOUT")
+      .ok()
+      .and_then(|v| v.trim().parse::<u64>().ok())
+      .filter(|v| *v > 0)
+      .unwrap_or(10),
     access_log_sample_rate: std::env::var("APERIO_ACCESS_LOG_SAMPLE_RATE")
       .ok()
       .and_then(|v| v.trim().parse::<f64>().ok())
@@ -2227,6 +2239,84 @@ fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users
   }
 }
 
+/// Ceiling on `shutdown_drain: auto`.
+///
+/// `auto` sizes the drain from what connected clients announce, and a client
+/// is not the operator: a value it invents cannot be allowed to hold the
+/// process past what the platform will wait before sending SIGKILL. Thirty
+/// seconds is the common orchestrator grace period, which is the number this
+/// is actually racing.
+const SHUTDOWN_DRAIN_AUTO_CAP: u64 = 30;
+
+/// How long shutdown waits for in-flight proxied requests, and where the
+/// number came from.
+///
+/// Split out so the policy is testable on its own: the loop that waits is
+/// timing and signals, and this is the decision.
+fn shutdown_drain_budget(
+  configured: Option<u64>,
+  auto: bool,
+  announced: impl IntoIterator<Item = u64>,
+) -> Duration {
+  if let Some(secs) = configured {
+    return Duration::from_secs(secs);
+  }
+  if !auto {
+    return Duration::ZERO;
+  }
+  // The longest of them, not the average: the drain is over when the slowest
+  // client has finished, and an average would cut short exactly the client
+  // that needed the time.
+  let longest = announced.into_iter().max().unwrap_or(0);
+  Duration::from_secs(longest.min(SHUTDOWN_DRAIN_AUTO_CAP))
+}
+
+/// Waits for in-flight proxied requests to finish, up to the configured
+/// budget.
+///
+/// Polled rather than signalled: the alternative is a notification on the
+/// request bookkeeping's hot path, paid on every request for the benefit of
+/// the one moment the process is shutting down.
+async fn drain_in_flight(state: &Arc<AppState>) {
+  let cfg = state.config();
+  let announced: Vec<u64> = {
+    let clients = state.clients.read().await;
+    clients.values().filter_map(|c| c.drain_secs).collect()
+  };
+  let budget = shutdown_drain_budget(cfg.shutdown_drain, cfg.shutdown_drain_auto, announced);
+  if budget.is_zero() {
+    return;
+  }
+  let deadline = tokio::time::Instant::now() + budget;
+  let mut announced_wait = false;
+  loop {
+    let pending = state.pending_requests.lock().await.len();
+    if pending == 0 {
+      if announced_wait {
+        info!("In-flight requests finished; continuing shutdown");
+      }
+      return;
+    }
+    if tokio::time::Instant::now() >= deadline {
+      warn!(
+        "Shutdown drain of {}s expired with {} request(s) still in flight; ending them",
+        budget.as_secs(),
+        pending
+      );
+      return;
+    }
+    if !announced_wait {
+      info!(
+        "Waiting up to {}s for {} in-flight request(s) to finish",
+        budget.as_secs(),
+        pending
+      );
+      announced_wait = true;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+  }
+}
+
 /// Graceful shutdown listener for receiving SIGINT or SIGTERM signals.
 /// Before handing control back to axum (which drops the tunnel sockets), a
 /// `ServerShutdown` message is broadcast to every connected client so they
@@ -2271,6 +2361,13 @@ async fn shutdown_signal(state: Arc<AppState>) {
     }
   }
 
+  // Let what is already in flight finish before the connections carrying it
+  // are ended. Behind a load balancer this is the number that decides whether
+  // a deploy is invisible or shows up as a handful of 502s: the balancer needs
+  // long enough to take this instance out of rotation, and the requests it
+  // already sent need long enough to answer.
+  drain_in_flight(&state).await;
+
   // Graceful shutdown only completes once every connection has ended, and
   // long-lived ones never end on their own. End them actively: dashboard SSE
   // streams watch this flag, and each tunnel read loop honors its disconnect
@@ -2287,9 +2384,10 @@ async fn shutdown_signal(state: Arc<AppState>) {
   // WebSocket/TCP/UDP relay, a stalled peer) must not keep the process alive
   // forever. Flush what matters and exit.
   let fallback = state.clone();
+  let timeout = state.config().shutdown_timeout;
   tokio::spawn(async move {
-    tokio::time::sleep(Duration::from_secs(10)).await;
-    warn!("Graceful shutdown timed out after 10s; forcing exit");
+    tokio::time::sleep(Duration::from_secs(timeout)).await;
+    warn!("Graceful shutdown timed out after {timeout}s; forcing exit");
     fallback.persistent_stats.lock().await.save_if_dirty();
     fallback.uptime.lock().await.save_if_dirty();
     std::process::exit(0);
@@ -2362,6 +2460,7 @@ pub mod testkit {
         declared_client_id: None,
         config_notes: Vec::new(),
         metrics_labels: Vec::new(),
+        drain_secs: None,
         last_ping_at: Some(std::time::Instant::now()),
         perms: crate::state::ClientPerms::master(),
         max_concurrent: None,

@@ -170,6 +170,7 @@ fn base_ping() -> TunnelMessage {
     connections: None,
     config_notes: Vec::new(),
     metrics_labels: Default::default(),
+    drain_secs: None,
   }
 }
 
