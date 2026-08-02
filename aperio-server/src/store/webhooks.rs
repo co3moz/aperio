@@ -583,3 +583,53 @@ pub fn dispatch(
 #[cfg(test)]
 #[path = "webhooks_tests.rs"]
 mod tests;
+
+/// Sends one synthetic event to a webhook and reports what happened, for the
+/// dashboard's "test fire" (planned_features #39).
+///
+/// The same path a real event takes, so what it proves is what an operator
+/// wants proven: the outbound policy check, the signature, the same client and
+/// timeout, and a row in the delivery log like any other. Two deliberate
+/// differences from `deliver_with_retries`:
+///
+/// * **One attempt.** The operator is waiting for the answer. Retrying for a
+///   minute and a half while they watch would report a success that took four
+///   tries as if it were a success, and hide the first failure that is the
+///   thing they are testing for.
+/// * **The outcome is returned**, not only logged, because the point is to see
+///   it now rather than to go and look for it.
+pub(crate) async fn deliver_test(
+  hook: Webhook,
+  body: String,
+  log: std::sync::Arc<tokio::sync::Mutex<DeliveryLog>>,
+  policy: crate::outbound::OutboundPolicy,
+) -> Delivery {
+  let started = std::time::Instant::now();
+  let outcome = match policy.check(&hook.url).await {
+    Err(reason) => Err(reason),
+    Ok(()) => send_once(&hook, &body).await,
+  };
+  let success = matches!(&outcome, Ok(status) if (200..300).contains(&(*status as u32)));
+  let delivery = Delivery {
+    id: uuid::Uuid::new_v4().to_string(),
+    webhook_id: hook.id.clone(),
+    webhook_name: hook.name.clone(),
+    org_id: hook.org_id.clone(),
+    event: TEST_EVENT.to_string(),
+    timestamp: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+    success,
+    status: outcome.as_ref().ok().copied(),
+    error: outcome.err(),
+    attempts: 1,
+    duration_ms: started.elapsed().as_millis() as u64,
+    body,
+    created_at: crate::store::tokens::now_secs(),
+  };
+  log.lock().await.record(delivery.clone());
+  delivery
+}
+
+/// Event name of a test delivery. Distinct from every real event so a
+/// receiver can ignore it, and so the delivery log does not claim something
+/// happened that did not.
+pub(crate) const TEST_EVENT: &str = "webhook_test";

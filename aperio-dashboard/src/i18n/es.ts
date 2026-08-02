@@ -996,4 +996,8 @@ export const es: Record<string, string> = {
   'reconnects': 'reconexiones',
   'client CPU': 'CPU del cliente',
   'client memory': 'memoria del cliente',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" respondió {status} en {ms} ms",
+  "\"{name}\" failed: {reason}": "\"{name}\" falló: {reason}",
+  "Test": "Probar",
+  "no response": "sin respuesta",
 }

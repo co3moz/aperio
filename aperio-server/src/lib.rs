@@ -1489,6 +1489,10 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
         axum::routing::post(webhook_redeliver_handler),
       )
       .route(
+        "/api/webhooks/{id}/test",
+        axum::routing::post(crate::api::webhooks::webhook_test_handler),
+      )
+      .route(
         "/api/openapi.json",
         get(crate::api::openapi::openapi_handler),
       )

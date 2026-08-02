@@ -998,4 +998,8 @@ export const de: Record<string, string> = {
   'reconnects': 'Wiederverbindungen',
   'client CPU': 'Client-CPU',
   'client memory': 'Client-Speicher',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" antwortete {status} in {ms} ms",
+  "\"{name}\" failed: {reason}": "\"{name}\" fehlgeschlagen: {reason}",
+  "Test": "Test",
+  "no response": "keine Antwort",
 }

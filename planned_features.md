@@ -768,12 +768,12 @@ recorded in Withdrawn under #84 so they are not proposed again.
   for the whole batch rather than per frame. The technique is proven on the
   other side, which is what makes this cheap. shipped: the writer feeds what is already queued and flushes once per batch. The pacer is still spent per frame, and a paced connection flushes before sleeping its debt, so batching cannot turn shaping into bursts or leave finished frames sitting in the buffer.
 
-- [ ] **#39 A "test fire" button when creating a webhook.** (triage 45) A
+- [x] **#39 A "test fire" button when creating a webhook.** (triage 45) A
   webhook that was configured wrong is discovered the next time something
   actually happens, which is exactly the wrong moment. Send a synthetic event
   through the real delivery path (including the outbound policy check and the
   signature) and show the response. The delivery log and the refire endpoint
-  already do most of this.
+  already do most of this. shipped: `POST /aperio/api/webhooks/{id}/test` and a Test button. One attempt rather than the retry schedule, since the caller is waiting and a success on the fourth try reported as success would hide the failure being tested for, and its own event name so a receiver can ignore it.
 
 - [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
   authenticates with a bearer token, optionally pinned and IP-fenced. Some

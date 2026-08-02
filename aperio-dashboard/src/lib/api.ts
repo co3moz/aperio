@@ -807,6 +807,15 @@ export const api = {
     mutate('/webhooks', json('POST', payload)),
   deleteWebhook: (id: string) => mutate(`/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   webhookDeliveries: () => request<WebhookDelivery[]>('/webhooks/deliveries'),
+  /** Sends one synthetic event through the real delivery path and reports
+   *  what the receiver answered. One attempt, no retries. */
+  testWebhook: (id: string) =>
+    request<{
+      ok: boolean
+      status: number | null
+      error: string | null
+      duration_ms: number
+    }>(`/webhooks/${encodeURIComponent(id)}/test`, { method: 'POST' }),
   redeliverWebhook: (id: string) =>
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: (filter?: AuditFilter) => request<AuditEvent[]>(`/audit${auditQuery(filter)}`),

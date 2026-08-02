@@ -133,6 +133,12 @@ Available events, grouped by what they are about:
 - **Capacity and alerting**: `alert_triggered`, `alert_resolved`, `scaling_requested`, `org_usage`, `disk_usage_warning`.
 - **Housekeeping**: `db_backup`, `disk_pruned`.
 
+### Testing a webhook before it matters
+
+A webhook that was configured wrong is otherwise discovered the next time something actually happens, which is exactly the wrong moment. The *Test* button on each webhook (`POST /aperio/api/webhooks/{id}/test`) sends one synthetic `webhook_test` event through the **real** delivery path, the outbound policy check, the signature, the same client and timeout, and reports what the receiver answered: status and duration, or the reason it failed. It lands in the delivery log like any other delivery.
+
+Two deliberate differences from a real event: it is sent **once**, with no retries, because the caller is waiting for the answer and a success on the fourth attempt reported as a success would hide the failure being tested for; and it carries its own event name, so a receiver that switches on `event` can ignore it rather than acting on a deploy that never happened.
+
 ### Delivery reliability & the delivery log
 
 A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried. A delivery refused by the outbound policy is not retried either, and the destination is never contacted at all: the refusal is recorded in the log with its reason, so a policy introduced after a webhook was created is visible rather than silent. Redeliveries are re-checked the same way.

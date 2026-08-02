@@ -977,4 +977,8 @@ export const zh: Record<string, string> = {
   'reconnects': '重连次数',
   'client CPU': '客户端 CPU',
   'client memory': '客户端内存',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" 在 {ms} 毫秒内返回 {status}",
+  "\"{name}\" failed: {reason}": "\"{name}\" 失败：{reason}",
+  "Test": "测试",
+  "no response": "无响应",
 }

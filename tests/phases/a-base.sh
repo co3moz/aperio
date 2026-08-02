@@ -313,6 +313,17 @@ SLACK="$(curl -sf -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
 SLACK_ID="$(echo "$SLACK" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 LIST="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks")"
 assert_contains "$LIST" '"format":"slack"' "webhook list reports the slack format"
+
+# Test fire: the real delivery path, one attempt, and the outcome comes back
+# rather than only landing in the log.
+TEST_OUT="$(curl -sf -b "$COOKIES" -X POST "$BASE/aperio/api/webhooks/${SLACK_ID}/test")" \
+  || fail "webhook test fire failed"
+assert_contains "$TEST_OUT" '"ok":true' "the test delivery reached the receiver"
+assert_contains "$TEST_OUT" '"status":200' "the test reports the receiver's status"
+DELIVERIES="$(curl -s -b "$COOKIES" "$BASE/aperio/api/webhooks/deliveries")"
+assert_contains "$DELIVERIES" 'webhook_test' "the test delivery is recorded in the log"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST "$BASE/aperio/api/webhooks/nope/test")"
+assert_status 404 "$CODE" "testing an unknown webhook is a 404"
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST -H 'Content-Type: application/json' \
   --data '{"name":"bad-format","url":"http://127.0.0.1:1/x","format":"telegram"}' "$BASE/aperio/api/webhooks")"
 assert_status 400 "$CODE" "unknown webhook formats are rejected"

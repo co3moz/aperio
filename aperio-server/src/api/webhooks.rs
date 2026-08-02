@@ -497,6 +497,78 @@ pub(crate) async fn webhook_redeliver_handler(
     .into_response()
 }
 
+/// Sends a synthetic event to one webhook and reports the outcome, so a
+/// webhook that was configured wrong is discovered now rather than the next
+/// time something actually happens, which is exactly the wrong moment.
+#[utoipa::path(post, path = "/aperio/api/webhooks/{id}/test", tag = "webhooks",
+  description = "Sends one synthetic `webhook_test` event through the real delivery path (outbound policy, signature, timeout) and returns what the receiver answered. One attempt, no retries: the caller is waiting for the answer.",
+  params(("id" = String, Path, description = "Webhook id")),
+  responses(
+    (status = 200, description = "The delivery outcome", body = serde_json::Value),
+    (status = 404, description = "Unknown webhook id")))]
+pub(crate) async fn webhook_test_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+) -> Response {
+  let org = crate::auth::effective_org(&state, &headers).await;
+  let Some(hook) = state
+    .webhook_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .find(|w| w.id == id && w.org_id == org)
+    .cloned()
+  else {
+    return (StatusCode::NOT_FOUND, "unknown webhook id").into_response();
+  };
+  let ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  state
+    .audit_session(
+      "webhook_tested",
+      &headers,
+      &ip.to_string(),
+      &format!("webhook={}", hook.name),
+    )
+    .await;
+
+  // The body says what it is, in the same envelope every real event uses, so
+  // a receiver that switches on `event` can ignore it rather than acting on
+  // a deploy that never happened.
+  let body = serde_json::json!({
+    "event": crate::store::webhooks::TEST_EVENT,
+    "timestamp": chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+    "data": {
+      "message": "Test delivery from the Aperio dashboard. Nothing happened; this event exists to prove the webhook is reachable.",
+      "webhook": hook.name,
+    }
+  })
+  .to_string();
+  let outcome = crate::store::webhooks::deliver_test(
+    hook,
+    body,
+    state.webhook_deliveries.clone(),
+    state.config().outbound_policy.clone(),
+  )
+  .await;
+  Json(serde_json::json!({
+    "ok": outcome.success,
+    "status": outcome.status,
+    "error": outcome.error,
+    "duration_ms": outcome.duration_ms,
+    "delivery_id": outcome.id,
+  }))
+  .into_response()
+}
+
 #[cfg(test)]
 #[path = "webhooks_tests.rs"]
 mod tests;

@@ -1000,4 +1000,8 @@ export const tr: Record<string, string> = {
   'reconnects': 'yeniden bağlanma',
   'client CPU': 'client CPU',
   'client memory': 'client belleği',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" {ms} ms içinde {status} yanıtı verdi",
+  "\"{name}\" failed: {reason}": "\"{name}\" başarısız: {reason}",
+  "Test": "Test",
+  "no response": "yanıt yok",
 }

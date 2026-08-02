@@ -996,4 +996,8 @@ export const ru: Record<string, string> = {
   'reconnects': 'переподключений',
   'client CPU': 'CPU клиента',
   'client memory': 'память клиента',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" ответил {status} за {ms} мс",
+  "\"{name}\" failed: {reason}": "\"{name}\" не удался: {reason}",
+  "Test": "Тест",
+  "no response": "нет ответа",
 }

@@ -1,4 +1,4 @@
-import { ClockIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
+import { ClockIcon, PlusIcon, RotateCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -184,6 +184,46 @@ function CreateWebhookDialog({ onCreated }: { onCreated: () => void }) {
   )
 }
 
+function TestWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => void }) {
+  const { t } = useI18n()
+  const [busy, setBusy] = useState(false)
+  const fire = async () => {
+    setBusy(true)
+    try {
+      const r = await api.testWebhook(hook.id)
+      if (r.ok) {
+        toast.success(
+          t('"{name}" answered {status} in {ms} ms', {
+            name: hook.name,
+            status: String(r.status ?? ''),
+            ms: String(r.duration_ms),
+          }),
+        )
+      } else {
+        // The reason matters more than the fact: a policy refusal, a timeout
+        // and a 500 are three different things to go and fix.
+        toast.error(
+          t('"{name}" failed: {reason}', {
+            name: hook.name,
+            reason: r.error ?? (r.status != null ? `HTTP ${r.status}` : t('no response')),
+          }),
+        )
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+      onDone()
+    }
+  }
+
+  return (
+    <Button size="xs" variant="outline" onClick={fire} disabled={busy}>
+      <SendIcon /> {busy ? t('Sending...') : t('Test')}
+    </Button>
+  )
+}
+
 function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => void }) {
   const { t } = useI18n()
   const remove = async () => {
@@ -321,7 +361,14 @@ export function WebhooksSection() {
                   {h.signed && <TintBadge tint="green">{t('signed')}</TintBadge>}
                 </>
               }
-              actions={canMutate ? <DeleteWebhookButton hook={h} onDone={refresh} /> : null}
+              actions={
+                canMutate ? (
+                  <>
+                    <TestWebhookButton hook={h} onDone={refresh} />
+                    <DeleteWebhookButton hook={h} onDone={refresh} />
+                  </>
+                ) : null
+              }
             >
               <RecordFact className="basis-full font-mono" title={h.url}>
                 {h.url}

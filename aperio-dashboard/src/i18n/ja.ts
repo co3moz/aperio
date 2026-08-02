@@ -994,4 +994,8 @@ export const ja: Record<string, string> = {
   'reconnects': '再接続回数',
   'client CPU': 'クライアント CPU',
   'client memory': 'クライアントメモリ',
+  "\"{name}\" answered {status} in {ms} ms": "\"{name}\" は {ms} ms で {status} を返しました",
+  "\"{name}\" failed: {reason}": "\"{name}\" は失敗しました: {reason}",
+  "Test": "テスト",
+  "no response": "応答なし",
 }

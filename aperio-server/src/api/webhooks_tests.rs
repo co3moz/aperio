@@ -406,3 +406,90 @@ async fn create_refuses_a_destination_the_outbound_policy_blocks() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
 }
+
+// --- webhook test fire (planned_features #39) -------------------------------
+
+#[tokio::test]
+async fn a_test_fire_reaches_the_receiver_and_reports_what_it_answered() {
+  // A real receiver, so what is asserted is what an operator would see.
+  let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let seen = Arc::new(tokio::sync::Mutex::new(String::new()));
+  let (hits_c, seen_c) = (hits.clone(), seen.clone());
+  let app = axum::Router::new().route(
+    "/hook",
+    axum::routing::post(move |body: String| {
+      let (hits, seen) = (hits_c.clone(), seen_c.clone());
+      async move {
+        hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *seen.lock().await = body;
+        (StatusCode::OK, "thanks")
+      }
+    }),
+  );
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+  let state = Arc::new(test_state());
+  let id = {
+    let mut store = state.webhook_store.lock().await;
+    store
+      .create(
+        "e2e".into(),
+        format!("http://{addr}/hook"),
+        vec!["*".into()],
+        None,
+        crate::store::webhooks::WebhookFormat::Generic,
+        None,
+      )
+      .id
+  };
+
+  let resp = webhook_test_handler(
+    State(state.clone()),
+    ConnectInfo("127.0.0.1:1234".parse().unwrap()),
+    admin_headers(&state).await,
+    Path(id.clone()),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    .await
+    .unwrap();
+  let out: serde_json::Value = serde_json::from_slice(&body).unwrap();
+  assert_eq!(out["ok"], true);
+  assert_eq!(out["status"], 200);
+  assert_eq!(
+    hits.load(std::sync::atomic::Ordering::SeqCst),
+    1,
+    "exactly one attempt"
+  );
+
+  // The receiver can tell it apart from a real event, which is the point of
+  // giving it its own name rather than borrowing one.
+  let sent: serde_json::Value = serde_json::from_str(&seen.lock().await.clone()).unwrap();
+  assert_eq!(sent["event"], "webhook_test");
+
+  // And it lands in the delivery log like any other delivery.
+  let log = state.webhook_deliveries.lock().await;
+  let recent = log.list(None, 50);
+  assert!(
+    recent
+      .iter()
+      .any(|d| d.event == "webhook_test" && d.success && d.attempts == 1),
+    "the test delivery is recorded, once"
+  );
+}
+
+#[tokio::test]
+async fn a_test_fire_on_an_unknown_webhook_is_a_404() {
+  let state = Arc::new(test_state());
+  let resp = webhook_test_handler(
+    State(state.clone()),
+    ConnectInfo("127.0.0.1:1234".parse().unwrap()),
+    admin_headers(&state).await,
+    Path("nope".to_string()),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
