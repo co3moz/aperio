@@ -926,6 +926,30 @@ cannot be combined on one entry: a static answer never reaches a backend, so
 backend policy on it would be silently meaningless, and the server says so at
 startup instead.
 
+\subsection{Scheduled maintenance windows}
+
+Maintenance mode is a switch an operator flips, with an optional TTL, which
+covers the unplanned outage. A window that comes round every week is standing
+configuration instead, so it is written in the config file: there it survives
+a restart, which the in-memory runtime flags do not, reloads without one, and
+is reviewed in a diff.
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+maintenance_windows:
+  - hostname: "*.example.com"
+    from: "02:00"
+    to: "04:00"
+    days: [sat, sun]
+    tz: Europe/Istanbul
+    reason: weekly patching
+\end{codecard}
+
+While a window runs, matching hostnames answer exactly as a flag would, with
+\code{Retry-After} pointing at the end of the window. A \code{to} earlier
+than \code{from} wraps past midnight, and \code{days} then names the day the
+window \emph{starts}. The zone is an IANA name rather than a fixed offset, so
+02:00 stays 02:00 across a daylight-saving change.
+
 \subsection{Fallbacks}
 
 Where a static route answers instead of a client, a fallback answers

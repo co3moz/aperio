@@ -219,6 +219,8 @@ pub(crate) struct ServerConfig {
   pub(crate) fallbacks: crate::fallbacks::Fallbacks,
   /// WAF-lite deny/size rules (the `waf:` section of aperio-server.yaml).
   pub(crate) waf: crate::waf::WafRules,
+  /// Recurring maintenance windows (`maintenance_windows:`).
+  pub(crate) maintenance_windows: crate::maintenance_windows::MaintenanceWindows,
   /// Source IPs refused at the outermost layer (`denied_ips:`).
   pub(crate) denied_ips: crate::deny_list::DenyList,
   /// Send the request id to the backend and echo it to the visitor.

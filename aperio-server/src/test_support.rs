@@ -201,6 +201,7 @@ pub(crate) fn test_config() -> ServerConfig {
     route_limits: Default::default(),
     fallbacks: Default::default(),
     waf: Default::default(),
+    maintenance_windows: Default::default(),
     denied_ips: Default::default(),
     request_id_enabled: true,
     request_id_header: "x-request-id".to_string(),

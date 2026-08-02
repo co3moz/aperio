@@ -43,6 +43,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 futures-util = "0.3"
 chrono = "0.4"
+# IANA time zones for scheduled maintenance windows: a window written as
+# 02:00 local has to stay 02:00 local across a daylight-saving change, which a
+# fixed offset cannot do.
+chrono-tz = "0.10"
 # Single-file persistent store (tokens/webhooks/stats/users) at <data_dir>/aperio.db.
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Password hashing for dashboard users.

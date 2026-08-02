@@ -94,6 +94,23 @@ A flag carries a **reason** and, optionally, a **window**. The reason is shown o
 
 Clearing a flag is the organization's own, with one exception: master may clear any flag, including one whose organization has since been deleted. Deleting an organization also clears the flags it owned, so a tenant cannot leave a hostname answering 503 behind it.
 
+### Recurring windows (`maintenance_windows:`)
+
+A flag is a switch somebody flips, which covers the unplanned outage. A window that comes round every week is standing configuration instead, so it lives in `aperio-server.yaml` rather than in the dashboard: written there it survives a restart (runtime flags do not), reloads without one, and is reviewed in a diff.
+
+```yaml
+# aperio-server.yaml
+maintenance_windows:
+  - hostname: "*.example.com"   # same shapes as a flag; omit or "*" = every host
+    from: "02:00"               # local start, HH:MM
+    to: "04:00"                 # local end, exclusive
+    days: [sat, sun]            # omit = every day
+    tz: Europe/Istanbul         # IANA zone; default UTC
+    reason: weekly patching
+```
+
+While a window is running, matching hostnames answer exactly as a flag would, reason and all, with `Retry-After` pointing at the end of the window. `to` earlier than `from` wraps past midnight, and `days` then names the day the window **starts**: `22:00` to `02:00` on `[sat]` runs Saturday night into Sunday morning. Use a named zone rather than a fixed offset, so 02:00 stays 02:00 across a daylight-saving change. A malformed entry refuses startup rather than being skipped, because a window that silently never fires is a deploy nobody stopped.
+
 A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it.
 
 ## Organizations

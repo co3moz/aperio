@@ -29,6 +29,7 @@ mod expose;
 mod fallbacks;
 mod headers;
 mod limits;
+mod maintenance_windows;
 mod oidc;
 mod outbound;
 mod print_config;
@@ -1118,6 +1119,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     error_pages: error_pages::from_config_file(),
     route_limits: route_limits::from_config_file(),
     waf: waf::from_config_file(),
+    maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
     request_id_enabled: std::env::var("APERIO_REQUEST_ID")
       .map(|v| !matches!(v.trim(), "0" | "false" | "no"))

@@ -1467,6 +1467,41 @@ pub struct RequestIdGroup {
   pub trust_inbound: Option<bool>,
 }
 
+/// One `maintenance_windows:` entry: a recurring window during which matching
+/// hostnames answer the maintenance page by themselves.
+///
+/// A list of mappings, so it has no environment-variable equivalent, like
+/// `routes:` and `rate_limits:`.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MaintenanceWindow {
+  /// Hostname or pattern the window applies to, in the same shapes the
+  /// maintenance API takes (`app.example.com`, `*.example.com`,
+  /// `*-pi.example.com`). Omitted or `*` = every hostname on the server.
+  #[schemars(extend("examples" = ["*.example.com"]))]
+  pub hostname: Option<String>,
+  /// Local start time, `HH:MM`.
+  #[schemars(extend("examples" = ["02:00"]))]
+  pub from: String,
+  /// Local end time, `HH:MM`, exclusive. Earlier than `from` means the window
+  /// wraps past midnight, and `days` then names the day it *starts*.
+  #[schemars(extend("examples" = ["04:00"]))]
+  pub to: String,
+  /// Weekdays the window runs on (`mon`..`sun`, long names accepted).
+  /// Omitted = every day.
+  #[schemars(extend("examples" = [["sat", "sun"]]))]
+  pub days: Option<Vec<String>>,
+  /// IANA time zone the times are local to. Default: `UTC`. Use a named zone
+  /// rather than a fixed offset so the window stays put across a
+  /// daylight-saving change.
+  #[schemars(extend("examples" = ["Europe/Istanbul"]))]
+  pub tz: Option<String>,
+  /// Shown on the maintenance page and in the dashboard while the window is
+  /// running.
+  #[schemars(extend("examples" = ["weekly patching"]))]
+  pub reason: Option<String>,
+}
+
 /// One `routes:` entry of `aperio-server.yaml`. Either an *answer* rule, a
 /// hostname/path match paired with exactly one action (`redirect` or
 /// `respond`) served without a client, or a *policy* rule, which has neither
@@ -2651,6 +2686,9 @@ pub struct ServerFileConfig {
   /// Client-less routes: bind a hostname/path to a redirect or fixed response.
   #[schemars(extend("examples" = [[{"hostname": "old.example.com", "redirect": "https://new.example.com", "permanent": true}]]))]
   pub routes: Option<Vec<RouteRule>>,
+  /// Recurring maintenance windows, evaluated in their own time zone
+  #[schemars(extend("examples" = [[{"hostname": "*.example.com", "from": "02:00", "to": "04:00", "days": ["sat"], "tz": "Europe/Istanbul"}]]))]
+  pub maintenance_windows: Option<Vec<MaintenanceWindow>>,
   /// Per-hostname custom 504/503 error pages (override the global
   /// `504_page`/`503_page` for that hostname).
   #[schemars(extend("examples" = [[{"hostname": "app.example.com", "504_page": "./pages/app-504.html"}]]))]

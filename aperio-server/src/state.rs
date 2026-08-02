@@ -1873,6 +1873,7 @@ impl AppState {
     effective.route_limits = crate::route_limits::from_config_file();
     effective.fallbacks = crate::fallbacks::from_config_file();
     effective.waf = crate::waf::from_config_file();
+    effective.maintenance_windows = crate::maintenance_windows::from_config_file();
     effective.denied_ips = crate::deny_list::from_config();
     let old = self.config();
     let diff = crate::settings::config_reload_diff(&old, &effective);
@@ -2326,11 +2327,29 @@ impl AppState {
   /// read path holding a lock every request shares, and the write paths
   /// (setting a flag, listing them, deleting an organization) drop them.
   pub(crate) async fn maintenance_for(&self, host: Option<&str>) -> Option<MaintenanceFlag> {
+    let now = crate::store::tokens::now_secs();
+    // A scheduled window from the config file, if one is running. Checked
+    // first and without taking the flag lock, so the common case of a server
+    // with windows and no ad-hoc flag costs one list scan. A runtime flag can
+    // still be raised during a window; it simply says the same thing.
+    let cfg = self.config();
+    if !cfg.maintenance_windows.is_empty()
+      && let Some((window, until)) = cfg.maintenance_windows.active_for(host, now)
+    {
+      return Some(MaintenanceFlag {
+        org: None,
+        reason: window.reason.clone(),
+        until: Some(until),
+        since: now,
+        // Named so the dashboard and the 503 page can tell an operator's
+        // switch from the schedule doing what it was told.
+        actor: "schedule".to_string(),
+      });
+    }
     let set = self.maintenance.lock().await;
     if set.is_empty() {
       return None;
     }
-    let now = crate::store::tokens::now_secs();
     set
       .iter()
       .filter(|(_, flag)| !flag.expired(now))
