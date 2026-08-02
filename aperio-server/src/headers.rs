@@ -31,7 +31,7 @@ pub(crate) struct HeaderRules {
 
 /// Compiled form of one direction's rules: removals match case-insensitively,
 /// additions replace any existing header of the same name.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub(crate) struct HeaderTransform {
   /// Headers to set (original-case name, value).
   add: Vec<(String, String)>,
@@ -71,7 +71,7 @@ impl HeaderTransform {
 }
 
 /// The compiled pair carried in the server configuration.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub(crate) struct HeaderTransforms {
   /// Applied to forwarded requests before they enter the tunnel.
   pub(crate) request: HeaderTransform,

@@ -432,6 +432,7 @@ fn rule(host: Option<&str>, path: Option<&str>) -> RouteRule {
     permanent: false,
     preserve_path: false,
     respond: None,
+    ..Default::default()
   }
 }
 

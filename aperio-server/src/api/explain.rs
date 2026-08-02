@@ -270,14 +270,19 @@ pub(crate) async fn explain_handler(
 
   // 5. Per-route rate limit. Reported as the rule, never consumed: asking
   // why a request is refused must not spend the budget it is asking about.
-  match cfg.route_limits.matched(Some(&hostname), &path) {
+  match cfg.route_limits.matched(Some(&hostname), &path, None) {
     Some(rule) => steps.push(
       Step::new(
         "route_rate_limit",
         Verdict::Passes,
         format!(
-          "a rate_limits: rule covers this path ({} rps, burst {}); this dry run does not spend from it",
-          rule.rps, rule.burst
+          "a rate_limits: rule covers this path ({} rps, burst {}{}); this dry run does not spend from it",
+          rule.rps,
+          rule.burst,
+          match rule.methods.as_ref() {
+            Some(m) => format!(", {} only", m.join("/")),
+            None => String::new(),
+          }
         ),
       )
       .from("rate_limits"),

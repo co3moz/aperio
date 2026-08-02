@@ -34,6 +34,7 @@ pub(crate) struct RateLimitRuleRaw {
   path: Option<String>,
   rps: f64,
   burst: Option<f64>,
+  methods: Option<Vec<String>>,
 }
 
 /// One compiled rate-limit rule.
@@ -47,14 +48,27 @@ pub(crate) struct RateLimitRule {
   pub(crate) rps: f64,
   /// Token-bucket burst capacity.
   pub(crate) burst: f64,
+  /// Uppercased methods the rule applies to (None = every method).
+  pub(crate) methods: Option<Vec<String>>,
   /// Stable key identifying this rule's shared bucket in the rate map.
   pub(crate) key: String,
+}
+
+/// True when a rule's method filter admits this request's verb. An absent
+/// filter admits everything, and an absent verb (the config explainer, which
+/// reasons about a route rather than a request) is not filtered out.
+pub(crate) fn method_matches(filter: Option<&Vec<String>>, method: Option<&str>) -> bool {
+  match (filter, method) {
+    (None, _) => true,
+    (Some(_), None) => true,
+    (Some(list), Some(m)) => list.iter().any(|allowed| allowed.eq_ignore_ascii_case(m)),
+  }
 }
 
 /// Compiled `rate_limits:` rules carried in the server configuration.
 #[derive(Default, Clone)]
 pub(crate) struct RouteLimits {
-  rules: Vec<RateLimitRule>,
+  pub(crate) rules: Vec<RateLimitRule>,
 }
 
 impl RouteLimits {
@@ -63,9 +77,15 @@ impl RouteLimits {
     self.rules.is_empty()
   }
 
-  /// The first rule matching a request's host and path (first-match, file
-  /// order), if any.
-  pub(crate) fn matched(&self, host: Option<&str>, path: &str) -> Option<&RateLimitRule> {
+  /// The first rule matching a request's host, path and method (first-match,
+  /// file order), if any. `method: None` ignores method filters, for callers
+  /// reasoning about a route rather than about one request.
+  pub(crate) fn matched(
+    &self,
+    host: Option<&str>,
+    path: &str,
+    method: Option<&str>,
+  ) -> Option<&RateLimitRule> {
     self.rules.iter().find(|r| {
       let host_ok = match &r.hostname {
         None => true,
@@ -75,7 +95,7 @@ impl RouteLimits {
         None => true,
         Some(p) => path_matches_bind(path, p),
       };
-      host_ok && path_ok
+      host_ok && path_ok && method_matches(r.methods.as_ref(), method)
     })
   }
 }
@@ -118,16 +138,34 @@ pub(crate) fn compile(raw: Vec<RateLimitRuleRaw>) -> Vec<RateLimitRule> {
     // Floor the burst to at least one token, otherwise a sub-1.0 burst can
     // never reach the 1-token gate and the route would 429 every request.
     let burst = rule.burst.filter(|b| *b > 0.0).unwrap_or(rule.rps).max(1.0);
+    // An empty list would match no method at all, which is never what the
+    // operator meant; treat it as "every method", like an absent filter.
+    let methods = rule
+      .methods
+      .map(|list| {
+        list
+          .into_iter()
+          .map(|m| m.trim().to_ascii_uppercase())
+          .collect::<Vec<_>>()
+      })
+      .filter(|list| !list.is_empty());
+    // The method set joins the key so two rules on the same route but
+    // different verbs do not share one bucket.
     let key = format!(
-      "{}|{}",
+      "{}|{}|{}",
       hostname.as_deref().unwrap_or("*"),
-      path.as_deref().unwrap_or("*")
+      path.as_deref().unwrap_or("*"),
+      methods
+        .as_ref()
+        .map(|m| m.join(","))
+        .unwrap_or_else(|| "*".to_string())
     );
     compiled.push(RateLimitRule {
       hostname,
       path,
       rps: rule.rps,
       burst,
+      methods,
       key,
     });
   }

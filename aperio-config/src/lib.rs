@@ -332,7 +332,7 @@ pub struct TunnelDecl {
 /// Header edits applied to one direction of proxied traffic (request or
 /// response): `add` sets headers (replacing any existing value of the same
 /// name), `remove` strips headers by name (case-insensitive).
-#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 pub struct HeaderDirectives {
   /// Headers to set, name → value; replaces an existing header of the same name.
   #[serde(default)]
@@ -347,7 +347,7 @@ pub struct HeaderDirectives {
 /// Header add/remove rules for proxied HTTP traffic: `request` edits what the
 /// local backend receives, `response` edits what the visitor receives.
 /// Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
-#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 pub struct HeaderRules {
   /// Edits applied to forwarded requests before they reach the local backend.
   #[schemars(extend("examples" = [{"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]}]))]
@@ -1319,6 +1319,10 @@ pub struct RateLimitRule {
   /// Burst capacity. Default: the `rps` value (one second's worth).
   #[schemars(extend("examples" = [100.0]))]
   pub burst: Option<f64>,
+  /// HTTP methods the rule applies to (omit for every method). Lets a write
+  /// path be limited without throttling reads of the same route.
+  #[schemars(extend("examples" = [["POST", "PUT", "DELETE"]]))]
+  pub methods: Option<Vec<String>>,
 }
 
 /// One `fallbacks:` entry: where to send visitors of a hostname no client
@@ -1387,8 +1391,12 @@ pub struct RespondRule {
   pub body: Option<String>,
 }
 
-/// One `routes:` entry of `aperio-server.yaml`: a hostname/path match paired
-/// with exactly one action (`redirect` or `respond`), served without a client.
+/// One `routes:` entry of `aperio-server.yaml`. Either an *answer* rule, a
+/// hostname/path match paired with exactly one action (`redirect` or
+/// `respond`) served without a client, or a *policy* rule, which has neither
+/// action and instead carries settings (`timeout`, `headers`, `rate_limit`)
+/// that apply to proxied traffic matching it. The two kinds are matched
+/// independently, each first-match in file order.
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 pub struct RouteRule {
   /// Hostname to match exactly (unset = any hostname).
@@ -1410,6 +1418,38 @@ pub struct RouteRule {
   /// Serve a fixed response instead of redirecting.
   #[schemars(extend("examples" = [{"status": 503, "body": "Be right back", "content_type": "text/plain"}]))]
   pub respond: Option<RespondRule>,
+  /// Seconds to wait for the serving client's answer on this route, overriding
+  /// `gateway.response_timeout` and any per-service `response_timeout` the
+  /// client declared. Policy field: only valid on an entry that has neither
+  /// `redirect` nor `respond`, since those never reach a backend.
+  #[schemars(extend("examples" = [120]))]
+  pub timeout: Option<u64>,
+  /// Header edits for this route only, applied after the server-wide
+  /// `headers:` rules so a route can override them. Policy field.
+  #[schemars(extend("examples" = [{"response": {"add": {"cache-control": "public, max-age=3600"}}}]))]
+  pub headers: Option<HeaderRules>,
+  /// Rate limit for this route only, so the hostname and path are written
+  /// once instead of repeated under `rate_limits:`. Wins over any
+  /// `rate_limits:` entry matching the same request. Policy field.
+  #[schemars(extend("examples" = [{"rps": 10, "burst": 20, "methods": ["POST"]}]))]
+  pub rate_limit: Option<RouteRateLimit>,
+}
+
+/// A `rate_limit:` block inside a `routes:` entry: the same token bucket as a
+/// `rate_limits:` rule, without repeating the hostname and path.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RouteRateLimit {
+  /// Sustained requests per second allowed to the route.
+  #[schemars(extend("examples" = [50.0]))]
+  pub rps: f64,
+  /// Burst capacity. Default: the `rps` value (one second's worth).
+  #[schemars(extend("examples" = [100.0]))]
+  pub burst: Option<f64>,
+  /// HTTP methods the limit applies to (omit for every method). Lets a write
+  /// path be limited without throttling reads of the same route.
+  #[schemars(extend("examples" = [["POST", "PUT", "DELETE"]]))]
+  pub methods: Option<Vec<String>>,
 }
 
 /// One `error_pages:` entry of `aperio-server.yaml`: per-hostname custom

@@ -335,6 +335,8 @@ The file is read once at startup and takes precedence over environment variables
 
 The `rate_limits:` section caps the aggregate request rate to a specific hostname + path prefix, protecting an expensive endpoint (login, export, search) even from many distinct visitors or tokens, a complement to the per-IP (`ip_limit_*`) and per-token limits. Each rule owns one shared token bucket; rules match first-match in file order (`hostname` unset = any host, `path` unset = any path, matched on a path-segment boundary). A request that would drain an empty bucket gets `429 Too Many Requests`.
 
+An optional `methods:` list scopes a rule to those verbs, so a write path can be limited without throttling reads of the same route. Rules that differ only by method own separate buckets, and a rule without `methods:` covers every verb.
+
 ```yaml
 # aperio-server.yaml
 rate_limits:
@@ -344,9 +346,12 @@ rate_limits:
     burst: 10       # token-bucket burst (defaults to rps)
   - path: /export   # any hostname
     rps: 1
+  - path: /api/items
+    rps: 2
+    methods: [POST, PUT, DELETE]   # reads of /api/items stay unlimited
 ```
 
-Like the other structured sections it is re-applied on config hot-reload, and `--check-config` validates it.
+Like the other structured sections it is re-applied on config hot-reload, and `--check-config` validates it. A route that carries its own `rate_limit:` block (see [Client-less routes](#client-less-routes-routes)) is limited by that instead, so the hostname and path do not have to be written twice.
 
 #### Per-hostname fallback URLs (`fallbacks:`)
 
@@ -492,6 +497,33 @@ routes:
       content_type: text/plain
       body: "User-agent: *\nDisallow: /\n"
 ```
+
+**A route entry can also carry policy instead of an answer.** An entry with neither `redirect` nor `respond` does not end the request; it annotates the proxied traffic that matches it, so per-route settings are written next to the route they govern rather than scattered across the file:
+
+| Field | Effect |
+| --- | --- |
+| `timeout` | Seconds to wait for the serving client's answer on this route. Wins over the client's per-service `response_timeout` and the global `gateway.response_timeout`, since it is the operator's own server-side configuration. |
+| `headers` | `request:` / `response:` edits in the same shape as the server-wide `headers:` section, applied **after** it so the narrower rule gets the last word. A `cache-control` added here is what the visitor, the response cache and the inspector all see. |
+| `rate_limit` | `rps`, optional `burst`, optional `methods:`, exactly as a `rate_limits:` rule but without repeating the hostname and path. Wins over any `rate_limits:` entry matching the same request. |
+
+```yaml
+# aperio-server.yaml
+routes:
+  - path: /uploads              # policy: no redirect, no respond
+    timeout: 600                # large uploads need longer than the global 30s
+    rate_limit:
+      rps: 2
+      methods: [POST]           # only the writes are throttled
+  - hostname: cdn.example.com
+    path: /static
+    headers:
+      response:
+        add:
+          cache-control: "public, max-age=3600"
+        remove: [x-powered-by]
+```
+
+Answer rules and policy rules are matched independently, each first-match in file order, so a redirect placed after a policy entry still fires. The two kinds cannot be combined on one entry: a static answer never reaches a backend, so a backend timeout on it could not mean anything, and the server refuses to start rather than ignore it. `--check-config` reports the same problem before a deploy, and its shadowing lint compares each kind only against its own.
 
 #### Per-hostname error pages (`error_pages:`)
 

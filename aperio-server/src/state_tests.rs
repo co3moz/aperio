@@ -661,7 +661,11 @@ async fn test_ip_rate_limit_exhausts() {
 async fn test_route_rate_limit_default_allows() {
   let state = crate::test_support::test_state();
   // No `rate_limits:` rules configured → always allowed.
-  assert!(state.check_route_rate_limit(Some("a.local"), "/x").await);
+  assert!(
+    state
+      .check_route_rate_limit(Some("a.local"), "/x", "GET")
+      .await
+  );
 }
 
 // ----- AppState: disconnect token clients -----
@@ -1008,23 +1012,23 @@ fn a_route_rate_limit_spends_its_burst_and_then_refuses() {
     // A path outside every rule never pays.
     assert!(
       state
-        .check_route_rate_limit(Some("api.example.com"), "/free")
+        .check_route_rate_limit(Some("api.example.com"), "/free", "GET")
         .await
     );
     // The burst is two; the third request inside the same instant is refused.
     assert!(
       state
-        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .check_route_rate_limit(Some("api.example.com"), "/login", "GET")
         .await
     );
     assert!(
       state
-        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .check_route_rate_limit(Some("api.example.com"), "/login", "GET")
         .await
     );
     assert!(
       !state
-        .check_route_rate_limit(Some("api.example.com"), "/login")
+        .check_route_rate_limit(Some("api.example.com"), "/login", "GET")
         .await
     );
   });
@@ -1090,4 +1094,51 @@ async fn one_gc_beat_sweeps_stale_buckets_and_expired_sessions() {
   let sessions = state.sessions.lock().await;
   assert!(sessions.get("expired").is_none());
   assert!(sessions.get("live").is_some());
+}
+
+// --- inline route rate limits (planned_features #26) ------------------------
+
+#[tokio::test]
+async fn an_inline_route_rate_limit_applies_and_respects_its_method_filter() {
+  let mut cfg = crate::test_support::test_config();
+  let rules: Vec<crate::static_routes::RouteRule> = serde_yaml::from_str(
+    r#"
+- path: /upload
+  rate_limit:
+    rps: 1
+    burst: 2
+    methods: [POST]
+"#,
+  )
+  .unwrap();
+  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
+  let state = crate::test_support::test_state_with(cfg);
+
+  // Two POSTs fit the burst, the third does not.
+  assert!(state.check_route_rate_limit(None, "/upload", "POST").await);
+  assert!(state.check_route_rate_limit(None, "/upload", "POST").await);
+  assert!(!state.check_route_rate_limit(None, "/upload", "POST").await);
+  // A GET on the same path is outside the filter, so it is never charged and
+  // never refused, even though the POST bucket is empty.
+  assert!(state.check_route_rate_limit(None, "/upload", "GET").await);
+  assert!(state.check_route_rate_limit(None, "/upload", "GET").await);
+}
+
+#[tokio::test]
+async fn an_inline_route_limit_wins_over_a_rate_limits_entry() {
+  let mut cfg = crate::test_support::test_config();
+  let rules: Vec<crate::static_routes::RouteRule> =
+    serde_yaml::from_str("- path: /x\n  rate_limit:\n    rps: 1\n    burst: 1\n").unwrap();
+  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
+  cfg.route_limits = crate::route_limits::RouteLimits {
+    rules: crate::route_limits::compile(
+      serde_yaml::from_str("- path: /x\n  rps: 1000\n  burst: 1000\n").unwrap(),
+    ),
+  };
+  let state = crate::test_support::test_state_with(cfg);
+
+  // The generous `rate_limits:` entry matches too, but the route's own limit
+  // is the one written next to the route, so it is the one that applies.
+  assert!(state.check_route_rate_limit(None, "/x", "GET").await);
+  assert!(!state.check_route_rate_limit(None, "/x", "GET").await);
 }

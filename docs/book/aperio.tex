@@ -898,6 +898,34 @@ routes:
 Routes match before client routing; maintenance mode still wins over them.
 They serve operator-authored content, so the visitor gate does not apply.
 
+An entry with neither \code{redirect} nor \code{respond} is a \emph{policy}
+rule instead of an answer: it does not end the request, it configures the
+proxied traffic that matches it. \code{timeout} overrides the response
+timeout for that route, \code{headers} adds request and response edits on top
+of the server-wide \code{headers:} section, and \code{rate\_limit} carries the
+same fields as a \code{rate\_limits:} rule without repeating the hostname and
+path:
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+routes:
+  - path: /uploads
+    timeout: 600
+    rate_limit:
+      rps: 2
+      methods: [POST]
+  - hostname: cdn.example.com
+    path: /static
+    headers:
+      response:
+        add:
+          cache-control: "public, max-age=3600"
+\end{codecard}
+
+The two kinds are matched independently, each first-match in file order, and
+cannot be combined on one entry: a static answer never reaches a backend, so
+backend policy on it would be silently meaningless, and the server says so at
+startup instead.
+
 \subsection{Fallbacks}
 
 Where a static route answers instead of a client, a fallback answers
@@ -923,7 +951,14 @@ rate_limits:
     path: /login
     rps: 5
     burst: 10
+  - path: /api/items
+    rps: 2
+    methods: [POST, PUT, DELETE]
 \end{codecard}
+
+An optional \code{methods:} list scopes a rule to those verbs, so a write path
+is throttled while reads of the same route are not. Rules differing only by
+method own separate buckets.
 
 \subsection{Request firewall}
 

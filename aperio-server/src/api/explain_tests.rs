@@ -277,6 +277,7 @@ async fn a_static_route_answers_before_any_client_does() {
     permanent: true,
     preserve_path: false,
     respond: None,
+    ..Default::default()
   }])
   .unwrap();
   let state = Arc::new(test_state_with(cfg));
@@ -381,6 +382,7 @@ async fn a_static_route_that_answers_is_the_decision() {
       permanent: true,
       preserve_path: false,
       respond: None,
+      ..Default::default()
     }])
     .unwrap();
   let state = Arc::new(test_state_with(cfg));

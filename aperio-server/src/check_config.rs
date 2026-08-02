@@ -90,11 +90,15 @@ fn check_section<T: serde::de::DeserializeOwned>(r: &mut Report, key: &str) -> O
 /// also matches *i*: *i*'s hostname is unrestricted or identical to *j*'s, and
 /// *i*'s path bind is unrestricted or a prefix of *j*'s bind. This catches both
 /// exact duplicate binds and a broad rule hiding a narrower one placed after it.
+///
+/// Answer rules and policy rules are matched independently at runtime (one
+/// list, two first-match searches), so only rules of the same kind can shadow
+/// each other: a redirect never hides a timeout.
 fn lint_route_shadowing(r: &mut Report, routes: &[crate::static_routes::RouteRule]) {
   // Normalize each rule's hostname/path exactly as the runtime does, so the
   // reachability analysis matches real first-match routing. `None` = matches
   // any host / any path.
-  let norm: Vec<(Option<String>, Option<String>)> = routes
+  let norm: Vec<(Option<String>, Option<String>, bool)> = routes
     .iter()
     .map(|rule| {
       let host = rule
@@ -105,13 +109,16 @@ fn lint_route_shadowing(r: &mut Report, routes: &[crate::static_routes::RouteRul
         .path
         .as_deref()
         .and_then(crate::routing::normalize_path_bind);
-      (host, path)
+      (host, path, rule.is_answer())
     })
     .collect();
 
   let desc = |v: &Option<String>| v.clone().unwrap_or_else(|| "*".to_string());
-  for (j, (bh, bp)) in norm.iter().enumerate() {
-    for (i, (ah, ap)) in norm.iter().enumerate().take(j) {
+  for (j, (bh, bp, b_answer)) in norm.iter().enumerate() {
+    for (i, (ah, ap, a_answer)) in norm.iter().enumerate().take(j) {
+      if a_answer != b_answer {
+        continue;
+      }
       let host_covers = ah.is_none() || ah == bh;
       let path_covers = match ap {
         None => true,

@@ -841,10 +841,11 @@ async fn proxy_http_request(
     }
   }
 
-  // Per-route rate limit (`rate_limits:` section): a shared token bucket caps
-  // aggregate rps to a matched host+path, protecting expensive endpoints.
+  // Per-route rate limit (a route's own `rate_limit:`, else the `rate_limits:`
+  // section): a shared token bucket caps aggregate rps to a matched
+  // host+path+method, protecting expensive endpoints.
   if !state
-    .check_route_rate_limit(request_host.as_deref(), &uri_path_owned)
+    .check_route_rate_limit(request_host.as_deref(), &uri_path_owned, &method_str)
     .await
   {
     log_request_failure(
@@ -1334,11 +1335,21 @@ async fn proxy_http_request(
 
   // Server-side `headers.request` rewrite rules (aperio-server.yaml), applied
   // before the inspector capture so replay and capture match what was sent.
+  // A matching `routes:` policy entry applies after the server-wide rules, so
+  // the narrower rule is the one that gets the last word.
   let serialized_headers = state
     .config()
     .header_rules
     .request
     .apply(serialized_headers);
+  let serialized_headers = match state
+    .config()
+    .static_routes
+    .policy_for(request_host.as_deref(), &uri_path_owned)
+  {
+    Some(rule) => rule.header_transforms.request.apply(serialized_headers),
+    None => serialized_headers,
+  };
 
   // Capture (truncated) request data for the dashboard inspector before the
   // originals are moved into the tunnel message. Streamed bodies are not
@@ -1558,15 +1569,23 @@ async fn proxy_http_request(
       });
     }
 
-    // Await the response with the per-attempt response timeout: the serving
+    // Await the response with the per-attempt response timeout, most specific
+    // first: a matching `routes:` policy entry's `timeout`, then the serving
     // client's per-service `response_timeout` override when it declared one,
-    // otherwise the global gateway response timeout.
+    // then the global gateway response timeout. The route wins over the
+    // service because it is the operator's own server-side configuration,
+    // while the service value is announced by the client.
     // A declared 0 means "use the global value" (not a zero-second timeout that
     // would fail every request instantly), matching the global timeout's own
     // `.max(1)` clamp.
-    let response_timeout = selected
-      .response_timeout
-      .filter(|s| *s > 0)
+    let route_timeout = state
+      .config()
+      .static_routes
+      .policy_for(request_host.as_deref(), &uri_path_owned)
+      .and_then(|rule| rule.timeout)
+      .filter(|s| *s > 0);
+    let response_timeout = route_timeout
+      .or(selected.response_timeout.filter(|s| *s > 0))
       .map(std::time::Duration::from_secs)
       .unwrap_or_else(|| state.config().gateway_response_timeout);
     let outcome: Option<TunnelResponse> = if dispatched {
@@ -1608,6 +1627,20 @@ async fn proxy_http_request(
           .header_rules
           .response
           .apply(std::mem::take(&mut tunnel_res.headers));
+        // Then the matching `routes:` policy entry, which wins over the
+        // server-wide rules for the route it names. A `cache-control` added
+        // here is what the visitor, the response cache and the inspector all
+        // see, since this runs before any of them.
+        if let Some(rule) = state
+          .config()
+          .static_routes
+          .policy_for(request_host.as_deref(), &uri_path_owned)
+        {
+          tunnel_res.headers = rule
+            .header_transforms
+            .response
+            .apply(std::mem::take(&mut tunnel_res.headers));
+        }
         // Preview noindex: responses served via a random subdomain carry
         // X-Robots-Tag so search engines never index preview environments
         // (applied here so the cache and the inspector agree too).

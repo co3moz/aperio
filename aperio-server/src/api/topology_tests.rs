@@ -23,6 +23,7 @@ fn config_with_routes() -> crate::settings::ServerConfig {
       permanent: true,
       preserve_path: false,
       respond: None,
+      ..Default::default()
     },
     RouteRule {
       hostname: None,
@@ -35,6 +36,7 @@ fn config_with_routes() -> crate::settings::ServerConfig {
         content_type: "text/plain".to_string(),
         body: "away".to_string(),
       }),
+      ..Default::default()
     },
   ])
   .expect("the rules compile");

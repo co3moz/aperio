@@ -9,6 +9,13 @@
 //! Routes are matched before client routing (first match wins, in file
 //! order) and are always public: they carry operator-authored content, so
 //! the visitor gate does not apply.
+//!
+//! An entry with neither action is the section's second kind, a *policy*
+//! rule: it does not answer anything, it configures the proxied traffic that
+//! matches it (`timeout`, `headers`, `rate_limit`), so per-route settings live
+//! next to the route they govern. The two kinds share one list and one
+//! matcher but are searched independently, `answer` skipping policy rules and
+//! `policy_for` skipping answer rules, so neither can hide the other.
 
 use axum::body::Body;
 use axum::http::StatusCode;
@@ -39,9 +46,24 @@ fn default_content_type() -> String {
   "text/html; charset=utf-8".to_string()
 }
 
-/// One client-less route: a hostname and/or path-prefix match paired with
-/// either a `redirect` or a `respond` action.
+/// A `rate_limit:` block inside a route: the same token bucket a
+/// `rate_limits:` rule builds, without repeating the hostname and path.
 #[derive(Deserialize, Clone, Debug)]
+pub(crate) struct RouteRateLimit {
+  pub(crate) rps: f64,
+  pub(crate) burst: Option<f64>,
+  /// Methods the limit applies to, uppercased by `compile` (None = all).
+  pub(crate) methods: Option<Vec<String>>,
+}
+
+/// One `routes:` entry, of either kind.
+///
+/// An *answer* rule carries `redirect` or `respond` and ends the request at
+/// the server. A *policy* rule carries neither and instead annotates proxied
+/// traffic that matches it: a response timeout, header edits, a rate limit.
+/// Mixing the two on one entry is refused at startup, because a static answer
+/// never reaches a backend and so can have no backend policy.
+#[derive(Deserialize, Clone, Debug, Default)]
 pub(crate) struct RouteRule {
   /// Hostname to match exactly (unset = any hostname).
   pub(crate) hostname: Option<String>,
@@ -57,9 +79,33 @@ pub(crate) struct RouteRule {
   pub(crate) preserve_path: bool,
   /// Serve a fixed response instead of redirecting.
   pub(crate) respond: Option<RespondRule>,
+  /// Policy: seconds to wait for the serving client's answer on this route.
+  pub(crate) timeout: Option<u64>,
+  /// Policy: header edits for this route, as written in the file.
+  pub(crate) headers: Option<crate::headers::HeaderRules>,
+  /// Policy: rate limit for this route.
+  pub(crate) rate_limit: Option<RouteRateLimit>,
+  /// `headers` compiled once by `compile`, so the request path only applies.
+  #[serde(skip)]
+  pub(crate) header_transforms: crate::headers::HeaderTransforms,
+  /// Stable bucket key for `rate_limit`, assigned by `compile`. Derived from
+  /// the entry's position and match, so two routes never share a bucket and a
+  /// reload keeps the same key for the same entry.
+  #[serde(skip)]
+  pub(crate) rate_key: String,
 }
 
 impl RouteRule {
+  /// True when this rule answers the request itself.
+  pub(crate) fn is_answer(&self) -> bool {
+    self.redirect.is_some() || self.respond.is_some()
+  }
+
+  /// True when this rule carries policy for proxied traffic.
+  fn is_policy(&self) -> bool {
+    self.timeout.is_some() || self.headers.is_some() || self.rate_limit.is_some()
+  }
+
   /// True when this rule matches the request's host and path.
   fn matches(&self, host: Option<&str>, path: &str) -> bool {
     if let Some(ref rule_host) = self.hostname {
@@ -122,15 +168,26 @@ impl StaticRoutes {
   /// could never fire (no action, or both actions).
   pub(crate) fn compile(mut rules: Vec<RouteRule>) -> Result<Self, String> {
     for (i, rule) in rules.iter_mut().enumerate() {
-      match (&rule.redirect, &rule.respond) {
-        (None, None) => return Err(format!("route #{}: needs `redirect` or `respond`", i + 1)),
-        (Some(_), Some(_)) => {
-          return Err(format!(
-            "route #{}: `redirect` and `respond` are mutually exclusive",
-            i + 1
-          ));
-        }
-        _ => {}
+      if rule.redirect.is_some() && rule.respond.is_some() {
+        return Err(format!(
+          "route #{}: `redirect` and `respond` are mutually exclusive",
+          i + 1
+        ));
+      }
+      if rule.is_answer() && rule.is_policy() {
+        return Err(format!(
+          "route #{}: `timeout`, `headers` and `rate_limit` apply to proxied traffic, so they \
+           cannot sit on a route that answers with `redirect` or `respond`; split them into a \
+           second entry with the same hostname and path",
+          i + 1
+        ));
+      }
+      if !rule.is_answer() && !rule.is_policy() {
+        return Err(format!(
+          "route #{}: needs `redirect` or `respond` to answer, or one of `timeout`, `headers`, \
+           `rate_limit` to carry policy",
+          i + 1
+        ));
       }
       if let Some(ref h) = rule.hostname {
         rule.hostname =
@@ -140,13 +197,61 @@ impl StaticRoutes {
         rule.path =
           Some(normalize_path_bind(p).ok_or(format!("route #{}: invalid path bind", i + 1))?);
       }
+      if let Some(0) = rule.timeout {
+        return Err(format!(
+          "route #{}: `timeout` must be at least 1 second (omit it to inherit the global one)",
+          i + 1
+        ));
+      }
+      if let Some(ref mut rl) = rule.rate_limit {
+        if !(rl.rps.is_finite() && rl.rps > 0.0) {
+          return Err(format!(
+            "route #{}: `rate_limit.rps` must be positive",
+            i + 1
+          ));
+        }
+        if let Some(b) = rl.burst
+          && !(b.is_finite() && b > 0.0)
+        {
+          return Err(format!(
+            "route #{}: `rate_limit.burst` must be positive",
+            i + 1
+          ));
+        }
+        // Uppercased once here so the request path compares against the
+        // method verb it already has without allocating per request.
+        if let Some(ref mut methods) = rl.methods {
+          if methods.is_empty() {
+            return Err(format!(
+              "route #{}: `rate_limit.methods` is empty, which would match nothing; omit it to \
+               limit every method",
+              i + 1
+            ));
+          }
+          for m in methods.iter_mut() {
+            *m = m.trim().to_ascii_uppercase();
+          }
+        }
+      }
+      rule.header_transforms = match rule.headers {
+        Some(ref h) => crate::headers::HeaderTransforms::compile(h),
+        None => Default::default(),
+      };
+      rule.rate_key = format!(
+        "route#{}:{}:{}",
+        i + 1,
+        rule.hostname.as_deref().unwrap_or("*"),
+        rule.path.as_deref().unwrap_or("*")
+      );
     }
     Ok(StaticRoutes {
       rules: std::sync::Arc::new(rules),
     })
   }
 
-  /// Returns the configured answer for the first matching route, if any.
+  /// Returns the configured answer for the first matching *answer* route, if
+  /// any. Policy rules are skipped here: they annotate proxied traffic and
+  /// must never terminate a request.
   pub(crate) fn answer(
     &self,
     host: Option<&str>,
@@ -156,8 +261,20 @@ impl StaticRoutes {
     self
       .rules
       .iter()
-      .find(|r| r.matches(host, path))
+      .find(|r| r.is_answer() && r.matches(host, path))
       .map(|r| r.respond(path, query))
+  }
+
+  /// The first matching *policy* route, if any: the entry whose `timeout`,
+  /// `headers` and `rate_limit` apply to this proxied request.
+  pub(crate) fn policy_for(&self, host: Option<&str>, path: &str) -> Option<&RouteRule> {
+    if self.rules.is_empty() {
+      return None;
+    }
+    self
+      .rules
+      .iter()
+      .find(|r| !r.is_answer() && r.matches(host, path))
   }
 
   /// True when no routes are configured (the fast path).

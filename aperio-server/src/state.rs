@@ -2404,16 +2404,41 @@ impl AppState {
     used >= max
   }
 
-  /// Enforces the per-route rate limit (`rate_limits:` section) for a request.
-  /// Returns true when the request may proceed, false when the matched route's
-  /// shared token bucket is empty (the caller answers 429). No configured rule
-  /// for the host+path = always allowed.
-  pub(crate) async fn check_route_rate_limit(&self, host: Option<&str>, path: &str) -> bool {
+  /// Enforces the per-route rate limit for a request. Returns true when the
+  /// request may proceed, false when the matched route's shared token bucket
+  /// is empty (the caller answers 429). No configured rule for the
+  /// host+path+method = always allowed.
+  ///
+  /// Two sources feed this, and a route's own `rate_limit:` wins over a
+  /// `rate_limits:` entry matching the same request: the inline one is written
+  /// next to the route it governs, so an operator reading that entry has seen
+  /// the whole story.
+  pub(crate) async fn check_route_rate_limit(
+    &self,
+    host: Option<&str>,
+    path: &str,
+    method: &str,
+  ) -> bool {
     let cfg = self.config();
-    if cfg.route_limits.is_empty() {
-      return true;
-    }
-    let Some(rule) = cfg.route_limits.matched(host, path) else {
+    let inline = cfg.static_routes.policy_for(host, path).and_then(|rule| {
+      let rl = rule.rate_limit.as_ref()?;
+      crate::route_limits::method_matches(rl.methods.as_ref(), Some(method)).then(|| {
+        (
+          rl.rps,
+          rl.burst.filter(|b| *b > 0.0).unwrap_or(rl.rps).max(1.0),
+          rule.rate_key.clone(),
+        )
+      })
+    });
+    let matched = match inline {
+      Some(found) => Some(found),
+      None if cfg.route_limits.is_empty() => None,
+      None => cfg
+        .route_limits
+        .matched(host, path, Some(method))
+        .map(|r| (r.rps, r.burst, r.key.clone())),
+    };
+    let Some((rps, burst, key)) = matched else {
       return true;
     };
     let mut buckets = self.route_rate.lock().await;
@@ -2421,12 +2446,12 @@ impl AppState {
     if buckets.len() > TOKEN_MAP_GC_THRESHOLD {
       buckets.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
     }
-    let bucket = buckets.entry(rule.key.clone()).or_insert(RateLimitState {
-      tokens: rule.burst,
+    let bucket = buckets.entry(key).or_insert(RateLimitState {
+      tokens: burst,
       last_updated: now,
     });
     let elapsed = now.duration_since(bucket.last_updated).as_secs_f64();
-    bucket.tokens = (bucket.tokens + elapsed * rule.rps).min(rule.burst);
+    bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
     bucket.last_updated = now;
     if bucket.tokens < 1.0 {
       return false;
