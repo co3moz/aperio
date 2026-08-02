@@ -671,11 +671,25 @@ export interface TopoOffline {
 /** The routing map: live tunnel clients plus the client-less routing the server
  * owns (static routes + expose ports; master organization only) and the
  * token-granted binds no client currently serves. */
+/** One client-to-client dependency: a machine that dials a tunnel another
+ * client declares. Identified by the address it dialed from, because a
+ * `--bind-tunnels` consumer is not a registered client and has no id. */
+export interface TopoConsumer {
+  from_ip: string
+  to_client: string
+  tunnel: string | null
+  token_name: string
+  active: number
+  total: number
+  last_seen: number
+}
+
 export interface TopologyGraph {
   clients: ClientDetail[]
   routes: TopoStaticRoute[]
   exposes: TopoExpose[]
   offline: TopoOffline[]
+  consumers: TopoConsumer[]
 }
 
 /** One tunnel declared by a connected client, as the dashboard lists it. */

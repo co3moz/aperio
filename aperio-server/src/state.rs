@@ -1660,6 +1660,12 @@ pub(crate) struct AppState {
   /// it. Under a Mutex those readers serialized on one queue with each other
   /// and with every heartbeat.
   pub(crate) clients: tokio::sync::RwLock<HashMap<String, ClientHandle>>,
+  /// Client-to-client dependencies observed on the tunnel endpoints: who is
+  /// dialing whose tunnel (planned_features #56). Behind its own Mutex rather
+  /// than folded into `clients`: a consumer is not a registered client, and
+  /// this is written on connect/disconnect and read only when somebody opens
+  /// the topology view.
+  pub(crate) consumers: tokio::sync::Mutex<crate::consumers::Consumers>,
   /// Queue into the telemetry collector task, which owns the writes to
   /// `endpoint_stats`/`route_trends`/`activity`/`recent_logs`. The request
   /// path try_sends one event; a full or absent queue falls back to writing

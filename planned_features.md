@@ -178,12 +178,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#56 Client-to-client edges in the topology view.** (triage 35)
-  `--bind-tunnels` lets one client dial another client's exposed tunnel, so
-  those dependencies are real, but the topology graph only draws client to
-  route. A dependency the graph does not show is a dependency nobody remembers
-  at the moment it breaks.
-
 - [ ] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
   that matter per backend are only available globally: connect timeout, idle
   timeout for pooled connections, the buffered/streamed threshold, the minimum
@@ -457,6 +451,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#56 Client-to-client edges in the topology view.** (triage 35)
+  `--bind-tunnels` lets one client dial another client's exposed tunnel, so
+  those dependencies are real, but the topology graph only draws client to
+  route. A dependency the graph does not show is a dependency nobody remembers
+  at the moment it breaks. shipped: `/api/topology` returns `consumers`, and
+  the graph draws them. The identity problem was the real work: a consumer is
+  not a registered client and opens a fresh WebSocket per connection, so
+  counted naively every invocation and every reconnect would be a new node.
+  An edge is keyed by peer address plus token, and the node is the address, so
+  several processes behind one NAT collapse into one node, which is the right
+  grain for "who depends on this tunnel" and is honest, an address is observed
+  rather than claimed. An edge outlives its connections by 15 minutes, because
+  a consumer that has just finished a query is idle rather than gone, and an
+  idle edge is drawn dashed.
 
 - [x] **#57 Command-line parity with the dashboard.** (triage 35)
   `aperio-client api` covers most admin operations but not all of them, so

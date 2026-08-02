@@ -180,7 +180,46 @@ pub(crate) async fn tcp_ws_handler(
     )
     .await;
 
-  ws.on_upgrade(move |socket| relay_tcp_consumer(state, socket, client_id, client_tx, target))
+  // The dependency this connection represents, recorded before the upgrade so
+  // it is on the graph even for a connection that fails immediately: a
+  // consumer that cannot get through is exactly the one an operator is
+  // looking for.
+  let edge = ConsumerEdge {
+    from: caller_ip,
+    to_client: client_id.clone(),
+    tunnel: requested_name.clone(),
+    token_name: perms
+      .token_name
+      .clone()
+      .unwrap_or_else(|| "master".to_string()),
+  };
+  state.consumers.lock().await.opened(
+    edge.from,
+    &edge.to_client,
+    edge.tunnel.as_deref(),
+    &edge.token_name,
+    crate::store::tokens::now_secs(),
+  );
+
+  ws.on_upgrade(move |socket| async move {
+    relay_tcp_consumer(state.clone(), socket, client_id, client_tx, target).await;
+    state.consumers.lock().await.closed(
+      edge.from,
+      &edge.to_client,
+      edge.tunnel.as_deref(),
+      &edge.token_name,
+      crate::store::tokens::now_secs(),
+    );
+  })
+}
+
+/// One consumer connection's identity, carried into the relay so the edge can
+/// be closed with exactly the key it was opened with.
+struct ConsumerEdge {
+  from: std::net::IpAddr,
+  to_client: String,
+  tunnel: Option<String>,
+  token_name: String,
 }
 
 /// UDP tunneling endpoint (`GET /aperio/udp`, WebSocket). Each binary

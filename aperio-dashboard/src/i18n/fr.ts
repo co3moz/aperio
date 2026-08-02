@@ -653,7 +653,7 @@ export const fr: Record<string, string> = {
   'Requests in real time, table or console': 'Requêtes en temps réel, tableau ou console',
   'no client': 'aucun client',
   'offline': 'hors ligne',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Comment chaque route atteint sa destination : clients de tunnel et leurs backends (avec les débits en direct), le routage sans client du serveur, redirections/réponses statiques et ports expose publics, et des nœuds en pointillés pour les routes accordées à un token qu’aucun client ne sert. Vert = sain, ambre = en vidange ou sondes backend en échec, rouge = défaillant, désactivé, exclu ou aucun client ne le sert.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Comment chaque route atteint sa destination : clients de tunnel et leurs backends (avec les débits en direct), le routage sans client du serveur, redirections/réponses statiques et ports expose publics, et des nœuds en pointillés pour les routes accordées à un token qu’aucun client ne sert. Vert = sain, ambre = en vidange ou sondes backend en échec, rouge = défaillant, désactivé, exclu ou aucun client ne le sert. Une autre machine qui compose un tunnel avec --bind-tunnels apparaît comme un nœud ambre, identifiée par l\'adresse depuis laquelle elle a composé, donc plusieurs processus derrière une adresse ne font qu\'un nœud.',
   'ejected': 'exclu',
   'draining': 'en vidange',
   'cache off': 'cache désactivé',
@@ -1000,4 +1000,5 @@ export const fr: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" a échoué : {reason}",
   "Test": "Tester",
   "no response": "aucune réponse",
+  idle: 'inactif',
 }

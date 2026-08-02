@@ -651,7 +651,7 @@ export const ja: Record<string, string> = {
   'Requests in real time, table or console': 'リアルタイムのリクエスト, テーブルまたはコンソール',
   'no client': 'クライアントなし',
   'offline': 'オフライン',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング, 静的なリダイレクト/レスポンスと公開 expose ポート, および、どのクライアントも提供していない Token 付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング, 静的なリダイレクト/レスポンスと公開 expose ポート, および、どのクライアントも提供していない Token 付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。 --bind-tunnels で別のマシンがトンネルに接続している場合は琥珀色のノードとして描かれます。接続元アドレスで識別するため、1 つのアドレスの背後にある複数のプロセスは 1 つのノードになります。',
   'ejected': '除外',
   'draining': 'ドレイン中',
   'cache off': 'キャッシュ無効',
@@ -998,4 +998,5 @@ export const ja: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" は失敗しました: {reason}",
   "Test": "テスト",
   "no response": "応答なし",
+  idle: 'アイドル',
 }

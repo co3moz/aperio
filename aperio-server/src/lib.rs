@@ -24,6 +24,7 @@ mod backup;
 mod cache;
 mod check_config;
 mod config_file;
+mod consumers;
 mod deny_list;
 mod error_pages;
 mod expose;
@@ -1258,6 +1259,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
 
   let state = Arc::new(AppState {
     clients: tokio::sync::RwLock::new(HashMap::new()),
+    consumers: tokio::sync::Mutex::new(Default::default()),
     telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),

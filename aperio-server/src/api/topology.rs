@@ -56,6 +56,33 @@ pub(crate) struct TopoOffline {
   pub(crate) token_name: String,
 }
 
+/// One client-to-client dependency: a machine that dials a tunnel another
+/// client declares (planned_features #56).
+///
+/// The consumer is identified by the address it dialed from, because a
+/// `--bind-tunnels` consumer is not a registered client and has no id to group
+/// by. Several processes behind one address are therefore one node, which is
+/// the right grain for the question this answers: who depends on this tunnel.
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct TopoConsumer {
+  /// Address the consumer dialed from.
+  pub(crate) from_ip: String,
+  /// Connection id of the client whose tunnel it dials.
+  pub(crate) to_client: String,
+  /// Tunnel name, when it was dialed by name.
+  pub(crate) tunnel: Option<String>,
+  /// Label of the token the consumer authenticated with.
+  pub(crate) token_name: String,
+  /// Connections currently open over this dependency. `0` is normal: a
+  /// consumer opens one per accepted socket, so an idle one holds none and is
+  /// still a dependency.
+  pub(crate) active: u32,
+  /// Connections opened over it since the server started.
+  pub(crate) total: u64,
+  /// Unix second of the most recent connection.
+  pub(crate) last_seen: u64,
+}
+
 /// The routing map: live tunnel clients plus the client-less routing the server
 /// owns (static routes and public expose ports).
 #[derive(Serialize, utoipa::ToSchema)]
@@ -68,6 +95,9 @@ pub(crate) struct TopologyGraph {
   pub(crate) exposes: Vec<TopoExpose>,
   /// Token-granted binds no live client currently serves (declared but offline).
   pub(crate) offline: Vec<TopoOffline>,
+  /// Client-to-client dependencies: who dials whose tunnel. Only edges whose
+  /// serving client is visible to the caller's organization.
+  pub(crate) consumers: Vec<TopoConsumer>,
 }
 
 /// Handler for the routing-map view.
@@ -195,11 +225,34 @@ pub(crate) async fn topology_handler(
     }
   }
 
+  // Dependencies are filtered by the client they point at, which is already
+  // org-scoped above: an organization sees who depends on its own clients and
+  // nothing about anybody else's.
+  let visible: std::collections::HashSet<&str> = clients.iter().map(|c| c.id.as_str()).collect();
+  let consumers: Vec<TopoConsumer> = state
+    .consumers
+    .lock()
+    .await
+    .live(crate::store::tokens::now_secs())
+    .into_iter()
+    .filter(|e| visible.contains(e.to_client.as_str()))
+    .map(|e| TopoConsumer {
+      from_ip: e.from_ip,
+      to_client: e.to_client,
+      tunnel: e.tunnel,
+      token_name: e.token_name,
+      active: e.active,
+      total: e.total,
+      last_seen: e.last_seen,
+    })
+    .collect();
+
   Json(TopologyGraph {
     clients,
     routes,
     exposes,
     offline,
+    consumers,
   })
 }
 

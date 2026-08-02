@@ -657,7 +657,7 @@ export const tr: Record<string, string> = {
   'Requests in real time, table or console': 'Gerçek zamanlı istekler, tablo veya konsol',
   'no client': 'istemci yok',
   'offline': 'çevrimdışı',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok. --bind-tunnels ile bir tüneli çeviren başka bir makine kehribar bir düğüm olarak çizilir; çevirdiği adresle tanımlanır, yani tek adresin arkasındaki birden çok süreç tek düğüm görünür.',
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
@@ -1004,4 +1004,5 @@ export const tr: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" başarısız: {reason}",
   "Test": "Test",
   "no response": "yanıt yok",
+  idle: 'boşta',
 }

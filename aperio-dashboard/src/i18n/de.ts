@@ -655,7 +655,7 @@ export const de: Record<string, string> = {
   'Requests in real time, table or console': 'Anfragen in Echtzeit – Tabelle oder Konsole',
   'no client': 'kein Client',
   'offline': 'offline',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient. Eine andere Maschine, die einen Tunnel mit --bind-tunnels anwählt, erscheint als bernsteinfarbener Knoten, identifiziert anhand der Adresse, von der aus sie gewählt hat, mehrere Prozesse hinter einer Adresse sind also ein Knoten.',
   'ejected': 'ausgeschlossen',
   'draining': 'wird geleert',
   'cache off': 'Cache aus',
@@ -1002,4 +1002,5 @@ export const de: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" fehlgeschlagen: {reason}",
   "Test": "Test",
   "no response": "keine Antwort",
+  idle: 'inaktiv',
 }

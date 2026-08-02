@@ -653,7 +653,7 @@ export const es: Record<string, string> = {
   'Requests in real time, table or console': 'Solicitudes en tiempo real: tabla o consola',
   'no client': 'sin cliente',
   'offline': 'desconectado',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Cómo cada ruta llega a su destino: clientes de túnel y sus backends (con tasas de solicitudes en vivo), el enrutamiento sin cliente del servidor, redirecciones/respuestas estáticas y puertos expose públicos,  y nodos discontinuos para rutas concedidas a un token que ningún cliente sirve. Verde = correcto, ámbar = drenando o sondas de backend fallando, rojo = con fallo, deshabilitado, expulsado o sin cliente que lo sirva.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Cómo cada ruta llega a su destino: clientes de túnel y sus backends (con tasas de solicitudes en vivo), el enrutamiento sin cliente del servidor, redirecciones/respuestas estáticas y puertos expose públicos,  y nodos discontinuos para rutas concedidas a un token que ningún cliente sirve. Verde = correcto, ámbar = drenando o sondas de backend fallando, rojo = con fallo, deshabilitado, expulsado o sin cliente que lo sirva. Otra máquina que marca un túnel con --bind-tunnels aparece como un nodo ámbar, identificada por la dirección desde la que marcó, así que varios procesos tras una dirección son un solo nodo.',
   'ejected': 'expulsado',
   'draining': 'drenando',
   'cache off': 'caché desactivada',
@@ -1000,4 +1000,5 @@ export const es: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" falló: {reason}",
   "Test": "Probar",
   "no response": "sin respuesta",
+  idle: 'inactivo',
 }

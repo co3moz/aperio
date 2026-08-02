@@ -653,7 +653,7 @@ export const ru: Record<string, string> = {
   'Requests in real time, table or console': 'Запросы в реальном времени, таблица или консоль',
   'no client': 'нет клиента',
   'offline': 'офлайн',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, and dashed nodes for token-granted routes no client currently serves. Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера, статические перенаправления/ответы и публичные expose-порты, и пунктирные узлы для выданных token маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера, статические перенаправления/ответы и публичные expose-порты, и пунктирные узлы для выданных token маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента. Другая машина, подключающаяся к туннелю через --bind-tunnels, показывается янтарным узлом и определяется по адресу подключения, поэтому несколько процессов за одним адресом это один узел.',
   'ejected': 'исключён',
   'draining': 'завершает работу',
   'cache off': 'кэш выкл',
@@ -1000,4 +1000,5 @@ export const ru: Record<string, string> = {
   "\"{name}\" failed: {reason}": "\"{name}\" не удался: {reason}",
   "Test": "Тест",
   "no response": "нет ответа",
+  idle: 'простаивает',
 }

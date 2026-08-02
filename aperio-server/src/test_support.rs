@@ -233,6 +233,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
   AppState {
     telemetry_tx,
     clients: tokio::sync::RwLock::new(HashMap::new()),
+    consumers: tokio::sync::Mutex::new(Default::default()),
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
