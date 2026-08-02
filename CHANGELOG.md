@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/profile-request.sh`: the cost of one request, stage by stage.** Sends a single request through the tunnel, finds its capture on the server, and renders the inspector's microsecond timeline as a waterfall (queueing, routing, tunnel transit each way, backend time, delivery), next to what curl saw from the visitor's chair. One request instead of a load test: it answers "where does the time go" without heating the machine or needing a benchmark window. Needs the master token and the inspector left on; streamed responses show the round trip to the response head, with the body accounted in the visitor delivery gap.
+
 ### Changed
 
 - **Every setting with a default now states it in the yaml schemas.** The JSON Schema descriptions for `aperio.yaml` and `aperio-server.yaml` (what an editor shows on hover and completion) gained a trailing "Default: `value`." sentence on 127 fields, sourced from the code's actual fallbacks, so an operator no longer has to cross-reference the docs table to learn what leaving a key unset means. Three stale descriptions found on the way were corrected: `token_expiry_warning` is seconds, not days; `alert.client_down` is the seconds a service may stay down, not a connected-client floor; `backup.dir` has no default and is required to enable backups.
