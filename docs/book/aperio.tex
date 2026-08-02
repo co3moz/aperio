@@ -964,6 +964,26 @@ fallbacks:
     preserve_path: true
 \end{codecard}
 
+\subsection{Alert rules}
+
+Two threshold rules are built in (error rate, client down). Anything else is
+written as a rule over a quantity the server already measures:
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+alert_rules:
+  - name: disk-filling
+    metric: store_bytes
+    above: 536870912
+    for: 300
+\end{codecard}
+
+The metrics are \code{connected\_clients}, \code{pending\_requests},
+\code{store\_bytes} and \code{rss\_bytes} (Linux only, and reported at
+startup as unfirable elsewhere). \code{for} applies to firing \emph{and} to
+resolving, so a value resting on its threshold cannot alert every tick. Rules
+emit the same \code{alert\_triggered} / \code{alert\_resolved} events with
+\code{kind} set to the rule's name.
+
 \subsection{Route rate limits}
 
 Per-route caps, aggregated across all visitors, for endpoints that are

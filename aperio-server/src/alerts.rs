@@ -29,7 +29,10 @@ use crate::state::AppState;
 use crate::store::uptime::Availability;
 
 /// Alerting thresholds (environment / aperio-server.yaml).
-#[derive(Clone, Copy)]
+///
+/// The default is "both built-in rules off", which is what the ticker runs
+/// with when it was started only for operator-defined `alert_rules:`.
+#[derive(Clone, Copy, Default)]
 pub(crate) struct AlertConfig {
   /// Failed-request percentage that triggers the error-rate alert (0 = off).
   pub(crate) error_rate_pct: f64,
@@ -104,9 +107,67 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
     // down alert is currently active for it.
     let mut last_ok: HashMap<String, Instant> = HashMap::new();
     let mut down_alerted: HashMap<String, bool> = HashMap::new();
+    // Operator-defined rules keep their own state across ticks
+    // (planned_features #49). Read from the live config each tick, so a
+    // hot-reload adds or removes a rule without a restart; a rule that
+    // disappears simply stops being observed, and its tracker entry is inert.
+    let mut rule_tracker = crate::alert_rules::RuleTracker::default();
     loop {
       tokio::time::sleep(Duration::from_secs(15)).await;
       let now = Instant::now();
+
+      let rules = state.config().alert_rules.clone();
+      if !rules.is_empty() {
+        for rule in rules.rules() {
+          let Some(value) = read_metric(&state, rule.metric).await else {
+            continue;
+          };
+          match rule_tracker.observe(rule, value, now) {
+            Some(crate::alert_rules::Transition::Fired) => {
+              warn!(
+                "ALERT: rule '{}' fired ({} = {}, {} {})",
+                rule.name,
+                rule.metric.as_str(),
+                value,
+                if rule.above { "above" } else { "below" },
+                rule.threshold
+              );
+              emit(
+                &state,
+                "alert_triggered",
+                serde_json::json!({
+                  "kind": rule.name,
+                  "metric": rule.metric.as_str(),
+                  "value": value,
+                  "threshold": rule.threshold,
+                  "direction": if rule.above { "above" } else { "below" },
+                  "for_secs": rule.sustain.as_secs(),
+                }),
+              )
+              .await;
+            }
+            Some(crate::alert_rules::Transition::Resolved) => {
+              info!(
+                "ALERT RESOLVED: rule '{}' ({} = {})",
+                rule.name,
+                rule.metric.as_str(),
+                value
+              );
+              emit(
+                &state,
+                "alert_resolved",
+                serde_json::json!({
+                  "kind": rule.name,
+                  "metric": rule.metric.as_str(),
+                  "value": value,
+                }),
+              )
+              .await;
+            }
+            None => {}
+          }
+        }
+      }
 
       if cfg.error_rate_pct > 0.0 {
         let (successful, failed) = {
@@ -229,6 +290,27 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
 }
 
 /// Audits and emits one alert event.
+/// Reads one watched quantity. `None` where the platform cannot answer, which
+/// keeps a rule quiet rather than firing it on a fabricated zero.
+async fn read_metric(state: &Arc<AppState>, metric: crate::alert_rules::Metric) -> Option<f64> {
+  use crate::alert_rules::Metric;
+  Some(match metric {
+    Metric::ConnectedClients => state.clients.read().await.len() as f64,
+    Metric::PendingRequests => state.pending_requests.lock().await.len() as f64,
+    Metric::StoreBytes => {
+      // The same measurement the self-health panel reports, so a rule and the
+      // dashboard cannot disagree about how big the store is.
+      let data_dir = state
+        .settings_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+      crate::api::observe::store_bytes(&data_dir) as f64
+    }
+    Metric::RssBytes => crate::api::observe::process_rss_bytes()? as f64,
+  })
+}
+
 async fn emit(state: &Arc<AppState>, event: &str, data: serde_json::Value) {
   state
     .audit(event, "system", "system", &data.to_string())

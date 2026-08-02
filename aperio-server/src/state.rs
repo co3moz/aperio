@@ -1894,6 +1894,7 @@ impl AppState {
     effective.fallbacks = crate::fallbacks::from_config_file();
     effective.waf = crate::waf::from_config_file();
     effective.maintenance_windows = crate::maintenance_windows::from_config_file();
+    effective.alert_rules = crate::alert_rules::from_config_file();
     effective.denied_ips = crate::deny_list::from_config();
     let old = self.config();
     let diff = crate::settings::config_reload_diff(&old, &effective);

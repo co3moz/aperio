@@ -202,6 +202,7 @@ pub(crate) fn test_config() -> ServerConfig {
     fallbacks: Default::default(),
     waf: Default::default(),
     maintenance_windows: Default::default(),
+    alert_rules: Default::default(),
     denied_ips: Default::default(),
     identity_headers: false,
     request_id_enabled: true,

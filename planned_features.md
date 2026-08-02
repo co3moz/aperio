@@ -149,14 +149,14 @@ readable without scrolling past what is already done.
   idle clients, and it trades away the property people like most about a
   tunnel, that the URL works the instant the client starts.
 
-- [ ] **#49 User-defined alert rules, including disk and memory.** (triage 40)
+- [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
   Two threshold rules exist and are hard-coded: error rate and client-down
   (`alerts.rs`). Everything else an operator might want to be told about,
   starting with the disk filling up and the server's own RSS climbing (both
   already measured for the self-health panel), needs a rule engine rather than
   another pair of environment variables. Merged from three proposals for that
   reason: the general shape is the feature, the two specific alerts are its
-  first users.
+  first users. shipped: `alert_rules:` with one metric, one bound and a `for` window that applies to firing and resolving alike. Four metrics rather than an expression language, because the value is in being able to write the rule at all. An unreadable metric (rss on non-Linux) is reported at startup instead of firing on a zero.
 
 - [ ] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
   already does single-range `206` responses, so the hard part of HTTP file

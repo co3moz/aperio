@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 /// Resident-set size of this process in bytes (Linux only; `None` elsewhere).
-fn process_rss_bytes() -> Option<u64> {
+pub(crate) fn process_rss_bytes() -> Option<u64> {
   #[cfg(target_os = "linux")]
   {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
@@ -29,7 +29,7 @@ fn process_rss_bytes() -> Option<u64> {
 }
 
 /// On-disk footprint of the SQLite store: `aperio.db` plus its WAL/SHM sidecars.
-fn store_bytes(data_dir: &std::path::Path) -> u64 {
+pub(crate) fn store_bytes(data_dir: &std::path::Path) -> u64 {
   ["aperio.db", "aperio.db-wal", "aperio.db-shm"]
     .iter()
     .filter_map(|name| std::fs::metadata(data_dir.join(name)).ok())

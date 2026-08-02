@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
 
 mod access_log;
+mod alert_rules;
 mod alerts;
 mod api;
 mod auth;
@@ -1119,6 +1120,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     error_pages: error_pages::from_config_file(),
     route_limits: route_limits::from_config_file(),
     waf: waf::from_config_file(),
+    alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
     identity_headers: std::env::var("APERIO_IDENTITY_HEADERS")
@@ -1945,10 +1947,27 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
     });
   }
 
-  // Threshold alerting (APERIO_ALERT_*): error-rate and client-down rules
-  // evaluated by a background ticker, emitted as webhook/audit events.
-  if let Some(alert_cfg) = alerts::AlertConfig::from_env() {
-    alerts::spawn(state.clone(), alert_cfg);
+  // Threshold alerting: the two built-in rules (APERIO_ALERT_*) and any
+  // operator-defined `alert_rules:`, evaluated by one background ticker and
+  // emitted as webhook/audit events. The ticker runs when either exists,
+  // since a file with only `alert_rules:` and no APERIO_ALERT_* would
+  // otherwise have armed rules and nothing evaluating them.
+  let rules = state.config().alert_rules.clone();
+  for rule in rules.rules() {
+    if !rule.metric.readable_here() {
+      warn!(
+        "Alert rule '{}' watches {}, which cannot be read on this platform; it will never fire",
+        rule.name,
+        rule.metric.as_str()
+      );
+    }
+  }
+  let alert_cfg = alerts::AlertConfig::from_env();
+  if alert_cfg.is_some() || !rules.is_empty() {
+    if !rules.is_empty() {
+      info!("Alert rules armed: {}", rules.rules().len());
+    }
+    alerts::spawn(state.clone(), alert_cfg.unwrap_or_default());
   }
 
   // Token expiry early-warning ticker: emits one `token_expiring`

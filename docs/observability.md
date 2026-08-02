@@ -65,6 +65,32 @@ alert_client_down: 120     # env: APERIO_ALERT_CLIENT_DOWN, alert when a service
 
 Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears, the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.
 
+### Your own rules (`alert_rules:`)
+
+The two rules above are built in. Anything else worth being told about, starting with the disk filling up and the server's own memory climbing, is written as a rule over a quantity the server already measures:
+
+```yaml
+# aperio-server.yaml
+alert_rules:
+  - name: disk-filling          # becomes the alert's `kind`
+    metric: store_bytes
+    above: 536870912            # 512 MB
+    for: 300                    # seconds the condition must hold
+  - name: no-clients
+    metric: connected_clients
+    below: 1
+    for: 120
+```
+
+| Metric | What it reads |
+| --- | --- |
+| `connected_clients` | Tunnel clients currently connected |
+| `pending_requests` | Proxied requests in flight |
+| `store_bytes` | The SQLite store and its `-wal`/`-shm` sidecars on disk, the same figure the self-health panel shows |
+| `rss_bytes` | Resident memory of the server process. **Linux only**; elsewhere the rule is reported at startup as one that will never fire, rather than firing on a fabricated zero |
+
+Each rule sets `above` or `below`, never both, and the bound itself is not a breach. `for` applies in **both** directions: the condition must hold that long to fire and hold clear that long to resolve, so a value sitting on its threshold cannot alert and resolve on alternating ticks. Rules fire the same `alert_triggered` / `alert_resolved` events as the built-in ones, with `kind` set to the rule's name, so an existing webhook receiver needs no changes. A malformed rule refuses startup naming the rule, because an alert rule the operator believes is armed is worse than no rule.
+
 ## Access log
 
 Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
