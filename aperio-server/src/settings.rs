@@ -227,6 +227,9 @@ pub(crate) struct ServerConfig {
   pub(crate) denied_ips: crate::deny_list::DenyList,
   /// Announce the serving client, organization and token to the backend.
   pub(crate) identity_headers: bool,
+  /// Fraction of successful requests that produce an access line (1.0 =
+  /// all). Failures are never sampled.
+  pub(crate) access_log_sample_rate: f64,
   /// Send the request id to the backend and echo it to the visitor.
   pub(crate) request_id_enabled: bool,
   /// Header it travels in, lowercased.

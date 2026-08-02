@@ -6,6 +6,37 @@ use tracing::{info, warn};
 
 use crate::state::{AppState, RequestLog};
 
+/// Fixed-point accumulator behind `access_log_sample_rate`.
+///
+/// Sampling is deterministic rather than random: each request adds the rate to
+/// an accumulator and a line is written whenever it crosses one. At 0.1 that
+/// is exactly one line in ten, where a coin flip would give ten in a hundred
+/// only on average, and the whole point of turning the volume down is knowing
+/// what the volume now is.
+static SAMPLE_ACCUMULATOR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Denominator of the fixed-point accumulator.
+const SAMPLE_SCALE: u64 = 1_000_000;
+
+/// Whether this request gets an access line.
+///
+/// A server error is always logged whatever the rate says: the line somebody
+/// goes looking for is precisely the one that went wrong, and a sampled-away
+/// 502 turns an incident into a mystery. Sampling covers the routine traffic
+/// it was turned on for.
+fn sampled_in(rate: f64, status: u16) -> bool {
+  if rate >= 1.0 || status >= 500 {
+    return true;
+  }
+  if rate <= 0.0 {
+    return false;
+  }
+  let step = (rate * SAMPLE_SCALE as f64).round() as u64;
+  let previous = SAMPLE_ACCUMULATOR.fetch_add(step, std::sync::atomic::Ordering::Relaxed);
+  // Crossing a multiple of the scale is one whole line's worth of credit.
+  previous % SAMPLE_SCALE + step >= SAMPLE_SCALE
+}
+
 /// Strips the query string from a URI to avoid logging sensitive data
 /// (API keys, tokens, PII) that may be carried in query parameters.
 pub(crate) fn sanitize_uri(uri: &str) -> &str {
@@ -235,6 +266,13 @@ pub(crate) async fn log_request_success(
     },
   )
   .await;
+  // Sampling is decided after the telemetry above, deliberately: the
+  // dashboard's counters, the histogram and the rate charts stay exact, and
+  // only the per-request line, the thing there can be a million of, is
+  // thinned out.
+  if !sampled_in(state.config().access_log_sample_rate, status) {
+    return;
+  }
   // Structured access event: with the JSON log format every field below
   // becomes a top-level key, directly usable by log pipelines. Skipped
   // wholesale when `access_events` is off, which is not the same as lowering

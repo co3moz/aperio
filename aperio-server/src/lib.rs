@@ -1123,6 +1123,11 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
+    access_log_sample_rate: std::env::var("APERIO_ACCESS_LOG_SAMPLE_RATE")
+      .ok()
+      .and_then(|v| v.trim().parse::<f64>().ok())
+      .filter(|v| v.is_finite() && (0.0..=1.0).contains(v))
+      .unwrap_or(1.0),
     identity_headers: std::env::var("APERIO_IDENTITY_HEADERS")
       .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
       .unwrap_or(false),

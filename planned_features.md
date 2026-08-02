@@ -185,13 +185,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#55 Sampling for the access log.** (triage 35) The per-request access
-  line is all or nothing. At high volume operators want a fraction, the way OTel
-  export already takes `sample_rate`. Note the trap the OTel implementation
-  already avoided: sampling must be per request and consistent, and failures
-  should always be logged regardless of the sample decision, since a sampled-out
-  error is the one line anybody needed.
-
 - [ ] **#56 Client-to-client edges in the topology view.** (triage 35)
   `--bind-tunnels` lets one client dial another client's exposed tunnel, so
   those dependencies are real, but the topology graph only draws client to
@@ -485,6 +478,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#55 Sampling for the access log.** (triage 35) The per-request access
+  line is all or nothing. At high volume operators want a fraction, the way OTel
+  export already takes `sample_rate`. Note the trap the OTel implementation
+  already avoided: sampling must be per request and consistent, and failures
+  should always be logged regardless of the sample decision, since a sampled-out
+  error is the one line anybody needed. shipped: `access_log_sample_rate`
+  (`APERIO_ACCESS_LOG_SAMPLE_RATE`) thins out both the `aperio_access` event
+  and the access-log file. Sampling is deterministic rather than random, an
+  accumulator so `0.1` is exactly one line in ten and not one in ten on
+  average, since the point of turning the volume down is knowing what the
+  volume now is. A 5xx response is never sampled out, and neither is a refused
+  or failed request. The decision is made after the telemetry submission, so
+  the dashboard's counters, the latency histogram and the rate charts stay
+  exact.
 
 - [x] **#48 `connections:` as a `{min, max}` range, an elastic pool.**
   (triage 40) Reframed from `lazy_connect`: not dialing until the first
