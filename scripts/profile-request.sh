@@ -169,6 +169,13 @@ else:
     add("tunnel round trip", b("dispatched_us"), b("response_received_us"))
 add("serve to visitor",        b("response_received_us"), b("finished_us"))
 
+def fmt(us):
+    # The timeline is microsecond-resolution; show short stages in it rather
+    # than as a wall of 0.00x ms.
+    if us >= 1000:
+        return f"{us / 1000:>9.3f} ms"
+    return f"{us:>9.1f} us"
+
 width = max(len(s[0]) for s in stages)
 print()
 for label, start, end, estimated in stages:
@@ -176,13 +183,13 @@ for label, start, end, estimated in stages:
     pct = 100.0 * dur / total if total else 0.0
     bar = "#" * max(1, round(pct / 2)) if dur else ""
     mark = " (est)" if estimated else ""
-    print(f"  {label:<{width}}  {dur/1000:>9.3f} ms  {pct:>5.1f}%  {bar}{mark}")
+    print(f"  {label:<{width}}  {fmt(dur)}  {pct:>5.1f}%  {bar}{mark}")
 
 total_label = "total (server-side)"
 gap_label = "visitor delivery gap"
-gap_ms = curl["total_s"] * 1000 - total / 1000
-print(f"  {total_label:<{width}}  {total/1000:>9.3f} ms")
-print(f"  {gap_label:<{width}}  {gap_ms:>9.3f} ms  (curl total - server finished)")
+gap_us = curl["total_s"] * 1_000_000 - total
+print(f"  {total_label:<{width}}  {fmt(total)}")
+print(f"  {gap_label:<{width}}  {fmt(gap_us)}  (curl total - server finished)")
 if cap.get("resp_streamed"):
     print()
     print("  streamed response: the client reports no per-stage timings, so the")
