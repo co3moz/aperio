@@ -999,4 +999,5 @@ export const ja: Record<string, string> = {
   "Test": "テスト",
   "no response": "応答なし",
   idle: 'アイドル',
+  '5 min': '5 分',
 }

@@ -1,9 +1,10 @@
 import { CheckIcon, CopyIcon } from 'lucide-react'
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { useI18n } from '@/i18n'
+import { highlight } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 
 /** Centered empty-state row for tables. */
@@ -227,6 +228,50 @@ export function submitOnEnter(run: () => void) {
 }
 
 /** Preformatted block for headers/bodies/commands (inspector, wizard). */
+/** Colour per token kind. Chosen from the theme's own variables rather than
+ *  fixed hex values so highlighting follows light and dark mode, and reads as
+ *  part of the dashboard instead of as a code editor pasted into it. */
+const TOKEN_CLASS: Record<string, string> = {
+  key: 'text-[var(--primary)]',
+  string: 'text-[oklch(0.62_0.13_150)] dark:text-[oklch(0.75_0.13_150)]',
+  number: 'text-[oklch(0.6_0.15_25)] dark:text-[oklch(0.75_0.13_25)]',
+  literal: 'text-[oklch(0.6_0.15_300)] dark:text-[oklch(0.76_0.13_300)]',
+  punct: 'text-muted-foreground',
+  tag: 'text-[var(--primary)]',
+  attr: 'text-[oklch(0.6_0.15_60)] dark:text-[oklch(0.78_0.12_60)]',
+  comment: 'text-muted-foreground italic',
+}
+
+/** A `PreBlock` whose content is tokenized when it is JSON, XML or HTML.
+ *
+ * Falls back to exactly what `PreBlock` renders otherwise, including for a
+ * body too large to tokenize, so nothing that was readable before becomes
+ * less so. */
+export function HighlightedBlock({
+  children,
+  className,
+}: {
+  children: string
+  className?: string
+}) {
+  const { language, tokens } = useMemo(() => highlight(children), [children])
+  if (language === 'text') return <PreBlock className={className}>{children}</PreBlock>
+  return (
+    <pre
+      className={cn(
+        'max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-2xl border bg-muted/50 p-3 font-mono text-xs leading-relaxed',
+        className,
+      )}
+    >
+      {tokens.map((token, i) => (
+        <span key={i} className={token.kind ? TOKEN_CLASS[token.kind] : undefined}>
+          {token.text}
+        </span>
+      ))}
+    </pre>
+  )
+}
+
 export function PreBlock({ children, className }: { children: string; className?: string }) {
   return (
     <pre

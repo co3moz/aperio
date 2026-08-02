@@ -1003,4 +1003,5 @@ export const de: Record<string, string> = {
   "Test": "Test",
   "no response": "keine Antwort",
   idle: 'inaktiv',
+  '5 min': '5 Min',
 }

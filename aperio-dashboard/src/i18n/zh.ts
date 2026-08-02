@@ -982,4 +982,5 @@ export const zh: Record<string, string> = {
   "Test": "测试",
   "no response": "无响应",
   idle: '空闲',
+  '5 min': '5 分钟',
 }

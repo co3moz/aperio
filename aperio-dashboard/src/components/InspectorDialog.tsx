@@ -1,7 +1,7 @@
 import { CheckIcon, CopyIcon, DownloadIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { PreBlock } from './shared'
+import { HighlightedBlock, PreBlock } from './shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -18,13 +18,25 @@ import { buildCurl, buildHar, decodeBodyPreview, formatHeaders } from '@/lib/for
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
-function Section({ label, content }: { label: string; content: string }) {
+function Section({
+  label,
+  content,
+  highlighted,
+}: {
+  label: string
+  content: string
+  /** Bodies are tokenized; headers are not. A header block is already one
+   *  `name: value` per line, and colouring it would add noise to something
+   *  that reads fine. */
+  highlighted?: boolean
+}) {
+  const Block = highlighted ? HighlightedBlock : PreBlock
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
-      <PreBlock>{content}</PreBlock>
+      <Block>{content}</Block>
     </div>
   )
 }
@@ -264,6 +276,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               <Section
                 label={t('Request Body')}
                 content={decodeBodyPreview(detail.req_body, detail.req_body_truncated, false, t)}
+                highlighted
               />
               <Section label={t('Response Headers')} content={formatHeaders(detail.resp_headers)} />
               <Section
@@ -274,6 +287,7 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
                   detail.resp_streamed,
                   t,
                 )}
+                highlighted
               />
             </>
           )}

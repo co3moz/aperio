@@ -1005,4 +1005,5 @@ export const tr: Record<string, string> = {
   "Test": "Test",
   "no response": "yanıt yok",
   idle: 'boşta',
+  '5 min': '5 dk',
 }

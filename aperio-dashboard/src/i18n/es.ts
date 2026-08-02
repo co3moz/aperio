@@ -1001,4 +1001,5 @@ export const es: Record<string, string> = {
   "Test": "Probar",
   "no response": "sin respuesta",
   idle: 'inactivo',
+  '5 min': '5 min',
 }

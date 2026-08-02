@@ -186,12 +186,6 @@ readable without scrolling past what is already done.
   the value of any single one is small; the value of the pattern is that a
   slow backend and a fast one stop having to share a number.
 
-- [ ] **#60 Two dashboard readability wins.** (triage 30) Syntax highlighting
-  for captured JSON, XML and HTML bodies in the inspector (currently raw text),
-  and a calendar range picker for the activity and traffic charts, which today
-  offer a live window and a fixed long window and nothing in between. Grouped
-  because each is a contained frontend change with no backend surface.
-
 - [ ] **#61 Probe endpoints for container orchestrators.** (triage 30)
   `/aperio/health` returns a JSON body with counters and takes two locks to
   build it, which is more than a `HEALTHCHECK` every five seconds needs, and
@@ -451,6 +445,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#60 Two dashboard readability wins.** (triage 30) Syntax highlighting
+  for captured JSON, XML and HTML bodies in the inspector (currently raw text),
+  and a calendar range picker for the activity and traffic charts, which today
+  offer a live window and a fixed long window and nothing in between. Grouped
+  because each is a contained frontend change with no backend surface.
+  shipped: highlighting is a hand-written tokenizer in `lib/highlight.ts`, not
+  a library, since the inspector shows three shapes and a general-purpose
+  highlighter is hundreds of kilobytes of grammars for languages that never
+  appear here; minified JSON is re-indented too, and anything that does not
+  parse or is too large to tokenize falls back to exactly what was rendered
+  before. The second half turned out to be half-built: the **traffic** chart
+  already had a custom `from`/`to` range picker. What was missing was the
+  **activity** chart's middle ground, and its data is a fixed 15-minute ring
+  on the server, so the answer is a 5-minute view cut from the same ring in
+  the browser rather than a new endpoint.
 
 - [x] **#56 Client-to-client edges in the topology view.** (triage 35)
   `--bind-tunnels` lets one client dial another client's exposed tunnel, so
