@@ -614,9 +614,17 @@ free number.
   the buffered path does. Same story for the TCP/UDP/WS relay arms next to
   it, which also `to_vec()` each frame.
 
-- [ ] **#24 Client send path for streamed bodies: coalesce backend chunks
-  into full frames and batch the WebSocket flush.** Sibling of #23, same
-  origin. Once a response switches to streaming, the client forwards each
+- [x] **#24 Client send path for streamed bodies: coalesce backend chunks
+  into full frames and batch the WebSocket flush.** shipped: `ChunkCoalescer`
+  (`aperio-client/src/proxy/http.rs`) accumulates backend chunks into full
+  `STREAM_CHUNK_SIZE` frames on all three backend paths (http, h2, unix),
+  flushing the remainder the moment the backend has nothing more ready
+  (`now_or_never` poll) so trickles are never held, and the tunnel writer
+  drains its queue with `feed()` and flushes once per batch. The
+  tokio-tungstenite upgrade to a `Bytes`-based release was deliberately left
+  out, it is a dependency-wide change with its own interop surface; still
+  worth its own look if the final copy into the write buffer ever shows up
+  in a profile. Sibling of #23, same origin. Once a response switches to streaming, the client forwards each
   chunk exactly as reqwest yields it (`aperio-client/src/proxy/http.rs`,
   `handle_incoming_request`), typically 16-64 KB per read, so a 2 MB body
   becomes several dozen frames where 16 would do at `STREAM_CHUNK_SIZE`

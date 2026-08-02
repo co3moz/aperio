@@ -1045,3 +1045,41 @@ fn an_absolute_form_uri_reaches_the_backend_as_its_path() {
   assert_eq!(dest.as_str(), "http://127.0.0.1:3000/plain?x=1");
   assert_eq!(build_dest_url(&ctx, "req-4", ":notaport").unwrap_err(), 400);
 }
+
+// --- ChunkCoalescer ---------------------------------------------------------
+
+#[test]
+fn coalescer_holds_partial_frames_and_pops_full_ones() {
+  let mut c = ChunkCoalescer::new();
+  assert!(c.is_empty());
+  c.add(&[1u8; 1000]);
+  assert!(!c.is_empty());
+  // Under a frame: nothing to pop yet.
+  assert!(c.pop_full().is_none());
+  // Crossing the frame size pops exactly one full frame, remainder stays.
+  c.add(&vec![2u8; STREAM_CHUNK_SIZE]);
+  let full = c.pop_full().expect("a full frame accumulated");
+  assert_eq!(full.len(), STREAM_CHUNK_SIZE);
+  assert_eq!(&full[..1000], &[1u8; 1000]);
+  assert!(c.pop_full().is_none());
+  let rest = c.take().expect("a remainder is held");
+  assert_eq!(rest, vec![2u8; 1000]);
+  assert!(c.is_empty());
+}
+
+#[test]
+fn coalescer_pops_every_full_frame_of_a_large_chunk() {
+  // One oversized backend chunk yields multiple full frames in order.
+  let mut c = ChunkCoalescer::new();
+  c.add(&vec![7u8; STREAM_CHUNK_SIZE * 2 + 5]);
+  assert_eq!(c.pop_full().unwrap().len(), STREAM_CHUNK_SIZE);
+  assert_eq!(c.pop_full().unwrap().len(), STREAM_CHUNK_SIZE);
+  assert!(c.pop_full().is_none());
+  assert_eq!(c.take().unwrap(), vec![7u8; 5]);
+}
+
+#[test]
+fn coalescer_take_on_empty_is_none() {
+  let mut c = ChunkCoalescer::new();
+  assert!(c.take().is_none());
+}

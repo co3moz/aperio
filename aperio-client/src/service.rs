@@ -900,36 +900,48 @@ pub(crate) async fn run_service(
             // Spawn task to handle WebSocket writes
             let compress_out_writer = compress_out.clone();
             let writer_task = tokio::spawn(async move {
-              while let Some(msg) = rx_write.recv().await {
-                let msg = match msg {
-                  Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
-                    Message::Binary(compress_frame(&t))
-                  }
-                  // A full-response frame carries a body that used to travel
-                  // inside a text frame and be compressed with it. Compressed
-                  // here rather than where it is built, so the negotiated flag
-                  // stays in one place, and only when deflating wins: for an
-                  // already-compressed body it does not, and the frame goes
-                  // out as it is.
-                  Message::Binary(b)
-                    if compress_out_writer.load(Ordering::SeqCst)
-                      && b.first() == Some(&FRAME_RESPONSE_FULL) =>
-                  {
-                    match decode_binary_frame(&b) {
-                      Some((_, id, payload)) => match crate::protocol::deflate_payload(payload) {
-                        Some(deflated) => {
-                          match encode_binary_frame(FRAME_RESPONSE_FULL_ZLIB, id, &deflated) {
-                            Some(frame) => Message::Binary(frame),
-                            None => Message::Binary(b),
-                          }
+              let transform = |msg: Message| match msg {
+                Message::Text(t) if compress_out_writer.load(Ordering::SeqCst) => {
+                  Message::Binary(compress_frame(&t))
+                }
+                // A full-response frame carries a body that used to travel
+                // inside a text frame and be compressed with it. Compressed
+                // here rather than where it is built, so the negotiated flag
+                // stays in one place, and only when deflating wins: for an
+                // already-compressed body it does not, and the frame goes
+                // out as it is.
+                Message::Binary(b)
+                  if compress_out_writer.load(Ordering::SeqCst)
+                    && b.first() == Some(&FRAME_RESPONSE_FULL) =>
+                {
+                  match decode_binary_frame(&b) {
+                    Some((_, id, payload)) => match crate::protocol::deflate_payload(payload) {
+                      Some(deflated) => {
+                        match encode_binary_frame(FRAME_RESPONSE_FULL_ZLIB, id, &deflated) {
+                          Some(frame) => Message::Binary(frame),
+                          None => Message::Binary(b),
                         }
-                        None => Message::Binary(b),
-                      },
+                      }
                       None => Message::Binary(b),
-                    }
+                    },
+                    None => Message::Binary(b),
                   }
-                  other => other,
-                };
+                }
+                other => other,
+              };
+              // Everything already queued behind a message rides the same
+              // flush: at bulk throughput each message used to pay its own
+              // (a syscall per frame), and the messages are already whole
+              // frames, so batching them costs no latency.
+              'writer: while let Some(msg) = rx_write.recv().await {
+                let mut msg = transform(msg);
+                while let Ok(next) = rx_write.try_recv() {
+                  if let Err(e) = ws_sender.feed(msg).await {
+                    error!("Error writing to server socket: {:?}", e);
+                    break 'writer;
+                  }
+                  msg = transform(next);
+                }
                 if let Err(e) = ws_sender.send(msg).await {
                   error!("Error writing to server socket: {:?}", e);
                   break;

@@ -15,9 +15,10 @@ use tracing::{error, info, warn};
 use crate::protocol::TunnelMessage;
 use crate::protocol::send_tunnel_msg;
 use crate::proxy::http::{
-  ForwardContext, ForwardRequest, STREAM_CHUNK_SIZE, STREAM_THRESHOLD, build_dest_url,
-  make_error_response, send_response_chunk,
+  ChunkCoalescer, ForwardContext, ForwardRequest, STREAM_CHUNK_SIZE, STREAM_THRESHOLD,
+  build_dest_url, make_error_response, send_response_chunk,
 };
+use futures_util::FutureExt;
 
 /// Request body type sent to HTTP/2 backends.
 type H2Body = BoxBody<Bytes, std::io::Error>;
@@ -222,20 +223,40 @@ pub(crate) async fn handle_incoming_request_h2(
   let mut buf: Vec<u8> = Vec::new();
   let mut streaming = false;
   let mut pause_guard: Option<crate::flow::PauseGuard> = None;
+  let mut coalescer = ChunkCoalescer::new();
   let mut aborted = false;
   let mut total: usize = 0;
   let mut trailers: Option<Vec<(String, String)>> = None;
+  let read_budget = std::time::Duration::from_secs(ctx.timeout_secs.max(1));
 
   loop {
     // Bound each body read: the head timeout above does not cover the body, so
     // a backend that sends the head then stalls mid-body would otherwise hang
     // this task forever and leak the server's in-flight request slot.
-    let frame_res = match tokio::time::timeout(
-      std::time::Duration::from_secs(ctx.timeout_secs.max(1)),
-      body.frame(),
-    )
-    .await
-    {
+    //
+    // While bytes wait in the coalescer, poll rather than wait: a backend
+    // gone quiet gets its bytes flushed now instead of held to the next read.
+    let polled = if coalescer.is_empty() {
+      tokio::time::timeout(read_budget, body.frame()).await
+    } else {
+      match tokio::time::timeout(read_budget, body.frame()).now_or_never() {
+        Some(r) => r,
+        None => {
+          let guard = pause_guard
+            .as_ref()
+            .expect("bytes are only held while streaming");
+          if let Some(part) = coalescer.take()
+            && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+              .await
+              .is_err()
+          {
+            return None;
+          }
+          tokio::time::timeout(read_budget, body.frame()).await
+        }
+      }
+    };
+    let frame_res = match polled {
       Ok(Some(fr)) => fr,
       Ok(None) => break,
       Err(_) => {
@@ -306,11 +327,14 @@ pub(crate) async fn handle_incoming_request_h2(
         let pause = pause_guard
           .as_ref()
           .expect("streaming implies a pause guard");
-        if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks, pause.signal())
-          .await
-          .is_err()
-        {
-          return None;
+        coalescer.add(&chunk);
+        while let Some(part) = coalescer.pop_full() {
+          if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, pause.signal())
+            .await
+            .is_err()
+          {
+            return None;
+          }
         }
       }
     } else if let Ok(map) = frame.into_trailers() {
@@ -334,6 +358,19 @@ pub(crate) async fn handle_incoming_request_h2(
         id, status, total
       );
       return None;
+    }
+    // The body ended with a partial frame still held back: it goes out
+    // before the End that closes the stream.
+    if let Some(part) = coalescer.take() {
+      let guard = pause_guard
+        .as_ref()
+        .expect("streaming implies a pause guard");
+      if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+        .await
+        .is_err()
+      {
+        return None;
+      }
     }
     let end = TunnelMessage::ResponseEnd {
       id: id.clone(),

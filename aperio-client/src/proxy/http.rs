@@ -2,6 +2,7 @@
 //! streaming large response bodies back through the tunnel in chunks.
 
 use base64::prelude::*;
+use futures_util::FutureExt;
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
@@ -37,6 +38,50 @@ pub(crate) const STREAM_THRESHOLD: usize = 256 * 1024;
 pub(crate) const BINARY_STREAM_THRESHOLD: usize = 32 * 1024;
 /// Size of individual streamed body chunks.
 pub(crate) const STREAM_CHUNK_SIZE: usize = 128 * 1024;
+
+/// Batches backend body chunks into full `STREAM_CHUNK_SIZE` frames
+/// (planned_features #24). A backend yields bytes in read-sized pieces well
+/// under the frame size, and every frame pays its own allocation, client-side
+/// mask pass over each byte, and writer flush; full frames cut that per-frame
+/// cost several-fold. The caller flushes the remainder (`take`) the moment
+/// the backend has nothing more ready, so a trickling stream (server-sent
+/// events, long polling) is never held back waiting for a full frame.
+pub(crate) struct ChunkCoalescer {
+  buf: Vec<u8>,
+}
+
+impl ChunkCoalescer {
+  pub(crate) fn new() -> Self {
+    ChunkCoalescer { buf: Vec::new() }
+  }
+
+  pub(crate) fn is_empty(&self) -> bool {
+    self.buf.is_empty()
+  }
+
+  /// Appends one backend chunk.
+  pub(crate) fn add(&mut self, data: &[u8]) {
+    self.buf.extend_from_slice(data);
+  }
+
+  /// A full frame's worth, when one has accumulated.
+  pub(crate) fn pop_full(&mut self) -> Option<Vec<u8>> {
+    if self.buf.len() < STREAM_CHUNK_SIZE {
+      return None;
+    }
+    let rest = self.buf.split_off(STREAM_CHUNK_SIZE);
+    Some(std::mem::replace(&mut self.buf, rest))
+  }
+
+  /// Whatever is left, for the backend-quiet and end-of-stream flushes.
+  pub(crate) fn take(&mut self) -> Option<Vec<u8>> {
+    if self.buf.is_empty() {
+      None
+    } else {
+      Some(std::mem::take(&mut self.buf))
+    }
+  }
+}
 
 /// Sends a whole buffered response as one v5 binary frame: the envelope and
 /// the body in a single message, with the body as bytes.
@@ -505,11 +550,35 @@ pub(crate) async fn handle_incoming_request(
       let mut stream = res.bytes_stream();
       let mut buf: Vec<u8> = Vec::with_capacity(reserve);
       let mut pause_guard: Option<crate::flow::PauseGuard> = None;
+      let mut coalescer = ChunkCoalescer::new();
       let mut aborted = false;
       let mut total: usize = 0;
 
       loop {
-        match stream.next().await {
+        // While bytes wait in the coalescer, poll rather than wait: a backend
+        // with more data ready keeps filling the frame, and one gone quiet
+        // gets its bytes flushed now instead of held to the next read.
+        let item = if coalescer.is_empty() {
+          stream.next().await
+        } else {
+          match stream.next().now_or_never() {
+            Some(item) => item,
+            None => {
+              let guard = pause_guard
+                .as_ref()
+                .expect("bytes are only held while streaming");
+              if let Some(part) = coalescer.take()
+                && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+                  .await
+                  .is_err()
+              {
+                return None;
+              }
+              stream.next().await
+            }
+          }
+        };
+        match item {
           Some(Ok(chunk)) => {
             total += chunk.len();
             match &pause_guard {
@@ -549,11 +618,14 @@ pub(crate) async fn handle_incoming_request(
                   aborted = true;
                   break;
                 }
-                if send_response_chunk(tunnel_tx, &id, &chunk, binary_chunks, guard.signal())
-                  .await
-                  .is_err()
-                {
-                  return None;
+                coalescer.add(&chunk);
+                while let Some(part) = coalescer.pop_full() {
+                  if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+                    .await
+                    .is_err()
+                  {
+                    return None;
+                  }
                 }
               }
             }
@@ -577,7 +649,7 @@ pub(crate) async fn handle_incoming_request(
         }
       }
 
-      if pause_guard.is_some() {
+      if let Some(guard) = &pause_guard {
         if aborted {
           // Abnormal end: the visitor must see an aborted response, not a
           // silently truncated success.
@@ -587,6 +659,15 @@ pub(crate) async fn handle_incoming_request(
             "Tunnel request ABORTED (streamed): ID={} Status={} Bytes={}",
             id, status, total
           );
+          return None;
+        }
+        // The body ended with a partial frame still held back: it goes out
+        // before the End that closes the stream.
+        if let Some(part) = coalescer.take()
+          && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+            .await
+            .is_err()
+        {
           return None;
         }
         let end = TunnelMessage::ResponseEnd {
