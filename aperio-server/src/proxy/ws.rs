@@ -163,6 +163,12 @@ pub(crate) async fn handle_ws_proxy(
     None,
     ws_affinity.as_deref(),
     Some(caller_ip),
+    // A proxied WebSocket is one long-lived connection rather than a stream
+    // of requests, so a split would only ever apply to the upgrade. Left out
+    // deliberately: a canary that moved a live socket is not a canary, and
+    // one that only chose where the socket landed would be a second, silent
+    // rule beside the one written for HTTP.
+    None,
   )
   .await
   {

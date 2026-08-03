@@ -1773,6 +1773,43 @@ pub struct RouteRule {
   /// `rate_limits:` entry matching the same request. Policy field.
   #[schemars(extend("examples" = [{"rps": 10, "burst": 20, "methods": ["POST"]}]))]
   pub rate_limit: Option<RouteRateLimit>,
+  /// Split this route's traffic between two versions of a service. Policy
+  /// field.
+  #[schemars(extend("examples" = [{"service": "web-v2", "weight": 20, "header": "x-canary"}]))]
+  pub canary: Option<RouteCanary>,
+}
+
+/// A `canary:` block inside a `routes:` entry: which service gets the new
+/// version's traffic, how much of it, and how somebody opts in by hand.
+///
+/// Weighted routing and a header-based canary are the same mechanism seen from
+/// two angles, which is why they are one block rather than two settings.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RouteCanary {
+  /// Name of the `services:` entry serving the new version. Clients that
+  /// announce this service name are the canary side; every other client
+  /// serving the route is the stable side.
+  #[schemars(extend("examples" = ["web-v2"]))]
+  pub service: String,
+  /// Percentage of visitors sent there without asking, `0` to `100`. Default:
+  /// `0`, which with a `header` set is the opt-in-only shape.
+  ///
+  /// The split is decided per **visitor**, by hashing their address, not per
+  /// request: a per-request coin flip would send one page load's twenty assets
+  /// to both versions, which is a mixture rather than a canary and breaks the
+  /// thing being tested first. The cost is that the split is only as even as
+  /// the addresses are spread, so at low traffic or behind one large NAT
+  /// twenty percent may not look like twenty percent.
+  #[schemars(extend("examples" = [20]))]
+  pub weight: Option<u8>,
+  /// Request header that sends this visitor to the canary whatever the weight
+  /// says, so a developer can reach the new version on demand.
+  #[schemars(extend("examples" = ["x-canary"]))]
+  pub header: Option<String>,
+  /// Value that header must carry. Unset = any non-empty value.
+  #[schemars(extend("examples" = ["on"]))]
+  pub value: Option<String>,
 }
 
 /// A `rate_limit:` block inside a `routes:` entry: the same token bucket as a

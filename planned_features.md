@@ -108,13 +108,6 @@ readable without scrolling past what is already done.
   faster for the small-service-count case that most deployments are. The mode
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
-- [ ] **#51 Weighted routing and header-based canaries.** (triage 35) The load
-  balancer picks between clients by priority tier and round robin, so "send 20
-  percent to the new version" or "send my requests to the new version if I set
-  this header" cannot be expressed. Both are the same mechanism seen from two
-  angles, which is why they are one entry. Depends on #26 landing first, since
-  a weight belongs on a route.
-
 - [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
   store are written in the clear, and that store holds hashed credentials,
   sessions and organization data. AES-256-GCM with the key from an environment
@@ -336,6 +329,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#51 Weighted routing and header-based canaries.** (triage 35) The load
+  balancer picks between clients by priority tier and round robin, so "send 20
+  percent to the new version" or "send my requests to the new version if I set
+  this header" cannot be expressed. Both are the same mechanism seen from two
+  angles, which is why they are one entry. Depended on #26, which had landed.
+  shipped as `canary:` on a route policy, membership by service name. The
+  decision worth recording: the split is per **visitor**, by hashing the
+  address, not per request. A per-request coin flip would send one page load's
+  twenty assets to both versions, which is a mixture rather than a canary. The
+  hash is FNV rather than `DefaultHasher`, which is seeded per process and
+  would have two servers disagreeing about who is in the canary. It never
+  empties the pool, a failover keeps the visitor on their side, and proxied
+  WebSockets are left out because a socket is one connection rather than a
+  stream of requests.
 
 - [x] **#1 Warn when a capacity setting does not fit the machine, rather than
   deriving it.** Originally "auto-tune resource limits from the environment".

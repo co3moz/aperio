@@ -32,6 +32,30 @@ Within the hostname pool, the longest matching path bind wins. Binds match on se
 - **`primary-standby`**, only the clients with the lowest announced priority (`--priority`, 0 = primary) receive traffic. Standby tiers take over automatically when every more-primary client is unhealthy, draining, disabled, or gone, and hand back when a primary returns. The dashboard marks standby clients with a `standby N` badge.
 - **`sticky`**, first-time visitors are rotated round-robin, then an `aperio_affinity` cookie (HttpOnly, 24 h) pins each visitor to the client that served them, including their WebSockets. Use this when backends hold per-visitor state (PHP sessions, in-memory carts). Affinity keys on the client's instance ID, so it survives reconnects of the same process; the cookie is stripped before requests reach backends.
 
+## Canary releases and weighted routing
+
+`canary:` on a `routes:` policy entry splits a route's traffic between two versions of a service:
+
+```yaml
+routes:
+  - hostname: app.example.com
+    canary:
+      service: web-v2      # the services: entry running the new version
+      weight: 20           # percent of visitors sent there
+      header: x-canary     # and anybody who asks, whatever the weight says
+      value: on            # optional; any non-empty value matches when omitted
+```
+
+Weighted routing and a header-based canary are one mechanism seen from two angles, which is why they are one block. `weight: 0` with a `header` is the opt-in-only shape: nobody is moved, and a developer reaches the new version on demand.
+
+**The split is per visitor, not per request.** It is decided by hashing the visitor's address, so the same visitor stays where they landed. A per-request coin flip would send one page load's twenty assets to both versions, which is a mixture rather than a canary and breaks the thing being tested first. The cost is that the split is only as even as the addresses are spread: at low traffic, or behind one large NAT, twenty percent may not look like twenty percent. The hash is stable across processes and restarts, so two servers behind a load balancer agree about who is in the canary.
+
+Membership is by the client's **service name**, the `name` of a `services:` entry. A client that announces no service name is on the stable side: it predates the split, and treating it as the new version would send traffic to the one candidate nobody nominated.
+
+Two things it deliberately does not do. **It never empties the pool**: if the canary side is down, or the stable side has been fully replaced, the request is served from whatever is left, because an experiment must not take the route with it. And **a failover keeps the visitor on their side** where it can, since a re-dispatch that moved them to the other version would make the split mean nothing exactly when something is going wrong.
+
+Proxied WebSockets are not split. A socket is one long-lived connection rather than a stream of requests, so a split could only ever apply to the upgrade, and a rule that quietly meant something different there would be a second rule beside the one written for HTTP.
+
 ## Random subdomains
 
 With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are per-connection and additive, declared and token-granted binds keep working alongside.

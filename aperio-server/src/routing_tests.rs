@@ -820,7 +820,7 @@ async fn two_client_pool() -> std::sync::Arc<AppState> {
 }
 
 async fn pick_one(state: &AppState) -> String {
-  match pick_proxy_client(state, "/", Some("app.example.com"), None, None, None).await {
+  match pick_proxy_client(state, "/", Some("app.example.com"), None, None, None, None).await {
     PickOutcome::Selected(c) => c.id,
     other => panic!(
       "expected a selection, got {:?}",

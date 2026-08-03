@@ -416,6 +416,9 @@ pub(crate) async fn pick_proxy_client(
   require_instance: Option<&str>,
   affinity: Option<&str>,
   visitor_ip: Option<IpAddr>,
+  // Which side of a route's canary split this request belongs on, already
+  // decided from the route policy, the request's headers and the visitor.
+  canary: Option<(&str, crate::static_routes::Side)>,
 ) -> PickOutcome {
   let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
@@ -434,6 +437,16 @@ pub(crate) async fn pick_proxy_client(
     IpFilterOutcome::Denied(redirect) => return PickOutcome::Denied(redirect),
   };
   let mut pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
+  // Canary split (planned_features #51): narrow the pool to one side, but
+  // never to nothing. A canary that is down, or a stable side that has been
+  // fully replaced, must not take the route with it: the experiment gives way
+  // to serving the request.
+  if let Some(side) = canary {
+    let narrowed = narrow_to_side(&pool, &clients, side);
+    if !narrowed.is_empty() {
+      pool = narrowed;
+    }
+  }
   if let Some(instance) = require_instance {
     pool.retain(|id| {
       clients
@@ -515,6 +528,34 @@ pub(crate) async fn route_exists(
     IpFilterOutcome::Denied(_) => return true,
   };
   !apply_lb_strategy(pool, &clients, state.config().lb_strategy).is_empty()
+}
+
+/// The pool members on one side of a canary split.
+///
+/// Membership is by the client's announced service name, which is what an
+/// operator writes in `services:` and therefore the only name they can put in
+/// the route. A client that announces no service name is on the stable side:
+/// it predates the split, so treating it as the new version would send traffic
+/// to the one candidate nobody nominated.
+fn narrow_to_side(
+  pool: &[String],
+  clients: &HashMap<String, ClientHandle>,
+  (service, side): (&str, crate::static_routes::Side),
+) -> Vec<String> {
+  pool
+    .iter()
+    .filter(|id| {
+      let is_canary = clients
+        .get(*id)
+        .and_then(|c| c.service_name.as_deref())
+        .is_some_and(|name| name == service);
+      match side {
+        crate::static_routes::Side::Canary => is_canary,
+        crate::static_routes::Side::Stable => !is_canary,
+      }
+    })
+    .cloned()
+    .collect()
 }
 
 /// True when the route for this host/path is served exclusively by clients
@@ -696,6 +737,10 @@ pub(crate) async fn wait_for_candidate(
       require_instance,
       None,
       visitor_ip,
+      // Waiting for *any* client to come back: narrowing to one side of a
+      // split here would keep waiting for a version that may not be coming,
+      // while the other one is already serving.
+      None,
     )
     .await
     {

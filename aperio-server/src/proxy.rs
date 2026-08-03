@@ -933,6 +933,26 @@ async fn proxy_http_request(
   // the guard alive without the cold-start branch being able to touch it again.
   let _permit = permit;
 
+  // Canary split for this route, decided once and reused for every re-dispatch
+  // below: a failover that landed a visitor on the other version would make
+  // the split mean nothing precisely when something is going wrong.
+  let canary_side = state
+    .config()
+    .static_routes
+    .policy_for(request_host.as_deref(), &uri_path_owned)
+    .and_then(|rule| rule.canary.as_ref())
+    .map(|rule| {
+      let sent = rule
+        .header
+        .as_deref()
+        .and_then(|name| headers.get(name))
+        .and_then(|v| v.to_str().ok());
+      (rule.service.clone(), rule.side_for(sent, Some(caller_ip)))
+    });
+  let canary = canary_side
+    .as_ref()
+    .map(|(service, side)| (service.as_str(), *side));
+
   let mut selected = match pick_proxy_client(
     &state,
     &uri_path_owned,
@@ -940,6 +960,7 @@ async fn proxy_http_request(
     None,
     affinity.as_deref(),
     Some(caller_ip),
+    canary,
   )
   .await
   {
@@ -1771,6 +1792,7 @@ async fn proxy_http_request(
             None,
             None,
             Some(caller_ip),
+            canary,
           )
           .await
           {
@@ -2127,6 +2149,7 @@ async fn proxy_http_request(
                 None,
                 None,
                 Some(caller_ip),
+                canary,
               )
               .await
               {
