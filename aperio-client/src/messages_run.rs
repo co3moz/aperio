@@ -167,7 +167,14 @@ async fn run_once(
 ) -> Result<Option<std::process::ExitStatus>, String> {
   let shell = if cfg!(windows) { "cmd" } else { "sh" };
   let flag = if cfg!(windows) { "/C" } else { "-c" };
-  let mut child = Command::new(shell)
+  let mut builder = Command::new(shell);
+  // Its own process group, so the timeout can end the whole pipeline the
+  // shell started rather than just the shell. Without it, `sh -c "curl … |
+  // tee …"` leaves both halves running past the deadline the operator set,
+  // still holding the pipe the payload was written to.
+  #[cfg(unix)]
+  builder.process_group(0);
+  let mut child = builder
     .arg(flag)
     .arg(command)
     // The operator's own variables first, so the two below always win: a
@@ -186,16 +193,38 @@ async fn run_once(
     .spawn()
     .map_err(|e| e.to_string())?;
 
-  if let Some(mut stdin) = child.stdin.take() {
-    // A command that does not read stdin closes it, and writing to a closed
-    // pipe is not a failure of the run.
-    let _ = stdin.write_all(payload).await;
-    let _ = stdin.shutdown().await;
-  }
-
-  match tokio::time::timeout(timeout, child.wait()).await {
+  // The write is inside the budget, not before it. A command that never reads
+  // its stdin does not necessarily close it: it may simply be busy, or
+  // sleeping. Once the pipe buffer fills, and 64 KB is a perfectly ordinary
+  // message, `write_all` blocks, and it used to block before the timeout had
+  // started, so the runner task hung for the life of the process holding one
+  // of the operator's concurrency slots forever.
+  let mut stdin = child.stdin.take();
+  let feed = async {
+    if let Some(mut pipe) = stdin.take() {
+      // A command that does close stdin gives a broken pipe here, and that is
+      // not a failure of the run.
+      let _ = pipe.write_all(payload).await;
+      let _ = pipe.shutdown().await;
+    }
+    child.wait().await
+  };
+  let outcome = tokio::time::timeout(timeout, feed).await;
+  match outcome {
     Ok(status) => status.map(Some).map_err(|e| e.to_string()),
     Err(_) => {
+      // The shell, and on Unix everything it started. `kill` on its own ends
+      // the `sh -c` and leaves the pipeline it spawned running past the
+      // timeout the operator set, still holding the payload's pipe.
+      #[cfg(unix)]
+      if let Some(pid) = child.id() {
+        // SAFETY: a kill of a process group this process created. A negative
+        // pid is the group; the child was put in its own by `process_group(0)`
+        // above, so nothing outside this command can be in it.
+        unsafe {
+          libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+      }
       let _ = child.kill().await;
       Ok(None)
     }

@@ -283,3 +283,59 @@ async fn no_declaration_leaves_the_message_variables_intact() {
     "m-1"
   );
 }
+
+#[tokio::test]
+async fn a_command_that_never_reads_stdin_is_still_killed_on_time() {
+  // The payload was written before the timeout was set up, and a command that
+  // does not read its stdin does not necessarily close it: it may just be
+  // busy. Once the pipe buffer fills, and 64 KB is an ordinary message,
+  // write_all blocks with no deadline over it, and the runner task hung for
+  // the life of the process holding one of the operator's concurrency slots.
+  let payload = vec![b'x'; 512 * 1024];
+  let started = std::time::Instant::now();
+  let result = run_once(
+    "sleep 30",
+    "things/x",
+    "id-1",
+    &payload,
+    Duration::from_millis(300),
+    &[],
+  )
+  .await;
+  assert!(
+    matches!(result, Ok(None)),
+    "expected a timeout kill, got {result:?}"
+  );
+  assert!(
+    started.elapsed() < Duration::from_secs(5),
+    "took {:?}: the stdin write is outside the timeout again",
+    started.elapsed()
+  );
+}
+
+#[tokio::test]
+async fn a_timed_out_command_does_not_leave_its_pipeline_running() {
+  // `kill` on its own ends the `sh -c` and leaves whatever it started behind,
+  // past the deadline the operator set. The child writes a file after a delay
+  // that outlives the timeout; if the group was killed, that file never
+  // appears.
+  let marker = std::env::temp_dir().join(format!("aperio-run-{}", uuid::Uuid::new_v4()));
+  let command = format!("(sleep 1; touch {}) & sleep 30", marker.display());
+  let result = run_once(
+    &command,
+    "things/x",
+    "id-2",
+    b"",
+    Duration::from_millis(200),
+    &[],
+  )
+  .await;
+  assert!(matches!(result, Ok(None)), "got {result:?}");
+
+  tokio::time::sleep(Duration::from_millis(1500)).await;
+  assert!(
+    !marker.exists(),
+    "the shell's child outlived the timeout that killed the shell"
+  );
+  let _ = std::fs::remove_file(&marker);
+}
