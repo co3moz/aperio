@@ -522,7 +522,12 @@ pub(crate) async fn grpc_health_check(
   if header_status.is_some_and(|s| s != 0) {
     return false;
   }
-  let Ok(collected) = resp.into_body().collect().await else {
+  // Under the same budget as the head. A backend that answers with headers
+  // and then never sends the body or the trailers used to hang this probe for
+  // the life of the process, which left the backend marked with whatever
+  // verdict it last had: a health check that cannot fail is not a health
+  // check.
+  let Ok(Ok(collected)) = tokio::time::timeout(timeout, resp.into_body().collect()).await else {
     return false;
   };
   let trailer_status = collected

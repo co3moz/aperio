@@ -577,3 +577,48 @@ fn a_multi_byte_varint_status_is_decoded() {
     Some(300)
   );
 }
+
+#[tokio::test]
+async fn a_health_probe_whose_body_never_arrives_gives_up_on_time() {
+  // The head was under the probe's timeout and the body was not, so a backend
+  // that answered with headers and then went quiet held the probe forever.
+  // A probe that cannot finish cannot fail, and the backend keeps whatever
+  // verdict it last had, which is the worst of both: unhealthy and reported
+  // healthy.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    while let Ok((stream, _)) = listener.accept().await {
+      tokio::spawn(async move {
+        let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+          .serve_connection(
+            hyper_util::rt::TokioIo::new(stream),
+            service_fn(|_req: Request<hyper::body::Incoming>| async {
+              // 200 and a grpc-status the probe accepts, then a body stream
+              // that never yields a frame and never ends.
+              let frames = futures_util::stream::pending::<Result<Frame<Bytes>, std::io::Error>>();
+              Ok::<_, std::convert::Infallible>(
+                Response::builder()
+                  .status(200)
+                  .body(BoxBody::new(StreamBody::new(frames)))
+                  .unwrap(),
+              )
+            }),
+          )
+          .await;
+      });
+    }
+  });
+
+  let target = format!("h2c://127.0.0.1:{port}");
+  let client = super::build_h2_client(&target).expect("h2c client");
+  // Under an outer deadline on purpose: a regression here does not fail, it
+  // hangs, and a test that hangs tells nobody anything.
+  let healthy = tokio::time::timeout(
+    std::time::Duration::from_secs(5),
+    super::grpc_health_check(&client, &target, "", std::time::Duration::from_millis(300)),
+  )
+  .await
+  .expect("the probe never returned: the body is outside the timeout again");
+  assert!(!healthy, "a probe that never completes is not a pass");
+}
