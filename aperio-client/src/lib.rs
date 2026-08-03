@@ -1142,6 +1142,7 @@ fn build_specs(
       ),
       cache: settings.cache,
     }];
+    validate_tls_floors(&specs)?;
     allocate_bandwidth(&mut specs, budget_bps);
     return Ok(specs);
   }
@@ -1333,8 +1334,30 @@ fn build_specs(
     })
     .collect::<Result<_, String>>()?;
   validate_depends_on(&specs)?;
+  validate_tls_floors(&specs)?;
   allocate_bandwidth(&mut specs, budget_bps);
   Ok(specs)
+}
+
+/// Rejects a `min_tls_version` this build cannot honour, here rather than
+/// where it is used.
+///
+/// It used to be parsed inside the running service task, which had no way to
+/// refuse a configuration and so called `process::exit(1)`: a hot-reload that
+/// introduced one typo took the whole client down, including every other
+/// service in the file, when the contract is that a bad reload is warned
+/// about and the previous configuration kept. `--check-config` could not see
+/// it either, because nothing on the validation path ever parsed the value.
+fn validate_tls_floors(specs: &[ServiceSpec]) -> Result<(), String> {
+  for spec in specs {
+    if let Err(e) = crate::proxy::http::tls_floor(spec.min_tls_version.as_deref()) {
+      return Err(match spec.name.as_deref() {
+        Some(name) => format!("CRITICAL ERROR: service '{name}': {e}"),
+        None => format!("CRITICAL ERROR: {e}"),
+      });
+    }
+  }
+  Ok(())
 }
 
 /// Rejects a `depends_on` that cannot be satisfied.

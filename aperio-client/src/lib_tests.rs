@@ -72,6 +72,29 @@ fn base_settings() -> ClientSettings {
 }
 
 #[test]
+fn an_unusable_min_tls_version_is_refused_by_the_config_path() {
+  // It used to be parsed inside the running service task, which had nowhere
+  // to return an error to and so exited the process. That turned one typo in
+  // a hot-reloaded file into an outage for every service in it, when a bad
+  // reload is supposed to be warned about and the previous configuration
+  // kept. `--check-config` was blind to it for the same reason.
+  let mut settings = base_settings();
+  settings.min_tls_version = Some("1.1".to_string());
+  let err = build_specs(&settings, "base-id", false).expect_err("1.1 is not offered");
+  assert!(err.contains("min_tls_version"), "{err}");
+
+  for good in ["1.2", "1.3", "TLSv1.2", ""] {
+    settings.min_tls_version = Some(good.to_string());
+    assert!(
+      build_specs(&settings, "base-id", false).is_ok(),
+      "{good} should be accepted"
+    );
+  }
+  settings.min_tls_version = None;
+  assert!(build_specs(&settings, "base-id", false).is_ok());
+}
+
+#[test]
 fn test_build_specs_tunnels_only() {
   // A client may run with only a tunnels: list, nothing exposed, the
   // connection exists so a peer can bind the declared tunnels.

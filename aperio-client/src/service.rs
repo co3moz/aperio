@@ -1445,13 +1445,15 @@ pub(crate) async fn run_service(
             if let Some(secs) = spec.connect_timeout {
               builder = builder.connect_timeout(Duration::from_secs(secs));
             }
+            // Validated by `build_specs` before any service is spawned, on
+            // the first load and on every reload, so an unusable value never
+            // reaches here. If one somehow does, the floor is dropped rather
+            // than the process: killing every other service of this client
+            // over one field is the failure a reload is meant to prevent.
             match crate::proxy::http::tls_floor(spec.min_tls_version.as_deref()) {
               Ok(Some(floor)) => builder = builder.min_tls_version(floor),
               Ok(None) => {}
-              Err(e) => {
-                error!("CRITICAL ERROR: {e}");
-                std::process::exit(1);
-              }
+              Err(e) => error!("{e}; continuing without a TLS floor for this backend"),
             }
             let reqwest_client = builder
               // Same reasoning as the tunnel socket: these are request and
