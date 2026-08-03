@@ -59,6 +59,14 @@ pub struct ApiToken {
   /// them. This is the capability that separates the two.
   #[serde(default)]
   pub allow_bind: bool,
+  /// May this token send OpenTelemetry exports through the server's OTel
+  /// bridge? Defaults to false, and for the same reason `topics` defaults to
+  /// empty: it is a new capability, and one that switches itself on for every
+  /// token that predates it is how a permission model quietly stops meaning
+  /// anything. Both this and the server's `otel_bridge` have to be on, so an
+  /// operator who has not enabled the bridge cannot be surprised by it.
+  #[serde(default)]
+  pub allow_otel: bool,
   /// Topic filters this token may publish to and subscribe to, for messages
   /// between the clients of its organization. Empty = messaging is not
   /// permitted, `#` = everything the organization can see.
@@ -186,6 +194,10 @@ impl TokenStore {
     // it cannot see a shifted one.
     topics: Vec<String>,
     max_connections: Option<u32>,
+    // Appended for the same reason `topics` was, and the comment above says
+    // why: this signature is long enough that inserting an argument in the
+    // middle is a silent bug and appending one is a compiler error.
+    allow_otel: bool,
   ) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
@@ -208,6 +220,7 @@ impl TokenStore {
       max_connections: max_connections.filter(|v| *v > 0),
       allow_public,
       allow_bind,
+      allow_otel,
       topics,
       canary,
       org_id,
@@ -238,6 +251,7 @@ impl TokenStore {
     canary: Option<bool>,
     topics: Option<Vec<String>>,
     max_connections: Option<Option<u32>>,
+    allow_otel: Option<bool>,
   ) -> Option<ApiToken> {
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
@@ -270,6 +284,9 @@ impl TokenStore {
     }
     if let Some(b) = allow_bind {
       token.allow_bind = b;
+    }
+    if let Some(o) = allow_otel {
+      token.allow_otel = o;
     }
     if let Some(t) = topics {
       token.topics = t;

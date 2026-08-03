@@ -70,7 +70,7 @@ Anything next to the client then exports with `OTEL_EXPORTER_OTLP_ENDPOINT=http:
 
 **Protobuf only** (`application/x-protobuf`, the default for every SDK). JSON is refused with a message saying so, because the server injects attributes into the payload and doing that for two encodings is two chances to corrupt somebody's telemetry. The payload is otherwise never decoded, only walked at its outermost level to find where the resource goes, so a field from an OTLP version newer than the server is copied through rather than dropped.
 
-While the bridge is on, any client with a valid tunnel token may export. The destination is the single collector the operator chose, every export is attributed, and both size and rate are capped; a per-token permission is not built yet.
+**Two switches, both off by default.** The server's `otel_bridge` says it will forward at all; a token's `allow_otel` says this client may ask it to. Either alone is a refusal (`403` on the HTTP endpoint, a logged warning on the tunnel). They answer different questions, one about the deployment and one about the tenant, so turning the bridge on for one edge host does not turn it on for every token on the server. `allow_otel` defaults to false for the same reason `topics` does: a capability that switches itself on for every token that predates it is how a permission model quietly stops meaning anything. Set it with `aperio-client api token create --allow-otel`, `api token update <id> --allow-otel` / `--no-allow-otel`, or the checkbox in the dashboard's token editor.
 
 The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
 

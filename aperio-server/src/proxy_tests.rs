@@ -1233,6 +1233,7 @@ async fn handler_token_daily_quota_returns_429() {
     None,
     Vec::new(),
     None,
+    false,
   );
   let today = crate::store::stats::period_keys()[0].clone();
   state

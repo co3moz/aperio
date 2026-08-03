@@ -451,8 +451,10 @@ nothing reuses them.
   server and never taken from the payload; a full queue drops rather than
   waits, because an exporter that cannot hand off blocks the application it
   instruments; and the payload is walked only at its outermost level, so a
-  field from a newer OTLP is copied through rather than dropped. Not built: a
-  per-token permission, which is the obvious next turn of the screw.
+  field from a newer OTLP is copied through rather than dropped. A token
+  carries `allow_otel` and the server carries `otel_bridge`; both have to line
+  up, because "does this deployment forward telemetry" and "may this tenant
+  ask it to" are different questions and one setting cannot answer both.
 
 - [x] **#66 An access log for the relays.** (triage 30) HTTP requests get a
   structured line each; TCP and UDP relay connections get nothing, so a

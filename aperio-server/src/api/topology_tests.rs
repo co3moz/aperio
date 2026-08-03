@@ -118,6 +118,7 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
       None,
       vec![],
       None,
+      false,
     );
     tokens.create(
       "not-yet".into(),
@@ -133,6 +134,7 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
       None,
       vec![],
       None,
+      false,
     );
   }
   state.clients.write().await.insert(
@@ -179,6 +181,7 @@ async fn an_expired_tokens_binds_are_not_expected_services() {
     None,
     vec![],
     None,
+    false,
   );
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
     .await

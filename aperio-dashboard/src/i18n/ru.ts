@@ -1002,4 +1002,6 @@ export const ru: Record<string, string> = {
   "no response": "нет ответа",
   idle: 'простаивает',
   '5 min': '5 мин',
+  "May send OpenTelemetry exports through the server's bridge": 'Может отправлять экспорт OpenTelemetry через мост сервера',
+  'may export otel': 'может слать otel',
 }

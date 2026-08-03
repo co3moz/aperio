@@ -39,3 +39,20 @@ fn the_master_token_is_named_rather_than_left_blank() {
     vec![("aperio.token".to_string(), "master".to_string())]
   );
 }
+
+#[test]
+fn the_bridge_needs_the_permission_on_the_token() {
+  // The master token may, as it may everything else.
+  assert!(may_bridge(&ClientPerms::master()));
+
+  let mut perms = ClientPerms::master();
+  perms.master = false;
+  perms.allow_otel = false;
+  // Off by default, for the same reason `topics` is: a capability that
+  // switches itself on for every token that predates it is how a permission
+  // model quietly stops meaning anything.
+  assert!(!may_bridge(&perms));
+
+  perms.allow_otel = true;
+  assert!(may_bridge(&perms));
+}

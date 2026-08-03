@@ -204,6 +204,7 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
     None,
     Vec::new(),
     None,
+    false,
   );
 
   // Sorted order is what keeps Traefik from churning routers between polls.
@@ -230,6 +231,7 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
     None,
     Vec::new(),
     None,
+    false,
   );
   // The wildcard permission is not a hostname and must never become a router.
   assert_eq!(

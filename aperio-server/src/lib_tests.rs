@@ -2081,6 +2081,7 @@ async fn one_expiry_tick_warns_once_and_rearms_on_refresh() {
       None,
       vec![],
       None,
+      false,
     )
   };
   {
@@ -2099,6 +2100,7 @@ async fn one_expiry_tick_warns_once_and_rearms_on_refresh() {
       None,
       vec![],
       None,
+      false,
     );
   }
 

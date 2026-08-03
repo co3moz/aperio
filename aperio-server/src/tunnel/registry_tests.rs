@@ -13,6 +13,7 @@ fn perms(token_id: &str, org: Option<&str>, allow_bind: bool) -> ClientPerms {
     token_id: Some(token_id.to_string()),
     allow_public: false,
     allow_bind,
+    allow_otel: false,
     topics: Vec::new(),
     org_id: org.map(str::to_string),
     org_hostnames: Vec::new(),

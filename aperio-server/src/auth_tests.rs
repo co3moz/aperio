@@ -1133,6 +1133,7 @@ async fn authorize_tunnel_store_token_ip_and_alerts() {
     Some("org-7".to_string()),
     Vec::new(),
     None,
+    false,
   );
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
@@ -1182,6 +1183,7 @@ async fn authorize_tunnel_canary_trips_alert() {
     None,
     Vec::new(),
     None,
+    false,
   );
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());

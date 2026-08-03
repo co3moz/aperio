@@ -76,8 +76,8 @@ Mints a signed link that lets a visitor past the site's password or OIDC gate. S
 ```bash
 aperio-client api token list
 aperio-client api token create --name ci --hostname app.example.com --expire 30d \
-  [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] [--allow-public] [--canary]
-aperio-client api token update <id> [--name new] [--hostname ...] [--expire never] [--no-canary]
+  [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] [--allow-public] [--allow-otel] [--canary]
+aperio-client api token update <id> [--name new] [--hostname ...] [--expire never] [--allow-otel|--no-allow-otel] [--no-canary]
 aperio-client api token rotate <id> [--grace 1h]
 aperio-client api token revoke <id>
 aperio-client api token refresh [--secret apr_...]

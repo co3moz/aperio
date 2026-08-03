@@ -30,6 +30,7 @@ pub(crate) struct TokenView {
   pub(crate) max_connections: Option<u32>,
   pub(crate) allow_public: bool,
   pub(crate) allow_bind: bool,
+  pub(crate) allow_otel: bool,
   pub(crate) topics: Vec<String>,
   pub(crate) canary: bool,
 }
@@ -63,6 +64,7 @@ pub(crate) async fn tokens_list_handler(
       max_connections: t.max_connections,
       allow_public: t.allow_public,
       allow_bind: t.allow_bind,
+      allow_otel: t.allow_otel,
       topics: t.topics.clone(),
       canary: t.canary,
     })
@@ -101,6 +103,11 @@ pub(crate) struct TokenCreateRequest {
   /// same organization? Defaults to false.
   #[serde(default)]
   pub(crate) allow_bind: bool,
+  /// May clients using this token send OpenTelemetry exports through the
+  /// server's OTel bridge? Defaults to false, and the server's own
+  /// `otel_bridge` has to be on as well.
+  #[serde(default)]
+  pub(crate) allow_otel: bool,
   /// Topic filters this token may publish to and subscribe to, for messages
   /// between the clients of its organization. Empty (the default) = no
   /// messaging; `["#"]` = everything the organization can see.
@@ -134,6 +141,9 @@ pub(crate) struct TokenUpdateRequest {
   /// Absent = keep; true/false sets whether this token may bind other
   /// clients' tunnels in its organization.
   pub(crate) allow_bind: Option<bool>,
+  /// Absent = keep; true/false sets whether this token may use the OTel
+  /// bridge.
+  pub(crate) allow_otel: Option<bool>,
   /// Replaces the token's topic filters. `[]` withdraws messaging entirely.
   #[serde(default)]
   pub(crate) topics: Option<Vec<String>>,
@@ -326,6 +336,7 @@ pub(crate) async fn tokens_create_handler(
       org,
       topics,
       payload.max_connections.filter(|v| *v > 0),
+      payload.allow_otel,
     )
   };
   info!(
@@ -504,6 +515,7 @@ pub(crate) async fn tokens_update_handler(
     payload.canary,
     topics,
     payload.max_connections.map(Some),
+    payload.allow_otel,
   );
 
   match updated {

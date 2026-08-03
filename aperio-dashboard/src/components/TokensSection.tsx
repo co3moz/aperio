@@ -69,6 +69,7 @@ interface TokenFormState {
   maxConnections: string
   allowPublic: boolean
   allowBind: boolean
+  allowOtel: boolean
   /** Comma-separated topic filters; empty means messaging is not permitted. */
   topics: string
   canary: boolean
@@ -86,6 +87,7 @@ function formFromToken(tok: TokenView | null): TokenFormState {
     maxConnections: tok?.max_connections != null ? String(tok.max_connections) : '',
     allowPublic: tok?.allow_public ?? false,
     allowBind: tok?.allow_bind ?? false,
+    allowOtel: tok?.allow_otel ?? false,
     topics: (tok?.topics ?? []).join(', '),
     canary: tok?.canary ?? false,
   }
@@ -153,6 +155,7 @@ function TokenFormDialog({
             : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
+          allow_otel: form.allowOtel,
           topics: splitList(form.topics),
           canary: form.canary,
         })
@@ -176,6 +179,7 @@ function TokenFormDialog({
             : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
           allow_bind: form.allowBind,
+          allow_otel: form.allowOtel,
           topics: splitList(form.topics),
           canary: form.canary,
         })
@@ -296,6 +300,13 @@ function TokenFormDialog({
               onCheckedChange={(v) => setForm((f) => ({ ...f, allowBind: v === true }))}
             />
             {t("May bind other clients' tunnels in this organization")}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.allowOtel}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, allowOtel: v === true }))}
+            />
+            {t("May send OpenTelemetry exports through the server's bridge")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
@@ -451,6 +462,7 @@ export function TokensSection() {
                       )}
                       {tok.allow_public && <TintBadge tint="green">{t('public ok')}</TintBadge>}
                       {tok.allow_bind && <TintBadge tint="blue">{t('may bind')}</TintBadge>}
+                      {tok.allow_otel && <TintBadge tint="blue">{t('may export otel')}</TintBadge>}
                       {tok.topics.length > 0 && (
                         <TintBadge tint="blue">
                           {t('{count} topic(s)', { count: tok.topics.length })}

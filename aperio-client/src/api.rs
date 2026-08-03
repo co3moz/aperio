@@ -241,6 +241,10 @@ pub(crate) struct TokenCreateArgs {
   /// Allow clients using this token to publish services as public
   #[arg(long = "allow-public")]
   allow_public: bool,
+  /// Allow clients using this token to send OpenTelemetry exports through the
+  /// server's OTel bridge (the server's own otel_bridge must be on too)
+  #[arg(long = "allow-otel")]
+  allow_otel: bool,
   /// Mark the token as a canary: any successful auth raises an alert
   #[arg(long)]
   canary: bool,
@@ -271,6 +275,12 @@ pub(crate) struct TokenUpdateArgs {
   /// Forbid publishing public services
   #[arg(long = "no-allow-public", conflicts_with = "allow_public")]
   no_allow_public: bool,
+  /// Permit the OTel bridge
+  #[arg(long = "allow-otel")]
+  allow_otel: bool,
+  /// Withdraw the OTel bridge
+  #[arg(long = "no-allow-otel", conflicts_with = "allow_otel")]
+  no_allow_otel: bool,
   /// Turn the canary flag on
   #[arg(long)]
   canary: bool,
@@ -941,6 +951,7 @@ fn build_call(
       body.insert("paths".into(), json!(scope.paths));
       body.insert("allowed_ips".into(), json!(a.allowed_ips));
       body.insert("allow_public".into(), Value::Bool(a.allow_public));
+      body.insert("allow_otel".into(), Value::Bool(a.allow_otel));
       body.insert("canary".into(), Value::Bool(a.canary));
       put_opt(&mut body, "ttl_seconds", ttl_field(&a.expire, true)?);
       put_opt(&mut body, "max_rps", a.max_rps);
@@ -962,6 +973,9 @@ fn build_call(
       put_opt(&mut body, "ttl_seconds", ttl_field(&a.expire, false)?);
       put_opt(&mut body, "max_rps", a.max_rps);
       put_opt(&mut body, "daily_max_bytes", a.daily_max_bytes);
+      if a.allow_otel || a.no_allow_otel {
+        body.insert("allow_otel".into(), Value::Bool(a.allow_otel));
+      }
       if a.allow_public || a.no_allow_public {
         body.insert("allow_public".into(), Value::Bool(a.allow_public));
       }

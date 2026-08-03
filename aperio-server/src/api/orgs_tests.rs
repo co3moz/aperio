@@ -61,6 +61,7 @@ async fn list_reports_master_and_child_counts() {
     None,
     Vec::new(),
     None,
+    false,
   );
   state
     .users
@@ -87,6 +88,7 @@ async fn list_reports_master_and_child_counts() {
     Some(org_id.clone()),
     Vec::new(),
     None,
+    false,
   );
 
   let resp = orgs_list_handler(State(state.clone()), headers).await;
@@ -632,6 +634,7 @@ async fn usage_for_child_with_quota_and_members() {
     Some(org_id.clone()),
     Vec::new(),
     None,
+    false,
   );
 
   let resp = orgs_usage_handler(State(state.clone()), headers, Path(org_id.clone())).await;

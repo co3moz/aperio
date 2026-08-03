@@ -1760,6 +1760,13 @@ impl ConnCtx {
       );
       return;
     }
+    if !crate::api::otlp::may_bridge(&self.perms) {
+      warn!(
+        "Client {} sent an OTel export but its token does not carry allow_otel",
+        self.client_id
+      );
+      return;
+    }
     let path = match signal.as_str() {
       "traces" => "v1/traces",
       "metrics" => "v1/metrics",

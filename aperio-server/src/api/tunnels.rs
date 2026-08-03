@@ -216,6 +216,9 @@ pub(crate) async fn tunnels_create_handler(
       // Nor opening a fan of parallel connections: one preview hostname is
       // one service, and the server's own ceiling is the generous case here.
       None,
+      // Nor exporting telemetry through it. An ephemeral token exists for a
+      // preview URL; every capability it does not need is one it does not get.
+      false,
     )
   };
   info!(

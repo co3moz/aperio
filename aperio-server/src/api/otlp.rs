@@ -13,15 +13,17 @@
 //! telemetry could be written under another's name, which is worse than no
 //! telemetry, because it is believed.
 //!
-//! **It is off unless an operator turned it on.** This is an outbound path a
-//! client can drive, so it is a decision rather than a consequence of having
-//! `otel` enabled. While it is on, any client holding a valid tunnel token may
-//! export: the blast radius of an unwanted one is bounded telemetry volume,
-//! since the destination is the single collector the operator chose, every
-//! export is attributed to the token that sent it, and both the size and the
-//! rate are capped. A per-token permission is the obvious next turn of the
-//! screw and is not built yet; saying so is better than implying a gate that
-//! is not there.
+//! **Two switches, both off by default.** The server's `otel_bridge` says the
+//! server will forward at all; a token's `allow_otel` says this client may ask
+//! it to. Either alone is a refusal. The server switch is the operator's
+//! decision that an outbound path a client can drive should exist; the token
+//! flag is the decision about which clients get it, which is not the same
+//! question and should not be answered by the same setting.
+//!
+//! `allow_otel` defaults to false for the reason `topics` does: a capability
+//! that switches itself on for every token that predates it is how a
+//! permission model quietly stops meaning anything. The master token has it,
+//! as it has everything.
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -47,11 +49,12 @@ fn signal_path(signal: &str) -> Option<&'static str> {
 
 /// Handler for `POST /aperio/otlp/v1/{signal}`.
 #[utoipa::path(post, path = "/aperio/otlp/v1/{signal}", tag = "public",
-  description = "Forwards an OTLP protobuf export from a tunnel client to the server's configured collector. Authenticated with the tunnel token; the bridge must be enabled.",
+  description = "Forwards an OTLP protobuf export from a tunnel client to the server's configured collector. Authenticated with the tunnel token; the server's otel_bridge must be on and the token must carry allow_otel.",
   params(("signal" = String, Path, description = "traces, metrics or logs")),
   request_body(content = String, description = "An OTLP protobuf export", content_type = "application/x-protobuf"),
   responses((status = 200, description = "Accepted for delivery"),
             (status = 401, description = "Unknown tunnel token"),
+            (status = 403, description = "The token does not carry allow_otel"),
             (status = 404, description = "The bridge is off, or the signal is not one OTLP defines"),
             (status = 413, description = "Export too large"),
             (status = 502, description = "The collector refused it")))]
@@ -80,10 +83,25 @@ pub(crate) async fn otlp_handler(
   let Some(perms) = crate::auth::authorize_tunnel_token(&state, &headers, caller_ip).await else {
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
+  if !may_bridge(&perms) {
+    return (
+      StatusCode::FORBIDDEN,
+      "this token may not use the OTel bridge (set allow_otel on it)",
+    )
+      .into_response();
+  }
   match forward(&state, path, &identity(&perms), body).await {
     Ok(()) => StatusCode::OK.into_response(),
     Err(e) => (StatusCode::BAD_GATEWAY, e).into_response(),
   }
+}
+
+/// Whether a token may use the bridge.
+///
+/// The master token may, as it may everything else. A dynamic token needs
+/// `allow_otel` written on it.
+pub(crate) fn may_bridge(perms: &ClientPerms) -> bool {
+  perms.master || perms.allow_otel
 }
 
 /// Who this export belongs to, as resource attributes the server can vouch

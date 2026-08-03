@@ -478,6 +478,7 @@ async fn a_visitor_the_owning_tokens_would_reject_cannot_bill_a_cold_start() {
         None,
         vec![],
         None,
+        false,
       )
       .0
       .id

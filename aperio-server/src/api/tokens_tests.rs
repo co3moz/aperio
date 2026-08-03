@@ -26,6 +26,7 @@ fn create_req(name: &str) -> TokenCreateRequest {
     max_connections: None,
     allow_public: false,
     allow_bind: false,
+    allow_otel: false,
     topics: Vec::new(),
     canary: false,
   }
@@ -43,6 +44,7 @@ fn empty_update() -> TokenUpdateRequest {
     max_connections: None,
     allow_public: None,
     allow_bind: None,
+    allow_otel: None,
     topics: None,
     canary: None,
   }
@@ -64,6 +66,7 @@ async fn seed_token(state: &AppState, name: &str, org: Option<String>) -> String
     org,
     Vec::new(),
     None,
+    false,
   );
   record.id
 }
@@ -326,6 +329,7 @@ async fn update_ttl_zero_clears_expiry() {
     None,
     Vec::new(),
     None,
+    false,
   );
   let mut req = empty_update();
   req.ttl_seconds = Some(0);
@@ -516,6 +520,7 @@ async fn refresh_success_slides_expiry() {
     None,
     Vec::new(),
     None,
+    false,
   );
   let resp = tokens_refresh_handler(
     State(state.clone()),

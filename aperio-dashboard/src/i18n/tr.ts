@@ -1006,4 +1006,6 @@ export const tr: Record<string, string> = {
   "no response": "yanıt yok",
   idle: 'boşta',
   '5 min': '5 dk',
+  "May send OpenTelemetry exports through the server's bridge": 'Sunucunun köprüsü üzerinden OpenTelemetry verisi gönderebilir',
+  'may export otel': 'otel gönderebilir',
 }

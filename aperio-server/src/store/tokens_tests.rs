@@ -29,6 +29,7 @@ fn test_create_verify_revoke_persist() {
     None,
     Vec::new(),
     None,
+    false,
   );
   assert!(secret.starts_with("apr_"));
   assert_eq!(store.verify(&secret).unwrap().id, record.id);
@@ -93,6 +94,7 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
     None,
     Vec::new(),
     None,
+    false,
   );
   let first_expiry = record.expires_at.unwrap();
 
@@ -119,6 +121,7 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
     None,
     Vec::new(),
     None,
+    false,
   );
   assert!(store.refresh(&forever).is_none());
 
@@ -137,6 +140,7 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
     None,
     Vec::new(),
     None,
+    false,
   );
   assert!(store.refresh(&dead).is_none());
 
@@ -161,6 +165,7 @@ fn test_rotate_with_grace_period() {
     None,
     Vec::new(),
     None,
+    false,
   );
 
   // Rotation with a grace window: both secrets verify to the same record.
@@ -206,6 +211,7 @@ fn test_canary_flag_create_update_persist() {
     None,
     Vec::new(),
     None,
+    false,
   );
   assert!(record.canary);
 
@@ -228,6 +234,7 @@ fn test_canary_flag_create_update_persist() {
       None,
       None,
       Some(false),
+      None,
       None,
       None,
     )
@@ -255,6 +262,7 @@ fn test_pin_key_tofu_and_clear_on_rotate() {
     None,
     Vec::new(),
     None,
+    false,
   );
 
   // First key pins; the same key matches; a different key is a mismatch.
@@ -298,8 +306,70 @@ fn test_expired_token_rejected() {
     None,
     Vec::new(),
     None,
+    false,
   );
   // ttl 0 → expires_at == now → already expired
   assert!(store.verify(&secret).is_none());
   let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn allow_otel_is_off_for_a_token_created_without_it() {
+  let dir = temp_dir();
+  let mut store = TokenStore::load(&dir);
+  let (record, _) = store.create(
+    "edge".into(),
+    Vec::new(),
+    Vec::new(),
+    Vec::new(),
+    None,
+    None,
+    None,
+    false,
+    false,
+    false,
+    None,
+    Vec::new(),
+    None,
+    false,
+  );
+  assert!(!record.allow_otel);
+
+  // And it is editable on its own, without disturbing the rest.
+  let updated = store
+    .update(
+      &record.id,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(true),
+    )
+    .expect("the token exists");
+  assert!(updated.allow_otel);
+  assert!(!updated.allow_bind, "the other capabilities are untouched");
+  assert!(!updated.allow_public);
+}
+
+#[test]
+fn a_token_record_written_before_allow_otel_existed_loads_without_it() {
+  // `#[serde(default)]`: an upgrade must not fail to read the store, and the
+  // capability must not appear switched on for tokens that predate it.
+  let json = r#"{
+    "id": "t1", "name": "old", "token_hash": "h", "token_prefix": "apr_x",
+    "hostnames": [], "paths": [], "allowed_ips": [], "created_at": 0,
+    "expires_at": null, "ttl_seconds": null, "max_rps": null,
+    "daily_max_bytes": null, "allow_public": false, "canary": false,
+    "org_id": null
+  }"#;
+  let token: ApiToken = serde_json::from_str(json).expect("an old record still loads");
+  assert!(!token.allow_otel);
 }

@@ -197,6 +197,7 @@ export interface TokenView {
   max_connections: number | null
   allow_public: boolean
   allow_bind: boolean
+  allow_otel: boolean
   /** Topic filters this token may publish to and subscribe to. */
   topics: string[]
   canary: boolean
@@ -231,6 +232,7 @@ export interface TokenCreatePayload {
   max_connections?: number
   allow_public?: boolean
   allow_bind?: boolean
+  allow_otel?: boolean
   topics?: string[]
   canary?: boolean
 }
@@ -244,6 +246,7 @@ export interface TokenUpdatePayload {
   daily_max_bytes?: number
   allow_public?: boolean
   allow_bind?: boolean
+  allow_otel?: boolean
   topics?: string[]
   canary?: boolean
 }

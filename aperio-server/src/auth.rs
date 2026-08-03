@@ -591,6 +591,7 @@ pub(crate) async fn authorize_tunnel_token(
         token_id: Some(token.id.clone()),
         allow_public: token.allow_public,
         allow_bind: token.allow_bind,
+        allow_otel: token.allow_otel,
         topics: token.topics.clone(),
         org_id: token.org_id.clone(),
         max_connections: token.max_connections,

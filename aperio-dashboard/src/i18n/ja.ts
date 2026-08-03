@@ -1000,4 +1000,6 @@ export const ja: Record<string, string> = {
   "no response": "応答なし",
   idle: 'アイドル',
   '5 min': '5 分',
+  "May send OpenTelemetry exports through the server's bridge": 'サーバーのブリッジ経由で OpenTelemetry をエクスポートできます',
+  'may export otel': 'otel 送信可',
 }

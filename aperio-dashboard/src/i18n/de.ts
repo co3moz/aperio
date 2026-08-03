@@ -1004,4 +1004,6 @@ export const de: Record<string, string> = {
   "no response": "keine Antwort",
   idle: 'inaktiv',
   '5 min': '5 Min',
+  "May send OpenTelemetry exports through the server's bridge": 'Darf OpenTelemetry-Exporte über die Brücke des Servers senden',
+  'may export otel': 'darf OTel senden',
 }

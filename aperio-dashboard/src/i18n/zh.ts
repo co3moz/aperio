@@ -983,4 +983,6 @@ export const zh: Record<string, string> = {
   "no response": "无响应",
   idle: '空闲',
   '5 min': '5 分钟',
+  "May send OpenTelemetry exports through the server's bridge": '可通过服务器的桥接发送 OpenTelemetry 导出',
+  'may export otel': '可导出 otel',
 }
