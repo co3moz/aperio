@@ -134,15 +134,57 @@ readable without scrolling past what is already done.
   by noticing something in a table. A bell with unread state, fed from the
   existing SSE stream, org-scoped like everything else.
 
-- [ ] **#46 One WebSocket for several services of the same client process.**
-  (triage 40) Each service opens its own tunnel connection, so a client with
-  five services pays five readers, five writers and five sockets. The 2026-08
-  connection sweep found that on a machine where client and server share CPU,
-  fewer connections is measurably faster, which is the argument for this. The
-  argument against is that a connection currently *is* the unit of identity,
-  binds, `max_concurrent` and flow control, so multiplexing means teaching the
-  registry to hold several services behind one socket. Real work, not a tidy-up.
+- [ ] **#46 One WebSocket for several services of the same client process,
+  as an opt-in mode.** (triage 40) Each service opens its own tunnel
+  connection, so a client with five services pays five readers, five writers,
+  five sockets and five heartbeats. At five services nobody notices. At forty
+  it is forty of everything, and the ping/pong traffic alone is forty
+  round-trips per interval for one process, which is the case this exists for.
+  The 2026-08 connection sweep found that on a machine where client and server
+  share CPU fewer connections is measurably faster, which is the same argument
+  from the other end.
 
+  **What the code says today.** A connection *is* the unit of identity. The
+  Ping describes exactly one service: a single `path_bind`, one
+  `hostname_binds` list, one `target`, one `max_concurrent`, one `connections`.
+  On the server, `ClientHandle` is keyed by connection id and carries that
+  service's binds, health, permissions, announced limits and per-client
+  statistics. Routing, load balancing, failover tiers, the dashboard's client
+  table, per-service bandwidth and the `--bind-tunnels` registry all key on
+  that handle. So the architecture does **not** support this today, and saying
+  so is the point of this entry.
+
+  **What it would take.** A protocol version bump (v8), and in it: a service
+  *list* in the handshake/Ping instead of the current singular fields; a
+  service selector on every server-to-client frame; and `ClientHandle` split
+  so its identity is `(connection, service)` rather than `connection`.
+  Everything keyed on the handle follows from that split.
+
+  **Its relationship with what has already shipped, which is the part not to
+  forget.** Three completed items assume one connection = one service, and
+  this contradicts all three:
+  - **#48 (`connections: {min, max}`)** scales *one service's* connection pool
+    with load. #46 goes the other way, many services per connection. They are
+    not opposites, they compose: together they mean "sockets proportional to
+    load, not to service count", which is the right target. But the elastic
+    pool's growth signal is per-service in-flight, and under multiplexing
+    in-flight would have to be attributed per service on a shared socket.
+  - **#24 (client-side chunk coalescing)** and **#38 (server writer batching
+    and pacing)** both assume one writer serves one service. Multiplexed, a
+    service streaming a large response would queue its frames ahead of a small
+    API's on the same writer, which is head-of-line blocking between unrelated
+    services. Splitting flow control and the pacer per service on a shared
+    socket is part of this work, not a follow-up to it.
+  - **#37 (client health telemetry)** reports RTT, jitter and reconnects per
+    connection. Multiplexed, those become properties of the process rather
+    than of a service, which is arguably more useful but is a reporting change
+    that has to be made deliberately.
+
+  **Shape.** An opt-in mode (`multiplex: true` or similar), not a default. The
+  per-connection model is simpler, is what every deployment runs today, and is
+  faster for the small-service-count case that most deployments are. The mode
+  is the open door for the operator with forty services, who is the only one
+  who pays for the current design.
 - [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
   Two threshold rules exist and are hard-coded: error rate and client-down
   (`alerts.rs`). Everything else an operator might want to be told about,
