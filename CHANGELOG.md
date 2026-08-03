@@ -14,6 +14,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **The OTel bridge buffered an export in full before checking its size.** The 8 MB fence was applied after the body had already been collected, which made it a description of what was in memory rather than a limit on it: a sender shipping something enormous was read to the end and only then refused, and several at once multiplied that. The fence is applied while reading now, so an oversized export is cut off at the fence.
+
 - **A gRPC health probe could hang forever on a backend that sent headers and nothing else.** The timeout covered reaching the backend and receiving the response head; reading the body and trailers, which is where `grpc-status` and the `SERVING` value actually come from, sat outside it. A backend that answered `200` and then went quiet held the probe for the life of the process, and a probe that cannot finish cannot fail, so the backend kept whatever verdict it last had. The body is under the same budget as the head now.
 
 - **A `min_tls_version` this build cannot honour no longer takes the whole client down on a reload.** The value was parsed inside the running service task, which had nowhere to return an error to and so called `process::exit(1)`: one typo in a hot-reloaded file ended every service in it, when the contract for a bad reload is a warning and the previous configuration kept. It is validated on the config path now, before any service is spawned, so a bad value is refused the same way every other invalid setting is, and `--check-config` reports it too, which it could not before because nothing on the validation path ever parsed the field.

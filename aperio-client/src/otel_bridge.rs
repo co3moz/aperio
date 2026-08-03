@@ -183,14 +183,17 @@ fn text(status: StatusCode, message: &str) -> Response<BridgeBody> {
 }
 
 /// Reads a request body, refusing one larger than the fence.
+///
+/// The fence is applied *while* reading, not after. Collecting first and
+/// measuring afterwards means the fence only ever describes what was already
+/// in memory: a sender that ignores it, or simply one misconfigured to ship
+/// something enormous, is buffered in full before being told no, and several
+/// at once multiply that.
 async fn read_body(req: Request<hyper::body::Incoming>) -> Result<bytes::Bytes, ()> {
   use http_body_util::BodyExt;
-  let collected = req.into_body().collect().await.map_err(|_| ())?;
-  let bytes = collected.to_bytes();
-  if bytes.len() > MAX_EXPORT_BYTES {
-    return Err(());
-  }
-  Ok(bytes)
+  let limited = http_body_util::Limited::new(req.into_body(), MAX_EXPORT_BYTES);
+  let collected = limited.collect().await.map_err(|_| ())?;
+  Ok(collected.to_bytes())
 }
 
 /// Handles one OTLP/HTTP export.

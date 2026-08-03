@@ -85,3 +85,37 @@ async fn a_full_queue_drops_instead_of_waiting() {
   assert!(!offer(&tx, export()));
   assert_eq!(dropped(), before + 1);
 }
+
+#[tokio::test]
+async fn an_oversized_export_is_refused_without_being_buffered() {
+  use http_body_util::BodyExt;
+
+  // The fence used to be applied after `collect()`, which made it a
+  // description of what was already in memory rather than a limit on it. What
+  // pins that down is not the refusal, which happened before too, but where
+  // the reader stops: a body that streams far more than the fence must be cut
+  // off at the fence, not read to its end and then measured.
+  let read = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let counter = read.clone();
+  const CHUNK: usize = 1024 * 1024;
+  let frames = futures_util::stream::repeat_with(move || {
+    counter.fetch_add(CHUNK, std::sync::atomic::Ordering::Relaxed);
+    Ok::<_, std::io::Error>(hyper::body::Frame::data(bytes::Bytes::from(vec![
+      0u8;
+      CHUNK
+    ])))
+  });
+  let body = http_body_util::StreamBody::new(frames);
+  let limited = http_body_util::Limited::new(body, MAX_EXPORT_BYTES);
+
+  assert!(
+    limited.collect().await.is_err(),
+    "a body past the fence is refused"
+  );
+  let buffered = read.load(std::sync::atomic::Ordering::Relaxed);
+  assert!(
+    buffered <= MAX_EXPORT_BYTES + CHUNK,
+    "read {buffered} bytes for an {MAX_EXPORT_BYTES}-byte fence: the body is \
+     still being collected before it is measured"
+  );
+}
