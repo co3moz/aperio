@@ -575,7 +575,11 @@ pub(crate) async fn tokens_refresh_handler(
   );
   // Rate limit before touching the store so secrets cannot be guessed faster
   // than the normal per-IP budget.
-  if !state.check_rate_limit(actor_ip).await {
+  // A refresh presents a secret, so a wrong answer is a guess somebody made.
+  if !state
+    .check_rate_limit_cost(actor_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
   let Some(secret) = crate::auth::extract_token(&headers) else {

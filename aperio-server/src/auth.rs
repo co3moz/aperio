@@ -148,7 +148,11 @@ pub(crate) async fn auth_login_handler(
     cfg.real_ip_header.as_deref(),
     &cfg.trusted_proxies,
   );
-  if !state.check_rate_limit(client_ip).await {
+  // The bucket is the only thing between a stolen password list and this server.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return Err(StatusCode::TOO_MANY_REQUESTS);
   }
   // Brute-force lockout: an IP over the failed-login threshold is refused
@@ -1099,7 +1103,11 @@ pub(crate) async fn oidc_login_handler(
     state.config().real_ip_header.as_deref(),
     &state.config().trusted_proxies,
   );
-  if !state.check_rate_limit(caller_ip).await {
+  // Priced as a credential attempt: this begins a login.
+  if !state
+    .check_rate_limit_cost(caller_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
   let redirect_after = query
@@ -1170,7 +1178,11 @@ pub(crate) async fn oidc_callback_handler(
     state.config().real_ip_header.as_deref(),
     &state.config().trusted_proxies,
   );
-  if !state.check_rate_limit(caller_ip).await {
+  // Priced as a credential attempt: the callback carries the code that becomes a session.
+  if !state
+    .check_rate_limit_cost(caller_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
   }
   let (Some(code), Some(state_param)) = (query.get("code"), query.get("state")) else {

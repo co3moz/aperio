@@ -141,14 +141,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#64 Differentiated rate budgets for the admin API.** (triage 30, cut
-  from a proposed 85 whose premise was wrong.) The admin surface *is* rate
-  limited: `check_rate_limit` runs on login, token creation, the tunnels API,
-  the WebAuthn ceremonies, expose and the TCP endpoints, all against the same
-  per-IP bucket. What is missing is a budget per endpoint class, so that a
-  login attempt, a token creation and a full export are not charged the same,
-  which is a much smaller idea than "the admin API has no rate limiting".
-
 - [ ] **#67 Chunked transfer fidelity.** (triage 30) `Transfer-Encoding` is
   stripped and the body is re-framed by our own streaming, which is correct for
   every case we know of but means a backend's chunk boundaries are not the
@@ -369,6 +361,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#64 Differentiated rate budgets for the admin API.** (triage 30, cut
+  from a proposed 85 whose premise was wrong.) The admin surface *is* rate
+  limited: `check_rate_limit` runs on login, token creation, the tunnels API,
+  the WebAuthn ceremonies, expose and the TCP endpoints, all against the same
+  per-IP bucket. What is missing is a budget per endpoint class, so that a
+  login attempt, a token creation and a full export are not charged the same.
+  shipped: a `RateCost` on the same bucket, `Cheap` (1), `Guessable` (5) for
+  anything that authenticates a credential, `Expensive` (10) for anything that
+  provisions or reads the whole store. Deliberately **one** bucket at
+  different prices rather than a bucket per class: separate buckets would let
+  an attacker spend a full allowance on each, and the capacity being protected
+  is shared anyway. The prices are ratios, not measurements; sizing stays
+  `ip_limit_max`. Export and import had no rate limit at all before this.
 
 - [x] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
   (1) of the original entry shipped (`stream.pause_bytes` /

@@ -146,6 +146,22 @@ pub(crate) async fn export_handler(
   headers: HeaderMap,
   Query(query): Query<ExportQuery>,
 ) -> Response {
+  // The one call that reads every table in the store, and it was charged the same as a page view.
+  // Priced up because of what it costs the server, not because it is
+  // suspicious: the caller is already a master admin.
+  let caller_ip = crate::routing::extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  if !state
+    .check_rate_limit_cost(caller_ip, crate::state::RateCost::Expensive)
+    .await
+  {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
   // The dump spans every organization's tokens, users, webhooks, and orgs,
   // a whole-server backup, restricted to the master super-admin.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
@@ -414,6 +430,22 @@ pub(crate) async fn import_handler(
   headers: HeaderMap,
   Json(dump): Json<ImportDump>,
 ) -> Response {
+  // The one call that rewrites every table in the store, and it was charged the same as a page view.
+  // Priced up because of what it costs the server, not because it is
+  // suspicious: the caller is already a master admin.
+  let caller_ip = crate::routing::extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  if !state
+    .check_rate_limit_cost(caller_ip, crate::state::RateCost::Expensive)
+    .await
+  {
+    return (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests").into_response();
+  }
   // Import replaces every organization's stores, master super-admin only.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
     return resp;

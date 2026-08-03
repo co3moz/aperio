@@ -1933,6 +1933,37 @@ pub(crate) struct AppState {
   pub(crate) stream_counts: Arc<std::sync::Mutex<HashMap<std::net::IpAddr, u32>>>,
 }
 
+/// What one call costs against the per-IP bucket (planned_features #64).
+///
+/// The prices are ratios rather than measurements: what matters is that the
+/// three are ordered and separated, not that `Expensive` is exactly ten
+/// requests' worth. Sizing the bucket is still `ip_limit_max`, and an operator
+/// who wants a different shape moves that.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RateCost {
+  /// A read, a proxied request, a tunnel handshake. The ordinary price, and
+  /// what the whole surface used to be charged.
+  Cheap,
+  /// Something that authenticates a credential, so a wrong answer is a guess
+  /// somebody made: login, WebAuthn, TOTP. Priced up because the bucket is
+  /// the only thing standing between a stolen password list and this server.
+  Guessable,
+  /// Something that writes, provisions or reads the whole store: creating a
+  /// token, provisioning an ephemeral tunnel, an export. Priced up because it
+  /// costs the server far more than a page view, not because it is suspicious.
+  Expensive,
+}
+
+impl RateCost {
+  fn tokens(self) -> f64 {
+    match self {
+      RateCost::Cheap => 1.0,
+      RateCost::Guessable => 5.0,
+      RateCost::Expensive => 10.0,
+    }
+  }
+}
+
 /// RAII slot in the global proxied-request concurrency limit; the slot is
 /// released when dropped.
 pub(crate) struct RequestSlot(Arc<AtomicUsize>);
@@ -2676,6 +2707,27 @@ impl AppState {
   }
 
   pub(crate) async fn check_rate_limit(&self, ip: IpAddr) -> bool {
+    self.check_rate_limit_cost(ip, RateCost::Cheap).await
+  }
+
+  /// The same bucket, charged by what the request costs to serve
+  /// (planned_features #64).
+  ///
+  /// Every admin call used to take exactly one token, so a login attempt, a
+  /// token creation and a full export were charged the same. Two things follow
+  /// from that, and both are wrong in the same way. A brute-force attempt gets
+  /// the whole budget of a bucket sized for ordinary reads, and an operator
+  /// running one legitimate export spends the same as one page view while
+  /// costing the server a thousand times more.
+  ///
+  /// One bucket, different prices, rather than a bucket per class: separate
+  /// buckets would let an attacker spend a full allowance on *each*, and the
+  /// thing being protected, this server's capacity, is shared anyway.
+  pub(crate) async fn check_rate_limit_cost(&self, ip: IpAddr, cost: RateCost) -> bool {
+    self.charge_rate_limit(ip, cost.tokens()).await
+  }
+
+  async fn charge_rate_limit(&self, ip: IpAddr, cost: f64) -> bool {
     let mut limit_map = self.rate_limiter.lock().await;
     let now = Instant::now();
 
@@ -2700,8 +2752,8 @@ impl AppState {
     state.tokens = (state.tokens + elapsed * refill_rate).min(max_tokens);
     state.last_updated = now;
 
-    if state.tokens >= 1.0 {
-      state.tokens -= 1.0;
+    if state.tokens >= cost {
+      state.tokens -= cost;
       true
     } else {
       false

@@ -716,6 +716,8 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `APERIO_INSPECTOR` | `0`/`false` = do not record transactions for the request inspector. On by default. Off gives back a mutex, two header clones and a capture entry per proxied request, at the cost of not being able to inspect or replay anything. A client may opt out for one service with `capture: false`. | `1` (on) |
 | `APERIO_ACCESS_EVENTS` | `0`/`false` = do not emit the per-request structured access event for a **successful** request (`target: aperio_access`, level `info`). On by default. Distinct from `LOG_LEVEL`: it silences the one-per-request line and leaves warnings and errors where they are, so a refused or failed request still logs, at `warn`. The access log *file* (`APERIO_ACCESS_LOG`) is separate and unaffected. | `1` (on) |
 | `APERIO_IP_LIMIT_MAX` | Per-IP token bucket burst capacity. | `100` |
+
+Not every call costs one token. A credential attempt (login, OIDC, WebAuthn, a token refresh) costs five, and something that provisions or reads the whole store (an ephemeral tunnel, an export, an import) costs ten. One bucket at different prices rather than a bucket per class: separate buckets would let an attacker spend a full allowance on each, and the thing being protected, this server's capacity, is shared anyway. A refused call is not charged, since it was never served.
 | `APERIO_IP_LIMIT_REFILL` | Per-IP refill rate (requests/second). | `5` |
 | `APERIO_LOGIN_LOCKOUT_THRESHOLD` | Consecutive failed logins from one IP before it is locked out. | `5` |
 | `APERIO_LOGIN_LOCKOUT_SECS` | Base lockout window in seconds; doubles with each repeat lockout (capped at 1 h). A successful login resets the state. | `60` |

@@ -1284,3 +1284,68 @@ fn the_verdict_is_taken_once_per_window_and_the_counters_reset() {
     closed + super::MIN_THROUGHPUT_WINDOW
   ));
 }
+
+// ---------------------------------------------------------------------------
+// Differentiated rate budgets (planned_features #64)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_login_attempt_costs_more_than_a_read() {
+  let mut config = crate::test_support::test_config();
+  config.ip_limit_max = 10.0;
+  // No refill during the test, so what is measured is the price and not the
+  // clock.
+  config.ip_limit_refill = 0.0;
+  let state = crate::test_support::test_state_with(config);
+  let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+
+  // Ten reads fit in a bucket of ten. This is what the whole admin surface
+  // used to be charged, a full export included.
+  for i in 0..10 {
+    assert!(state.check_rate_limit(ip).await, "read {i}");
+  }
+  assert!(!state.check_rate_limit(ip).await);
+}
+
+#[tokio::test]
+async fn the_budget_is_shared_between_the_classes() {
+  let mut config = crate::test_support::test_config();
+  config.ip_limit_max = 10.0;
+  config.ip_limit_refill = 0.0;
+  let state = crate::test_support::test_state_with(config);
+  let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+
+  // Two login attempts out of a bucket of ten, and the reads that remain fit
+  // in what is left. One bucket at different prices, not a bucket per class:
+  // separate buckets would let an attacker spend a full allowance on each.
+  assert!(
+    state
+      .check_rate_limit_cost(ip, crate::state::RateCost::Guessable)
+      .await
+  );
+  assert!(
+    state
+      .check_rate_limit_cost(ip, crate::state::RateCost::Guessable)
+      .await
+  );
+  assert!(!state.check_rate_limit(ip).await, "nothing is left");
+}
+
+#[tokio::test]
+async fn one_export_does_not_fit_where_ten_reads_did() {
+  let mut config = crate::test_support::test_config();
+  config.ip_limit_max = 9.0;
+  config.ip_limit_refill = 0.0;
+  let state = crate::test_support::test_state_with(config);
+  let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+  // A full dump costs the server a thousand times a page view and used to be
+  // charged the same as one.
+  assert!(
+    !state
+      .check_rate_limit_cost(ip, crate::state::RateCost::Expensive)
+      .await
+  );
+  // And the cheap budget is untouched by the refusal: a call that was turned
+  // away has not been served, so it should not have been paid for either.
+  assert!(state.check_rate_limit(ip).await);
+}

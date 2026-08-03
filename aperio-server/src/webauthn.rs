@@ -430,7 +430,11 @@ pub(crate) async fn passkey_login_start_handler(
     cfg.real_ip_header.as_deref(),
     &cfg.trusted_proxies,
   );
-  if !state.check_rate_limit(client_ip).await {
+  // A credential ceremony, priced like any other login attempt.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return (StatusCode::TOO_MANY_REQUESTS, "Rate limited").into_response();
   }
   if state
@@ -621,7 +625,11 @@ pub(crate) async fn passkey_discoverable_start_handler(
     cfg.real_ip_header.as_deref(),
     &cfg.trusted_proxies,
   );
-  if !state.check_rate_limit(client_ip).await {
+  // A credential ceremony, priced like any other login attempt.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Guessable)
+    .await
+  {
     return (StatusCode::TOO_MANY_REQUESTS, "Rate limited").into_response();
   }
   if state

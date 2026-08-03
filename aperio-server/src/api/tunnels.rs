@@ -90,7 +90,11 @@ pub(crate) async fn tunnels_create_handler(
     &state.config().trusted_proxies,
   );
   // Rate limit before auth so credential guessing is throttled like login.
-  if !state.check_rate_limit(client_ip).await {
+  // Provisioning mints a token and writes the store: far more than a page view.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Expensive)
+    .await
+  {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
   if !tunnel_api_authorized(&state, &headers).await {
@@ -285,7 +289,11 @@ pub(crate) async fn tunnels_delete_handler(
     state.config().real_ip_header.as_deref(),
     &state.config().trusted_proxies,
   );
-  if !state.check_rate_limit(client_ip).await {
+  // Deleting a tunnel writes the store.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Expensive)
+    .await
+  {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
   if !tunnel_api_authorized(&state, &headers).await {
