@@ -200,6 +200,32 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     // Version to confirm at release (CLAUDE.md rule 19): written before the
     // number of the release carrying it was decided.
     version: "0.9.0",
+    surface: ConfigSurface::Client,
+    // Breaking rather than Migration: a sequence that used to be literal text
+    // is now a substitution, so a file that contains it stops meaning what it
+    // says. Nothing was translated for anybody.
+    //
+    // Always, not WhenSet, and this is the unusual one: the affected files are
+    // those whose *values* contain `${`, under any key at all, so there is no
+    // set of field names that identifies them. `fields` names the keys most
+    // likely to carry it (a `run:` command using shell syntax above all), but
+    // the notice has to reach everyone, because the people who cannot be
+    // identified by a key name are exactly the ones who need to look.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::Always,
+    fields: &["run", "headers", "auth", "psk", "token", "custom_name"],
+    summary: "`${NAME}` in a client config file is now expanded from the environment before the \
+              yaml is parsed; it used to be literal text",
+    action: "check the file for `${`. A shell snippet in a `run:` command is the likely one: \
+             `run: echo ${MESSAGE}` now substitutes the client's own environment at load time, and \
+             fails to start when the variable is unset. Write `$MESSAGE` instead, which is left \
+             exactly as it is, or `${MESSAGE:-}` to supply a default. A literal `${` in a password \
+             or a header value needs the same treatment.",
+  },
+  ConfigChange {
+    // Version to confirm at release (CLAUDE.md rule 19): written before the
+    // number of the release carrying it was decided.
+    version: "0.9.0",
     surface: ConfigSurface::Server,
     // Migration rather than Breaking: nothing stops working and no key
     // changed meaning, but every backend starts receiving a header it did
