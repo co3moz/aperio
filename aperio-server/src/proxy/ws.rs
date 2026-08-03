@@ -261,6 +261,14 @@ pub(crate) async fn handle_ws_proxy(
       },
     );
   }
+  // Same backstop as a proxied request: a visitor that goes away while the
+  // upgrade is in flight drops this handler, and the explicit removals below
+  // are all on paths that are no longer running.
+  let _pending_guard = crate::state::PendingGuard::new(
+    state.clone(),
+    crate::state::PendingMap::Upgrades,
+    stream_id.clone(),
+  );
 
   // Register the relay before the request even goes out, so it is in place no
   // matter how quickly the client answers.

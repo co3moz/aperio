@@ -1868,6 +1868,69 @@ pub(crate) struct PendingRequest {
   pub(crate) client_id: String,
 }
 
+/// Which of the two waiting-for-a-client maps a [`PendingGuard`] belongs to.
+#[derive(Clone, Copy)]
+pub(crate) enum PendingMap {
+  Requests,
+  Upgrades,
+}
+
+/// Removes a pending entry when the handler that registered it goes away.
+///
+/// A proxied request registers itself, dispatches, and awaits the answer. If
+/// the visitor's connection drops, axum drops the handler future mid-await:
+/// the timeout is dropped with it and nothing removes the entry. The only
+/// sweep that ever reached it ran when the *serving client* disconnected, so
+/// under a long-lived client the map grew with every visitor that hung up,
+/// which is also an alert metric (`pending_requests`), so the leak reported
+/// itself as load.
+///
+/// Drop cannot await, so it takes the fast path when it can: `try_lock`
+/// succeeds in the ordinary case, and removing an id that the response path
+/// already took is a lookup that finds nothing. Only genuine contention pays
+/// for a task, and if there is no runtime left to spawn on the process is
+/// ending anyway.
+pub(crate) struct PendingGuard {
+  state: Option<Arc<AppState>>,
+  map: PendingMap,
+  id: String,
+}
+
+impl PendingGuard {
+  pub(crate) fn new(state: Arc<AppState>, map: PendingMap, id: String) -> PendingGuard {
+    PendingGuard {
+      state: Some(state),
+      map,
+      id,
+    }
+  }
+}
+
+impl Drop for PendingGuard {
+  fn drop(&mut self) {
+    let Some(state) = self.state.take() else {
+      return;
+    };
+    let map = self.map;
+    let id = std::mem::take(&mut self.id);
+    fn slot(s: &AppState, map: PendingMap) -> &Mutex<HashMap<String, PendingRequest>> {
+      match map {
+        PendingMap::Requests => &s.pending_requests,
+        PendingMap::Upgrades => &s.pending_upgrades,
+      }
+    }
+    if let Ok(mut pending) = slot(&state, map).try_lock() {
+      pending.remove(&id);
+      return;
+    }
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+      handle.spawn(async move {
+        slot(&state, map).lock().await.remove(&id);
+      });
+    }
+  }
+}
+
 /// Registered relay for a proxied public WebSocket: the sender that pushes
 /// tunnel frames to the public side, tagged with the serving client's id so a
 /// `WsData`/`WsClose` frame can be verified to come from the owning client.

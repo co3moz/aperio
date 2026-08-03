@@ -1512,6 +1512,16 @@ async fn proxy_http_request(
         },
       );
     }
+    // Takes the entry back out if this handler stops existing: a visitor that
+    // hangs up mid-request drops this future, and every explicit `remove`
+    // below is on a path that is no longer running. Held for the rest of the
+    // attempt; the response path removes the entry first in the ordinary
+    // case, and then this finds nothing.
+    let _pending_guard = crate::state::PendingGuard::new(
+      state.clone(),
+      crate::state::PendingMap::Requests,
+      request_id.clone(),
+    );
 
     // Dispatch: buffered requests go out as a single Request message;
     // streamed requests send RequestStart here and a pump task feeds the

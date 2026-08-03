@@ -965,6 +965,54 @@ async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
   assert!(!state.org_may_claim_hostname(Some(&id), "y.com").await);
 }
 
+#[tokio::test]
+async fn a_dropped_handler_takes_its_pending_entry_with_it() {
+  use crate::state::{PendingGuard, PendingMap, PendingRequest};
+
+  // A visitor that hangs up mid-request leaves axum dropping the handler
+  // future. Every removal in the proxy is on a path that is then no longer
+  // running, and the only sweep that reached the entry ran when the *serving
+  // client* disconnected, so under a long-lived client the map grew with
+  // every abandoned request. It is also an alert metric, so the leak
+  // reported itself as load.
+  let state = crate::test_support::test_state();
+  let state = std::sync::Arc::new(state);
+
+  {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    state.pending_requests.lock().await.insert(
+      "abandoned".to_string(),
+      PendingRequest {
+        tx,
+        client_id: "c1".to_string(),
+      },
+    );
+    let _guard = PendingGuard::new(state.clone(), PendingMap::Requests, "abandoned".to_string());
+    assert_eq!(state.pending_requests.lock().await.len(), 1);
+  }
+  // Dropped with the scope, exactly as the handler future is.
+  assert!(
+    state.pending_requests.lock().await.is_empty(),
+    "the entry outlived the handler that registered it"
+  );
+
+  // The ordinary path removes the entry first; the guard must then be a
+  // lookup that finds nothing rather than something that can go wrong.
+  {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    state.pending_upgrades.lock().await.insert(
+      "answered".to_string(),
+      PendingRequest {
+        tx,
+        client_id: "c1".to_string(),
+      },
+    );
+    let _guard = PendingGuard::new(state.clone(), PendingMap::Upgrades, "answered".to_string());
+    state.pending_upgrades.lock().await.remove("answered");
+  }
+  assert!(state.pending_upgrades.lock().await.is_empty());
+}
+
 // --- The activity ring behind the chart's long view ---
 
 #[test]
