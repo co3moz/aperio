@@ -32,7 +32,10 @@ const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
 /// Starts the local listener. Returns once it is bound, so a failure is
 /// reported at startup rather than on the first request.
-pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String> {
+pub(crate) async fn serve(
+  addr: &str,
+  bus: Arc<MessageBus>,
+) -> Result<tokio::task::JoinHandle<()>, String> {
   let listener = TcpListener::bind(addr)
     .await
     .map_err(|e| format!("cannot listen on {addr} for the message face: {e}"))?;
@@ -48,7 +51,7 @@ pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String
   }
   info!("Message face listening on http://{local} (GET /subscribe?topic=…, POST /publish?topic=…)");
 
-  tokio::spawn(async move {
+  Ok(tokio::spawn(async move {
     loop {
       match listener.accept().await {
         Ok((stream, peer)) => {
@@ -65,8 +68,7 @@ pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String
         }
       }
     }
-  });
-  Ok(())
+  }))
 }
 
 fn is_loopback(listener: &TcpListener) -> bool {

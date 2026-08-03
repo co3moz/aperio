@@ -2376,7 +2376,11 @@ pub struct StreamGroup {
 }
 
 /// The client's `otel_bridge:` block.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+///
+/// `PartialEq` so a config reload can notice that this block changed: the
+/// bridge is the one facility a running client cannot rebuild, so the change
+/// is reported rather than silently ignored.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OtelBridge {
   /// Address for the OTLP/HTTP receiver, the one every SDK can reach with

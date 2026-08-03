@@ -55,3 +55,37 @@ async fn one_connection_reconnecting_replaces_only_its_own_writer() {
   assert!(rx_old.try_recv().is_err(), "the replaced one is not");
   assert!(rx_sibling.try_recv().is_err(), "the sibling was detached");
 }
+
+#[tokio::test]
+async fn a_reload_replaces_the_configured_filters_and_keeps_held_ones() {
+  // The `subscribe:` list used to be read once at startup, so an edited one
+  // needed a restart while the documentation said every setting applies on
+  // reload.
+  let bus = MessageBus::new(vec!["a/#".to_string(), "b/#".to_string()]);
+  // A local subscriber, an SSE connection or an MQTT session, holding a
+  // filter the file never mentioned.
+  assert!(bus.hold_filter("live/#").await);
+
+  assert!(
+    bus
+      .set_filters(vec!["b/#".to_string(), "c/#".to_string()])
+      .await
+  );
+  let mut now = bus.filters().await;
+  now.sort();
+  assert_eq!(now, vec!["b/#", "c/#", "live/#"]);
+
+  // Setting the same list again is not a change, so nothing is resubscribed
+  // for it.
+  assert!(
+    !bus
+      .set_filters(vec!["b/#".to_string(), "c/#".to_string()])
+      .await
+  );
+
+  // The held one is still delivered to, and is still given back when its
+  // holder leaves rather than being kept for the life of the process.
+  assert!(bus.wants("live/x").await);
+  assert!(bus.release_filter("live/#").await);
+  assert!(!bus.wants("live/x").await);
+}

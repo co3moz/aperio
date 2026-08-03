@@ -257,40 +257,15 @@ pub async fn run() {
   // services so an application attaching immediately does not race the first
   // connection: the bus exists either way, and a publish before any tunnel is
   // up is refused with a reason rather than silently dropped.
-  if let Some(addr) = settings.messages_listen.clone()
-    && let Err(e) = crate::messages_http::serve(&addr, shared.messages.clone()).await
-  {
-    error!("CRITICAL ERROR: {}", e);
-    std::process::exit(1);
-  }
-  // Subscriptions that run something. Started before the services so a
-  // message arriving on the first connection already has somewhere to go.
-  crate::messages_run::spawn(
-    shared.messages.clone(),
-    settings
-      .subscribe
-      .iter()
-      .filter_map(|entry| {
-        entry.run.as_deref().map(|command| {
-          crate::messages_run::Runner::new(
-            entry.topic.clone(),
-            command.to_string(),
-            entry.timeout,
-            entry.max_concurrent,
-            entry
-              .env
-              .iter()
-              .map(|(k, v)| (k.clone(), v.clone()))
-              .collect(),
-          )
-        })
-      })
-      .collect(),
-  );
-
-  if let Some(addr) = settings.messages_mqtt_listen.clone()
-    && let Err(e) = crate::messages_mqtt::serve(&addr, shared.messages.clone()).await
-  {
+  // The message faces and the subscription runners. Started before the
+  // services so a message arriving on the first connection already has
+  // somewhere to go, and kept in `facilities` so a reload can apply changes
+  // to them: they used to be started once here and never looked at again, so
+  // a listener removed from the file went on listening and a new `subscribe:`
+  // entry needed a restart, while the documentation said every setting
+  // applies on reload.
+  let mut facilities = ProcessFacilities::default();
+  if let Err(e) = facilities.apply(&settings, &shared, true).await {
     error!("CRITICAL ERROR: {}", e);
     std::process::exit(1);
   }
@@ -328,16 +303,35 @@ pub async fn run() {
   // and then stayed quiet for the configured span, it drains and exits, so a
   // scale-to-zero service scales itself back in. The server never stops a
   // client; it only ever asks for more capacity.
-  if let Some(idle_secs) = settings.idle_timeout {
+  // Re-read on every pass rather than captured, so a reload can change it, and
+  // 0 means "not configured", which is also what a reload that removed the
+  // setting has to be able to say.
+  let idle_timeout = Arc::new(std::sync::atomic::AtomicU64::new(
+    settings.idle_timeout.unwrap_or(0),
+  ));
+  {
+    let idle_timeout = idle_timeout.clone();
     let shutting_down = shared.shutting_down.clone();
     let shutdown_notify = shared.shutdown_notify.clone();
     let last_request_at = shared.last_request_at.clone();
     let inflight_requests = shared.inflight_requests.clone();
     tokio::spawn(async move {
       loop {
-        tokio::time::sleep(Duration::from_secs(idle_secs.clamp(1, 30))).await;
+        // Unset polls slowly and decides nothing: it is a live cell now, and
+        // a reload that turns the setting on has to be picked up without a
+        // restart, so the loop cannot simply not exist.
+        let poll = match idle_timeout.load(Ordering::SeqCst) {
+          0 => 30,
+          secs => secs.clamp(1, 30),
+        };
+        tokio::time::sleep(Duration::from_secs(poll)).await;
         if shutting_down.load(Ordering::SeqCst) {
           return;
+        }
+        // Read after the sleep, so a reload during it is already in effect.
+        let idle_secs = idle_timeout.load(Ordering::SeqCst);
+        if idle_secs == 0 {
+          continue;
         }
         let last = last_request_at.load(Ordering::SeqCst);
         // Read after `last`, and read again below: a request that starts
@@ -460,6 +454,14 @@ pub async fn run() {
         };
         match build_specs(&s, &client_id, cli.target.is_some()) {
           Ok(new_specs) => {
+            // The process-wide facilities follow the same configuration the
+            // services are about to be rebuilt from, and only once it has
+            // been validated: a reload that is going to be rejected must not
+            // have moved a listener on its way to being rejected.
+            if let Err(e) = facilities.apply(&s, &shared, false).await {
+              warn!("Config reload from {}: {}", config_path, e);
+            }
+            idle_timeout.store(s.idle_timeout.unwrap_or(0), Ordering::SeqCst);
             for (cancel_tx, _) in &running {
               let _ = cancel_tx.send(true);
             }
@@ -1472,6 +1474,121 @@ fn validate_depends_on(specs: &[ServiceSpec]) -> Result<(), String> {
 ///
 /// `https` needs no queue on this side: the forwarder owns the receiver and
 /// posts to the server itself, so nothing has to reach into a service task.
+/// The process-wide facilities a reload has to be able to change: the two
+/// local message faces and the subscription runners.
+///
+/// They were started once, before the supervisor loop, from the settings of
+/// the first load. A reload rebuilt the services and nothing else, so a face
+/// the operator removed from the file kept listening, one whose address moved
+/// kept the old port, and an edited `subscribe:` block needed a restart, all
+/// while `docs/configuration.md` promised that every setting applies.
+///
+/// A face whose address is unchanged is deliberately left alone rather than
+/// rebound: rebinding drops the connections it is serving, and a reload that
+/// changed something else entirely has no business doing that.
+#[derive(Default)]
+struct ProcessFacilities {
+  http_face: Option<(String, tokio::task::JoinHandle<()>)>,
+  mqtt_face: Option<(String, tokio::task::JoinHandle<()>)>,
+  runners: Option<tokio::task::JoinHandle<()>>,
+  /// What `otel_bridge:` said at startup, to notice a reload that changes it.
+  otel_bridge: Option<aperio_config::OtelBridge>,
+}
+
+impl ProcessFacilities {
+  /// Brings the facilities in line with `settings`. On the first call a
+  /// listener that cannot bind is fatal, as it always was; on a reload it is
+  /// reported and the previous configuration for that face is kept, which is
+  /// what the rest of the reload path does.
+  async fn apply(
+    &mut self,
+    settings: &ClientSettings,
+    shared: &Shared,
+    first: bool,
+  ) -> Result<(), String> {
+    // The HTTP face.
+    let want = settings.messages_listen.clone();
+    if self.http_face.as_ref().map(|(a, _)| a.clone()) != want {
+      if let Some((addr, task)) = self.http_face.take() {
+        task.abort();
+        info!("Message face on {addr} stopped: the configuration no longer asks for it");
+      }
+      if let Some(addr) = want {
+        match crate::messages_http::serve(&addr, shared.messages.clone()).await {
+          Ok(task) => self.http_face = Some((addr, task)),
+          Err(e) if first => return Err(e),
+          Err(e) => warn!("{e}; keeping the previous message face configuration"),
+        }
+      }
+    }
+
+    // The MQTT face.
+    let want = settings.messages_mqtt_listen.clone();
+    if self.mqtt_face.as_ref().map(|(a, _)| a.clone()) != want {
+      if let Some((addr, task)) = self.mqtt_face.take() {
+        task.abort();
+        info!("MQTT face on {addr} stopped: the configuration no longer asks for it");
+      }
+      if let Some(addr) = want {
+        match crate::messages_mqtt::serve(&addr, shared.messages.clone()).await {
+          Ok(task) => self.mqtt_face = Some((addr, task)),
+          Err(e) if first => return Err(e),
+          Err(e) => warn!("{e}; keeping the previous MQTT face configuration"),
+        }
+      }
+    }
+
+    // Subscription filters. Replaced wholesale; a filter a local subscriber
+    // is still holding survives, because that subscriber is still there.
+    let topics: Vec<String> = settings.subscribe.iter().map(|e| e.topic.clone()).collect();
+    if shared.messages.set_filters(topics).await && !first {
+      shared.messages.resubscribe_all().await;
+      info!("Subscriptions reloaded");
+    }
+
+    // The runners. Restarted rather than diffed: a Runner owns its
+    // concurrency counter, and carrying one over from a command that changed
+    // would mean the new command inherits the old one's in-flight count.
+    let runners: Vec<crate::messages_run::Runner> = settings
+      .subscribe
+      .iter()
+      .filter_map(|entry| {
+        entry.run.as_deref().map(|command| {
+          crate::messages_run::Runner::new(
+            entry.topic.clone(),
+            command.to_string(),
+            entry.timeout,
+            entry.max_concurrent,
+            entry
+              .env
+              .iter()
+              .map(|(k, v)| (k.clone(), v.clone()))
+              .collect(),
+          )
+        })
+      })
+      .collect();
+    if let Some(task) = self.runners.take() {
+      task.abort();
+    }
+    self.runners = crate::messages_run::spawn(shared.messages.clone(), runners);
+
+    // The OTel bridge is the one facility a reload cannot rebuild: its
+    // receiving end is held by whichever tunnel connection is live, and
+    // moving that would mean handing every service a different queue
+    // mid-flight. Saying so is better than silently ignoring the edit, which
+    // is what happened before.
+    if !first && self.otel_bridge != settings.otel_bridge {
+      warn!(
+        "otel_bridge: changed in the configuration, but the bridge cannot be rebuilt while the \
+         client runs; restart to apply it"
+      );
+    }
+    self.otel_bridge = settings.otel_bridge.clone();
+    Ok(())
+  }
+}
+
 async fn start_otel_bridge(settings: &ClientSettings) -> Option<otel_bridge::Queue> {
   let cfg = settings.otel_bridge.as_ref()?;
   let http = cfg

@@ -70,9 +70,12 @@ impl Runner {
 }
 
 /// Watches the bus and runs what the runners ask for, until the process ends.
-pub(crate) fn spawn(bus: Arc<MessageBus>, runners: Vec<Runner>) {
+pub(crate) fn spawn(
+  bus: Arc<MessageBus>,
+  runners: Vec<Runner>,
+) -> Option<tokio::task::JoinHandle<()>> {
   if runners.is_empty() {
-    return;
+    return None;
   }
   for runner in &runners {
     info!(
@@ -84,7 +87,7 @@ pub(crate) fn spawn(bus: Arc<MessageBus>, runners: Vec<Runner>) {
     );
   }
   let runners = Arc::new(runners);
-  tokio::spawn(async move {
+  Some(tokio::spawn(async move {
     let mut deliveries = bus.listen();
     loop {
       match deliveries.recv().await {
@@ -101,7 +104,7 @@ pub(crate) fn spawn(bus: Arc<MessageBus>, runners: Vec<Runner>) {
         Err(_) => return,
       }
     }
-  });
+  }))
 }
 
 /// Starts one run, unless this subscription is already at its cap.

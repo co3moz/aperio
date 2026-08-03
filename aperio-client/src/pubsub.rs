@@ -97,6 +97,45 @@ impl MessageBus {
     })
   }
 
+  /// Replaces the configured filter set, for a config reload. Returns true
+  /// when it changed, so the caller only resubscribes when there is something
+  /// to say.
+  pub(crate) async fn set_filters(&self, topics: Vec<String>) -> bool {
+    let mut filters = self.filters.lock().await;
+    // Only the configured ones: a filter a local subscriber is holding is not
+    // part of what the file asked for, and comparing against it would make
+    // every reload look like a change.
+    let before: Vec<String> = filters
+      .iter()
+      .filter(|f| f.from_config)
+      .map(|f| f.pattern.clone())
+      .collect();
+    if before == topics {
+      return false;
+    }
+    // A filter a local subscriber is holding survives, whatever the file
+    // now says: an SSE connection or an MQTT session asked for it and is
+    // still there, and a reload is not a reason to stop delivering to it.
+    let held: Vec<Filter> = filters
+      .drain(..)
+      .filter(|f| f.holders > 0 && !topics.contains(&f.pattern))
+      .map(|f| Filter {
+        from_config: false,
+        ..f
+      })
+      .collect();
+    *filters = topics
+      .into_iter()
+      .map(|pattern| Filter {
+        pattern,
+        from_config: true,
+        holders: 0,
+      })
+      .chain(held)
+      .collect();
+    true
+  }
+
   pub(crate) async fn filters(&self) -> Vec<String> {
     self
       .filters

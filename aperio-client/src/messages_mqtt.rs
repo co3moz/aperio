@@ -49,7 +49,10 @@ const MAX_PACKET_BYTES: usize = 512 * 1024;
 
 /// Starts the MQTT listener. Returns once bound, so a port already in use is
 /// a startup failure rather than a surprise on first connect.
-pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String> {
+pub(crate) async fn serve(
+  addr: &str,
+  bus: Arc<MessageBus>,
+) -> Result<tokio::task::JoinHandle<()>, String> {
   let listener = TcpListener::bind(addr)
     .await
     .map_err(|e| format!("cannot listen on {addr} for the MQTT face: {e}"))?;
@@ -69,7 +72,7 @@ pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String
   }
   info!("MQTT face listening on mqtt://{local} (MQTT 3.1.1, QoS 0)");
 
-  tokio::spawn(async move {
+  Ok(tokio::spawn(async move {
     loop {
       match listener.accept().await {
         Ok((stream, peer)) => {
@@ -86,8 +89,7 @@ pub(crate) async fn serve(addr: &str, bus: Arc<MessageBus>) -> Result<(), String
         }
       }
     }
-  });
-  Ok(())
+  }))
 }
 
 /// One client connection, from CONNECT to disconnect.
