@@ -162,15 +162,29 @@ impl MessageBus {
     self.incoming.subscribe()
   }
 
-  /// Registers a live connection's writer under `label`.
-  pub(crate) async fn attach(&self, label: &str, tx: mpsc::Sender<Message>) {
+  /// Registers a live connection's writer.
+  ///
+  /// Keyed by the connection's own id, not by its service label. A service
+  /// with `connections: N` runs N connections that share a label, so keying
+  /// by label meant the second one to come up evicted the first, only ever
+  /// one writer was registered for the service, and the first connection to
+  /// drop took its sibling's writer with it: a live connection that could no
+  /// longer be published on, and a process that believed no tunnel was up.
+  ///
+  /// Replacing an entry with the same id is still right, and still happens:
+  /// that is one connection reconnecting, and its old writer is dead.
+  pub(crate) async fn attach(&self, connection_id: &str, tx: mpsc::Sender<Message>) {
     let mut writers = self.writers.lock().await;
-    writers.retain(|(l, _)| l != label);
-    writers.push((label.to_string(), tx));
+    writers.retain(|(id, _)| id != connection_id);
+    writers.push((connection_id.to_string(), tx));
   }
 
-  pub(crate) async fn detach(&self, label: &str) {
-    self.writers.lock().await.retain(|(l, _)| l != label);
+  pub(crate) async fn detach(&self, connection_id: &str) {
+    self
+      .writers
+      .lock()
+      .await
+      .retain(|(id, _)| id != connection_id);
   }
 
   /// Sends the current filter set on `tx`. Called once per connection, as it
@@ -304,3 +318,7 @@ impl MessageBus {
       .any(|f| topic_matches(&f.pattern, topic))
   }
 }
+
+#[cfg(test)]
+#[path = "pubsub_tests.rs"]
+mod tests;

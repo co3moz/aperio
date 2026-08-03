@@ -1293,9 +1293,12 @@ pub(crate) async fn run_service(
             {
               let bus = shared.messages.clone();
               let tx = tx_write.clone();
-              let label = label.clone();
+              // This connection's own id, not the service label: a service
+              // with `connections: N` shares one label across N connections,
+              // and the bus keys its writers by connection.
+              let connection_id = spec.client_id.clone();
               tokio::spawn(async move {
-                bus.attach(&label, tx.clone()).await;
+                bus.attach(&connection_id, tx.clone()).await;
                 bus.subscribe_on(&tx).await;
               });
             }
@@ -2167,7 +2170,7 @@ pub(crate) async fn run_service(
     // This connection's writer is gone: take it out of the bus so a publish
     // is not handed to a dead channel, and so "no tunnel connection is up"
     // stays a true statement when every one of them has dropped.
-    shared.messages.detach(&label).await;
+    shared.messages.detach(&spec.client_id).await;
 
     exit_if_shutting_down(&shared).await;
     if *cancel.borrow() {
