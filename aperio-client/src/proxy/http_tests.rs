@@ -1262,3 +1262,86 @@ fn tls_floor_refuses_a_value_it_does_not_understand() {
   assert!(tls_floor(Some("best")).is_err());
   assert!(tls_floor(Some("1.3.1")).is_err());
 }
+
+#[tokio::test]
+async fn a_connection_the_backend_had_already_closed_is_dialed_again_once() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  // An HTTP client keeps connections alive and reuses them, and the backend
+  // closes idle ones on its own schedule, so there is a window where the
+  // request goes onto a socket the backend has just finished with. hyper
+  // reports that as IncompleteMessage, with no response head, and it used to
+  // reach the visitor as a 502 even though nothing was wrong with the
+  // backend. Under load that window is hit constantly, which is why the same
+  // backend behind any mainstream proxy does not produce these.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+
+  tokio::spawn(async move {
+    // First connection: answer once, keeping it alive, then close the moment
+    // the next request arrives on it without answering. That is exactly the
+    // shape of an idle timeout that fires as a request is being written.
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0u8; 2048];
+      let _ = socket.read(&mut buf).await;
+      let _ = socket
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfirst")
+        .await;
+      let _ = socket.read(&mut buf).await;
+      drop(socket);
+    }
+    // Second connection: the re-dial, answered normally.
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0u8; 2048];
+      let _ = socket.read(&mut buf).await;
+      let _ = socket
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nsecond")
+        .await;
+      let mut sink = [0u8; 64];
+      while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
+    }
+  });
+
+  let (tx, _rx) = mpsc::channel::<Message>(64);
+  // Retrying is off, as it is by default: this is not the retry policy, which
+  // is about a backend that failed, it is the client's own pool racing the
+  // backend's idle timeout.
+  let ctx = test_ctx(&target_url, tx);
+  assert_eq!(ctx.resilience.attempts, 1);
+
+  let call = |n: u32| {
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: format!("req-pool-{n}"),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      None,
+      false,
+      false,
+    )
+  };
+
+  let Some(TunnelMessage::Response { status, .. }) = call(1).await else {
+    panic!("the first request should be answered");
+  };
+  assert_eq!(status, 200);
+
+  // The second goes onto the pooled connection the backend is about to drop.
+  let Some(TunnelMessage::Response { status, body, .. }) = call(2).await else {
+    panic!("the second request should be answered");
+  };
+  assert_eq!(
+    status, 200,
+    "a connection the backend had already closed must be dialed again, not reported as a 502"
+  );
+  use base64::prelude::*;
+  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+  assert_eq!(String::from_utf8(decoded).unwrap(), "second");
+}

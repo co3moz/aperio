@@ -6,7 +6,7 @@ use futures_util::FutureExt;
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, send_tunnel_msg};
 
@@ -502,6 +502,49 @@ pub(crate) struct ForwardRequest {
 }
 
 /// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
+/// Whether a failed request looks like a connection the backend had already
+/// closed, rather than a backend that is actually unwell.
+///
+/// An HTTP client keeps connections alive and reuses them. The backend closes
+/// idle ones on its own schedule, so there is an unavoidable window where the
+/// client writes a request onto a socket the backend has just finished with.
+/// hyper reports that as `IncompleteMessage`, or as a reset or a broken pipe:
+/// no response head ever arrives, and nothing is wrong with the backend.
+///
+/// This is worth telling apart because the answer is different. A backend
+/// that is failing should reach the visitor as a failure. A connection that
+/// was already dead should be dialed again, once, and the visitor should
+/// never learn it happened, which is what every mainstream HTTP client does
+/// and why the same backend behind nginx does not produce these 502s.
+///
+/// A connect-time error is excluded on purpose: nothing was reused there, so
+/// a refusal is the backend's real answer.
+fn is_stale_connection_error(e: &reqwest::Error) -> bool {
+  if e.is_connect() {
+    return false;
+  }
+  let mut source: Option<&(dyn std::error::Error + 'static)> = Some(e);
+  while let Some(err) = source {
+    if let Some(h) = err.downcast_ref::<hyper::Error>()
+      && h.is_incomplete_message()
+    {
+      return true;
+    }
+    if let Some(io) = err.downcast_ref::<std::io::Error>()
+      && matches!(
+        io.kind(),
+        std::io::ErrorKind::ConnectionReset
+          | std::io::ErrorKind::BrokenPipe
+          | std::io::ErrorKind::UnexpectedEof
+      )
+    {
+      return true;
+    }
+    source = err.source();
+  }
+  false
+}
+
 /// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request, and returns
 /// the response mapped back into a `TunnelMessage`.
 ///
@@ -662,11 +705,21 @@ pub(crate) async fn handle_incoming_request(
   // already consumed. Once a response head arrives we are past this point, so
   // an error later in the body is never retried here.
   let backend_sent_us = received_at.elapsed().as_micros() as u64;
-  let retries_allowed = ctx.resilience.attempts > 1 && ctx.resilience.may_retry_method(&method_str);
+  let method_retryable = ctx.resilience.may_retry_method(&method_str);
+  let retries_allowed = ctx.resilience.attempts > 1 && method_retryable;
   let mut attempt = 1u32;
   let mut backoff = ctx.resilience.backoff;
+  // One immediate re-dial for a connection the backend had already closed,
+  // available even with `retry.attempts: 1`. That is not the retry policy the
+  // operator turned off: the policy is about a backend that failed, and this
+  // is about the client's own connection pool racing the backend's idle
+  // timeout. It costs one extra dial, only for a request the same fences
+  // already allow to be replayed, and only when no response head arrived.
+  let mut redialed_stale = false;
   let outcome = loop {
-    let replay = if retries_allowed && attempt < ctx.resilience.attempts {
+    let policy_retry = retries_allowed && attempt < ctx.resilience.attempts;
+    let stale_retry_available = !redialed_stale && method_retryable;
+    let replay = if policy_retry || stale_retry_available {
       builder.try_clone()
     } else {
       None
@@ -678,17 +731,31 @@ pub(crate) async fn handle_incoming_request(
     let Some(next) = replay else {
       break result;
     };
-    warn!(
-      "Backend attempt {}/{} failed for request ID {}: {}; retrying in {}ms",
-      attempt,
-      ctx.resilience.attempts,
-      id,
-      e,
-      backoff.as_millis()
-    );
-    tokio::time::sleep(backoff).await;
-    backoff = backoff.saturating_mul(2);
-    attempt += 1;
+    if policy_retry {
+      warn!(
+        "Backend attempt {}/{} failed for request ID {}: {}; retrying in {}ms",
+        attempt,
+        ctx.resilience.attempts,
+        id,
+        e,
+        backoff.as_millis()
+      );
+      tokio::time::sleep(backoff).await;
+      backoff = backoff.saturating_mul(2);
+      attempt += 1;
+    } else {
+      if !is_stale_connection_error(e) {
+        break result;
+      }
+      // No backoff and no warning: this is the pool cleaning up after itself,
+      // not an incident. A second one on the same request is a backend that
+      // really is closing on us, and that reaches the visitor.
+      redialed_stale = true;
+      debug!(
+        "Backend closed a pooled connection for request ID {} ({}); dialing again once",
+        id, e
+      );
+    }
     builder = next;
   };
 
