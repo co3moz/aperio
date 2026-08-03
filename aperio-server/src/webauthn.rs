@@ -591,11 +591,7 @@ pub(crate) async fn passkey_login_finish_handler(
       bound_org: None,
     },
   );
-  let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
-  let cookie = format!(
-    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
-    session_token, secure_flag
-  );
+  let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
   Response::builder()
     .status(StatusCode::OK)
     .header("Set-Cookie", cookie)
@@ -843,11 +839,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       bound_org: None,
     },
   );
-  let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
-  let cookie = format!(
-    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
-    session_token, secure_flag
-  );
+  let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
   Response::builder()
     .status(StatusCode::OK)
     .header("Set-Cookie", cookie)

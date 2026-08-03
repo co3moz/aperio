@@ -379,13 +379,7 @@ pub(crate) async fn auth_login_handler(
     },
   );
 
-  let secure_flag = if cfg.secure_cookies { "; Secure" } else { "" };
-  let cookie = format!(
-    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
-    session_cookie_name(cfg.secure_cookies),
-    session_token,
-    secure_flag
-  );
+  let cookie = session_set_cookie(cfg.secure_cookies, &session_token);
 
   Ok(
     Response::builder()
@@ -409,6 +403,25 @@ pub(crate) const SESSION_COOKIE_SECURE: &str = "__Host-aperio_session";
 /// The name used when the prefix cannot be: `__Host-` requires `Secure`, so a
 /// plain-http deployment would have the browser reject the cookie outright.
 pub(crate) const SESSION_COOKIE_PLAIN: &str = "aperio_session";
+
+/// The `Set-Cookie` header value that issues a session, for every sign-in
+/// path there is.
+///
+/// A function rather than a format string repeated per path, because the
+/// repetition already went wrong once: password sign-in asked
+/// `session_cookie_name` for the name while OIDC and both passkey paths wrote
+/// `aperio_session=` verbatim, so signing in with a passkey handed out an
+/// unprefixed cookie on a deployment whose whole neighbour defence is the
+/// prefix. Whatever else drifts between these paths, the cookie they set
+/// cannot, because there is one place that spells it.
+pub(crate) fn session_set_cookie(secure: bool, token: &str) -> String {
+  format!(
+    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+    session_cookie_name(secure),
+    token,
+    if secure { "; Secure" } else { "" }
+  )
+}
 
 /// The cookie name this configuration issues.
 pub(crate) fn session_cookie_name(secure: bool) -> &'static str {
@@ -1362,15 +1375,7 @@ pub(crate) async fn oidc_callback_handler(
       bound_org: bound_org.clone(),
     },
   );
-  let secure_flag = if state.config().secure_cookies {
-    "; Secure"
-  } else {
-    ""
-  };
-  let cookie = format!(
-    "aperio_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
-    session_token, secure_flag
-  );
+  let cookie = session_set_cookie(state.config().secure_cookies, &session_token);
   Response::builder()
     .status(StatusCode::FOUND)
     .header("Set-Cookie", cookie)

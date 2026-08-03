@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- **Signing in with a passkey or through OIDC issued an unprefixed session cookie.** The dashboard's session cookie is named `__Host-aperio_session` wherever `secure_cookies` allows it, and that prefix is the whole defence for a server that also proxies other people's hostnames: a browser only lets the exact host set a `__Host-` cookie, so a tenant on a neighbouring subdomain cannot set one that the dashboard would read. Password sign-in asked for the right name; the OIDC callback and both passkey completions wrote `aperio_session=` verbatim, so users of those two paths held a cookie a neighbour could imitate, and a session someone else chose could be walked into an operator's browser. All four paths now go through one builder, and a test walks the server's own sources to fail the build if a future sign-in path formats the cookie by hand again.
+
 ### Fixed
 
 - **The activity chart covers two hours and a day, at a resolution that scales with the span.** The ranges are now 60 s, 15 min, 2 h and 1 d; the 5-minute view is gone, it was the same fifteen-minute ring cut short in the browser and sat too close to its neighbour to be worth a button. The server keeps three rings side by side, 5-second slices over a quarter hour, 2-minute slices over two hours and 15-minute slices over a day, so every range is about sixty cells whatever it covers: a day at five-second resolution would be seventeen thousand points per organization, drawn into a few hundred pixels. `GET /aperio/api/activity` takes a `range=15m|2h|1d` parameter and still answers with the quarter hour when it is absent or unrecognized, so a caller that predates it keeps exactly what it had.

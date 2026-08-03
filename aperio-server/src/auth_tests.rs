@@ -151,6 +151,72 @@ fn a_prefixed_session_cookie_cannot_be_displaced_by_a_neighbour() {
   assert_eq!(session_cookie_name(false), SESSION_COOKIE_PLAIN);
 }
 
+#[test]
+fn every_sign_in_path_issues_the_prefixed_cookie() {
+  // The prefix is the whole defence against a neighbouring tenant hostname:
+  // `__Host-` may only be set by the exact host, over https, so a cookie a
+  // tenant sets for the parent domain can never displace it. Password sign-in
+  // asked for the right name from the start; OIDC and both passkey paths
+  // wrote `aperio_session=` verbatim, which handed those users an unprefixed
+  // session on a deployment whose reader then could not tell it from one a
+  // neighbour set.
+  let secure = session_set_cookie(true, "tok");
+  assert!(secure.starts_with("__Host-aperio_session=tok;"), "{secure}");
+  assert!(secure.contains("; Secure"), "{secure}");
+  assert!(secure.contains("HttpOnly"), "{secure}");
+  assert!(secure.contains("Path=/"), "{secure}");
+  // Without https the prefix cannot be used at all: the browser would reject
+  // a `__Host-` cookie that is not `Secure`, so a plain deployment would lose
+  // its session entirely.
+  let plain = session_set_cookie(false, "tok");
+  assert!(plain.starts_with("aperio_session=tok;"), "{plain}");
+  assert!(!plain.contains("Secure"), "{plain}");
+}
+
+#[test]
+fn no_sign_in_path_spells_the_session_cookie_itself() {
+  // The parity check behind the test above: a fourth sign-in path added later
+  // would pass every functional test while quietly writing the name by hand
+  // again, which is exactly how this shipped. Nothing outside `auth.rs` may
+  // format a `Set-Cookie` for the session; there is one builder for it.
+  fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+      return;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        walk(&path, out);
+      } else if path.extension().is_some_and(|e| e == "rs")
+        && !path.to_string_lossy().contains("_tests")
+        && let Ok(text) = std::fs::read_to_string(&path)
+      {
+        if path.ends_with("auth.rs") {
+          continue;
+        }
+        // A literal that *issues* a cookie, told from the ones that merely
+        // name it (the constants, the reader, a request `Cookie:` header a
+        // test builds) by the attributes only a `Set-Cookie` carries.
+        for (i, _) in text.match_indices("aperio_session={") {
+          let tail = &text[i..(i + 160).min(text.len())];
+          if tail.contains("HttpOnly") {
+            let line = text[..i].matches('\n').count() + 1;
+            out.push(format!("{}:{}", path.display(), line));
+          }
+        }
+      }
+    }
+  }
+  let mut offenders = Vec::new();
+  walk(std::path::Path::new("src"), &mut offenders);
+  assert!(
+    offenders.is_empty(),
+    "these format a session cookie by hand instead of calling \
+     auth::session_set_cookie, so they cannot follow secure_cookies:\n  {}",
+    offenders.join("\n  ")
+  );
+}
+
 // --- token extraction -------------------------------------------------------
 
 #[test]
