@@ -621,6 +621,7 @@ async fn response_stream_lifecycle() {
       id: "s1".into(),
       status: 200,
       headers: vec![],
+      timings: None,
     },
   )
   .await;
@@ -712,6 +713,7 @@ async fn response_start_dropped_receiver_removes_stream() {
       id: "s1".into(),
       status: 200,
       headers: vec![],
+      timings: None,
     },
   )
   .await;

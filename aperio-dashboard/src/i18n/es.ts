@@ -621,6 +621,7 @@ export const es: Record<string, string> = {
   'client processing': 'procesado del cliente',
   'backend wait (first byte)': 'espera del backend (primer byte)',
   'backend body': 'cuerpo del backend',
+  'response head → tunnel (body still streaming)': 'cabecera de respuesta → túnel (cuerpo aún en curso)',
   'client → tunnel': 'cliente → túnel',
   'tunnel → server': 'túnel → servidor',
   'tunnel round-trip (client & backend)': 'ida y vuelta del túnel (cliente y backend)',

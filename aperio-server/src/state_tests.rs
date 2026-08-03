@@ -135,7 +135,7 @@ fn test_request_timeline_assembly() {
     Some(ClientTimings {
       backend_sent_us: 500,
       backend_first_byte_us: 6_000,
-      backend_done_us: 7_500,
+      backend_done_us: Some(7_500),
       respond_us: 8_000,
     }),
   );
@@ -178,7 +178,7 @@ fn test_request_timeline_assembly() {
     Some(ClientTimings {
       backend_sent_us: 1,
       backend_first_byte_us: 2,
-      backend_done_us: 3,
+      backend_done_us: Some(3),
       respond_us: 60_000,
     }),
   );
@@ -197,7 +197,7 @@ fn test_stage_window_stats_and_anomaly() {
       Some(crate::protocol::ClientTimings {
         backend_sent_us: 100,
         backend_first_byte_us: 100 + backend,
-        backend_done_us: 150 + backend,
+        backend_done_us: Some(150 + backend),
         respond_us: 200 + backend,
       }),
     )
@@ -759,7 +759,7 @@ fn request_timeline_assemble_anchors_client_offsets() {
     Some(ClientTimings {
       backend_sent_us: 500,
       backend_first_byte_us: 6_000,
-      backend_done_us: 7_500,
+      backend_done_us: Some(7_500),
       respond_us: 8_000,
     }),
   );
@@ -788,6 +788,39 @@ fn request_timeline_assemble_anchors_client_offsets() {
   assert!(!t.estimated_anchor);
   assert_eq!(t.client_received_us, None);
   assert_eq!(t.backend_sent_us, None);
+}
+
+#[test]
+fn the_head_of_a_streamed_response_carries_every_stage_but_the_body_end() {
+  use crate::protocol::ClientTimings;
+  use crate::state::RequestTimeline;
+
+  // A streamed response reports at the head, so `backend_done_us` has not
+  // happened yet. Before this the client sent nothing at all for a stream and
+  // the whole waterfall collapsed to one round-trip row, which meant the
+  // largest responses, the ones actually worth profiling, were the ones with
+  // no detail.
+  let t = RequestTimeline::assemble(
+    100,
+    10_000,
+    10_200,
+    Some(ClientTimings {
+      backend_sent_us: 500,
+      backend_first_byte_us: 6_000,
+      backend_done_us: None,
+      respond_us: 8_000,
+    }),
+  );
+  let anchor = 100 + (10_000 - 100 - 8_000) / 2;
+  assert!(t.estimated_anchor);
+  assert_eq!(t.client_received_us, Some(anchor));
+  assert_eq!(t.backend_sent_us, Some(anchor + 500));
+  assert_eq!(t.backend_first_byte_us, Some(anchor + 6_000));
+  assert_eq!(t.client_responded_us, Some(anchor + 8_000));
+  // The one hole, and it is the honest one: the body was still arriving.
+  assert_eq!(t.backend_done_us, None);
+  // Still inside the measured round trip, same as the buffered case.
+  assert!(t.client_responded_us.unwrap() <= t.response_received_us);
 }
 
 #[test]

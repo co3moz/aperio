@@ -297,6 +297,7 @@ pub(crate) async fn handle_incoming_request_h2(
             id: id.clone(),
             status,
             headers: res_headers.clone(),
+            timings: None,
           };
           if send_tunnel_msg(tunnel_tx, &start).await.is_err() {
             return None;

@@ -47,7 +47,6 @@ export function timelineStages(tl: RequestTimeline, t: TFn): Stage[] {
     tl.client_received_us != null &&
     tl.backend_sent_us != null &&
     tl.backend_first_byte_us != null &&
-    tl.backend_done_us != null &&
     tl.client_responded_us != null
   ) {
     stages.push(
@@ -69,18 +68,33 @@ export function timelineStages(tl: RequestTimeline, t: TFn): Stage[] {
         to: tl.backend_first_byte_us,
         estimated: true,
       },
-      {
-        label: t('backend body'),
-        from: tl.backend_first_byte_us,
-        to: tl.backend_done_us,
-        estimated: true,
-      },
-      {
-        label: t('client → tunnel'),
-        from: tl.backend_done_us,
-        to: tl.client_responded_us,
-        estimated: true,
-      },
+      // A streamed response reports at its head, where the body is still
+      // arriving, so the two rows below are one: how long the client took to
+      // get from the backend's first byte to handing the head to the tunnel.
+      // Splitting it would need an end for the body that has not happened.
+      ...(tl.backend_done_us != null
+        ? [
+            {
+              label: t('backend body'),
+              from: tl.backend_first_byte_us,
+              to: tl.backend_done_us,
+              estimated: true,
+            },
+            {
+              label: t('client → tunnel'),
+              from: tl.backend_done_us,
+              to: tl.client_responded_us,
+              estimated: true,
+            },
+          ]
+        : [
+            {
+              label: t('response head → tunnel (body still streaming)'),
+              from: tl.backend_first_byte_us,
+              to: tl.client_responded_us,
+              estimated: true,
+            },
+          ]),
       {
         label: t('tunnel → server'),
         from: tl.client_responded_us,

@@ -55,7 +55,7 @@ describe('timelineStages', () => {
     expect(stages[1].estimated).toBe(true)
   })
 
-  it('takes the coarse row when even one client stage is missing', () => {
+  it('takes the coarse row when a stage other than the body end is missing', () => {
     // Partial timings would draw a waterfall with a hole in it, which reads as
     // a measurement rather than as an absence.
     const stages = timelineStages(
@@ -70,6 +70,32 @@ describe('timelineStages', () => {
       t,
     )
     expect(stages).toHaveLength(3)
+  })
+
+  it('merges the last two rows when only the body end is missing', () => {
+    // The head of a streamed response: every stage up to the head is
+    // measured, and the body has not finished, so there is no end to draw.
+    const stages = timelineStages(
+      {
+        ...base,
+        client_received_us: 200,
+        backend_sent_us: 300,
+        backend_first_byte_us: 900,
+        client_responded_us: 1_600,
+      },
+      t,
+    )
+    expect(stages.map((s) => s.label)).toEqual([
+      'queued & routed',
+      'tunnel → client',
+      'client processing',
+      'backend wait (first byte)',
+      'response head → tunnel (body still streaming)',
+      'tunnel → server',
+      'server → visitor',
+    ])
+    expect(stages[4].from).toBe(900)
+    expect(stages[4].to).toBe(1_600)
   })
 
   it('covers the whole request without a gap', () => {

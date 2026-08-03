@@ -623,6 +623,7 @@ export const de: Record<string, string> = {
   'client processing': 'Client-Verarbeitung',
   'backend wait (first byte)': 'Backend-Wartezeit (erstes Byte)',
   'backend body': 'Backend-Body',
+  'response head → tunnel (body still streaming)': 'Antwortkopf → Tunnel (Body läuft noch)',
   'client → tunnel': 'Client → Tunnel',
   'tunnel → server': 'Tunnel → Server',
   'tunnel round-trip (client & backend)': 'Tunnel-Roundtrip (Client & Backend)',

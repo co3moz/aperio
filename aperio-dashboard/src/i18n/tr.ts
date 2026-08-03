@@ -621,6 +621,7 @@ export const tr: Record<string, string> = {
   'client processing': 'istemci işleme',
   'backend wait (first byte)': 'backend bekleme (ilk bayt)',
   'backend body': 'backend gövde',
+  'response head → tunnel (body still streaming)': 'yanıt başlığı → tünel (gövde hâlâ akıyor)',
   'client → tunnel': 'istemci → tünel',
   'tunnel → server': 'tünel → sunucu',
   'tunnel round-trip (client & backend)': 'tünel gidiş-dönüş (istemci ve backend)',

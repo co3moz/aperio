@@ -777,6 +777,18 @@ pub(crate) async fn handle_incoming_request(
                     id: id.clone(),
                     status,
                     headers: res_headers.clone(),
+                    // The head of a stream is the same milestone a buffered
+                    // response reports at, reached with the same two backend
+                    // stages behind it. Without this a streamed response told
+                    // the server nothing at all about where its time went,
+                    // which is precisely backwards: the big responses are the
+                    // ones worth profiling.
+                    timings: Some(crate::protocol::ClientTimings {
+                      backend_sent_us,
+                      backend_first_byte_us,
+                      backend_done_us: None,
+                      respond_us: received_at.elapsed().as_micros() as u64,
+                    }),
                   };
                   if send_tunnel_msg(tunnel_tx, &start).await.is_err() {
                     return None;
@@ -873,7 +885,7 @@ pub(crate) async fn handle_incoming_request(
       let timings = Some(crate::protocol::ClientTimings {
         backend_sent_us,
         backend_first_byte_us,
-        backend_done_us,
+        backend_done_us: Some(backend_done_us),
         respond_us: received_at.elapsed().as_micros() as u64,
       });
 

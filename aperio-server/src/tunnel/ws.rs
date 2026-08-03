@@ -660,6 +660,7 @@ impl ConnCtx {
       id,
       status,
       headers,
+      timings,
     } = msg
     else {
       return;
@@ -715,7 +716,7 @@ impl ConnCtx {
           body_raw: None,
           trailers: None,
           stream_rx: Some(chunk_rx),
-          timings: None,
+          timings,
         })
         .is_err()
       {

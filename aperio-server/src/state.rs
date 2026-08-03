@@ -1115,7 +1115,9 @@ pub(crate) struct TunnelResponse {
   /// For streamed responses: receiver of decoded body frames. The proxy
   /// handler turns this into a streaming HTTP body.
   pub(crate) stream_rx: Option<mpsc::Receiver<Result<BodyFrame, std::io::Error>>>,
-  /// Client-side stage durations (buffered responses of timing-aware clients).
+  /// Client-side stage durations, from a buffered response or from the head
+  /// of a streamed one (timing-aware clients; the streamed head reports every
+  /// stage except the end of the backend body, which has not happened yet).
   pub(crate) timings: Option<crate::protocol::ClientTimings>,
 }
 
@@ -1173,7 +1175,11 @@ impl RequestTimeline {
         anchor,
         anchor + c.backend_sent_us,
         anchor + c.backend_first_byte_us,
-        anchor + c.backend_done_us,
+        // Absent on the head of a streamed response, where the body has not
+        // finished arriving at the client. Every other stage is measured the
+        // same way it is for a buffered one, so the hole is exactly one row
+        // wide rather than the whole waterfall.
+        c.backend_done_us.map(|us| anchor + us),
         anchor + c.respond_us,
       )
     });
@@ -1185,7 +1191,7 @@ impl RequestTimeline {
       client_received_us: anchored.map(|a| a.0),
       backend_sent_us: anchored.map(|a| a.1),
       backend_first_byte_us: anchored.map(|a| a.2),
-      backend_done_us: anchored.map(|a| a.3),
+      backend_done_us: anchored.and_then(|a| a.3),
       client_responded_us: anchored.map(|a| a.4),
       response_received_us,
       finished_us,

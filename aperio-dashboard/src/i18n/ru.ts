@@ -621,6 +621,7 @@ export const ru: Record<string, string> = {
   'client processing': 'обработка на клиенте',
   'backend wait (first byte)': 'ожидание бэкенда (первый байт)',
   'backend body': 'тело ответа бэкенда',
+  'response head → tunnel (body still streaming)': 'заголовок ответа → туннель (тело ещё передаётся)',
   'client → tunnel': 'клиент → туннель',
   'tunnel → server': 'туннель → сервер',
   'tunnel round-trip (client & backend)': 'полный оборот туннеля (клиент и бэкенд)',

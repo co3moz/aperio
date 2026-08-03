@@ -602,6 +602,7 @@ export const zh: Record<string, string> = {
   'client processing': '客户端处理',
   'backend wait (first byte)': '后端等待（首字节）',
   'backend body': '后端正文',
+  'response head → tunnel (body still streaming)': '响应头 → 隧道（正文仍在传输）',
   'client → tunnel': '客户端 → 隧道',
   'tunnel → server': '隧道 → 服务器',
   'tunnel round-trip (client & backend)': '隧道往返（客户端与后端）',

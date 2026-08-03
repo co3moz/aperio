@@ -28,8 +28,10 @@
 #   - Client-side stages are anchored estimates when marked (est): the client
 #     measures its own durations and the server splits the unaccounted tunnel
 #     transit evenly between the two directions; clocks are never mixed.
-#   - For a streamed response (body over 256 KB) the client reports no stage
-#     timings; the waterfall then shows the tunnel round trip as one span.
+#   - A streamed response reports its stages at the head, where the body is
+#     still arriving, so "backend body read" is replaced by one span from the
+#     backend's first byte to the head reaching the tunnel. The rest of the
+#     body streams afterwards, inside the visitor delivery gap.
 #   - "visitor delivery gap" is curl's total minus the server's finished
 #     timestamp: kernel buffers and the last write to the visitor socket.
 
@@ -162,8 +164,13 @@ if b("client_received_us") is not None:
     add("tunnel -> client",   b("dispatched_us"),         b("client_received_us"), est)
     add("client prep",        b("client_received_us"),    b("backend_sent_us"), est)
     add("backend ttfb",       b("backend_sent_us"),       b("backend_first_byte_us"), est)
-    add("backend body read",  b("backend_first_byte_us"), b("backend_done_us"), est)
-    add("client hand-off",    b("backend_done_us"),       b("client_responded_us"), est)
+    if b("backend_done_us") is not None:
+        add("backend body read",  b("backend_first_byte_us"), b("backend_done_us"), est)
+        add("client hand-off",    b("backend_done_us"),       b("client_responded_us"), est)
+    else:
+        # Streamed: the head was reported before the body finished, so these
+        # two are one span and there is no end of body to draw.
+        add("head hand-off",      b("backend_first_byte_us"), b("client_responded_us"), est)
     add("tunnel -> server",   b("client_responded_us"),   b("response_received_us"), est)
 else:
     add("tunnel round trip", b("dispatched_us"), b("response_received_us"))
@@ -192,7 +199,6 @@ print(f"  {total_label:<{width}}  {fmt(total)}")
 print(f"  {gap_label:<{width}}  {fmt(gap_us)}  (curl total - server finished)")
 if cap.get("resp_streamed"):
     print()
-    print("  streamed response: the client reports no per-stage timings, so the")
-    print("  waterfall shows one tunnel round trip up to the response head; the")
+    print("  streamed response: the stages above end at the response head; the")
     print("  body streams afterwards, inside the visitor delivery gap.")
 PY

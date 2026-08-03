@@ -335,18 +335,24 @@ pub struct TunnelDecl {
 }
 
 /// Client-side stage durations of one proxied request, in microseconds from
-/// the moment the client received the tunnel request. Attached to buffered
-/// `Response` messages so the server can assemble a request timeline;
-/// additive, older peers simply omit it.
+/// the moment the client received the tunnel request. Attached to `Response`
+/// and to the `ResponseStart` head of a streamed one, so the server can
+/// assemble a request timeline; additive, older peers simply omit it.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ClientTimings {
   /// The backend request left the client.
   pub backend_sent_us: u64,
   /// The backend's response headers (first byte) arrived.
   pub backend_first_byte_us: u64,
-  /// The backend body was fully read.
-  pub backend_done_us: u64,
-  /// The response frame was handed to the tunnel.
+  /// The backend body was fully read. `None` on the head of a streamed
+  /// response, where the body is still arriving: the stage exists, it has
+  /// simply not happened yet, and inventing an end for it would be the one
+  /// thing a timeline must never do. A peer that only ever sends buffered
+  /// responses always fills it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub backend_done_us: Option<u64>,
+  /// The response frame, or the head of a streamed response, was handed to
+  /// the tunnel.
   pub respond_us: u64,
 }
 
@@ -558,6 +564,11 @@ pub enum TunnelMessage {
     id: String,
     status: u16,
     headers: Vec<(String, String)>,
+    /// Stage durations up to the head. A streamed body ends long after this
+    /// message, so `backend_done_us` is absent here while every earlier
+    /// stage is measured exactly as it is for a buffered response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    timings: Option<ClientTimings>,
   },
   /// A chunk of a streamed response body (Base64 encoded).
   ResponseChunk { id: String, data: String },

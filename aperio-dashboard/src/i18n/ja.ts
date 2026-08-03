@@ -619,6 +619,7 @@ export const ja: Record<string, string> = {
   'client processing': 'クライアント処理',
   'backend wait (first byte)': 'バックエンド待機（最初のバイト）',
   'backend body': 'バックエンド本文',
+  'response head → tunnel (body still streaming)': 'レスポンスヘッダ → トンネル（本文は転送中）',
   'client → tunnel': 'クライアント → トンネル',
   'tunnel → server': 'トンネル → サーバー',
   'tunnel round-trip (client & backend)': 'トンネル往復（クライアントとバックエンド）',
