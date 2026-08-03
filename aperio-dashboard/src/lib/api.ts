@@ -160,6 +160,12 @@ export interface CapturedRequest {
  * which is how a streamed response drew six rows reading `+null µs`.
  */
 export interface RequestTimeline {
+  /** A connected client was available: the end of any wait for one. */
+  client_ready_us: number | null
+  /** Admitted past the server-wide concurrency limit. */
+  admitted_us: number | null
+  /** A serving client was chosen: routing done. */
+  selected_us: number | null
   dispatched_us: number
   client_received_us: number | null
   backend_sent_us: number | null

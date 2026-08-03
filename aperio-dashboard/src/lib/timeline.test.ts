@@ -6,6 +6,9 @@ import { timelineStages } from './timeline'
 const t = (key: string) => key
 
 const base: RequestTimeline = {
+  client_ready_us: null,
+  admitted_us: null,
+  selected_us: null,
   dispatched_us: 110,
   client_received_us: null,
   backend_sent_us: null,
@@ -90,5 +93,32 @@ describe('timelineStages', () => {
         expect(stages[i].from).toBe(stages[i - 1].to)
       }
     }
+  })
+
+  it('tells the pre-dispatch stages apart when the server recorded them', () => {
+    // These are the server's own marks, so a streamed capture still carries
+    // them. The dashboard used to drop all three and show one "queued &
+    // routed" row, while scripts/profile-request.sh printed the four the
+    // server had actually measured.
+    const stages = timelineStages(
+      { ...base, client_ready_us: 15, admitted_us: 16, selected_us: 26 },
+      t,
+    )
+    expect(stages.map((s) => s.label)).toEqual([
+      'waiting for a client',
+      'admission (concurrency)',
+      'routing',
+      'dispatch prep',
+      'tunnel round-trip (client & backend)',
+      'server → visitor',
+    ])
+    expect(stages[0].to).toBe(15)
+    expect(stages[3].to).toBe(110)
+  })
+
+  it('keeps the one coarse row when the pre-dispatch marks are partial', () => {
+    const stages = timelineStages({ ...base, client_ready_us: 15 }, t)
+    expect(stages[0].label).toBe('queued & routed')
+    expect(stages[0].to).toBe(110)
   })
 })

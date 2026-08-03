@@ -26,7 +26,23 @@ export interface Stage {
  * `!= null` is the comparison that matches the wire.
  */
 export function timelineStages(tl: RequestTimeline, t: TFn): Stage[] {
-  const stages: Stage[] = [{ label: t('queued & routed'), from: 0, to: tl.dispatched_us }]
+  const stages: Stage[] = []
+  // Everything before dispatch, told apart when the server recorded the three
+  // marks inside it. They are written together, so this is all-or-nothing; a
+  // partial set would draw a waterfall with a hole in it, which reads as a
+  // measurement rather than as an absence. These are the server's own clock,
+  // not the client's, so they are present even for a streamed response, where
+  // every stage below collapses to the round trip.
+  if (tl.client_ready_us != null && tl.admitted_us != null && tl.selected_us != null) {
+    stages.push(
+      { label: t('waiting for a client'), from: 0, to: tl.client_ready_us },
+      { label: t('admission (concurrency)'), from: tl.client_ready_us, to: tl.admitted_us },
+      { label: t('routing'), from: tl.admitted_us, to: tl.selected_us },
+      { label: t('dispatch prep'), from: tl.selected_us, to: tl.dispatched_us },
+    )
+  } else {
+    stages.push({ label: t('queued & routed'), from: 0, to: tl.dispatched_us })
+  }
   if (
     tl.client_received_us != null &&
     tl.backend_sent_us != null &&
