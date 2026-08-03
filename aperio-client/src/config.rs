@@ -585,6 +585,9 @@ pub(crate) struct ClientSettings {
   /// Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`
   /// (yaml `min_tls_version`, env `APERIO_MIN_TLS_VERSION`).
   pub(crate) min_tls_version: Option<String>,
+  /// Move the announced `max_concurrent` with backend pressure (yaml
+  /// `adaptive_concurrency`, env `APERIO_ADAPTIVE_CONCURRENCY`).
+  pub(crate) adaptive_concurrency: bool,
   /// The OTLP bridge block (yaml `otel_bridge`), unset = no bridge.
   pub(crate) otel_bridge: Option<aperio_config::OtelBridge>,
   /// Seconds a service waits before opening its tunnel (yaml `startup_delay`,
@@ -1240,6 +1243,13 @@ pub(crate) fn resolve_settings(
       env_str("APERIO_MIN_TLS_VERSION"),
       home.min_tls_version.clone(),
     ),
+    adaptive_concurrency: layered(
+      None,
+      local.adaptive_concurrency,
+      env_bool("APERIO_ADAPTIVE_CONCURRENCY"),
+      home.adaptive_concurrency,
+    )
+    .unwrap_or(false),
     otel_bridge: resolve_otel_bridge(local, home),
     startup_delay: layered(
       None,

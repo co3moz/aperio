@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+mod adaptive;
 mod api;
 mod bind_tunnels;
 mod check;
@@ -1094,6 +1095,7 @@ fn build_specs(
       response_timeout: settings.response_timeout,
       timeout_secs: settings.timeout_secs,
       max_concurrent: settings.max_concurrent,
+      adaptive_concurrency: settings.adaptive_concurrency,
       connections,
       connections_min,
       metrics_labels: settings.metrics_labels.clone(),
@@ -1240,6 +1242,9 @@ fn build_specs(
           .max_concurrent
           .or(settings.max_concurrent)
           .filter(|n| *n > 0),
+        adaptive_concurrency: entry
+          .adaptive_concurrency
+          .unwrap_or(settings.adaptive_concurrency),
         connections,
         connections_min,
         metrics_labels: entry

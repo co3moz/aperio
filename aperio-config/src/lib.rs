@@ -782,6 +782,16 @@ pub struct ServiceEntry {
   /// Most requests this service handles at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
+  /// Lower the announced `max_concurrent` while requests queue up waiting for
+  /// a local permit, and climb back when they stop. The server already queues
+  /// rather than dispatching past the announced number, so this is how a
+  /// client that has become slow stops being sent work it cannot do; the
+  /// server then holds the request, picks another client, or asks for capacity
+  /// through autoscaling, all of which beat a refusal. Needs `max_concurrent`
+  /// to be set, since that is the number being moved. Default: `false`
+  /// (env: APERIO_ADAPTIVE_CONCURRENCY).
+  #[schemars(extend("examples" = [true]))]
+  pub adaptive_concurrency: Option<bool>,
   /// Parallel tunnel connections opened for this service; the
   /// server's `max_connections_per_service` is the ceiling, announced on
   /// connect, and a token may lower it further;
@@ -1109,6 +1119,16 @@ pub struct FileConfig {
   /// Most requests handled at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
+  /// Lower the announced `max_concurrent` while requests queue up waiting for
+  /// a local permit, and climb back when they stop. The server already queues
+  /// rather than dispatching past the announced number, so this is how a
+  /// client that has become slow stops being sent work it cannot do; the
+  /// server then holds the request, picks another client, or asks for capacity
+  /// through autoscaling, all of which beat a refusal. Needs `max_concurrent`
+  /// to be set, since that is the number being moved. Default: `false`
+  /// (env: APERIO_ADAPTIVE_CONCURRENCY).
+  #[schemars(extend("examples" = [true]))]
+  pub adaptive_concurrency: Option<bool>,
   /// Accept OpenTelemetry exports from things running next to this client and
   /// carry them to the server, which forwards them to the collector it is
   /// configured for. The point is an edge host that is allowed exactly one

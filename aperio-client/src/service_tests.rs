@@ -72,6 +72,7 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     response_timeout: None,
     timeout_secs: 5,
     max_concurrent: None,
+    adaptive_concurrency: false,
     connections: 1,
     metrics_labels: Default::default(),
     startup_delay: 0,

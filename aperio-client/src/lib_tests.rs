@@ -34,6 +34,7 @@ fn base_settings() -> ClientSettings {
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    adaptive_concurrency: false,
     otel_bridge: None,
     startup_delay: None,
     pid_file: None,

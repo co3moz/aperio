@@ -356,6 +356,8 @@ pub(crate) struct ServiceSpec {
   pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
+  /// Move the announced concurrency with backend pressure (#65).
+  pub(crate) adaptive_concurrency: bool,
   /// Most parallel tunnel connections for this service. The supervisor spawns
   /// one service task per connection, each with a derived client id.
   pub(crate) connections: u32,
@@ -989,6 +991,29 @@ pub(crate) async fn run_service(
     .max_concurrent
     .map(|n| Arc::new(Semaphore::new(n as usize)));
 
+  // Adaptive concurrency (#65): the announced number follows backend
+  // pressure. It needs the local limiter, because the evidence is how long
+  // requests wait for one of its permits, and it is that number being moved.
+  let adaptive = match (
+    spec.adaptive_concurrency,
+    &local_limiter,
+    spec.max_concurrent,
+  ) {
+    (true, Some(limiter), Some(configured)) => {
+      let adaptive = Arc::new(crate::adaptive::Adaptive::new(configured, limiter.clone()));
+      crate::adaptive::spawn(adaptive.clone(), label.clone());
+      Some(adaptive)
+    }
+    (true, _, _) => {
+      warn!(
+        "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
+        label
+      );
+      None
+    }
+    _ => None,
+  };
+
   // Reconnection Loop. Retries use exponential backoff with jitter so that a
   // fleet of clients does not stampede the server after a restart; the
   // counter resets once a connection proves stable.
@@ -1251,6 +1276,9 @@ pub(crate) async fn run_service(
             // ceiling and look like connections had gone missing.
             let connections_ping = spec.pool_load.open().unwrap_or(spec.connections);
             let metrics_labels_ping = spec.metrics_labels.clone();
+            // What this service will actually take right now, which is the
+            // configured number until adaptive concurrency lowers it.
+            let adaptive_ping = adaptive.clone();
             let drain_secs_ping = Some(spec.reload_drain_secs);
             let config_notes_ping = spec.config_notes.clone();
             let scaling_ping = spec.scaling.clone();
@@ -1315,7 +1343,12 @@ pub(crate) async fn run_service(
                   path_bind: path_bind_ping.clone(),
                   hostname_bind: hostname_bind_ping.clone(),
                   hostname_binds: hostnames_ping.clone(),
-                  max_concurrent,
+                  // Not the configured number: what this service will take
+                  // right now, which adaptive concurrency may have lowered.
+                  max_concurrent: adaptive_ping
+                    .as_ref()
+                    .map(|a| a.announced())
+                    .or(max_concurrent),
                   tcp: tcp_enabled_ping,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
@@ -1553,13 +1586,21 @@ pub(crate) async fn run_service(
                                               shared.mark_request_activity();
 
                                               // Handle incoming request concurrently
+                                              let adaptive_for_task = adaptive.clone();
                                               tokio::spawn(async move {
                                                   // Local concurrency guard: even a misbehaving server
                                                   // cannot push more parallel work onto the backend.
+                                                  // How long this waits is the evidence adaptive
+                                                  // concurrency reads: a queue here means the backend
+                                                  // is behind, whatever the host's CPU says.
+                                                  let waiting = Instant::now();
                                                   let _permit = match limiter {
                                                       Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
+                                                  if let Some(a) = &adaptive_for_task {
+                                                      a.record_wait(waiting.elapsed());
+                                                  }
                                                   let peer = proto.load(Ordering::Relaxed);
                                                   let binary = peer >= 2;
                                                   // v5: a buffered response goes out as one frame,
@@ -1605,11 +1646,16 @@ pub(crate) async fn run_service(
                                               let pool = spec.pool_load.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
                                               pool.enter();
+                                              let adaptive_for_task = adaptive.clone();
                                               tokio::spawn(async move {
+                                                  let waiting = Instant::now();
                                                   let _permit = match limiter {
                                                       Some(sem) => sem.acquire_owned().await.ok(),
                                                       None => None,
                                                   };
+                                                  if let Some(a) = &adaptive_for_task {
+                                                      a.record_wait(waiting.elapsed());
+                                                  }
                                                   let peer = proto.load(Ordering::Relaxed);
                                                   let binary = peer >= 2;
                                                   // v5: a buffered response goes out as one frame,

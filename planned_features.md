@@ -171,12 +171,6 @@ readable without scrolling past what is already done.
   login attempt, a token creation and a full export are not charged the same,
   which is a much smaller idea than "the admin API has no rate limiting".
 
-- [ ] **#65 Client-side load shedding.** (triage 30) When the client's own host
-  is saturated it keeps accepting whatever `max_concurrent` allows, so the
-  queue grows and every visitor waits instead of some failing fast. Lowering
-  the effective concurrency under load pressure needs the process metrics from
-  #37 first, and needs care not to oscillate.
-
 - [ ] **#67 Chunked transfer fidelity.** (triage 30) `Transfer-Encoding` is
   stripped and the body is re-framed by our own streaming, which is correct for
   every case we know of but means a backend's chunk boundaries are not the
@@ -401,6 +395,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#65 Client-side load shedding.** (triage 30) When the client's own host
+  is saturated it keeps accepting whatever `max_concurrent` allows, so the
+  queue grows and every visitor waits instead of some failing fast. Lowering
+  the effective concurrency under load pressure needs the process metrics from
+  #37 first, and needs care not to oscillate. shipped as
+  `adaptive_concurrency`, **reframed twice**. The signal is not #37's CPU: that
+  measures this process, and the interesting case is a client at 3% CPU in
+  front of a fallen-over backend. What measures it is the wait for a local
+  `max_concurrent` permit. And the action is not shedding: a client refusing a
+  request the server already dispatched turns a slow success into a fast
+  failure, and the client is the place with the least context. Instead the
+  announced `max_concurrent` moves, and the server, which already queues past
+  it, holds the request, picks another client, or scales out. AIMD for the
+  reason TCP uses it, an idle window is not recovery, and the local limiter is
+  resized in step so a server ignoring the number cannot push past it.
 
 - [x] **#20 A per-IP ceiling on concurrently open streamed responses.** Split
   out of #17, where it was part (3). Saturating a service's concurrency budget
