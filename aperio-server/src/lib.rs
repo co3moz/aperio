@@ -22,6 +22,7 @@ mod api;
 mod auth;
 mod backup;
 mod cache;
+mod capacity;
 mod check_config;
 mod config_file;
 mod consumers;
@@ -442,6 +443,19 @@ async fn async_main() {
     // The refusal has been logged by build_state with its reason.
     return;
   };
+
+  // Once, at startup, before anything is served: what the file asks for
+  // against what this machine can give. It never changes a setting, only says
+  // so, because a number that silently changes because the host changed is
+  // exactly what the configuration work was spent on preventing.
+  {
+    let cfg = state.config();
+    crate::capacity::warn_if_beyond_the_machine(
+      cfg.max_ws_connections,
+      cfg.max_tunnels,
+      cfg.cache_max_bytes,
+    );
+  }
 
   let app = build_router(state.clone(), metrics_enabled);
 

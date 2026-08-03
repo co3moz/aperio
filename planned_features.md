@@ -19,26 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#1 Warn when a capacity setting does not fit the machine, rather than
-  deriving it.** Originally "auto-tune resource limits from the environment":
-  derive `max_concurrent_requests`, `max_ws_connections`, the cache budget and
-  friends from cgroup CPU/memory limits and the file-descriptor ceiling.
-  Rescoped after the 0.7 configuration work, which spent its effort on making
-  "which value is in effect, and where does it come from" answerable (the file
-  layer winning over stored overrides, the yaml key each setting is written as,
-  the explain endpoint). A number that silently changes because the host
-  changed is the opposite of that, and it changes under an operator who moved
-  the same file to a bigger box.
-
-  So: keep the detection, drop the derivation. At startup (and in
-  `--check-config`) compare the effective values against what the environment
-  can actually support, and say so once: `max_concurrent_requests` far above
-  `RLIMIT_NOFILE`, a cache budget above the cgroup memory limit,
-  `max_ws_connections` that cannot fit alongside it. One line naming the
-  setting, the value, and the limit it exceeds. No behaviour changes, nothing
-  to be surprised by, and the operator keeps the decision. If a later release
-  still wants real derivation, this is the layer it would build on.
-
 - [ ] **#2 Speed up the Windows release build without vendoring OpenSSL from
   source.** *Parked, not refused.* The `x86_64-pc-windows-msvc` release job
   spends several minutes compiling OpenSSL from source via
@@ -356,6 +336,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#1 Warn when a capacity setting does not fit the machine, rather than
+  deriving it.** Originally "auto-tune resource limits from the environment".
+  Rescoped after the 0.7 configuration work, which spent its effort on making
+  "which value is in effect, and where does it come from" answerable: a number
+  that silently changes because the host changed is the opposite of that, and
+  it changes under an operator who moved the same file to a bigger box.
+  shipped: two checks at startup, connections against the file-descriptor
+  ceiling (`/proc/self/limits`) and the cache budget against the cgroup memory
+  limit, each naming both numbers and changing nothing. Only two, chosen by
+  asking what an operator can act on: anything derived from `max_body_size`
+  times a concurrency limit was left out on purpose, since that product is a
+  worst case reached by roughly no deployment and a warning that fires
+  constantly is one nobody reads. A machine with no limits to read gets
+  silence rather than a guess.
 
 - [x] **#69 Per-organization inspector retention.** (triage 25) Capture
   retention is a global entry cap and a global TTL, so a noisy organization can

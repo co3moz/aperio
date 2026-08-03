@@ -95,6 +95,7 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 - [ ] `aperio-server --verify-audit` passes on a fresh install.
 - [ ] A backup snapshot restores into a working server in a staging test.
 - [ ] The dashboard is reachable **only** from your operator network.
+- [ ] **The startup log is clean.** The server checks its own capacity settings against the machine once at startup and warns when they do not fit: `max_ws_connections` plus `max_tunnels` against the process's file-descriptor ceiling, and the response cache budget against the container's memory limit. It never changes a setting, only names both numbers, because a value that silently follows the host is the opposite of being able to say which value is in effect. The first of these is the one worth reading: past the descriptor ceiling `accept` fails with `EMFILE` and connections break at a number nobody configured. Raise it with `ulimit -n`, or `LimitNOFILE=` in a systemd unit.
 
 See the [Threat Model](threat-model.md) for the trust boundaries these controls
 defend.
