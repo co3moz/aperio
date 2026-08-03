@@ -1128,6 +1128,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
+    max_streams_per_ip: std::env::var("APERIO_MAX_STREAMS_PER_IP")
+      .ok()
+      .and_then(|v| v.trim().parse::<u32>().ok())
+      .unwrap_or(0),
     otel_bridge: std::env::var("APERIO_OTEL_BRIDGE")
       .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
       .unwrap_or(false),
@@ -1266,6 +1270,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
   let state = Arc::new(AppState {
     clients: tokio::sync::RwLock::new(HashMap::new()),
     consumers: tokio::sync::Mutex::new(Default::default()),
+    stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),

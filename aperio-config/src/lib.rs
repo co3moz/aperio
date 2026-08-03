@@ -2795,6 +2795,17 @@ pub struct ServerFileConfig {
   /// (env: APERIO_SHUTDOWN_DRAIN).
   #[schemars(extend("examples" = [10, "auto"]))]
   pub shutdown_drain: Option<ShutdownDrain>,
+  /// Streamed responses one visitor address may hold open at once. `0` (the
+  /// default) = no limit. Saturating a service's concurrency budget otherwise
+  /// takes one host holding many slow streams; this makes it take a botnet.
+  ///
+  /// No default value is chosen for you on purpose: a NAT or a carrier-grade
+  /// NAT puts many real people behind one address, so any number here is a
+  /// guess with a queue of users behind it. Set it from what your own traffic
+  /// looks like, and make sure `trust_proxy` is right first, or every visitor
+  /// behind your CDN shares one address (env: APERIO_MAX_STREAMS_PER_IP).
+  #[schemars(extend("examples" = [8]))]
+  pub max_streams_per_ip: Option<u32>,
   /// Accept OpenTelemetry exports from tunnel clients and forward them to the
   /// collector this server exports its own spans to (`otel.endpoint`). Off by
   /// default: it is an outbound path a client can drive, so it is a decision

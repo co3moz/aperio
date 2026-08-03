@@ -1826,6 +1826,11 @@ pub(crate) struct AppState {
   /// "which limit is firing", and that is a counter's question, not a
   /// header's.
   pub(crate) limit_counters: crate::limits::LimitCounters,
+  /// Streamed responses currently open, per visitor address
+  /// (planned_features #20). A `std` mutex rather than a `tokio` one: every
+  /// operation is a hash lookup and an integer, and the guard has to be
+  /// releasable from `Drop`, which cannot await.
+  pub(crate) stream_counts: Arc<std::sync::Mutex<HashMap<std::net::IpAddr, u32>>>,
 }
 
 /// RAII slot in the global proxied-request concurrency limit; the slot is
@@ -1835,6 +1840,32 @@ pub(crate) struct RequestSlot(Arc<AtomicUsize>);
 impl Drop for RequestSlot {
   fn drop(&mut self) {
     self.0.fetch_sub(1, Ordering::SeqCst);
+  }
+}
+
+/// RAII slot in the per-visitor streamed-response limit (planned_features
+/// #20). Released when the streamed body it was moved into is dropped, which
+/// is what makes it a *concurrency* limit rather than a rate limit: a visitor
+/// that opens and closes streams as fast as it likes never trips it, and one
+/// that holds them open does.
+///
+/// The counter is removed at zero rather than left at zero, so the map holds
+/// only the addresses currently streaming. Without that it would grow one
+/// entry per address ever seen, which is a slow leak driven by strangers.
+pub(crate) struct StreamSlot {
+  ip: std::net::IpAddr,
+  counts: Arc<std::sync::Mutex<HashMap<std::net::IpAddr, u32>>>,
+}
+
+impl Drop for StreamSlot {
+  fn drop(&mut self) {
+    let mut counts = self.counts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = counts.get_mut(&self.ip) {
+      *n = n.saturating_sub(1);
+      if *n == 0 {
+        counts.remove(&self.ip);
+      }
+    }
   }
 }
 
@@ -1943,6 +1974,32 @@ impl AppState {
       })
       .ok()
       .map(|_| RequestSlot(self.active_proxied_requests.clone()))
+  }
+
+  /// Claims a slot under `max_streams_per_ip` for one visitor address, or
+  /// `None` when that address already holds its share.
+  ///
+  /// `Some` with no accounting when the limit is off, which is the default:
+  /// the ceiling protects against one host holding many slow streams, and the
+  /// number that does so without cutting off a legitimate visitor depends
+  /// entirely on the deployment. A NAT or a CGNAT puts many real people behind
+  /// one address, so a default here would be a guess with a queue of users
+  /// behind it.
+  pub(crate) fn try_acquire_stream_slot(&self, ip: std::net::IpAddr) -> Option<StreamSlot> {
+    let limit = self.config().max_streams_per_ip;
+    if limit == 0 {
+      return None;
+    }
+    let mut counts = self.stream_counts.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = counts.entry(ip).or_insert(0);
+    if *entry >= limit {
+      return None;
+    }
+    *entry += 1;
+    Some(StreamSlot {
+      ip,
+      counts: self.stream_counts.clone(),
+    })
   }
 
   /// Claims a live-WebSocket slot under `max_ws_connections`, or None at

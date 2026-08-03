@@ -70,15 +70,6 @@ readable without scrolling past what is already done.
   worth getting right rather than the accounting. Best done alongside #9, which
   touches the same delivery paths. (From the 2026-07 flow-control discussion.)
 
-- [ ] **#20 A per-IP ceiling on concurrently open streamed responses.** Split
-  out of #17, where it was part (3). Saturating a service's concurrency budget
-  currently takes one host holding many slow streams; a per-IP cap makes it
-  take a botnet. The pattern exists already: `try_acquire_ws_slot`
-  (`aperio-server/src/state.rs`) holds a slot for the life of a proxied
-  WebSocket under `max_ws_connections`, and the per-IP rate limiter's map shows
-  how the keying and its eviction are done here. Small next to #17 and worth
-  doing in the same pass. (From the 2026-07 flow-control discussion.)
-
 - [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
   authenticates with a bearer token, optionally pinned and IP-fenced. Some
   deployments want a client certificate as well, so a leaked token alone is not
@@ -410,6 +401,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#20 A per-IP ceiling on concurrently open streamed responses.** Split
+  out of #17, where it was part (3). Saturating a service's concurrency budget
+  currently takes one host holding many slow streams; a per-IP cap makes it
+  take a botnet. The pattern exists already: `try_acquire_ws_slot`
+  (`aperio-server/src/state.rs`) holds a slot for the life of a proxied
+  WebSocket under `max_ws_connections`, and the per-IP rate limiter's map shows
+  how the keying and its eviction are done here. shipped:
+  `max_streams_per_ip`, following that pattern, with the slot moved into the
+  streamed body's own state so it lives exactly as long as the response does.
+  Claimed only once a response turns out to *be* a stream, so the limit never
+  fires on traffic it was not about. Off by default **and with no suggested
+  number**, which is the honest position: a CGNAT puts many real people behind
+  one address, so a default would be a guess with a queue of users behind it.
+  The map entry is removed at zero rather than left at zero, or it would grow
+  one entry per stranger for the life of the process.
 
 - [x] **#11 Restart the background tickers when one panics; escalate the rest.**
   Under the default `unwind` strategy a panic only unwinds its own task, so the

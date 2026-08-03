@@ -1146,3 +1146,66 @@ async fn an_inline_route_limit_wins_over_a_rate_limits_entry() {
   assert!(state.check_route_rate_limit(None, "/x", "GET").await);
   assert!(!state.check_route_rate_limit(None, "/x", "GET").await);
 }
+
+// ---------------------------------------------------------------------------
+// Per-visitor streamed-response ceiling (planned_features #20)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_stream_ceiling_is_off_by_default() {
+  let state = crate::test_support::test_state();
+  // A NAT or a CGNAT puts many real people behind one address, so a default
+  // here would be a guess with a queue of users behind it.
+  assert_eq!(state.config().max_streams_per_ip, 0);
+  assert!(
+    state
+      .try_acquire_stream_slot("203.0.113.7".parse().unwrap())
+      .is_none(),
+    "off means the caller takes the ungated path, not that a slot is handed out"
+  );
+}
+
+#[tokio::test]
+async fn a_visitor_holds_at_most_its_share_and_gets_it_back() {
+  let mut config = crate::test_support::test_config();
+  config.max_streams_per_ip = 2;
+  let state = crate::test_support::test_state_with(config);
+  let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+
+  let first = state.try_acquire_stream_slot(ip).expect("one");
+  let second = state.try_acquire_stream_slot(ip).expect("two");
+  assert!(
+    state.try_acquire_stream_slot(ip).is_none(),
+    "the third is refused"
+  );
+
+  // A concurrency limit, not a rate limit: closing a stream frees its slot at
+  // once, so a visitor that opens and closes as fast as it likes never trips
+  // it and one that holds them open does.
+  drop(second);
+  let third = state.try_acquire_stream_slot(ip).expect("a freed slot");
+  drop(first);
+  drop(third);
+
+  // Nothing left behind: the map holds only the addresses currently
+  // streaming, or it grows one entry per stranger for the life of the process.
+  assert!(
+    state.stream_counts.lock().unwrap().get(&ip).is_none(),
+    "the entry is removed at zero, not left at zero"
+  );
+}
+
+#[tokio::test]
+async fn one_visitor_at_its_ceiling_does_not_block_another() {
+  let mut config = crate::test_support::test_config();
+  config.max_streams_per_ip = 1;
+  let state = crate::test_support::test_state_with(config);
+  let noisy: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+  let quiet: std::net::IpAddr = "198.51.100.4".parse().unwrap();
+
+  let _held = state.try_acquire_stream_slot(noisy).expect("one");
+  assert!(state.try_acquire_stream_slot(noisy).is_none());
+  // The whole point: saturating the service now takes a botnet rather than
+  // one host.
+  assert!(state.try_acquire_stream_slot(quiet).is_some());
+}

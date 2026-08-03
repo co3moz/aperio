@@ -77,6 +77,7 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    max_streams_per_ip: 0,
     otel_bridge: false,
     shutdown_drain: None,
     shutdown_drain_auto: false,
@@ -112,6 +113,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
   Arc::new(AppState {
     clients: tokio::sync::RwLock::new(HashMap::new()),
     consumers: tokio::sync::Mutex::new(Default::default()),
+    stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),

@@ -31,6 +31,8 @@ pub(crate) enum Limit {
   TokenQuota,
   /// The organization's monthly byte quota.
   OrgQuota,
+  /// Streamed responses this visitor IP already has open.
+  StreamsPerIp,
 }
 
 impl Limit {
@@ -44,6 +46,7 @@ impl Limit {
       Limit::TokenRate => "token-rate",
       Limit::TokenQuota => "token-quota",
       Limit::OrgQuota => "org-quota",
+      Limit::StreamsPerIp => "streams-per-ip",
     }
   }
 
@@ -59,6 +62,7 @@ impl Limit {
       Limit::TokenRate => "token.max_rps",
       Limit::TokenQuota => "token.daily_max_bytes",
       Limit::OrgQuota => "organization.monthly_max_bytes",
+      Limit::StreamsPerIp => "max_streams_per_ip",
     }
   }
 
@@ -73,6 +77,9 @@ impl Limit {
         "server-wide in-flight request limit (max_concurrent_requests, env APERIO_MAX_CONCURRENT_REQUESTS)"
       }
       Limit::Route => "per-route rate limit (a rate_limits: rule matched this hostname and path)",
+      Limit::StreamsPerIp => {
+        "the per-visitor limit on concurrently open streamed responses (max_streams_per_ip, env APERIO_MAX_STREAMS_PER_IP)"
+      }
       Limit::ClientConcurrency => {
         "the serving client's own concurrency limit (max_concurrent in its aperio.yaml); no slot freed before the gateway timeout"
       }
@@ -89,6 +96,9 @@ impl Limit {
     match self {
       Limit::Ip | Limit::ServerConcurrency | Limit::Route | Limit::ClientConcurrency => Some(1),
       Limit::TokenRate => Some(1),
+      // A stream slot frees when a stream ends, which is not on a schedule,
+      // so a second is the honest "try again shortly" rather than a promise.
+      Limit::StreamsPerIp => Some(1),
       Limit::TokenQuota | Limit::OrgQuota => None,
     }
   }
@@ -101,7 +111,7 @@ impl Limit {
 
 /// Every kind, in one place, so a counter can iterate them and a test can
 /// assert none was forgotten.
-pub(crate) const ALL_LIMITS: [Limit; 7] = [
+pub(crate) const ALL_LIMITS: [Limit; 8] = [
   Limit::Ip,
   Limit::ServerConcurrency,
   Limit::Route,
@@ -109,6 +119,7 @@ pub(crate) const ALL_LIMITS: [Limit; 7] = [
   Limit::TokenRate,
   Limit::TokenQuota,
   Limit::OrgQuota,
+  Limit::StreamsPerIp,
 ];
 
 /// Refusals since start, one counter per kind.

@@ -235,6 +235,9 @@ pub(crate) struct ServerConfig {
   /// it from what connected clients announce (`auto`), capped.
   /// Accept OTLP exports from tunnel clients and forward them to the
   /// configured collector.
+  /// Streamed responses one visitor address may hold open at once
+  /// (`0` = no limit).
+  pub(crate) max_streams_per_ip: u32,
   pub(crate) otel_bridge: bool,
   pub(crate) shutdown_drain: Option<u64>,
   /// True when `shutdown_drain` was written as `auto`.

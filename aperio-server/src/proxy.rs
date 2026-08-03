@@ -2045,9 +2045,42 @@ async fn proxy_http_request(
         // final HTTP frame. Buffered responses with trailers get a
         // two-frame body; plain buffered responses stay a simple body.
         let body = if let Some(chunk_rx) = tunnel_res.stream_rx.take() {
-          let stream = futures_util::stream::unfold(chunk_rx, |mut rx| async move {
-            rx.recv().await.map(|item| (frame_from_body_item(item), rx))
-          });
+          // Per-visitor ceiling on open streams (planned_features #20). The
+          // slot is taken here and moved into the stream's own state, so it
+          // lives exactly as long as the response body does and is released
+          // whether the stream ends or the visitor walks away.
+          //
+          // Taken after the response has been produced rather than before the
+          // request is dispatched: only now is it known that this response
+          // *is* a stream, and refusing a request that would have answered in
+          // one buffered frame would be a limit firing on traffic it was never
+          // about.
+          let stream_slot = if state.config().max_streams_per_ip == 0 {
+            None
+          } else {
+            match state.try_acquire_stream_slot(caller_ip) {
+              Some(slot) => Some(slot),
+              None => {
+                log_request_failure(
+                  &state,
+                  &method_str,
+                  &uri_str,
+                  429,
+                  start_time.elapsed(),
+                  Some(&Limit::StreamsPerIp.log_detail()),
+                  selected.org_id.clone(),
+                )
+                .await;
+                return refuse(&state, Limit::StreamsPerIp);
+              }
+            }
+          };
+          let stream =
+            futures_util::stream::unfold((chunk_rx, stream_slot), |(mut rx, slot)| async move {
+              rx.recv()
+                .await
+                .map(|item| (frame_from_body_item(item), (rx, slot)))
+            });
           Body::new(http_body_util::StreamBody::new(stream))
         } else if let Some(trailers) = tunnel_res.trailers.take() {
           let frames: Vec<Result<http_body::Frame<axum::body::Bytes>, axum::BoxError>> = vec![
