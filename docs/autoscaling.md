@@ -7,7 +7,7 @@ Two things fall out of that one signal:
 - **Cold start (0 to 1).** A request arrives for a hostname no client is serving. Instead of answering `504`, the server calls your endpoint and holds the request until the service comes up.
 - **Scale out (N to N+1).** The connected pool is saturated for long enough to be real, and the server asks for one more instance.
 
-Scaling **in** is deliberately not the server's job: an idle client retires itself with `idle_timeout`. The server never kills anything, which removes an entire class of "why did my instance disappear" incidents.
+Scaling **in** works the same way as scaling out, one call with a *lower* desired capacity. The server still never kills anything, which keeps the entire class of "why did my instance disappear" incidents away from it. What it does not do is ask for the last instance to go: 1 to 0 stays the client's own decision through `idle_timeout`, because the client knows about requests in flight that the server cannot see.
 
 > **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SCALING` → `scaling`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
@@ -72,7 +72,7 @@ A `POST` with a JSON body, and your secret as `Authorization: Bearer` when you s
 }
 ```
 
-`reason` is `cold_start` or `scale_out`. Any `2xx` counts as accepted; nothing else about the response is used, the body is never read, and redirects are never followed.
+`reason` is `cold_start`, `scale_out` or `scale_in`. For `scale_in`, `desired` is one **below** `current` and never below `min` or below one, so a receiver that acts on `desired` needs no special case beyond reading the number. Any `2xx` counts as accepted; nothing else about the response is used, the body is never read, and redirects are never followed.
 
 **Make it idempotent.** The same call can legitimately arrive more than once: several Aperio servers in an HA pair each keep their own view, and a server restart forgets that a call was in flight.
 
@@ -87,6 +87,14 @@ utilization = inflight / sum(max_concurrent)   # over routable, primary-tier cli
 The server scales out when that stays at or above `target_utilization` for the whole `window`. A single spike does not qualify, which is what keeps a bursty service from oscillating. Four instances of `max_concurrent: 10` are saturated at 32 concurrent requests, not at "request number 41".
 
 Two exclusions matter: standby-tier clients (`priority > 0`) never count as capacity, because they exist to be idle and counting them would mask saturation of the primaries; and clients that are draining, disabled, or failing their backend probe are not capacity either. A service whose clients announce no `max_concurrent` has no measurable utilization and is never scaled out (cold starts still work).
+
+## What triggers a scale-in
+
+The mirror of the above, with two deliberate asymmetries. Utilization has to stay below **half** `target_utilization`, not merely below it, and it has to stay there for **four** `window`s rather than one.
+
+Both exist for the same reason. The gap between the two thresholds is hysteresis: a pool hovering exactly at its target would otherwise be saturated and idle on alternating samples and would scale out and in forever. And the longer wait reflects what the two mistakes cost, being an instance short costs latency on live traffic, being an instance over costs money, so the loop is quick to add and slow to give back. One busy sample resets the idle clock, so the idle stretch has to be continuous.
+
+A pool already at `min`, or at one instance, is skipped: there is nothing to give back.
 
 ## What a cold start does to the request
 

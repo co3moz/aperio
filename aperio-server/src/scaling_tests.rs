@@ -503,3 +503,62 @@ async fn a_visitor_the_owning_tokens_would_reject_cannot_bill_a_cold_start() {
   rec.owners = vec!["unknown-token".to_string()];
   assert!(visitor_allowed(&state, &rec, "203.0.113.9".parse().unwrap()).await);
 }
+
+// ---------------------------------------------------------------------------
+// Scale in (planned_features #68)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scale_in_needs_several_windows_of_idleness() {
+  let mut runtime = ScalingRuntime::default();
+  let mut record = record("app.example.com");
+  record.window_secs = 10;
+  record.target_utilization = 0.8;
+  let start = Instant::now();
+
+  // Well under the target, but not yet for long enough.
+  assert!(!runtime.idle_reached(&record, 0.1, start));
+  assert!(!runtime.idle_reached(&record, 0.1, start + Duration::from_secs(35)));
+  // Four windows, deliberately asymmetric with the single window scale-out
+  // needs: being an instance short costs latency on live traffic, being one
+  // over costs money.
+  assert!(runtime.idle_reached(&record, 0.1, start + Duration::from_secs(41)));
+}
+
+#[test]
+fn a_pool_at_its_target_is_neither_saturated_nor_idle() {
+  let mut runtime = ScalingRuntime::default();
+  let mut record = record("app.example.com");
+  record.window_secs = 10;
+  record.target_utilization = 0.8;
+  let start = Instant::now();
+  // 0.6 is under the target and over half of it: the gap between the two
+  // thresholds is what stops a pool hovering at its target from scaling out
+  // and in on alternating samples.
+  assert!(!runtime.saturation_reached(&record, 0.6, start));
+  assert!(!runtime.idle_reached(&record, 0.6, start));
+  assert!(!runtime.idle_reached(&record, 0.6, start + Duration::from_secs(600)));
+}
+
+#[test]
+fn traffic_returning_cancels_a_pending_scale_in() {
+  let mut runtime = ScalingRuntime::default();
+  let mut record = record("app.example.com");
+  record.window_secs = 10;
+  record.target_utilization = 0.8;
+  let start = Instant::now();
+  assert!(!runtime.idle_reached(&record, 0.1, start));
+  // One busy sample resets the clock: the idle stretch has to be continuous,
+  // or a service quiet at night would give up an instance mid-morning.
+  assert!(!runtime.saturation_reached(&record, 0.9, start + Duration::from_secs(20)));
+  assert!(!runtime.idle_reached(&record, 0.1, start + Duration::from_secs(30)));
+  assert!(!runtime.idle_reached(&record, 0.1, start + Duration::from_secs(60)));
+  assert!(runtime.idle_reached(&record, 0.1, start + Duration::from_secs(71)));
+}
+
+#[test]
+fn the_scale_in_reason_has_its_own_name_in_the_payload() {
+  // A receiver switches on this string, and a scale-in arriving labelled
+  // scale_out would be acted on backwards.
+  assert_eq!(Reason::ScaleIn.as_str(), "scale_in");
+}

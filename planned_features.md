@@ -204,12 +204,6 @@ readable without scrolling past what is already done.
   visitor's chunk boundaries. It matters for protocols where a chunk is a
   message. Worth a written answer even if the answer stays "we re-frame".
 
-- [ ] **#68 Autoscaling refinements.** (triage 30) Cooldown is global while
-  every other scaling parameter is per bind, and scale-in is left to the client
-  noticing it is idle, so the server can ask for more capacity but never for
-  less. Grouped, and both only matter to deployments that use autoscaling at
-  all.
-
 - [ ] **#69 Per-organization inspector retention.** (triage 25) Capture
   retention is a global entry cap and a global TTL, so a noisy organization can
   evict a quiet one's captures. A per-org ceiling is the multi-tenant hygiene
@@ -415,6 +409,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#68 Autoscaling refinements.** (triage 30) Cooldown is global while
+  every other scaling parameter is per bind, and scale-in is left to the client
+  noticing it is idle, so the server can ask for more capacity but never for
+  less. Grouped, and both only matter to deployments that use autoscaling at
+  all. shipped: the scale-in half. The cooldown half was a **wrong premise**,
+  `cooldown` is already a `scaling:` field, carried per record as
+  `cooldown_secs` and used per record at both call sites; nothing was global.
+  Scale-in emits a `scale_in` reason with a lower desired capacity to the same
+  endpoint, so the server still kills nothing. Two asymmetries with scale-out
+  are deliberate: below **half** the target rather than merely below it, which
+  is the hysteresis that keeps a pool at its target from oscillating, and for
+  **four** windows rather than one, because an instance short costs latency on
+  live traffic while an instance over costs money. It never asks for the last
+  one to go: 1 to 0 stays the client's decision via `idle_timeout`, which knows
+  about in-flight requests the server cannot see.
 
 - [x] **#63 Config authoring help.** (triage 30) Template variables
   (`${HOSTNAME}`, `${ENV}`) so one file serves several environments, and a

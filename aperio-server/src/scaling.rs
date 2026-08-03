@@ -13,9 +13,17 @@
 //!
 //! * **cold start (0 to 1)**, a request arrives for a bind no client serves.
 //! * **scale out (N to N+1)**, the connected pool is saturated.
+//! * **scale in (N to N-1)**, it has been idle for far longer than it took to
+//!   be called busy.
 //!
-//! Scale *in* is deliberately absent: an idle client retires itself
-//! (`idle_timeout`), so the server never has to decide to kill anything.
+//! Scale in emits a *lower* desired capacity to the same endpoint; it still
+//! kills nothing, which keeps the rule that Aperio is the sensor and the
+//! policy and never the orchestrator. It exists because the alternative,
+//! leaving it entirely to a client noticing it is idle, only ever solves 1 to
+//! 0: `idle_timeout` retires a whole client process, so a pool that scaled out
+//! to six stays at six until traffic stops completely. The last instance is
+//! still not this loop's business, going to zero is the client's own decision,
+//! because it knows about in-flight requests the server cannot see.
 //!
 //! The machine per bind is `Idle -> Waking -> Idle`, with a cooldown and an
 //! exponential backoff on failure, and a breaker that disarms a record that
@@ -48,6 +56,7 @@ const MAX_CONCURRENT_CALLS: usize = 8;
 pub(crate) enum Reason {
   ColdStart,
   ScaleOut,
+  ScaleIn,
 }
 
 impl Reason {
@@ -55,6 +64,7 @@ impl Reason {
     match self {
       Reason::ColdStart => "cold_start",
       Reason::ScaleOut => "scale_out",
+      Reason::ScaleIn => "scale_in",
     }
   }
 }
@@ -77,7 +87,25 @@ pub(crate) struct BindState {
   /// First instant utilization was seen above the target, so `window` can be
   /// enforced without a background sampler holding history.
   saturated_since: Option<Instant>,
+  /// The same, for the far side of the curve: first instant utilization was
+  /// seen well below the target.
+  idle_since: Option<Instant>,
 }
+
+/// Fraction of the target below which a bind counts as over-provisioned.
+///
+/// Not the target itself: a pool hovering at exactly the target would then be
+/// both saturated and idle, and would scale out and in on alternating
+/// samples. The gap between this and the target is the hysteresis.
+const SCALE_IN_FRACTION: f64 = 0.5;
+
+/// How many `window`s of idleness are needed to give an instance back.
+///
+/// Deliberately asymmetric with scale-out, which needs one. Being an instance
+/// short costs latency on live traffic while being one over costs money, and
+/// the cost of guessing wrong on the way down is paid by the visitor who
+/// arrives during the next cold start.
+const SCALE_IN_WINDOWS: u32 = 4;
 
 /// The whole runtime, keyed by record id.
 #[derive(Default)]
@@ -164,10 +192,34 @@ impl ScalingRuntime {
       state.saturated_since = None;
       return false;
     }
+    state.idle_since = None;
     match state.saturated_since {
       Some(since) => now.duration_since(since) >= Duration::from_secs(record.window_secs),
       None => {
         state.saturated_since = Some(now);
+        false
+      }
+    }
+  }
+
+  /// The mirror of `saturation_reached`: reports whether the bind has been
+  /// well under its target for long enough to give an instance back.
+  pub(crate) fn idle_reached(
+    &mut self,
+    record: &ScalingRecord,
+    utilization: f64,
+    now: Instant,
+  ) -> bool {
+    let state = self.binds.entry(record.id.clone()).or_default();
+    if utilization >= record.target_utilization * SCALE_IN_FRACTION {
+      state.idle_since = None;
+      return false;
+    }
+    let window = Duration::from_secs(record.window_secs.saturating_mul(SCALE_IN_WINDOWS as u64));
+    match state.idle_since {
+      Some(since) => now.duration_since(since) >= window,
+      None => {
+        state.idle_since = Some(now);
         false
       }
     }
@@ -403,10 +455,13 @@ pub(crate) async fn request_capacity(
     }
   };
 
-  let desired = if reason == Reason::ColdStart {
-    1
-  } else {
-    current.saturating_add(1)
+  let desired = match reason {
+    Reason::ColdStart => 1,
+    Reason::ScaleOut => current.saturating_add(1),
+    // Never below one from here: going to zero is the client's own decision
+    // through `idle_timeout`, which knows about requests in flight that the
+    // server cannot see.
+    Reason::ScaleIn => current.saturating_sub(1).max(record.min).max(1),
   };
   let outcome = call_endpoint(state, record, reason, current, desired).await;
   drop(permit);
@@ -484,7 +539,8 @@ pub(crate) async fn request_capacity(
 }
 
 /// Background loop: samples every armed record's pool and asks for one more
-/// instance when it has been saturated for its whole window.
+/// instance when it has been saturated for its whole window, or one fewer when
+/// it has been idle for several of them.
 ///
 /// Sampling here rather than on the request path is deliberate: the hot path
 /// must not pay for autoscaling, and a scale-out decision needs a *duration*
@@ -504,15 +560,28 @@ pub(crate) async fn run_scale_out_loop(state: Arc<AppState>) {
       if capacity.instances == 0 || capacity.capacity == 0 {
         continue;
       }
-      if capacity.instances >= record.max {
-        continue;
-      }
-      let reached = {
+      // At the ceiling there is nothing to scale out to, but there may still
+      // be something to scale in from, so this only skips the saturation half.
+      let at_ceiling = capacity.instances >= record.max;
+      let reached = !at_ceiling && {
         let mut runtime = state.scaling_runtime.lock().await;
         runtime.saturation_reached(&record, capacity.utilization, Instant::now())
       };
       if reached {
         request_capacity(&state, &record, Reason::ScaleOut, capacity.instances).await;
+        continue;
+      }
+      // The far side of the curve. Guarded by the floor rather than by the
+      // ceiling: a pool already at `min`, or at one instance, has nothing to
+      // give back.
+      if capacity.instances > record.min.max(1) {
+        let idle = {
+          let mut runtime = state.scaling_runtime.lock().await;
+          runtime.idle_reached(&record, capacity.utilization, Instant::now())
+        };
+        if idle {
+          request_capacity(&state, &record, Reason::ScaleIn, capacity.instances).await;
+        }
       }
     }
   }
