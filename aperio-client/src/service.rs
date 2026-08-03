@@ -77,6 +77,19 @@ fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<Strin
           .open(&path);
         opened.and_then(|mut f| f.write_all(key.as_bytes()))
       };
+      // `mode` on the open only applies to a file this call *creates*. A path
+      // that already existed, an empty one left by a failed write, or one an
+      // operator touched, keeps whatever mode it had, which is 0644 under the
+      // usual umask: the secret would be written world-readable into a file
+      // that looks like it was written owner-only. Tightening after the fact
+      // covers both paths with one rule.
+      #[cfg(unix)]
+      if write_res.is_ok() {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
+          warn!("Could not restrict the device key file {path} to 0600: {e}");
+        }
+      }
       match write_res {
         Ok(()) => info!("Generated a new device key at {path} for token pinning"),
         Err(e) => warn!(

@@ -283,6 +283,29 @@ fn test_resolve_device_key_value_and_file() {
   assert_eq!(a, b);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_pre_existing_device_key_file_is_still_written_owner_only() {
+  use std::os::unix::fs::PermissionsExt;
+
+  // `mode` on the open only applies to a file the call creates. An empty file
+  // already at the path, which is exactly what a failed earlier write or an
+  // operator's `touch` leaves, kept its 0644 and took the secret anyway: a
+  // pinning key readable by every local user, in a file that looks as though
+  // it was written owner-only.
+  let path = std::env::temp_dir().join(format!("aperio-devkey-perm-{}", uuid::Uuid::new_v4()));
+  std::fs::write(&path, "").unwrap();
+  std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+  let key = resolve_device_key(None, Some(path.to_string_lossy().into_owned()))
+    .expect("an empty file is regenerated");
+  assert!(!key.is_empty());
+  let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+  assert_eq!(mode, 0o600, "the key file is {mode:o}, not owner-only");
+
+  let _ = std::fs::remove_file(&path);
+}
+
 // ---------------------------------------------------------------------------
 // backend_accepts_connections
 // ---------------------------------------------------------------------------

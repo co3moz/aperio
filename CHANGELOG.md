@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **An existing device-key file kept its old permissions when a new key was written into it.** The key file is opened with mode `0600`, but that mode only applies to a file the call actually creates. A path that already existed, which is what a failed earlier write or an operator's `touch` leaves behind, kept whatever mode it had, usually `0644`, and the pinning secret was written into it world-readable while looking as though it had been written owner-only. The permissions are set after the write now, so both paths end up at `0600`.
+
 - **Signing in with a passkey or through OIDC issued an unprefixed session cookie.** The dashboard's session cookie is named `__Host-aperio_session` wherever `secure_cookies` allows it, and that prefix is the whole defence for a server that also proxies other people's hostnames: a browser only lets the exact host set a `__Host-` cookie, so a tenant on a neighbouring subdomain cannot set one that the dashboard would read. Password sign-in asked for the right name; the OIDC callback and both passkey completions wrote `aperio_session=` verbatim, so users of those two paths held a cookie a neighbour could imitate, and a session someone else chose could be walked into an operator's browser. All four paths now go through one builder, and a test walks the server's own sources to fail the build if a future sign-in path formats the cookie by hand again.
 
 ### Fixed
