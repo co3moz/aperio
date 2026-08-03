@@ -66,6 +66,7 @@ fn base_config() -> ServerConfig {
     denied_ips: Default::default(),
     identity_headers: false,
     access_log_sample_rate: 1.0,
+    otel_bridge: false,
     shutdown_drain: None,
     shutdown_drain_auto: false,
     shutdown_timeout: 10,

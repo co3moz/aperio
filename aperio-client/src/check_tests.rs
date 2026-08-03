@@ -177,6 +177,7 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
 fn base_settings() -> ClientSettings {
   ClientSettings {
     metrics_labels: Default::default(),
+    otel_bridge: None,
     startup_delay: None,
     pid_file: None,
     connect_timeout: None,

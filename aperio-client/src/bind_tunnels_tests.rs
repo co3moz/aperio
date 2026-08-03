@@ -39,6 +39,7 @@ fn settings_with(
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    otel_bridge: None,
     startup_delay: None,
     pid_file: None,
     connect_timeout: None,

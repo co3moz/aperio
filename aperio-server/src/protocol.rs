@@ -622,6 +622,15 @@ pub enum TunnelMessage {
   },
   /// Raw TCP bytes relayed through the tunnel (Base64).
   TcpData { stream_id: String, data: String },
+  /// Client → server: an OpenTelemetry export to forward to the collector
+  /// (the OTel bridge). `signal` is `traces`, `metrics` or `logs`; the payload
+  /// is an OTLP protobuf, Base64 for the same reason every other relay
+  /// payload is on this JSON channel.
+  ///
+  /// On the tunnel rather than over HTTPS because the point of the bridge is
+  /// an edge host with exactly one outbound connection; sending it here keeps
+  /// that property.
+  OtlpExport { signal: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
   TcpClose { stream_id: String },
   /// Server → client: open a UDP relay for this stream toward one of the

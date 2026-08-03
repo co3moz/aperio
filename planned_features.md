@@ -437,6 +437,23 @@ nothing reuses them.
 
 ## Completed
 
+- [x] **#74 An OpenTelemetry bridge for edge hosts.** Asked for directly
+  rather than coming from triage. An edge host usually has exactly one
+  outbound connection it may make, the tunnel, so its own telemetry has
+  nowhere to go without a new firewall rule and a collector credential on a
+  machine that should hold as few of those as possible. shipped: the client
+  runs an OTLP receiver on loopback (HTTP always, gRPC when a port is given,
+  written against hyper rather than pulling tonic into the client for one
+  unary method) and carries exports to the server, which forwards them to the
+  collector it already uses. The client picks the transport, `tunnel` (frames
+  on the socket it already holds, which is the property that makes this worth
+  having) or `https`. Three rules make it safe: identity is stamped by the
+  server and never taken from the payload; a full queue drops rather than
+  waits, because an exporter that cannot hand off blocks the application it
+  instruments; and the payload is walked only at its outermost level, so a
+  field from a newer OTLP is copied through rather than dropped. Not built: a
+  per-token permission, which is the obvious next turn of the screw.
+
 - [x] **#66 An access log for the relays.** (triage 30) HTTP requests get a
   structured line each; TCP and UDP relay connections get nothing, so a
   database tunnel leaves no record of who connected, for how long, or how much

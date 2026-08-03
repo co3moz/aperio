@@ -15,6 +15,7 @@ mod health_report;
 mod messages_http;
 mod messages_mqtt;
 mod messages_run;
+mod otel_bridge;
 mod protocol;
 mod proxy;
 mod proxy_protocol;
@@ -222,7 +223,14 @@ pub async fn run() {
 
   // Graceful shutdown state: a signal marks the client as draining, the
   // server is notified, and the process exits once in-flight work finishes.
+  // The OTel bridge: a local OTLP receiver whose exports travel to the server
+  // and on to its collector. Started before the services so an exporter that
+  // comes up with them is never refused, and its queue lives in `Shared` so
+  // whichever tunnel connection is live can carry the exports.
+  let otel_exports = start_otel_bridge(&settings).await;
+
   let shared = Shared {
+    otel_exports,
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
@@ -1380,6 +1388,44 @@ fn validate_depends_on(specs: &[ServiceSpec]) -> Result<(), String> {
     walk(name, &deps, &mut Vec::new(), &mut done)?;
   }
   Ok(())
+}
+
+/// Starts the OTel bridge's receivers, if configured, and returns the queue
+/// the tunnel transport drains.
+///
+/// `https` needs no queue on this side: the forwarder owns the receiver and
+/// posts to the server itself, so nothing has to reach into a service task.
+async fn start_otel_bridge(settings: &ClientSettings) -> Option<otel_bridge::Queue> {
+  let cfg = settings.otel_bridge.as_ref()?;
+  let http = cfg
+    .listen
+    .clone()
+    .or_else(|| Some("127.0.0.1:4318".to_string()));
+  let grpc = cfg.listen_grpc.clone();
+  let (tx, rx) = otel_bridge::channel(cfg.queue.unwrap_or(256));
+  tokio::spawn(otel_bridge::run(http, grpc, tx));
+  tokio::spawn(otel_bridge::report_drops());
+
+  let over_tunnel = cfg
+    .transport
+    .as_deref()
+    .map(str::trim)
+    .map(|t| !t.eq_ignore_ascii_case("https"))
+    .unwrap_or(true);
+  if over_tunnel {
+    info!("OTel bridge: exports will travel on the tunnel");
+    return Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
+  }
+  match (settings.server.clone(), settings.token.clone()) {
+    (Some(server), Some(token)) => {
+      info!("OTel bridge: exports will be posted to the server over https");
+      tokio::spawn(otel_bridge::run_https_forwarder(rx, server, token));
+    }
+    _ => error!(
+      "OTel bridge: transport https needs a server URL and a tunnel token; exports will be dropped"
+    ),
+  }
+  None
 }
 
 /// Writes the process id where an init system can find it.

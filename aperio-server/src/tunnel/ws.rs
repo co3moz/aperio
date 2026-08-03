@@ -1743,6 +1743,54 @@ impl ConnCtx {
   }
 
   /// Handles the client announcing a graceful drain.
+  /// Forwards an OTLP export a client sent over the tunnel.
+  ///
+  /// Spawned rather than awaited: the read loop of a tunnel serves every
+  /// request that client is handling, and a collector taking two seconds must
+  /// not be two seconds of the tunnel standing still. The export is dropped
+  /// with a warning if the bridge is off, which is the same answer the HTTP
+  /// endpoint gives and for the same reason, a client that keeps exporting
+  /// into a disabled bridge should be able to see that it is doing so.
+  async fn on_otlp_export(&self, signal: String, data: String) {
+    use base64::Engine;
+    if !self.state.config().otel_bridge {
+      warn!(
+        "Client {} sent an OTel export but the bridge is not enabled",
+        self.client_id
+      );
+      return;
+    }
+    let path = match signal.as_str() {
+      "traces" => "v1/traces",
+      "metrics" => "v1/metrics",
+      "logs" => "v1/logs",
+      _ => {
+        warn!(
+          "Client {} sent an export for an unknown signal",
+          self.client_id
+        );
+        return;
+      }
+    };
+    let Ok(payload) = base64::engine::general_purpose::STANDARD.decode(&data) else {
+      warn!(
+        "Client {} sent an export that is not Base64",
+        self.client_id
+      );
+      return;
+    };
+    let state = self.state.clone();
+    let identity = crate::api::otlp::identity(&self.perms);
+    let client_id = self.client_id.clone();
+    tokio::spawn(async move {
+      if let Err(e) =
+        crate::api::otlp::forward(&state, path, &identity, axum::body::Bytes::from(payload)).await
+      {
+        warn!("OTel export from {client_id} could not be delivered: {e}");
+      }
+    });
+  }
+
   async fn on_draining(&self) {
     let state = &self.state;
     let client_id = &self.client_id;
@@ -2247,6 +2295,7 @@ pub(crate) async fn handle_socket(
             m @ TunnelMessage::UpgradeResponse { .. } => ctx.on_upgrade_response(m).await,
             m @ TunnelMessage::WsData { .. } => ctx.on_ws_data(m).await,
             m @ TunnelMessage::WsClose { .. } => ctx.on_ws_close(m).await,
+            TunnelMessage::OtlpExport { signal, data } => ctx.on_otlp_export(signal, data).await,
             _ => {}
           }
         }

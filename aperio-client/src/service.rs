@@ -477,6 +477,11 @@ pub(crate) struct Shared {
   /// the live connections a publish can go out on, and the fan-out to
   /// whatever is attached locally.
   pub(crate) messages: Arc<crate::pubsub::MessageBus>,
+  /// OTLP exports waiting to be carried to the server on a tunnel, when the
+  /// bridge is configured with `transport: tunnel`. One queue for the
+  /// process: any live connection can carry an export, and the first one to
+  /// take it wins, which is what makes this survive a service reconnecting.
+  pub(crate) otel_exports: Option<crate::otel_bridge::Queue>,
   /// Services in this process that currently have a live tunnel, for
   /// `depends_on`. A watch rather than a notify: a dependent that starts late
   /// has to see the state as it already is, not wait for the next change.
@@ -1090,6 +1095,31 @@ pub(crate) async fn run_service(
 
             // Channel to write messages to the WebSocket
             let (tx_write, mut rx_write) = mpsc::channel::<Message>(100);
+
+            // OTel bridge, tunnel transport: one task per connection drains the
+            // process-wide queue onto this socket. The queue is behind a mutex,
+            // so exactly one live connection holds it; when this one ends the
+            // lock is released and the next connection picks the queue up where
+            // it was left, which is what makes exports survive a reconnect.
+            let otel_task = shared.otel_exports.clone().map(|queue| {
+              let tx = tx_write.clone();
+              tokio::spawn(async move {
+                use base64::Engine;
+                let mut rx = queue.lock().await;
+                while let Some(export) = rx.recv().await {
+                  let msg = TunnelMessage::OtlpExport {
+                    signal: export.signal.to_string(),
+                    data: base64::engine::general_purpose::STANDARD.encode(&export.payload),
+                  };
+                  let Ok(json) = serde_json::to_string(&msg) else {
+                    continue;
+                  };
+                  if tx.send(Message::Text(json.into())).await.is_err() {
+                    break;
+                  }
+                }
+              })
+            });
 
             // Abort channel for liveness failures
             let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
@@ -1945,6 +1975,10 @@ pub(crate) async fn run_service(
 
             // Cleanup tasks on connection loss
             writer_task.abort();
+            // Releases the export queue for the next connection to pick up.
+            if let Some(task) = otel_task {
+              task.abort();
+            }
             ping_task.abort();
             warn!("[{}] Connection to server lost.", label);
 

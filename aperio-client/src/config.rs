@@ -585,6 +585,8 @@ pub(crate) struct ClientSettings {
   /// Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`
   /// (yaml `min_tls_version`, env `APERIO_MIN_TLS_VERSION`).
   pub(crate) min_tls_version: Option<String>,
+  /// The OTLP bridge block (yaml `otel_bridge`), unset = no bridge.
+  pub(crate) otel_bridge: Option<aperio_config::OtelBridge>,
   /// Seconds a service waits before opening its tunnel (yaml `startup_delay`,
   /// env `APERIO_STARTUP_DELAY`).
   pub(crate) startup_delay: Option<u64>,
@@ -833,6 +835,43 @@ fn split_csv(raw: &str) -> Vec<String> {
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty())
     .collect()
+}
+
+/// Resolves `otel_bridge:` across the file and the environment.
+///
+/// Field by field rather than all-or-nothing, like `scaling:`: a deployment
+/// keeps the shape in the file and injects the one value that differs per
+/// host. Any of the four variables alone is enough to turn the bridge on,
+/// which is what a container platform needs, since it has no file to edit.
+fn resolve_otel_bridge(local: &FileConfig, home: &FileConfig) -> Option<aperio_config::OtelBridge> {
+  let block = local
+    .otel_bridge
+    .clone()
+    .or_else(|| home.otel_bridge.clone());
+  let listen = env_str("APERIO_OTEL_BRIDGE_LISTEN");
+  let listen_grpc = env_str("APERIO_OTEL_BRIDGE_LISTEN_GRPC");
+  let transport = env_str("APERIO_OTEL_BRIDGE_TRANSPORT");
+  let queue: Option<usize> = env_parse("APERIO_OTEL_BRIDGE_QUEUE");
+  if block.is_none()
+    && listen.is_none()
+    && listen_grpc.is_none()
+    && transport.is_none()
+    && queue.is_none()
+  {
+    return None;
+  }
+  let block = block.unwrap_or(aperio_config::OtelBridge {
+    listen: None,
+    listen_grpc: None,
+    transport: None,
+    queue: None,
+  });
+  Some(aperio_config::OtelBridge {
+    listen: listen.or(block.listen),
+    listen_grpc: listen_grpc.or(block.listen_grpc),
+    transport: transport.or(block.transport),
+    queue: queue.or(block.queue),
+  })
 }
 
 /// Resolves `metrics_labels:` across the file and the environment.
@@ -1201,6 +1240,7 @@ pub(crate) fn resolve_settings(
       env_str("APERIO_MIN_TLS_VERSION"),
       home.min_tls_version.clone(),
     ),
+    otel_bridge: resolve_otel_bridge(local, home),
     startup_delay: layered(
       None,
       local.startup_delay,

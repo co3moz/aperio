@@ -45,6 +45,33 @@ otel:
 
 Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and appends the `/v1/traces` signal path to the endpoint; `protocol: grpc` sends gRPC to the bare base URL. Left unset, the endpoint's port decides, 4317 is the conventional gRPC port, and anything else is treated as HTTP, so the common collector layouts work without saying anything. Pin it explicitly when the collector listens on a non-standard port: a collector answering the other protocol accepts the connection and drops every span, which is exactly the failure that looks like "tracing is enabled and nothing shows up". The startup probe tests the transport that was actually chosen and warns when the port contradicts it.
 
+### The OTel bridge: telemetry from the edge
+
+An edge host usually has exactly one outbound connection it is allowed to make, the tunnel, and its own telemetry has nowhere to go. Shipping spans from there normally means a new firewall rule and a collector credential on a machine that should hold as few of those as possible.
+
+With `otel_bridge: true` on the server (`APERIO_OTEL_BRIDGE`) and an `otel_bridge:` block on the client, the client runs an OTLP receiver on loopback and carries what it receives to the server, which forwards it to the collector it already exports its own spans to.
+
+```yaml
+# aperio.yaml, on the edge host
+otel_bridge:
+  listen: 127.0.0.1:4318      # OTLP/HTTP, what every SDK can reach
+  listen_grpc: 127.0.0.1:4317 # optional, for an SDK pinned to gRPC
+  transport: tunnel           # tunnel (default) or https
+  queue: 256
+```
+
+Anything next to the client then exports with `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`, one environment variable and no SDK change.
+
+**Transport.** `tunnel` sends exports as frames on the WebSocket the client already holds, which is what preserves the "exactly one outbound connection" property the whole feature exists for. `https` posts them to the server's `/aperio/otlp/v1/{signal}` endpoint instead, for a client whose telemetry is bursty enough that it should stay off the tunnel, where it shares flow control with proxied traffic. The client picks; the server accepts both.
+
+**Attribution is the server's.** Every export is stamped with `aperio.token` and, for a child organization, `aperio.org`, as resource attributes. The client never supplies them: it says which spans, the server says whose they are, because telemetry filed under the wrong tenant is worse than none, being believed.
+
+**It never blocks what it measures.** A full queue drops the newest export and counts it, reported every five minutes, rather than making the SDK wait: an exporter that cannot hand off its batch blocks the application it is instrumenting. Exports are capped at 8 MB.
+
+**Protobuf only** (`application/x-protobuf`, the default for every SDK). JSON is refused with a message saying so, because the server injects attributes into the payload and doing that for two encodings is two chances to corrupt somebody's telemetry. The payload is otherwise never decoded, only walked at its outermost level to find where the resource goes, so a field from an OTLP version newer than the server is copied through rather than dropped.
+
+While the bridge is on, any client with a valid tunnel token may export. The destination is the single collector the operator chose, every export is attributed, and both size and rate are capped; a per-token permission is not built yet.
+
 The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` variables are honored as fallbacks. Spans are batch-exported and flushed on graceful shutdown.
 
 **Sampling.** `sample_rate` is the fraction of requests traced, and it defaults to `1.0`: every request builds a span tree, the proxy span plus a child per phase, and hands it to the exporter. That is the right default for a staging server and the wrong one for a busy production server, where a hundredth of the traffic answers the same questions about latency and error shape. The decision is made once, at the root of the request, and every span of that request follows it, so a sampled trace is always whole rather than a `proxy.request` with three of its eight phases. A request that is not sampled skips the phase-span assembly altogether. If you are benchmarking with tracing on, this is the setting that is in your numbers: at `1.0` you are measuring the exporter as much as the tunnel.

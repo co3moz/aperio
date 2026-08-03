@@ -1109,6 +1109,13 @@ pub struct FileConfig {
   /// Most requests handled at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
+  /// Accept OpenTelemetry exports from things running next to this client and
+  /// carry them to the server, which forwards them to the collector it is
+  /// configured for. The point is an edge host that is allowed exactly one
+  /// outbound connection, the tunnel: no new firewall rule, no collector
+  /// credential at the edge.
+  #[schemars(extend("examples" = [{"listen": "127.0.0.1:4318", "transport": "tunnel"}]))]
+  pub otel_bridge: Option<OtelBridge>,
   /// Path to write this process's pid to at startup, removed on a clean exit.
   /// For an init system that wants one; a process supervisor usually knows the
   /// pid without being told. Default: unset (env: APERIO_PID_FILE).
@@ -2158,6 +2165,11 @@ pub struct OtelGroup {
   /// OTLP service name. Default: `aperio-server`.
   #[schemars(extend("examples" = ["aperio"]))]
   pub service_name: Option<String>,
+  /// Extra headers for every outgoing OTLP request, as `k=v,k=v`. This is
+  /// where a collector's credential goes, and it stays on the server: the
+  /// point of the OTel bridge is that an edge host does not hold one.
+  #[schemars(extend("examples" = ["authorization=Bearer xxx"]))]
+  pub headers: Option<String>,
   /// Fraction of traces to record, 0.0 to 1.0. At `1.0` every request
   /// builds a span tree and hands it to the exporter, which is the setting
   /// that makes tracing show up in a benchmark. `0.01` samples one request in
@@ -2288,6 +2300,35 @@ pub struct StreamGroup {
   /// Default: `16777216` (16 MB).
   #[schemars(extend("examples" = [16777216]))]
   pub backlog_limit: Option<u64>,
+}
+
+/// The client's `otel_bridge:` block.
+#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OtelBridge {
+  /// Address for the OTLP/HTTP receiver, the one every SDK can reach with
+  /// `OTEL_EXPORTER_OTLP_ENDPOINT`. Default: `127.0.0.1:4318`.
+  #[schemars(extend("examples" = ["127.0.0.1:4318"]))]
+  pub listen: Option<String>,
+  /// Address for the OTLP/gRPC receiver, for SDKs pinned to that transport.
+  /// Unset = no gRPC listener. Conventionally port 4317.
+  #[schemars(extend("examples" = ["127.0.0.1:4317"]))]
+  pub listen_grpc: Option<String>,
+  /// How exports reach the server: `tunnel` sends them as frames on the
+  /// WebSocket this client already holds, `https` posts them to the server's
+  /// endpoint as ordinary requests. Default: `tunnel`.
+  ///
+  /// `tunnel` is the one that keeps the "exactly one outbound connection"
+  /// property that makes this worth having; `https` exists because a client
+  /// whose telemetry is bursty may prefer it to stay off the tunnel entirely,
+  /// where it would share flow control with proxied traffic.
+  #[schemars(extend("examples" = ["tunnel", "https"]))]
+  pub transport: Option<String>,
+  /// Exports to hold when the far end is not keeping up. Past this, the
+  /// oldest are dropped and counted: telemetry must never be the reason a
+  /// tunnel stalls. Default: `256`.
+  #[schemars(extend("examples" = [256]))]
+  pub queue: Option<usize>,
 }
 
 /// `shutdown_drain:` as a number of seconds, or the word `auto`.
@@ -2754,6 +2795,15 @@ pub struct ServerFileConfig {
   /// (env: APERIO_SHUTDOWN_DRAIN).
   #[schemars(extend("examples" = [10, "auto"]))]
   pub shutdown_drain: Option<ShutdownDrain>,
+  /// Accept OpenTelemetry exports from tunnel clients and forward them to the
+  /// collector this server exports its own spans to (`otel.endpoint`). Off by
+  /// default: it is an outbound path a client can drive, so it is a decision
+  /// rather than a consequence of having `otel` on. While it is on, any client
+  /// with a valid tunnel token may export; every export is attributed to the
+  /// token that sent it and both size and rate are capped
+  /// (env: APERIO_OTEL_BRIDGE).
+  #[schemars(extend("examples" = [true]))]
+  pub otel_bridge: Option<bool>,
   /// Seconds after which shutdown stops waiting for anything still holding a
   /// connection open (a proxied WebSocket, a TCP relay, a stalled peer) and
   /// exits. Default: `10` (env: APERIO_SHUTDOWN_TIMEOUT).
@@ -2859,6 +2909,9 @@ pub struct ServerFileConfig {
   pub otel_protocol: Option<String>,
   /// Deprecated spelling of `otel.service_name` (env: APERIO_OTEL_SERVICE_NAME).
   pub otel_service_name: Option<String>,
+  /// Flat spelling of `otel.headers` (env: APERIO_OTEL_HEADERS).
+  #[schemars(extend("examples" = ["authorization=Bearer xxx"]))]
+  pub otel_headers: Option<String>,
   /// Deprecated spelling of `otel.sample_rate` (env: APERIO_OTEL_SAMPLE_RATE).
   pub otel_sample_rate: Option<f64>,
   /// Deprecated spelling of `metrics.token` (env: APERIO_METRICS_TOKEN).

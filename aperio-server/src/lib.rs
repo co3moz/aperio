@@ -34,6 +34,7 @@ mod limits;
 mod maintenance_windows;
 mod metrics_labels;
 mod oidc;
+mod otlp_identity;
 mod outbound;
 mod print_config;
 mod protocol;
@@ -1126,6 +1127,9 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
+    otel_bridge: std::env::var("APERIO_OTEL_BRIDGE")
+      .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+      .unwrap_or(false),
     shutdown_drain: {
       let raw = std::env::var("APERIO_SHUTDOWN_DRAIN").unwrap_or_default();
       raw.trim().parse::<u64>().ok()
@@ -1755,6 +1759,13 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
   // serving" with no body and no locks, readiness answers "should traffic
   // come here", which stops being true the moment a shutdown signal lands.
   app = app.route("/aperio/healthz", get(crate::api::healthz_handler));
+  // The OTel bridge's receiving end. Outside the dashboard auth middleware
+  // like the tunnel endpoints, because it authenticates with a tunnel token
+  // rather than a dashboard session.
+  app = app.route(
+    "/aperio/otlp/v1/{signal}",
+    axum::routing::post(crate::api::otlp::otlp_handler),
+  );
   app = app.route("/aperio/readyz", get(crate::api::readyz_handler));
   app = app.route(
     "/aperio/auth",

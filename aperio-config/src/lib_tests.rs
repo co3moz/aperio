@@ -423,6 +423,7 @@ fn every_environment_variable_has_a_yaml_key() {
         // are reachable as APERIO_CONNECTIONS_MIN / _MAX like any other
         // grouped key.
         "connections",
+        "otel_bridge",
       ],
     ),
   ] {

@@ -2640,6 +2640,10 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_ACCESS\_LOG} & File path for the structured access log: one JSON line per proxied request (\code{request\_id}, \code{method}, \code{uri}, \code{status}, \code{duration\_ms}, \code{host}, \code{client\_id}, \code{token}, \code{error}), directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured \code{aperio\_access} tracing events. &  \\
 \rowsep
+\code{APERIO\_OTEL\_BRIDGE} & \code{1} = accept OTLP exports from tunnel clients and forward them to the collector \code{otel.endpoint} names. Off by default: it is an outbound path a client can drive. & \code{0} \\
+\rowsep
+\code{APERIO\_OTEL\_HEADERS} & Extra headers on every outgoing OTLP request, as \code{k=v,k=v}. Where a collector's credential goes, and it stays on the server. &  \\
+\rowsep
 \code{APERIO\_SHUTDOWN\_DRAIN} & Seconds to let in-flight proxied requests finish before shutdown ends the connections carrying them. Behind a load balancer this decides whether a deploy is invisible or shows up as a handful of 502s. \code{auto} takes the longest drain budget connected clients announce, capped at 30s. & \code{0} \\
 \rowsep
 \code{APERIO\_SHUTDOWN\_TIMEOUT} & Seconds after which shutdown stops waiting for anything still holding a connection open and exits. & \code{10} \\
@@ -2836,6 +2840,14 @@ settings are required: the token, the server URL, and the target.
 \code{APERIO\_MAX\_CONCURRENT} & \code{--max-concurrent} & \code{max\_concurrent} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. \\
 \rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver; anything on the edge host exports to it with one environment variable. & \code{127.0.0.1:4318} \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN\_GRPC} &  & \code{otel\_bridge.listen\_grpc} & Address for the OTLP/gRPC receiver. Unset = no gRPC listener. &  \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_TRANSPORT} &  & \code{otel\_bridge.transport} & \code{tunnel} sends exports on the WebSocket the client already holds; \code{https} posts them to the server's endpoint. & \code{tunnel} \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_QUEUE} &  & \code{otel\_bridge.queue} & Exports held when the far end is not keeping up; past this the newest is dropped and counted, never waited on. & \code{256} \\
 \rowsep
 \code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. & \code{0} \\
 \rowsep

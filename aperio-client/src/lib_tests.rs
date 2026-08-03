@@ -34,6 +34,7 @@ fn base_settings() -> ClientSettings {
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    otel_bridge: None,
     startup_delay: None,
     pid_file: None,
     connect_timeout: None,
@@ -1141,6 +1142,7 @@ async fn test_spawn_services_derives_connection_ids() {
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     ready_services: watch::channel(std::collections::HashSet::new()).0,
+    otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
   };
@@ -1352,6 +1354,7 @@ async fn await_dependencies_returns_at_once_when_they_are_already_up() {
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     ready_services: watch::channel(std::collections::HashSet::new()).0,
+    otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
   };
@@ -1378,6 +1381,7 @@ async fn await_dependencies_wakes_when_the_dependency_comes_up() {
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     ready_services: watch::channel(std::collections::HashSet::new()).0,
+    otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
   };

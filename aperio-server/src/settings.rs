@@ -233,6 +233,9 @@ pub(crate) struct ServerConfig {
   /// Seconds to let in-flight proxied requests finish before shutdown ends
   /// long-lived connections. `Some(n)` = wait up to n seconds, `None` = size
   /// it from what connected clients announce (`auto`), capped.
+  /// Accept OTLP exports from tunnel clients and forward them to the
+  /// configured collector.
+  pub(crate) otel_bridge: bool,
   pub(crate) shutdown_drain: Option<u64>,
   /// True when `shutdown_drain` was written as `auto`.
   pub(crate) shutdown_drain_auto: bool,

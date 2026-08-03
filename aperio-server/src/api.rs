@@ -23,6 +23,7 @@ pub(crate) mod metrics;
 pub(crate) mod observe;
 pub(crate) mod openapi;
 pub(crate) mod orgs;
+pub(crate) mod otlp;
 pub(crate) mod publish;
 pub(crate) mod purge;
 pub(crate) mod scaling;
