@@ -267,7 +267,7 @@ services:
 
 Per-entry fields: `name`, `target` (required, or `serve` in its place: a local directory of static files served as this service, mutually exclusive with `target`; one loopback file server runs per distinct directory), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `connections`, `priority`, `bandwidth`, `timeout`, `max_response_body`, `max_request_body`, `max_redirects`, `target_health`, `wait_for_backend`, `health_interval`, `health_timeout`, `health_threshold`, `public`, `auth`, `allowed_ips`, `denied`, `headers`, `security_headers`, `retry`, `circuit_breaker`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The one exception is `bandwidth`, where the top-level value is a budget shared by the entries rather than a default copied into each of them.
 
-**Backend resilience (`retry:` and `circuit_breaker:`).** The server can fail a request over to another *client* and eject one that keeps misbehaving; neither helps the client whose own backend is refusing connections. These two blocks cover that hop, per service or at the top level as the default for every entry:
+**Backend resilience (`retry:` and `circuit_breaker:`).** The server can fail a request over to another *client* and eject one that keeps misbehaving; neither helps the client whose own backend is refusing connections. These two blocks cover that hop, per service or at the top level as the default for every entry. They apply to every backend scheme: plain HTTP, `h2c://` / `h2://`, and `unix://`.
 
 ```yaml
 services:

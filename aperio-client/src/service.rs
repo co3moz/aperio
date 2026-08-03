@@ -954,7 +954,7 @@ pub(crate) async fn run_service(
     // Built once, outside the loop, like the HTTP probe client.
     let grpc_client = grpc_service
       .is_some()
-      .then(|| crate::proxy::h2::build_h2_client(&spec.target))
+      .then(|| crate::proxy::h2::build_h2_client(&spec.target, spec.min_tls_version.as_deref()))
       .flatten();
     let grpc_target = spec.target.clone();
     let flag = backend_healthy.clone();
@@ -1568,7 +1568,11 @@ pub(crate) async fn run_service(
             let forward_ctx = Arc::new(ForwardContext {
               client: reqwest_client.clone(),
               stream_pauses: stream_pauses.clone(),
-              h2_client: crate::proxy::h2::build_h2_client(&spec.target).map(Arc::new),
+              h2_client: crate::proxy::h2::build_h2_client(
+                &spec.target,
+                spec.min_tls_version.as_deref(),
+              )
+              .map(Arc::new),
               unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
               timeout_secs: spec.timeout_secs,
               // One breaker per service connection, shared by every request

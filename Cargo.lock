@@ -153,6 +153,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "webpki-roots 0.26.11",
  "x25519-dalek",
 ]
 

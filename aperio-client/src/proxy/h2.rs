@@ -37,7 +37,15 @@ pub(crate) fn is_h2_target(target: &str) -> bool {
 
 /// Builds the HTTP/2 client matching the target's scheme; None for plain
 /// HTTP targets.
-pub(crate) fn build_h2_client(target: &str) -> Option<H2Client> {
+///
+/// `min_tls_version` is honored here for the same reason it is on the HTTP/1
+/// path. It used to be read only where the reqwest client is built, which
+/// this target never reaches, so a config that asked for a TLS 1.3 floor got
+/// it for every backend except the `h2://` ones: a setting that was refused
+/// nowhere and applied nowhere, which is the worst state a security setting
+/// can be in. The value is validated on the config path, so an unusable one
+/// never reaches this.
+pub(crate) fn build_h2_client(target: &str, min_tls_version: Option<&str>) -> Option<H2Client> {
   if target.starts_with("h2c://") {
     Some(H2Client::Cleartext(
       Client::builder(TokioExecutor::new())
@@ -45,11 +53,27 @@ pub(crate) fn build_h2_client(target: &str) -> Option<H2Client> {
         .build(HttpConnector::new()),
     ))
   } else if target.starts_with("h2://") {
-    let https = hyper_rustls::HttpsConnectorBuilder::new()
-      .with_webpki_roots()
-      .https_only()
-      .enable_http2()
-      .build();
+    let builder = hyper_rustls::HttpsConnectorBuilder::new();
+    let https = match tls_versions(min_tls_version) {
+      Some(versions) => {
+        let roots = rustls::RootCertStore {
+          roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        let config = rustls::ClientConfig::builder_with_protocol_versions(versions)
+          .with_root_certificates(roots)
+          .with_no_client_auth();
+        builder
+          .with_tls_config(config)
+          .https_only()
+          .enable_http2()
+          .build()
+      }
+      None => builder
+        .with_webpki_roots()
+        .https_only()
+        .enable_http2()
+        .build(),
+    };
     Some(H2Client::Tls(
       Client::builder(TokioExecutor::new())
         .http2_only(true)
@@ -57,6 +81,22 @@ pub(crate) fn build_h2_client(target: &str) -> Option<H2Client> {
     ))
   } else {
     None
+  }
+}
+
+/// The protocol versions a floor allows, or `None` for "no floor asked for",
+/// which leaves rustls' own default set.
+fn tls_versions(
+  min_tls_version: Option<&str>,
+) -> Option<&'static [&'static rustls::SupportedProtocolVersion]> {
+  const TLS13_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
+  const TLS12_UP: &[&rustls::SupportedProtocolVersion] =
+    &[&rustls::version::TLS12, &rustls::version::TLS13];
+  match crate::proxy::http::tls_floor(min_tls_version) {
+    Ok(Some(reqwest::tls::Version::TLS_1_3)) => Some(TLS13_ONLY),
+    Ok(Some(_)) => Some(TLS12_UP),
+    // Unset, or a value the config path already refused.
+    _ => None,
   }
 }
 
@@ -157,52 +197,124 @@ pub(crate) async fn handle_incoming_request_h2(
     }
   }
 
-  let body: H2Body = if let Some(rx) = streamed_body {
-    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-      rx.recv().await.map(|item| (item.map(Frame::data), rx))
-    });
-    BoxBody::new(StreamBody::new(stream))
+  // A streamed body is consumed by its first attempt; a buffered one is kept
+  // so the request can be built again. That is the same fence the HTTP/1 path
+  // applies, and it is what makes retrying safe rather than a second delivery
+  // of a body nobody has.
+  let mut streamed = streamed_body;
+  let replayable_body: Option<Bytes> = if streamed.is_some() {
+    None
   } else if let Some(bytes) = raw_body {
     // v6: the body arrived as bytes in the dispatch frame, nothing to decode.
-    BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {}))
+    Some(Bytes::from(bytes))
   } else if let Some(encoded_body) = body_base64 {
     match BASE64_STANDARD.decode(encoded_body) {
-      Ok(bytes) => BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {})),
+      Ok(bytes) => Some(Bytes::from(bytes)),
       Err(e) => {
         error!("Base64 decoding failed for request body payload: {:?}", e);
         return Some(make_error_response(id, 400));
       }
     }
   } else {
-    BoxBody::new(http_body_util::Empty::new().map_err(|never| match never {}))
+    Some(Bytes::new())
   };
 
-  let request = match builder.body(body) {
-    Ok(r) => r,
+  // The head, kept apart from the body so an attempt can be rebuilt.
+  let head = match builder.body(()) {
+    Ok(r) => r.into_parts().0,
     Err(e) => {
       error!("Failed to build HTTP/2 backend request: {:?}", e);
       return Some(make_error_response(id, 400));
     }
   };
 
-  // The timeout covers reaching the backend and receiving the response head;
-  // the body may stream for as long as the RPC lives.
-  let res = match tokio::time::timeout(
-    std::time::Duration::from_secs(ctx.timeout_secs.max(1)),
-    h2_client.request(request),
-  )
-  .await
-  {
-    Ok(Ok(res)) => res,
-    Ok(Err(e)) => {
-      warn!("Tunnel request FAILURE (h2): ID={} Error={:?}", id, e);
+  // The breaker, then the attempts. Both used to be skipped entirely on this
+  // path: `handle_incoming_request` dispatches to h2 before it reaches them,
+  // so a service whose backend spoke HTTP/2 had `retry:` and
+  // `circuit_breaker:` in its config doing nothing at all.
+  if let crate::proxy::http::BreakerVerdict::Open(remaining) = ctx.resilience.check() {
+    warn!(
+      "Circuit breaker open for {}: request ID {} refused without dialing ({}s left)",
+      ctx.target,
+      id,
+      remaining.as_secs()
+    );
+    return Some(make_error_response(id, 502));
+  }
+  let method_retryable = ctx.resilience.may_retry_method(head.method.as_str());
+  let mut attempt = 1u32;
+  let mut backoff = ctx.resilience.backoff;
+  let mut redialed_stale = false;
+  let res = loop {
+    let body: H2Body = match (&replayable_body, streamed.take()) {
+      (_, Some(rx)) => {
+        let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+          rx.recv().await.map(|item| (item.map(Frame::data), rx))
+        });
+        BoxBody::new(StreamBody::new(stream))
+      }
+      (Some(bytes), None) => BoxBody::new(Full::new(bytes.clone()).map_err(|never| match never {})),
+      (None, None) => {
+        // The stream was spent by the previous attempt, which is why it is
+        // not retried; reaching here would send an empty body in its place.
+        break Err(None);
+      }
+    };
+    let request = hyper::Request::from_parts(head.clone(), body);
+    let outcome = tokio::time::timeout(
+      std::time::Duration::from_secs(ctx.timeout_secs.max(1)),
+      h2_client.request(request),
+    )
+    .await;
+    let e = match outcome {
+      Ok(Ok(res)) => break Ok(res),
+      Ok(Err(e)) => e,
+      Err(_) => {
+        warn!("Tunnel request TIMEOUT (h2): ID={}", id);
+        ctx.resilience.record_failure();
+        return Some(make_error_response(id, 504));
+      }
+    };
+    let replayable = method_retryable && replayable_body.is_some();
+    if replayable && attempt < ctx.resilience.attempts {
+      warn!(
+        "Backend attempt {}/{} failed for request ID {} (h2): {:?}; retrying in {}ms",
+        attempt,
+        ctx.resilience.attempts,
+        id,
+        e,
+        backoff.as_millis()
+      );
+      tokio::time::sleep(backoff).await;
+      backoff = backoff.saturating_mul(2);
+      attempt += 1;
+      continue;
+    }
+    // The same silent re-dial the HTTP/1 path does for a connection the
+    // backend had already closed: this client pools connections too.
+    if replayable
+      && !redialed_stale
+      && !e.is_connect()
+      && crate::proxy::http::chain_says_connection_closed(&e)
+    {
+      redialed_stale = true;
+      continue;
+    }
+    break Err(Some(e));
+  };
+  let res = match res {
+    Ok(res) => res,
+    Err(e) => {
+      if let Some(e) = e {
+        warn!("Tunnel request FAILURE (h2): ID={} Error={:?}", id, e);
+      }
+      ctx.resilience.record_failure();
       return Some(make_error_response(id, 502));
     }
-    Err(_) => {
-      warn!("Tunnel request TIMEOUT (h2): ID={}", id);
-      return Some(make_error_response(id, 504));
-    }
   };
+  // A response head arrived, so the backend is reachable; its status is
+  // deliberately not consulted, the same as on the HTTP/1 path.
+  ctx.resilience.record_success();
 
   let status = res.status().as_u16();
   let mut res_headers: Vec<(String, String)> = Vec::new();

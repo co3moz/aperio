@@ -520,9 +520,13 @@ pub(crate) struct ForwardRequest {
 /// A connect-time error is excluded on purpose: nothing was reused there, so
 /// a refusal is the backend's real answer.
 fn is_stale_connection_error(e: &reqwest::Error) -> bool {
-  if e.is_connect() {
-    return false;
-  }
+  !e.is_connect() && chain_says_connection_closed(e)
+}
+
+/// The source-chain half of [`is_stale_connection_error`], for the callers
+/// whose error type is not reqwest's: the h2 and unix-socket paths dial with
+/// hyper directly and pool their connections just the same.
+pub(crate) fn chain_says_connection_closed(e: &(dyn std::error::Error + 'static)) -> bool {
   let mut source: Option<&(dyn std::error::Error + 'static)> = Some(e);
   while let Some(err) = source {
     if let Some(h) = err.downcast_ref::<hyper::Error>()

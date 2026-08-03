@@ -152,48 +152,105 @@ pub(crate) async fn handle_incoming_request_unix(
     builder = builder.header(hyper::header::HOST, val);
   }
 
-  let body: UnixBody = if let Some(rx) = streamed_body {
-    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-      rx.recv().await.map(|item| (item.map(Frame::data), rx))
-    });
-    BoxBody::new(StreamBody::new(stream))
+  // A streamed body is consumed by its first attempt; a buffered one is kept
+  // so the request can be built again, the same fence the HTTP/1 path uses.
+  let mut streamed = streamed_body;
+  let replayable_body: Option<Bytes> = if streamed.is_some() {
+    None
   } else if let Some(bytes) = raw_body {
     // v6: the body arrived as bytes in the dispatch frame, nothing to decode.
-    BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {}))
+    Some(Bytes::from(bytes))
   } else if let Some(encoded_body) = body_base64 {
     match BASE64_STANDARD.decode(encoded_body) {
-      Ok(bytes) => BoxBody::new(Full::new(Bytes::from(bytes)).map_err(|never| match never {})),
+      Ok(bytes) => Some(Bytes::from(bytes)),
       Err(e) => {
         error!("Base64 decoding failed for request body payload: {:?}", e);
         return Some(make_error_response(id, 400));
       }
     }
   } else {
-    BoxBody::new(http_body_util::Empty::new().map_err(|never| match never {}))
+    Some(Bytes::new())
   };
 
-  let request = match builder.body(body) {
-    Ok(r) => r,
+  let head = match builder.body(()) {
+    Ok(r) => r.into_parts().0,
     Err(e) => {
       error!("Failed to build unix-socket backend request: {:?}", e);
       return Some(make_error_response(id, 400));
     }
   };
 
+  // The breaker and the attempts, both of which this path used to skip: the
+  // dispatch to it happens before either, so a service on a unix socket had
+  // `retry:` and `circuit_breaker:` in its config doing nothing.
+  if let crate::proxy::http::BreakerVerdict::Open(remaining) = ctx.resilience.check() {
+    warn!(
+      "Circuit breaker open for {}: request ID {} refused without dialing ({}s left)",
+      ctx.target,
+      id,
+      remaining.as_secs()
+    );
+    return Some(make_error_response(id, 502));
+  }
   // Dial + handshake + response head, all under the backend timeout; the
   // body may stream for as long as the response lives.
   let timeout = std::time::Duration::from_secs(ctx.timeout_secs.max(1));
-  let res = match tokio::time::timeout(timeout, dial_and_send(socket_path, request)).await {
-    Ok(Ok(res)) => res,
-    Ok(Err(e)) => {
-      warn!("Tunnel request FAILURE (unix): ID={} Error={}", id, e);
+  let method_retryable = ctx.resilience.may_retry_method(head.method.as_str());
+  let mut attempt = 1u32;
+  let mut backoff = ctx.resilience.backoff;
+  let res = loop {
+    let body: UnixBody = match (&replayable_body, streamed.take()) {
+      (_, Some(rx)) => {
+        let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+          rx.recv().await.map(|item| (item.map(Frame::data), rx))
+        });
+        BoxBody::new(StreamBody::new(stream))
+      }
+      (Some(bytes), None) => BoxBody::new(Full::new(bytes.clone()).map_err(|never| match never {})),
+      // The stream was spent by the previous attempt, which is why it is not
+      // retried; reaching here would send an empty body in its place.
+      (None, None) => break Err(None),
+    };
+    let request = hyper::Request::from_parts(head.clone(), body);
+    let outcome = tokio::time::timeout(timeout, dial_and_send(socket_path, request)).await;
+    let e = match outcome {
+      Ok(Ok(res)) => break Ok(res),
+      Ok(Err(e)) => e,
+      Err(_) => {
+        warn!("Tunnel request TIMEOUT (unix): ID={}", id);
+        ctx.resilience.record_failure();
+        return Some(make_error_response(id, 504));
+      }
+    };
+    // A fresh socket per request here, so there is no pooled connection to
+    // find closed: only the configured policy retries.
+    if method_retryable && replayable_body.is_some() && attempt < ctx.resilience.attempts {
+      warn!(
+        "Backend attempt {}/{} failed for request ID {} (unix): {}; retrying in {}ms",
+        attempt,
+        ctx.resilience.attempts,
+        id,
+        e,
+        backoff.as_millis()
+      );
+      tokio::time::sleep(backoff).await;
+      backoff = backoff.saturating_mul(2);
+      attempt += 1;
+      continue;
+    }
+    break Err(Some(e));
+  };
+  let res = match res {
+    Ok(res) => res,
+    Err(e) => {
+      if let Some(e) = e {
+        warn!("Tunnel request FAILURE (unix): ID={} Error={}", id, e);
+      }
+      ctx.resilience.record_failure();
       return Some(make_error_response(id, 502));
     }
-    Err(_) => {
-      warn!("Tunnel request TIMEOUT (unix): ID={}", id);
-      return Some(make_error_response(id, 504));
-    }
   };
+  ctx.resilience.record_success();
 
   let status = res.status().as_u16();
   let mut res_headers: Vec<(String, String)> = Vec::new();

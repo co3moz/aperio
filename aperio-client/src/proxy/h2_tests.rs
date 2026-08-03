@@ -117,7 +117,7 @@ fn drained_tx() -> mpsc::Sender<Message> {
 /// Forwarding context wired to an h2c target on the given port.
 fn h2_ctx(port: u16, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
   let target = format!("h2c://127.0.0.1:{}", port);
-  let h2_client = build_h2_client(&target).map(Arc::new);
+  let h2_client = build_h2_client(&target, None).map(Arc::new);
   ForwardContext {
     client: reqwest::Client::new(),
     h2_client,
@@ -163,14 +163,14 @@ fn test_build_h2_client_variants() {
   // so this test doesn't depend on another test having installed it first.
   let _ = rustls::crypto::ring::default_provider().install_default();
   assert!(matches!(
-    build_h2_client("h2c://127.0.0.1:1"),
+    build_h2_client("h2c://127.0.0.1:1", None),
     Some(H2Client::Cleartext(_))
   ));
   assert!(matches!(
-    build_h2_client("h2://example.com"),
+    build_h2_client("h2://example.com", None),
     Some(H2Client::Tls(_))
   ));
-  assert!(build_h2_client("http://x").is_none());
+  assert!(build_h2_client("http://x", None).is_none());
 }
 
 #[tokio::test]
@@ -444,7 +444,7 @@ async fn test_h2_tls_target_handshake_fails_502() {
   let _ = rustls::crypto::ring::default_provider().install_default();
   let port = start_h2c_backend().await;
   let target = format!("h2://127.0.0.1:{}", port);
-  let h2_client = build_h2_client(&target).map(Arc::new);
+  let h2_client = build_h2_client(&target, None).map(Arc::new);
   let ctx = ForwardContext {
     client: reqwest::Client::new(),
     h2_client,
@@ -611,7 +611,7 @@ async fn a_health_probe_whose_body_never_arrives_gives_up_on_time() {
   });
 
   let target = format!("h2c://127.0.0.1:{port}");
-  let client = super::build_h2_client(&target).expect("h2c client");
+  let client = super::build_h2_client(&target, None).expect("h2c client");
   // Under an outer deadline on purpose: a regression here does not fail, it
   // hangs, and a test that hangs tells nobody anything.
   let healthy = tokio::time::timeout(
@@ -621,4 +621,60 @@ async fn a_health_probe_whose_body_never_arrives_gives_up_on_time() {
   .await
   .expect("the probe never returned: the body is outside the timeout again");
   assert!(!healthy, "a probe that never completes is not a pass");
+}
+
+#[tokio::test]
+async fn the_h2_path_honours_the_breaker_and_retries() {
+  // Both were skipped entirely on this path: handle_incoming_request
+  // dispatches to h2 before it reaches either, so a service whose backend
+  // spoke HTTP/2 had `retry:` and `circuit_breaker:` in its config doing
+  // nothing at all.
+  let (tx, _rx) = mpsc::channel::<Message>(64);
+  // Nothing listening: every attempt fails to connect.
+  let mut ctx = h2_ctx(1, tx);
+  ctx.resilience = crate::proxy::http::BackendResilience::new(3, 1, false, 2, 30);
+
+  let started = std::time::Instant::now();
+  let result = handle_incoming_request_h2(&ctx, req("r1", "GET", "/"), None, false).await;
+  assert!(
+    matches!(result, Some(TunnelMessage::Response { status: 502, .. })),
+    "got {result:?}"
+  );
+  // Three attempts happened, not one: the backoff doubles from 1ms, so the
+  // only claim made here is that more than one dial was made.
+  assert!(started.elapsed() >= std::time::Duration::from_millis(3));
+
+  // Two consecutive failures were configured to open the breaker, and the
+  // first call recorded one. The second opens it, and from then on the
+  // request is refused without dialing.
+  let _ = handle_incoming_request_h2(&ctx, req("r2", "GET", "/"), None, false).await;
+  let refused = std::time::Instant::now();
+  let result = handle_incoming_request_h2(&ctx, req("r3", "GET", "/"), None, false).await;
+  assert!(
+    matches!(result, Some(TunnelMessage::Response { status: 502, .. })),
+    "got {result:?}"
+  );
+  assert!(
+    refused.elapsed() < std::time::Duration::from_millis(50),
+    "an open breaker must answer without dialing, took {:?}",
+    refused.elapsed()
+  );
+}
+
+#[tokio::test]
+async fn a_successful_h2_response_closes_the_breaker() {
+  let port = start_h2c_backend().await;
+  let (tx, _rx) = mpsc::channel::<Message>(64);
+  let mut ctx = h2_ctx(port, tx);
+  ctx.resilience = crate::proxy::http::BackendResilience::new(1, 1, false, 2, 30);
+  let result = handle_incoming_request_h2(&ctx, req("ok", "GET", "/"), None, false).await;
+  assert!(
+    matches!(result, Some(TunnelMessage::Response { status: 200, .. })),
+    "got {result:?}"
+  );
+  // A reachable backend keeps the breaker shut whatever it answered.
+  assert!(matches!(
+    ctx.resilience.check(),
+    crate::proxy::http::BreakerVerdict::Proceed
+  ));
 }
