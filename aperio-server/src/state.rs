@@ -1972,7 +1972,7 @@ pub(crate) struct AppState {
 /// What one call costs against the per-IP bucket (planned_features #64).
 ///
 /// The prices are ratios rather than measurements: what matters is that the
-/// three are ordered and separated, not that `Expensive` is exactly ten
+/// three are ordered and separated, not that `Expensive` is exactly five
 /// requests' worth. Sizing the bucket is still `ip_limit_max`, and an operator
 /// who wants a different shape moves that.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1991,11 +1991,21 @@ pub(crate) enum RateCost {
 }
 
 impl RateCost {
-  fn tokens(self) -> f64 {
+  /// The price, in tokens.
+  ///
+  /// Deliberately gentle multiples. The bucket was sized when every call cost
+  /// one, so multiplying a class by five does not make that class cost five,
+  /// it tightens the limit on it fivefold against a ceiling nobody re-chose.
+  /// The e2e suite found this the hard way: one address making a couple of
+  /// hundred calls, fourteen of them logins, went from comfortable to
+  /// throttled. An office of fifty people behind one NAT signing in on a
+  /// Monday morning is the same shape, and being ordered and separated is
+  /// what this needs to be, not steep.
+  pub(crate) fn tokens(self) -> f64 {
     match self {
       RateCost::Cheap => 1.0,
-      RateCost::Guessable => 5.0,
-      RateCost::Expensive => 10.0,
+      RateCost::Guessable => 2.0,
+      RateCost::Expensive => 5.0,
     }
   }
 }

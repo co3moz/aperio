@@ -380,9 +380,14 @@ nothing reuses them.
   the WebAuthn ceremonies, expose and the TCP endpoints, all against the same
   per-IP bucket. What is missing is a budget per endpoint class, so that a
   login attempt, a token creation and a full export are not charged the same.
-  shipped: a `RateCost` on the same bucket, `Cheap` (1), `Guessable` (5) for
-  anything that authenticates a credential, `Expensive` (10) for anything that
-  provisions or reads the whole store. Deliberately **one** bucket at
+  shipped: a `RateCost` on the same bucket, `Cheap` (1), `Guessable` (2) for
+  anything that authenticates a credential, `Expensive` (5) for anything that
+  provisions or reads the whole store. The first cut priced these at 5 and 10
+  and the e2e suite refused it: one address making a couple of hundred calls,
+  fourteen of them logins, went from comfortable to throttled. The bucket was
+  sized when everything cost one, so a steep multiple does not make a class
+  cost more, it tightens the limit on it against a ceiling nobody re-chose, and
+  an office behind one NAT is the same shape as that test. Deliberately **one** bucket at
   different prices rather than a bucket per class: separate buckets would let
   an attacker spend a full allowance on each, and the capacity being protected
   is shared anyway. The prices are ratios, not measurements; sizing stays

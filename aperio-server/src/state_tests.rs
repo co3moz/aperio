@@ -1289,64 +1289,67 @@ fn the_verdict_is_taken_once_per_window_and_the_counters_reset() {
 // Differentiated rate budgets (planned_features #64)
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn a_login_attempt_costs_more_than_a_read() {
+/// A state whose bucket holds exactly `tokens` and never refills, so what a
+/// test measures is the price and not the clock.
+fn state_with_budget(tokens: f64) -> AppState {
   let mut config = crate::test_support::test_config();
-  config.ip_limit_max = 10.0;
-  // No refill during the test, so what is measured is the price and not the
-  // clock.
+  config.ip_limit_max = tokens;
   config.ip_limit_refill = 0.0;
-  let state = crate::test_support::test_state_with(config);
+  crate::test_support::test_state_with(config)
+}
+
+#[test]
+fn the_three_prices_are_ordered_and_separated() {
+  // This, not the specific numbers, is what the design claims. The magnitudes
+  // are a judgement about how much pressure a shared bucket can take, and
+  // they have moved once already.
+  assert!(RateCost::Cheap.tokens() < RateCost::Guessable.tokens());
+  assert!(RateCost::Guessable.tokens() < RateCost::Expensive.tokens());
+}
+
+#[tokio::test]
+async fn a_credential_attempt_costs_more_than_a_read() {
+  let budget = 20.0;
+  let state = state_with_budget(budget);
   let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
 
-  // Ten reads fit in a bucket of ten. This is what the whole admin surface
-  // used to be charged, a full export included.
-  for i in 0..10 {
-    assert!(state.check_rate_limit(ip).await, "read {i}");
+  let reads = (budget / RateCost::Cheap.tokens()) as usize;
+  let guesses = (budget / RateCost::Guessable.tokens()) as usize;
+  assert!(guesses < reads, "a login has to be dearer than a page view");
+
+  for i in 0..guesses {
+    assert!(
+      state.check_rate_limit_cost(ip, RateCost::Guessable).await,
+      "attempt {i} fits"
+    );
   }
-  assert!(!state.check_rate_limit(ip).await);
+  assert!(
+    !state.check_rate_limit_cost(ip, RateCost::Guessable).await,
+    "and the next does not"
+  );
 }
 
 #[tokio::test]
 async fn the_budget_is_shared_between_the_classes() {
-  let mut config = crate::test_support::test_config();
-  config.ip_limit_max = 10.0;
-  config.ip_limit_refill = 0.0;
-  let state = crate::test_support::test_state_with(config);
+  let state = state_with_budget(RateCost::Guessable.tokens() * 2.0);
   let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
-
-  // Two login attempts out of a bucket of ten, and the reads that remain fit
-  // in what is left. One bucket at different prices, not a bucket per class:
-  // separate buckets would let an attacker spend a full allowance on each.
-  assert!(
-    state
-      .check_rate_limit_cost(ip, crate::state::RateCost::Guessable)
-      .await
-  );
-  assert!(
-    state
-      .check_rate_limit_cost(ip, crate::state::RateCost::Guessable)
-      .await
-  );
+  // Two login attempts empty a bucket that holds exactly two of them, and
+  // nothing is left for a read. One bucket at different prices, not a bucket
+  // per class: separate buckets would let an attacker spend a full allowance
+  // on each.
+  assert!(state.check_rate_limit_cost(ip, RateCost::Guessable).await);
+  assert!(state.check_rate_limit_cost(ip, RateCost::Guessable).await);
   assert!(!state.check_rate_limit(ip).await, "nothing is left");
 }
 
 #[tokio::test]
-async fn one_export_does_not_fit_where_ten_reads_did() {
-  let mut config = crate::test_support::test_config();
-  config.ip_limit_max = 9.0;
-  config.ip_limit_refill = 0.0;
-  let state = crate::test_support::test_state_with(config);
+async fn a_refused_call_is_not_charged() {
+  // Just under the price of the expensive call, so it is refused.
+  let state = state_with_budget(RateCost::Expensive.tokens() - 0.5);
   let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
-  // A full dump costs the server a thousand times a page view and used to be
-  // charged the same as one.
-  assert!(
-    !state
-      .check_rate_limit_cost(ip, crate::state::RateCost::Expensive)
-      .await
-  );
-  // And the cheap budget is untouched by the refusal: a call that was turned
-  // away has not been served, so it should not have been paid for either.
+  assert!(!state.check_rate_limit_cost(ip, RateCost::Expensive).await);
+  // A call that was turned away has not been served, so it should not have
+  // been paid for either: the cheap budget is untouched.
   assert!(state.check_rate_limit(ip).await);
 }
 
