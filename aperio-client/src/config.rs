@@ -329,6 +329,12 @@ fn read_with_includes(
 
   let raw =
     std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+  // Template variables are expanded before the yaml is parsed, so one file can
+  // serve several environments instead of being copied per environment, which
+  // is how two files drift. Expanded per file, not after merging, so an
+  // included fragment reports its own name when a variable is missing.
+  let raw = aperio_config::authoring::expand_vars(&raw, |name| std::env::var(name).ok())
+    .map_err(|e| format!("{}: {e}", path.display()))?;
   let mut doc: serde_yaml::Mapping = match serde_yaml::from_str(&raw) {
     Ok(serde_yaml::Value::Mapping(m)) => m,
     Ok(serde_yaml::Value::Null) => serde_yaml::Mapping::new(),
@@ -404,9 +410,53 @@ fn merge_mapping(base: &mut serde_yaml::Mapping, overlay: serde_yaml::Mapping) {
 /// contributed are returned so the hot-reload watcher can watch all of them,
 /// not only the root: an edit to an included fragment is a config change like
 /// any other.
+/// Warns about keys nothing reads, naming the key they were probably meant to
+/// be.
+///
+/// A warning rather than an error: an unknown key has always been ignored, and
+/// turning that into a refusal to start would break files that work today,
+/// including ones carrying keys for a newer client than the one running. But
+/// silence is the wrong answer too, a setting that is silently ignored is the
+/// most expensive kind of typo, because the file says the thing is configured
+/// and the behavior says it is not.
+fn warn_unknown_keys(doc: &serde_yaml::Mapping, path: &str) {
+  let (top, service) = aperio_config::authoring::known_keys();
+  let report = |key: &str, known: &[String], where_: &str| {
+    if known.iter().any(|k| k == key) {
+      return;
+    }
+    match aperio_config::authoring::suggest(key, known.iter().map(String::as_str)) {
+      Some(hint) => warn!("{path}: `{key}` in {where_} is not a setting; did you mean `{hint}`?"),
+      None => warn!("{path}: `{key}` in {where_} is not a setting and is ignored"),
+    }
+  };
+  for (key, value) in doc {
+    let Some(key) = key.as_str() else { continue };
+    // `include:` is consumed before the document is deserialized, so it is
+    // never a property of the schema and must not be reported as a typo.
+    if key == "include" {
+      continue;
+    }
+    report(key, top, "the config file");
+    if key == "services"
+      && let serde_yaml::Value::Sequence(entries) = value
+    {
+      for entry in entries {
+        let serde_yaml::Value::Mapping(entry) = entry else {
+          continue;
+        };
+        for entry_key in entry.keys().filter_map(|k| k.as_str()) {
+          report(entry_key, service, "a services: entry");
+        }
+      }
+    }
+  }
+}
+
 pub(crate) fn parse_config_tree(path: &Path) -> Result<(FileConfig, Vec<PathBuf>), String> {
   let mut seen = Vec::new();
   let merged = read_with_includes(path, 0, &mut seen)?;
+  warn_unknown_keys(&merged, &path.display().to_string());
   let mut cfg: FileConfig = serde_yaml::from_value(serde_yaml::Value::Mapping(merged))
     .map_err(|e| format!("{}: {e}", path.display()))?;
   fold_and_warn(&mut cfg, &path.display().to_string());

@@ -8,6 +8,7 @@
 //! keep them to a single purposeful sentence and add `examples` where the value
 //! has a specific format.
 
+pub mod authoring;
 pub mod compat;
 
 use schemars::JsonSchema;

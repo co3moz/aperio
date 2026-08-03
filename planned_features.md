@@ -178,12 +178,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#63 Config authoring help.** (triage 30) Template variables
-  (`${HOSTNAME}`, `${ENV}`) so one file serves several environments, and a
-  warning from `check` when a literal secret appears in the file rather than an
-  environment reference. Grouped as two sides of "the config file is written by
-  hand and we can help".
-
 - [ ] **#64 Differentiated rate budgets for the admin API.** (triage 30, cut
   from a proposed 85 whose premise was wrong.) The admin surface *is* rate
   limited: `check_rate_limit` runs on login, token creation, the tunnels API,
@@ -421,6 +415,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#63 Config authoring help.** (triage 30) Template variables
+  (`${HOSTNAME}`, `${ENV}`) so one file serves several environments, and a
+  warning from `check` when a literal secret appears in the file rather than an
+  environment reference. Grouped as two sides of "the config file is written by
+  hand and we can help". shipped: both, plus a third that belongs to the same
+  idea and was asked for while building it, **typo tolerance**: an unknown key
+  used to be ignored in silence, and now warns naming the key it was probably
+  meant to be, checked against the generated schema rather than a hand-kept
+  list so it cannot go stale. Only `${NAME}` is expanded, never a bare
+  `$NAME`, because `$` appears in passwords, regexes and `run:` snippets and
+  rewriting those would corrupt working files; an unset variable is an error
+  rather than an empty string, since substituting nothing yields a file that
+  parses and means something else.
 
 - [x] **#62 Client process lifecycle knobs.** (triage 30) `pid_file` for init
   systems that want one, `startup_delay` before a service registers, and

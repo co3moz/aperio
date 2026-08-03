@@ -283,6 +283,24 @@ Retrying only covers failures that happen *before* a response head arrives, and 
 
 More connections is not automatically faster: each one costs a reader and a writer task on both ends, and its own sockets and queues. Raising N pays off when the bottleneck is the network, a long round-trip or a single TCP stream's throughput ceiling between client and server. When client and server share a machine's CPU (loopback, a dev box, co-located containers), small values win; in a loopback bulk-throughput measurement the curve peaked at 4 connections and fell past it, with 10 slower than 1. Start small, and let a measurement on your own deployment justify each increase.
 
+### Template variables
+
+`${NAME}` and `${NAME:-default}` in a client config file are expanded from the environment before the yaml is parsed, so one file can serve several environments instead of being copied per environment, which is how two files drift:
+
+```yaml
+hostname: ${ENV:-dev}.example.com
+server:
+  token: ${APERIO_TOKEN}
+```
+
+Only this spelling is expanded. A bare `$NAME` is left exactly as written, because `$` appears in generated passwords, regular expressions and the shell snippets inside `run:` commands, and a config loader that rewrote those would corrupt files that work today. A variable that is not set and has no default is an error naming the variable, not an empty string: substituting nothing produces a file that still parses and means something else (`hostname: .example.com`, or an empty token), which then fails somewhere unrelated. Expansion happens per file, so an included fragment reports its own name.
+
+### Typos and literal secrets
+
+A key nothing recognizes has always been ignored silently, which is the most expensive kind of typo: the file says the setting is configured and the behavior says it is not. Unknown keys now produce a warning naming the key they were probably meant to be (`` `hostnme` is not a setting; did you mean `hostname`? ``), at the top level and inside `services:` entries, against the same generated schema editors complete from. It stays a warning rather than an error, so a file carrying keys for a newer client than the one running still starts.
+
+`aperio-client check` also warns when a credential (`token`, `psk`, `client_secret`, `password`, `api_key`, `device_key`) is written into the file literally rather than as `${VAR}`. A warning, not a failure: it is a working configuration, and where the file is a private deploy artifact it may be the deliberate one. But a secret typed into a file ends up in a repository, a backup and a support ticket, and the alternative costs one `${VAR}`.
+
 ### Service start order
 
 A `services:` entry can name others it should follow:

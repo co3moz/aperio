@@ -579,3 +579,43 @@ fn websocket_timeout_fails_token_check() {
 fn unbuildable_authorization_header_fails() {
   assert_eq!(run_scenario("tokenbuild"), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Literal secrets in a config file (planned_features #63)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn literal_secrets_are_found_and_env_references_are_not() {
+  let keys = super::literal_secrets_in(
+    "server:\n  url: https://t.example.com\n  token: apr_literal_secret\n\
+     services:\n  - name: web\n    target: http://localhost:3000\n\
+     tunnels:\n  - target: 127.0.0.1:5432\n    psk: ${DB_PSK}\n\
+     # token: apr_commented_out\n",
+  );
+  // The literal token is reported; the `${DB_PSK}` reference is exactly what
+  // is being recommended, so flagging it would be advice to do what was done.
+  assert!(keys.contains(&"token".to_string()), "{keys:?}");
+  assert!(!keys.contains(&"psk".to_string()), "{keys:?}");
+}
+
+#[test]
+fn a_commented_out_credential_is_not_a_credential() {
+  assert!(super::literal_secrets_in("# token: apr_old\n").is_empty());
+}
+
+#[test]
+fn a_file_with_no_credentials_reports_nothing() {
+  assert!(
+    super::literal_secrets_in("services:\n  - name: web\n    target: http://localhost:3000\n")
+      .is_empty()
+  );
+}
+
+#[test]
+fn a_quoted_literal_is_still_a_literal() {
+  // Quoting changes nothing about where the secret lives.
+  assert_eq!(
+    super::literal_secrets_in("  client_secret: \"s3cr3t\"\n"),
+    vec!["client_secret".to_string()]
+  );
+}

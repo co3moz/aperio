@@ -172,6 +172,23 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     ),
   }
 
+  // Literal credentials in the file. A warning rather than a failure: it is
+  // a working configuration, and where the file is a private, unreadable
+  // deploy artifact it may even be the deliberate one. But a secret typed
+  // into a file is a secret that ends up in a repository, a backup and a
+  // support ticket, and the alternative costs one `${VAR}`.
+  for (path, findings) in literal_secrets_in_config_files() {
+    for finding in findings {
+      warn(
+        "secrets",
+        format!(
+          "{path}: `{finding}` holds a literal value; write `${{{}}}` and keep the secret in the environment",
+          finding.to_ascii_uppercase()
+        ),
+      );
+    }
+  }
+
   // --- 2. Server health + version skew -----------------------------------
   if let Some(server) = &server {
     match build_http_url(server, "/aperio/health") {
@@ -406,3 +423,71 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
 #[cfg(test)]
 #[path = "check_tests.rs"]
 mod tests;
+
+/// Keys whose value is a credential.
+///
+/// Named rather than guessed at from the value: a heuristic over values would
+/// flag every long random-looking string, and a config file is full of those.
+const SECRET_KEYS: &[&str] = &[
+  "token",
+  "psk",
+  "client_secret",
+  "secret",
+  "password",
+  "api_key",
+  "device_key",
+];
+
+/// Secret-bearing keys in one config file's text whose value is written out
+/// literally.
+///
+/// Reads the file as text rather than through the parsed configuration: by the
+/// time a value is a `String` in memory, a literal and an expanded `${VAR}`
+/// are the same thing, and the distinction is the entire point.
+pub(crate) fn literal_secrets_in(text: &str) -> Vec<String> {
+  let mut found: Vec<String> = Vec::new();
+  for line in text.lines() {
+    let line = line.trim();
+    if line.starts_with('#') {
+      continue;
+    }
+    let Some((key, value)) = line.split_once(':') else {
+      continue;
+    };
+    let key = key.trim_start_matches(['-', ' ']).trim();
+    let value = value.trim().trim_matches(['"', '\'']);
+    if value.is_empty() || value.starts_with("${") {
+      continue;
+    }
+    if SECRET_KEYS.contains(&key) && !found.iter().any(|k| k == key) {
+      found.push(key.to_string());
+    }
+  }
+  found
+}
+
+/// The same, over the config files this client would load.
+fn literal_secrets_in_config_files() -> Vec<(String, Vec<String>)> {
+  let mut out = Vec::new();
+  for path in ["aperio.yaml".to_string(), "aperio.yml".to_string()]
+    .into_iter()
+    .chain(dirs_home_config())
+  {
+    let Ok(text) = std::fs::read_to_string(&path) else {
+      continue;
+    };
+    let found = literal_secrets_in(&text);
+    if !found.is_empty() {
+      out.push((path, found));
+    }
+  }
+  out
+}
+
+/// `~/.aperio.yaml`, when there is a home directory to look in.
+fn dirs_home_config() -> Option<String> {
+  std::env::var("HOME")
+    .or_else(|_| std::env::var("USERPROFILE"))
+    .ok()
+    .map(|h| format!("{h}/.aperio.yaml"))
+}
