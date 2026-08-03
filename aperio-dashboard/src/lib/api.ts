@@ -150,13 +150,22 @@ export interface CapturedRequest {
 
 /** Microsecond offsets from the server first receiving the request; client
  *  stages are estimated anchors (transit split evenly) when present. */
+/** The per-stage offsets of one captured request, in microseconds.
+ *
+ * The optional stages are `number | null`, not `number | undefined`, because
+ * that is what arrives: the server serializes `Option<u64>` without
+ * `skip_serializing_if`, so an absent stage is the JSON value `null` and the
+ * key is present. Declaring them optional was a lie the compiler then helped
+ * enforce, and a guard written as `!== undefined` passed for every `null`,
+ * which is how a streamed response drew six rows reading `+null µs`.
+ */
 export interface RequestTimeline {
   dispatched_us: number
-  client_received_us?: number
-  backend_sent_us?: number
-  backend_first_byte_us?: number
-  backend_done_us?: number
-  client_responded_us?: number
+  client_received_us: number | null
+  backend_sent_us: number | null
+  backend_first_byte_us: number | null
+  backend_done_us: number | null
+  client_responded_us: number | null
   response_received_us: number
   finished_us: number
   estimated_anchor: boolean

@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api, ApiError, type CapturedRequest, type RequestTimeline } from '@/lib/api'
 import { buildCurl, buildHar, decodeBodyPreview, formatHeaders } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { timelineStages } from '@/lib/timeline'
 import { useI18n } from '@/i18n'
 
 function Section({
@@ -44,13 +45,6 @@ function Section({
 /** Detail view for a captured request, with one-click replay. */
 
 /** One waterfall row: a stage interval as offsets from t0 (µs). */
-interface Stage {
-  label: string
-  from: number
-  to: number
-  estimated?: boolean
-}
-
 function fmtUs(us: number): string {
   if (us >= 1_000_000) return `${(us / 1_000_000).toFixed(2)} s`
   if (us >= 1_000) return `${(us / 1_000).toFixed(2)} ms`
@@ -61,25 +55,7 @@ function TimelineWaterfall({ timeline }: { timeline: RequestTimeline }) {
   const { t } = useI18n()
   const tl = timeline
   const total = Math.max(tl.finished_us, 1)
-  const stages: Stage[] = []
-  stages.push({ label: t('queued & routed'), from: 0, to: tl.dispatched_us })
-  if (
-    tl.client_received_us !== undefined &&
-    tl.backend_sent_us !== undefined &&
-    tl.backend_first_byte_us !== undefined &&
-    tl.backend_done_us !== undefined &&
-    tl.client_responded_us !== undefined
-  ) {
-    stages.push({ label: t('tunnel → client'), from: tl.dispatched_us, to: tl.client_received_us, estimated: true })
-    stages.push({ label: t('client processing'), from: tl.client_received_us, to: tl.backend_sent_us, estimated: true })
-    stages.push({ label: t('backend wait (first byte)'), from: tl.backend_sent_us, to: tl.backend_first_byte_us, estimated: true })
-    stages.push({ label: t('backend body'), from: tl.backend_first_byte_us, to: tl.backend_done_us, estimated: true })
-    stages.push({ label: t('client → tunnel'), from: tl.backend_done_us, to: tl.client_responded_us, estimated: true })
-    stages.push({ label: t('tunnel → server'), from: tl.client_responded_us, to: tl.response_received_us, estimated: true })
-  } else {
-    stages.push({ label: t('tunnel round-trip (client & backend)'), from: tl.dispatched_us, to: tl.response_received_us })
-  }
-  stages.push({ label: t('server → visitor'), from: tl.response_received_us, to: tl.finished_us })
+  const stages = timelineStages(tl, t)
 
   return (
     <div className="flex flex-col gap-1.5">
