@@ -34,6 +34,8 @@ fn base_settings() -> ClientSettings {
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    connect_timeout: None,
+    min_tls_version: None,
     priority: 0,
     bandwidth: None,
     max_message_size: 32 * 1024 * 1024,

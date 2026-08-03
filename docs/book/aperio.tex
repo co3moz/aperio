@@ -2837,6 +2837,10 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
 \rowsep
+\code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & Seconds to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service. Unset = only the whole-request budget applies. \\
+\rowsep
+\code{APERIO\_MIN\_TLS\_VERSION} &  & \code{min\_tls\_version} & Lowest TLS version accepted from an \code{https://} backend, \code{1.2} or \code{1.3}. Per service. A value that is not a TLS version is refused at startup rather than ignored. \\
+\rowsep
 \code{APERIO\_METRICS\_LABELS} &  & \code{metrics\_labels} & Static Prometheus labels attached to this client's own \code{aperio\_client\_requests\_total} series. YAML takes a mapping (\code{\{env: prod\}}); the environment spelling is a flat \code{env=prod,region=eu-west} list. At most 8 labels, names must match \code{[a-zA-Z\_][a-zA-Z0-9\_]*}, and the names the server writes itself are refused. \\
 \rowsep
 \code{APERIO\_CONNECTIONS\_MIN} &  & \code{connections.min} & Floor of an elastic pool: \code{connections: \{min: 1, max: 8\}} opens one connection and grows towards eight while requests queue up. A plain number stays a fixed pool. \\

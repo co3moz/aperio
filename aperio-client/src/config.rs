@@ -528,6 +528,13 @@ pub(crate) struct ClientSettings {
   pub(crate) response_timeout: Option<u64>,
   pub(crate) timeout_secs: u64,
   pub(crate) max_concurrent: Option<u32>,
+  /// Seconds to wait for the TCP connection to a backend (yaml
+  /// `connect_timeout`, env `APERIO_CONNECT_TIMEOUT`; None = only the
+  /// whole-request timeout applies).
+  pub(crate) connect_timeout: Option<u64>,
+  /// Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`
+  /// (yaml `min_tls_version`, env `APERIO_MIN_TLS_VERSION`).
+  pub(crate) min_tls_version: Option<String>,
   /// Static Prometheus labels announced to the server (yaml `metrics_labels`,
   /// env `APERIO_METRICS_LABELS` as `k=v,k=v`).
   pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
@@ -1125,6 +1132,19 @@ pub(crate) fn resolve_settings(
     )
     .filter(|n| *n > 0),
     connections: resolve_connections(local, home),
+    connect_timeout: layered(
+      None,
+      local.connect_timeout,
+      env_parse("APERIO_CONNECT_TIMEOUT"),
+      home.connect_timeout,
+    )
+    .filter(|n| *n > 0),
+    min_tls_version: layered(
+      None,
+      local.min_tls_version.clone(),
+      env_str("APERIO_MIN_TLS_VERSION"),
+      home.min_tls_version.clone(),
+    ),
     metrics_labels: resolve_metrics_labels(local, home),
     priority: layered(
       o.priority,

@@ -947,3 +947,27 @@ pub(crate) fn make_error_response(id: String, status: u16) -> TunnelMessage {
 #[cfg(test)]
 #[path = "http_tests.rs"]
 mod tests;
+
+/// Parses `min_tls_version:` into what reqwest wants.
+///
+/// An unrecognized value is an error rather than a silent fallback: this
+/// setting exists to raise a floor, and a typo that quietly leaves the floor
+/// where it was is what makes a security setting worse than none at all.
+pub(crate) fn tls_floor(raw: Option<&str>) -> Result<Option<reqwest::tls::Version>, String> {
+  let Some(raw) = raw.map(str::trim).filter(|v| !v.is_empty()) else {
+    return Ok(None);
+  };
+  match raw
+    .trim_start_matches(['T', 't'])
+    .trim_start_matches(['L', 'l'])
+    .trim_start_matches(['S', 's'])
+    .trim_start_matches(['V', 'v'])
+    .trim()
+  {
+    "1.2" | "12" => Ok(Some(reqwest::tls::Version::TLS_1_2)),
+    "1.3" | "13" => Ok(Some(reqwest::tls::Version::TLS_1_3)),
+    _ => Err(format!(
+      "min_tls_version '{raw}' is not a TLS version (write 1.2 or 1.3)"
+    )),
+  }
+}

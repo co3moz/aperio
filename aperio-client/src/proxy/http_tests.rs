@@ -1156,3 +1156,30 @@ fn the_open_window_lets_exactly_one_request_probe_the_backend() {
   assert!(r.record_failure());
   assert!(matches!(r.check(), BreakerVerdict::Open(_)));
 }
+
+// ---------------------------------------------------------------------------
+// tls_floor (planned_features #59)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tls_floor_reads_the_spellings_people_write() {
+  use reqwest::tls::Version;
+  assert_eq!(tls_floor(None).unwrap(), None);
+  assert_eq!(tls_floor(Some("  ")).unwrap(), None);
+  assert_eq!(tls_floor(Some("1.2")).unwrap(), Some(Version::TLS_1_2));
+  assert_eq!(tls_floor(Some("1.3")).unwrap(), Some(Version::TLS_1_3));
+  // The spellings a compliance document uses, since that is where this
+  // setting's value is written down before it reaches the config file.
+  assert_eq!(tls_floor(Some("TLSv1.3")).unwrap(), Some(Version::TLS_1_3));
+  assert_eq!(tls_floor(Some("tls1.2")).unwrap(), Some(Version::TLS_1_2));
+}
+
+#[test]
+fn tls_floor_refuses_a_value_it_does_not_understand() {
+  // Not a silent fallback: the setting exists to raise a floor, and a typo
+  // that quietly leaves it where it was is what makes a security setting
+  // worse than none.
+  assert!(tls_floor(Some("1.1")).is_err());
+  assert!(tls_floor(Some("best")).is_err());
+  assert!(tls_floor(Some("1.3.1")).is_err());
+}

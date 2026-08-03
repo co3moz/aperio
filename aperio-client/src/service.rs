@@ -365,6 +365,11 @@ pub(crate) struct ServiceSpec {
   pub(crate) connections_min: u32,
   /// Static Prometheus labels announced for this service's metric series.
   pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
+  /// Seconds to wait for the TCP connection to this backend (None = only
+  /// `timeout_secs` applies).
+  pub(crate) connect_timeout: Option<u64>,
+  /// Lowest TLS version accepted from an `https://` backend.
+  pub(crate) min_tls_version: Option<String>,
   /// Requests in flight across this service's whole pool, shared by every one
   /// of its connections because `ServiceSpec` is cloned per connection and the
   /// `Arc` comes along. This is what the elastic supervisor reads; a config
@@ -1251,9 +1256,25 @@ pub(crate) async fn run_service(
             // Reqwest Client to make local forwarding requests. Same-site
             // backend redirects (http→https, same root domain) are followed
             // transparently; everything else passes through to the visitor.
-            let reqwest_client = reqwest::Client::builder()
+            let mut builder = reqwest::Client::builder()
               .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
-              .timeout(Duration::from_secs(spec.timeout_secs))
+              .timeout(Duration::from_secs(spec.timeout_secs));
+            // Connect and whole-request budgets are different questions: one
+            // is "is this host reachable", the other "is this backend slow".
+            // Unset leaves the single budget covering both, which is what this
+            // always did.
+            if let Some(secs) = spec.connect_timeout {
+              builder = builder.connect_timeout(Duration::from_secs(secs));
+            }
+            match crate::proxy::http::tls_floor(spec.min_tls_version.as_deref()) {
+              Ok(Some(floor)) => builder = builder.min_tls_version(floor),
+              Ok(None) => {}
+              Err(e) => {
+                error!("CRITICAL ERROR: {e}");
+                std::process::exit(1);
+              }
+            }
+            let reqwest_client = builder
               // Same reasoning as the tunnel socket: these are request and
               // response messages on a loopback or LAN hop, and holding one
               // back for Nagle is latency on a request a visitor is waiting

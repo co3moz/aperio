@@ -74,6 +74,8 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     max_concurrent: None,
     connections: 1,
     metrics_labels: Default::default(),
+    connect_timeout: None,
+    min_tls_version: None,
     connections_min: 1,
     pool_load: std::sync::Arc::new(PoolLoad::default()),
     priority: 0,

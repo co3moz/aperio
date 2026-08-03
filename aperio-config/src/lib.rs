@@ -787,6 +787,20 @@ pub struct ServiceEntry {
   /// the names it writes itself (`client_id`, `job`, `instance`, …).
   #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
   pub metrics_labels: Option<std::collections::BTreeMap<String, String>>,
+  /// Seconds to wait for the TCP connection to this backend before giving
+  /// up, separate from `timeout`, which covers the whole request. A backend
+  /// across a VPN needs longer than one on loopback, and one number for both
+  /// means either slow failure detection everywhere or spurious failures for
+  /// the far one. Default: unset (the whole-request `timeout` applies)
+  /// (env: APERIO_CONNECT_TIMEOUT).
+  #[schemars(extend("examples" = [2]))]
+  pub connect_timeout: Option<u64>,
+  /// Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.
+  /// Per service because a fleet with one legacy backend should not have to
+  /// lower the floor for all of them. Default: rustls's own floor
+  /// (env: APERIO_MIN_TLS_VERSION).
+  #[schemars(extend("examples" = ["1.3"]))]
+  pub min_tls_version: Option<String>,
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
@@ -1088,6 +1102,20 @@ pub struct FileConfig {
   /// the names it writes itself (`client_id`, `job`, `instance`, …).
   #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
   pub metrics_labels: Option<std::collections::BTreeMap<String, String>>,
+  /// Seconds to wait for the TCP connection to this backend before giving
+  /// up, separate from `timeout`, which covers the whole request. A backend
+  /// across a VPN needs longer than one on loopback, and one number for both
+  /// means either slow failure detection everywhere or spurious failures for
+  /// the far one. Default: unset (the whole-request `timeout` applies)
+  /// (env: APERIO_CONNECT_TIMEOUT).
+  #[schemars(extend("examples" = [2]))]
+  pub connect_timeout: Option<u64>,
+  /// Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.
+  /// Per service because a fleet with one legacy backend should not have to
+  /// lower the floor for all of them. Default: rustls's own floor
+  /// (env: APERIO_MIN_TLS_VERSION).
+  #[schemars(extend("examples" = ["1.3"]))]
+  pub min_tls_version: Option<String>,
   /// Largest response body, in bytes, the client will relay to a visitor.
   /// Default: `52428800` (50 MB).
   #[schemars(extend("examples" = [10485760]))]

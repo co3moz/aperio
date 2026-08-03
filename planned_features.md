@@ -178,14 +178,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
-  that matter per backend are only available globally: connect timeout, idle
-  timeout for pooled connections, the buffered/streamed threshold, the minimum
-  TLS version for an `https://` backend, and the heartbeat interval. Merged
-  because they are one pattern (a global default with a per-entry override) and
-  the value of any single one is small; the value of the pattern is that a
-  slow backend and a fast one stop having to share a number.
-
 - [ ] **#61 Probe endpoints for container orchestrators.** (triage 30)
   `/aperio/health` returns a JSON body with counters and takes two locks to
   build it, which is more than a `HEALTHCHECK` every five seconds needs, and
@@ -445,6 +437,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
+  that matter per backend are only available globally: connect timeout, idle
+  timeout for pooled connections, the buffered/streamed threshold, the minimum
+  TLS version for an `https://` backend, and the heartbeat interval. Merged
+  because they are one pattern (a global default with a per-entry override) and
+  the value of any single one is small; the value of the pattern is that a
+  slow backend and a fast one stop having to share a number. shipped: **two of
+  the five**, `connect_timeout` and `min_tls_version`, which are the two with a
+  nameable victim today (a loopback backend next to one across a VPN; a fleet
+  with one legacy `https://` backend). The other three stay global on purpose:
+  no deployment we can describe is hurt by sharing one number for the pooled
+  idle timeout, the buffered/streamed threshold or the heartbeat interval, and
+  five keys across four config surfaces for two real cases is the wrong trade.
+  If one of them acquires a concrete case, it is a one-line addition to the
+  same pattern.
 
 - [x] **#60 Two dashboard readability wins.** (triage 30) Syntax highlighting
   for captured JSON, XML and HTML bodies in the inspector (currently raw text),
