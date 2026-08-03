@@ -673,6 +673,22 @@ async fn exit_if_shutting_down(shared: &Shared) {
   std::process::exit(0);
 }
 
+/// Why the socket loop is being ended from outside it.
+///
+/// The channel used to carry `()`, and the receiving end logged every wake-up
+/// as a liveness timeout. Three quite different things arrive on it, so a
+/// configuration reload and an elastic pool giving a connection back both
+/// reported a heartbeat failure that had not happened, in a warning, which is
+/// the worst way to learn that something worked as designed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AbortReason {
+  /// The supervisor asked for this connection to end: a config reload, a
+  /// shutdown, or an elastic pool retiring it because the load dropped.
+  Requested,
+  /// No Pong inside the liveness window; the link is presumed gone.
+  Liveness,
+}
+
 /// Per-service backend-health state, shared by every parallel connection of a
 /// service (`connections: N`) so the backend is probed once per service, not
 /// once per connection. Every connection reports `healthy`/`probed` in its
@@ -1196,8 +1212,8 @@ pub(crate) async fn run_service(
               })
             });
 
-            // Abort channel for liveness failures
-            let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
+            // Ends the socket loop from outside it, saying why.
+            let (abort_tx, mut abort_rx) = mpsc::channel::<AbortReason>(1);
 
             // Track connection liveness via Pong response time
             let last_pong_time = Arc::new(Mutex::new(Instant::now()));
@@ -1337,26 +1353,30 @@ pub(crate) async fn run_service(
               // The first Ping goes out immediately: it announces the binds,
               // version/protocol, and health before any traffic is routed.
               loop {
-                // A pending config change drops the connection so the
-                // supervisor can respawn the service with fresh settings.
+                // The supervisor asked for this connection to end: a config
+                // reload, a shutdown, or an elastic pool giving it back. The
+                // cancel signal does not say which, and neither do these
+                // lines: whichever of the three it was has already logged its
+                // own reason, and guessing here is how a pool retirement came
+                // to announce a configuration change that never happened.
                 if *cancel_ping.borrow() {
                   // Announce the drain before dropping the socket. Without
-                  // this, a configuration edit killed whatever was in flight:
+                  // this, ending a connection killed whatever was in flight:
                   // the visitor saw a failure caused by a change that was
                   // meant to be invisible to them. `Draining` stops the
                   // server dispatching anything new here, which is what makes
                   // the wait below terminate rather than chase a moving
                   // target.
                   if reload_drain_ping.is_zero() {
-                    info!("Dropping connection to apply the configuration change...");
+                    info!("Closing this connection...");
                   } else {
-                    info!("Draining before applying the configuration change...");
+                    info!("Draining before closing this connection...");
                     if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
                       let _ = tx_ping.send(Message::Text(json.into())).await;
                     }
                     drain_inflight_for(&shared_ping, reload_drain_ping).await;
                   }
-                  let _ = abort_tx_ping.send(()).await;
+                  let _ = abort_tx_ping.send(AbortReason::Requested).await;
                   break;
                 }
 
@@ -1370,7 +1390,7 @@ pub(crate) async fn run_service(
                     "Liveness check failed: no Pong received for {} seconds. Resetting connection.",
                     elapsed.as_secs()
                   );
-                  let _ = abort_tx_ping.send(()).await;
+                  let _ = abort_tx_ping.send(AbortReason::Liveness).await;
                   break;
                 }
 
@@ -1537,10 +1557,23 @@ pub(crate) async fn run_service(
             // Read messages from Server
             let mut version_skew_warned = false;
             let mut server_announced_shutdown = false;
+            // Set when this connection is ended deliberately, so the line
+            // below the loop reports a close rather than a loss.
+            let mut closed_on_request = false;
             loop {
               tokio::select! {
-                  _ = abort_rx.recv() => {
-                      warn!("Liveness timeout triggered. Aborting socket loop.");
+                  reason = abort_rx.recv() => {
+                      match reason {
+                          Some(AbortReason::Liveness) => {
+                              warn!("Liveness timeout triggered. Aborting socket loop.");
+                          }
+                          // A reload, a shutdown or an elastic pool giving
+                          // this connection back. Nothing failed.
+                          _ => {
+                              closed_on_request = true;
+                              debug!("[{}] Closing the socket loop on request.", label);
+                          }
+                      }
                       break;
                   }
                   _ = shutdown_requested(&shared) => {
@@ -2078,7 +2111,11 @@ pub(crate) async fn run_service(
               task.abort();
             }
             ping_task.abort();
-            warn!("[{}] Connection to server lost.", label);
+            if closed_on_request {
+              info!("[{}] Connection closed.", label);
+            } else {
+              warn!("[{}] Connection to server lost.", label);
+            }
 
             // A connection that survived for a while counts as healthy:
             // start the next retry sequence from the base delay again.

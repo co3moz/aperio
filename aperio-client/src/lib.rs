@@ -657,8 +657,9 @@ async fn run_elastic_pool(
         {
           if let Some((cancel_tx, handle)) = pool.pop() {
             info!(
-              "[{}] {} request(s) in flight over {} connection(s); retiring connection {}",
-              spec.client_id, peak, open, open
+              "[{}] Load dropped to {} request(s) in flight over {} connection(s); \
+               retiring connection {} (pool floor is {})",
+              spec.client_id, peak, open, open, spec.connections_min
             );
             let _ = cancel_tx.send(true);
             // Awaited rather than detached: the retired connection's client id
