@@ -55,21 +55,6 @@ readable without scrolling past what is already done.
   cache (ci.yml `warm-release-cache`) already warms. Left open so the option is
   recorded; not worth starting while the cache holds.
 
-- [ ] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
-  (1) of the original entry shipped (`stream.pause_bytes` /
-  `stream.resume_bytes` / `stream.backlog_limit`, with `StreamLimits::sanitized`
-  repairing an inconsistent trio), and part (3) is now #20. What is left is the
-  slow-read defense: a deliberately slow reader can hold a streamed response,
-  and the client-side `max_concurrent` slot it occupies, alive indefinitely at
-  roughly 2 MiB of server-side buffer each. The old backlog cut used to kill it
-  by accident; flow control made the server well-behaved and therefore patient.
-
-  Drop a consumer that averages below N bytes/s over an M-second window, off by
-  default, both numbers settings. It must **not** apply to WS or TCP relays,
-  which are legitimately quiet for long stretches, that exclusion is the part
-  worth getting right rather than the accounting. Best done alongside #9, which
-  touches the same delivery paths. (From the 2026-07 flow-control discussion.)
-
 - [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
   authenticates with a bearer token, optionally pinned and IP-fenced. Some
   deployments want a client certificate as well, so a leaked token alone is not
@@ -384,6 +369,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
+  (1) of the original entry shipped (`stream.pause_bytes` /
+  `stream.resume_bytes` / `stream.backlog_limit`), and part (3) is now #20.
+  What was left is the slow-read defense: a deliberately slow reader can hold
+  a streamed response, and the client-side `max_concurrent` slot it occupies,
+  alive indefinitely at roughly 2 MiB of server-side buffer each. shipped as
+  `stream.min_throughput`. One correction to the premise found while building:
+  a reader taking *nothing* was already covered, the pump's per-chunk stall
+  timeout ends it. The real hole is a reader that accepts one chunk just
+  inside that timeout, forever. What makes the floor safe to switch on is the
+  denominator, only time the consumer kept data **waiting** counts, so a
+  stream quiet because the backend has nothing to send (SSE, long polling) is
+  never ended for it. Together with #20 this closes the slowloris pair: #20
+  caps how many streams one address holds, this ends the ones going nowhere.
 
 - [x] **#70 Shell completion for the CLI.** (triage 25) `clap_complete` turns
   this into a subcommand and a build step, and the client has enough

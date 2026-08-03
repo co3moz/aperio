@@ -2320,6 +2320,22 @@ pub struct StreamGroup {
   /// Default: `16777216` (16 MB).
   #[schemars(extend("examples" = [16777216]))]
   pub backlog_limit: Option<u64>,
+  /// Bytes per second a streamed response's consumer must take **while data
+  /// is waiting for it**, or the stream is ended. `0` (the default) = no
+  /// floor.
+  ///
+  /// The pump already ends a stream whose consumer cannot take a single chunk
+  /// within the gateway timeout, so a reader that takes nothing is covered.
+  /// This closes the gap in between: a reader that accepts one chunk just
+  /// inside the timeout, forever, holding a client concurrency slot and
+  /// megabytes of buffer for as long as it likes.
+  ///
+  /// Only time the consumer kept data waiting counts, so a stream that is
+  /// quiet because the *backend* has nothing to send, which is ordinary for
+  /// server-sent events and long polling, is never ended for it
+  /// (env: APERIO_STREAM_MIN_THROUGHPUT).
+  #[schemars(extend("examples" = [1024]))]
+  pub min_throughput: Option<u64>,
 }
 
 /// The client's `otel_bridge:` block.
@@ -2877,6 +2893,9 @@ pub struct ServerFileConfig {
   /// Flat spelling of `stream.backlog_limit` (env: APERIO_STREAM_BACKLOG_LIMIT).
   #[schemars(extend("examples" = [16777216]))]
   pub stream_backlog_limit: Option<u64>,
+  /// Flat spelling of `stream.min_throughput` (env: APERIO_STREAM_MIN_THROUGHPUT).
+  #[schemars(extend("examples" = [1024]))]
+  pub stream_min_throughput: Option<u64>,
   /// Flat spelling of `cache.negative_ttl` (env: APERIO_CACHE_NEGATIVE_TTL).
   #[schemars(extend("examples" = [10]))]
   pub cache_negative_ttl: Option<u64>,

@@ -1182,6 +1182,9 @@ pub(crate) struct StreamLimits {
   pub(crate) resume_bytes: usize,
   /// Hard per-stream backlog cap in bytes.
   pub(crate) backlog_limit: usize,
+  /// Bytes per second a consumer must take **while data is waiting for it**,
+  /// or the stream is ended (`0` = no floor). See [`MIN_THROUGHPUT_WINDOW`].
+  pub(crate) min_throughput: u64,
 }
 
 impl Default for StreamLimits {
@@ -1190,6 +1193,7 @@ impl Default for StreamLimits {
       pause_bytes: STREAM_PAUSE_BYTES,
       resume_bytes: STREAM_RESUME_BYTES,
       backlog_limit: STREAM_BACKLOG_LIMIT,
+      min_throughput: 0,
     }
   }
 }
@@ -1201,7 +1205,12 @@ impl StreamLimits {
   /// (else every stream is cut before it can be paused). Out-of-order values
   /// are pulled back relative to `pause_bytes`, which is taken as the
   /// operator's intent.
-  pub(crate) fn sanitized(pause_bytes: usize, resume_bytes: usize, backlog_limit: usize) -> Self {
+  pub(crate) fn sanitized(
+    pause_bytes: usize,
+    resume_bytes: usize,
+    backlog_limit: usize,
+    min_throughput: u64,
+  ) -> Self {
     let pause_bytes = pause_bytes.max(64 * 1024);
     let resume_bytes = if resume_bytes >= pause_bytes {
       pause_bytes / 4
@@ -1213,6 +1222,7 @@ impl StreamLimits {
       pause_bytes,
       resume_bytes,
       backlog_limit,
+      min_throughput,
     }
   }
 }
@@ -1267,6 +1277,15 @@ pub(crate) struct StreamFlow {
 }
 
 impl StreamFlow {
+  /// The floor this stream's consumer is held to, in bytes per second.
+  pub(crate) fn min_throughput(&self) -> u64 {
+    self.limits.min_throughput
+  }
+
+  pub(crate) fn stream_id(&self) -> &str {
+    &self.stream_id
+  }
+
   pub(crate) fn new(
     stream_id: String,
     client_tx: mpsc::Sender<Message>,
@@ -1425,6 +1444,72 @@ pub(crate) fn test_pump<T: PumpCost + Send + 'static>(out: mpsc::Sender<T>) -> P
 /// producer that cannot be paused is cut off at `STREAM_BACKLOG_LIMIT`,
 /// and a consumer that accepts nothing for `stall_timeout` ends the stream
 /// exactly as the old blocking send's timeout did.
+/// How long a consumer is measured over before the throughput floor applies.
+///
+/// Long enough that a browser pausing a video, or a phone changing network,
+/// is not read as an attack; short enough that a stream held open on purpose
+/// does not survive a shift.
+pub(crate) const MIN_THROUGHPUT_WINDOW: Duration = Duration::from_secs(30);
+
+/// Tracks whether a consumer is taking data fast enough to keep its stream.
+///
+/// ## What the existing defense already covers, and what it does not
+///
+/// The pump gives up when a single item cannot be handed over within the
+/// gateway timeout, so a consumer that reads *nothing* is already ended. The
+/// hole is the one in between: a reader that accepts one chunk every twenty
+/// nine seconds resets that timeout forever and holds the stream, the
+/// client-side `max_concurrent` slot behind it, and megabytes of server-side
+/// buffer, for as long as it likes. Flow control is what made this possible,
+/// by making the server well-behaved and therefore patient.
+///
+/// ## Why it only counts while data is waiting
+///
+/// A stream can be idle because the *backend* has nothing to send, which is
+/// ordinary for server-sent events and long polling and is not the consumer's
+/// fault. Measuring wall-clock throughput would end those. So the window only
+/// accumulates while the pump has something to hand over: what is measured is
+/// "data was ready and you did not take it", which is the actual accusation.
+struct ThroughputGuard {
+  floor: u64,
+  window_started: Instant,
+  bytes_this_window: u64,
+  /// Time in this window during which the pump had an item to deliver.
+  waiting: Duration,
+}
+
+impl ThroughputGuard {
+  fn new(floor: u64) -> Self {
+    ThroughputGuard {
+      floor,
+      window_started: Instant::now(),
+      bytes_this_window: 0,
+      waiting: Duration::ZERO,
+    }
+  }
+
+  /// Records one delivery and says whether the stream should be ended.
+  fn record(&mut self, bytes: u64, waited: Duration, now: Instant) -> bool {
+    if self.floor == 0 {
+      return false;
+    }
+    self.bytes_this_window += bytes;
+    self.waiting += waited;
+    if now.duration_since(self.window_started) < MIN_THROUGHPUT_WINDOW {
+      return false;
+    }
+    // Judged against the time the consumer actually kept data waiting, not
+    // against the window: a stream that was mostly idle because the backend
+    // was quiet has a small denominator and passes on a small numerator.
+    let owed = (self.floor as f64 * self.waiting.as_secs_f64()) as u64;
+    let starved = self.bytes_this_window < owed;
+    self.window_started = now;
+    self.bytes_this_window = 0;
+    self.waiting = Duration::ZERO;
+    starved
+  }
+}
+
 pub(crate) fn spawn_consumer_pump<T: PumpCost + Send + 'static>(
   out: mpsc::Sender<T>,
   stall_timeout: Duration,
@@ -1433,12 +1518,16 @@ pub(crate) fn spawn_consumer_pump<T: PumpCost + Send + 'static>(
   let flow = Arc::new(flow);
   let (feed_tx, mut feed_rx) = mpsc::unbounded_channel::<T>();
   let pump_flow = flow.clone();
+  let floor = flow.min_throughput();
+  let stream_id = flow.stream_id().to_string();
   tokio::spawn(async move {
+    let mut guard = ThroughputGuard::new(floor);
     while let Some(item) = feed_rx.recv().await {
       let cost = item.cost();
       // A stalled or vanished consumer ends the pump; dropping `feed_rx`
       // closes the queue, so the read loop's next push reports the stream
       // as gone and removes it.
+      let handing_over = Instant::now();
       if !matches!(
         tokio::time::timeout(stall_timeout, out.send(item)).await,
         Ok(Ok(()))
@@ -1446,6 +1535,17 @@ pub(crate) fn spawn_consumer_pump<T: PumpCost + Send + 'static>(
         break;
       }
       pump_flow.on_forwarded(cost);
+      // The time spent inside `send` above is time this item was ready and
+      // the consumer had not taken it, which is exactly the denominator the
+      // floor is judged against.
+      let now = Instant::now();
+      if guard.record(cost as u64, now.duration_since(handing_over), now) {
+        tracing::warn!(
+          "Stream {stream_id} ended: the consumer took less than {floor} bytes/second while data \
+           was waiting for it"
+        );
+        break;
+      }
     }
   });
   PumpedSender {
@@ -1918,6 +2018,7 @@ impl AppState {
       c.stream_pause_bytes,
       c.stream_resume_bytes,
       c.stream_backlog_limit,
+      c.stream_min_throughput,
     )
   }
 

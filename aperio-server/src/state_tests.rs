@@ -799,24 +799,25 @@ fn stream_limits_sanitized_repairs_inconsistent_trios() {
     StreamLimits::sanitized(
       STREAM_PAUSE_BYTES,
       STREAM_RESUME_BYTES,
-      STREAM_BACKLOG_LIMIT
+      STREAM_BACKLOG_LIMIT,
+      0,
     ),
     StreamLimits::default()
   );
 
   // A resume mark at or above the pause mark would flap; it is pulled back.
-  let l = StreamLimits::sanitized(1024 * 1024, 2 * 1024 * 1024, 64 * 1024 * 1024);
+  let l = StreamLimits::sanitized(1024 * 1024, 2 * 1024 * 1024, 64 * 1024 * 1024, 0);
   assert_eq!(l.pause_bytes, 1024 * 1024);
   assert_eq!(l.resume_bytes, 256 * 1024);
 
   // A cap below the pause mark would cut every stream before it could be
   // paused; it is raised to twice the pause mark.
-  let l = StreamLimits::sanitized(8 * 1024 * 1024, 1024, 1024);
+  let l = StreamLimits::sanitized(8 * 1024 * 1024, 1024, 1024, 0);
   assert_eq!(l.backlog_limit, 16 * 1024 * 1024);
 
   // A pause mark of essentially zero would pause on the first chunk forever;
   // it gets a sane floor.
-  let l = StreamLimits::sanitized(1, 0, 1);
+  let l = StreamLimits::sanitized(1, 0, 1, 0);
   assert_eq!(l.pause_bytes, 64 * 1024);
   assert_eq!(l.resume_bytes, 0);
   assert_eq!(l.backlog_limit, 128 * 1024);
@@ -1208,4 +1209,78 @@ async fn one_visitor_at_its_ceiling_does_not_block_another() {
   // The whole point: saturating the service now takes a botnet rather than
   // one host.
   assert!(state.try_acquire_stream_slot(quiet).is_some());
+}
+
+// ---------------------------------------------------------------------------
+// Minimum-throughput guard for streamed responses (planned_features #17)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_throughput_floor_is_off_unless_asked_for() {
+  let mut guard = super::ThroughputGuard::new(0);
+  let start = Instant::now();
+  // A stream that takes nothing at all, for far longer than the window.
+  assert!(!guard.record(
+    0,
+    Duration::from_secs(600),
+    start + Duration::from_secs(600)
+  ));
+}
+
+#[test]
+fn a_reader_that_keeps_data_waiting_and_takes_too_little_is_ended() {
+  let mut guard = super::ThroughputGuard::new(1024);
+  let start = Instant::now();
+  // Thirty seconds of the consumer holding data up, and 100 bytes taken.
+  // This is the hole the per-item stall timeout leaves: it accepted chunks,
+  // so it never timed out, it just accepted them impossibly slowly.
+  assert!(guard.record(
+    100,
+    Duration::from_secs(30),
+    start + super::MIN_THROUGHPUT_WINDOW
+  ));
+}
+
+#[test]
+fn a_reader_that_keeps_up_is_left_alone() {
+  let mut guard = super::ThroughputGuard::new(1024);
+  let start = Instant::now();
+  assert!(!guard.record(
+    1024 * 60,
+    Duration::from_secs(30),
+    start + super::MIN_THROUGHPUT_WINDOW
+  ));
+}
+
+#[test]
+fn a_quiet_backend_never_costs_the_consumer_its_stream() {
+  let mut guard = super::ThroughputGuard::new(1024);
+  let start = Instant::now();
+  // An hour of wall clock, one byte delivered, but the consumer only ever
+  // kept data waiting for a millisecond: server-sent events and long polling
+  // look exactly like this, and measuring wall-clock throughput would end
+  // them. What is measured is "data was ready and you did not take it".
+  assert!(!guard.record(
+    1,
+    Duration::from_millis(1),
+    start + Duration::from_secs(3600)
+  ));
+}
+
+#[test]
+fn the_verdict_is_taken_once_per_window_and_the_counters_reset() {
+  let mut guard = super::ThroughputGuard::new(1024);
+  let start = Instant::now();
+  // Inside the window nothing is decided, however bad it looks.
+  assert!(!guard.record(0, Duration::from_secs(29), start + Duration::from_secs(29)));
+  // The window closes and this one fails.
+  let closed = start + super::MIN_THROUGHPUT_WINDOW + Duration::from_secs(1);
+  assert!(guard.record(0, Duration::from_secs(2), closed));
+  // A fresh window starts clean: the previous window's starvation must not
+  // be held against a consumer that has started keeping up.
+  assert!(!guard.record(
+    1024 * 60,
+    Duration::from_secs(30),
+    closed + super::MIN_THROUGHPUT_WINDOW
+  ));
 }

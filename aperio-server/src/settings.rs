@@ -170,6 +170,9 @@ pub(crate) struct ServerConfig {
   /// Streamed-data backlog at which the producing client is asked to pause
   /// a stream (APERIO_STREAM_PAUSE_BYTES, default 2 MiB). Protocol v3 flow
   /// control; see `state::StreamLimits`.
+  /// Bytes per second a streamed response's consumer must take while data is
+  /// waiting for it (`0` = no floor).
+  pub(crate) stream_min_throughput: u64,
   pub(crate) stream_pause_bytes: usize,
   /// Backlog under which a paused producer is asked to resume
   /// (APERIO_STREAM_RESUME_BYTES, default 512 KiB).

@@ -219,6 +219,7 @@ pub(crate) fn test_config() -> ServerConfig {
     preview_noindex: false,
     cache_max_bytes: 64 * 1024 * 1024,
     cache_max_stale: 3600,
+    stream_min_throughput: 0,
     stream_pause_bytes: 2 * 1024 * 1024,
     stream_resume_bytes: 512 * 1024,
     stream_backlog_limit: 16 * 1024 * 1024,

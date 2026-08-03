@@ -808,6 +808,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     .and_then(|v| v.trim().parse::<usize>().ok())
     .filter(|v| *v > 0)
     .unwrap_or(crate::state::STREAM_RESUME_BYTES);
+  let stream_min_throughput = std::env::var("APERIO_STREAM_MIN_THROUGHPUT")
+    .ok()
+    .and_then(|v| v.trim().parse::<u64>().ok())
+    .unwrap_or(0);
   let stream_backlog_limit = std::env::var("APERIO_STREAM_BACKLOG_LIMIT")
     .ok()
     .and_then(|v| v.trim().parse::<usize>().ok())
@@ -1090,6 +1094,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     cache_enabled,
     cache_max_bytes,
     cache_max_stale,
+    stream_min_throughput,
     stream_pause_bytes,
     stream_resume_bytes,
     stream_backlog_limit,

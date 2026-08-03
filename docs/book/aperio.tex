@@ -2640,6 +2640,8 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_ACCESS\_LOG} & File path for the structured access log: one JSON line per proxied request (\code{request\_id}, \code{method}, \code{uri}, \code{status}, \code{duration\_ms}, \code{host}, \code{client\_id}, \code{token}, \code{error}), directly ingestible by Loki/ClickHouse. The same data is always emitted to stdout as structured \code{aperio\_access} tracing events. &  \\
 \rowsep
+\code{APERIO\_STREAM\_MIN\_THROUGHPUT} & Bytes per second a streamed response's consumer must take while data is waiting for it, or the stream is ended. Closes the gap the per-chunk stall timeout leaves: a reader that accepts one chunk just inside the timeout, forever. Only time the consumer kept data waiting counts, so a quiet backend never costs the consumer its stream. & \code{0} \\
+\rowsep
 \code{APERIO\_ALTERNATE\_SERVERS} & Comma-separated Aperio server URLs a client of this one may fall back to, announced on every handshake, so a planned migration does not mean editing every client's config. A client appends them after the servers its own config names, and the rotation wraps, so an alternate is never a one-way door. At most 8. &  \\
 \rowsep
 \code{APERIO\_MAX\_STREAMS\_PER\_IP} & Streamed responses one visitor address may hold open at once. Saturating a service's concurrency budget otherwise takes one host holding many slow streams; this makes it take a botnet. A concurrency limit, not a rate limit: the slot frees when the stream ends. Check \code{trust\_proxy} before setting it, or every visitor behind a CDN shares one address. & \code{0} \\
