@@ -1976,7 +1976,7 @@ async fn proxy_http_request(
           };
           let mut captured = state.captured_requests.lock().await;
           if captured.len() >= CAPTURE_MAX_ENTRIES {
-            captured.pop_front();
+            crate::state::evict_for_fairness(&mut captured);
           }
           let us = |at: Instant| at.duration_since(start_time).as_micros() as u64;
           let mut timeline = crate::state::RequestTimeline::assemble(

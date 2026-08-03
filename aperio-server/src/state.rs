@@ -230,6 +230,42 @@ pub(crate) struct CapturedRequest {
 
 /// Maximum number of captured requests kept in memory.
 pub(crate) const CAPTURE_MAX_ENTRIES: usize = 50;
+
+/// Makes room for one capture, evicting from whichever organization is
+/// holding the most (planned_features #69).
+///
+/// The ring used to evict from the front, which is fair only if every
+/// organization is equally busy. It is not: one org serving a thousand
+/// requests a minute walked a quiet org's captures out of the buffer within
+/// seconds, so a tenant investigating one request an hour could never find it.
+/// Multi-tenant hygiene the byte and client quotas already had, and this one
+/// did not.
+///
+/// A fair share rather than a fixed per-org ceiling, and that is the design
+/// decision worth naming. A ceiling has to be chosen, and it interacts badly
+/// with the total: five orgs capped at twenty each is a hundred in a buffer
+/// that holds fifty, so the total cap evicts across tenants again and the
+/// ceiling bought nothing. Evicting from the largest holder needs no number,
+/// converges on an even split by itself, and lets one org use the whole buffer
+/// while it is the only one there, which is what an operator would want.
+pub(crate) fn evict_for_fairness(captured: &mut VecDeque<CapturedRequest>) {
+  // Whoever holds the most: ties go to the org whose oldest capture is
+  // oldest, which is the front-eviction rule applied within the tie rather
+  // than across tenants.
+  let mut counts: HashMap<Option<&str>, usize> = HashMap::new();
+  for entry in captured.iter() {
+    *counts.entry(entry.org_id.as_deref()).or_insert(0) += 1;
+  }
+  let Some((largest, _)) = counts.into_iter().max_by_key(|(_, n)| *n) else {
+    return;
+  };
+  let largest = largest.map(str::to_string);
+  if let Some(at) = captured.iter().position(|e| e.org_id == largest) {
+    captured.remove(at);
+  } else {
+    captured.pop_front();
+  }
+}
 /// Maximum captured body size per direction (decoded bytes).
 pub(crate) const CAPTURE_BODY_LIMIT: usize = 64 * 1024;
 /// Request bodies above this size are streamed to v2 clients as

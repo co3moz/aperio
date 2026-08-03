@@ -147,11 +147,6 @@ readable without scrolling past what is already done.
   visitor's chunk boundaries. It matters for protocols where a chunk is a
   message. Worth a written answer even if the answer stays "we re-frame".
 
-- [ ] **#69 Per-organization inspector retention.** (triage 25) Capture
-  retention is a global entry cap and a global TTL, so a noisy organization can
-  evict a quiet one's captures. A per-org ceiling is the multi-tenant hygiene
-  that the byte quotas and client quotas already have.
-
 - [ ] **#71 TLS termination on an `expose:` port.** (triage 25) Exposed ports
   carry raw TCP or an end-to-end encrypted stream, so a service that wants TLS
   in front of it has to terminate it itself. Per-port `tls_cert` / `tls_key`.
@@ -361,6 +356,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#69 Per-organization inspector retention.** (triage 25) Capture
+  retention is a global entry cap and a global TTL, so a noisy organization can
+  evict a quiet one's captures. A per-org ceiling is the multi-tenant hygiene
+  that the byte quotas and client quotas already have. shipped, but as **fair
+  share rather than a ceiling**, which is the design decision worth recording.
+  A ceiling has to be chosen and interacts badly with the total: five orgs
+  capped at twenty each is a hundred entries in a buffer of fifty, so the
+  total cap evicts across tenants again and the ceiling bought nothing.
+  Eviction instead drops the oldest capture of whichever org holds the most,
+  which needs no number, lets an org alone on the server use the whole buffer,
+  and converges on an even split by itself. Only the entry cap was addressed:
+  the TTL half has no cross-tenant problem, since one org's volume cannot age
+  out another's captures.
 
 - [x] **#64 Differentiated rate budgets for the admin API.** (triage 30, cut
   from a proposed 85 whose premise was wrong.) The admin surface *is* rate
