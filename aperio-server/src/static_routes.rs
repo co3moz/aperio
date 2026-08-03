@@ -285,16 +285,33 @@ impl StaticRoutes {
       }
       if rule.is_answer() && rule.is_policy() {
         return Err(format!(
-          "route #{}: `timeout`, `headers` and `rate_limit` apply to proxied traffic, so they \
-           cannot sit on a route that answers with `redirect` or `respond`; split them into a \
-           second entry with the same hostname and path",
+          "route #{}: `timeout`, `headers`, `rate_limit` and `canary` apply to proxied traffic, \
+           so they cannot sit on a route that answers with `redirect` or `respond`; split them \
+           into a second entry with the same hostname and path",
           i + 1
         ));
+      }
+      if let Some(canary) = &rule.canary {
+        if canary.service.trim().is_empty() {
+          return Err(format!(
+            "route #{}: `canary.service` names the `services:` entry running the new version; \
+             empty, nothing matches it and the split silently does nothing",
+            i + 1
+          ));
+        }
+        if canary.weight > 100 {
+          return Err(format!(
+            "route #{}: `canary.weight` is a percentage, so {} is out of range. A weight past 100 \
+             would quietly mean 'everybody', which is not what somebody who typed it meant",
+            i + 1,
+            canary.weight
+          ));
+        }
       }
       if !rule.is_answer() && !rule.is_policy() {
         return Err(format!(
           "route #{}: needs `redirect` or `respond` to answer, or one of `timeout`, `headers`, \
-           `rate_limit` to carry policy",
+           `rate_limit`, `canary` to carry policy",
           i + 1
         ));
       }

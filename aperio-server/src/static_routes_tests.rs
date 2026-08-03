@@ -345,3 +345,42 @@ fn the_bucket_does_not_move_between_processes() {
   assert_ne!(bucket_of(A("203.0.113.7")), bucket_of(A("203.0.113.8")));
   assert!(bucket_of(A("2001:db8::1")) < 100);
 }
+
+#[test]
+fn a_canary_alone_is_a_policy_rule_not_an_answer() {
+  let routes =
+    compile("- hostname: app.example.com\n  canary:\n    service: web-v2\n    weight: 20\n");
+  assert!(routes.answer(Some("app.example.com"), "/", None).is_none());
+  assert!(routes.policy_for(Some("app.example.com"), "/").is_some());
+}
+
+#[test]
+fn a_canary_on_an_answering_route_is_refused_and_named() {
+  let rules: Vec<RouteRule> = serde_yaml::from_str(
+    "- hostname: a.example.com\n  redirect: https://b.example.com\n  canary:\n    service: web-v2\n",
+  )
+  .unwrap();
+  let err = StaticRoutes::compile(rules).err().expect("refused");
+  // The message has to name the field the operator actually wrote, or it
+  // sends them looking at three settings they did not use.
+  assert!(err.contains("canary"), "{err}");
+}
+
+#[test]
+fn a_weight_past_a_hundred_is_refused_rather_than_read_as_everybody() {
+  let rules: Vec<RouteRule> = serde_yaml::from_str(
+    "- hostname: a.example.com\n  canary:\n    service: web-v2\n    weight: 200\n",
+  )
+  .unwrap();
+  let err = StaticRoutes::compile(rules).err().expect("refused");
+  assert!(err.contains("percentage"), "{err}");
+}
+
+#[test]
+fn an_empty_canary_service_is_refused_rather_than_doing_nothing() {
+  let rules: Vec<RouteRule> = serde_yaml::from_str(
+    "- hostname: a.example.com\n  canary:\n    service: \"\"\n    weight: 20\n",
+  )
+  .unwrap();
+  assert!(StaticRoutes::compile(rules).err().is_some());
+}

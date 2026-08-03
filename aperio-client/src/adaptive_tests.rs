@@ -91,3 +91,68 @@ fn each_window_is_judged_on_its_own_evidence() {
   record(&a, Duration::from_millis(1), 1);
   assert_eq!(a.tick(), Some(9));
 }
+#[tokio::test]
+async fn shrinking_while_every_permit_is_held_must_not_inflate_the_limit() {
+  let limiter = Arc::new(Semaphore::new(8));
+  let a = Adaptive::new(8, limiter.clone());
+  // Every permit is in flight, which is exactly the moment the backend is
+  // behind and the verdict says shrink. `forget_permits` can take nothing
+  // here, and giving back the difference later would hand the limiter permits
+  // the operator never configured.
+  let mut held = Vec::new();
+  for _ in 0..8 {
+    held.push(limiter.clone().acquire_owned().await.unwrap());
+  }
+  record(&a, Duration::from_millis(400), 5);
+  a.tick();
+  drop(held);
+  for _ in 0..20 {
+    record(&a, Duration::from_millis(1), 5);
+    a.tick();
+  }
+  assert!(
+    limiter.available_permits() <= 8,
+    "the limiter permits {} where the operator configured 8",
+    limiter.available_permits()
+  );
+}
+
+#[tokio::test]
+async fn a_shrink_that_could_not_finish_finishes_next_window() {
+  let limiter = Arc::new(Semaphore::new(8));
+  let a = Adaptive::new(8, limiter.clone());
+  let held: Vec<_> = {
+    let mut v = Vec::new();
+    for _ in 0..8 {
+      v.push(limiter.clone().acquire_owned().await.unwrap());
+    }
+    v
+  };
+  record(&a, Duration::from_millis(400), 5);
+  a.tick();
+  // Nothing could be taken, so the announced number did not move either: it
+  // never claims a ceiling the limiter is not enforcing.
+  assert_eq!(a.announced(), 8);
+  drop(held);
+  // With permits back in the pool the shrink lands.
+  record(&a, Duration::from_millis(400), 5);
+  a.tick();
+  assert_eq!(a.announced(), 4);
+  assert_eq!(limiter.available_permits(), 4);
+}
+
+#[tokio::test]
+async fn the_limiter_returns_to_exactly_the_configured_size() {
+  let limiter = Arc::new(Semaphore::new(8));
+  let a = Adaptive::new(8, limiter.clone());
+  record(&a, Duration::from_millis(400), 5);
+  a.tick();
+  assert_eq!(limiter.available_permits(), 4);
+  for _ in 0..20 {
+    record(&a, Duration::from_millis(1), 5);
+    a.tick();
+  }
+  // Back to the ceiling the operator set, and not one permit past it.
+  assert_eq!(a.announced(), 8);
+  assert_eq!(limiter.available_permits(), 8);
+}

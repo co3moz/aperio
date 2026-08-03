@@ -26,7 +26,7 @@
 //! as it has everything.
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
@@ -60,6 +60,7 @@ fn signal_path(signal: &str) -> Option<&'static str> {
             (status = 502, description = "The collector refused it")))]
 pub(crate) async fn otlp_handler(
   State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
   Path(signal): Path<String>,
   headers: HeaderMap,
   body: Bytes,
@@ -73,9 +74,14 @@ pub(crate) async fn otlp_handler(
   if body.len() > MAX_EXPORT_BYTES {
     return (StatusCode::PAYLOAD_TOO_LARGE, "export too large").into_response();
   }
+  // The real peer, resolved exactly as every other endpoint resolves it. A
+  // placeholder here would be read as the caller's address by the token's
+  // `allowed_ips` fence, so a token allow-listing loopback would have been
+  // accepted from anywhere, and one fenced to a private range refused from
+  // the host it was issued for.
   let caller_ip = crate::routing::extract_client_ip(
     &headers,
-    std::net::IpAddr::from([127, 0, 0, 1]),
+    addr.ip(),
     state.config().trust_proxy,
     state.config().real_ip_header.as_deref(),
     &state.config().trusted_proxies,

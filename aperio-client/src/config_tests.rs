@@ -559,3 +559,49 @@ fn the_generated_script_mentions_the_subcommands_it_completes() {
     assert!(script.contains(expected), "missing {expected}");
   }
 }
+
+#[test]
+fn a_file_included_by_two_siblings_is_not_a_cycle() {
+  // A root that includes two per-environment fragments, both of which include
+  // a shared one. This is a diamond, not a cycle: nothing includes itself,
+  // directly or transitively, and every real layout with a shared fragment
+  // has this shape.
+  let dir = std::env::temp_dir().join(format!("aperio-include-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("common.yaml"), "max_concurrent: 4\n").unwrap();
+  std::fs::write(
+    dir.join("a.yaml"),
+    "include: common.yaml\nservices:\n  - name: a\n    target: http://localhost:3000\n",
+  )
+  .unwrap();
+  std::fs::write(
+    dir.join("b.yaml"),
+    "include: common.yaml\nservices:\n  - name: b\n    target: http://localhost:4000\n",
+  )
+  .unwrap();
+  std::fs::write(dir.join("root.yaml"), "include: [a.yaml, b.yaml]\n").unwrap();
+
+  let parsed = parse_config_tree(&dir.join("root.yaml"));
+  let _ = std::fs::remove_dir_all(&dir);
+  let (cfg, files) = parsed.expect("a diamond is not a cycle");
+  assert_eq!(cfg.max_concurrent, Some(4));
+  assert_eq!(
+    cfg.services.unwrap_or_default().len(),
+    2,
+    "both fragments contributed"
+  );
+  // Every file that contributed is watched, including the shared one.
+  assert_eq!(files.len(), 4, "{files:?}");
+}
+
+#[test]
+fn a_real_cycle_is_still_refused() {
+  let dir = std::env::temp_dir().join(format!("aperio-cycle-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("a.yaml"), "include: b.yaml\n").unwrap();
+  std::fs::write(dir.join("b.yaml"), "include: a.yaml\n").unwrap();
+  let parsed = parse_config_tree(&dir.join("a.yaml"));
+  let _ = std::fs::remove_dir_all(&dir);
+  let err = parsed.err().expect("a cycle is refused");
+  assert!(err.contains("cycle"), "{err}");
+}

@@ -193,17 +193,22 @@ pub(crate) async fn tcp_ws_handler(
       .clone()
       .unwrap_or_else(|| "master".to_string()),
   };
-  state.consumers.lock().await.opened(
-    edge.from,
-    &edge.to_client,
-    edge.tunnel.as_deref(),
-    &edge.token_name,
-    crate::store::tokens::now_secs(),
-  );
-
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
   ws.on_upgrade(move |socket| async move {
+    // Recorded inside the upgrade rather than before it, and the pairing is
+    // the reason: `on_upgrade` does not run when the handshake never
+    // completes, so an `opened` outside it would have no `closed` to answer
+    // it and the edge would sit at one live connection for the life of the
+    // process, never expiring, because an edge with connections open is
+    // never swept. A dependency begins when bytes can flow.
+    state.consumers.lock().await.opened(
+      edge.from,
+      &edge.to_client,
+      edge.tunnel.as_deref(),
+      &edge.token_name,
+      crate::store::tokens::now_secs(),
+    );
     relay_tcp_consumer(
       state.clone(),
       socket,

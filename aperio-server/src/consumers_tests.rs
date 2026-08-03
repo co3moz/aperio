@@ -66,3 +66,14 @@ fn the_newest_edge_is_listed_first() {
   let edges = c.live(200);
   assert_eq!(edges[0].from_ip, "10.0.0.9");
 }
+
+#[test]
+fn an_edge_with_a_live_connection_is_never_swept() {
+  let mut c = Consumers::default();
+  c.opened(IP("10.0.0.7"), "client-a", Some("db"), "ops", 100);
+  // No `closed`. This is correct for a connection that is genuinely still
+  // open, and it is why `opened` has to be paired with a `closed` on every
+  // path that can reach it: an unmatched one sits here for the life of the
+  // process, because an edge holding a connection is never expired.
+  assert_eq!(c.live(100 + EDGE_TTL_SECS * 100).len(), 1);
+}

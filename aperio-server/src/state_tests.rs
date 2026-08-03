@@ -1459,3 +1459,20 @@ fn an_empty_buffer_is_left_alone() {
   evict_for_fairness(&mut captured);
   assert!(captured.is_empty());
 }
+
+#[test]
+fn a_tie_is_broken_by_age_and_not_by_hash_order() {
+  // Two tenants holding the same number: the one whose oldest capture is
+  // oldest gives it up. Taking the maximum out of a HashMap would break this
+  // differently on every call, so two equally busy tenants would take turns at
+  // random and neither could predict what it kept.
+  for _ in 0..20 {
+    let mut captured: VecDeque<CapturedRequest> = VecDeque::new();
+    captured.push_back(capture_of(Some("first"), "f0"));
+    captured.push_back(capture_of(Some("second"), "s0"));
+    captured.push_back(capture_of(Some("first"), "f1"));
+    captured.push_back(capture_of(Some("second"), "s1"));
+    evict_for_fairness(&mut captured);
+    assert_eq!(captured.front().unwrap().id, "s0");
+  }
+}

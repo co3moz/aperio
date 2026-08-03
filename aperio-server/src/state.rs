@@ -249,21 +249,24 @@ pub(crate) const CAPTURE_MAX_ENTRIES: usize = 50;
 /// converges on an even split by itself, and lets one org use the whole buffer
 /// while it is the only one there, which is what an operator would want.
 pub(crate) fn evict_for_fairness(captured: &mut VecDeque<CapturedRequest>) {
-  // Whoever holds the most: ties go to the org whose oldest capture is
-  // oldest, which is the front-eviction rule applied within the tie rather
-  // than across tenants.
+  // Whoever holds the most. Ties go to the org whose oldest capture is oldest,
+  // which is the front-eviction rule applied *within* the tie rather than
+  // across tenants, and it is why the winner is found by walking the deque
+  // rather than by taking a maximum out of the map: a `HashMap` iterates in an
+  // arbitrary order, so a tie would otherwise be broken differently on every
+  // call and two equally busy tenants would take turns at random.
   let mut counts: HashMap<Option<&str>, usize> = HashMap::new();
   for entry in captured.iter() {
     *counts.entry(entry.org_id.as_deref()).or_insert(0) += 1;
   }
-  let Some((largest, _)) = counts.into_iter().max_by_key(|(_, n)| *n) else {
+  let Some(most) = counts.values().copied().max() else {
     return;
   };
-  let largest = largest.map(str::to_string);
-  if let Some(at) = captured.iter().position(|e| e.org_id == largest) {
+  if let Some(at) = captured
+    .iter()
+    .position(|e| counts.get(&e.org_id.as_deref()) == Some(&most))
+  {
     captured.remove(at);
-  } else {
-    captured.pop_front();
   }
 }
 /// Maximum captured body size per direction (decoded bytes).

@@ -329,10 +329,19 @@ const MAX_INCLUDE_DEPTH: usize = 5;
 fn read_with_includes(
   path: &Path,
   depth: usize,
-  seen: &mut Vec<PathBuf>,
+  // The files on the path from the root to here. A cycle is a file that
+  // includes itself through this chain, so entries are popped on the way back
+  // out; keeping them would call a *diamond* a cycle, and a root that includes
+  // two per-environment fragments which both include a shared one is the most
+  // ordinary layout there is.
+  chain: &mut Vec<PathBuf>,
+  // Every file that contributed, for the hot-reload watcher. This one only
+  // grows: the watcher needs the whole set, and a shared fragment has to be
+  // watched even though it is reached twice.
+  visited: &mut Vec<PathBuf>,
 ) -> Result<serde_yaml::Mapping, String> {
   let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-  if seen.contains(&canonical) {
+  if chain.contains(&canonical) {
     return Err(format!(
       "{} is included in a cycle; each file may appear once in a chain",
       path.display()
@@ -344,7 +353,10 @@ fn read_with_includes(
       path.display()
     ));
   }
-  seen.push(canonical);
+  chain.push(canonical.clone());
+  if !visited.contains(&canonical) {
+    visited.push(canonical);
+  }
 
   let raw =
     std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -391,10 +403,11 @@ fn read_with_includes(
   let mut merged = serde_yaml::Mapping::new();
   for entry in includes {
     let child = base.join(&entry);
-    let child_doc = read_with_includes(&child, depth + 1, seen)?;
+    let child_doc = read_with_includes(&child, depth + 1, chain, visited)?;
     merge_mapping(&mut merged, child_doc);
   }
   merge_mapping(&mut merged, doc);
+  chain.pop();
   Ok(merged)
 }
 
@@ -473,8 +486,9 @@ fn warn_unknown_keys(doc: &serde_yaml::Mapping, path: &str) {
 }
 
 pub(crate) fn parse_config_tree(path: &Path) -> Result<(FileConfig, Vec<PathBuf>), String> {
+  let mut chain = Vec::new();
   let mut seen = Vec::new();
-  let merged = read_with_includes(path, 0, &mut seen)?;
+  let merged = read_with_includes(path, 0, &mut chain, &mut seen)?;
   warn_unknown_keys(&merged, &path.display().to_string());
   let mut cfg: FileConfig = serde_yaml::from_value(serde_yaml::Value::Mapping(merged))
     .map_err(|e| format!("{}: {e}", path.display()))?;

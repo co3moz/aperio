@@ -56,3 +56,51 @@ fn the_bridge_needs_the_permission_on_the_token() {
   perms.allow_otel = true;
   assert!(may_bridge(&perms));
 }
+
+#[tokio::test]
+async fn an_ip_fenced_token_is_judged_on_the_real_peer() {
+  // The bug this pins down: the handler used a placeholder address, and the
+  // token's `allowed_ips` fence is evaluated against exactly that value. A
+  // token allow-listing loopback would have been accepted from anywhere on
+  // the internet, and one fenced to a private range refused from the host it
+  // was issued for.
+  let mut config = crate::test_support::test_config();
+  config.otel_bridge = true;
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(config));
+  let (_record, secret) = state.token_store.lock().await.create(
+    "edge".into(),
+    Vec::new(),
+    Vec::new(),
+    // Fenced to loopback only.
+    vec!["127.0.0.1".to_string()],
+    None,
+    None,
+    None,
+    false,
+    false,
+    false,
+    None,
+    Vec::new(),
+    None,
+    true,
+  );
+
+  let mut headers = axum::http::HeaderMap::new();
+  headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
+
+  // From somewhere else entirely: the fence must refuse it.
+  let outside: std::net::SocketAddr = "203.0.113.7:40000".parse().unwrap();
+  let resp = otlp_handler(
+    axum::extract::State(state.clone()),
+    axum::extract::ConnectInfo(outside),
+    axum::extract::Path("traces".to_string()),
+    headers.clone(),
+    axum::body::Bytes::new(),
+  )
+  .await;
+  assert_eq!(
+    resp.status(),
+    StatusCode::UNAUTHORIZED,
+    "a token fenced to loopback must not be usable from a public address"
+  );
+}

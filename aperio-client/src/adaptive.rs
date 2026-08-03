@@ -81,6 +81,16 @@ pub(crate) struct Adaptive {
   /// The local limiter, resized in step with the announcement so a server
   /// that ignores the number cannot push past it either.
   limiter: Arc<Semaphore>,
+  /// Permits actually taken out of the limiter so far.
+  ///
+  /// Not derivable from `current`, and that is the whole reason it exists.
+  /// `Semaphore::forget_permits` removes *at most* what it is asked for: with
+  /// every permit in flight there is nothing available to take, so a shrink
+  /// removes fewer than it meant to, or none. Giving back the difference later
+  /// would then hand the limiter more permits than the operator configured,
+  /// which is the opposite of what this feature promises. Only what was taken
+  /// is ever given back.
+  forgotten: AtomicU32,
   /// Permit waits observed in this window: total microseconds and count.
   wait_micros: AtomicU64,
   waits: AtomicU64,
@@ -100,6 +110,7 @@ impl Adaptive {
       configured,
       current: AtomicU32::new(configured),
       limiter,
+      forgotten: AtomicU32::new(0),
       wait_micros: AtomicU64::new(0),
       waits: AtomicU64::new(0),
     }
@@ -149,18 +160,37 @@ impl Adaptive {
   /// is one the semaphore will not hand out again, and returning them later is
   /// what growing does. Requests already in flight are never interrupted, they
   /// finish and simply find fewer permits behind them.
+  ///
+  /// Both directions move by what the limiter *actually* did rather than by
+  /// what was asked, so the announced number never claims a ceiling the
+  /// limiter is not enforcing, and the limiter never ends up above the
+  /// configured one. A shrink that could only take some of what it wanted
+  /// simply takes the rest next window, when the in-flight requests have
+  /// finished and there are permits to take.
   fn apply(&self, verdict: Verdict) -> Option<u32> {
     let target = match verdict {
       Verdict::Hold => return None,
       Verdict::Shrink(n) | Verdict::Grow(n) => n,
     };
-    let previous = self.current.swap(target, Ordering::Relaxed);
-    if target < previous {
-      self.limiter.forget_permits((previous - target) as usize);
+    let previous = self.current.load(Ordering::Relaxed);
+    let moved = if target < previous {
+      let taken = self.limiter.forget_permits((previous - target) as usize) as u32;
+      self.forgotten.fetch_add(taken, Ordering::Relaxed);
+      previous - taken
     } else {
-      self.limiter.add_permits((target - previous) as usize);
-    }
-    Some(target)
+      // Only ever give back what was taken. Anything more would be permits
+      // the operator never configured.
+      let wanted = target - previous;
+      let available = self.forgotten.load(Ordering::Relaxed);
+      let give = wanted.min(available);
+      if give > 0 {
+        self.limiter.add_permits(give as usize);
+        self.forgotten.fetch_sub(give, Ordering::Relaxed);
+      }
+      previous + give
+    };
+    self.current.store(moved, Ordering::Relaxed);
+    (moved != previous).then_some(moved)
   }
 
   /// One window: read the evidence, act on it, and say what changed.
