@@ -193,6 +193,10 @@ pub async fn run() {
     settings.device_key_file.clone(),
   );
 
+  if let Some(path) = settings.pid_file.clone() {
+    write_pid_file(&path);
+  }
+
   // Static file mode: start one loopback server per served directory and
   // point the target(s) at them. Listeners survive config reloads, a
   // directory seen before reuses its server, a new one gets a fresh server.
@@ -221,6 +225,7 @@ pub async fn run() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
+    ready_services: watch::channel(std::collections::HashSet::new()).0,
     // 0 = nothing served yet, which keeps the idle clock stopped.
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(
@@ -469,6 +474,14 @@ pub async fn run() {
   }
   for (_, task) in running {
     let _ = task.await;
+  }
+  // Removed only on the way out of a clean run: a pid file left behind by a
+  // crash is a stale pid, and an init system reading it would signal whatever
+  // process now holds that number.
+  if let Some(path) = settings.pid_file.as_deref()
+    && let Err(e) = std::fs::remove_file(path)
+  {
+    warn!("Could not remove the pid file {path}: {e}");
   }
 }
 
@@ -1075,6 +1088,9 @@ fn build_specs(
       connections,
       connections_min,
       metrics_labels: settings.metrics_labels.clone(),
+      startup_delay: settings.startup_delay.unwrap_or(0),
+      // A single service has nothing in the same file to depend on.
+      depends_on: Vec::new(),
       connect_timeout: settings.connect_timeout,
       min_tls_version: settings.min_tls_version.clone(),
       pool_load: std::sync::Arc::new(service::PoolLoad::default()),
@@ -1221,6 +1237,8 @@ fn build_specs(
           .metrics_labels
           .clone()
           .unwrap_or_else(|| settings.metrics_labels.clone()),
+        startup_delay: entry.startup_delay.or(settings.startup_delay).unwrap_or(0),
+        depends_on: entry.depends_on.clone().unwrap_or_default(),
         connect_timeout: entry.connect_timeout.or(settings.connect_timeout),
         min_tls_version: entry
           .min_tls_version
@@ -1290,8 +1308,89 @@ fn build_specs(
       })
     })
     .collect::<Result<_, String>>()?;
+  validate_depends_on(&specs)?;
   allocate_bandwidth(&mut specs, budget_bps);
   Ok(specs)
+}
+
+/// Rejects a `depends_on` that cannot be satisfied.
+///
+/// All three of these end the same way at runtime, everybody waiting out the
+/// grace period and then starting anyway, so the failure is invisible unless
+/// it is caught here. A name that is not in the file is almost always a typo;
+/// a cycle is always a mistake, since no member of it can ever come up first.
+fn validate_depends_on(specs: &[ServiceSpec]) -> Result<(), String> {
+  use std::collections::{HashMap, HashSet};
+  let names: HashSet<&str> = specs.iter().filter_map(|s| s.name.as_deref()).collect();
+  let mut deps: HashMap<&str, &[String]> = HashMap::new();
+  for spec in specs {
+    let Some(name) = spec.name.as_deref() else {
+      if !spec.depends_on.is_empty() {
+        return Err(
+          "CRITICAL ERROR: depends_on needs services with names; the entry that declares it has none"
+            .to_string(),
+        );
+      }
+      continue;
+    };
+    for dep in &spec.depends_on {
+      if dep == name {
+        return Err(format!(
+          "CRITICAL ERROR: service '{name}' depends_on itself"
+        ));
+      }
+      if !names.contains(dep.as_str()) {
+        return Err(format!(
+          "CRITICAL ERROR: service '{name}' depends_on '{dep}', which is not a service in this configuration"
+        ));
+      }
+    }
+    deps.insert(name, &spec.depends_on);
+  }
+  // Depth-first walk; `visiting` is the current chain, so re-entering it is a
+  // cycle rather than merely a diamond.
+  fn walk<'a>(
+    node: &'a str,
+    deps: &HashMap<&'a str, &'a [String]>,
+    visiting: &mut Vec<&'a str>,
+    done: &mut HashSet<&'a str>,
+  ) -> Result<(), String> {
+    if done.contains(node) {
+      return Ok(());
+    }
+    if let Some(at) = visiting.iter().position(|n| *n == node) {
+      let mut chain: Vec<&str> = visiting[at..].to_vec();
+      chain.push(node);
+      return Err(format!(
+        "CRITICAL ERROR: depends_on forms a cycle ({}); no service in it can ever start first",
+        chain.join(" -> ")
+      ));
+    }
+    visiting.push(node);
+    for dep in deps.get(node).copied().unwrap_or(&[]) {
+      walk(dep, deps, visiting, done)?;
+    }
+    visiting.pop();
+    done.insert(node);
+    Ok(())
+  }
+  let mut done = HashSet::new();
+  for name in deps.keys() {
+    walk(name, &deps, &mut Vec::new(), &mut done)?;
+  }
+  Ok(())
+}
+
+/// Writes the process id where an init system can find it.
+///
+/// Best effort by design: a pid file it cannot write is worth a warning, not a
+/// refusal to start. The tunnel is the job, and a supervisor that wanted the
+/// file will notice its absence long before a visitor does.
+fn write_pid_file(path: &str) {
+  match std::fs::write(path, std::process::id().to_string()) {
+    Ok(()) => info!("Wrote pid {} to {}", std::process::id(), path),
+    Err(e) => warn!("Could not write the pid file {path}: {e}"),
+  }
 }
 
 /// Settles every service's bandwidth request against the client-wide budget

@@ -34,6 +34,8 @@ fn base_settings() -> ClientSettings {
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    startup_delay: None,
+    pid_file: None,
     connect_timeout: None,
     min_tls_version: None,
     priority: 0,
@@ -1127,6 +1129,7 @@ async fn test_spawn_services_derives_connection_ids() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
+    ready_services: watch::channel(std::collections::HashSet::new()).0,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
   };
@@ -1254,4 +1257,131 @@ fn test_validate_tunnels_allows_expose_on_a_combined_tunnel() {
   }])
   .expect("expose is accepted on the tcp half");
   assert_eq!(out.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// depends_on validation (planned_features #62)
+// ---------------------------------------------------------------------------
+
+/// Two service entries with the given names and dependencies.
+fn specs_with_deps(entries: &[(&str, &[&str])]) -> Vec<ServiceSpec> {
+  let mut settings = base_settings();
+  settings.services = entries
+    .iter()
+    .map(|(name, deps)| ServiceEntry {
+      name: Some((*name).to_string()),
+      target: Some("http://localhost:3000".to_string()),
+      depends_on: Some(deps.iter().map(|d| (*d).to_string()).collect()),
+      ..Default::default()
+    })
+    .collect();
+  build_specs(&settings, "base-id", false).unwrap_or_default()
+}
+
+#[test]
+fn depends_on_accepts_an_order_that_can_be_satisfied() {
+  let specs = specs_with_deps(&[("db", &[]), ("api", &["db"]), ("web", &["api", "db"])]);
+  assert_eq!(specs.len(), 3);
+}
+
+#[test]
+fn depends_on_rejects_a_name_that_is_not_in_the_file() {
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("api".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    depends_on: Some(vec!["databse".to_string()]),
+    ..Default::default()
+  }];
+  // A typo would otherwise be invisible: at runtime everybody waits out the
+  // grace period and then starts anyway, which looks exactly like working.
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("databse"), "{err}");
+}
+
+#[test]
+fn depends_on_rejects_a_cycle() {
+  let mut settings = base_settings();
+  settings.services = ["a", "b", "c"]
+    .iter()
+    .zip([["c"], ["a"], ["b"]])
+    .map(|(name, deps)| ServiceEntry {
+      name: Some((*name).to_string()),
+      target: Some("http://localhost:3000".to_string()),
+      depends_on: Some(deps.iter().map(|d| (*d).to_string()).collect()),
+      ..Default::default()
+    })
+    .collect();
+  // No member of a cycle can ever come up first, so all of them wait and then
+  // start anyway; the ordering the file asked for silently never happens.
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("cycle"), "{err}");
+}
+
+#[test]
+fn depends_on_rejects_depending_on_itself() {
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("api".to_string()),
+    target: Some("http://localhost:3000".to_string()),
+    depends_on: Some(vec!["api".to_string()]),
+    ..Default::default()
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("itself"), "{err}");
+}
+
+#[tokio::test]
+async fn await_dependencies_returns_at_once_when_they_are_already_up() {
+  let shared = Shared {
+    shutting_down: Arc::new(AtomicBool::new(false)),
+    shutdown_notify: Arc::new(tokio::sync::Notify::new()),
+    inflight_requests: Arc::new(AtomicUsize::new(0)),
+    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(Vec::new()),
+  };
+  shared.ready_services.send_replace(
+    ["db".to_string()]
+      .into_iter()
+      .collect::<std::collections::HashSet<_>>(),
+  );
+  // Already-ready has to be seen without waiting for a change: a dependent
+  // that starts after its dependency is the normal case, not the exception.
+  let missing = tokio::time::timeout(
+    std::time::Duration::from_secs(1),
+    crate::service::await_dependencies(&shared, &["db".to_string()]),
+  )
+  .await
+  .expect("an already-satisfied dependency does not wait");
+  assert!(missing.is_empty());
+}
+
+#[tokio::test]
+async fn await_dependencies_wakes_when_the_dependency_comes_up() {
+  let shared = Shared {
+    shutting_down: Arc::new(AtomicBool::new(false)),
+    shutdown_notify: Arc::new(tokio::sync::Notify::new()),
+    inflight_requests: Arc::new(AtomicUsize::new(0)),
+    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(Vec::new()),
+  };
+  let waiting = {
+    let shared = shared.clone();
+    tokio::spawn(
+      async move { crate::service::await_dependencies(&shared, &["db".to_string()]).await },
+    )
+  };
+  tokio::task::yield_now().await;
+  shared.ready_services.send_replace(
+    ["db".to_string()]
+      .into_iter()
+      .collect::<std::collections::HashSet<_>>(),
+  );
+  let missing = tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+    .await
+    .expect("the waiter is woken by the dependency coming up")
+    .unwrap();
+  assert!(missing.is_empty());
 }

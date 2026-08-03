@@ -39,6 +39,8 @@ fn settings_with(
     max_concurrent: None,
     connections: None,
     metrics_labels: Default::default(),
+    startup_delay: None,
+    pid_file: None,
     connect_timeout: None,
     min_tls_version: None,
     priority: 0,

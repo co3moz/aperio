@@ -365,6 +365,10 @@ pub(crate) struct ServiceSpec {
   pub(crate) connections_min: u32,
   /// Static Prometheus labels announced for this service's metric series.
   pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
+  /// Seconds this service waits before opening its tunnel.
+  pub(crate) startup_delay: u64,
+  /// Service names that must have a live tunnel before this one opens its own.
+  pub(crate) depends_on: Vec<String>,
   /// Seconds to wait for the TCP connection to this backend (None = only
   /// `timeout_secs` applies).
   pub(crate) connect_timeout: Option<u64>,
@@ -473,6 +477,47 @@ pub(crate) struct Shared {
   /// the live connections a publish can go out on, and the fan-out to
   /// whatever is attached locally.
   pub(crate) messages: Arc<crate::pubsub::MessageBus>,
+  /// Services in this process that currently have a live tunnel, for
+  /// `depends_on`. A watch rather than a notify: a dependent that starts late
+  /// has to see the state as it already is, not wait for the next change.
+  pub(crate) ready_services: watch::Sender<std::collections::HashSet<String>>,
+}
+
+/// Longest a service waits for its `depends_on` before opening anyway.
+///
+/// A bound rather than a wait: a dependency that never arrives, because it is
+/// misspelled, or removed, or itself waiting on something, must not keep a
+/// service that could be serving traffic off the air forever. The wait is a
+/// convenience for ordering, not a correctness mechanism.
+pub(crate) const DEPENDS_ON_GRACE: Duration = Duration::from_secs(60);
+
+/// Waits until every named service has a live tunnel, or the grace period
+/// expires. Returns the names it gave up on, for the caller to report.
+pub(crate) async fn await_dependencies(shared: &Shared, names: &[String]) -> Vec<String> {
+  if names.is_empty() {
+    return Vec::new();
+  }
+  let mut rx = shared.ready_services.subscribe();
+  let deadline = tokio::time::Instant::now() + DEPENDS_ON_GRACE;
+  loop {
+    let missing: Vec<String> = {
+      let ready = rx.borrow_and_update();
+      names
+        .iter()
+        .filter(|n| !ready.contains(n.as_str()))
+        .cloned()
+        .collect()
+    };
+    if missing.is_empty() {
+      return Vec::new();
+    }
+    if tokio::time::timeout_at(deadline, rx.changed())
+      .await
+      .is_err()
+    {
+      return missing;
+    }
+  }
 }
 
 impl Shared {
@@ -707,6 +752,31 @@ pub(crate) async fn run_service(
   ceiling: ConnectionCeiling,
 ) {
   let label = spec.label();
+
+  // Lifecycle gates, before anything is dialed. Only the first connection of a
+  // pool waits: the others are the same service, and making each of them sit
+  // through the same delay would turn a five-second stagger into a
+  // five-second-per-connection one.
+  if connection_index == 1 {
+    if !spec.depends_on.is_empty() {
+      let missing = await_dependencies(&shared, &spec.depends_on).await;
+      if !missing.is_empty() {
+        warn!(
+          "[{}] depends_on: {} did not come up within {}s; starting anyway",
+          label,
+          missing.join(", "),
+          DEPENDS_ON_GRACE.as_secs()
+        );
+      }
+    }
+    if spec.startup_delay > 0 {
+      info!(
+        "[{}] startup_delay: waiting {}s before opening the tunnel",
+        label, spec.startup_delay
+      );
+      tokio::time::sleep(Duration::from_secs(spec.startup_delay)).await;
+    }
+  }
 
   // Connections beyond the first wait for the server's announced ceiling
   // before opening a socket. Five seconds is the whole budget: past that the
@@ -1000,6 +1070,15 @@ pub(crate) async fn run_service(
               ceiling.tx.send_replace(Some(permitted));
             }
             let connected_at = Instant::now();
+            // Announce this service to anything waiting on it via
+            // `depends_on`. Keyed by service name, so every connection of a
+            // parallel pool announces the same name and the first one to
+            // connect is enough.
+            if let Some(name) = spec.name.as_deref() {
+              shared
+                .ready_services
+                .send_if_modified(|set| set.insert(name.to_string()));
+            }
             // Every established connection after the first is a reconnect,
             // and the count is what tells a flapping link from a quiet one:
             // two clients both answering pings look identical otherwise.

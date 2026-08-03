@@ -801,6 +801,17 @@ pub struct ServiceEntry {
   /// (env: APERIO_MIN_TLS_VERSION).
   #[schemars(extend("examples" = ["1.3"]))]
   pub min_tls_version: Option<String>,
+  /// Seconds to wait before this service opens its tunnel. For a backend that
+  /// is starting alongside the client and is not ready to answer the moment
+  /// the process is. Default: `0` (env: APERIO_STARTUP_DELAY).
+  #[schemars(extend("examples" = [5]))]
+  pub startup_delay: Option<u64>,
+  /// Names of services in this same file that must have a live tunnel before
+  /// this one opens its own. Waits for them, then proceeds regardless after a
+  /// bounded grace period, because a dependency that never arrives must not
+  /// keep a service that could serve traffic off the air forever.
+  #[schemars(extend("examples" = [["api"]]))]
+  pub depends_on: Option<Vec<String>>,
   /// Failover tier for this service (0 = primary, higher numbers are standbys).
   #[schemars(extend("examples" = [0]))]
   pub priority: Option<u32>,
@@ -1086,6 +1097,11 @@ pub struct FileConfig {
   /// Most requests handled at once before the server queues the rest.
   #[schemars(extend("examples" = [8]))]
   pub max_concurrent: Option<u32>,
+  /// Path to write this process's pid to at startup, removed on a clean exit.
+  /// For an init system that wants one; a process supervisor usually knows the
+  /// pid without being told. Default: unset (env: APERIO_PID_FILE).
+  #[schemars(extend("examples" = ["/run/aperio-client.pid"]))]
+  pub pid_file: Option<String>,
   /// Parallel tunnel connections opened for the exposed service (the server's
   /// `max_connections_per_service` is the ceiling); the server load-balances
   /// across them like separate clients, so a single dropped connection leaves
@@ -1116,6 +1132,17 @@ pub struct FileConfig {
   /// (env: APERIO_MIN_TLS_VERSION).
   #[schemars(extend("examples" = ["1.3"]))]
   pub min_tls_version: Option<String>,
+  /// Seconds to wait before this service opens its tunnel. For a backend that
+  /// is starting alongside the client and is not ready to answer the moment
+  /// the process is. Default: `0` (env: APERIO_STARTUP_DELAY).
+  #[schemars(extend("examples" = [5]))]
+  pub startup_delay: Option<u64>,
+  /// Names of services in this same file that must have a live tunnel before
+  /// this one opens its own. Waits for them, then proceeds regardless after a
+  /// bounded grace period, because a dependency that never arrives must not
+  /// keep a service that could serve traffic off the air forever.
+  #[schemars(extend("examples" = [["api"]]))]
+  pub depends_on: Option<Vec<String>>,
   /// Largest response body, in bytes, the client will relay to a visitor.
   /// Default: `52428800` (50 MB).
   #[schemars(extend("examples" = [10485760]))]

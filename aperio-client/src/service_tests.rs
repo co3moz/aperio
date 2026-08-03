@@ -74,6 +74,8 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     max_concurrent: None,
     connections: 1,
     metrics_labels: Default::default(),
+    startup_delay: 0,
+    depends_on: Vec::new(),
     connect_timeout: None,
     min_tls_version: None,
     connections_min: 1,
@@ -111,6 +113,7 @@ fn test_shared() -> Shared {
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
+    ready_services: watch::channel(std::collections::HashSet::new()).0,
   }
 }
 

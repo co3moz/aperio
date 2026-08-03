@@ -128,6 +128,8 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_BANDWIDTH` |  | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a **budget for the whole client process**, not a per-service default: it is divided across the `services:` entries and each entry's parallel `connections`, so the total never exceeds it. See [Sharing the bandwidth budget](#sharing-the-bandwidth-budget). | unlimited |
 | `APERIO_MAX_CONCURRENT` | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
 | `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `max_connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). | `1` |
+| `APERIO_STARTUP_DELAY` |  | `startup_delay` | Seconds a service waits before opening its tunnel, for a backend that starts alongside the client and is not ready the moment the process is. Only the first connection of a parallel pool waits; the rest are the same service, and making each wait would turn a stagger into a per-connection delay. | `0` |
+| `APERIO_PID_FILE` |  | `pid_file` | Path to write the process id to at startup, removed on a clean exit (not after a crash: a stale pid file would have an init system signalling whatever process now holds that number). A pid file that cannot be written is a warning, not a refusal to start. |  |
 | `APERIO_CONNECT_TIMEOUT` |  | `connect_timeout` | Seconds to wait for the TCP connection to a backend, separate from `timeout`, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. |  |
 | `APERIO_MIN_TLS_VERSION` |  | `min_tls_version` | Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. |  |
 | `APERIO_METRICS_LABELS` |  | `metrics_labels` | Static Prometheus labels attached to this client's own `aperio_client_requests_total` series, so one Prometheus can serve several environments without relabelling rules. YAML takes a mapping (`{env: prod, region: eu-west}`); the environment spelling is a flat `env=prod,region=eu-west` list, because that is what a container platform can inject. The server validates and caps what arrives, at most 8 labels, names must be `[a-zA-Z_][a-zA-Z0-9_]*`, values at most 64 characters, and the names the server writes itself (`client_id`, `job`, `instance`, `token`, `hostname`, `limit`) are refused. An invalid label is dropped and the rest are kept. |  |
@@ -280,6 +282,24 @@ Retrying only covers failures that happen *before* a response head arrives, and 
 `connections: N` (default 1, also valid at the top level or as `APERIO_CONNECTIONS`) opens N parallel tunnel connections for a service. How many N may be is the server's decision, `max_connections_per_service` (default 16), lowerable per token and announced on connect: a client asking for more opens what it is allowed and says so in its log. The server pools them like separate clients, its load-balancing strategy spreads requests across them, so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover/`--bind-tunnels` lookups stay unambiguous; `max_concurrent` applies per connection. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is read from the local config file only; a positional CLI target overrides it entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
 
 More connections is not automatically faster: each one costs a reader and a writer task on both ends, and its own sockets and queues. Raising N pays off when the bottleneck is the network, a long round-trip or a single TCP stream's throughput ceiling between client and server. When client and server share a machine's CPU (loopback, a dev box, co-located containers), small values win; in a loopback bulk-throughput measurement the curve peaked at 4 connections and fell past it, with 10 slower than 1. Start small, and let a measurement on your own deployment justify each increase.
+
+### Service start order
+
+A `services:` entry can name others it should follow:
+
+```yaml
+services:
+  - name: db
+    tcp_target: 127.0.0.1:5432
+  - name: api
+    target: http://localhost:3000
+    depends_on: [db]
+    startup_delay: 2
+```
+
+`depends_on` waits for those services to have a live tunnel, then **proceeds anyway** after 60 seconds: a dependency that never arrives must not keep a service that could be serving traffic off the air forever. It is an ordering convenience, not a correctness mechanism, so the wait is bounded and what it gave up on is logged.
+
+A name that is not a service in this configuration, a service depending on itself, and a cycle are all refused at startup. All three would otherwise be invisible: at runtime every one of them ends with everybody waiting out the grace period and then starting anyway, which looks exactly like working.
 
 ### Elastic connections
 

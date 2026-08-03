@@ -2837,6 +2837,10 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
 \rowsep
+\code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. & \code{0} \\
+\rowsep
+\code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit. A pid file that cannot be written is a warning, not a refusal to start. &  \\
+\rowsep
 \code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & Seconds to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service. Unset = only the whole-request budget applies. \\
 \rowsep
 \code{APERIO\_MIN\_TLS\_VERSION} &  & \code{min\_tls\_version} & Lowest TLS version accepted from an \code{https://} backend, \code{1.2} or \code{1.3}. Per service. A value that is not a TLS version is refused at startup rather than ignored. \\

@@ -178,13 +178,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#62 Client process lifecycle knobs.** (triage 30) `pid_file` for init
-  systems that want one, `startup_delay` before a service registers, and
-  `depends_on` so one service waits for another's tunnel. Grouped because they
-  are the same category of small operational sugar, and worth being sceptical
-  about: a process supervisor does all three better, which is why none of them
-  scores higher.
-
 - [ ] **#63 Config authoring help.** (triage 30) Template variables
   (`${HOSTNAME}`, `${ENV}`) so one file serves several environments, and a
   warning from `check` when a literal secret appears in the file rather than an
@@ -428,6 +421,20 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#62 Client process lifecycle knobs.** (triage 30) `pid_file` for init
+  systems that want one, `startup_delay` before a service registers, and
+  `depends_on` so one service waits for another's tunnel. Grouped because they
+  are the same category of small operational sugar, and worth being sceptical
+  about: a process supervisor does all three better, which is why none of them
+  scores higher. shipped: all three, with the scepticism kept in the docs
+  rather than dropped. `depends_on` waits and then proceeds anyway after 60s,
+  since a dependency that never arrives must not keep a service off the air;
+  what makes that bound safe is that an unknown name, a self-dependency and a
+  cycle are all refused at startup, because each of them otherwise ends as
+  "everybody waited, then started", which is indistinguishable from working.
+  `pid_file` is removed on a clean exit only, never after a crash, where a
+  stale pid would have an init system signalling an unrelated process.
 
 - [x] **#61 Probe endpoints for container orchestrators.** (triage 30)
   `/aperio/health` returns a JSON body with counters and takes two locks to

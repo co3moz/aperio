@@ -535,6 +535,12 @@ pub(crate) struct ClientSettings {
   /// Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`
   /// (yaml `min_tls_version`, env `APERIO_MIN_TLS_VERSION`).
   pub(crate) min_tls_version: Option<String>,
+  /// Seconds a service waits before opening its tunnel (yaml `startup_delay`,
+  /// env `APERIO_STARTUP_DELAY`).
+  pub(crate) startup_delay: Option<u64>,
+  /// Path to write the process pid to (yaml `pid_file`, env
+  /// `APERIO_PID_FILE`).
+  pub(crate) pid_file: Option<String>,
   /// Static Prometheus labels announced to the server (yaml `metrics_labels`,
   /// env `APERIO_METRICS_LABELS` as `k=v,k=v`).
   pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
@@ -1144,6 +1150,18 @@ pub(crate) fn resolve_settings(
       local.min_tls_version.clone(),
       env_str("APERIO_MIN_TLS_VERSION"),
       home.min_tls_version.clone(),
+    ),
+    startup_delay: layered(
+      None,
+      local.startup_delay,
+      env_parse("APERIO_STARTUP_DELAY"),
+      home.startup_delay,
+    ),
+    pid_file: layered(
+      None,
+      local.pid_file.clone(),
+      env_str("APERIO_PID_FILE"),
+      home.pid_file.clone(),
     ),
     metrics_labels: resolve_metrics_labels(local, home),
     priority: layered(
