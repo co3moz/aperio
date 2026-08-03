@@ -506,3 +506,56 @@ fn test_home_config_supplies_the_list_sections() {
   // A section the local file does not mention still comes from home.
   assert_eq!(s.tunnels.len(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Shell completion (planned_features #70)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn completions_is_a_mode_that_prints_and_exits() {
+  let cli = Cli::parse_from(["aperio-client", "completions", "bash"]);
+  let args = cli_to_args(cli);
+  assert!(matches!(
+    args.mode,
+    CliMode::Completions(clap_complete::Shell::Bash)
+  ));
+  // No target is resolved for it: the script is printed before anything reads
+  // a config file, so a completion run in a directory with a broken
+  // aperio.yaml still works.
+  assert!(args.opts.target_opt.is_none());
+}
+
+#[test]
+fn every_shell_clap_names_is_accepted() {
+  for shell in ["bash", "zsh", "fish", "elvish", "powershell"] {
+    let cli = Cli::try_parse_from(["aperio-client", "completions", shell]);
+    assert!(cli.is_ok(), "{shell} should parse");
+  }
+  assert!(Cli::try_parse_from(["aperio-client", "completions", "csh"]).is_err());
+}
+
+#[test]
+fn the_generated_script_mentions_the_subcommands_it_completes() {
+  // Generated from the clap definition rather than written by hand, which is
+  // the whole point: a hand-written script describes the flags somebody
+  // remembered on the day they wrote it. This asserts the generator is
+  // actually wired to *this* CLI, not a placeholder.
+  let mut command = <Cli as clap::CommandFactory>::command();
+  let mut out: Vec<u8> = Vec::new();
+  clap_complete::generate(
+    clap_complete::Shell::Bash,
+    &mut command,
+    "aperio-client",
+    &mut out,
+  );
+  let script = String::from_utf8(out).expect("a completion script is text");
+  for expected in [
+    "check",
+    "api",
+    "completions",
+    "--bind-tunnels",
+    "--server-url",
+  ] {
+    assert!(script.contains(expected), "missing {expected}");
+  }
+}

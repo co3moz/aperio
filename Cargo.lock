@@ -128,6 +128,7 @@ dependencies = [
  "bytes",
  "chacha20poly1305",
  "clap",
+ "clap_complete",
  "flate2",
  "futures-util",
  "hkdf",
@@ -589,6 +590,15 @@ dependencies = [
  "clap_lex",
  "strsim",
  "terminal_size",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f84a88507dbd05c695f2cb5e8558e747179134005e9893882dec964190ed89"
+dependencies = [
+ "clap",
 ]
 
 [[package]]

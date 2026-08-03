@@ -175,10 +175,6 @@ readable without scrolling past what is already done.
   evict a quiet one's captures. A per-org ceiling is the multi-tenant hygiene
   that the byte quotas and client quotas already have.
 
-- [ ] **#70 Shell completion for the CLI.** (triage 25) `clap_complete` turns
-  this into a subcommand and a build step, and the client has enough
-  subcommands and flags to make it worth having.
-
 - [ ] **#71 TLS termination on an `expose:` port.** (triage 25) Exposed ports
   carry raw TCP or an end-to-end encrypted stream, so a service that wants TLS
   in front of it has to terminate it itself. Per-port `tls_cert` / `tls_key`.
@@ -388,6 +384,16 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#70 Shell completion for the CLI.** (triage 25) `clap_complete` turns
+  this into a subcommand and a build step, and the client has enough
+  subcommands and flags to make it worth having. shipped: `completions
+  <shell>` for the five shells clap names, generated from the same definition
+  the CLI is parsed from so it cannot describe a flag that no longer exists.
+  No build step was needed. One thing the first cut got wrong and the check
+  caught: the script goes to stdout and so do this client's logs, so the gate
+  has to sit before logging is initialized, or a startup line lands in the
+  middle of a shell function and breaks it for whoever sourced it.
 
 - [x] **#52 The server hands out alternate addresses.** (triage 35) A client
   knows exactly one server URL, so a planned migration or a regional failover

@@ -56,6 +56,16 @@ pub async fn run() {
   // Parse CLI first so `--help` and argument errors never emit JSON logs.
   let cli = parse_cli();
 
+  // Completion scripts print and exit before logging is even initialized.
+  // The script goes to stdout, and this client logs to stdout too, so a
+  // single startup line would be pasted into the middle of a shell function
+  // and break it for whoever sourced it. It also has to be as cheap and as
+  // side-effect-free as `--help`: a shell may run it at every new prompt.
+  if let CliMode::Completions(shell) = cli.mode {
+    config::print_completions(shell);
+    return;
+  }
+
   // Initialize logging. Interactive terminals get human-readable output;
   // non-TTY stdout (Docker, pipes, service managers) keeps the structured
   // JSON format (pino.js style). APERIO_LOG_FORMAT=json|pretty overrides

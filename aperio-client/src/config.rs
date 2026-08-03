@@ -103,6 +103,11 @@ enum Command {
   },
   /// Diagnose configuration and connectivity
   Check,
+  /// Print a shell completion script (bash, zsh, fish, elvish, powershell)
+  Completions {
+    /// Which shell to generate for
+    shell: clap_complete::Shell,
+  },
   /// Call the server's admin API: share links, tokens, tunnels, maintenance,
   /// users, orgs, webhooks, cache, and the read-only reports
   Api {
@@ -209,6 +214,8 @@ pub(crate) enum CliMode {
   TcpBridge,
   /// `aperio-client check`: configuration & connectivity diagnostics.
   Check,
+  /// `aperio-client completions <shell>`: print the script and exit.
+  Completions(clap_complete::Shell),
   /// `aperio-client api ...`: one admin API call, then exit.
   Api(crate::api::ApiCommand),
   /// `aperio-client --bind-tunnels [id]`: bind the declared tunnels of one
@@ -230,6 +237,17 @@ fn normalize_target(raw: &str) -> String {
   }
 }
 
+/// Writes a completion script for `shell` to stdout.
+///
+/// Generated from the same clap definition the CLI is parsed from, rather
+/// than written by hand, which is the whole reason to have it: a hand-written
+/// script describes the flags somebody remembered on the day they wrote it,
+/// and this one cannot describe a flag that does not exist.
+pub(crate) fn print_completions(shell: clap_complete::Shell) {
+  let mut command = <Cli as clap::CommandFactory>::command();
+  clap_complete::generate(shell, &mut command, "aperio-client", &mut std::io::stdout());
+}
+
 pub(crate) fn parse_cli() -> CliArgs {
   cli_to_args(Cli::parse())
 }
@@ -240,6 +258,7 @@ fn cli_to_args(cli: Cli) -> CliArgs {
     (None, None) => (CliMode::Run, None),
     (Some(Command::Tcp { local_port }), _) => (CliMode::TcpBridge, Some(local_port)),
     (Some(Command::Check), _) => (CliMode::Check, None),
+    (Some(Command::Completions { shell }), _) => (CliMode::Completions(shell), None),
     (Some(Command::Api { command }), _) => (CliMode::Api(command), None),
   };
   CliArgs {

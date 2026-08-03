@@ -24,6 +24,10 @@ url = "2.5"
 flate2 = "1"
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive", "wrap_help"] }
+# Shell completion (planned_features #70): generated from the same clap
+# definition the CLI is parsed from, so a script cannot describe a flag that
+# no longer exists.
+clap_complete = "4"
 aperio-config = { path = "../aperio-config" }
 # End-to-end encryption of emergency tunnels (X25519 + ChaCha20-Poly1305).
 x25519-dalek = "2"

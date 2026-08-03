@@ -255,6 +255,16 @@ aperio-client api openapi                            # the OpenAPI document for 
 
 `export` writes the configuration that rebuilds a deployment (`tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides`). `--include` names the sections instead, and adds the history the store also holds: `statistics`, `uptime`, `inbox`, `admin_keys`. A misspelled name is an error rather than a silently missing section. Leave `organizations` out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target server is an orphan. `import` applies whatever sections the file holds, so the export is where the decision is made.
 
+## Shell completion
+
+```bash
+aperio-client completions zsh > ~/.zfunc/_aperio-client   # then: autoload -U compinit && compinit
+aperio-client completions bash > /etc/bash_completion.d/aperio-client
+aperio-client completions fish > ~/.config/fish/completions/aperio-client.fish
+```
+
+Also `elvish` and `powershell`. The script is generated from the same definition the CLI is parsed from, so it cannot describe a flag that no longer exists, and it is printed before the client reads a config file or initializes logging: a completion run in a directory with a broken `aperio.yaml` still works, and nothing is pasted into the middle of the script.
+
 ## Scripting
 
 The JSON output is the contract, so pipe it wherever it needs to go:
