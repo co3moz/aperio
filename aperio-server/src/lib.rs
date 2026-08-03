@@ -39,6 +39,7 @@ mod print_config;
 mod protocol;
 mod proxy;
 mod redact;
+mod relay_log;
 mod retention;
 mod route_limits;
 mod routing;

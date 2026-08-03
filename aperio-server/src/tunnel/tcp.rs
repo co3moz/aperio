@@ -202,6 +202,7 @@ pub(crate) async fn tcp_ws_handler(
   );
 
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
+  let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
   ws.on_upgrade(move |socket| async move {
     relay_tcp_consumer(
       state.clone(),
@@ -210,6 +211,7 @@ pub(crate) async fn tcp_ws_handler(
       client_tx,
       target,
       Some(peer_addr),
+      log,
     )
     .await;
     state.consumers.lock().await.closed(
@@ -318,7 +320,40 @@ pub(crate) async fn udp_ws_handler(
     )
     .await;
 
-  ws.on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target))
+  let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
+  let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
+  ws.on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target, log))
+}
+
+/// What the relay access log needs to know about a connection, gathered at
+/// the handler where the token and the query are still in hand.
+///
+/// A struct rather than three more parameters: these three always travel
+/// together and always come from the same place, and threading them
+/// separately through two relays made both signatures about their logging.
+struct RelayIdentity {
+  peer: std::net::SocketAddr,
+  tunnel: Option<String>,
+  token: Option<String>,
+}
+
+impl RelayIdentity {
+  fn new(
+    peer: std::net::SocketAddr,
+    tunnel: Option<String>,
+    perms: &crate::state::ClientPerms,
+  ) -> Self {
+    RelayIdentity {
+      peer,
+      tunnel,
+      token: Some(
+        perms
+          .token_name
+          .clone()
+          .unwrap_or_else(|| "master".to_string()),
+      ),
+    }
+  }
 }
 
 /// Relays datagrams between a consumer WebSocket (one binary frame = one
@@ -330,6 +365,8 @@ async fn relay_udp_consumer(
   client_id: String,
   client_tx: mpsc::Sender<Message>,
   target: String,
+  // For the relay access log.
+  log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
   // Read once per stream: the announcement precedes routability, so the
@@ -360,6 +397,12 @@ async fn relay_udp_consumer(
   // Consumer → tunnel (each frame is one datagram)
   let stream_id_up = stream_id.clone();
   let client_tx_up = client_tx.clone();
+  let record = crate::relay_log::RelayRecord::new("udp", "tunnel", log.peer.to_string(), client_id)
+    .tunnel(log.tunnel)
+    .token(log.token);
+  let up_bytes = record.up_counter();
+  let down_bytes = record.down_counter();
+
   let up_task = tokio::spawn(async move {
     while let Some(Ok(msg)) = ws_receiver.next().await {
       let bytes = match msg {
@@ -381,9 +424,11 @@ async fn relay_udp_consumer(
         continue;
       };
       // Best-effort: drop the datagram when the tunnel is congested.
+      let moved = bytes.len() as u64;
       if let Err(mpsc::error::TrySendError::Closed(_)) = client_tx_up.try_send(frame) {
         break;
       }
+      up_bytes.fetch_add(moved, std::sync::atomic::Ordering::Relaxed);
     }
     let close = TunnelMessage::UdpClose {
       stream_id: stream_id_up.clone(),
@@ -398,9 +443,11 @@ async fn relay_udp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
+          let moved = bytes.len() as u64;
           if ws_sender.send(Message::Binary(bytes)).await.is_err() {
             break;
           }
+          down_bytes.fetch_add(moved, std::sync::atomic::Ordering::Relaxed);
         }
         TcpConsumerMsg::Close => {
           let _ = ws_sender.send(Message::Close(None)).await;
@@ -418,6 +465,7 @@ async fn relay_udp_consumer(
   }
 
   state.udp_streams.lock().await.remove(&stream_id);
+  record.finish(&state);
   debug!("UDP tunnel stream {} closed", stream_id);
 }
 
@@ -506,6 +554,8 @@ async fn relay_tcp_consumer(
   // Here the "visitor" is another client, which is the truthful answer:
   // something at that address is what the backend is really serving.
   visitor: Option<std::net::SocketAddr>,
+  // For the relay access log.
+  log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
   // Read once per stream, like the pause support below.
@@ -545,6 +595,19 @@ async fn relay_tcp_consumer(
 
   let (mut ws_sender, mut ws_receiver) = consumer_ws.split();
 
+  // The record is built here, while what identifies this connection is still
+  // in hand, and written once when the relay is over.
+  let record = crate::relay_log::RelayRecord::new(
+    "tcp",
+    "tunnel",
+    visitor.map(|a| a.to_string()).unwrap_or_default(),
+    client_id.clone(),
+  )
+  .tunnel(log.tunnel)
+  .token(log.token);
+  let up_bytes = record.up_counter();
+  let down_bytes = record.down_counter();
+
   // Consumer → tunnel
   let stream_id_up = stream_id.clone();
   let client_tx_up = client_tx.clone();
@@ -569,9 +632,11 @@ async fn relay_tcp_consumer(
       ) else {
         break;
       };
+      let moved = bytes.len() as u64;
       if client_tx_up.send(frame).await.is_err() {
         break;
       }
+      up_bytes.fetch_add(moved, std::sync::atomic::Ordering::Relaxed);
     }
     // Consumer went away → close the client side.
     let close = TunnelMessage::TcpClose {
@@ -587,9 +652,11 @@ async fn relay_tcp_consumer(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
+          let moved = bytes.len() as u64;
           if ws_sender.send(Message::Binary(bytes)).await.is_err() {
             break;
           }
+          down_bytes.fetch_add(moved, std::sync::atomic::Ordering::Relaxed);
         }
         TcpConsumerMsg::Close => {
           let _ = ws_sender.send(Message::Close(None)).await;
@@ -607,5 +674,6 @@ async fn relay_tcp_consumer(
   }
 
   state.tcp_streams.lock().await.remove(&stream_id);
+  record.finish(&state);
   debug!("TCP tunnel stream {} closed", stream_id);
 }

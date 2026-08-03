@@ -388,6 +388,15 @@ async fn relay_public_tcp(
 
   let (mut read_half, mut write_half) = socket.into_split();
 
+  // A public port authorizes nobody, so there is no token to name: the whole
+  // point of `expose:` is that a visitor reaches it with no credential, and
+  // the log should say so by leaving the field out rather than inventing one.
+  let record = crate::relay_log::RelayRecord::new("tcp", "expose", peer.to_string(), client_id)
+    .tunnel(rule.tunnel.clone())
+    .port(rule.port);
+  let up_bytes = record.up_counter();
+  let down_bytes = record.down_counter();
+
   // Visitor socket → tunnel
   let stream_id_up = stream_id.clone();
   let client_tx_up = client_tx.clone();
@@ -413,6 +422,7 @@ async fn relay_public_tcp(
           if client_tx_up.send(frame).await.is_err() {
             break;
           }
+          up_bytes.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
         }
       }
     }
@@ -430,9 +440,11 @@ async fn relay_public_tcp(
     while let Some(msg) = relay_rx.recv().await {
       match msg {
         TcpConsumerMsg::Data(bytes) => {
+          let moved = bytes.len() as u64;
           if write_half.write_all(&bytes).await.is_err() {
             break;
           }
+          down_bytes.fetch_add(moved, std::sync::atomic::Ordering::Relaxed);
         }
         TcpConsumerMsg::Close => break,
       }
@@ -459,6 +471,7 @@ async fn relay_public_tcp(
   }
 
   state.tcp_streams.lock().await.remove(&stream_id);
+  record.finish(&state);
   debug!("public expose stream {} closed", stream_id);
 }
 

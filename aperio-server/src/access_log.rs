@@ -200,6 +200,29 @@ pub(crate) async fn rewrite(
   rx.await.ok()
 }
 
+/// The relay log's way in, so a connection-level line lands in the same file
+/// as a request line and one pipeline ingests both.
+pub(crate) fn append_relay_line(state: &AppState, entry: &serde_json::Value) {
+  append_access_line(state, entry);
+}
+
+/// Whether this relay connection gets a line, under the same rate as an HTTP
+/// request. Separate accumulator so a busy HTTP surface cannot starve the
+/// relay log of its share, and vice versa: they are different populations and
+/// one in ten of each is what the setting promises.
+pub(crate) fn relay_sampled_in(rate: f64) -> bool {
+  if rate >= 1.0 {
+    return true;
+  }
+  if rate <= 0.0 {
+    return false;
+  }
+  static RELAY_ACCUMULATOR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+  let step = (rate * SAMPLE_SCALE as f64).round() as u64;
+  let previous = RELAY_ACCUMULATOR.fetch_add(step, std::sync::atomic::Ordering::Relaxed);
+  previous % SAMPLE_SCALE + step >= SAMPLE_SCALE
+}
+
 fn append_access_line(state: &AppState, entry: &serde_json::Value) {
   let Some(tx) = &state.access_log else {
     return;

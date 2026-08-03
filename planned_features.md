@@ -225,12 +225,6 @@ readable without scrolling past what is already done.
   the effective concurrency under load pressure needs the process metrics from
   #37 first, and needs care not to oscillate.
 
-- [ ] **#66 An access log for the relays.** (triage 30) HTTP requests get a
-  structured line each; TCP and UDP relay connections get nothing, so a
-  database tunnel leaves no record of who connected, for how long, or how much
-  moved. Connection-level lines (open, close, bytes each way) rather than
-  per-packet, which would be unusable.
-
 - [ ] **#67 Chunked transfer fidelity.** (triage 30) `Transfer-Encoding` is
   stripped and the body is re-framed by our own streaming, which is correct for
   every case we know of but means a backend's chunk boundaries are not the
@@ -442,6 +436,18 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#66 An access log for the relays.** (triage 30) HTTP requests get a
+  structured line each; TCP and UDP relay connections get nothing, so a
+  database tunnel leaves no record of who connected, for how long, or how much
+  moved. Connection-level lines (open, close, bytes each way) rather than
+  per-packet, which would be unusable. shipped: one `relay_closed` line per
+  connection, covering both `expose:` ports and peer clients dialling a
+  tunnel, in the same shape and the same two destinations as an HTTP access
+  line so one pipeline ingests both. Honours `access_log_sample_rate` with its
+  own accumulator, so a busy HTTP surface cannot starve the relay log of its
+  share. Pairs with #56: the topology graph says who depends on a tunnel, this
+  says when and how much, which is the half an audit actually needs.
 
 - [x] **#44 The visitor's real address reaches a tunnelled backend
   (`proxy_protocol:`).** shipped, after the entry was reframed. It began as

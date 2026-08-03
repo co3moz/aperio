@@ -63,3 +63,45 @@ async fn the_access_event_can_be_silenced_without_silencing_warnings() {
     "the live view is fed from the ring, not from the log event"
   );
 }
+
+// ---------------------------------------------------------------------------
+// Sampling (planned_features #55, #66)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sampling_off_and_full_are_exact() {
+  assert!(sampled_in(1.0, 200));
+  assert!(sampled_in(2.0, 200), "a rate above one is still everything");
+  assert!(!sampled_in(0.0, 200));
+}
+
+#[test]
+fn a_server_error_is_never_sampled_out() {
+  // The line somebody goes looking for is precisely the one that went wrong.
+  for status in [500, 502, 503] {
+    for _ in 0..20 {
+      assert!(sampled_in(0.0, status), "{status}");
+    }
+  }
+  // A 404 is routine traffic and is sampled like the rest: it is the noise
+  // people turn the volume down for.
+  assert!(!sampled_in(0.0, 404));
+}
+
+#[test]
+fn one_in_ten_is_exactly_one_in_ten() {
+  // Deterministic, not random: the point of turning the volume down is
+  // knowing what the volume now is.
+  let kept = (0..100).filter(|_| sampled_in(0.1, 200)).count();
+  assert_eq!(kept, 10);
+}
+
+#[test]
+fn the_relay_log_has_its_own_share() {
+  // A separate accumulator, so a busy HTTP surface cannot starve the relay
+  // log of its tenth and vice versa: they are different populations.
+  let kept = (0..100).filter(|_| relay_sampled_in(0.1)).count();
+  assert_eq!(kept, 10);
+  assert!(relay_sampled_in(1.0));
+  assert!(!relay_sampled_in(0.0));
+}
