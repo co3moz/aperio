@@ -116,6 +116,40 @@ pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl I
   (StatusCode::OK, Json(health_info))
 }
 
+/// Liveness probe for a container runtime: no body, no locks.
+///
+/// `/aperio/health` builds a JSON document and takes two locks to do it, which
+/// is more than a `HEALTHCHECK` running every five seconds needs, and under
+/// contention a probe that waits on a lock reports the process as dead when it
+/// is merely busy, which is the worst possible time to restart it. This
+/// answers the only question liveness actually asks: is the process still
+/// serving HTTP.
+#[utoipa::path(get, path = "/aperio/healthz", tag = "public",
+  description = "Liveness probe: 200 with an empty body, no locks taken. For container HEALTHCHECKs and Kubernetes livenessProbe.",
+  responses((status = 200, description = "The process is serving")))]
+pub(crate) async fn healthz_handler() -> impl IntoResponse {
+  StatusCode::OK
+}
+
+/// Readiness probe: should traffic be sent here right now.
+///
+/// Distinct from liveness in exactly the case that matters: from the moment a
+/// shutdown signal arrives this answers 503 while the process is still
+/// serving, which is what tells a load balancer to take the instance out of
+/// rotation. That is the other half of `shutdown_drain`, which then gives the
+/// requests already in flight time to finish. Restarting on this would be
+/// wrong, which is why it is not the liveness endpoint.
+#[utoipa::path(get, path = "/aperio/readyz", tag = "public",
+  description = "Readiness probe: 200 while the server should receive traffic, 503 once it is shutting down. For Kubernetes readinessProbe.",
+  responses((status = 200, description = "Ready for traffic"),
+            (status = 503, description = "Shutting down")))]
+pub(crate) async fn readyz_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+  if *state.shutdown.borrow() {
+    return (StatusCode::SERVICE_UNAVAILABLE, "shutting down");
+  }
+  (StatusCode::OK, "ready")
+}
+
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;

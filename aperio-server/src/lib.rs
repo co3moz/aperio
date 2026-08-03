@@ -1750,6 +1750,11 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
   // middleware so that external load balancers / monitoring tools can probe
   // server liveness without dashboard credentials.
   app = app.route("/aperio/health", get(health_handler));
+  // Split probes for container runtimes: liveness answers "is the process
+  // serving" with no body and no locks, readiness answers "should traffic
+  // come here", which stops being true the moment a shutdown signal lands.
+  app = app.route("/aperio/healthz", get(crate::api::healthz_handler));
+  app = app.route("/aperio/readyz", get(crate::api::readyz_handler));
   app = app.route(
     "/aperio/auth",
     get(auth_page_handler).post(auth_login_handler),

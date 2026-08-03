@@ -1948,6 +1948,26 @@ fn the_composed_router_answers_its_own_surface() {
       let resp = drive(&app, get_req("/aperio/health")).await;
       assert_eq!(resp.status(), StatusCode::OK);
 
+      // The container probes, also uncredentialed.
+      let resp = drive(&app, get_req("/aperio/healthz")).await;
+      assert_eq!(resp.status(), StatusCode::OK);
+      let resp = drive(&app, get_req("/aperio/readyz")).await;
+      assert_eq!(resp.status(), StatusCode::OK);
+
+      // Readiness is the one that turns on a shutdown signal, so a load
+      // balancer stops sending traffic while the process is still serving what
+      // it already has. Liveness must not: restarting here would kill the
+      // drain it is meant to protect.
+      // send_replace, not send: with no subscriber a plain send fails and
+      // leaves the value untouched, which would make this pass for the wrong
+      // reason.
+      state.shutdown.send_replace(true);
+      let resp = drive(&app, get_req("/aperio/readyz")).await;
+      assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+      let resp = drive(&app, get_req("/aperio/healthz")).await;
+      assert_eq!(resp.status(), StatusCode::OK);
+      state.shutdown.send_replace(false);
+
       // The admin 404 fence: a path matching nothing in the namespace is a
       // 404, never proxied to a tunnel client.
       let resp = drive(&app, get_req("/aperio/api/definitely-not-a-route")).await;

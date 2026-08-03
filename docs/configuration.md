@@ -803,6 +803,8 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. |  |
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
 | `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
+| `GET /aperio/healthz` | Liveness probe for a container runtime: `200` with an empty body, no locks taken. Use this for a Docker `HEALTHCHECK` or a Kubernetes `livenessProbe`; `/aperio/health` builds a JSON document and takes two locks, and a probe that waits on a lock reports a busy process as a dead one. | none |
+| `GET /aperio/readyz` | Readiness probe: `200` while the server should receive traffic, `503` from the moment a shutdown signal arrives. Pair it with `APERIO_SHUTDOWN_DRAIN`: readiness turns off so the load balancer stops sending new requests, and the drain gives the ones already in flight time to finish. Never wire this to a `livenessProbe`, restarting on it would kill the drain it exists to protect. | none |
 | `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |
 | `GET /aperio/api/export` | Logical JSON dump, a failsafe for upgrades and migrations. `?include=` names the sections: `tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides` (the default set), plus `statistics`, `uptime`, `inbox`, `admin_keys`. Without `organizations`, only the master organization's rows travel. Sessions and the audit log are never included. | master super-admin |
 | `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |

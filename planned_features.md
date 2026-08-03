@@ -178,15 +178,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#61 Probe endpoints for container orchestrators.** (triage 30)
-  `/aperio/health` returns a JSON body with counters and takes two locks to
-  build it, which is more than a `HEALTHCHECK` every five seconds needs, and
-  there is no separate readiness signal for the window where the server is up
-  but the store has not finished opening. A bodiless `/aperio/healthz`, plus
-  `ready` and `live` split the way Kubernetes expects. An aggregate
-  `/aperio/api/health/tunnels` was proposed alongside and is folded in here,
-  though `/api/stats` and `/api/clients` already answer that question.
-
 - [ ] **#62 Client process lifecycle knobs.** (triage 30) `pid_file` for init
   systems that want one, `startup_delay` before a service registers, and
   `depends_on` so one service waits for another's tunnel. Grouped because they
@@ -437,6 +428,22 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#61 Probe endpoints for container orchestrators.** (triage 30)
+  `/aperio/health` returns a JSON body with counters and takes two locks to
+  build it, which is more than a `HEALTHCHECK` every five seconds needs, and
+  there is no separate readiness signal for the window where the server is up
+  but the store has not finished opening. A bodiless `/aperio/healthz`, plus
+  `ready` and `live` split the way Kubernetes expects. An aggregate
+  `/aperio/api/health/tunnels` was proposed alongside and is folded in here,
+  though `/api/stats` and `/api/clients` already answer that question.
+  shipped: `/aperio/healthz` (bodiless, no locks) and `/aperio/readyz`. The
+  readiness signal turned out to be worth more than the entry expected, not for
+  the store-opening window but for **shutdown**: `readyz` answers 503 from the
+  moment a signal arrives while the process is still serving, which is the
+  other half of #58's `shutdown_drain`, the load balancer stops routing here
+  and the drain finishes what is in flight. The aggregate tunnels endpoint was
+  not built, for the reason the entry already gives.
 
 - [x] **#59 Per-service backend tuning knobs.** (triage 35) Several settings
   that matter per backend are only available globally: connect timeout, idle

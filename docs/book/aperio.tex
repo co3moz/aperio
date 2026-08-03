@@ -2963,6 +2963,10 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/health} & Liveness probe (status, client count, uptime). & none \\
 \rowsep
+\code{GET /aperio/healthz} & Liveness probe for a container runtime: \code{200} with an empty body, no locks taken. For a Docker \code{HEALTHCHECK} or a Kubernetes \code{livenessProbe}. & none \\
+\rowsep
+\code{GET /aperio/readyz} & Readiness probe: \code{200} while the server should receive traffic, \code{503} from the moment a shutdown signal arrives. Pair with \code{APERIO\_SHUTDOWN\_DRAIN}. Never wire it to a \code{livenessProbe}. & none \\
+\rowsep
 \code{GET /aperio/api/openapi.json} & OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). & dashboard session \\
 \rowsep
 \code{GET /aperio/api/export} & Logical JSON dump, a failsafe for upgrades and migrations. \code{?include=} names the sections (\code{tokens}, \code{webhooks}, \code{users}, \code{organizations}, \code{scaling}, \code{settings\_overrides} by default, plus \code{statistics}, \code{uptime}, \code{inbox}, \code{admin\_keys}). Without \code{organizations}, only master's rows travel. Sessions and the audit log are never included. & master super-admin \\
