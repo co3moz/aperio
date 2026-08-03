@@ -150,13 +150,6 @@ readable without scrolling past what is already done.
   angles, which is why they are one entry. Depends on #26 landing first, since
   a weight belongs on a route.
 
-- [ ] **#52 The server hands out alternate addresses.** (triage 35) A client
-  knows exactly one server URL, so a planned migration or a regional failover
-  means editing every client's config. The server could include a list of
-  alternates in its handshake, to be tried in order when the primary refuses.
-  Small protocol addition, but it needs a story for how a client decides the
-  primary is really gone rather than briefly restarting.
-
 - [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
   store are written in the clear, and that store holds hashed credentials,
   sessions and organization data. AES-256-GCM with the key from an environment
@@ -395,6 +388,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#52 The server hands out alternate addresses.** (triage 35) A client
+  knows exactly one server URL, so a planned migration or a regional failover
+  means editing every client's config. The server could include a list of
+  alternates in its handshake, to be tried in order when the primary refuses.
+  Small protocol addition, but it needs a story for how a client decides the
+  primary is really gone rather than briefly restarting. shipped as
+  `alternate_servers`, announced in a handshake header, no protocol version
+  needed. The story the entry wanted was **already answered** by the existing
+  rotation: it is round-robin and wraps, so a client never abandons the
+  primary, it keeps coming back to try it, and the reconnect backoff spaces
+  the attempts. Learned addresses are appended after the configured ones so
+  the operator's list still decides the order, and both ends cap and filter
+  the list. It cannot rescue a client that never connected, which is the
+  honest limit of the idea.
 
 - [x] **#65 Client-side load shedding.** (triage 30) When the client's own host
   is saturated it keeps accepting whatever `max_concurrent` allows, so the

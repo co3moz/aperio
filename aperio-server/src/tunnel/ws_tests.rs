@@ -1847,3 +1847,34 @@ async fn a_client_that_stops_reporting_shows_nothing_rather_than_a_stale_value()
   assert_eq!(handle.rtt_ms, None, "the absence is stored, not ignored");
   assert_eq!(handle.cpu_percent, None);
 }
+
+// ---------------------------------------------------------------------------
+// Alternate servers announced on the handshake (planned_features #52)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn alternates_keep_only_what_a_tunnel_can_be_dialed_with() {
+  // The list is announced to every client and tried by every client, so a
+  // typo reaches further here than most, and dropping what cannot be a tunnel
+  // URL is cheaper than every client discovering it one reconnect at a time.
+  assert_eq!(
+    parse_alternates("wss://eu.example.com/tunnel, https://not-a-tunnel, , ws://b/x"),
+    vec![
+      "wss://eu.example.com/tunnel".to_string(),
+      "ws://b/x".to_string()
+    ]
+  );
+  assert!(parse_alternates("").is_empty());
+  assert!(parse_alternates("   ").is_empty());
+}
+
+#[test]
+fn alternates_are_capped() {
+  let many = (0..40)
+    .map(|i| format!("wss://s{i}.example.com"))
+    .collect::<Vec<_>>()
+    .join(",");
+  // Clients walk this list in rotation; an unbounded one turns every
+  // reconnect into a long walk through addresses nobody chose.
+  assert_eq!(parse_alternates(&many).len(), MAX_ALTERNATES);
+}

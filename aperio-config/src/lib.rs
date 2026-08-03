@@ -2815,6 +2815,18 @@ pub struct ServerFileConfig {
   /// (env: APERIO_SHUTDOWN_DRAIN).
   #[schemars(extend("examples" = [10, "auto"]))]
   pub shutdown_drain: Option<ShutdownDrain>,
+  /// Other Aperio servers a client of this one may fall back to, announced in
+  /// the handshake. A planned migration or a regional failover otherwise means
+  /// editing every client's config; announce the new server here and clients
+  /// learn it on their next connection.
+  ///
+  /// Advice, not instruction: a client appends these *after* the servers its
+  /// own config names, so the operator's list still decides the order. A
+  /// client that has never reached this server learns nothing, which is why
+  /// this is for a migration announced in advance rather than a rescue
+  /// (env: APERIO_ALTERNATE_SERVERS, comma-separated).
+  #[schemars(extend("examples" = [["wss://eu.tunnel.example.com/tunnel"]]))]
+  pub alternate_servers: Option<Vec<String>>,
   /// Streamed responses one visitor address may hold open at once. `0` (the
   /// default) = no limit. Saturating a service's concurrency budget otherwise
   /// takes one host holding many slow streams; this makes it take a botnet.

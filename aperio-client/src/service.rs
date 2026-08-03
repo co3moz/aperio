@@ -749,6 +749,13 @@ impl ConnectionCeiling {
   }
 }
 
+/// Ceiling on a service's candidate server list, configured plus learned.
+///
+/// A fence rather than a policy: the list is tried in rotation, so a server
+/// announcing a hundred alternates would turn every reconnect into a long walk
+/// through addresses nobody chose.
+const MAX_SERVER_URLS: usize = 16;
+
 pub(crate) async fn run_service(
   spec: ServiceSpec,
   shared: Shared,
@@ -1024,6 +1031,11 @@ pub(crate) async fn run_service(
   // Index into `spec.ws_urls` for cross-server failover: advanced after each
   // failed/dropped connection so the client rotates across the server fleet.
   let mut server_idx = 0usize;
+  // This connection's candidate servers: the configured list, plus whatever
+  // the servers on it announce. Owned here rather than on the spec because it
+  // grows at runtime and a config reload rebuilds the spec, which is the right
+  // moment to forget what was learned.
+  let mut ws_urls: Vec<String> = spec.ws_urls.clone();
   // Self-reported health for this connection: the ping task fills it in, the
   // read loop times the pongs, and the reconnect counter lives across
   // attempts, which is the point of it.
@@ -1035,9 +1047,8 @@ pub(crate) async fn run_service(
     }
     exit_if_shutting_down(&shared).await;
 
-    let current_ws = spec
-      .ws_urls
-      .get(server_idx % spec.ws_urls.len().max(1))
+    let current_ws = ws_urls
+      .get(server_idx % ws_urls.len().max(1))
       .cloned()
       .unwrap_or_else(|| spec.ws_url.clone());
     info!(
@@ -1098,6 +1109,32 @@ pub(crate) async fn run_service(
               .filter(|v| *v > 0)
             {
               ceiling.tx.send_replace(Some(permitted));
+            }
+            // Servers this one says a client may fall back to
+            // (planned_features #52). Appended after the ones this client's
+            // own config names, never replacing them: the operator's list
+            // decides the order, and this is advice from one of the servers on
+            // it. Learned per connection, so a migration set up on the server
+            // reaches a running client without a restart.
+            //
+            // The rotation is round-robin and wraps, so an alternate is never
+            // a one-way door: a client that failed over keeps coming back to
+            // try the primary, and a server that was briefly restarting gets
+            // its clients back on the next pass.
+            if let Some(learned) = response
+              .headers()
+              .get("x-aperio-alternate-servers")
+              .and_then(|v| v.to_str().ok())
+            {
+              for url in learned.split(',').map(str::trim) {
+                if (url.starts_with("ws://") || url.starts_with("wss://"))
+                  && !ws_urls.iter().any(|u| u == url)
+                  && ws_urls.len() < MAX_SERVER_URLS
+                {
+                  info!("[{}] Server announced an alternate: {}", label, url);
+                  ws_urls.push(url.to_string());
+                }
+              }
             }
             let connected_at = Instant::now();
             // Announce this service to anything waiting on it via
@@ -2096,7 +2133,7 @@ pub(crate) async fn run_service(
     };
     // Cross-server failover: after a failed/dropped connection, try the next
     // server on the next attempt (no-op with a single server).
-    if spec.ws_urls.len() > 1 {
+    if ws_urls.len() > 1 {
       server_idx = server_idx.wrapping_add(1);
     }
     tokio::select! {

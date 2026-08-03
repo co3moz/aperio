@@ -1128,6 +1128,9 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     alert_rules: alert_rules::from_config_file(),
     maintenance_windows: maintenance_windows::from_config_file(),
     denied_ips: denied_ips_config,
+    alternate_servers: crate::tunnel::ws::parse_alternates(
+      &std::env::var("APERIO_ALTERNATE_SERVERS").unwrap_or_default(),
+    ),
     max_streams_per_ip: std::env::var("APERIO_MAX_STREAMS_PER_IP")
       .ok()
       .and_then(|v| v.trim().parse::<u32>().ok())

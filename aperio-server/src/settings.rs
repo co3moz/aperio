@@ -237,6 +237,8 @@ pub(crate) struct ServerConfig {
   /// configured collector.
   /// Streamed responses one visitor address may hold open at once
   /// (`0` = no limit).
+  /// Other servers a client may fall back to, announced in the handshake.
+  pub(crate) alternate_servers: Vec<String>,
   pub(crate) max_streams_per_ip: u32,
   pub(crate) otel_bridge: bool,
   pub(crate) shutdown_drain: Option<u64>,

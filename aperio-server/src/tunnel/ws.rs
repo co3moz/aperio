@@ -12,6 +12,31 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 /// that just connected. The client sizes its fan of connections from it, so
 /// the number lives on the server where the resource is.
 pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
+/// Other servers a client may fall back to (planned_features #52),
+/// comma-separated.
+pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";
+
+/// Most alternates a server will announce.
+///
+/// A fence rather than a policy: clients try this list in rotation, so a long
+/// one turns every reconnect into a walk through addresses nobody chose.
+pub(crate) const MAX_ALTERNATES: usize = 8;
+
+/// Reads `alternate_servers` from its comma-separated spelling.
+///
+/// Only the two schemes a tunnel is dialed with survive. The list is announced
+/// to every client and tried by every client, so a typo here reaches further
+/// than most, and dropping what cannot possibly be a tunnel URL is cheaper
+/// than every client discovering it one reconnect at a time.
+pub(crate) fn parse_alternates(raw: &str) -> Vec<String> {
+  raw
+    .split(',')
+    .map(str::trim)
+    .filter(|v| v.starts_with("ws://") || v.starts_with("wss://"))
+    .map(str::to_string)
+    .take(MAX_ALTERNATES)
+    .collect()
+}
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -160,6 +185,8 @@ pub(crate) async fn ws_handler(
   // server will only close. Read by aperio-client; older clients ignore it and
   // keep their own default, which is this same 16.
   let ceiling = perms.connection_ceiling(state.config().max_connections_per_service);
+  // Read before the state is moved into the upgrade callback below.
+  let alternates = state.config().alternate_servers.join(",");
 
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
   let mut response = ws
@@ -177,6 +204,16 @@ pub(crate) async fn ws_handler(
     });
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
+  }
+  // Announced on every handshake rather than once: a migration is set up by
+  // editing this server, and a client that reconnects should pick up the new
+  // list without anybody restarting it.
+  if !alternates.is_empty()
+    && let Ok(value) = axum::http::HeaderValue::from_str(&alternates)
+  {
+    response
+      .headers_mut()
+      .insert(ALTERNATE_SERVERS_HEADER, value);
   }
   response
 }
