@@ -176,21 +176,6 @@ readable without scrolling past what is already done.
   faster for the small-service-count case that most deployments are. The mode
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
-- [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
-  Two threshold rules exist and are hard-coded: error rate and client-down
-  (`alerts.rs`). Everything else an operator might want to be told about,
-  starting with the disk filling up and the server's own RSS climbing (both
-  already measured for the self-health panel), needs a rule engine rather than
-  another pair of environment variables. Merged from three proposals for that
-  reason: the general shape is the feature, the two specific alerts are its
-  first users. shipped: `alert_rules:` with one metric, one bound and a `for` window that applies to firing and resolving alike. Four metrics rather than an expression language, because the value is in being able to write the rule at all. An unreadable metric (rss on non-Linux) is reported at startup instead of firing on a zero.
-
-- [x] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
-  already does single-range `206` responses, so the hard part of HTTP file
-  serving is done, but it has no validator: every reload of an unchanged file
-  ships the whole body again. An ETag from size and mtime, plus
-  `If-None-Match`, is a small amount of code next to what is already there. shipped: a strong validator from size and mtime (nginx's shape), `If-None-Match` compared weakly per the RFC, and `304` on GET and HEAD. Being strong is what also let `If-Range` start working: it used to be declined because there was no validator to compare against, so a resumed download always restarted.
-
 - [ ] **#51 Weighted routing and header-based canaries.** (triage 35) The load
   balancer picks between clients by priority tier and round robin, so "send 20
   percent to the new version" or "send my requests to the new version if I set
@@ -449,6 +434,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
+  Two threshold rules exist and are hard-coded: error rate and client-down
+  (`alerts.rs`). Everything else an operator might want to be told about,
+  starting with the disk filling up and the server's own RSS climbing (both
+  already measured for the self-health panel), needs a rule engine rather than
+  another pair of environment variables. Merged from three proposals for that
+  reason: the general shape is the feature, the two specific alerts are its
+  first users. shipped: `alert_rules:` with one metric, one bound and a `for` window that applies to firing and resolving alike. Four metrics rather than an expression language, because the value is in being able to write the rule at all. An unreadable metric (rss on non-Linux) is reported at startup instead of firing on a zero.
+
+- [x] **#50 `ETag` and `304` for `serve:`.** (triage 35) The static file server
+  already does single-range `206` responses, so the hard part of HTTP file
+  serving is done, but it has no validator: every reload of an unchanged file
+  ships the whole body again. An ETag from size and mtime, plus
+  `If-None-Match`, is a small amount of code next to what is already there. shipped: a strong validator from size and mtime (nginx's shape), `If-None-Match` compared weakly per the RFC, and `304` on GET and HEAD. Being strong is what also let `If-Range` start working: it used to be declined because there was no validator to compare against, so a resumed download always restarted.
 
 - [x] **#85 An OpenTelemetry bridge for edge hosts.** Asked for directly
   rather than coming from triage. An edge host usually has exactly one
