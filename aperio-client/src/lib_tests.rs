@@ -72,6 +72,19 @@ fn base_settings() -> ClientSettings {
 }
 
 #[test]
+fn a_pool_hands_out_the_lowest_free_connection_number() {
+  // The pool used to derive the next number from its length, which is the
+  // same thing only while entries leave from the end. A connection past the
+  // server's ceiling stands down by itself, so a pool of [1, 3] would have
+  // been told to open "3" again: two clients answering to one id, which is
+  // the ambiguity the per-connection suffix exists to prevent.
+  assert_eq!(next_connection_number([]), 1);
+  assert_eq!(next_connection_number([1, 2, 3]), 4);
+  assert_eq!(next_connection_number([1, 3]), 2);
+  assert_eq!(next_connection_number([2, 3]), 1);
+}
+
+#[test]
 fn an_unusable_min_tls_version_is_refused_by_the_config_path() {
   // It used to be parsed inside the running service task, which had nowhere
   // to return an error to and so exited the process. That turned one typo in

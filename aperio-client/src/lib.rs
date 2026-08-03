@@ -571,6 +571,19 @@ fn spawn_connection(
   (cancel_tx, handle)
 }
 
+/// The number to give a pool's next connection: the lowest one not in use.
+///
+/// Not `len + 1`. Entries do not only leave a pool from the end, a connection
+/// past the server's announced ceiling stands down by itself, so after one of
+/// those the length and the highest number in use are different things and
+/// counting from the length hands out a number a live connection is already
+/// answering to. Two clients with one id is exactly the ambiguity the
+/// per-connection suffix exists to prevent.
+fn next_connection_number(taken: impl IntoIterator<Item = u32>) -> u32 {
+  let taken: Vec<u32> = taken.into_iter().collect();
+  (1..).find(|n| !taken.contains(n)).unwrap_or(1)
+}
+
 /// How often the elastic pool looks at its load.
 const POOL_TICK: Duration = Duration::from_secs(2);
 /// Requests in flight per connection above which the pool opens another one.
@@ -609,9 +622,15 @@ async fn run_elastic_pool(
   health: service::BackendHealth,
   ceiling: service::ConnectionCeiling,
 ) {
-  let mut pool: Vec<(watch::Sender<bool>, tokio::task::JoinHandle<()>)> = Vec::new();
+  // The connection number is carried alongside the handle rather than implied
+  // by the position, because entries do not only leave from the end: a
+  // connection past the server's ceiling stands down on its own, and deriving
+  // the next number from the length would then hand out a number a live
+  // connection is already using.
+  let mut pool: Vec<(u32, watch::Sender<bool>, tokio::task::JoinHandle<()>)> = Vec::new();
   for conn in 1..=spec.connections_min {
-    pool.push(spawn_connection(&spec, &shared, &health, &ceiling, conn));
+    let (cancel_tx, handle) = spawn_connection(&spec, &shared, &health, &ceiling, conn);
+    pool.push((conn, cancel_tx, handle));
   }
   spec.pool_load.set_open(spec.connections_min);
   info!(
@@ -630,6 +649,24 @@ async fn run_elastic_pool(
         }
       }
       _ = ticker.tick() => {
+        // A connection whose task has ended is not open, whatever the pool
+        // spawned. The server announces a per-service ceiling and a
+        // connection above it stands down by returning, so a pool told to
+        // start more than the server allows was counting connections that had
+        // never opened: the dashboard and the Ping reported them, and the
+        // growth arithmetic divided by them.
+        let before = pool.len();
+        pool.retain(|(_, _, handle)| !handle.is_finished());
+        if pool.len() != before {
+          warn!(
+            "[{}] {} connection(s) of this pool are not running (the server's \
+             ceiling, or a connection that gave up); the pool is {} deep",
+            spec.client_id,
+            before - pool.len(),
+            pool.len()
+          );
+          spec.pool_load.set_open(pool.len() as u32);
+        }
         let peak = spec.pool_load.take_peak();
         let open = pool.len() as u32;
         let now = tokio::time::Instant::now();
@@ -640,12 +677,13 @@ async fn run_elastic_pool(
           && peak >= open as usize * POOL_GROW_PER_CONNECTION
           && now.duration_since(grew_at) >= POOL_GROW_COOLDOWN
         {
-          let conn = open + 1;
+          let conn = next_connection_number(pool.iter().map(|(c, _, _)| *c));
           info!(
             "[{}] {} request(s) in flight over {} connection(s); opening connection {}",
             spec.client_id, peak, open, conn
           );
-          pool.push(spawn_connection(&spec, &shared, &health, &ceiling, conn));
+          let (cancel_tx, handle) = spawn_connection(&spec, &shared, &health, &ceiling, conn);
+          pool.push((conn, cancel_tx, handle));
           spec.pool_load.set_open(pool.len() as u32);
           grew_at = now;
           shrank_at = now;
@@ -655,11 +693,11 @@ async fn run_elastic_pool(
           && peak <= (open as usize - 1) * POOL_SHRINK_PER_CONNECTION
           && now.duration_since(shrank_at) >= POOL_SHRINK_COOLDOWN
         {
-          if let Some((cancel_tx, handle)) = pool.pop() {
+          if let Some((conn, cancel_tx, handle)) = pool.pop() {
             info!(
               "[{}] Load dropped to {} request(s) in flight over {} connection(s); \
                retiring connection {} (pool floor is {})",
-              spec.client_id, peak, open, open, spec.connections_min
+              spec.client_id, peak, open, conn, spec.connections_min
             );
             let _ = cancel_tx.send(true);
             // Awaited rather than detached: the retired connection's client id
@@ -677,10 +715,10 @@ async fn run_elastic_pool(
       }
     }
   }
-  for (cancel_tx, _) in &pool {
+  for (_, cancel_tx, _) in &pool {
     let _ = cancel_tx.send(true);
   }
-  for (_, handle) in pool {
+  for (_, _, handle) in pool {
     let _ = handle.await;
   }
 }
