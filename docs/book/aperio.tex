@@ -2969,7 +2969,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{POST /aperio/api/clients/:id/override}, \code{POST /aperio/api/clients/:id/enabled} & Temporary bind overrule / enable-disable toggle. & dashboard session \\
 \rowsep
-\code{GET /aperio/api/activity} & Request volume in five-second buckets over the last 15 minutes, for the activity chart's long view. & dashboard session \\
+\code{GET /aperio/api/activity} & Request volume per bucket over the requested span (\code{range=15m}, \code{2h} or \code{1d}), for the activity chart's long views. & dashboard session \\
 \code{GET /aperio/api/explain} & Dry run: which rule would answer a request to a hostname and path, and what every other stage saw. Spends no rate limit and wakes nothing. & dashboard session (operator+) \\
 \code{GET/POST /aperio/api/maintenance} & List / toggle maintenance mode for a hostname, a \code{*.example.com} subdomain wildcard, a partial label (\code{*-pi.example.com}), or \code{*} (master only). \code{reason} and \code{ttl\_seconds} are optional. & dashboard session \\
 \rowsep

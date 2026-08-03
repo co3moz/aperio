@@ -467,6 +467,7 @@ async fn async_main() {
   // Final stats flush so nothing recorded since the last tick is lost.
   state.persistent_stats.lock().await.save_if_dirty();
   state.uptime.lock().await.save_if_dirty();
+  state.activity.lock().await.save_if_dirty();
 
   // Flush any buffered OTLP spans before exit.
   otel_guard.shutdown();
@@ -1361,7 +1362,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     cache_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
     endpoint_stats: Mutex::new(crate::state::EndpointStats::default()),
     route_trends: Mutex::new(crate::state::RouteTrends::default()),
-    activity: Mutex::new(crate::state::Activity::default()),
+    activity: Mutex::new(crate::state::Activity::load(
+      &data_dir,
+      crate::store::tokens::now_secs(),
+    )),
     stage_stats: Mutex::new(crate::state::StageStats::default()),
     maintenance: Mutex::new(std::collections::HashMap::new()),
     access_log,
@@ -2110,6 +2114,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
 pub(crate) async fn flush_stats_once(state: &Arc<AppState>) {
   state.persistent_stats.lock().await.save_if_dirty();
   state.uptime.lock().await.save_if_dirty();
+  state.activity.lock().await.save_if_dirty();
 }
 
 /// One beat of the availability ticker: observe every service entity and
@@ -2457,6 +2462,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
     warn!("Graceful shutdown timed out after {timeout}s; forcing exit");
     fallback.persistent_stats.lock().await.save_if_dirty();
     fallback.uptime.lock().await.save_if_dirty();
+    fallback.activity.lock().await.save_if_dirty();
     std::process::exit(0);
   });
 }

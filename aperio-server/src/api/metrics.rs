@@ -497,31 +497,40 @@ pub(crate) async fn bandwidth_handler(
   .into_response()
 }
 
-/// Request volume in five-second slices: the long view of the dashboard's
-/// live activity chart.
+/// Request volume in fixed slices: the long views of the dashboard's live
+/// activity chart.
 ///
 /// The chart's minute-long view is built in the browser from successive polls,
 /// which is right for "is it moving right now" and cannot answer "what did the
 /// last quarter hour look like": it starts empty on every reload. This series
 /// is the server's own, so it survives a reload and two people looking at once
 /// see the same picture.
+///
+/// `range` picks the resolution: `15m` (the default, and what this endpoint
+/// returned before the parameter existed), `2h` or `1d`. The slice width grows
+/// with the span so every range is about sixty cells; a day at five-second
+/// resolution would be seventeen thousand points drawn into a few hundred
+/// pixels.
 #[utoipa::path(get, path = "/aperio/api/activity", tag = "dashboard",
-  description = "Request volume in five-second buckets over the last 15 minutes (total and failed per bucket), for the activity chart's long view.",
+  params(("range" = Option<String>, Query,
+    description = "Span and resolution: 15m (default, 5-second slices), 2h (2-minute slices) or 1d (15-minute slices).")),
+  description = "Request volume per bucket (total and failed) over the requested span, for the activity chart's long views.",
   responses((status = 200, description = "Volume buckets, oldest first", body = serde_json::Value)))]
 pub(crate) async fn activity_handler(
   State(state): State<Arc<AppState>>,
+  axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
   headers: axum::http::HeaderMap,
 ) -> Json<serde_json::Value> {
   let org = crate::auth::effective_org(&state, &headers).await;
   let now = crate::store::tokens::now_secs();
-  let buckets =
-    state
-      .activity
-      .lock()
-      .await
-      .series(org.as_deref(), crate::state::ACTIVITY_BUCKETS, now);
+  let range = crate::state::ActivityRange::parse(params.get("range").map(String::as_str));
+  let buckets = state
+    .activity
+    .lock()
+    .await
+    .series(org.as_deref(), range, now);
   Json(serde_json::json!({
-    "bucket_secs": crate::state::ACTIVITY_BUCKET_SECS,
+    "bucket_secs": range.width_secs(),
     "buckets": buckets,
   }))
 }

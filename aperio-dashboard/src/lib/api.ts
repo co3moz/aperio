@@ -851,7 +851,9 @@ export const api = {
   redeliverWebhook: (id: string) =>
     mutate(`/webhooks/deliveries/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
   audit: (filter?: AuditFilter) => request<AuditEvent[]>(`/audit${auditQuery(filter)}`),
-  activity: () => request<ActivitySeries>('/activity'),
+  /** `range` picks the span and its slice width: 15m / 2h / 1d. */
+  activity: (range: '15m' | '2h' | '1d' = '15m') =>
+    request<ActivitySeries>(`/activity?range=${range}`),
   maintenance: () => request<MaintenanceEntry[]>('/maintenance'),
   explain: (hostname: string) =>
     request<Explanation>(`/explain?hostname=${encodeURIComponent(hostname)}`),

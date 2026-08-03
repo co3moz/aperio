@@ -977,8 +977,9 @@ fn activity_buckets_by_five_seconds_and_keeps_quiet_slices() {
   // A slice later, after a gap of two silent slices.
   activity.record(None, false, 1020);
 
-  let series = activity.series(None, 6, 1020);
-  assert_eq!(series.len(), 6);
+  let series = activity.series(None, ActivityRange::Quarter, 1020);
+  assert_eq!(series.len(), ACTIVITY_BUCKETS);
+  let series = &series[series.len() - 6..];
   // Oldest first, and the silent slices are present rather than skipped: a
   // quiet minute is an answer, and omitting it draws the traffic on either
   // side as if it were adjacent.
@@ -999,11 +1000,16 @@ fn activity_is_per_organization_and_bounded() {
   activity.record(Some("acme"), false, 100);
   activity.record(Some("acme"), false, 100);
 
-  assert_eq!(activity.series(None, 1, 100)[0].total, 1);
-  assert_eq!(activity.series(Some("acme"), 1, 100)[0].total, 2);
+  let newest = |a: &Activity, org: Option<&str>| {
+    *a.series(org, ActivityRange::Quarter, 100)
+      .last()
+      .expect("the series is never empty")
+  };
+  assert_eq!(newest(&activity, None).total, 1);
+  assert_eq!(newest(&activity, Some("acme")).total, 2);
   // An org that never served anything reads as silence, not as someone else's
   // traffic.
-  assert_eq!(activity.series(Some("other"), 3, 100)[0].total, 0);
+  assert_eq!(newest(&activity, Some("other")).total, 0);
 
   // The ring is bounded: fifteen minutes of slices, then the oldest goes.
   let mut long = Activity::default();
@@ -1011,12 +1017,116 @@ fn activity_is_per_organization_and_bounded() {
     long.record(None, false, i * ACTIVITY_BUCKET_SECS);
   }
   let last = (ACTIVITY_BUCKETS as u64 + 49) * ACTIVITY_BUCKET_SECS;
-  let series = long.series(None, ACTIVITY_BUCKETS, last);
+  let series = long.series(None, ActivityRange::Quarter, last);
   assert_eq!(series.len(), ACTIVITY_BUCKETS);
   assert!(
     series.iter().all(|b| b.total == 1),
     "the window is full of the most recent slices"
   );
+}
+
+#[test]
+fn every_range_holds_about_sixty_cells_and_counts_the_same_request() {
+  let mut activity = Activity::default();
+  // A real wall-clock second: the day ring reaches back 24 hours, and a `now`
+  // smaller than that would clamp its oldest buckets to zero.
+  let now = 1_700_000_000;
+  activity.record(None, true, now);
+
+  // One request, counted once in each resolution: the rings are three views
+  // of the same traffic, not three samples of it.
+  for range in [
+    ActivityRange::Quarter,
+    ActivityRange::TwoHours,
+    ActivityRange::Day,
+  ] {
+    let series = activity.series(None, range, now);
+    assert_eq!(series.len(), range.buckets());
+    assert_eq!(series.last().unwrap().total, 1);
+    assert_eq!(series.last().unwrap().failed, 1);
+    for pair in series.windows(2) {
+      assert_eq!(pair[1].at - pair[0].at, range.width_secs());
+    }
+    // Roughly sixty cells whatever the span: that is what keeps the chart
+    // readable and the payload small.
+    assert!((60..=96).contains(&series.len()) || range == ActivityRange::Quarter);
+  }
+
+  // The span each range actually covers.
+  let span = |r: ActivityRange| r.width_secs() * r.buckets() as u64;
+  assert_eq!(span(ActivityRange::Quarter), 15 * 60);
+  assert_eq!(span(ActivityRange::TwoHours), 2 * 60 * 60);
+  assert_eq!(span(ActivityRange::Day), 24 * 60 * 60);
+}
+
+#[test]
+fn an_unknown_range_is_the_quarter_hour_that_the_endpoint_always_returned() {
+  // The parameter was added after the endpoint shipped, so a caller that does
+  // not send it, or sends something this build does not know, gets exactly
+  // what it used to get rather than an error or a day of history.
+  assert_eq!(ActivityRange::parse(None), ActivityRange::Quarter);
+  assert_eq!(ActivityRange::parse(Some("")), ActivityRange::Quarter);
+  assert_eq!(ActivityRange::parse(Some("5m")), ActivityRange::Quarter);
+  assert_eq!(ActivityRange::parse(Some("2h")), ActivityRange::TwoHours);
+  assert_eq!(ActivityRange::parse(Some("1d")), ActivityRange::Day);
+}
+
+#[test]
+fn the_long_ranges_survive_a_restart_and_the_fine_one_does_not() {
+  let dir = crate::test_support::test_temp_root()
+    .join(format!("activity-restart-{}", uuid::Uuid::new_v4()));
+  let path = dir.to_string_lossy().to_string();
+  let now = 1_700_000_000;
+
+  let mut activity = Activity::load(&path, now);
+  activity.record(None, false, now);
+  activity.record(Some("acme"), true, now);
+  activity.save_if_dirty();
+  drop(activity);
+
+  let restarted = Activity::load(&path, now + 60);
+  // A view covering a day that empties on every deploy answers "what happened
+  // overnight" with a shrug, which is worse than not offering the range.
+  for range in [ActivityRange::TwoHours, ActivityRange::Day] {
+    let series = restarted.series(None, range, now + 60);
+    assert_eq!(
+      series.iter().map(|b| b.total).sum::<u32>(),
+      1,
+      "the coarse rings come back"
+    );
+    assert_eq!(
+      restarted
+        .series(Some("acme"), range, now + 60)
+        .iter()
+        .map(|b| b.failed)
+        .sum::<u32>(),
+      1,
+      "and they come back per organization"
+    );
+  }
+  // The fine ring is deliberately not restored: fifteen minutes of five-second
+  // slices is the view of "right now", and a restart is exactly the moment
+  // when "right now" changed.
+  assert_eq!(
+    restarted
+      .series(None, ActivityRange::Quarter, now + 60)
+      .iter()
+      .map(|b| b.total)
+      .sum::<u32>(),
+    0
+  );
+
+  // Aged out: a file written a day ago must not redraw yesterday as today.
+  let stale = Activity::load(&path, now + 2 * 24 * 60 * 60);
+  assert_eq!(
+    stale
+      .series(None, ActivityRange::Day, now + 2 * 24 * 60 * 60)
+      .iter()
+      .map(|b| b.total)
+      .sum::<u32>(),
+    0
+  );
+  let _ = std::fs::remove_dir_all(&dir);
 }
 
 // Not `#[tokio::test]`: the config file has to be written and reloaded

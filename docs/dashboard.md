@@ -154,7 +154,11 @@ Server settings are a whole-server concern, so this pane and its export/import a
 The overview's chart answers two different questions, and the toggle picks which:
 
 - **60 s** is derived in the browser from the deltas between stats polls. It moves with the poll, which is what "is it moving right now" needs, and it starts empty on every reload because there is nothing to remember.
-- **15 min** is the server's own ring of five-second slices (`GET /aperio/api/activity`). It survives a reload, two people looking at once see the same picture, and hovering a point gives the request count behind the rate. Five seconds rather than one: a per-second line over a quarter of an hour is noise the eye cannot use, and the ring costs 180 slices per organization.
+- **15 min**, **2 h** and **1 d** are the server's own rings (`GET /aperio/api/activity?range=15m|2h|1d`). They survive a reload, two people looking at once see the same picture, and hovering a point gives the request count behind the rate.
+
+The slice width grows with the span, so every range is about sixty cells: five seconds over a quarter hour, two minutes over two hours, fifteen minutes over a day. That is not a display detail. A per-second line over a quarter of an hour is noise the eye cannot use, and a day at that resolution would be seventeen thousand points per organization, both to hold and to draw into a few hundred pixels.
+
+The two long rings are written to the store on the same flush as the persistent stats, so they survive a restart; a view covering a day that emptied on every deploy would answer "what happened overnight" with a shrug. The fine ring deliberately does not: fifteen minutes of five-second slices is the view of *right now*, and a restart is exactly the moment when right now changed.
 
 Both are organization-scoped, like every other traffic view. Refusals count too: a chart that leaves out the 429s shows a quiet server at the moment it is turning everything away.
 

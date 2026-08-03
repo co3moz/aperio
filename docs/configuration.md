@@ -843,7 +843,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET/POST /aperio/api/webhooks`, `DELETE /aperio/api/webhooks/:id` | Webhook management. | dashboard session |
 | `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
 | `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
-| `GET /aperio/api/activity` | Request volume in five-second buckets over the last 15 minutes (total and failed per bucket), for the activity chart's long view. | dashboard session |
+| `GET /aperio/api/activity` | Request volume per bucket (total and failed) over the requested span, for the activity chart's long views. `range=15m` (default, 5-second slices), `2h` (2-minute) or `1d` (15-minute). | dashboard session |
 | `GET /aperio/api/explain` | Dry run: which rule would answer a request to a hostname and path, and what every other stage saw. Spends no rate limit and wakes nothing. | dashboard session (operator+) |
 | `GET/POST /aperio/api/maintenance` | List / toggle maintenance mode for a hostname, a `*.example.com` subdomain wildcard, or `*` (master only). `reason` and `ttl_seconds` are optional: the reason reaches the 503 page, the window lifts the flag by itself. | dashboard session |
 | `POST /aperio/api/share` | Generate a signed share link (see [Share Links](share-links.md)). | dashboard session |

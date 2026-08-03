@@ -21,40 +21,48 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-/** The two questions this chart answers, and the series each one needs. */
-type Range = 'live' | 'medium' | 'long'
+/** The ranges this chart offers. `live` is the browser's own poll history;
+ *  the rest are the server's rings. */
+type Range = 'live' | '15m' | '2h' | '1d'
 
-/** Seconds each server-backed range shows. `live` is not here: it is the
- *  browser's own poll history and is as long as it is. */
-const RANGE_SECS: Record<'medium' | 'long', number> = { medium: 5 * 60, long: 15 * 60 }
+/** The server-backed ranges, in the order they are offered.
+ *
+ * The slice width grows with the span on purpose: every range is about sixty
+ * cells, which is what keeps the line readable and the payload small. A day at
+ * the fine ring's five-second resolution would be seventeen thousand points
+ * drawn into a few hundred pixels. The widths are the server's, this table
+ * only names them and decides how often to ask: a ring whose newest slice is
+ * fifteen minutes wide has nothing new to say every ten seconds.
+ */
+const SERVER_RANGES = {
+  '15m': { pollMs: 10_000, tickEvery: 60 },
+  '2h': { pollMs: 30_000, tickEvery: 15 * 60 },
+  '1d': { pollMs: 60_000, tickEvery: 3 * 60 * 60 },
+} as const
 
 /**
- * Requests per second, over the last minute, the last five minutes or the
- * last quarter hour.
+ * Requests per second, over the last minute, quarter hour, two hours or day.
  *
- * The two ranges come from different places on purpose. **Live** is derived in
+ * The ranges come from two different places on purpose. **Live** is derived in
  * the browser from the deltas between stats polls: it moves with the poll, so
  * it answers "is it moving right now", and it starts empty on every reload
- * because there is nothing to remember. **Long** is the server's own ring of
- * five-second slices: it survives a reload, it is the same for two people
- * looking at once, and five seconds is the resolution that makes a quarter of
- * an hour readable, a per-second line over that span is noise the eye cannot
- * use. The five-minute view is the same ring, cut short in the browser: there
- * was a jump from one minute to fifteen with nothing in between, and an
- * incident that started four minutes ago is squeezed into the right-hand
- * quarter of the long view where its shape cannot be read.
+ * because there is nothing to remember. The rest are the server's own rings:
+ * they survive a reload, they are the same for two people looking at once, and
+ * the two long ones survive a restart, without which a day-long view would
+ * answer "what happened overnight" with a shrug.
  */
 export function ActivityChart({ history }: { history: number[] }) {
   const { t } = useI18n()
   const [range, setRange] = useState<Range>('live')
-  // Only polled while the long view is on screen: the ring is on the server
-  // and costs nothing to skip.
+  const server = range === 'live' ? null : SERVER_RANGES[range]
+  // Only polled while a server-backed range is on screen: the rings are on the
+  // server and cost nothing to skip.
   const { data: activity, refresh } = usePoll(
-    range === 'live' ? async () => null : api.activity,
-    10_000,
+    range === 'live' ? async () => null : () => api.activity(range),
+    server?.pollMs ?? 10_000,
   )
-  // Switching to the long view asks at once rather than waiting out the poll:
-  // ten seconds of an empty chart reads as "no traffic", which is a lie.
+  // Switching range asks at once rather than waiting out the poll: ten seconds
+  // of an empty chart reads as "no traffic", which is a lie.
   useEffect(() => {
     if (range !== 'live') refresh()
   }, [range, refresh])
@@ -73,38 +81,42 @@ export function ActivityChart({ history }: { history: number[] }) {
     if (!activity) return []
     const width = activity.bucket_secs || 5
     const newest = activity.buckets[activity.buckets.length - 1]?.at ?? 0
-    const span = RANGE_SECS[range === 'medium' ? 'medium' : 'long']
-    return activity.buckets
-      .map((b) => ({
-        secondsAgo: newest - b.at,
-        // A bucket counts requests over its whole width, and the axis is a rate.
-        rps: Number((b.total / width).toFixed(2)),
-        total: b.total,
-        failed: b.failed,
-      }))
-      // Cut in the browser rather than asked for: it is one ring on the
-      // server, and a second endpoint for a shorter slice of the same data
-      // would be a request, a cache and a test for an array method.
-      .filter((b) => b.secondsAgo <= span)
-  }, [activity, range])
+    return activity.buckets.map((b) => ({
+      secondsAgo: newest - b.at,
+      // A bucket counts requests over its whole width, and the axis is a rate.
+      // Dividing by the width is what makes the ranges comparable: the same
+      // traffic reads the same whether a cell covers five seconds or fifteen
+      // minutes.
+      rps: Number((b.total / width).toFixed(2)),
+      total: b.total,
+      failed: b.failed,
+    }))
+  }, [activity])
 
   const data = range === 'live' ? live : long
   const spanSecs = data.length > 0 ? data[0].secondsAgo : 0
-  // Over a quarter of an hour the ticks have to be chosen rather than spaced:
-  // left to fit by width, recharts lands several of them inside the same
-  // minute and the axis reads "-14m -14m -13m".
-  const ticks = useMemo(
-    () =>
-      range === 'live'
-        ? undefined
-        : Array.from({ length: Math.floor(spanSecs / 60) + 1 }, (_, i) => i * 60).reverse(),
-    [range, spanSecs],
-  )
+  // Over a long span the ticks have to be chosen rather than spaced: left to
+  // fit by width, recharts lands several of them inside the same minute and
+  // the axis reads "-14m -14m -13m".
+  const ticks = useMemo(() => {
+    if (!server) return undefined
+    const step = server.tickEvery
+    return Array.from({ length: Math.floor(spanSecs / step) + 1 }, (_, i) => i * step).reverse()
+  }, [server, spanSecs])
   const label = (secondsAgo: number) => {
     if (secondsAgo === 0) return t('now')
     if (secondsAgo < 60) return t('{count}s ago', { count: secondsAgo })
-    return t('{count}m ago', { count: Math.round(secondsAgo / 60) })
+    if (secondsAgo < 3600) return t('{count}m ago', { count: Math.round(secondsAgo / 60) })
+    return t('{count}h ago', { count: Math.round(secondsAgo / 3600) })
   }
+  const description =
+    range === 'live'
+      ? t('Requests / second (last 60 seconds)')
+      : range === '15m'
+        ? t('Requests / second, in 5-second slices (last 15 minutes)')
+        : range === '2h'
+          ? t('Requests / second, in 2-minute slices (last 2 hours)')
+          : t('Requests / second, in 15-minute slices (last 24 hours)')
 
   return (
     <Card className="py-5">
@@ -112,18 +124,12 @@ export function ActivityChart({ history }: { history: number[] }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
             <CardTitle className="font-heading text-sm font-semibold uppercase tracking-wider text-muted-foreground">{t('Live Request Activity')}</CardTitle>
-            <CardDescription>
-              {range === 'live'
-                ? t('Requests / second (last 60 seconds)')
-                : t('Requests / second, in 5-second slices (last {minutes} minutes)', {
-                    minutes: Math.max(1, Math.round(spanSecs / 60)),
-                  })}
-            </CardDescription>
+            <CardDescription>{description}</CardDescription>
           </div>
-          {/* Two buttons rather than a dropdown: there are two answers, and
-              the one you are not looking at is worth naming on screen. */}
+          {/* Buttons rather than a dropdown: the range you are not looking at
+              is worth naming on screen. */}
           <div className="flex items-center gap-1">
-            {(['live', 'medium', 'long'] as Range[]).map((r) => (
+            {(['live', '15m', '2h', '1d'] as Range[]).map((r) => (
               <Button
                 key={r}
                 size="xs"
@@ -131,7 +137,13 @@ export function ActivityChart({ history }: { history: number[] }) {
                 className={cn('text-xs', range === r && 'font-semibold')}
                 onClick={() => setRange(r)}
               >
-                {r === 'live' ? t('60 s') : r === 'medium' ? t('5 min') : t('15 min')}
+                {r === 'live'
+                  ? t('60 s')
+                  : r === '15m'
+                    ? t('15 min')
+                    : r === '2h'
+                      ? t('2 h')
+                      : t('1 d')}
               </Button>
             ))}
           </div>
@@ -161,7 +173,13 @@ export function ActivityChart({ history }: { history: number[] }) {
               ticks={ticks}
               interval={range === 'live' ? 'preserveStartEnd' : 0}
               tickFormatter={(v: number) =>
-                v === 0 ? t('now') : v < 60 ? `-${v}s` : `-${Math.round(v / 60)}m`
+                v === 0
+                  ? t('now')
+                  : v < 60
+                    ? `-${v}s`
+                    : v < 3600
+                      ? `-${Math.round(v / 60)}m`
+                      : `-${Math.round(v / 3600)}h`
               }
             />
             <YAxis hide domain={[0, 'auto']} />

@@ -656,6 +656,36 @@ assert gaps == {5}, f"slices are not contiguous: {sorted(gaps)}"
 PYEOF
 echo "  ok: the activity ring holds this phase's traffic in five-second slices"
 
+# The two coarse rings. The slice width grows with the span so every range is
+# about sixty cells, and the same traffic has to appear in all three: they are
+# three views of one stream, not three samples of it.
+for RANGE_SPEC in "2h:120:60" "1d:900:96"; do
+  RANGE="${RANGE_SPEC%%:*}"
+  REST="${RANGE_SPEC#*:}"
+  WIDTH="${REST%%:*}"
+  COUNT="${REST##*:}"
+  ACT="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/activity?range=$RANGE")" \
+    || fail "the $RANGE activity series failed"
+  RANGE="$RANGE" WIDTH="$WIDTH" COUNT="$COUNT" "$PYTHON" - "$ACT" <<'PYEOF' || fail "the coarse activity ring is wrong"
+import json, os, sys
+doc = json.loads(sys.argv[1])
+width, count = int(os.environ["WIDTH"]), int(os.environ["COUNT"])
+assert doc["bucket_secs"] == width, f"{os.environ['RANGE']}: {doc['bucket_secs']} != {width}"
+buckets = doc["buckets"]
+assert len(buckets) == count, f"expected {count} slices, got {len(buckets)}"
+assert sum(b["total"] for b in buckets) > 0, "no requests in the ring"
+gaps = {buckets[i + 1]["at"] - buckets[i]["at"] for i in range(len(buckets) - 1)}
+assert gaps == {width}, f"slices are not contiguous: {sorted(gaps)}"
+PYEOF
+  echo "  ok: the $RANGE activity range is ${WIDTH}s slices, $COUNT of them"
+done
+
+# An unknown range is the quarter hour the endpoint returned before the
+# parameter existed, not an error: an old caller keeps its answer.
+ACT="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/activity?range=5m")" \
+  || fail "an unknown activity range was refused"
+assert_contains "$ACT" '"bucket_secs":5' "an unknown activity range falls back to the quarter hour"
+
 # The explain endpoint answers "why would this be answered that way" without
 # sending a request. Master context, so it may ask about anything.
 EXPL="$(curl -sf -b "$COOKIES" "$BASE/aperio/api/explain?hostname=nothing.e2e.local")" \
