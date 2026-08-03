@@ -277,6 +277,24 @@ pub(crate) async fn handle_incoming_request_unix(
       continue;
     };
     total += chunk.len();
+    // Before the chunk is used for anything: the check used to sit in the
+    // streaming arm only, so a single oversized chunk became the head of a
+    // stream and went out unmeasured.
+    if total > ctx.max_response_body_size {
+      if streaming {
+        warn!(
+          "Streamed unix-socket response for request ID {} exceeded limit ({} bytes); aborting",
+          id, ctx.max_response_body_size
+        );
+        aborted = true;
+        break;
+      }
+      warn!(
+        "Unix-socket response for request ID {} exceeded max_response_body ({} bytes) before any of it was sent; refusing",
+        id, ctx.max_response_body_size
+      );
+      return Some(make_error_response(id, 502));
+    }
     if !streaming {
       buf.extend_from_slice(&chunk);
       if buf.len() > threshold {
@@ -304,14 +322,6 @@ pub(crate) async fn handle_incoming_request_unix(
         streaming = true;
       }
     } else {
-      if total > ctx.max_response_body_size {
-        warn!(
-          "Streamed unix-socket response for request ID {} exceeded limit ({} bytes); aborting",
-          id, ctx.max_response_body_size
-        );
-        aborted = true;
-        break;
-      }
       let pause = pause_guard
         .as_ref()
         .expect("streaming implies a pause guard");

@@ -765,6 +765,28 @@ pub(crate) async fn handle_incoming_request(
         match item {
           Some(Ok(chunk)) => {
             total += chunk.len();
+            // Before the chunk is used for anything. The check used to live
+            // in the streaming arm only, so a single chunk that on its own
+            // passed the limit was buffered, turned into the head of a
+            // stream and sent: the limit was enforced from the *second*
+            // chunk onwards, and a one-chunk body escaped it entirely.
+            if total > ctx.max_response_body_size {
+              if pause_guard.is_some() {
+                warn!(
+                  "Streamed response for request ID {} exceeded limit ({} bytes); aborting",
+                  id, ctx.max_response_body_size
+                );
+                aborted = true;
+                break;
+              }
+              // Nothing has left yet, so this can still be a clean failure
+              // rather than a truncated success.
+              warn!(
+                "Response for request ID {} exceeded max_response_body ({} bytes) before any of it was sent; refusing",
+                id, ctx.max_response_body_size
+              );
+              return Some(make_error_response(id, 502));
+            }
             match &pause_guard {
               None => {
                 buf.extend_from_slice(&chunk);
@@ -806,14 +828,6 @@ pub(crate) async fn handle_incoming_request(
                 }
               }
               Some(guard) => {
-                if total > ctx.max_response_body_size {
-                  warn!(
-                    "Streamed response for request ID {} exceeded limit ({} bytes); aborting",
-                    id, ctx.max_response_body_size
-                  );
-                  aborted = true;
-                  break;
-                }
                 coalescer.add(&chunk);
                 while let Some(part) = coalescer.pop_full() {
                   if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())

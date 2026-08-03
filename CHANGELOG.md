@@ -14,6 +14,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **`max_response_body` was enforced from the second chunk onwards.** The size check lived only in the arm that runs once a response is already streaming, so the chunk that starts the stream was never measured: a backend that delivered a body in one piece larger than the cap had it buffered, turned into the head of a stream and sent in full, and the visitor received a successful response several times the size the operator allowed. The three backend paths, HTTP/1, HTTP/2 and unix socket, all had the same shape and all now check before the chunk is used for anything. Passing the cap before anything has been sent is a clean `502` rather than a stream aborted halfway, since there is nothing in flight to truncate.
+
 - **The OTel bridge buffered an export in full before checking its size.** The 8 MB fence was applied after the body had already been collected, which made it a description of what was in memory rather than a limit on it: a sender shipping something enormous was read to the end and only then refused, and several at once multiplied that. The fence is applied while reading now, so an oversized export is cut off at the fence.
 
 - **A gRPC health probe could hang forever on a backend that sent headers and nothing else.** The timeout covered reaching the backend and receiving the response head; reading the body and trailers, which is where `grpc-status` and the `SERVING` value actually come from, sat outside it. A backend that answered `200` and then went quiet held the probe for the life of the process, and a probe that cannot finish cannot fail, so the backend kept whatever verdict it last had. The body is under the same budget as the head now.

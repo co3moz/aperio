@@ -906,13 +906,16 @@ async fn test_stream_truncated_at_limit() {
         body_size
       );
       socket.write_all(header.as_bytes()).await.unwrap();
-      // Write the payload in slices so more chunks arrive after streaming
-      // begins, letting the size cap trip mid-stream.
+      // Written in paced slices so the client genuinely reads several chunks:
+      // sent back to back they arrive coalesced into a couple of large ones,
+      // and then the cap is passed before streaming ever starts, which is the
+      // other test's case rather than this one's.
       let payload = vec![0xCDu8; body_size];
-      for part in payload.chunks(64 * 1024) {
+      for part in payload.chunks(32 * 1024) {
         if socket.write_all(part).await.is_err() {
           break;
         }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
       }
       let mut sink = [0u8; 1024];
       while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
@@ -920,9 +923,12 @@ async fn test_stream_truncated_at_limit() {
   });
 
   let (tx, mut rx) = mpsc::channel::<Message>(256);
-  // Cap below the payload so the streamed response is truncated.
+  // Above the 256 KB streaming threshold and below the payload, so the
+  // response is already streaming when it passes the cap. Below the threshold
+  // the cap is reached while still buffering, and nothing has been sent yet:
+  // that case is a clean refusal, and it is the test below this one.
   let ctx = ForwardContext {
-    max_response_body_size: 300 * 1024,
+    max_response_body_size: 400 * 1024,
     ..test_ctx(&target_url, tx)
   };
   let result = handle_incoming_request(
@@ -940,7 +946,7 @@ async fn test_stream_truncated_at_limit() {
     false,
   )
   .await;
-  assert!(result.is_none(), "large body streams");
+  assert!(result.is_none(), "large body streams, got {result:?}");
 
   let mut got_abort = false;
   while let Some(Message::Text(json)) = rx.recv().await {
@@ -955,6 +961,79 @@ async fn test_stream_truncated_at_limit() {
     got_abort,
     "a truncated stream must terminate with ResponseAbort, not a clean ResponseEnd"
   );
+}
+
+#[tokio::test]
+async fn a_body_over_the_cap_before_streaming_is_refused_whole() {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  // The cap was only ever consulted in the streaming arm, so it was enforced
+  // from the second chunk onwards: a body delivered in one chunk larger than
+  // the cap was buffered, made into the head of a stream and sent in full,
+  // and the visitor got a successful response several times the size the
+  // operator allowed.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let target_url = format!("http://127.0.0.1:{}", port);
+  let body_size = 600 * 1024;
+
+  tokio::spawn(async move {
+    if let Ok((mut socket, _)) = listener.accept().await {
+      let mut buf = [0; 1024];
+      let _ = socket.read(&mut buf).await.unwrap();
+      let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n\r\n",
+        body_size
+      );
+      socket.write_all(header.as_bytes()).await.unwrap();
+      let _ = socket.write_all(&vec![0xCDu8; body_size]).await;
+      let mut sink = [0u8; 1024];
+      while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
+    }
+  });
+
+  let (tx, mut rx) = mpsc::channel::<Message>(256);
+  let ctx = ForwardContext {
+    max_response_body_size: 16 * 1024,
+    ..test_ctx(&target_url, tx)
+  };
+  let result = handle_incoming_request(
+    &ctx,
+    ForwardRequest {
+      id: "req-cap".to_string(),
+      method: "GET".to_string(),
+      uri: "/big".to_string(),
+      headers: vec![],
+      body: None,
+      raw_body: None,
+    },
+    None,
+    false,
+    false,
+  )
+  .await;
+
+  // A clean failure rather than a truncated success: nothing had left yet, so
+  // there is no stream to abort halfway.
+  let Some(TunnelMessage::Response { status, .. }) = result else {
+    panic!("expected a buffered error response, got {result:?}");
+  };
+  assert_eq!(status, 502);
+  // And not one byte of the body went out on the tunnel.
+  rx.close();
+  while let Some(msg) = rx.recv().await {
+    if let Message::Text(json) = msg {
+      let parsed = serde_json::from_str::<TunnelMessage>(&json).unwrap();
+      assert!(
+        !matches!(
+          parsed,
+          TunnelMessage::ResponseStart { .. } | TunnelMessage::ResponseChunk { .. }
+        ),
+        "a refused body must not have been streamed"
+      );
+    }
+  }
 }
 
 #[test]
