@@ -326,6 +326,43 @@ async fn history_rejects_bad_unit_and_range() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
+  // The count is what the pool has open right now, and on its own it read as
+  // a fixed setting: a dashboard showing `connections: 3` beside four live
+  // connections, because 3 was the size the pool happened to be when that
+  // connection announced itself. The range is what says the number moves.
+  let state = Arc::new(test_state());
+  insert_client(&state, "pool", |h| {
+    h.service_name = Some("axum".to_string());
+    h.connections = Some(4);
+    h.connections_min = Some(1);
+    h.connections_max = Some(5);
+  })
+  .await;
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(State(state.clone()), Path("pool".to_string()), headers).await;
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+  assert!(
+    yaml.contains("connections: { min: 1, max: 5 }  # 4 open right now"),
+    "got:\n{yaml}"
+  );
+
+  // A fixed pool announces no range and is written the way the file wrote it.
+  insert_client(&state, "fixed", |h| {
+    h.service_name = Some("api".to_string());
+    h.connections = Some(3);
+  })
+  .await;
+  let headers = admin_headers(&state).await;
+  let resp = client_config_handler(State(state.clone()), Path("fixed".to_string()), headers).await;
+  let body: serde_json::Value = json_body(resp).await;
+  let yaml = body["yaml"].as_str().unwrap();
+  assert!(yaml.contains("connections: 3"), "got:\n{yaml}");
+  assert!(!yaml.contains("min:"), "got:\n{yaml}");
+}
+
+#[tokio::test]
 async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {

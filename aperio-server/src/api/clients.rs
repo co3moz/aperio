@@ -840,8 +840,28 @@ fn client_config_view(
   if let Some(iid) = &handle.reported_instance_id {
     push_line(&mut y, &notes, "client_id", &yaml_str(iid));
   }
-  if let Some(n) = handle.connections {
-    push_line(&mut y, &notes, "connections", &n.to_string());
+  // An elastic pool is written as the range the file wrote, with the size it
+  // is running right now beside it. Printing only the current size read as a
+  // fixed `connections: 3` next to four live connections, because the number
+  // was a snapshot of a pool that had since grown.
+  match (handle.connections_min, handle.connections_max) {
+    (Some(min), Some(max)) => {
+      let open = handle
+        .connections
+        .map(|n| format!("  # {n} open right now"))
+        .unwrap_or_default();
+      push_line(
+        &mut y,
+        &notes,
+        "connections",
+        &format!("{{ min: {min}, max: {max} }}{open}"),
+      );
+    }
+    _ => {
+      if let Some(n) = handle.connections {
+        push_line(&mut y, &notes, "connections", &n.to_string());
+      }
+    }
   }
 
   // Hostnames, each labeled with where it came from; an active overrule

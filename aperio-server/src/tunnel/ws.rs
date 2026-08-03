@@ -1096,6 +1096,8 @@ impl ConnCtx {
       denied,
       scaling,
       connections,
+      connections_min,
+      connections_max,
       config_notes,
       metrics_labels,
       drain_secs,
@@ -1253,6 +1255,8 @@ impl ConnCtx {
         // what it resolved differently: display-only, for the
         // dashboard's per-connection config view.
         handle.connections = connections;
+        handle.connections_min = connections_min;
+        handle.connections_max = connections_max;
         handle.capture = !no_capture;
         // The declared id is `<base>-<service>` for the first
         // connection and `<base>-<service>-c<N>` for the rest, so it
@@ -2204,6 +2208,8 @@ pub(crate) async fn handle_socket(
         override_hostname_binds: Vec::new(),
         capture: true,
         connections: None,
+        connections_min: None,
+        connections_max: None,
         declared_client_id: None,
         config_notes: Vec::new(),
         metrics_labels: Vec::new(),

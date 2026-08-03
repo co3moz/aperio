@@ -1339,8 +1339,20 @@ pub(crate) async fn run_service(
             // What the pool is running right now, not what it may grow to: the
             // dashboard reads this as "this service has N connections", and an
             // elastic pool sitting at its floor would otherwise claim its
-            // ceiling and look like connections had gone missing.
-            let connections_ping = spec.pool_load.open().unwrap_or(spec.connections);
+            // ceiling and look like connections had gone missing. Read inside
+            // the heartbeat below, because an elastic pool moves: taking it
+            // once here reported the size the pool happened to be when this
+            // connection opened, for as long as the connection lived.
+            let pool_load_ping = spec.pool_load.clone();
+            let connections_configured = spec.connections;
+            // Only meaningful as a range; a fixed `connections: N` announces
+            // nothing rather than a min and max that are the same number.
+            let (connections_min_ping, connections_max_ping) =
+              if spec.connections_min < spec.connections {
+                (Some(spec.connections_min), Some(spec.connections))
+              } else {
+                (None, None)
+              };
             let metrics_labels_ping = spec.metrics_labels.clone();
             // What this service will actually take right now, which is the
             // configured number until adaptive concurrency lowers it.
@@ -1441,7 +1453,9 @@ pub(crate) async fn run_service(
                   webhook_inbox: webhook_inbox_ping,
                   denied: denied_ping.clone(),
                   scaling: scaling_ping.clone(),
-                  connections: Some(connections_ping),
+                  connections: Some(pool_load_ping.open().unwrap_or(connections_configured)),
+                  connections_min: connections_min_ping,
+                  connections_max: connections_max_ping,
                   metrics_labels: metrics_labels_ping.clone(),
                   drain_secs: drain_secs_ping,
                   config_notes: config_notes_ping.clone(),

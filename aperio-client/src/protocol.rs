@@ -408,11 +408,25 @@ pub(crate) enum TunnelMessage {
     /// only when the token permits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scaling: Option<ScalingDecl>,
-    /// Parallel tunnel connections this service runs (`connections:`). Every
+    /// Parallel tunnel connections this service has open *right now*. Every
     /// one of them announces the same count; the dashboard needs it to explain
     /// per-connection values such as the bandwidth share.
+    ///
+    /// Re-read on every heartbeat, not captured when the connection came up:
+    /// an elastic pool changes this while running, and a value fixed at
+    /// connect time reported whatever the pool happened to be when this
+    /// particular connection opened, which is how the dashboard came to show
+    /// `connections: 3` beside four live connections.
     #[serde(default)]
     connections: Option<u32>,
+    /// The pool's floor and ceiling (`connections: {min, max}`). Absent, or
+    /// equal to each other, for a fixed `connections: N`. Without these the
+    /// server cannot tell a pool sitting at its floor from a fixed pool of
+    /// the same size, so it cannot say whether a number is expected to move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    connections_min: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    connections_max: Option<u32>,
     /// Settings this client resolved to something other than the config asked
     /// for. Additive; older peers omit it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -2530,6 +2530,8 @@ pub mod testkit {
         override_hostname_binds: Vec::new(),
         capture: true,
         connections: None,
+        connections_min: None,
+        connections_max: None,
         declared_client_id: None,
         config_notes: Vec::new(),
         metrics_labels: Vec::new(),

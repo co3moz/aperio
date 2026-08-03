@@ -335,7 +335,18 @@ services:
     connections: { min: 1, max: 8 }
 ```
 
-One connection is open while the service is quiet, so the URL works the moment the client starts, and the pool grows towards `max` while requests pile up. Growth is driven by requests **in flight**, not by a request rate: a thousand requests a second that each answer in a millisecond need one connection, while ten slow uploads need room to run in parallel, and in flight is the quantity that tells those apart. The pool opens one connection at a time and waits to see whether it helped; it gives one back only after a much longer quiet period, because being one connection short costs latency on live traffic while being one over costs a little memory. `min` connections are never retired.
+One connection is open while the service is quiet, so the URL works the moment the client starts, and the pool grows towards `max` while requests pile up. Growth is driven by requests **in flight**, not by a request rate: a thousand requests a second that each answer in a millisecond need one connection, while ten slow uploads need room to run in parallel, and in flight is the quantity that tells those apart.
+
+The exact rule, so the behavior is predictable rather than a black box. Every **2 seconds** the pool takes the peak number of requests in flight since the last look, and compares it against the connections it has open:
+
+| | Condition | Cooldown |
+|---|---|---|
+| **Grow by one** | peak ≥ 8 × open connections | 10 s |
+| **Shrink by one** | peak ≤ 2 × (open − 1) | 120 s |
+
+Eight per connection is not a capacity limit, a tunnel connection multiplexes: it is the point at which a connection's frames start queueing behind each other instead of going out as they arrive. The two thresholds are far apart on purpose, and that gap is the hysteresis: a service sitting between them would otherwise open and close a connection every few seconds, which costs both ends more than the connection ever saved. The cooldowns are asymmetric for the same reason the thresholds are: the pool opens one connection at a time and waits ten seconds to see whether it helped, and waits two minutes of calm before giving one back, because being one connection short costs latency on live traffic while being one over costs a little memory. `min` connections are never retired.
+
+The client logs each decision with the numbers behind it, and the dashboard's connection config view shows the range beside the size the pool is running right now (`connections: { min: 1, max: 5 }  # 4 open right now`), so the count in the clients table having grown past what the file's `min` says is legible rather than a discrepancy.
 
 Environment: `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`. The server's `max_connections_per_service` still wins over `max`, and the `bandwidth:` share is divided by `max` (never by the current size), so growing the pool cannot exceed the budget the file declares. The dashboard shows the connections a service actually has open, not its ceiling.
 

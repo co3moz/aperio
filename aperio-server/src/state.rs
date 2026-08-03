@@ -983,6 +983,13 @@ pub(crate) struct ClientHandle {
   /// (`connections:`), announced via Ping. Display-only: the server treats
   /// each connection as its own client regardless.
   pub(crate) connections: Option<u32>,
+  /// The pool's floor and ceiling when the client runs an elastic one
+  /// (`connections: {min, max}`); both absent for a fixed `connections: N`.
+  /// Without them a pool sitting at its floor is indistinguishable from a
+  /// fixed pool of the same size, so the dashboard cannot say whether the
+  /// count beside it is expected to move.
+  pub(crate) connections_min: Option<u32>,
+  pub(crate) connections_max: Option<u32>,
   /// The id the client calls this connection, `<base>-<service>` for the first
   /// of a service and `<base>-<service>-c<N>` for the rest. Not trusted for
   /// state changes (the server's own connection id is), but it is what names
