@@ -263,6 +263,19 @@ readable without scrolling past what is already done.
   and because client logs can contain backend URLs and header values, which
   makes shipping them somewhere new a decision rather than a convenience.
 
+- [ ] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
+  `TokenStore::create` now takes fourteen positional arguments and `update`
+  the same in `Option` form. The store's own comment records why they are
+  appended rather than filed where they belong semantically: the compiler
+  names every call site for an *added* argument and cannot see a *shifted*
+  one, which is how `canary` once ended up in `allow_bind`. That trade has
+  held, but appending is not free either, `allow_otel` moved forty-odd test
+  call sites to add one flag, and the next capability will move more. A
+  `TokenSpec { .. }` struct with `Default` makes both calls read as what they
+  set and makes a new field cost nothing at the sites that do not care. Purely
+  internal, no config or API surface moves, which is what keeps it low: it
+  buys clarity and future edits, not behavior.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -437,7 +450,7 @@ nothing reuses them.
 
 ## Completed
 
-- [x] **#74 An OpenTelemetry bridge for edge hosts.** Asked for directly
+- [x] **#85 An OpenTelemetry bridge for edge hosts.** Asked for directly
   rather than coming from triage. An edge host usually has exactly one
   outbound connection it may make, the tunnel, so its own telemetry has
   nowhere to go without a new firewall rule and a collector credential on a
