@@ -230,6 +230,7 @@ fn test_label_variants() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }];
@@ -354,6 +355,7 @@ async fn test_run_service_message_loop() {
       protocol: "tcp".to_string(),
       encrypt: false,
       psk: None,
+      proxy_protocol: false,
       idle_timeout: None,
       expose: None,
     },
@@ -364,6 +366,7 @@ async fn test_run_service_message_loop() {
       protocol: "udp".to_string(),
       encrypt: false,
       psk: None,
+      proxy_protocol: false,
       idle_timeout: None,
       expose: None,
     },
@@ -522,6 +525,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      visitor: None,
       stream_id: "t1".to_string(),
       target: Some("127.0.0.1:5432".to_string()),
     },
@@ -554,6 +558,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      visitor: None,
       stream_id: "t2".to_string(),
       target: Some("127.0.0.1:9999".to_string()),
     },
@@ -562,6 +567,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      visitor: None,
       stream_id: "t3".to_string(),
       target: None,
     },

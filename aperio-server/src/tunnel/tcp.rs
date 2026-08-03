@@ -201,8 +201,17 @@ pub(crate) async fn tcp_ws_handler(
     crate::store::tokens::now_secs(),
   );
 
+  let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   ws.on_upgrade(move |socket| async move {
-    relay_tcp_consumer(state.clone(), socket, client_id, client_tx, target).await;
+    relay_tcp_consumer(
+      state.clone(),
+      socket,
+      client_id,
+      client_tx,
+      target,
+      Some(peer_addr),
+    )
+    .await;
     state.consumers.lock().await.closed(
       edge.from,
       &edge.to_client,
@@ -493,6 +502,10 @@ async fn relay_tcp_consumer(
   client_id: String,
   client_tx: mpsc::Sender<Message>,
   target: Option<String>,
+  // Address of the peer that dialled this tunnel, for `proxy_protocol:`.
+  // Here the "visitor" is another client, which is the truthful answer:
+  // something at that address is what the backend is really serving.
+  visitor: Option<std::net::SocketAddr>,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
   // Read once per stream, like the pause support below.
@@ -521,6 +534,7 @@ async fn relay_tcp_consumer(
   let open = TunnelMessage::TcpOpen {
     stream_id: stream_id.clone(),
     target,
+    visitor: visitor.map(|a| a.to_string()),
   };
   if let Ok(json) = serde_json::to_string(&open)
     && client_tx.send(Message::Text(json.into())).await.is_err()

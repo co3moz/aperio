@@ -612,6 +612,13 @@ pub enum TunnelMessage {
     stream_id: String,
     #[serde(default)]
     target: Option<String>,
+    /// The visitor's address, `ip:port`, as the server observed it. Carried so
+    /// a tunnel with `proxy_protocol: true` can tell its backend who is
+    /// really calling, which is otherwise lost at the last hop: the backend
+    /// sees a connection from the client process. Additive; an older server
+    /// omits it and the client then writes no header.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    visitor: Option<String>,
   },
   /// Raw TCP bytes relayed through the tunnel (Base64).
   TcpData { stream_id: String, data: String },

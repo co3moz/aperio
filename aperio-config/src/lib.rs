@@ -316,6 +316,17 @@ pub struct TunnelDecl {
   #[serde(default, skip_serializing)]
   #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
   pub psk: Option<String>,
+  /// Write a PROXY protocol v2 header to this backend before any payload
+  /// byte, announcing the visitor's real address. TCP only. Without it the
+  /// backend sees a connection from the client process and the visitor's
+  /// address is lost at the last hop. Turn it on only when the backend is
+  /// configured to expect the header (nginx `listen ... proxy_protocol`,
+  /// HAProxy `accept-proxy`, MySQL `proxy-protocol-networks`): a backend that
+  /// is not will read it as protocol garbage and drop the connection.
+  /// Default: `false`.
+  #[serde(default)]
+  #[schemars(extend("examples" = [true]))]
+  pub proxy_protocol: bool,
   /// UDP only: seconds a relay may sit with no datagrams in either direction
   /// before it expires; binders learn it via tunnel discovery. Default: `60`.
   #[serde(default, skip_serializing_if = "Option::is_none")]

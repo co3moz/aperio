@@ -9,7 +9,7 @@ use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::{
   client::IntoClientRequest, http::HeaderValue, protocol::Message,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config::build_ws_url_with_path;
 use crate::protocol::TunnelMessage;
@@ -44,6 +44,10 @@ pub(crate) async fn handle_tcp_open(
   // The tunnel protocol the server announced: v7 takes relay payloads as raw
   // binary frames, anything older takes base64 inside JSON.
   protocol: u32,
+  // The visitor's address, when this tunnel declares `proxy_protocol: true`
+  // and the server reported one. `None` means no header is written, which is
+  // also what an older server produces.
+  announce_visitor: Option<String>,
 ) {
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -111,7 +115,7 @@ pub(crate) async fn handle_tcp_open(
     tokio::net::TcpStream::connect(&target_addr),
   )
   .await;
-  let stream = match connect {
+  let mut stream = match connect {
     Ok(Ok(s)) => s,
     _ => {
       error!(
@@ -123,6 +127,36 @@ pub(crate) async fn handle_tcp_open(
       return;
     }
   };
+
+  // The PROXY header goes out before any payload byte, by definition: a
+  // receiver reads it as the first thing on the connection or not at all.
+  if let Some(visitor) = announce_visitor.as_deref() {
+    match stream
+      .local_addr()
+      .ok()
+      .and_then(|local| crate::proxy_protocol::header_for(Some(visitor), local))
+    {
+      Some(header) => {
+        if stream.write_all(&header).await.is_err() {
+          error!(
+            "Writing the PROXY header to {} failed for stream {}",
+            target_addr, stream_id
+          );
+          active_streams.lock().await.remove(&stream_id);
+          send_close(tunnel_tx.clone(), stream_id).await;
+          return;
+        }
+      }
+      // Relayed without a header rather than with a fabricated one. A
+      // receiver acts on what the header says, so an invented address is
+      // worse than the absence the backend already tolerates from any
+      // connection that predates this setting.
+      None => warn!(
+        "No usable visitor address for stream {} ({:?}); relaying without a PROXY header",
+        stream_id, announce_visitor
+      ),
+    }
+  }
 
   let (mut read_half, mut write_half) = stream.into_split();
 

@@ -91,6 +91,23 @@ bind-tunnels:
 
 ## End-to-end encryption
 
+## Telling the backend who is really calling
+
+A TCP tunnel delivers bytes to the backend over a fresh local connection, so the backend sees a connection from the client process, `127.0.0.1`, and the visitor's real address is lost at the last hop. Every postgres log line says localhost.
+
+`proxy_protocol: true` on a tunnel closes that gap: before any payload byte, the client writes a PROXY protocol v2 header naming the address the server observed.
+
+```yaml
+tunnels:
+  - name: web
+    target: 127.0.0.1:8080
+    proxy_protocol: true
+```
+
+Turn it on only when the backend is configured to expect the header, nginx (`listen ... proxy_protocol`), HAProxy (`accept-proxy`), MySQL (`proxy-protocol-networks`). A backend that is not expecting it reads the header as protocol garbage and drops the connection, so this is a statement about the backend rather than a preference. Postgres and redis do not read it at all, which is why it is per tunnel and off by default.
+
+Two things it does not do. It never invents an address: an older server that does not report one, or an address that cannot be parsed, means the connection is relayed with no header rather than with a fabricated one, because a receiver acts on what the header says. And the header's *destination* fields carry the backend's own address, which is the one this side can state truthfully, rather than the public port the visitor actually dialled; receivers that act on the destination (rare) should know that. UDP tunnels carry no header, the format is defined for datagrams but nothing in this path would read it.
+
 By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange as the first frame of every stream and seal everything after it with ChaCha20-Poly1305, the server relays only ciphertext.
 
 ```yaml

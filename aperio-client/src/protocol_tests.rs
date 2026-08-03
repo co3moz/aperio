@@ -60,7 +60,9 @@ fn test_tunnel_decl_serde_defaults() {
   let open = r#"{"type":"TcpOpen","stream_id":"s1"}"#;
   let msg: TunnelMessage = serde_json::from_str(open).unwrap();
   match msg {
-    TunnelMessage::TcpOpen { stream_id, target } => {
+    TunnelMessage::TcpOpen {
+      stream_id, target, ..
+    } => {
       assert_eq!(stream_id, "s1");
       assert_eq!(target, None);
     }

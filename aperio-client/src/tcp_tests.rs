@@ -228,6 +228,7 @@ async fn test_handle_tcp_open_relays_plaintext() {
     Default::default(),
     // The pre-v7 shape: base64 TcpData inside JSON.
     6,
+    None,
   ));
 
   // tunnel -> backend -> echoed back -> relayed out as base64 TcpData.
@@ -279,6 +280,7 @@ async fn test_handle_tcp_open_connect_fails() {
     crate::service::ActivityClock::default(),
     Default::default(),
     6,
+    None,
   )
   .await;
 
@@ -312,6 +314,7 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
     crate::service::ActivityClock::default(),
     Default::default(),
     6,
+    None,
   ));
 
   // Drive the initiator side of the handshake.
@@ -359,6 +362,7 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
     crate::service::ActivityClock::default(),
     Default::default(),
     6,
+    None,
   ));
 
   // A bogus peer frame fails handshake completion -> TcpClose + cleanup,
@@ -709,6 +713,7 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
     crate::service::ActivityClock::default(),
     Default::default(),
     6,
+    None,
   ));
 
   // Complete the handshake as the initiator.
@@ -754,6 +759,7 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     crate::service::ActivityClock::default(),
     Default::default(),
     6,
+    None,
   ));
 
   bytes_tx.send(b"echo-me".to_vec().into()).await.unwrap();
@@ -788,6 +794,7 @@ async fn a_v7_server_gets_the_relay_bytes_raw() {
     crate::service::ActivityClock::default(),
     Default::default(),
     7,
+    None,
   ));
 
   bytes_tx.send(b"hello".to_vec().into()).await.unwrap();

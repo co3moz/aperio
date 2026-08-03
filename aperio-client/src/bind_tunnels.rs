@@ -363,6 +363,9 @@ fn binding_for_view(
       protocol: view.protocol.clone(),
       encrypt: view.encrypt,
       psk: None,
+      // A binder never writes the header: it is the declaring client, at the
+      // other end of the tunnel, that owns the connection to the backend.
+      proxy_protocol: false,
       idle_timeout: view.idle_timeout,
       expose: None,
     },

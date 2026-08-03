@@ -32,6 +32,7 @@ pub(crate) fn name_of(decl: &TunnelDecl) -> String {
     protocol: decl.protocol.clone(),
     encrypt: decl.encrypt,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: decl.idle_timeout,
     expose: decl.expose.clone(),
   })

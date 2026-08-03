@@ -375,6 +375,9 @@ async fn relay_public_tcp(
   let open = TunnelMessage::TcpOpen {
     stream_id: stream_id.clone(),
     target: Some(target),
+    // The address the server actually accepted the connection from, so a
+    // tunnel with `proxy_protocol: true` can name the visitor to its backend.
+    visitor: Some(peer.to_string()),
   };
   if let Ok(json) = serde_json::to_string(&open)
     && client_tx.send(Message::Text(json.into())).await.is_err()

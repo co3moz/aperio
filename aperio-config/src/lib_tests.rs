@@ -504,6 +504,7 @@ fn decl(name: Option<&str>, target: &str, protocol: &str) -> TunnelDecl {
     protocol: protocol.to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }

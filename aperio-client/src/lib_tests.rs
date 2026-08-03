@@ -82,6 +82,7 @@ fn test_build_specs_tunnels_only() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }];
@@ -102,6 +103,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "udp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }];
@@ -114,6 +116,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "sctp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }];
@@ -129,6 +132,7 @@ fn test_build_specs_tunnels_validation() {
       protocol: "tcp".to_string(),
       encrypt: false,
       psk: None,
+      proxy_protocol: false,
       idle_timeout: None,
       expose: None,
     },
@@ -139,6 +143,7 @@ fn test_build_specs_tunnels_validation() {
       protocol: "udp".to_string(),
       encrypt: false,
       psk: None,
+      proxy_protocol: false,
       idle_timeout: None,
       expose: None,
     },
@@ -153,6 +158,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }];
@@ -167,6 +173,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   };
@@ -182,6 +189,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: Some(120),
     expose: None,
   }];
@@ -194,6 +202,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "udp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: Some(0),
     expose: None,
   }];
@@ -206,6 +215,7 @@ fn test_build_specs_tunnels_validation() {
     protocol: "udp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: Some(300),
     expose: None,
   }];
@@ -565,6 +575,7 @@ fn tcp_tunnel(target: &str) -> protocol::TunnelDecl {
     protocol: "tcp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }
@@ -1208,6 +1219,7 @@ fn test_validate_tunnels_accepts_the_combined_protocol() {
     protocol: protocol.to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: Some(30),
     expose: None,
   };
@@ -1235,6 +1247,7 @@ fn test_validate_tunnels_refuses_encrypt_on_a_combined_tunnel() {
     protocol: "tcp/udp".to_string(),
     encrypt: true,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: None,
   }])
@@ -1252,6 +1265,7 @@ fn test_validate_tunnels_allows_expose_on_a_combined_tunnel() {
     protocol: "tcp/udp".to_string(),
     encrypt: false,
     psk: None,
+    proxy_protocol: false,
     idle_timeout: None,
     expose: Some("a-long-shared-secret".to_string()),
   }])

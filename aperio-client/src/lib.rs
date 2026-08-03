@@ -17,6 +17,7 @@ mod messages_mqtt;
 mod messages_run;
 mod protocol;
 mod proxy;
+mod proxy_protocol;
 mod pubsub;
 mod serve;
 mod service;
@@ -1614,6 +1615,7 @@ fn validate_tunnels(
       protocol,
       encrypt: decl.encrypt,
       psk: decl.psk.clone(),
+      proxy_protocol: decl.proxy_protocol,
       idle_timeout: decl.idle_timeout,
       expose: decl.expose.clone(),
     };

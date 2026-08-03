@@ -1703,7 +1703,7 @@ pub(crate) async fn run_service(
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
                                           }
-                                          TunnelMessage::TcpOpen { stream_id, target } => {
+                                          TunnelMessage::TcpOpen { stream_id, target, visitor } => {
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed, a named target must be
@@ -1717,11 +1717,11 @@ pub(crate) async fn run_service(
                                                           d.target == *t
                                                               && aperio_config::protocol_serves(&d.protocol, "tcp")
                                                       })
-                                                      .map(|d| (d.target.clone(), d.encrypt, d.psk.clone())),
-                                                  None => spec.tcp_target.clone().map(|t| (t, false, None)),
+                                                      .map(|d| (d.target.clone(), d.encrypt, d.psk.clone(), d.proxy_protocol)),
+                                                  None => spec.tcp_target.clone().map(|t| (t, false, None, false)),
                                               };
                                               match resolved {
-                                                  Some((target_addr, encrypt, psk)) => {
+                                                  Some((target_addr, encrypt, psk, proxy_protocol)) => {
                                                       // Register the stream handle synchronously, BEFORE
                                                       // spawning: TcpData for this stream can arrive on the
                                                       // very next tunnel frame and would be dropped if the
@@ -1743,7 +1743,8 @@ pub(crate) async fn run_service(
                                                       let peer = server_protocol.load(Ordering::Relaxed);
                                                       tokio::spawn(async move {
                                                           let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
-                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses, peer).await;
+                                                          let announce = proxy_protocol.then_some(visitor).flatten();
+                                                          handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses, peer, announce).await;
                                                       });
                                                   }
                                                   None => {

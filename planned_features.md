@@ -119,15 +119,6 @@ readable without scrolling past what is already done.
   it cannot double the client's concurrency budget, and needs an explicit
   answer for request bodies, which have to be buffered to be sent twice.
 
-- [ ] **#44 PROXY protocol v2 on the raw listeners.** (triage 40) For HTTP the
-  real visitor IP arrives through `X-Forwarded-For` with the trusted-proxy
-  machinery. The `expose:` TCP listeners have no such channel, so behind
-  HAProxy or an NLB in TCP mode every connection looks like it came from the
-  load balancer, which quietly defeats per-IP limits and audit trails on those
-  ports. PROXY v2 is the standard answer and only applies to listeners
-  explicitly configured to expect it, since trusting the header unconditionally
-  would let any peer claim any address.
-
 - [ ] **#45 A notification centre in the dashboard.** (triage 40) Token expiry,
   a client that dropped, maintenance left on, an alert that fired: all of these
   are already events on the `$aperio/` bus, and all of them are currently found
@@ -451,6 +442,23 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#44 The visitor's real address reaches a tunnelled backend
+  (`proxy_protocol:`).** shipped, after the entry was reframed. It began as
+  "accept PROXY protocol on `expose:` ports", which turned out to be worth
+  little on its own: it only helps where an L4 load balancer sits in front of
+  Aperio, and it does nothing for the driver connecting directly, which is the
+  case people picture. The valuable direction was the opposite one. A TCP
+  tunnel hands bytes to the backend over a fresh local connection, so the
+  backend saw `127.0.0.1` and the visitor's address died at the last hop.
+  Now the server carries the observed address in the stream-open frame and the
+  client writes a PROXY v2 header before any payload byte, per tunnel and off
+  by default, because a backend that is not expecting the header drops the
+  connection. It never fabricates an address: unknown, unparseable or a mixed
+  address family all mean no header rather than a wrong one, since a receiver
+  acts on what the header says. The *accept* half (Aperio behind an L4
+  balancer) was deliberately not built; if it ever has a real deployment
+  behind it, it takes a new id.
 
 - [x] **#68 Autoscaling refinements.** (triage 30) Cooldown is global while
   every other scaling parameter is per bind, and scale-in is left to the client
