@@ -14,6 +14,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **A server that accepted the connection and then said nothing held the client's dial open forever.** Only the TCP connect was bounded, so a peer that completed the handshake never left the reconnect loop nothing to do: no error, no retry, no move to the next candidate server, and the service simply stayed down without saying why. The TLS and WebSocket handshakes now share a 20-second budget, which any peer that is not hung finishes well inside.
+
 - **`max_response_body` was enforced from the second chunk onwards.** The size check lived only in the arm that runs once a response is already streaming, so the chunk that starts the stream was never measured: a backend that delivered a body in one piece larger than the cap had it buffered, turned into the head of a stream and sent in full, and the visitor received a successful response several times the size the operator allowed. The three backend paths, HTTP/1, HTTP/2 and unix socket, all had the same shape and all now check before the chunk is used for anything. Passing the cap before anything has been sent is a clean `502` rather than a stream aborted halfway, since there is nothing in flight to truncate.
 
 - **The OTel bridge buffered an export in full before checking its size.** The 8 MB fence was applied after the body had already been collected, which made it a description of what was in memory rather than a limit on it: a sender shipping something enormous was read to the end and only then refused, and several at once multiplied that. The fence is applied while reading now, so an oversized export is cut off at the fence.

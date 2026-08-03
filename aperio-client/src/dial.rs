@@ -31,6 +31,17 @@ use tokio_tungstenite::{
 /// next resolved address. The reconnect loop owns the overall retry cadence.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long the TLS and WebSocket handshakes together may take, once a socket
+/// is open.
+///
+/// Only the TCP connect used to be bounded, which left the case a reconnect
+/// loop cannot recover from: a peer that accepts the connection and then says
+/// nothing. `connect` returns, the handshake blocks forever, and the loop
+/// never gets to retry, so the service is down with no error and no attempt
+/// on the next candidate server. Anything that is not a hung peer finishes a
+/// handshake in well under this.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Which IP address family to dial the server over. `Auto` tries both
 /// (IPv4 first, interleaved); `V4`/`V6` restrict to that family, letting an
 /// operator dodge an unreachable family deterministically.
@@ -175,7 +186,34 @@ where
   // Failure is not fatal, an un-tuned socket still works.
   let _ = stream.set_nodelay(true);
 
-  client_async_tls_with_config(request, stream, config, None).await
+  handshake(request, stream, config, HANDSHAKE_TIMEOUT, &host, port).await
+}
+
+/// The TLS and WebSocket handshakes, under a budget.
+///
+/// Separate from `connect_ws` so the budget can be handed in: the case worth
+/// testing is a peer that accepts and then says nothing, and waiting out the
+/// real budget to see it is twenty seconds of nothing happening.
+async fn handshake(
+  request: tokio_tungstenite::tungstenite::handshake::client::Request,
+  stream: TcpStream,
+  config: Option<WebSocketConfig>,
+  budget: Duration,
+  host: &str,
+  port: u16,
+) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), Error> {
+  match tokio::time::timeout(
+    budget,
+    client_async_tls_with_config(request, stream, config, None),
+  )
+  .await
+  {
+    Ok(result) => result,
+    Err(_) => Err(Error::Io(std::io::Error::new(
+      std::io::ErrorKind::TimedOut,
+      format!("TLS/WebSocket handshake with {host}:{port} timed out"),
+    ))),
+  }
 }
 
 #[cfg(test)]

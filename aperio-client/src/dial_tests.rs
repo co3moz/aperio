@@ -50,3 +50,43 @@ async fn resolve_ordered_filters_by_family() {
   let none_v6 = resolve_ordered("127.0.0.1", 443, IpFamily::V6).await;
   assert!(none_v6.is_err());
 }
+
+#[tokio::test]
+async fn a_peer_that_accepts_and_says_nothing_does_not_hold_the_dial_forever() {
+  use tokio::net::TcpListener;
+  use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+  // The case a reconnect loop cannot recover from on its own: the socket
+  // opens, so the connect timeout is satisfied, and then the peer never
+  // speaks. Only the TCP connect was bounded, so the handshake blocked with
+  // no error, the loop never got its turn, and the service stayed down
+  // silently instead of retrying or moving on to the next candidate server.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    // Accept and hold. Never read, never write, never close.
+    let _held = listener.accept().await;
+    std::future::pending::<()>().await;
+  });
+
+  let stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+  let request = format!("ws://127.0.0.1:{port}/tunnel")
+    .into_client_request()
+    .unwrap();
+  // A small budget stands in for the real one: what is being pinned down is
+  // that there is a budget at all, not its value.
+  let err = handshake(
+    request,
+    stream,
+    None,
+    Duration::from_millis(150),
+    "127.0.0.1",
+    port,
+  )
+  .await
+  .expect_err("a peer that never speaks cannot produce a connection");
+  assert!(
+    format!("{err}").contains("handshake") && format!("{err}").contains("timed out"),
+    "expected a handshake timeout, got: {err}"
+  );
+}
