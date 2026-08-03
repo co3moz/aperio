@@ -98,7 +98,15 @@ function TimelineWaterfall({ timeline }: { timeline: RequestTimeline }) {
 export function InspectorDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { t } = useI18n()
   const [detail, setDetail] = useState<CapturedRequest | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Stored as what went wrong, not as a sentence. The message used to be
+  // translated inside the fetch effect, which is keyed on the request id: a
+  // language change then left the text in the old language until the id
+  // moved, and adding `t` to the effect's dependencies would re-fetch the
+  // request on every language change instead. Translated at render, where
+  // the language actually applies.
+  const [error, setError] = useState<{ kind: 'missing' } | { kind: 'failed'; detail: string } | null>(
+    null,
+  )
   const [replayResult, setReplayResult] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -122,10 +130,8 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
         if (cancelled) return
         setError(
           e instanceof ApiError && e.status === 404
-            ? t('Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.')
-            : t('Failed to load request detail: {error}', {
-                error: e instanceof Error ? e.message : String(e),
-              }),
+            ? { kind: 'missing' }
+            : { kind: 'failed', detail: e instanceof Error ? e.message : String(e) },
         )
       })
     return () => {
@@ -244,7 +250,15 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
               {replayResult}
             </p>
           )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="text-sm text-destructive">
+              {error.kind === 'missing'
+                ? t(
+                    'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.',
+                  )
+                : t('Failed to load request detail: {error}', { error: error.detail })}
+            </p>
+          )}
           {detail && (
             <>
               {detail.timeline && <TimelineWaterfall timeline={detail.timeline} />}

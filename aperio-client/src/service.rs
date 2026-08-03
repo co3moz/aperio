@@ -670,6 +670,7 @@ async fn exit_if_shutting_down(shared: &Shared) {
   }
   info!("Shutdown requested while disconnected; exiting.");
   drain_inflight(shared).await;
+  crate::remove_pid_file();
   std::process::exit(0);
 }
 
@@ -1641,6 +1642,7 @@ pub(crate) async fn run_service(
                       drain_inflight(&shared).await;
                       // Give the Draining frame a moment to flush before closing.
                       tokio::time::sleep(Duration::from_millis(200)).await;
+                      crate::remove_pid_file();
                       std::process::exit(0);
                   }
                   msg_res = ws_receiver.next() => {

@@ -500,11 +500,7 @@ pub async fn run() {
   // Removed only on the way out of a clean run: a pid file left behind by a
   // crash is a stale pid, and an init system reading it would signal whatever
   // process now holds that number.
-  if let Some(path) = settings.pid_file.as_deref()
-    && let Err(e) = std::fs::remove_file(path)
-  {
-    warn!("Could not remove the pid file {path}: {e}");
-  }
+  remove_pid_file();
 }
 
 /// Spawns one task per service connection, each with its own cancel channel.
@@ -1629,8 +1625,32 @@ async fn start_otel_bridge(settings: &ClientSettings) -> Option<otel_bridge::Que
 /// file will notice its absence long before a visitor does.
 fn write_pid_file(path: &str) {
   match std::fs::write(path, std::process::id().to_string()) {
-    Ok(()) => info!("Wrote pid {} to {}", std::process::id(), path),
+    Ok(()) => {
+      info!("Wrote pid {} to {}", std::process::id(), path);
+      let _ = PID_FILE.set(path.to_string());
+    }
     Err(e) => warn!("Could not write the pid file {path}: {e}"),
+  }
+}
+
+/// The pid file this process wrote, if any.
+///
+/// Recorded process-wide because the shutdown path does not come back here:
+/// a service that has finished draining ends the process where it stands, so
+/// the removal at the end of `async_main` was only ever reached by a run that
+/// ended some other way. A clean SIGTERM left a stale pid file behind, and a
+/// stale pid file is a number an init system will signal, whatever process
+/// now holds it.
+static PID_FILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Removes the pid file, if this process wrote one. Called on every path that
+/// ends the process deliberately.
+pub(crate) fn remove_pid_file() {
+  if let Some(path) = PID_FILE.get()
+    && let Err(e) = std::fs::remove_file(path)
+    && e.kind() != std::io::ErrorKind::NotFound
+  {
+    warn!("Could not remove the pid file {path}: {e}");
   }
 }
 
