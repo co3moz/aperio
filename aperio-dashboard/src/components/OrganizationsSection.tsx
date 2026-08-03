@@ -571,7 +571,7 @@ export function OrganizationsSection() {
               <RecordFact icon={<KeyRoundIcon />}>
                 {t('{count} tokens', { count: o.tokens })}
               </RecordFact>
-              {o.created_at && <RecordFact>{formatRelativeTime(o.created_at)}</RecordFact>}
+              {o.created_at && <RecordFact>{formatRelativeTime(o.created_at, t)}</RecordFact>}
               <RecordFact
                 icon={<GlobeIcon />}
                 className="basis-full"

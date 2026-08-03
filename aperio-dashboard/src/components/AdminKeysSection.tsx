@@ -244,7 +244,7 @@ export function AdminKeysSection() {
                 icon={<ClockIcon />}
                 className={k.expired ? 'text-destructive' : undefined}
               >
-                {formatExpiry(k.expires_at, k.expired)}
+                {formatExpiry(k.expires_at, k.expired, t)}
               </RecordFact>
             </RecordRow>
           ))

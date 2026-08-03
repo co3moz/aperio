@@ -509,3 +509,99 @@ fn an_empty_filter_reports_itself_empty_so_the_ring_can_be_used() {
     .is_empty()
   );
 }
+
+// ---------------------------------------------------------------------------
+// The dashboard's event filter knows every event this server records
+// ---------------------------------------------------------------------------
+
+/// Event names the filter deliberately omits, with the reason.
+///
+/// Empty today. It exists so that omitting one is a decision somebody wrote
+/// down rather than a name that fell out of the list unnoticed.
+const FILTER_EXEMPT: &[(&str, &str)] = &[];
+
+#[test]
+fn every_audit_event_is_offered_by_the_dashboard_filter() {
+  // The audit API matches `event` exactly, so an event missing from the
+  // dashboard's list cannot be filtered for at all. A hand-kept list would be
+  // right on the day it was written and wrong at the next release, and the
+  // missing name would be the newest one, which is exactly the one somebody
+  // is looking for. So the list is checked against this server's own sources.
+  fn walk(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+      return;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        walk(&path, out);
+      } else if path.extension().is_some_and(|e| e == "rs")
+        && !path.to_string_lossy().contains("_tests")
+        && let Ok(text) = std::fs::read_to_string(&path)
+      {
+        // `state.audit("name", ...)`, and the `audit_in` / `audit_session`
+        // spellings, across a line break. The call has to open immediately
+        // after the name: searching for the next `(` anywhere would follow a
+        // mention of `.audit` in a comment to whatever call came next, which
+        // is how this first read an environment variable as an event name.
+        for (i, _) in text.match_indices(".audit") {
+          let rest = &text[i + ".audit".len()..];
+          let Some(open) = ["(", "_in(", "_session("]
+            .iter()
+            .find(|suffix| rest.starts_with(*suffix))
+            .map(|suffix| suffix.len() - 1)
+          else {
+            continue;
+          };
+          let after = rest[open + 1..].trim_start();
+          if let Some(stripped) = after.strip_prefix('"')
+            && let Some(end) = stripped.find('"')
+          {
+            out.insert(stripped[..end].to_string());
+          }
+        }
+      }
+    }
+  }
+  let mut found = std::collections::BTreeSet::new();
+  walk(std::path::Path::new("src"), &mut found);
+  // The ones that reach `audit` through a variable, named at their own call
+  // sites rather than at the audit call.
+  for dynamic in [
+    "alert_triggered",
+    "alert_resolved",
+    "maintenance_on",
+    "maintenance_off",
+    "client_enabled",
+    "client_disabled",
+    "scaling_requested",
+    "scaling_failed",
+  ] {
+    found.insert(dynamic.to_string());
+  }
+  assert!(
+    found.len() > 50,
+    "only {} event names found; the scan is looking in the wrong place",
+    found.len()
+  );
+
+  let listed = std::fs::read_to_string("../aperio-dashboard/src/lib/auditEvents.ts")
+    .expect("the dashboard's event list");
+  let missing: Vec<&String> = found
+    .iter()
+    .filter(|name| {
+      !listed.contains(&format!("'{name}'"))
+        && !FILTER_EXEMPT.iter().any(|(exempt, _)| exempt == name)
+    })
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "audit events the dashboard filter cannot select (add them to \
+     aperio-dashboard/src/lib/auditEvents.ts, or exempt them with a reason in FILTER_EXEMPT):\n  {}",
+    missing
+      .iter()
+      .map(|s| s.as_str())
+      .collect::<Vec<_>>()
+      .join("\n  ")
+  );
+}

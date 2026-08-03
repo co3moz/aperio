@@ -330,7 +330,7 @@ export function TrafficSection({
                       <TooltipTrigger
                         render={<span className="font-mono text-xs text-muted-foreground" />}
                       >
-                        {formatRelativeTime(log.timestamp)}
+                        {formatRelativeTime(log.timestamp, t)}
                       </TooltipTrigger>
                       <TooltipContent>{formatAbsoluteTime(log.timestamp)}</TooltipContent>
                     </Tooltip>

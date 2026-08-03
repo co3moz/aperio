@@ -421,7 +421,7 @@ function SessionsCard() {
                 {s.ip ?? '-'}
               </RecordFact>
               {s.created_at && (
-                <RecordFact icon={<ClockIcon />}>{formatRelativeTime(s.created_at)}</RecordFact>
+                <RecordFact icon={<ClockIcon />}>{formatRelativeTime(s.created_at, t)}</RecordFact>
               )}
               <RecordFact
                 icon={<MonitorIcon />}
@@ -492,7 +492,7 @@ export function UsersSection() {
                 </>
               }
             >
-              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(u.created_at)}</RecordFact>
+              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(u.created_at, t)}</RecordFact>
             </RecordRow>
           ))
         )}

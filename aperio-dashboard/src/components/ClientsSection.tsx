@@ -662,7 +662,7 @@ export function ClientsSection({
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <StatusDot active={c.healthy && c.backend_healthy} />
-                      <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago)}</span>
+                      <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago, t)}</span>
                       {c.rtt_ms != null && (
                         <Tooltip>
                           <TooltipTrigger

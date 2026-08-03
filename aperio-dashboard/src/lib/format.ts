@@ -1,3 +1,4 @@
+import type { TFn } from '@/i18n'
 /**
  * What a cell shows when there is nothing to show: an en dash, the typographic
  * convention for "no value", never an empty cell (which reads as a rendering
@@ -83,6 +84,15 @@ export function formatUptime(seconds: number): string {
  * legacy naive `%Y-%m-%d %H:%M:%S` form (interpreted in the browser's zone,
  * the best possible guess since it carries no offset). NaN when unparseable.
  */
+/**
+ * The translator used when a caller passes none: interpolate and hand back the
+ * English. Keeping the shape identical to the real one means these functions
+ * have one code path rather than two, so a translated build and an
+ * untranslated one cannot drift apart in anything but wording.
+ */
+const plain: TFn = (key, vars) =>
+  vars ? key.replace(/\{(\w+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m)) : key
+
 function parseTimestamp(input: string | number): number {
   return typeof input === 'number' ? input * 1000 : Date.parse(input.replace(' ', 'T'))
 }
@@ -90,20 +100,26 @@ function parseTimestamp(input: string | number): number {
 /**
  * Renders an absolute time as a compact "12s ago" style label; returns the
  * raw input unchanged when it cannot be parsed.
+ *
+ * The translator is a parameter rather than a hook because this module is not
+ * a component and cannot call one. Optional, and English without it: the HAR
+ * export and the tests want the plain strings, and a caller that forgets it
+ * gets readable output rather than a crash. Every caller that renders to a
+ * person passes it.
  */
-export function formatRelativeTime(input: string | number): string {
+export function formatRelativeTime(input: string | number, t: TFn = plain): string {
   const ms = parseTimestamp(input)
   if (Number.isNaN(ms)) return String(input)
   const diff = Date.now() - ms
-  if (diff < 1000) return 'just now'
+  if (diff < 1000) return t('just now')
   const s = Math.floor(diff / 1000)
-  if (s < 60) return `${s}s ago`
+  if (s < 60) return t('{count}s ago', { count: s })
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return t('{count}m ago', { count: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return t('{count}h ago', { count: h })
   const d = Math.floor(h / 24)
-  return `${d}d ago`
+  return t('{count}d ago', { count: d })
 }
 
 /**
@@ -113,18 +129,28 @@ export function formatRelativeTime(input: string | number): string {
  * now", which is exactly wrong for a maintenance window that lifts at a set
  * time. Empty string once the moment has passed, so a caller can fall back.
  */
-export function formatTimeUntil(unixSeconds: number, now: number = Date.now()): string {
+export function formatTimeUntil(
+  unixSeconds: number,
+  now: number = Date.now(),
+  t: TFn = plain,
+): string {
   const seconds = Math.round(unixSeconds - now / 1000)
   if (seconds <= 0) return ''
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return t('{count}s', { count: seconds })
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
+  if (minutes < 60) return t('{count}m', { count: minutes })
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
-  if (hours < 24) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
+  if (hours < 24) {
+    return rest > 0
+      ? t('{hours}h {minutes}m', { hours, minutes: rest })
+      : t('{count}h', { count: hours })
+  }
   const days = Math.floor(hours / 24)
   const restHours = hours % 24
-  return restHours > 0 ? `${days}d ${restHours}h` : `${days}d`
+  return restHours > 0
+    ? t('{days}d {hours}h', { days, hours: restHours })
+    : t('{count}d', { count: days })
 }
 
 /**
@@ -137,16 +163,22 @@ export function formatAbsoluteTime(input: string | number): string {
   return new Date(ms).toLocaleString()
 }
 
-export function formatLastPing(secondsAgo: number | null): string {
+export function formatLastPing(secondsAgo: number | null, t: TFn = plain): string {
   if (secondsAgo === null || secondsAgo === undefined) return NO_VALUE
-  if (secondsAgo < 1) return 'now'
-  return `${secondsAgo}s ago`
+  if (secondsAgo < 1) return t('now')
+  return t('{count}s ago', { count: secondsAgo })
 }
 
-export function formatExpiry(expiresAt: number | null, expired: boolean): string {
-  if (!expiresAt) return 'never'
+export function formatExpiry(
+  expiresAt: number | null,
+  expired: boolean,
+  t: TFn = plain,
+): string {
+  if (!expiresAt) return t('never')
+  // The date itself is left to the browser's locale, which already knows the
+  // visitor's conventions better than a dictionary would.
   const date = new Date(expiresAt * 1000).toLocaleString()
-  return expired ? `expired ${date}` : date
+  return expired ? t('expired {date}', { date }) : date
 }
 
 /** Decodes a captured base64 body into a printable preview. */

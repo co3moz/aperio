@@ -134,7 +134,7 @@ export function PasskeysDialog({
                         {p.usernameless && <TintBadge tint="lime">{t('usernameless')}</TintBadge>}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {formatRelativeTime(p.created_at)}
+                        {formatRelativeTime(p.created_at, t)}
                       </span>
                     </div>
                     <Button size="xs" variant="destructive" onClick={() => void remove(p)}>

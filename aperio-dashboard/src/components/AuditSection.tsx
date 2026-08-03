@@ -18,7 +18,26 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePoll } from '@/hooks/usePoll'
 import { api, auditQuery, type AuditFilter } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { AUDIT_EVENT_GROUPS } from '@/lib/auditEvents'
 import { useI18n } from '@/i18n'
+
+/** The "no event filter" option.
+ *
+ * A non-empty sentinel because a `Select` cannot hold the empty string as a
+ * value: an empty `SelectItem` value is how the underlying primitive marks
+ * "nothing selected", so the placeholder would win and the option could never
+ * be chosen back. Mapped to `''` on the way into the filter.
+ */
+const ANY_EVENT = '__any__'
 
 const EMPTY: AuditFilter = { q: '', event: '', actor: '', from: '', to: '' }
 
@@ -103,12 +122,35 @@ export function AuditSection() {
           </div>
           <div className="grid gap-1">
             <Label htmlFor="audit-event">{t('Event')}</Label>
-            <Input
-              id="audit-event"
-              value={form.event ?? ''}
-              onChange={set('event')}
-              placeholder="login_success"
-            />
+            {/* A choice rather than a box, because the API matches this field
+                exactly: `login` typed here returned nothing at all while
+                `login_success` and `login_failed` both sat in the log, and an
+                empty audit result reads as "that never happened". Partial
+                matching lives in the search box, which does look inside the
+                event name. */}
+            <Select
+              value={form.event || ANY_EVENT}
+              onValueChange={(v) =>
+                setForm((f) => ({ ...f, event: !v || v === ANY_EVENT ? undefined : v }))
+              }
+            >
+              <SelectTrigger id="audit-event" size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY_EVENT}>{t('Any event')}</SelectItem>
+                {AUDIT_EVENT_GROUPS.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel>{t(group.label)}</SelectLabel>
+                    {group.events.map((event) => (
+                      <SelectItem key={event} value={event}>
+                        {event}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-1">
             <Label htmlFor="audit-actor">{t('User')}</Label>
@@ -182,7 +224,7 @@ export function AuditSection() {
                       <TooltipTrigger
                         render={<span className="font-mono text-xs text-muted-foreground" />}
                       >
-                        {formatRelativeTime(ev.ts)}
+                        {formatRelativeTime(ev.ts, t)}
                       </TooltipTrigger>
                       <TooltipContent>{formatAbsoluteTime(ev.ts)}</TooltipContent>
                     </Tooltip>

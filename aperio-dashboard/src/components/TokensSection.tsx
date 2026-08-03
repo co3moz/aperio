@@ -480,7 +480,7 @@ export function TokensSection() {
                   <TableCell>
                     <div className="flex items-center gap-1.5">
                       <span className={cn('text-sm', tok.expired && 'text-destructive')}>
-                        {formatExpiry(tok.expires_at, tok.expired)}
+                        {formatExpiry(tok.expires_at, tok.expired, t)}
                       </span>
                       {!tok.expired &&
                         tok.expires_at != null &&

@@ -138,10 +138,10 @@ export function MaintenanceSection() {
                   )}
                   {f.reason && <span className="text-muted-foreground">{f.reason}</span>}
                   <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                    {f.until && formatTimeUntil(f.until) ? (
+                    {f.until && formatTimeUntil(f.until, undefined, t) ? (
                       <Tooltip>
                         <TooltipTrigger render={<span />}>
-                          {t('lifts in {duration}', { duration: formatTimeUntil(f.until) })}
+                          {t('lifts in {duration}', { duration: formatTimeUntil(f.until, undefined, t) })}
                         </TooltipTrigger>
                         <TooltipContent>{formatAbsoluteTime(f.until)}</TooltipContent>
                       </Tooltip>
@@ -151,7 +151,7 @@ export function MaintenanceSection() {
                     <span>
                       {t('set by {actor} {when}', {
                         actor: f.actor,
-                        when: formatRelativeTime(f.since),
+                        when: formatRelativeTime(f.since, t),
                       })}
                     </span>
                     {canMutate && (

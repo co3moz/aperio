@@ -168,7 +168,7 @@ export function InboxSection() {
                 }
               >
                 <RecordFact icon={<ClockIcon />} title={formatAbsoluteTime(e.timestamp)}>
-                  {formatRelativeTime(e.timestamp)}
+                  {formatRelativeTime(e.timestamp, t)}
                 </RecordFact>
                 <RecordFact icon={<GlobeIcon />} className="font-mono">
                   {e.host ?? '-'}

@@ -156,6 +156,35 @@ readable without scrolling past what is already done.
   internal, no config or API surface moves, which is what keeps it low: it
   buys clarity and future edits, not behavior.
 
+- [ ] **#87 Activity chart: 1m / 15m / 2h / 1d, with the bucket width scaled
+  to each.** The chart offers 60 s, 5 min and 15 min. Drop the 5-minute view
+  and add two long ones, so the ranges become 1 minute, 15 minutes, 2 hours
+  and 1 day. The 5-minute view was cut from the same 15-minute ring in the
+  browser (#60) and is close enough to its neighbour to be worth the slot.
+
+  The point is that the **resolution scales with the range**, which is what
+  keeps the chart readable and the payload small: roughly sixty cells whatever
+  the span. One minute is already 1-second cells; fifteen minutes is 5-second
+  cells; two hours wants 2-minute cells and a day wants 15-minute ones. A day
+  at 5-second resolution would be seventeen thousand points to draw a line
+  nobody can read.
+
+  Unlike #60 this is **not** a browser-side cut. The server keeps one ring of
+  15 minutes, so two hours and a day are data it does not have: the activity
+  store needs coarser rings alongside the fine one, fed by the same recording
+  path, or a rollup that folds finished fine buckets into coarse ones. That
+  is the real work here, and it decides the shape of everything else,
+  including whether the ranges survive a restart (the fine ring does not, and
+  a day-long view that resets on deploy is a worse answer than no day-long
+  view).
+
+  Worth settling while designing it: retention and memory. A day of 15-minute
+  cells is 96 numbers per organization and costs nothing; the temptation is to
+  keep going to a week and a month, which is where it stops being a live
+  activity chart and starts being the traffic history that already exists
+  (`/api/stats/history`, persisted, with its own date-range picker). The line
+  between the two belongs in the entry before the code.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and

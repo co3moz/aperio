@@ -318,7 +318,7 @@ function DeliveriesTable() {
                 ) : null
               }
             >
-              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(d.timestamp)}</RecordFact>
+              <RecordFact icon={<ClockIcon />}>{formatRelativeTime(d.timestamp, t)}</RecordFact>
               <RecordFact icon={<RotateCwIcon />}>
                 {t('{count} attempts', { count: d.attempts })}
               </RecordFact>
