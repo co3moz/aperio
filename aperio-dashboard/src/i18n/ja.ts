@@ -1022,4 +1022,9 @@ export const ja: Record<string, string> = {
   'Data': 'データ',
   'Alerts and scaling': 'アラートとスケーリング',
   'Webhooks and messages': 'Webhook とメッセージ',
+  'Toggle Sidebar': 'サイドバーの切り替え',
+  'Displays the mobile sidebar.': 'モバイルのサイドバーを表示します。',
+  'a {kind} name cannot be empty': '{kind} 名は空にできません',
+  '{kind} name is longer than {max} characters': '{kind} 名が {max} 文字を超えています',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} 名 '{name}' に使えるのは a-z、0-9、_ のみです ('{suggestion}' と書いてください)",
 }

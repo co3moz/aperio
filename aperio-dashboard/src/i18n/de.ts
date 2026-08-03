@@ -1026,4 +1026,9 @@ export const de: Record<string, string> = {
   'Data': 'Daten',
   'Alerts and scaling': 'Alarme und Skalierung',
   'Webhooks and messages': 'Webhooks und Nachrichten',
+  'Toggle Sidebar': 'Seitenleiste umschalten',
+  'Displays the mobile sidebar.': 'Zeigt die mobile Seitenleiste.',
+  'a {kind} name cannot be empty': 'Ein {kind}-Name darf nicht leer sein',
+  '{kind} name is longer than {max} characters': '{kind}-Name ist länger als {max} Zeichen',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind}-Name '{name}' darf nur a-z, 0-9 und _ enthalten (schreiben Sie ihn als '{suggestion}')",
 }

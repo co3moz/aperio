@@ -160,7 +160,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
     if (!name.trim() || busy) return
     // Checked here as well as on the server, so the rule is explained where
     // the mistake was made rather than as a failed request.
-    const wrong = nameError('organization', name)
+    const wrong = nameError('organization', name, t)
     if (wrong) {
       setError(wrong)
       return

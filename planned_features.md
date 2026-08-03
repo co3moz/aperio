@@ -359,6 +359,25 @@ nothing reuses them.
 
 ## Completed
 
+- [x] **#88 The i18n check catches prose that never reaches `t()`.** The
+  checker verified that everything routed through `t()` was translated, and
+  could not see the other question: whether everything *visible* is routed
+  through `t()`. That is the gap that shipped "5m ago" to a Turkish dashboard,
+  because the time helpers live in `lib/format.ts`, which is not a component
+  and so never had a translator to call, and nothing failed since from the
+  checker's side those were literals like any other. shipped: a third rule
+  over the TypeScript AST, looking at JSX text, the JSX attributes a browser
+  renders or reads aloud, and strings returned from a function. The predicate
+  is deliberately narrow, whitespace plus a word of three letters plus four
+  letters in total plus no identifier or path punctuation, because most
+  English literals here are `aperio.yaml`, `5xx`, `ms` and `app.example.com`,
+  which the project keeps in English on purpose; a rule that flagged those
+  would fire constantly and be turned off. Three exemptions carry their
+  reason. It found four real gaps on the first run: two sidebar strings (one
+  read by a screen reader) and two name-validation messages. Its limit is
+  written down rather than hidden: a single English word is not flagged,
+  because a rule that did would flag every identifier in the source.
+
 - [x] **#51 Weighted routing and header-based canaries.** (triage 35) The load
   balancer picks between clients by priority tier and round robin, so "send 20
   percent to the new version" or "send my requests to the new version if I set

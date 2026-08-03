@@ -1024,4 +1024,9 @@ export const ru: Record<string, string> = {
   'Data': 'Данные',
   'Alerts and scaling': 'Оповещения и масштабирование',
   'Webhooks and messages': 'Вебхуки и сообщения',
+  'Toggle Sidebar': 'Переключить боковую панель',
+  'Displays the mobile sidebar.': 'Показывает мобильную боковую панель.',
+  'a {kind} name cannot be empty': 'Имя {kind} не может быть пустым',
+  '{kind} name is longer than {max} characters': 'Имя {kind} длиннее {max} символов',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "Имя {kind} '{name}' может содержать только a-z, 0-9 и _ (запишите как '{suggestion}')",
 }

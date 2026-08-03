@@ -1005,4 +1005,9 @@ export const zh: Record<string, string> = {
   'Data': '数据',
   'Alerts and scaling': '告警与伸缩',
   'Webhooks and messages': 'Webhook 与消息',
+  'Toggle Sidebar': '切换侧边栏',
+  'Displays the mobile sidebar.': '显示移动端侧边栏。',
+  'a {kind} name cannot be empty': '{kind} 名称不能为空',
+  '{kind} name is longer than {max} characters': '{kind} 名称超过 {max} 个字符',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} 名称 '{name}' 只能包含 a-z、0-9 和 _ (请写作 '{suggestion}')",
 }

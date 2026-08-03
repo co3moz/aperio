@@ -1028,4 +1028,9 @@ export const tr: Record<string, string> = {
   'Data': 'Veri',
   'Alerts and scaling': 'Alarmlar ve ölçekleme',
   'Webhooks and messages': 'Webhook\'lar ve mesajlar',
+  'Toggle Sidebar': 'Kenar çubuğunu aç/kapat',
+  'Displays the mobile sidebar.': 'Mobil kenar çubuğunu gösterir.',
+  'a {kind} name cannot be empty': '{kind} adı boş olamaz',
+  '{kind} name is longer than {max} characters': '{kind} adı {max} karakterden uzun',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} adı '{name}' yalnızca a-z, 0-9 ve _ içerebilir ('{suggestion}' olarak yazın)",
 }

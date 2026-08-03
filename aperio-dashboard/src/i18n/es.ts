@@ -1024,4 +1024,9 @@ export const es: Record<string, string> = {
   'Data': 'Datos',
   'Alerts and scaling': 'Alertas y escalado',
   'Webhooks and messages': 'Webhooks y mensajes',
+  'Toggle Sidebar': 'Alternar barra lateral',
+  'Displays the mobile sidebar.': 'Muestra la barra lateral móvil.',
+  'a {kind} name cannot be empty': 'El nombre de {kind} no puede estar vacío',
+  '{kind} name is longer than {max} characters': 'El nombre de {kind} supera los {max} caracteres',
+  "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "El nombre de {kind} '{name}' solo puede contener a-z, 0-9 y _ (escríbalo como '{suggestion}')",
 }

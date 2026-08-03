@@ -215,6 +215,95 @@ function dictKeys(lang) {
   return { keys: seen, duplicates }
 }
 
+
+/**
+ * Prose that reaches a person without passing through `t()`.
+ *
+ * The checks above answer "is everything routed through `t()` translated".
+ * They cannot answer "is everything visible routed through `t()`", and that is
+ * the gap that shipped "5m ago" to a Turkish dashboard: the time helpers live
+ * in `lib/format.ts`, which is not a component, so nobody noticed there was no
+ * translator to call. Nothing failed, because from the checker's side those
+ * strings were simply literals like any other.
+ *
+ * ## Why the predicate is narrow
+ *
+ * Most English literals in this source are *not* prose: `aperio.yaml`, `5xx`,
+ * `ms`, `Docker`, `app.example.com`. They are file names, units, product names
+ * and example values an operator types verbatim, and the project's rule is
+ * that those stay in English in every language. A check that flagged them
+ * would fire constantly and be turned off, which is how a check stops being
+ * read at all.
+ *
+ * So a literal counts as prose only when it has whitespace, a word of three or
+ * more letters, four letters in total, and none of the punctuation that marks
+ * an identifier, a path or a format string. That is enough for `5m ago` and
+ * `just now`; it is deliberately not enough for a single word, because a rule
+ * that flagged every lone English word would flag every identifier here.
+ *
+ * ## Where it looks
+ *
+ * The three places a literal becomes something somebody reads: text between
+ * JSX tags, the JSX attributes a browser renders or reads aloud, and a string
+ * handed back by a function. Anything else (an object field, an argument, a
+ * comparison) is far more often a key than a sentence.
+ */
+const PROSE_EXEMPT = new Map([
+  ['Acme Inc.', 'an example company name, typed verbatim into the field beside it'],
+  ['Microsoft Teams', 'a product name'],
+  ['proto v', 'a label for a protocol version number, not a sentence'],
+])
+
+function isProse(text) {
+  return (
+    /\s/.test(text) &&
+    /[A-Za-z]{3,}/.test(text) &&
+    (text.match(/[A-Za-z]/g) ?? []).length >= 4 &&
+    !/[/\\{}<>=_@#$]|\.\w{2,4}\b/.test(text)
+  )
+}
+
+/** Visible prose that never reaches `t()`, as `{file, line, text}`. */
+function untranslatedProse() {
+  const VISIBLE_ATTRIBUTES = ['placeholder', 'title', 'aria-label', 'alt']
+  const out = []
+  for (const file of sourceFiles(SRC)) {
+    if (isDictFile(file)) continue
+    const text = readFileSync(file, 'utf8')
+    const sf = parse(file, text)
+    const tsx = file.endsWith('.tsx')
+    const report = (node, value) => {
+      if (!isProse(value) || PROSE_EXEMPT.has(value)) return
+      const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+      out.push({ file: file.replace(SRC + '/', ''), line: line + 1, text: value })
+    }
+    const literal = (n) => ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)
+    const visit = (node) => {
+      if (tsx && ts.isJsxText(node)) report(node, node.text.trim())
+      if (
+        tsx &&
+        ts.isJsxAttribute(node) &&
+        node.initializer &&
+        ts.isStringLiteral(node.initializer) &&
+        VISIBLE_ATTRIBUTES.includes(node.name.getText())
+      ) {
+        report(node.initializer, node.initializer.text)
+      }
+      if (ts.isReturnStatement(node) && node.expression) {
+        const e = node.expression
+        if (literal(e)) report(e, e.text)
+        if (ts.isTemplateExpression(e)) {
+          // `${x}` stands in as a digit so the shape is judged, not the value.
+          report(e, e.getText().replace(/\$\{[^}]*\}/g, '1').slice(1, -1))
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+  }
+  return out
+}
+
 function main() {
   const reference = referenceKeys()
   const required = requiredKeys()
@@ -229,6 +318,13 @@ function main() {
   for (const { keys } of parsed) for (const k of keys) union.add(k)
 
   let fatal = 0
+  const prose = untranslatedProse()
+  if (prose.length) {
+    fatal += prose.length
+    console.log(`\nuntranslated prose (wrap it in t(), or exempt it with a reason in PROSE_EXEMPT):`)
+    for (const p of prose) console.log(`  FAIL  ${p.file}:${p.line}  ${JSON.stringify(p.text)}`)
+  }
+
   for (const { lang, keys, duplicates } of parsed) {
     const stale = [...keys].filter((k) => !reference.has(k)).sort()
     const untranslated = [...required].filter((k) => !keys.has(k)).sort()
@@ -274,7 +370,7 @@ function main() {
   console.log()
   if (fatal > 0) {
     console.log(
-      `i18n check FAILED: ${fatal} problem(s) (untranslated, duplicate, or stale keys)`,
+      `i18n check FAILED: ${fatal} problem(s) (untranslated prose or keys, duplicate, or stale keys)`,
     )
     process.exit(1)
   }

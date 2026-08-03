@@ -1,3 +1,9 @@
+import type { TFn } from '@/i18n'
+
+/** English fallback, the same shape as the real translator. */
+const plain: TFn = (key, vars) =>
+  vars ? key.replace(/\{(\w+)\}/g, (m, name: string) => (name in vars ? String(vars[name]) : m)) : key
+
 /**
  * The naming rule, mirrored from `aperio_config::validate_name` / `slug`.
  *
@@ -12,13 +18,28 @@
 export const NAME_PATTERN = /^[a-z0-9_]+$/
 export const MAX_NAME_LEN = 64
 
-/** Why this handle is not one, or null when it is. */
-export function nameError(kind: string, raw: string): string | null {
+/** Why this handle is not one, or null when it is.
+ *
+ * Takes the translator for the same reason `format.ts` does: this is not a
+ * component and cannot call the hook, and what it returns is shown to a
+ * person. English without one, so a caller that forgets it gets readable
+ * output rather than a key.
+ */
+export function nameError(kind: string, raw: string, t: TFn = plain): string | null {
   const name = raw.trim()
-  if (!name) return `a ${kind} name cannot be empty`
-  if (name.length > MAX_NAME_LEN) return `${kind} name is longer than ${MAX_NAME_LEN} characters`
+  if (!name) return t('a {kind} name cannot be empty', { kind })
+  if (name.length > MAX_NAME_LEN) {
+    return t('{kind} name is longer than {max} characters', { kind, max: MAX_NAME_LEN })
+  }
   if (!NAME_PATTERN.test(name)) {
-    return `${kind} name '${name}' may only contain a-z, 0-9 and _ (write it as '${slug(name)}')`
+    // Missed by the new prose rule, whose predicate rejects anything with an
+    // underscore or a brace to avoid flagging identifiers. A reminder that the
+    // rule is a net for the common shape, not a proof.
+    return t("{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')", {
+      kind,
+      name,
+      suggestion: slug(name),
+    })
   }
   return null
 }
