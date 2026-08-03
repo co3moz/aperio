@@ -23,6 +23,7 @@ use tracing::{error, info, warn};
 use crate::state::AppState;
 
 /// Backup schedule read from the environment.
+#[derive(Clone)]
 struct BackupConfig {
   interval: Duration,
   dir: PathBuf,
@@ -135,37 +136,42 @@ pub(crate) fn spawn(state: Arc<AppState>) {
     cfg.dir,
     cfg.keep
   );
-  tokio::spawn(async move {
-    let mut interval = tokio::time::interval(cfg.interval);
-    loop {
-      interval.tick().await;
-      match write_snapshot(&db_path, &cfg.dir) {
-        Ok((path, size)) => {
-          let pruned = prune_snapshots(&cfg.dir, cfg.keep);
-          info!(
-            "DB backup written: {:?} ({} bytes), pruned {} old snapshot(s)",
-            path, size, pruned
-          );
-          state
-            .audit(
-              "db_backup",
-              "system",
-              "-",
-              &format!("path={} size={} pruned={}", path.display(), size, pruned),
-            )
-            .await;
-          state
-            .emit_event(
-              "db_backup",
-              serde_json::json!({
-                "path": path.display().to_string(),
-                "size_bytes": size,
-                "pruned": pruned,
-              }),
-            )
-            .await;
+  crate::supervise::spawn_supervised("backup", move || {
+    // Cloned per attempt rather than moved: the closure runs again after a
+    // panic, so it can only borrow what it can hand out more than once.
+    let (cfg, db_path, state) = (cfg.clone(), db_path.clone(), state.clone());
+    async move {
+      let mut interval = tokio::time::interval(cfg.interval);
+      loop {
+        interval.tick().await;
+        match write_snapshot(&db_path, &cfg.dir) {
+          Ok((path, size)) => {
+            let pruned = prune_snapshots(&cfg.dir, cfg.keep);
+            info!(
+              "DB backup written: {:?} ({} bytes), pruned {} old snapshot(s)",
+              path, size, pruned
+            );
+            state
+              .audit(
+                "db_backup",
+                "system",
+                "-",
+                &format!("path={} size={} pruned={}", path.display(), size, pruned),
+              )
+              .await;
+            state
+              .emit_event(
+                "db_backup",
+                serde_json::json!({
+                  "path": path.display().to_string(),
+                  "size_bytes": size,
+                  "pruned": pruned,
+                }),
+              )
+              .await;
+          }
+          Err(e) => error!("DB backup failed: {}", e),
         }
-        Err(e) => error!("DB backup failed: {}", e),
       }
     }
   });

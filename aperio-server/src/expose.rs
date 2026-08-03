@@ -207,7 +207,7 @@ pub(crate) fn spawn_listeners(state: Arc<AppState>, host: &str, rules: Vec<Expos
   for rule in rules {
     let state = state.clone();
     let addr = format!("{}:{}", host, rule.port);
-    tokio::spawn(async move {
+    crate::supervise::spawn_critical("expose-listener", async move {
       let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(err) => {

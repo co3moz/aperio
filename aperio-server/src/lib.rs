@@ -50,6 +50,7 @@ mod share;
 mod state;
 mod static_routes;
 mod store;
+mod supervise;
 mod telemetry;
 mod totp;
 mod tunnel;
@@ -1926,22 +1927,24 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   let state = state.clone();
   // Flush persistent stats periodically and once more on shutdown.
   let stats_flush_state = state.clone();
-  tokio::spawn(async move {
-    loop {
-      tokio::time::sleep(Duration::from_secs(30)).await;
-      flush_stats_once(&stats_flush_state).await;
-    }
+  crate::supervise::spawn_ticker("stats-flush", Duration::from_secs(30), move || {
+    let state = stats_flush_state.clone();
+    async move { flush_stats_once(&state).await }
   });
 
   // Autoscaling loops: the scale-out sampler and the record TTL sweep. Both
   // are no-ops unless the feature is enabled, so a server that never uses it
   // pays nothing.
   if state.config().scaling_enabled {
-    tokio::spawn(crate::scaling::run_scale_out_loop(state.clone()));
-    tokio::spawn(crate::scaling::run_prune_loop(
-      state.clone(),
-      state.config().scaling_record_ttl.as_secs(),
-    ));
+    let sampler_state = state.clone();
+    crate::supervise::spawn_supervised("scaling-sampler", move || {
+      crate::scaling::run_scale_out_loop(sampler_state.clone())
+    });
+    let prune_state = state.clone();
+    let prune_ttl = state.config().scaling_record_ttl.as_secs();
+    crate::supervise::spawn_supervised("scaling-prune", move || {
+      crate::scaling::run_prune_loop(prune_state.clone(), prune_ttl)
+    });
     info!("Autoscaling enabled: client `scaling:` declarations are honored");
   }
 
@@ -1953,10 +1956,16 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
     .and_then(|v| v.parse::<u64>().ok())
     .filter(|v| *v >= 1)
     .unwrap_or(10);
-  tokio::spawn(async move {
-    loop {
-      uptime_tick_once(&uptime_state).await;
-      tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
+  // The one loop that ticks before it sleeps, which is why it is written out
+  // rather than using `spawn_ticker`: uptime accrues from the moment the
+  // server is up, and skipping the first interval would lose it.
+  crate::supervise::spawn_supervised("uptime", move || {
+    let state = uptime_state.clone();
+    async move {
+      loop {
+        uptime_tick_once(&state).await;
+        tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
+      }
     }
   });
   // Config hot-reload: watch aperio-server.yaml for changes and re-apply the
@@ -1973,13 +1982,20 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
       "Watching {} for configuration changes",
       watch_path.display()
     );
-    tokio::spawn(async move {
-      let mut last_mtime = std::fs::metadata(&watch_path)
-        .ok()
-        .and_then(|m| m.modified().ok());
-      loop {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        last_mtime = hot_reload_tick_once(&reload_state, &watch_path, last_mtime).await;
+    crate::supervise::spawn_supervised("config-hot-reload", move || {
+      let state = reload_state.clone();
+      let path = watch_path.clone();
+      async move {
+        // Re-read on restart rather than carrying a stale mtime across the
+        // panic: a change made while the loop was down should be picked up,
+        // not skipped because the remembered timestamp is newer.
+        let mut last_mtime = std::fs::metadata(&path)
+          .ok()
+          .and_then(|m| m.modified().ok());
+        loop {
+          tokio::time::sleep(Duration::from_secs(5)).await;
+          last_mtime = hot_reload_tick_once(&state, &path, last_mtime).await;
+        }
       }
     });
   }
@@ -2018,15 +2034,22 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
     .unwrap_or(24 * 3600);
   if expiry_warning_secs > 0 {
     let warn_state = state.clone();
-    tokio::spawn(async move {
-      let mut warned: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
-      loop {
-        tokio::time::sleep(Duration::from_secs(60)).await;
-        let now = std::time::SystemTime::now()
-          .duration_since(std::time::UNIX_EPOCH)
-          .map(|d| d.as_secs())
-          .unwrap_or(0);
-        token_expiry_tick_once(&warn_state, expiry_warning_secs, now, &mut warned).await;
+    crate::supervise::spawn_supervised("token-expiry-warning", move || {
+      let state = warn_state.clone();
+      async move {
+        // The warned set starts empty again after a restart, which re-arms
+        // warnings that were already sent. That is the same thing a server
+        // restart does, and a duplicate warning is a far better failure than
+        // a silence caused by state nobody can inspect.
+        let mut warned: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
+        loop {
+          tokio::time::sleep(Duration::from_secs(60)).await;
+          let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+          token_expiry_tick_once(&state, expiry_warning_secs, now, &mut warned).await;
+        }
       }
     });
   }
@@ -2046,11 +2069,9 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   // sessions, off the request path: the sweep used to ride on whichever
   // request drew the five-minute tick, with the lock held.
   let gc_state = state.clone();
-  tokio::spawn(async move {
-    loop {
-      tokio::time::sleep(Duration::from_secs(300)).await;
-      gc_state.gc_tick_once(Instant::now()).await;
-    }
+  crate::supervise::spawn_ticker("rate-and-session-gc", Duration::from_secs(300), move || {
+    let state = gc_state.clone();
+    async move { state.gc_tick_once(Instant::now()).await }
   });
 
   // Resends QoS 1 messages nobody acknowledged, and gives up on the ones

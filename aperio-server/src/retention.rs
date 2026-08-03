@@ -253,39 +253,42 @@ pub(crate) fn spawn(state: Arc<AppState>) {
       ""
     }
   );
-  tokio::spawn(async move {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(PRUNE_INTERVAL_SECS));
-    loop {
-      interval.tick().await;
-      if let Some(cap) = disk_cap {
-        disk_guard_cycle(&state, cap, &data_dir).await;
-      }
-      let report = run_cycle(&state).await;
-      if report.total() > 0 {
-        info!(
-          "Retention pruned {} record(s): captures={} inbox={} access_log_lines={} audit_events={} stats_buckets={}",
-          report.total(),
-          report.captures,
-          report.inbox,
-          report.access_log_lines,
-          report.audit_events,
-          report.stats_buckets
-        );
-        state
-          .audit(
-            "retention_pruned",
-            "system",
-            "-",
-            &format!(
-              "captures={} inbox={} access_log_lines={} audit_events={} stats_buckets={}",
-              report.captures,
-              report.inbox,
-              report.access_log_lines,
-              report.audit_events,
-              report.stats_buckets
-            ),
-          )
-          .await;
+  crate::supervise::spawn_supervised("retention", move || {
+    let (state, data_dir) = (state.clone(), data_dir.clone());
+    async move {
+      let mut interval = tokio::time::interval(std::time::Duration::from_secs(PRUNE_INTERVAL_SECS));
+      loop {
+        interval.tick().await;
+        if let Some(cap) = disk_cap {
+          disk_guard_cycle(&state, cap, &data_dir).await;
+        }
+        let report = run_cycle(&state).await;
+        if report.total() > 0 {
+          info!(
+            "Retention pruned {} record(s): captures={} inbox={} access_log_lines={} audit_events={} stats_buckets={}",
+            report.total(),
+            report.captures,
+            report.inbox,
+            report.access_log_lines,
+            report.audit_events,
+            report.stats_buckets
+          );
+          state
+            .audit(
+              "retention_pruned",
+              "system",
+              "-",
+              &format!(
+                "captures={} inbox={} access_log_lines={} audit_events={} stats_buckets={}",
+                report.captures,
+                report.inbox,
+                report.access_log_lines,
+                report.audit_events,
+                report.stats_buckets
+              ),
+            )
+            .await;
+        }
       }
     }
   });

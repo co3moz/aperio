@@ -55,30 +55,6 @@ readable without scrolling past what is already done.
   cache (ci.yml `warm-release-cache`) already warms. Left open so the option is
   recorded; not worth starting while the cache holds.
 
-- [ ] **#11 Restart the background tickers when one panics; escalate the rest.**
-  Under the default `unwind` strategy a panic only unwinds its own task, so the
-  process survives, but a bare `tokio::spawn`ed background loop that panics
-  just *stops*, silently, and its function is lost for the life of the process.
-  The global panic hook (`main.rs`) makes such a panic visible in the log; it
-  does not bring the loop back.
-
-  Split by whether a restart is safe, which the original note asked for and is
-  the whole difficulty:
-
-  - **Restart:** the idempotent tickers, stats and uptime flush, the
-    token-expiry sweep, retention pruning. These are the ones where "silently
-    stopped" is invisible for days: nothing errors, the numbers simply stop
-    moving. A small `spawn_supervised(name, factory)` that awaits the
-    `JoinHandle`, logs a panic with the loop's name, and respawns with a short
-    backoff covers all of them.
-  - **Escalate, do not respawn:** accept loops and expose listeners. A
-    listener that panicked is in an unknown state, and a respawned one that
-    silently accepts nothing is worse than an outage that is visible. These
-    should log and drive a graceful shutdown instead.
-
-  Request-scoped work and one-shot tasks stay exactly as they are.
-  (From a 2026-07 panic-resilience review, scoped 2026-07-31.)
-
 - [ ] **#17 An opt-in minimum-throughput guard for streamed responses.** Part
   (1) of the original entry shipped (`stream.pause_bytes` /
   `stream.resume_bytes` / `stream.backlog_limit`, with `StreamLimits::sanitized`
@@ -434,6 +410,21 @@ nothing reuses them.
   name refers to is part of scoring it.
 
 ## Completed
+
+- [x] **#11 Restart the background tickers when one panics; escalate the rest.**
+  Under the default `unwind` strategy a panic only unwinds its own task, so the
+  process survives, but a bare `tokio::spawn`ed background loop that panics
+  just *stops*, silently, and its function is lost for the life of the process.
+  The global panic hook makes such a panic visible in the log; it does not
+  bring the loop back. shipped: `supervise::spawn_supervised` /
+  `spawn_ticker` wrap all eleven loops. Restarting is bounded (growing delay,
+  five consecutive panics and it is left down, budget restored after five
+  minutes of health), because a supervisor that restarts forever turns a loud
+  bug into a quiet one. `spawn_critical` is the "escalate the rest" half, for
+  the three tasks that own a channel receiver or a bound socket and so cannot
+  be called again; they fail visibly rather than silently, which is why they
+  get a naming log line instead of a restart. One correction to the entry: the
+  panic hook is in `lib.rs`, not `main.rs`.
 
 - [x] **#49 User-defined alert rules, including disk and memory.** (triage 40)
   Two threshold rules exist and are hard-coded: error rate and client-down

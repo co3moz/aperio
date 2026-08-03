@@ -100,190 +100,193 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
       "off".to_string()
     },
   );
-  tokio::spawn(async move {
-    let mut samples: VecDeque<Sample> = VecDeque::new();
-    let mut error_alert_active = false;
-    // Per service entity: when it was last seen not-down, and whether a
-    // down alert is currently active for it.
-    let mut last_ok: HashMap<String, Instant> = HashMap::new();
-    let mut down_alerted: HashMap<String, bool> = HashMap::new();
-    // Operator-defined rules keep their own state across ticks
-    // (planned_features #49). Read from the live config each tick, so a
-    // hot-reload adds or removes a rule without a restart; a rule that
-    // disappears simply stops being observed, and its tracker entry is inert.
-    let mut rule_tracker = crate::alert_rules::RuleTracker::default();
-    loop {
-      tokio::time::sleep(Duration::from_secs(15)).await;
-      let now = Instant::now();
+  crate::supervise::spawn_supervised("alerts", move || {
+    let state = state.clone();
+    async move {
+      let mut samples: VecDeque<Sample> = VecDeque::new();
+      let mut error_alert_active = false;
+      // Per service entity: when it was last seen not-down, and whether a
+      // down alert is currently active for it.
+      let mut last_ok: HashMap<String, Instant> = HashMap::new();
+      let mut down_alerted: HashMap<String, bool> = HashMap::new();
+      // Operator-defined rules keep their own state across ticks
+      // (planned_features #49). Read from the live config each tick, so a
+      // hot-reload adds or removes a rule without a restart; a rule that
+      // disappears simply stops being observed, and its tracker entry is inert.
+      let mut rule_tracker = crate::alert_rules::RuleTracker::default();
+      loop {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        let now = Instant::now();
 
-      let rules = state.config().alert_rules.clone();
-      if !rules.is_empty() {
-        for rule in rules.rules() {
-          let Some(value) = read_metric(&state, rule.metric).await else {
-            continue;
+        let rules = state.config().alert_rules.clone();
+        if !rules.is_empty() {
+          for rule in rules.rules() {
+            let Some(value) = read_metric(&state, rule.metric).await else {
+              continue;
+            };
+            match rule_tracker.observe(rule, value, now) {
+              Some(crate::alert_rules::Transition::Fired) => {
+                warn!(
+                  "ALERT: rule '{}' fired ({} = {}, {} {})",
+                  rule.name,
+                  rule.metric.as_str(),
+                  value,
+                  if rule.above { "above" } else { "below" },
+                  rule.threshold
+                );
+                emit(
+                  &state,
+                  "alert_triggered",
+                  serde_json::json!({
+                    "kind": rule.name,
+                    "metric": rule.metric.as_str(),
+                    "value": value,
+                    "threshold": rule.threshold,
+                    "direction": if rule.above { "above" } else { "below" },
+                    "for_secs": rule.sustain.as_secs(),
+                  }),
+                )
+                .await;
+              }
+              Some(crate::alert_rules::Transition::Resolved) => {
+                info!(
+                  "ALERT RESOLVED: rule '{}' ({} = {})",
+                  rule.name,
+                  rule.metric.as_str(),
+                  value
+                );
+                emit(
+                  &state,
+                  "alert_resolved",
+                  serde_json::json!({
+                    "kind": rule.name,
+                    "metric": rule.metric.as_str(),
+                    "value": value,
+                  }),
+                )
+                .await;
+              }
+              None => {}
+            }
+          }
+        }
+
+        if cfg.error_rate_pct > 0.0 {
+          let (successful, failed) = {
+            let stats = state.stats.lock().await;
+            (stats.successful_requests, stats.failed_requests)
           };
-          match rule_tracker.observe(rule, value, now) {
-            Some(crate::alert_rules::Transition::Fired) => {
+          samples.push_back(Sample {
+            at: now,
+            total: successful + failed,
+            failed,
+          });
+          while samples
+            .front()
+            .is_some_and(|s| now.duration_since(s.at) > cfg.window)
+          {
+            samples.pop_front();
+          }
+          if let (Some(first), Some(last)) = (samples.front(), samples.back()) {
+            let d_total = last.total.saturating_sub(first.total);
+            let d_failed = last.failed.saturating_sub(first.failed);
+            if d_total >= cfg.min_requests {
+              let rate = d_failed as f64 / d_total as f64 * 100.0;
+              if !error_alert_active && rate >= cfg.error_rate_pct {
+                error_alert_active = true;
+                warn!(
+                  "ALERT: error rate {:.1}% over the last {}s ({} of {} requests failed)",
+                  rate,
+                  cfg.window.as_secs(),
+                  d_failed,
+                  d_total
+                );
+                emit(
+                  &state,
+                  "alert_triggered",
+                  serde_json::json!({
+                    "kind": "error_rate",
+                    "rate_pct": (rate * 10.0).round() / 10.0,
+                    "threshold_pct": cfg.error_rate_pct,
+                    "window_secs": cfg.window.as_secs(),
+                    "failed": d_failed,
+                    "total": d_total,
+                  }),
+                )
+                .await;
+              } else if error_alert_active && rate < cfg.error_rate_pct * 0.8 {
+                error_alert_active = false;
+                info!("Error-rate alert resolved ({:.1}%)", rate);
+                emit(
+                  &state,
+                  "alert_resolved",
+                  serde_json::json!({
+                    "kind": "error_rate",
+                    "rate_pct": (rate * 10.0).round() / 10.0,
+                  }),
+                )
+                .await;
+              }
+            }
+          }
+        }
+
+        if cfg.client_down > Duration::ZERO {
+          let live = crate::observe_service_availability(&state).await;
+          // Entities currently visible refresh their last-ok time unless down.
+          for (name, (status, _org)) in &live {
+            if *status != Availability::Down {
+              last_ok.insert(name.clone(), now);
+            } else {
+              last_ok.entry(name.clone()).or_insert(now);
+            }
+          }
+          for (name, seen_ok) in &last_ok {
+            let currently_ok = live
+              .get(name)
+              .is_some_and(|(s, _)| *s != Availability::Down);
+            let alerted = down_alerted.get(name).copied().unwrap_or(false);
+            if currently_ok {
+              if alerted {
+                down_alerted.insert(name.clone(), false);
+                info!("Client-down alert resolved for '{}'", name);
+                emit(
+                  &state,
+                  "alert_resolved",
+                  serde_json::json!({"kind": "client_down", "service": name}),
+                )
+                .await;
+              }
+            } else if !alerted && now.duration_since(*seen_ok) >= cfg.client_down {
+              down_alerted.insert(name.clone(), true);
               warn!(
-                "ALERT: rule '{}' fired ({} = {}, {} {})",
-                rule.name,
-                rule.metric.as_str(),
-                value,
-                if rule.above { "above" } else { "below" },
-                rule.threshold
+                "ALERT: service '{}' has been down for over {}s",
+                name,
+                cfg.client_down.as_secs()
               );
               emit(
                 &state,
                 "alert_triggered",
                 serde_json::json!({
-                  "kind": rule.name,
-                  "metric": rule.metric.as_str(),
-                  "value": value,
-                  "threshold": rule.threshold,
-                  "direction": if rule.above { "above" } else { "below" },
-                  "for_secs": rule.sustain.as_secs(),
-                }),
-              )
-              .await;
-            }
-            Some(crate::alert_rules::Transition::Resolved) => {
-              info!(
-                "ALERT RESOLVED: rule '{}' ({} = {})",
-                rule.name,
-                rule.metric.as_str(),
-                value
-              );
-              emit(
-                &state,
-                "alert_resolved",
-                serde_json::json!({
-                  "kind": rule.name,
-                  "metric": rule.metric.as_str(),
-                  "value": value,
-                }),
-              )
-              .await;
-            }
-            None => {}
-          }
-        }
-      }
-
-      if cfg.error_rate_pct > 0.0 {
-        let (successful, failed) = {
-          let stats = state.stats.lock().await;
-          (stats.successful_requests, stats.failed_requests)
-        };
-        samples.push_back(Sample {
-          at: now,
-          total: successful + failed,
-          failed,
-        });
-        while samples
-          .front()
-          .is_some_and(|s| now.duration_since(s.at) > cfg.window)
-        {
-          samples.pop_front();
-        }
-        if let (Some(first), Some(last)) = (samples.front(), samples.back()) {
-          let d_total = last.total.saturating_sub(first.total);
-          let d_failed = last.failed.saturating_sub(first.failed);
-          if d_total >= cfg.min_requests {
-            let rate = d_failed as f64 / d_total as f64 * 100.0;
-            if !error_alert_active && rate >= cfg.error_rate_pct {
-              error_alert_active = true;
-              warn!(
-                "ALERT: error rate {:.1}% over the last {}s ({} of {} requests failed)",
-                rate,
-                cfg.window.as_secs(),
-                d_failed,
-                d_total
-              );
-              emit(
-                &state,
-                "alert_triggered",
-                serde_json::json!({
-                  "kind": "error_rate",
-                  "rate_pct": (rate * 10.0).round() / 10.0,
-                  "threshold_pct": cfg.error_rate_pct,
-                  "window_secs": cfg.window.as_secs(),
-                  "failed": d_failed,
-                  "total": d_total,
-                }),
-              )
-              .await;
-            } else if error_alert_active && rate < cfg.error_rate_pct * 0.8 {
-              error_alert_active = false;
-              info!("Error-rate alert resolved ({:.1}%)", rate);
-              emit(
-                &state,
-                "alert_resolved",
-                serde_json::json!({
-                  "kind": "error_rate",
-                  "rate_pct": (rate * 10.0).round() / 10.0,
+                  "kind": "client_down",
+                  "service": name,
+                  "down_secs": now.duration_since(*seen_ok).as_secs(),
                 }),
               )
               .await;
             }
           }
-        }
-      }
-
-      if cfg.client_down > Duration::ZERO {
-        let live = crate::observe_service_availability(&state).await;
-        // Entities currently visible refresh their last-ok time unless down.
-        for (name, (status, _org)) in &live {
-          if *status != Availability::Down {
-            last_ok.insert(name.clone(), now);
-          } else {
-            last_ok.entry(name.clone()).or_insert(now);
-          }
-        }
-        for (name, seen_ok) in &last_ok {
-          let currently_ok = live
-            .get(name)
-            .is_some_and(|(s, _)| *s != Availability::Down);
-          let alerted = down_alerted.get(name).copied().unwrap_or(false);
-          if currently_ok {
-            if alerted {
-              down_alerted.insert(name.clone(), false);
-              info!("Client-down alert resolved for '{}'", name);
-              emit(
-                &state,
-                "alert_resolved",
-                serde_json::json!({"kind": "client_down", "service": name}),
-              )
-              .await;
+          // Forget entities that stayed down for a day past their alert, so
+          // decommissioned services do not accumulate forever.
+          let forget_after = cfg.client_down + Duration::from_secs(24 * 3600);
+          last_ok.retain(|name, seen_ok| {
+            let keep = now.duration_since(*seen_ok) < forget_after;
+            if !keep {
+              down_alerted.remove(name);
             }
-          } else if !alerted && now.duration_since(*seen_ok) >= cfg.client_down {
-            down_alerted.insert(name.clone(), true);
-            warn!(
-              "ALERT: service '{}' has been down for over {}s",
-              name,
-              cfg.client_down.as_secs()
-            );
-            emit(
-              &state,
-              "alert_triggered",
-              serde_json::json!({
-                "kind": "client_down",
-                "service": name,
-                "down_secs": now.duration_since(*seen_ok).as_secs(),
-              }),
-            )
-            .await;
-          }
+            keep
+          });
         }
-        // Forget entities that stayed down for a day past their alert, so
-        // decommissioned services do not accumulate forever.
-        let forget_after = cfg.client_down + Duration::from_secs(24 * 3600);
-        last_ok.retain(|name, seen_ok| {
-          let keep = now.duration_since(*seen_ok) < forget_after;
-          if !keep {
-            down_alerted.remove(name);
-          }
-          keep
-        });
       }
     }
   });

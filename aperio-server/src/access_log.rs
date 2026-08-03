@@ -97,7 +97,7 @@ pub(crate) fn spawn_telemetry_collector(
   state: Arc<AppState>,
   mut rx: mpsc::Receiver<crate::state::TelemetryEvent>,
 ) {
-  tokio::spawn(async move {
+  crate::supervise::spawn_critical("telemetry-collector", async move {
     while let Some(ev) = rx.recv().await {
       record_telemetry(&state, ev).await;
     }
@@ -134,7 +134,7 @@ static DROPPED_LINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 /// the same judgement the full-queue drop below makes.
 pub(crate) fn spawn_writer(path: String, file: std::fs::File) -> mpsc::Sender<AccessLogCmd> {
   let (tx, mut rx) = mpsc::channel::<AccessLogCmd>(4096);
-  tokio::spawn(async move {
+  crate::supervise::spawn_critical("access-log-writer", async move {
     let mut file = file;
     while let Some(cmd) = rx.recv().await {
       match cmd {

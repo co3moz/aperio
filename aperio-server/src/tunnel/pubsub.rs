@@ -478,11 +478,10 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
 
 /// Runs [`sweep_pending`] until the process ends.
 pub(crate) fn run_ack_sweeper(state: std::sync::Arc<AppState>) {
-  tokio::spawn(async move {
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
-      tick.tick().await;
-      sweep_pending(&state).await;
+  crate::supervise::spawn_ticker("qos1-ack-sweeper", Duration::from_secs(1), move || {
+    let state = state.clone();
+    async move {
+      let _ = sweep_pending(&state).await;
     }
   });
 }
