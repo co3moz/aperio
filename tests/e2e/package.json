@@ -4,7 +4,9 @@
   "type": "module",
   "description": "End-to-end suite, Node port. Runs beside tests/e2e.sh, not instead of it.",
   "scripts": {
+    "pretest": "cargo build --manifest-path ../../Cargo.toml -p aperio-server -p aperio-client -p mock-h2",
     "test": "nole './specs/**/*.test.ts' --concurrency 4",
+    "pretest:serial": "npm run pretest",
     "test:serial": "nole './specs/**/*.test.ts'",
     "typecheck": "tsc -b"
   },

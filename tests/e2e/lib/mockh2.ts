@@ -27,14 +27,15 @@ export function MockH2Base(options: Parameters<typeof Test>[0] = {}) {
     _proc?: ChildProcess
 
     async hookStart() {
-      // Built on demand, the way the bash phase built it: it is a helper
-      // crate, not a workspace default, so a fresh checkout has the server
-      // and the client but not this. Without it the spawn below fails and
-      // the failure reads as "the backend never came up".
+      // Never built from here. `cargo build` inside a running suite relinks
+      // artifacts the other phases are executing, and a binary replaced
+      // underneath a spawn fails in ways that look like the product: this
+      // cost seven phases on one run before it was understood. The `pretest`
+      // script builds it, once, before any test process exists.
       if (!existsSync(mockH2Bin())) {
-        await run('cargo', ['build', '-p', 'mock-h2'], {
-          cwd: join(import.meta.dirname, '..', '..', '..'),
-        })
+        throw new Error(
+          `${mockH2Bin()} is missing: run \`cargo build -p mock-h2\` (npm test does it for you)`,
+        )
       }
       this._port = await freePort()
       this._proc = spawn(mockH2Bin(), ['server', String(this._port)], {

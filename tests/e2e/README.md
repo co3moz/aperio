@@ -3,16 +3,22 @@
 The real binaries, driven from the outside over HTTP, as classes.
 
 ```bash
-cd tests/e2e-node
+cd tests/e2e
 npm install
 npm test              # every spec, four at a time
 npm run test:serial   # one at a time, for a clearer log
 npx nole './specs/cache/**/*.test.ts'   # one phase
 ```
 
-It runs the real binaries out of `target/debug`. Build them first
-(`cargo build`), or point `APERIO_SERVER_BIN` / `APERIO_CLIENT_BIN`
+`npm test` builds the binaries first, through `pretest`, and runs the real
+ones out of `target/debug`. `APERIO_SERVER_BIN` / `APERIO_CLIENT_BIN` point it
 somewhere else.
+
+Nothing builds from *inside* a run, and that is a rule rather than an
+accident: `cargo build` while the suite is up relinks artifacts the other
+phases are executing, and a binary replaced underneath a spawn fails in ways
+that read as product bugs. Running `npx nole` directly skips `pretest`, so
+build first if you have not.
 
 ## How it is put together
 
