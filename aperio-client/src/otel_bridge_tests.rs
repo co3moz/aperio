@@ -119,3 +119,74 @@ async fn an_oversized_export_is_refused_without_being_buffered() {
      still being collected before it is measured"
   );
 }
+
+#[tokio::test]
+async fn the_https_forwarder_follows_a_reloaded_server_and_token() {
+  use std::sync::Arc;
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::net::TcpListener;
+
+  // The forwarder captured the server and the token when it started, so a
+  // reload that moved the server or rotated the token left the telemetry
+  // going to the old address, or refused by a token that no longer existed,
+  // while the tunnel itself had already followed the change.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let seen = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+  let recorder = seen.clone();
+  tokio::spawn(async move {
+    while let Ok((mut socket, _)) = listener.accept().await {
+      let recorder = recorder.clone();
+      tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        if let Ok(n) = socket.read(&mut buf).await {
+          let head = String::from_utf8_lossy(&buf[..n]).to_string();
+          for line in head.lines() {
+            if line.to_ascii_lowercase().starts_with("authorization:") {
+              recorder.lock().await.push(line.trim().to_string());
+            }
+          }
+        }
+        let _ = socket
+          .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+          .await;
+      });
+    }
+  });
+
+  let (tx, rx) = channel(8);
+  let (credentials, credentials_rx) =
+    tokio::sync::watch::channel((format!("http://127.0.0.1:{port}"), "first".to_string()));
+  tokio::spawn(run_https_forwarder(rx, credentials_rx));
+
+  let export = |tx: &tokio::sync::mpsc::Sender<Export>| {
+    let _ = tx.try_send(Export {
+      signal: "traces",
+      payload: bytes::Bytes::from_static(b"x"),
+    });
+  };
+  export(&tx);
+  // The reload: same server, new token.
+  for _ in 0..100 {
+    if !seen.lock().await.is_empty() {
+      break;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+  credentials.send_replace((format!("http://127.0.0.1:{port}"), "second".to_string()));
+  export(&tx);
+
+  for _ in 0..100 {
+    if seen.lock().await.len() >= 2 {
+      break;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+  let seen = seen.lock().await.clone();
+  assert_eq!(seen.len(), 2, "both exports should have been posted");
+  assert!(seen[0].ends_with("first"), "{seen:?}");
+  assert!(
+    seen[1].ends_with("second"),
+    "the forwarder kept the token it started with: {seen:?}"
+  );
+}

@@ -238,7 +238,7 @@ pub async fn run() {
   // and on to its collector. Started before the services so an exporter that
   // comes up with them is never refused, and its queue lives in `Shared` so
   // whichever tunnel connection is live can carry the exports.
-  let otel_exports = start_otel_bridge(&settings).await;
+  let (otel_exports, otel_credentials) = start_otel_bridge(&settings).await;
 
   let shared = Shared {
     otel_exports,
@@ -264,7 +264,10 @@ pub async fn run() {
   // a listener removed from the file went on listening and a new `subscribe:`
   // entry needed a restart, while the documentation said every setting
   // applies on reload.
-  let mut facilities = ProcessFacilities::default();
+  let mut facilities = ProcessFacilities {
+    otel_credentials,
+    ..Default::default()
+  };
   if let Err(e) = facilities.apply(&settings, &shared, true).await {
     error!("CRITICAL ERROR: {}", e);
     std::process::exit(1);
@@ -1510,8 +1513,13 @@ struct ProcessFacilities {
   http_face: Option<Face>,
   mqtt_face: Option<Face>,
   runners: Option<tokio::task::JoinHandle<()>>,
-  /// What `otel_bridge:` said at startup, to notice a reload that changes it.
+  /// What `otel_bridge:` said at startup, to notice a reload that changes the
+  /// part of it that cannot be applied.
   otel_bridge: Option<aperio_config::OtelBridge>,
+  /// The server and token the https transport posts with, when that transport
+  /// is in use. Updated on reload: they are read per export, so this is one
+  /// part of the bridge that does follow the file.
+  otel_credentials: Option<OtelCredentials>,
 }
 
 impl ProcessFacilities {
@@ -1598,15 +1606,46 @@ impl ProcessFacilities {
     }
     self.runners = replacement;
 
-    // The OTel bridge is the one facility a reload cannot rebuild: its
-    // receiving end is held by whichever tunnel connection is live, and
-    // moving that would mean handing every service a different queue
-    // mid-flight. Saying so is better than silently ignoring the edit, which
-    // is what happened before.
-    if !first && self.otel_bridge != settings.otel_bridge {
+    // The server and token the https transport posts with are read per
+    // export, so a reload that moves the server or rotates the token reaches
+    // them. Without this the tunnel followed the change and the telemetry did
+    // not: exports kept going to the old address, or were refused by a token
+    // that had been replaced, and the earlier warning did not fire either,
+    // because it only watched the `otel_bridge:` block.
+    if let Some(credentials) = &self.otel_credentials
+      && let (Some(server), Some(token)) = (settings.server.clone(), settings.token.clone())
+    {
+      credentials.send_if_modified(|current| {
+        let next = (server, token);
+        if *current == next {
+          return false;
+        }
+        if !first {
+          info!("OTel bridge: exports will now be posted to {}", next.0);
+        }
+        *current = next;
+        true
+      });
+    }
+
+    // The rest of the bridge is the one facility a reload cannot rebuild: the
+    // receiving end of its queue is held by whichever tunnel connection is
+    // live, and moving that would mean handing every service a different
+    // queue mid-flight. Saying so is better than ignoring the edit.
+    let unappliable = |cfg: &Option<aperio_config::OtelBridge>| {
+      cfg.as_ref().map(|c| {
+        (
+          c.listen.clone(),
+          c.listen_grpc.clone(),
+          c.queue,
+          c.transport.clone(),
+        )
+      })
+    };
+    if !first && unappliable(&self.otel_bridge) != unappliable(&settings.otel_bridge) {
       warn!(
-        "otel_bridge: changed in the configuration, but the bridge cannot be rebuilt while the \
-         client runs; restart to apply it"
+        "otel_bridge: the listeners, queue or transport changed, and those cannot be rebuilt \
+         while the client runs; restart to apply them"
       );
     }
     self.otel_bridge = settings.otel_bridge.clone();
@@ -1665,8 +1704,15 @@ where
   }
 }
 
-async fn start_otel_bridge(settings: &ClientSettings) -> Option<otel_bridge::Queue> {
-  let cfg = settings.otel_bridge.as_ref()?;
+/// What the bridge's https transport needs kept current, when it is in use.
+type OtelCredentials = tokio::sync::watch::Sender<(String, String)>;
+
+async fn start_otel_bridge(
+  settings: &ClientSettings,
+) -> (Option<otel_bridge::Queue>, Option<OtelCredentials>) {
+  let Some(cfg) = settings.otel_bridge.as_ref() else {
+    return (None, None);
+  };
   let http = cfg
     .listen
     .clone()
@@ -1684,18 +1730,22 @@ async fn start_otel_bridge(settings: &ClientSettings) -> Option<otel_bridge::Que
     .unwrap_or(true);
   if over_tunnel {
     info!("OTel bridge: exports will travel on the tunnel");
-    return Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
+    return (Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx))), None);
   }
   match (settings.server.clone(), settings.token.clone()) {
     (Some(server), Some(token)) => {
       info!("OTel bridge: exports will be posted to the server over https");
-      tokio::spawn(otel_bridge::run_https_forwarder(rx, server, token));
+      let (credentials, rx_credentials) = tokio::sync::watch::channel((server, token));
+      tokio::spawn(otel_bridge::run_https_forwarder(rx, rx_credentials));
+      (None, Some(credentials))
     }
-    _ => error!(
-      "OTel bridge: transport https needs a server URL and a tunnel token; exports will be dropped"
-    ),
+    _ => {
+      error!(
+        "OTel bridge: transport https needs a server URL and a tunnel token; exports will be dropped"
+      );
+      (None, None)
+    }
   }
-  None
 }
 
 /// Writes the process id where an init system can find it.

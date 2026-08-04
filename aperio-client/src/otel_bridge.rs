@@ -337,15 +337,19 @@ async fn listen(addr: String, tx: tokio::sync::mpsc::Sender<Export>, grpc: bool)
 /// host, so it is not the default.
 pub(crate) async fn run_https_forwarder(
   mut rx: tokio::sync::mpsc::Receiver<Export>,
-  server: String,
-  token: String,
+  // Read per export rather than captured, so a configuration reload that
+  // moves the server or rotates the token reaches this too. Captured, it
+  // went on posting to the old address, or was refused by a token that had
+  // been replaced, while the tunnel itself had already followed the change.
+  credentials: tokio::sync::watch::Receiver<(String, String)>,
 ) {
   let client = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(30))
     .build()
     .unwrap_or_default();
-  let base = server.trim_end_matches('/').to_string();
   while let Some(export) = rx.recv().await {
+    let (server, token) = credentials.borrow().clone();
+    let base = server.trim_end_matches('/');
     let url = format!("{base}/aperio/otlp/v1/{}", export.signal);
     let sent = client
       .post(&url)
