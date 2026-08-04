@@ -389,9 +389,15 @@ surface. A visitor request arrives at the server and passes through the
 following stages, in this order. Each stage can end the request.
 
 \begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Maintenance mode.} A flag covering the hostname answers
+        \code{503} before anything else is looked at, which is why a
+        route that is otherwise perfectly healthy can stop serving.
+  \item \textbf{Static routes.} A \code{routes:} rule with a
+        \code{redirect} or a \code{respond} answers here, with no client
+        involved. A rule carrying neither is policy rather than an answer
+        and does not end the request.
   \item \textbf{Per-IP rate limit.} A token bucket keyed on the visitor
-        address. Exceeding it answers \code{429} before anything else is
-        evaluated.
+        address. Exceeding it answers \code{429}.
   \item \textbf{Visitor gate.} If the route is protected by a password,
         by OIDC, or by a client-declared per-service login, an
         unauthenticated visitor is redirected to the login page. Public
@@ -404,6 +410,13 @@ following stages, in this order. Each stage can end the request.
         the limit answers \code{429}. Note the ordering: the wait above
         happens \emph{before} a slot is held, so visitors waiting for a
         sleeping service cannot starve healthy ones.
+  \item \textbf{Request firewall.} A \code{waf:} rule matching the
+        method, path or a header answers \code{403}. It runs here rather
+        than at the door because a rule may match on the body, which is
+        not read until a slot is held.
+  \item \textbf{Per-route rate limit.} The \code{rate\_limits:} rule
+        covering this path, or a \code{rate\_limit} on the matching
+        \code{routes:} entry, spends from its own bucket.
   \item \textbf{Route resolution.} The hostname and path select a pool of
         eligible clients; the load-balancing strategy picks one. No pool
         means the stale-cache, fallback and \code{504} chain.
@@ -416,6 +429,9 @@ following stages, in this order. Each stage can end the request.
         cache, the request inspector and the access log all see the
         response before the visitor does.
 \end{enumerate}
+
+This is the list \emph{explain} walks (Chapter~\ref{ch:dashboard}): if
+the two ever disagree, the endpoint is the one that was compiled.
 
 \begin{aperionote}{Why the order matters}
 Two stages are deliberately placed where they are. The visitor gate runs
@@ -872,9 +888,9 @@ by walking the chain rather than trusting the first hop blindly.
 
 \section{Structured sections}
 
-Beyond scalar settings the file carries five structured sections. They are
-not expressible as environment variables, which is the main reason to use
-the file at all.
+Beyond scalar settings the file carries seven structured sections. They
+are lists of mappings, so they have no flat environment spelling, which is
+the main reason to use the file at all.
 
 \subsection{Static routes}
 
@@ -1056,9 +1072,9 @@ before a launch:
 Before any strategy runs, the pool is filtered to clients that could
 actually take a request. A client is eligible when its heartbeat is
 recent, its backend health probe passes, it is not draining, it has not
-been disabled from the dashboard, and it has not been ejected as an
-outlier. Everything else in this chapter operates on what survives that
-filter.
+been disabled from the dashboard, and, where outlier ejection is turned
+on, it has not been ejected. Everything else in this chapter operates on
+what survives that filter.
 
 \section{Binds}
 
@@ -1119,11 +1135,15 @@ for a one-off investigation and the wrong tool for configuration.
 
 \section{Passive outlier ejection}
 
-A client that crosses a failure threshold (5xx responses, timeouts,
-connection loss) is silently pulled from rotation while its tunnel stays
-up, then allowed back. This is the one routing behaviour that is
-invisible from the client's side, which is why the topology view and the
-client detail both surface an \code{ejected} flag.
+Off unless \code{APERIO\_OUTLIER\_EJECTION} is set, and worth turning
+on: with it, a client that crosses a failure threshold (buffered 5xx
+responses, response timeouts, connection loss) is silently pulled from
+rotation while its tunnel stays up, then allowed back after
+\code{APERIO\_OUTLIER\_EJECT\_SECS}. It is fail-open per route, so the
+last client serving a hostname is never ejected into a \code{504}. This
+is the one routing behaviour invisible from the client's side, which is
+why the topology view and the client detail both surface an
+\code{ejected} flag.
 
 \chapter{In-flight failover}
 \label{ch:failover}
@@ -1447,23 +1467,6 @@ individual link \emph{cannot be revoked}. It expires, or you rotate the
 master token and invalidate every outstanding link at once. Scope links
 to a path and the shortest useful lifetime.
 
-\section{What a client reports about itself}
-
-A heartbeat carries more than "still here". Each one announces the round-trip
-time of that tunnel connection as the client measures it, the jitter between
-consecutive round trips, how many times the connection has been
-re-established, and the client process's CPU and resident memory. The
-dashboard shows them on the clients table and \code{/aperio/api/stats}
-carries them.
-
-The round trip is the one that earns its place: from the server's side a slow
-backend and a slow tunnel are indistinguishable, and this separates them. The
-two process figures are read from \code{/proc}, so they are Linux only and
-absent elsewhere rather than approximated, and inside a container they
-describe the process rather than the cgroup. A client that reports nothing
-shows nothing: the absence is stored rather than the last value kept, which
-would age silently while looking current.
-
 \section{Network fences}
 
 Three blunt but effective controls:
@@ -1529,7 +1532,7 @@ on the server, so an organisation admin minting a wildcard token for their
 own tenant could claim another tenant's hostname:
 
 \begin{codecard}[aperiosh]{From anywhere, with an admin key}
-aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
+aperio-client api org create --name acme --hostname acme.com,*.acme.example.com
 \end{codecard}
 
 An entry takes one of three shapes. An exact hostname matches itself. A
@@ -1641,18 +1644,25 @@ as a named user, or through OIDC.
 
 \begin{description}[leftmargin=1.6em,style=nextline]
   \item[Overview] Live request rate, totals, connected clients. The
-        activity chart answers two questions rather than one: the
-        minute-long view is derived in the browser from successive polls,
-        so it moves with the traffic and starts empty on a reload, while
-        the quarter-hour view is the server's own ring of five-second
-        slices and survives one.
+        activity chart carries four ranges. \emph{Live} is derived in the
+        browser from successive polls, so it moves with the traffic and
+        starts empty on a reload; the other three come from the server's
+        own rings and survive one, at five-second slices over a quarter
+        hour, minute slices over two hours, and quarter-hour slices over a
+        day. The bars are drawn to the width of their slice, so a coarse
+        range does not pretend to a resolution it does not have.
   \item[Clients] Every tunnel connection with its binds, version, health,
         concurrency and flags (draining, ejected, cache off). The kill
         switch and bind overrule live here.
+  \item[Tunnels] The private services clients declare for
+        \code{--bind-tunnels}, each with the client that declared it and
+        a ready \code{bind-tunnels:} block to copy.
   \item[Live Traffic] Requests as they complete, as a table or a console.
         Backed by a server-sent event stream rather than polling.
-  \item[Webhook Inbox] Inbound POSTs captured for services that opted in,
-        browsable and re-firable.
+  \item[Breakdown] Traffic by token and hostname, with per-route trends
+        and the per-stage latency table.
+  \item[Share Links] The temporary visitor access of
+        Chapter~\ref{ch:visitor-auth}, minted and listed here.
   \item[Topology] The routing map: clients, routes that exist without a
         client, declared-but-offline binds, and public expose ports.
         It also carries \emph{explain}: name a hostname and a path, and
@@ -1690,7 +1700,8 @@ The screens above are places you go and stay. The rest are not, and they
 open as dialogs over whatever page you were on rather than replacing it.
 
 \textbf{Settings} holds server settings, organisations, users, webhooks
-and the webhook inbox: things you open, change, and leave. \textbf{Tools}
+and the webhook inbox (inbound POSTs captured for services that opted in,
+browsable and re-firable): things you open, change, and leave. \textbf{Tools}
 holds the audit log, the API explorer and the config builder: instruments
 you reach for when something needs working out. Neither appears in the
 URL, so a reload returns to the page underneath with the dialog shut,
@@ -1842,6 +1853,23 @@ preparation, so a request blocked before it ever left the server is
 pinpointed. Client-side detail nests under the round-trip and is flagged
 \code{aperio.estimated}, so estimates can never be mistaken for measured
 boundaries.
+
+\section{What a client reports about itself}
+
+A heartbeat carries more than "still here". Each one announces the round-trip
+time of that tunnel connection as the client measures it, the jitter between
+consecutive round trips, how many times the connection has been
+re-established, and the client process's CPU and resident memory. The
+dashboard shows them on the clients table and \code{/aperio/api/stats}
+carries them.
+
+The round trip is the one that earns its place: from the server's side a slow
+backend and a slow tunnel are indistinguishable, and this separates them. The
+two process figures are read from \code{/proc}, so they are Linux only and
+absent elsewhere rather than approximated, and inside a container they
+describe the process rather than the cgroup. A client that reports nothing
+shows nothing: the absence is stored rather than the last value kept, which
+would age silently while looking current.
 
 \section{Logs}
 
@@ -2452,8 +2480,9 @@ import there breaks the fuzz build.
 Every setting below is an \code{APERIO\_*} environment variable and an
 equivalent \code{aperio-server.yaml} key: the same name lowercased,
 without the prefix. The file wins over the environment; dashboard
-overrides win over both. Generated from the reference tables in
-\code{docs/configuration.md}.
+overrides win over both. These tables are maintained by hand alongside
+\code{docs/configuration.md}; \code{aperio-server --print-schema} emits
+the machine-readable catalogue, which is the one that cannot drift.
 
 \section{Common settings}
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
@@ -3067,7 +3096,7 @@ complete list, it is authoritative, and it always matches the running build.
 
 One WebSocket carries every kind of traffic for a service, multiplexed by
 request id. Messages are JSON objects tagged with \code{type}. The
-current protocol version is 6, negotiated per connection, and each step
+current protocol version is 7, negotiated per connection, and each step
 is additive: v2 moves chunk payloads onto binary frames with a compact
 \code{[tag][id\_len][id][payload]} header instead of base64; v3 adds the
 per-stream pause/resume pair (Section~\ref{sec:flow-control}); v4 adds
