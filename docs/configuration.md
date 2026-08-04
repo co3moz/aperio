@@ -322,7 +322,9 @@ services:
     startup_delay: 2
 ```
 
-`depends_on` waits for those services to have a live tunnel, then **proceeds anyway** after 60 seconds: a dependency that never arrives must not keep a service that could be serving traffic off the air forever. It is an ordering convenience, not a correctness mechanism, so the wait is bounded and what it gave up on is logged.
+`depends_on` waits for those services to have a live tunnel, then **proceeds anyway** after 60 seconds: a dependency that never arrives must not keep a service that could be serving traffic off the air forever. The wait is bounded and what it gave up on is logged.
+
+"Has a live tunnel" means right now, not "did at some point": a service that loses its connection stops counting as ready, and one with `connections: N` counts as ready while any of its connections is up. It orders startup and nothing more, though. Once a service is past its own gate it stays up whatever its dependency does afterwards, because taking a healthy service off the air over someone else's outage turns one failure into two.
 
 A name that is not a service in this configuration, a service depending on itself, and a cycle are all refused at startup. All three would otherwise be invisible: at runtime every one of them ends with everybody waiting out the grace period and then starting anyway, which looks exactly like working.
 

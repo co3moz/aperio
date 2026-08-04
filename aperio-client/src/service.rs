@@ -498,17 +498,27 @@ pub(crate) struct Shared {
   /// take it wins, which is what makes this survive a service reconnecting.
   pub(crate) otel_exports: Option<crate::otel_bridge::Queue>,
   /// Services in this process that currently have a live tunnel, for
-  /// `depends_on`. A watch rather than a notify: a dependent that starts late
-  /// has to see the state as it already is, not wait for the next change.
-  pub(crate) ready_services: watch::Sender<std::collections::HashSet<String>>,
+  /// `depends_on`, counted by how many of their connections are up. A watch
+  /// rather than a notify: a dependent that starts late has to see the state
+  /// as it already is, not wait for the next change.
+  ///
+  /// Counted rather than a set of names, for two reasons that are really the
+  /// same one. A service with `connections: N` announces one name from N
+  /// connections, so "is it up" is "does it have any", and it was previously
+  /// a set that nothing ever removed from: a service that connected once and
+  /// then went away stayed ready forever, so a dependent starting after that,
+  /// after a reload, say, was told its dependency was up when it was not.
+  pub(crate) ready_services: watch::Sender<std::collections::HashMap<String, usize>>,
 }
 
 /// Longest a service waits for its `depends_on` before opening anyway.
 ///
 /// A bound rather than a wait: a dependency that never arrives, because it is
 /// misspelled, or removed, or itself waiting on something, must not keep a
-/// service that could be serving traffic off the air forever. The wait is a
-/// convenience for ordering, not a correctness mechanism.
+/// service that could be serving traffic off the air forever. It orders
+/// startup, and nothing more: once a service is past its gate it stays up
+/// whatever its dependency does afterwards, because taking a healthy service
+/// off the air over someone else's outage turns one failure into two.
 pub(crate) const DEPENDS_ON_GRACE: Duration = Duration::from_secs(60);
 
 /// Waits until every named service has a live tunnel, or the grace period
@@ -524,7 +534,7 @@ pub(crate) async fn await_dependencies(shared: &Shared, names: &[String]) -> Vec
       let ready = rx.borrow_and_update();
       names
         .iter()
-        .filter(|n| !ready.contains(n.as_str()))
+        .filter(|n| !ready.contains_key(n.as_str()))
         .cloned()
         .collect()
     };
@@ -1249,10 +1259,12 @@ pub(crate) async fn run_service(
             // `depends_on`. Keyed by service name, so every connection of a
             // parallel pool announces the same name and the first one to
             // connect is enough.
+            let mut announced_ready = false;
             if let Some(name) = spec.name.as_deref() {
-              shared
-                .ready_services
-                .send_if_modified(|set| set.insert(name.to_string()));
+              shared.ready_services.send_modify(|live| {
+                *live.entry(name.to_string()).or_insert(0) += 1;
+              });
+              announced_ready = true;
             }
             // Every established connection after the first is a reconnect,
             // and the count is what tells a flapping link from a quiet one:
@@ -2181,6 +2193,21 @@ pub(crate) async fn run_service(
               task.abort();
             }
             ping_task.abort();
+            // This connection is no longer live, so it no longer counts
+            // towards the service being up. Nothing used to take a name back
+            // out, which made `depends_on` a claim about the past: a service
+            // that connected once and then went away was still reported ready
+            // to anything that started later.
+            if announced_ready && let Some(name) = spec.name.as_deref() {
+              shared.ready_services.send_modify(|live| {
+                if let Some(count) = live.get_mut(name) {
+                  *count -= 1;
+                  if *count == 0 {
+                    live.remove(name);
+                  }
+                }
+              });
+            }
             if closed_on_request {
               info!("[{}] Connection closed.", label);
             } else {

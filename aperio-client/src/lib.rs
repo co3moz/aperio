@@ -245,7 +245,7 @@ pub async fn run() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
-    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
     // 0 = nothing served yet, which keeps the idle clock stopped.
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(

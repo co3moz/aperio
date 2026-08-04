@@ -1178,7 +1178,7 @@ async fn test_spawn_services_derives_connection_ids() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
-    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
     otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
@@ -1390,15 +1390,15 @@ async fn await_dependencies_returns_at_once_when_they_are_already_up() {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
-    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
     otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
   };
   shared.ready_services.send_replace(
-    ["db".to_string()]
+    [("db".to_string(), 1)]
       .into_iter()
-      .collect::<std::collections::HashSet<_>>(),
+      .collect::<std::collections::HashMap<_, _>>(),
   );
   // Already-ready has to be seen without waiting for a change: a dependent
   // that starts after its dependency is the normal case, not the exception.
@@ -1412,12 +1412,71 @@ async fn await_dependencies_returns_at_once_when_they_are_already_up() {
 }
 
 #[tokio::test]
+async fn a_dependency_that_went_away_is_not_still_reported_as_ready() {
+  // Readiness was a set that nothing ever removed from, so a service that
+  // connected once and then lost its tunnel stayed ready for the life of the
+  // process: a dependent starting afterwards, after a config reload for
+  // instance, was told its dependency was up when it was not, and opened
+  // straight into the outage it was written to wait out.
+  let shared = Shared {
+    shutting_down: Arc::new(AtomicBool::new(false)),
+    shutdown_notify: Arc::new(tokio::sync::Notify::new()),
+    inflight_requests: Arc::new(AtomicUsize::new(0)),
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
+    otel_exports: None,
+    last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    messages: crate::pubsub::MessageBus::new(Vec::new()),
+  };
+
+  // Two connections of one service, as `connections: 2` gives it. The name
+  // is up while either of them is.
+  shared.ready_services.send_modify(|live| {
+    *live.entry("db".to_string()).or_insert(0) += 1;
+  });
+  shared.ready_services.send_modify(|live| {
+    *live.entry("db".to_string()).or_insert(0) += 1;
+  });
+  let drop_one = |shared: &Shared| {
+    shared.ready_services.send_modify(|live| {
+      if let Some(count) = live.get_mut("db") {
+        *count -= 1;
+        if *count == 0 {
+          live.remove("db");
+        }
+      }
+    });
+  };
+
+  drop_one(&shared);
+  let missing = tokio::time::timeout(
+    std::time::Duration::from_millis(200),
+    crate::service::await_dependencies(&shared, &["db".to_string()]),
+  )
+  .await
+  .expect("one connection is still up, so the dependency is up");
+  assert!(missing.is_empty());
+
+  // The last one goes: now the dependency really is down, and a dependent
+  // starting from here waits rather than being waved through.
+  drop_one(&shared);
+  assert!(
+    tokio::time::timeout(
+      std::time::Duration::from_millis(200),
+      crate::service::await_dependencies(&shared, &["db".to_string()]),
+    )
+    .await
+    .is_err(),
+    "a dependency with no live connection must not read as ready"
+  );
+}
+
+#[tokio::test]
 async fn await_dependencies_wakes_when_the_dependency_comes_up() {
   let shared = Shared {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
     inflight_requests: Arc::new(AtomicUsize::new(0)),
-    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
     otel_exports: None,
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
@@ -1430,9 +1489,9 @@ async fn await_dependencies_wakes_when_the_dependency_comes_up() {
   };
   tokio::task::yield_now().await;
   shared.ready_services.send_replace(
-    ["db".to_string()]
+    [("db".to_string(), 1)]
       .into_iter()
-      .collect::<std::collections::HashSet<_>>(),
+      .collect::<std::collections::HashMap<_, _>>(),
   );
   let missing = tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
     .await

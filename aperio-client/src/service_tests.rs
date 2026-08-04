@@ -115,7 +115,7 @@ fn test_shared() -> Shared {
     inflight_requests: Arc::new(AtomicUsize::new(0)),
     last_request_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     messages: crate::pubsub::MessageBus::new(Vec::new()),
-    ready_services: watch::channel(std::collections::HashSet::new()).0,
+    ready_services: watch::channel(std::collections::HashMap::new()).0,
     otel_exports: None,
   }
 }
