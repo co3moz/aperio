@@ -66,22 +66,18 @@ export class ScalingBackend extends StandardBackendBase() {}
 /** Loopback is refused by the SSRF fence by default; this server opts in,
  *  which is what an internal provider API needs. The strict default has its
  *  own server below. */
-export class ScalingServer extends AperioServerBase() {
-  _env() {
-    return {
-      APERIO_SCALING: '1',
-      APERIO_SCALING_ALLOW_HTTP: '1',
-      APERIO_SCALING_ALLOW_PRIVATE: '1',
-      APERIO_GATEWAY_TIMEOUT: '2',
-    }
-  }
-}
+export class ScalingServer extends AperioServerBase({
+  env: {
+    APERIO_SCALING: '1',
+    APERIO_SCALING_ALLOW_HTTP: '1',
+    APERIO_SCALING_ALLOW_PRIVATE: '1',
+    APERIO_GATEWAY_TIMEOUT: '2',
+  },
+}) {}
 
-export class StrictScalingServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_SCALING: '1', APERIO_GATEWAY_TIMEOUT: '2' }
-  }
-}
+export class StrictScalingServer extends AperioServerBase({
+  env: { APERIO_SCALING: '1', APERIO_GATEWAY_TIMEOUT: '2' },
+}) {}
 
 /** Connects once to arm the record, then goes away. */
 class ArmingClient extends AperioClientBase({

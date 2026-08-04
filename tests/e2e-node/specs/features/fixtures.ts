@@ -5,11 +5,7 @@ import { UnixBackendBase } from '../../lib/uds.js'
 
 /** The features phase accumulates many concurrent clients, so the default
  *  ten-tunnel cap is lifted the way the bash phase lifts it. */
-export class FeatureServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_MAX_TUNNELS: '30' }
-  }
-}
+export class FeatureServer extends AperioServerBase({ env: { APERIO_MAX_TUNNELS: '30' } }) {}
 
 export class MainBackend extends StandardBackendBase() {}
 export class SecondBackend extends StandardBackendBase() {}

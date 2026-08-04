@@ -4,10 +4,11 @@ import { AperioServerBase } from '../../lib/server.js'
 import { sendRaw } from '../../lib/http.js'
 
 export class SessionServer extends AperioServerBase() {
+  // Overridden rather than passed as `{ env }`, because the origin has to
+  // name the port *this instance* was given, which does not exist until it
+  // starts. In bash the same line is `http://localhost:18100`, a constant,
+  // and it is only correct because every phase there is pinned to that port.
   _env() {
-    // The origin has to name the port this instance actually got. In bash the
-    // same line is `http://localhost:18100`, a constant, which is only
-    // correct because every phase there is pinned to that port.
     return { APERIO_WEBAUTHN_ORIGIN: `http://localhost:${this._port}` }
   }
 }

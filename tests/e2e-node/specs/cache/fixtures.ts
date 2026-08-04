@@ -4,11 +4,9 @@ import { ClientFor } from '../../lib/client.js'
 import { sleep } from '../../lib/env.js'
 
 /** The server every cache spec shares: one process, one port, named once. */
-export class CacheServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_CACHE: '1', APERIO_CACHE_MAX_STALE: '60' }
-  }
-}
+export class CacheServer extends AperioServerBase({
+  env: { APERIO_CACHE: '1', APERIO_CACHE_MAX_STALE: '60' },
+}) {}
 
 /** Answers anything, and allows shared caching for a second. */
 export class CacheBackend extends MockBackendBase() {

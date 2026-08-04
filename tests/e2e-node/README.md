@@ -32,6 +32,20 @@ unprefixed `get()` would be reported as a passing test named
 **`specs/<phase>/fixtures.ts`, this phase's resources.** Subclasses that say
 what env, config or routes they need. No tests here either.
 
+A server's environment is a constant in nineteen cases out of twenty-one, so
+it is an argument rather than a method:
+
+```ts
+export class AuthServer extends AperioServerBase({
+  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+}) {}
+```
+
+The two that override `_env()` instead are the two that cannot be written
+ahead of time: one names the port the instance was given, the other a path
+inside the data directory it was handed. `super._env()` still reaches the
+constant, so a subclass can add to it.
+
 A client names its server and backend once, in the `extends` clause:
 
 ```ts

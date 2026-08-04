@@ -16,6 +16,8 @@ export const EDGE_TOKEN = 'e2e-edge-token'
  * same server, so they read as separate subjects and still cost one process.
  */
 export class BaseServer extends AperioServerBase() {
+  // Overridden rather than passed as `{ env }`: the access log lives inside
+  // the data directory this instance is handed at startup.
   _env() {
     return {
       APERIO_ACCESS_LOG: join(this._dataDir, 'access.jsonl'),

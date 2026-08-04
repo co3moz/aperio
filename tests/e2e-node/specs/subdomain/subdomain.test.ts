@@ -2,14 +2,12 @@ import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { AperioServerBase } from '../../lib/server.js'
 
-export class SubdomainServer extends AperioServerBase() {
-  _env() {
-    return {
-      APERIO_RANDOM_SUBDOMAIN: '*-pi.e2e.local',
-      APERIO_WEBAUTHN_ORIGIN: 'https://tunnel.e2e.local',
-    }
-  }
-}
+export class SubdomainServer extends AperioServerBase({
+  env: {
+    APERIO_RANDOM_SUBDOMAIN: '*-pi.e2e.local',
+    APERIO_WEBAUTHN_ORIGIN: 'https://tunnel.e2e.local',
+  },
+}) {}
 
 /** A random-subdomain pattern that is not `*.host` still has to produce a
  *  usable hostname, with the placeholder actually gone. */

@@ -7,11 +7,9 @@ import { waitFor } from '../../lib/env.js'
 
 const HOST = 'app.e2e.local'
 
-export class AuthServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_SERVER_AUTH: 'demo:secret123' }
-  }
-}
+export class AuthServer extends AperioServerBase({
+  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+}) {}
 
 export class AuthBackend extends StandardBackendBase() {}
 

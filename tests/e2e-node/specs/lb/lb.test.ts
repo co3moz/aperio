@@ -19,17 +19,11 @@ export class BackendTwo extends StandardBackendBase() {}
  * `stop_server` in the middle. Here they are two classes and can even run at
  * the same time.
  */
-export class PrimaryStandbyServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_LB_STRATEGY: 'primary-standby' }
-  }
-}
+export class PrimaryStandbyServer extends AperioServerBase({
+  env: { APERIO_LB_STRATEGY: 'primary-standby' },
+}) {}
 
-export class StickyServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_LB_STRATEGY: 'sticky' }
-  }
-}
+export class StickyServer extends AperioServerBase({ env: { APERIO_LB_STRATEGY: 'sticky' } }) {}
 
 export class PrimaryClient extends ClientFor(() => PrimaryStandbyServer, () => BackendOne) {
   _hostname() {

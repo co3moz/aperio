@@ -9,11 +9,9 @@ import { ClientFor, ClientOf } from '../../lib/client.js'
 import { waitFor } from '../../lib/env.js'
 
 /** Random subdomains off, so an unclaimed hostname really is unclaimed. */
-export class MultihostServer extends AperioServerBase() {
-  _env() {
-    return { APERIO_RANDOM_SUBDOMAIN: '' }
-  }
-}
+export class MultihostServer extends AperioServerBase({
+  env: { APERIO_RANDOM_SUBDOMAIN: '' },
+}) {}
 
 export class MultihostBackend extends StandardBackendBase() {}
 

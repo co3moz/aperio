@@ -7,11 +7,7 @@ import { waitFor } from '../../lib/env.js'
 
 /** No random subdomains and no bind: this phase's only client serves
  *  everything, so the visitor needs no Host override. */
-export class H2Server extends AperioServerBase() {
-  _env() {
-    return { APERIO_RANDOM_SUBDOMAIN: '' }
-  }
-}
+export class H2Server extends AperioServerBase({ env: { APERIO_RANDOM_SUBDOMAIN: '' } }) {}
 
 export class H2Backend extends MockH2Base() {}
 

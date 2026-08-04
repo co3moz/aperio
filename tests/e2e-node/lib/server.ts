@@ -22,7 +22,19 @@ import { send, sendRaw, type Fetched, type Options } from './http.js'
  * tests, including a class reached only as a dependency, so an unprefixed
  * `get()` here would be reported as a passing test named `CacheServer.get()`.
  */
-export function AperioServerBase(options: Parameters<typeof Test>[0] = {}) {
+/** What `AperioServerBase` takes on top of nole's own class options. */
+export interface ServerOptions {
+  /** Environment for the process, for the usual case where it is a constant.
+   *
+   *  A server whose environment names something only the running instance
+   *  knows, the port it was given, the data directory it was handed, cannot
+   *  be written here and overrides `_env()` instead. That is two of the
+   *  twenty-one, and both are the cases where the bash suite had to hardcode
+   *  port 18100 to say the same thing. */
+  env?: Record<string, string>
+}
+
+export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOptions = {}) {
   return class extends Test({ timeout: 30_000, ...options }) {
     _port = 0
     _token = ''
@@ -32,9 +44,13 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] = {}) {
     _output = ''
     _proc?: ChildProcess
 
-    /** The only thing a subclass has to say. */
+    /** The environment this server runs with.
+     *
+     *  Returns what `AperioServerBase({ env })` was given. A subclass
+     *  overrides it only when the value cannot be known before the instance
+     *  exists, and may still reach the constant through `super._env()`. */
     _env(): Record<string, string> {
-      return {}
+      return options.env ?? {}
     }
 
     /** A server-side yaml file, written before the process starts and passed
