@@ -30,7 +30,7 @@ tunnels:
 
 `protocol:` takes `tcp` (the default), `udp`, or `tcp/udp` for a service that is genuinely both, DNS being the obvious one. A combined tunnel is **one** tunnel: one name, one entry in the binder, one local port, with a listener opened on each transport (they are separate port spaces, so the number is shared without conflict). Declaring the same target twice, once per protocol, still works and gives you two independently addressable tunnels; use it when you want them bound to different local ports. `encrypt: true` is refused on a combined tunnel, since the handshake is TCP-only and accepting it would leave the datagram half in the clear under a flag that says otherwise.
 
-Names are unique within the organization and may contain letters, digits, `-`, `_` and `.`. A name shaped like a UUID is refused, so names can never be confused with client ids. Leaving `name:` out derives one from the target and protocol (`127.0.0.1:5432` tcp becomes `127-0-0-1-5432-tcp`), which keeps older files working and still gives every tunnel a stable handle; two tunnels that would resolve to the same name are a startup error.
+Names are unique within the organization and are handles: `a-z`, `0-9` and `_`, at most 64 characters, the same rule an organization and a service name follow. A capital, a hyphen or a dot is refused with the handle you probably meant (`pg-main` is refused as `pg_main`), because a name written one way in one file and another way in another is not a name. A name shaped like a UUID is refused too, so names can never be confused with client ids. Leaving `name:` out derives one from the target and protocol (`127.0.0.1:5432` tcp becomes `127_0_0_1_5432_tcp`), which keeps older files working and still gives every tunnel a stable handle; two tunnels that would resolve to the same name are a startup error.
 
 A config with only `tunnels:` (no `target`, no `services:`) is valid: the connection then exists purely for emergencies.
 
@@ -89,8 +89,6 @@ bind-tunnels:
 - **Failures say which gate closed.** Not connected, not permitted, and no path available are three different answers, because they send you to three different places.
 - Streams are audited on the server (`tcp_stream_opened` / `udp_stream_opened`, with client and target).
 
-## End-to-end encryption
-
 ## Telling the backend who is really calling
 
 A TCP tunnel delivers bytes to the backend over a fresh local connection, so the backend sees a connection from the client process, `127.0.0.1`, and the visitor's real address is lost at the last hop. Every postgres log line says localhost.
@@ -107,6 +105,8 @@ tunnels:
 Turn it on only when the backend is configured to expect the header, nginx (`listen ... proxy_protocol`), HAProxy (`accept-proxy`), MySQL (`proxy-protocol-networks`). A backend that is not expecting it reads the header as protocol garbage and drops the connection, so this is a statement about the backend rather than a preference. Postgres and redis do not read it at all, which is why it is per tunnel and off by default.
 
 Two things it does not do. It never invents an address: an older server that does not report one, or an address that cannot be parsed, means the connection is relayed with no header rather than with a fabricated one, because a receiver acts on what the header says. And the header's *destination* fields carry the backend's own address, which is the one this side can state truthfully, rather than the public port the visitor actually dialled; receivers that act on the destination (rare) should know that. UDP tunnels carry no header, the format is defined for datagrams but nothing in this path would read it.
+
+## End-to-end encryption
 
 By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange as the first frame of every stream and seal everything after it with ChaCha20-Poly1305, the server relays only ciphertext.
 

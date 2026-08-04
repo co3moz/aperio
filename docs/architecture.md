@@ -19,7 +19,7 @@ connections.
 
 The wire protocol is a tagged JSON message enum (`TunnelMessage`) with a small
 set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION`
-(currently 6) is bumped on breaking changes so version skew surfaces in logs
+(currently 7) is bumped on breaking changes so version skew surfaces in logs
 and on the dashboard rather than failing obscurely.
 
 Key messages:
@@ -52,27 +52,46 @@ and are exercised by the [`fuzz/`](../fuzz) targets.
 
 ## Request lifecycle (server side)
 
-A proxied request flows through, roughly in order:
+A proxied request flows through, in this order. `GET /aperio/api/explain`
+walks the same chain on a request nobody sends, so it is the executable
+version of this list:
 
 1. **Client IP resolution** (`extract_client_ip`), honoring `trust_proxy` /
    `trusted_proxies` when configured, otherwise the socket peer.
-2. **Admission**, per-IP rate limit, WAF deny rules, per-route rate limit,
-   global concurrency slot.
-3. **Static routes**, a client-less `routes:` entry may answer directly.
-4. **Cache**, a fresh cache hit (or a stale-while-revalidate hit) short-circuits
-   the tunnel entirely; concurrent misses coalesce behind a single-flight leader.
-5. **Routing** (`select_client_pool` → `apply_lb_strategy` → `pick_proxy_client`),
+2. **Maintenance mode**, a flag covering the hostname answers `503` before
+   anything else is looked at.
+3. **Static routes**, a client-less `routes:` entry with a `redirect` or a
+   `respond` answers directly. Because this is above the rate limit, an
+   operator-authored answer costs a visitor nothing from their bucket. A
+   `routes:` entry with neither is policy, not an answer, and does not end the
+   request here.
+4. **Per-IP rate limit**, the visitor's token bucket.
+5. **Visitor gate**, the password, OIDC or client-declared login, before
+   routing so an unauthenticated visitor never influences client selection.
+6. **Wait for a client**, bounded by the gateway timeout, and where a cold
+   start is triggered. Before the global slot is taken, so visitors waiting on
+   a sleeping service cannot starve healthy ones.
+7. **Admission**, the global concurrency slot.
+8. **WAF and the per-route rate limit**, after admission because a WAF rule may
+   match on the body, which is not read until a slot is held.
+9. **Routing** (`select_client_pool` → `apply_lb_strategy` → `pick_proxy_client`),
    eligibility (healthy, not draining, not ejected) → hostname → path →
-   load-balancing strategy → per-visitor IP filter. No client → a fallback URL
-   redirect or a `504`.
-6. **Per-token / per-org limits**, token rate/quota and org monthly bytes.
-7. **Dispatch**, the request is sent down the chosen client's socket and the
-   server awaits the response with the per-service (or global) response timeout.
-8. **Failover / retry**, a vanished client re-dispatches per `failover_mode`; a
-   buffered 5xx re-dispatches when `retry_on_5xx` is on; both are bounded by the
-   jump budget.
-9. **Response**, headers rewritten, cached when eligible, captured for the
-   inspector, accounted to stats/quota, and streamed or buffered back.
+   load-balancing strategy → per-visitor IP filter. No client → serve-stale, a
+   fallback URL redirect, or a `504`.
+10. **Cache**, after routing rather than before it, because the opt-in is the
+    serving client's (`cache: true`) and the server has to know who would serve
+    the request to know whether it may be cached. A fresh hit, or a
+    stale-while-revalidate hit, short-circuits the tunnel; concurrent misses
+    coalesce behind a single-flight leader.
+11. **Per-token / per-org limits and per-client admission**, token rate/quota,
+    org monthly bytes, and the chosen client's own concurrency limiter.
+12. **Dispatch**, the request is sent down the chosen client's socket and the
+    server awaits the response with the per-service (or global) response timeout.
+13. **Failover / retry**, a vanished client re-dispatches per `failover_mode`; a
+    buffered 5xx re-dispatches when `retry_on_5xx` is on; both are bounded by the
+    jump budget.
+14. **Response**, headers rewritten, cached when eligible, captured for the
+    inspector, accounted to stats/quota, and streamed or buffered back.
 
 ## Concurrency model
 

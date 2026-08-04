@@ -2402,8 +2402,9 @@ pub struct OtelBridge {
   #[schemars(extend("examples" = ["tunnel", "https"]))]
   pub transport: Option<String>,
   /// Exports to hold when the far end is not keeping up. Past this, the
-  /// oldest are dropped and counted: telemetry must never be the reason a
-  /// tunnel stalls. Default: `256`.
+  /// newest is dropped and counted, never waited on: an exporter that cannot
+  /// hand off its batch blocks the application it is instrumenting, so
+  /// telemetry must never be the reason a tunnel stalls. Default: `256`.
   #[schemars(extend("examples" = [256]))]
   pub queue: Option<usize>,
 }

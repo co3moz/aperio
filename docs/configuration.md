@@ -577,26 +577,6 @@ headers:
 
 #### Public TCP expose (`expose:`, experimental)
 
-### Names
-
-Everything Aperio addresses by name, an organization, a service, a tunnel, carries a **handle**: `a-z`, `0-9` and `_`, at most 64 characters. Nothing else, and deliberately so. A handle is written in one file and read in another, typed into a command line and joined with other handles to form an address (`payments@postgres`), so every character outside that set is a way for two people to write down what they think is the same name and be wrong: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`.
-
-What is left out stays available as *syntax around* a name rather than inside one: `@` already separates an organization from a tunnel, and `-`, `.` and `*` are reserved for whatever an address needs to say next.
-
-Anything a person should read goes in `custom_name:` instead, free text, any language, any punctuation, changeable at any time, because nothing addresses it. Services and tunnels take it in `aperio.yaml`; an organization takes it when it is created and can be renamed from the dashboard afterwards. The handle never changes, since an `expose:` rule and a binder's config on another machine point at it.
-
-```yaml
-services:
-  - name: web                    # the handle
-    custom_name: "Public Web"    # what the dashboard shows
-    target: http://localhost:3000
-
-tunnels:
-  - name: pg_main
-    custom_name: "Primary Postgres"
-    target: 127.0.0.1:5432
-```
-
 A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the organization whose client may claim it (`tunnel:` + `org:`, or the one-line `tunnel: <org>@<name>`); omitting the organization means the master one. `token:` is the earlier spelling and still works, but a token name is not unique across organizations, so a rule naming one can match a client of another. The older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works too. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
 
 ```yaml
@@ -665,6 +645,26 @@ error_pages:
   - hostname: app.example.com
     504_page: ./pages/app-504.html
     503_page: ./pages/app-503.html
+```
+
+### Names
+
+Everything Aperio addresses by name, an organization, a service, a tunnel, carries a **handle**: `a-z`, `0-9` and `_`, at most 64 characters. Nothing else, and deliberately so. A handle is written in one file and read in another, typed into a command line and joined with other handles to form an address (`payments@postgres`), so every character outside that set is a way for two people to write down what they think is the same name and be wrong: `Postgres` and `postgres`, `pg-main` and `pg_main`, an `i` that is actually `ı`.
+
+What is left out stays available as *syntax around* a name rather than inside one: `@` already separates an organization from a tunnel, and `-`, `.` and `*` are reserved for whatever an address needs to say next.
+
+Anything a person should read goes in `custom_name:` instead, free text, any language, any punctuation, changeable at any time, because nothing addresses it. Services and tunnels take it in `aperio.yaml`; an organization takes it when it is created and can be renamed from the dashboard afterwards. The handle never changes, since an `expose:` rule and a binder's config on another machine point at it.
+
+```yaml
+services:
+  - name: web                    # the handle
+    custom_name: "Public Web"    # what the dashboard shows
+    target: http://localhost:3000
+
+tunnels:
+  - name: pg_main
+    custom_name: "Primary Postgres"
+    target: 127.0.0.1:5432
 ```
 
 ### Common settings

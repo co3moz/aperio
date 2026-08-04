@@ -1961,20 +1961,24 @@ decide \emph{when} capacity is needed and a poor place to decide
 \emph{how} to create it. So it does neither more nor less than call a URL
 you control and state a desired capacity.
 
-Two triggers share one state machine:
+Three reasons share one state machine, and the endpoint is told which:
 
 \begin{description}[leftmargin=1.6em,style=nextline]
-  \item[Cold start, 0 to 1] A request arrives for a hostname nothing is
-        serving. Instead of \code{504}, the endpoint is called and the
-        request is \emph{held} until an instance is routable.
-  \item[Scale out, N to N+1] The pool stays saturated for a full window
-        and one more instance is requested.
+  \item[\code{cold\_start}, 0 to 1] A request arrives for a hostname
+        nothing is serving. Instead of \code{504}, the endpoint is called
+        and the request is \emph{held} until an instance is routable.
+  \item[\code{scale\_out}, N to N+1] The pool stays saturated for a full
+        window and one more instance is requested.
+  \item[\code{scale\_in}, N to N-1] The pool stays idle for several
+        windows and one instance is given back, never below \code{min}
+        and never below one.
 \end{description}
 
-Scaling \emph{in} is client-driven: an idle client retires itself with
-\code{idle\_timeout}, gracefully draining first. The server never kills
-anything, which removes a whole class of "why did my instance disappear"
-incidents.
+So the server asks for the last instance neither way: 1 to 0 stays the
+client's own decision, through \code{idle\_timeout}, because the client
+knows about requests in flight that the server cannot see. And it only
+ever \emph{asks}. The server never kills anything, which removes a whole
+class of "why did my instance disappear" incidents.
 
 \section{Declaring it}
 
@@ -3202,17 +3206,20 @@ webhook events are for integration.
 
 \code{client\_connected}, \code{client\_disconnected},
 \code{client\_draining}, \code{token\_created}, \code{token\_revoked},
-\code{token\_expiring}, \code{tunnel\_created}, \code{tunnel\_deleted},
+\code{token\_rotated}, \code{token\_expiring}, \code{token\_new\_ip},
+\code{token\_pin\_mismatch}, \code{canary\_tripped},
+\code{tunnel\_created}, \code{tunnel\_deleted},
 \code{share\_created}, \code{maintenance\_on}, \code{maintenance\_off},
-\code{settings\_updated}, \code{import\_applied},
+\code{settings\_updated}, \code{import\_applied}, \code{user\_created},
 \code{alert\_triggered}, \code{alert\_resolved},
-\code{scaling\_requested}, \code{org\_usage}, \code{canary\_tripped},
-\code{token\_pin\_mismatch}. Subscribe to \code{*} for all of them.
+\code{scaling\_requested}, \code{org\_usage},
+\code{disk\_usage\_warning}, \code{db\_backup}, \code{disk\_pruned}.
+Subscribe to \code{*} for all of them.
 
 \section{Audit events}
 
 Everything above, plus the administrative actions that have no webhook:
-\code{token\_updated}, \code{token\_rotated}, \code{token\_refreshed},
+\code{token\_updated}, \code{token\_refreshed},
 \code{org\_created}, \code{org\_deleted}, \code{org\_quota\_updated},
 \code{org\_oidc\_updated}, \code{org\_hostnames\_set},
 \code{user\_created}, \code{user\_updated}, \code{user\_deleted},
