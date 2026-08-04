@@ -60,6 +60,10 @@ export function ActivityChart({ history }: { history: number[] }) {
   const { data: activity, refresh } = usePoll(
     range === 'live' ? async () => null : () => api.activity(range),
     server?.pollMs ?? 10_000,
+    // The range is the question: switching it must not leave the previous
+    // range's series on screen under the new labels, nor let a slow reply to
+    // the old one land after the new one and put it back there.
+    range,
   )
   // Switching range asks at once rather than waiting out the poll: ten seconds
   // of an empty chart reads as "no traffic", which is a lie.
