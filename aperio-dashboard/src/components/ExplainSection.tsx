@@ -41,17 +41,22 @@ function say(
   const vars: Record<string, string | number> = {}
   for (const [name, value] of Object.entries(params ?? {})) {
     if (Array.isArray(value)) {
-      // Two shapes reach here: a list of client ids, and a list of clients
-      // with the reason each was passed over. The reason is a code too.
+      // A list of clients, each already carrying the name to show it under:
+      // the server decides that, because whether a service name is unique is
+      // a question about the whole list. Some carry a reason too, which is a
+      // code like everything else here.
       vars[name] = value
-        .map((item) =>
-          item !== null && typeof item === 'object'
-            ? `${(item as { id: string }).id} (${t(
-                EXPLAIN_INELIGIBLE[(item as { reason: string }).reason] ??
-                  (item as { reason: string }).reason,
-              )})`
-            : String(item),
-        )
+        .map((item) => {
+          if (item === null || typeof item !== 'object') return String(item)
+          const { label, id, reason } = item as {
+            label?: string
+            id?: string
+            reason?: string
+          }
+          const shown = label ?? id ?? ''
+          if (!reason) return shown
+          return `${shown} (${t(EXPLAIN_INELIGIBLE[reason] ?? reason)})`
+        })
         .join(', ')
     } else if (value !== null && value !== undefined) {
       vars[name] = value as string | number

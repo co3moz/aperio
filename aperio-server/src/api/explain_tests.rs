@@ -599,3 +599,80 @@ async fn a_maintenance_flag_reports_its_actor_and_reason_as_fields() {
   assert_eq!(body["summary_code"], "maintenance.flagged_reason_until");
   assert_eq!(body["summary_params"]["actor"], "alice");
 }
+
+#[tokio::test]
+async fn a_client_is_named_by_its_service_rather_than_its_id() {
+  // A connection id is a uuid. Nobody recognizes one, and the answer to
+  // "which client is that" is on the screen next to this one.
+  let state = Arc::new(test_state());
+  {
+    let mut clients = state.clients.write().await;
+    let mut named = mock_client(Some("app.example.com"), None, None, None);
+    named.service_name = Some("payments".to_string());
+    clients.insert("11111111-aaaa".to_string(), named);
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
+
+  let routing = step(&body, "routing");
+  assert!(
+    routing["detail"].as_str().unwrap().contains("payments"),
+    "{routing}"
+  );
+  // The id still travels, because it is what an action addresses.
+  let clients = routing["params"]["clients"].as_array().unwrap();
+  assert_eq!(clients[0]["label"], "payments");
+  assert_eq!(clients[0]["id"], "11111111-aaaa");
+  assert_eq!(body["summary_params"]["clients"][0]["label"], "payments");
+}
+
+#[tokio::test]
+async fn two_connections_of_one_service_are_told_apart_by_id() {
+  // A name is readable and not unique: `connections: 2` puts the same
+  // service on the list twice, and "payments, payments" answers nothing.
+  let state = Arc::new(test_state());
+  {
+    let mut clients = state.clients.write().await;
+    for id in ["aaaaaaaabbbb", "ccccccccdddd"] {
+      let mut c = mock_client(Some("app.example.com"), None, None, None);
+      c.service_name = Some("payments".to_string());
+      clients.insert(id.to_string(), c);
+    }
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
+  let labels: Vec<&str> = step(&body, "routing")["params"]["clients"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|c| c["label"].as_str().unwrap())
+    .collect();
+  assert!(labels.contains(&"payments (aaaaaaaa)"), "{labels:?}");
+  assert!(labels.contains(&"payments (cccccccc)"), "{labels:?}");
+}
+
+#[tokio::test]
+async fn an_ineligible_client_is_named_the_same_way() {
+  let state = Arc::new(test_state());
+  {
+    let mut clients = state.clients.write().await;
+    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    draining.draining = true;
+    draining.service_custom_name = Some("checkout (blue)".to_string());
+    clients.insert("22222222-bbbb".to_string(), draining);
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
+  let routing = step(&body, "routing");
+  assert!(
+    routing["detail"]
+      .as_str()
+      .unwrap()
+      .contains("checkout (blue) (draining)"),
+    "{routing}"
+  );
+  let first = &routing["params"]["ineligible"][0];
+  assert_eq!(first["label"], "checkout (blue)");
+  assert_eq!(first["id"], "22222222-bbbb");
+  assert_eq!(first["reason"], "ineligible.draining");
+}

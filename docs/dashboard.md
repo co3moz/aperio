@@ -176,6 +176,8 @@ It is a dry run in the strict sense: it spends no rate-limit token, moves no rou
 
 Each step is said twice. `detail` is a finished English sentence, which is what a script or the CLI wants; `code` names that sentence (`no_client.504`, `ineligible.draining`) and `params` carries the values it interpolates, which is what the dashboard renders, since the screen has eight languages and English prose cannot be translated after the fact. `summary` and `summary_code` are the same pair for the one-line answer. A consumer that does not care about the second half can keep reading `detail`; nothing about it changed.
 
+Clients are named the way the clients table names them: the `custom_name` if an operator set one, else the `name` of the `services:` entry, else the connection id. Both travel, `label` to read and `id` to act on. Two connections of one service would carry the same label, so those, and only those, also carry the head of their id.
+
 ## Messages
 
 The settings dialog's **Messages** pane shows the one thing about [client-to-client messaging](messaging.md) that cannot be worked out from the outside: which client processes are listening, and to which topic filters. A publish that reached nobody looks exactly like one that reached everybody, and the difference is almost always a filter that does not match or a token without the topic; both are on this screen at once.

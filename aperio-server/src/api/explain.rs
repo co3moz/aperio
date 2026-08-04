@@ -20,6 +20,7 @@ use axum::{
   response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -159,6 +160,41 @@ fn split_target(raw: &str) -> (String, Option<String>) {
     }
     None => (without_scheme.to_string(), None),
   }
+}
+
+/// What a client's own configuration calls it, if it says anything.
+///
+/// The same order the clients table uses: the `custom_name` an operator gave
+/// it, else the `name` of its `services:` entry.
+fn display_name(client: &crate::state::ClientHandle) -> Option<String> {
+  client
+    .service_custom_name
+    .clone()
+    .or_else(|| client.service_name.clone())
+}
+
+/// What to call each client on screen.
+///
+/// The id is unique and unreadable; the service name is readable and not
+/// unique, since a client can hold several connections and two clients can
+/// serve one service. So a name is used as it stands when it belongs to one
+/// entry, and carries the head of its id when it does not, which is the only
+/// case where the id is worth the room it takes.
+fn labels(entries: &[(String, Option<String>)]) -> Vec<String> {
+  let mut seen: HashMap<&str, usize> = HashMap::new();
+  for (_, name) in entries {
+    if let Some(name) = name {
+      *seen.entry(name.as_str()).or_default() += 1;
+    }
+  }
+  entries
+    .iter()
+    .map(|(id, name)| match name {
+      Some(name) if seen.get(name.as_str()) == Some(&1) => name.clone(),
+      Some(name) => format!("{name} ({})", &id[..id.len().min(8)]),
+      None => id.clone(),
+    })
+    .collect()
 }
 
 /// Walks the proxy's decisions for a request nobody sends.
@@ -502,11 +538,18 @@ pub(crate) async fn explain_handler(
     )
     .map(|(ids, _)| ids)
     .unwrap_or_default();
+    let pool: Vec<(String, Option<String>)> = pool
+      .into_iter()
+      .map(|id| {
+        let name = clients.get(&id).and_then(display_name);
+        (id, name)
+      })
+      .collect();
     // Every connected client that serves this hostname but would not take
     // the request, with the reason, which is the question behind most 504s.
-    let ineligible: Vec<(String, &'static str, &'static str)> = clients
+    let ineligible: Vec<(String, Option<String>, &'static str, &'static str)> = clients
       .iter()
-      .filter(|(id, c)| !pool.contains(id) && c.matches_host(&hostname))
+      .filter(|(id, c)| !pool.iter().any(|(p, _)| p == *id) && c.matches_host(&hostname))
       .map(|(id, c)| {
         let (why, code) = if !c.admin_enabled {
           ("disabled from the dashboard", "ineligible.disabled")
@@ -522,39 +565,60 @@ pub(crate) async fn explain_handler(
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };
-        (id.clone(), why, code)
+        (id.clone(), display_name(c), why, code)
       })
       .collect();
     (pool, ineligible)
   };
-  // The same list twice: once as a sentence for `detail`, once as data.
+  // The same lists twice: once as a sentence for `detail`, once as data.
+  // `label` is what a person reads and `id` is what addresses the client, so
+  // both travel; the caller renders the first and can still act on the second.
+  let pool_labels = labels(&pool);
+  let pool_data: Vec<serde_json::Value> = pool
+    .iter()
+    .zip(&pool_labels)
+    .map(|((id, _), label)| serde_json::json!({ "id": id, "label": label }))
+    .collect();
+  let ineligible_labels = labels(
+    &ineligible
+      .iter()
+      .map(|(id, name, _, _)| (id.clone(), name.clone()))
+      .collect::<Vec<_>>(),
+  );
   let ineligible_text: Vec<String> = ineligible
     .iter()
-    .map(|(id, why, _)| format!("{id} ({why})"))
+    .zip(&ineligible_labels)
+    .map(|((_, _, why, _), label)| format!("{label} ({why})"))
     .collect();
   let ineligible_data: Vec<serde_json::Value> = ineligible
     .iter()
-    .map(|(id, _, code)| serde_json::json!({ "id": id, "reason": code }))
+    .zip(&ineligible_labels)
+    .map(
+      |((id, _, _, code), label)| serde_json::json!({ "id": id, "label": label, "reason": code }),
+    )
     .collect();
 
   if !pool.is_empty() {
     let detail = format!(
       "{} client(s) would take it: {}",
       pool.len(),
-      pool.join(", ")
+      pool_labels.join(", ")
     );
     if outcome.is_none() {
       decided(
         &mut outcome,
         "client",
-        format!("the request reaches a tunnel client ({})", pool.join(", ")),
+        format!(
+          "the request reaches a tunnel client ({})",
+          pool_labels.join(", ")
+        ),
         "client.reached",
-        Some(serde_json::json!({ "clients": pool })),
+        Some(serde_json::json!({ "clients": pool_data })),
       );
     }
     steps.push(
       Step::new("routing", Verdict::Passes, "routing.candidates", detail)
-        .with(serde_json::json!({ "count": pool.len(), "clients": pool }))
+        .with(serde_json::json!({ "count": pool.len(), "clients": pool_data }))
         .from_named("hostname/path binds", "setting.host_path_binds"),
     );
   } else {
