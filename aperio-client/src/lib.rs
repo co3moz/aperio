@@ -1470,6 +1470,29 @@ fn validate_depends_on(specs: &[ServiceSpec]) -> Result<(), String> {
 ///
 /// `https` needs no queue on this side: the forwarder owns the receiver and
 /// posts to the server itself, so nothing has to reach into a service task.
+/// One running local face: its address, the switch that ends it, and the
+/// acceptor's handle.
+///
+/// The switch reaches the accepted sessions as well as the acceptor. Ending
+/// only the acceptor left every connection the face had already taken serving
+/// a face the configuration no longer asks for, for as long as its client
+/// cared to hold it open.
+struct Face {
+  addr: String,
+  cancel: tokio::sync::watch::Sender<bool>,
+  task: tokio::task::JoinHandle<()>,
+}
+
+impl Face {
+  async fn stop(self, what: &str) {
+    let _ = self.cancel.send(true);
+    // Bounded: a face that will not wind up must not hold a reload, let
+    // alone a shutdown, and its listener is released by the drop either way.
+    let _ = tokio::time::timeout(Duration::from_secs(2), self.task).await;
+    info!("{what} on {} stopped", self.addr);
+  }
+}
+
 /// The process-wide facilities a reload has to be able to change: the two
 /// local message faces and the subscription runners.
 ///
@@ -1484,8 +1507,8 @@ fn validate_depends_on(specs: &[ServiceSpec]) -> Result<(), String> {
 /// changed something else entirely has no business doing that.
 #[derive(Default)]
 struct ProcessFacilities {
-  http_face: Option<(String, tokio::task::JoinHandle<()>)>,
-  mqtt_face: Option<(String, tokio::task::JoinHandle<()>)>,
+  http_face: Option<Face>,
+  mqtt_face: Option<Face>,
   runners: Option<tokio::task::JoinHandle<()>>,
   /// What `otel_bridge:` said at startup, to notice a reload that changes it.
   otel_bridge: Option<aperio_config::OtelBridge>,
@@ -1502,37 +1525,36 @@ impl ProcessFacilities {
     shared: &Shared,
     first: bool,
   ) -> Result<(), String> {
-    // The HTTP face.
-    let want = settings.messages_listen.clone();
-    if self.http_face.as_ref().map(|(a, _)| a.clone()) != want {
-      if let Some((addr, task)) = self.http_face.take() {
-        task.abort();
-        info!("Message face on {addr} stopped: the configuration no longer asks for it");
-      }
-      if let Some(addr) = want {
-        match crate::messages_http::serve(&addr, shared.messages.clone()).await {
-          Ok(task) => self.http_face = Some((addr, task)),
-          Err(e) if first => return Err(e),
-          Err(e) => warn!("{e}; keeping the previous message face configuration"),
-        }
-      }
-    }
+    // The two faces. The address the file now asks for is bound *before* the
+    // running one is stopped, so a bind that fails leaves the old face
+    // serving: stopping first and then failing left the process with no face
+    // at all, under a log line that claimed the previous configuration had
+    // been kept.
+    let bus = shared.messages.clone();
+    self.http_face = swap_face(
+      self.http_face.take(),
+      settings.messages_listen.clone(),
+      "Message face",
+      first,
+      |addr, cancel| {
+        let bus = bus.clone();
+        Box::pin(async move { crate::messages_http::serve(&addr, bus, cancel).await })
+      },
+    )
+    .await?;
 
-    // The MQTT face.
-    let want = settings.messages_mqtt_listen.clone();
-    if self.mqtt_face.as_ref().map(|(a, _)| a.clone()) != want {
-      if let Some((addr, task)) = self.mqtt_face.take() {
-        task.abort();
-        info!("MQTT face on {addr} stopped: the configuration no longer asks for it");
-      }
-      if let Some(addr) = want {
-        match crate::messages_mqtt::serve(&addr, shared.messages.clone()).await {
-          Ok(task) => self.mqtt_face = Some((addr, task)),
-          Err(e) if first => return Err(e),
-          Err(e) => warn!("{e}; keeping the previous MQTT face configuration"),
-        }
-      }
-    }
+    let bus = shared.messages.clone();
+    self.mqtt_face = swap_face(
+      self.mqtt_face.take(),
+      settings.messages_mqtt_listen.clone(),
+      "MQTT face",
+      first,
+      |addr, cancel| {
+        let bus = bus.clone();
+        Box::pin(async move { crate::messages_mqtt::serve(&addr, bus, cancel).await })
+      },
+    )
+    .await?;
 
     // Subscription filters. Replaced wholesale; a filter a local subscriber
     // is still holding survives, because that subscriber is still there.
@@ -1582,6 +1604,57 @@ impl ProcessFacilities {
     }
     self.otel_bridge = settings.otel_bridge.clone();
     Ok(())
+  }
+}
+
+/// Brings one face in line with what the configuration now asks for.
+///
+/// The order is the whole point: bind first, stop second. Only an address
+/// that actually changed gets here, so the two never contend for the same
+/// port, and a failure to bind the new one leaves the old one serving rather
+/// than leaving the process with nothing.
+async fn swap_face<F>(
+  running: Option<Face>,
+  want: Option<String>,
+  what: &str,
+  first: bool,
+  start: F,
+) -> Result<Option<Face>, String>
+where
+  F: FnOnce(
+    String,
+    tokio::sync::watch::Receiver<bool>,
+  ) -> std::pin::Pin<
+    Box<dyn Future<Output = Result<tokio::task::JoinHandle<()>, String>> + Send>,
+  >,
+{
+  if running.as_ref().map(|f| f.addr.clone()) == want {
+    return Ok(running);
+  }
+  let Some(addr) = want else {
+    if let Some(face) = running {
+      face
+        .stop(&format!("{what} (the configuration no longer asks for it)"))
+        .await;
+    }
+    return Ok(None);
+  };
+  let (cancel, cancel_rx) = tokio::sync::watch::channel(false);
+  match start(addr.clone(), cancel_rx).await {
+    Ok(task) => {
+      if let Some(face) = running {
+        face.stop(&format!("{what} (moved to {addr})")).await;
+      }
+      Ok(Some(Face { addr, cancel, task }))
+    }
+    Err(e) if first => Err(e),
+    Err(e) => {
+      match &running {
+        Some(face) => warn!("{e}; the {what} on {} keeps serving", face.addr),
+        None => warn!("{e}; no {what} is running"),
+      }
+      Ok(running)
+    }
   }
 }
 

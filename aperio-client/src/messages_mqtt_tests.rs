@@ -13,7 +13,10 @@ async fn start(bus: Arc<MessageBus>) -> String {
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = listener.local_addr().unwrap().to_string();
   drop(listener);
-  serve(&addr, bus).await.unwrap();
+  // The switch is dropped with this helper, which the face treats as "nobody
+  // will ever ask me to stop" rather than as a stop.
+  let (_cancel, cancel_rx) = tokio::sync::watch::channel(false);
+  serve(&addr, bus, cancel_rx).await.unwrap();
   addr
 }
 

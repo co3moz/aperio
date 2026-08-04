@@ -30,11 +30,29 @@ use crate::pubsub::MessageBus;
 /// data, which is what tunnels are for.
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
+/// Resolves once the face is asked to stop.
+///
+/// A dropped switch is deliberately *not* a stop: `changed()` reports the
+/// sender going away as an error, and treating that as a cancellation would
+/// have a face shut itself down the moment whoever started it stopped holding
+/// the handle, which is a caller's bug, not a signal.
+async fn asked_to_stop(cancel: &mut tokio::sync::watch::Receiver<bool>) {
+  loop {
+    if *cancel.borrow_and_update() {
+      return;
+    }
+    if cancel.changed().await.is_err() {
+      std::future::pending::<()>().await;
+    }
+  }
+}
+
 /// Starts the local listener. Returns once it is bound, so a failure is
 /// reported at startup rather than on the first request.
 pub(crate) async fn serve(
   addr: &str,
   bus: Arc<MessageBus>,
+  mut cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Result<tokio::task::JoinHandle<()>, String> {
   let listener = TcpListener::bind(addr)
     .await
@@ -53,11 +71,24 @@ pub(crate) async fn serve(
 
   Ok(tokio::spawn(async move {
     loop {
-      match listener.accept().await {
+      // The sessions are cancelled with the acceptor, not left behind it:
+      // stopping only the acceptor left every connection this face had
+      // already accepted serving a face the configuration no longer asks
+      // for, for as long as its client kept it open.
+      let accepted = tokio::select! {
+        _ = asked_to_stop(&mut cancel) => return,
+        accepted = listener.accept() => accepted,
+      };
+      match accepted {
         Ok((stream, peer)) => {
           let bus = bus.clone();
+          let mut cancel = cancel.clone();
           tokio::spawn(async move {
-            if let Err(e) = handle(stream, bus).await {
+            let served = tokio::select! {
+              _ = asked_to_stop(&mut cancel) => return,
+              served = handle(stream, bus) => served,
+            };
+            if let Err(e) = served {
               debug!("Message face connection from {peer} ended: {e}");
             }
           });

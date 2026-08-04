@@ -11,7 +11,10 @@ async fn start(bus: Arc<MessageBus>) -> String {
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = listener.local_addr().unwrap().to_string();
   drop(listener);
-  serve(&addr, bus).await.unwrap();
+  // The switch is dropped with this helper, which the face treats as "nobody
+  // will ever ask me to stop" rather than as a stop.
+  let (_cancel, cancel_rx) = tokio::sync::watch::channel(false);
+  serve(&addr, bus, cancel_rx).await.unwrap();
   addr
 }
 
@@ -288,4 +291,44 @@ async fn the_faces_edges_answer_with_the_right_statuses() {
     "{}",
     &refused[..refused.len().min(120)]
   );
+}
+
+#[tokio::test]
+async fn stopping_the_face_ends_the_sessions_it_had_already_accepted() {
+  // Only the acceptor used to be stopped, so a face the operator removed
+  // from the configuration went on serving every connection it had already
+  // taken, for as long as the client kept it open.
+  let bus = MessageBus::new(vec![]);
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap().to_string();
+  drop(listener);
+  let (cancel, cancel_rx) = tokio::sync::watch::channel(false);
+  let task = serve(&addr, bus, cancel_rx).await.unwrap();
+
+  // An SSE subscription: the handler stays inside it until the connection
+  // ends, which is exactly the session an abort of the acceptor cannot reach.
+  let mut stream = TcpStream::connect(&addr).await.unwrap();
+  stream
+    .write_all(b"GET /subscribe?topic=things/x HTTP/1.1\r\nHost: x\r\n\r\n")
+    .await
+    .unwrap();
+  let mut head = [0u8; 64];
+  let n = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut head))
+    .await
+    .expect("the face answers the subscription")
+    .unwrap();
+  assert!(
+    String::from_utf8_lossy(&head[..n]).contains("200"),
+    "the stream is open"
+  );
+
+  let _ = cancel.send(true);
+  // The session ends with the face: the socket reaches end of stream.
+  let mut rest = Vec::new();
+  let closed = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut rest)).await;
+  assert!(
+    closed.is_ok(),
+    "the session outlived the face it belongs to"
+  );
+  let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
 }
