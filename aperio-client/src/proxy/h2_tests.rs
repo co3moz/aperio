@@ -678,3 +678,30 @@ async fn a_successful_h2_response_closes_the_breaker() {
     crate::proxy::http::BreakerVerdict::Proceed
   ));
 }
+
+#[tokio::test]
+async fn a_stalled_h2_backend_is_retried_like_any_other_pre_response_failure() {
+  // A timeout on the head answered 504 at once, skipping the retry loop it
+  // was standing in, although `retry.attempts` is documented to cover
+  // exactly this: a failure before any response arrived. A stalled backend
+  // is the case an operator most expects a retry to cover, and it was the
+  // one case that did not get one.
+  let port = start_h2c_backend().await;
+  let (tx, _rx) = mpsc::channel::<Message>(64);
+  let mut ctx = h2_ctx(port, tx);
+  ctx.timeout_secs = 1;
+  ctx.resilience = crate::proxy::http::BackendResilience::new(2, 1, false, 0, 30);
+
+  let started = std::time::Instant::now();
+  // `/hang` never answers, so both attempts run out their budget.
+  let result = handle_incoming_request_h2(&ctx, req("slow", "GET", "/hang"), None, false).await;
+  assert!(
+    matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
+    "a stalled backend is still a 504 in the end, got {result:?}"
+  );
+  assert!(
+    started.elapsed() >= std::time::Duration::from_secs(2),
+    "took {:?}: only one attempt was made, so the timeout skipped the retry",
+    started.elapsed()
+  );
+}

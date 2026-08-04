@@ -414,3 +414,44 @@ async fn test_unix_timeout() {
   };
   assert_eq!(status, 504);
 }
+
+#[tokio::test]
+async fn a_stalled_unix_backend_is_retried_like_any_other_pre_response_failure() {
+  use tokio::io::AsyncReadExt;
+
+  // Same as the HTTP/2 path: a timeout on the head answered 504 at once and
+  // skipped the retry loop it was standing in, although retry.attempts is
+  // documented to cover a failure before any response arrived.
+  // Flat in the temp dir: a nested one pushes the path past SUN_LEN.
+  let sock = std::env::temp_dir().join(format!("aperio-stall-{}.sock", uuid::Uuid::new_v4()));
+  let listener = tokio::net::UnixListener::bind(&sock).unwrap();
+  let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let counter = accepted.clone();
+  tokio::spawn(async move {
+    // Accept and read, but never answer.
+    while let Ok((mut stream, _)) = listener.accept().await {
+      counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+      tokio::spawn(async move {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf).await;
+        std::future::pending::<()>().await;
+      });
+    }
+  });
+
+  let (tx, _rx) = mpsc::channel::<Message>(64);
+  let mut ctx = base_ctx(&sock.to_string_lossy(), tx);
+  ctx.timeout_secs = 1;
+  ctx.resilience = crate::proxy::http::BackendResilience::new(2, 1, false, 0, 30);
+  let result = handle_incoming_request_unix(&ctx, req("slow", "GET", "/"), None, false).await;
+  assert!(
+    matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
+    "a stalled backend is still a 504 in the end, got {result:?}"
+  );
+  assert_eq!(
+    accepted.load(std::sync::atomic::Ordering::SeqCst),
+    2,
+    "the timeout skipped the retry: only one connection was made"
+  );
+  let _ = std::fs::remove_file(&sock);
+}

@@ -3,6 +3,7 @@
 //! hyper because reqwest does not expose response trailers, and gRPC carries
 //! its status (`grpc-status`) in the trailers.
 
+use crate::proxy::http::Failure;
 use base64::prelude::*;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, StreamBody, combinators::BoxBody};
@@ -266,23 +267,24 @@ pub(crate) async fn handle_incoming_request_h2(
       h2_client.request(request),
     )
     .await;
-    let e = match outcome {
+    // A timeout on the head is a failure before any response arrived, which
+    // is exactly what `retry.attempts` is documented to cover, so it takes
+    // the same path as a transport error rather than answering at once. A
+    // stalled backend is the case an operator most expects a retry to cover,
+    // and it was the one case that skipped the loop it was standing in.
+    let failure = match outcome {
       Ok(Ok(res)) => break Ok(res),
-      Ok(Err(e)) => e,
-      Err(_) => {
-        warn!("Tunnel request TIMEOUT (h2): ID={}", id);
-        ctx.resilience.record_failure();
-        return Some(make_error_response(id, 504));
-      }
+      Ok(Err(e)) => Failure::Backend(e),
+      Err(_) => Failure::Timeout,
     };
     let replayable = method_retryable && replayable_body.is_some();
     if replayable && attempt < ctx.resilience.attempts {
       warn!(
-        "Backend attempt {}/{} failed for request ID {} (h2): {:?}; retrying in {}ms",
+        "Backend attempt {}/{} failed for request ID {} (h2): {}; retrying in {}ms",
         attempt,
         ctx.resilience.attempts,
         id,
-        e,
+        failure,
         backoff.as_millis()
       );
       tokio::time::sleep(backoff).await;
@@ -291,25 +293,35 @@ pub(crate) async fn handle_incoming_request_h2(
       continue;
     }
     // The same silent re-dial the HTTP/1 path does for a connection the
-    // backend had already closed: this client pools connections too.
-    if replayable
+    // backend had already closed: this client pools connections too. Never
+    // for a timeout, which says the backend took the request and went quiet.
+    if let Failure::Backend(e) = &failure
+      && replayable
       && !redialed_stale
       && !e.is_connect()
-      && crate::proxy::http::chain_says_connection_closed(&e)
+      && crate::proxy::http::chain_says_connection_closed(e)
     {
       redialed_stale = true;
       continue;
     }
-    break Err(Some(e));
+    break Err(Some(failure));
   };
   let res = match res {
     Ok(res) => res,
-    Err(e) => {
-      if let Some(e) = e {
-        warn!("Tunnel request FAILURE (h2): ID={} Error={:?}", id, e);
-      }
+    Err(failure) => {
       ctx.resilience.record_failure();
-      return Some(make_error_response(id, 502));
+      return Some(match failure {
+        Some(Failure::Timeout) => {
+          warn!("Tunnel request TIMEOUT (h2): ID={}", id);
+          make_error_response(id, 504)
+        }
+        Some(Failure::Backend(e)) => {
+          warn!("Tunnel request FAILURE (h2): ID={} Error={:?}", id, e);
+          make_error_response(id, 502)
+        }
+        // The streamed body was spent by an earlier attempt.
+        None => make_error_response(id, 502),
+      });
     }
   };
   // A response head arrived, so the backend is reachable; its status is

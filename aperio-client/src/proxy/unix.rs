@@ -15,6 +15,7 @@ use tracing::{error, info, warn};
 
 use crate::protocol::TunnelMessage;
 use crate::protocol::send_tunnel_msg;
+use crate::proxy::http::Failure;
 use crate::proxy::http::{
   ChunkCoalescer, ForwardContext, ForwardRequest, STREAM_CHUNK_SIZE, STREAM_THRESHOLD,
   make_error_response, send_response_chunk,
@@ -213,14 +214,13 @@ pub(crate) async fn handle_incoming_request_unix(
     };
     let request = hyper::Request::from_parts(head.clone(), body);
     let outcome = tokio::time::timeout(timeout, dial_and_send(socket_path, request)).await;
-    let e = match outcome {
+    // A timeout on the head is a failure before any response arrived, which
+    // is what `retry.attempts` is documented to cover, so it goes round the
+    // loop like a transport error rather than answering at once.
+    let failure = match outcome {
       Ok(Ok(res)) => break Ok(res),
-      Ok(Err(e)) => e,
-      Err(_) => {
-        warn!("Tunnel request TIMEOUT (unix): ID={}", id);
-        ctx.resilience.record_failure();
-        return Some(make_error_response(id, 504));
-      }
+      Ok(Err(e)) => Failure::Backend(e),
+      Err(_) => Failure::Timeout,
     };
     // A fresh socket per request here, so there is no pooled connection to
     // find closed: only the configured policy retries.
@@ -230,7 +230,7 @@ pub(crate) async fn handle_incoming_request_unix(
         attempt,
         ctx.resilience.attempts,
         id,
-        e,
+        failure,
         backoff.as_millis()
       );
       tokio::time::sleep(backoff).await;
@@ -238,16 +238,23 @@ pub(crate) async fn handle_incoming_request_unix(
       attempt += 1;
       continue;
     }
-    break Err(Some(e));
+    break Err(Some(failure));
   };
   let res = match res {
     Ok(res) => res,
-    Err(e) => {
-      if let Some(e) = e {
-        warn!("Tunnel request FAILURE (unix): ID={} Error={}", id, e);
-      }
+    Err(failure) => {
       ctx.resilience.record_failure();
-      return Some(make_error_response(id, 502));
+      return Some(match failure {
+        Some(Failure::Timeout) => {
+          warn!("Tunnel request TIMEOUT (unix): ID={}", id);
+          make_error_response(id, 504)
+        }
+        Some(Failure::Backend(e)) => {
+          warn!("Tunnel request FAILURE (unix): ID={} Error={}", id, e);
+          make_error_response(id, 502)
+        }
+        None => make_error_response(id, 502),
+      });
     }
   };
   ctx.resilience.record_success();

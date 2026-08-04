@@ -501,7 +501,28 @@ pub(crate) struct ForwardRequest {
   pub(crate) raw_body: Option<Vec<u8>>,
 }
 
-/// Forwards a proxied HTTP request from the websocket tunnel to the local target server.
+/// How an attempt at the backend failed, for the two paths that dial with
+/// hyper directly and so have to tell a timeout from a transport error
+/// themselves.
+///
+/// Both are failures before any response arrived, which is what
+/// `retry.attempts` covers, so both go round the retry loop; they part
+/// company only at the end, where a stalled backend is a `504` and an
+/// unreachable one a `502`.
+pub(crate) enum Failure<E> {
+  Timeout,
+  Backend(E),
+}
+
+impl<E: std::fmt::Debug> std::fmt::Display for Failure<E> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Failure::Timeout => write!(f, "timed out waiting for the response head"),
+      Failure::Backend(e) => write!(f, "{e:?}"),
+    }
+  }
+}
+
 /// Whether a failed request looks like a connection the backend had already
 /// closed, rather than a backend that is actually unwell.
 ///
@@ -549,8 +570,11 @@ pub(crate) fn chain_says_connection_closed(e: &(dyn std::error::Error + 'static)
   false
 }
 
-/// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request, and returns
-/// the response mapped back into a `TunnelMessage`.
+/// Forwards a proxied HTTP request from the websocket tunnel to the local
+/// target server.
+///
+/// Sanitizes sensitive/upgrade headers, rewrites URLs, routes the HTTP request,
+/// and returns the response mapped back into a `TunnelMessage`.
 ///
 /// Small responses are returned as `Some(TunnelMessage::Response)` for the
 /// caller to send. Large responses are streamed directly through the tunnel
