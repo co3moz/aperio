@@ -89,3 +89,34 @@ async fn a_reload_replaces_the_configured_filters_and_keeps_held_ones() {
   assert!(bus.release_filter("live/#").await);
   assert!(!bus.wants("live/x").await);
 }
+
+#[tokio::test]
+async fn a_holder_survives_a_reload_that_still_names_its_filter() {
+  // The quiet half of the same bug. A filter the new configuration still
+  // names was rebuilt from scratch with no holders, so a subscriber's hold
+  // was silently lost while everything still worked; the failure only showed
+  // up at a *later* reload, when the filter left the file and was dropped
+  // with the subscriber still attached and still expecting messages.
+  let bus = MessageBus::new(vec!["a/#".to_string()]);
+  assert!(
+    !bus.hold_filter("a/#").await,
+    "the process already wanted it"
+  );
+
+  // A reload that changes something else but keeps `a/#`.
+  assert!(
+    bus
+      .set_filters(vec!["a/#".to_string(), "b/#".to_string()])
+      .await
+  );
+  // And then one that drops it. The subscriber is still there.
+  assert!(bus.set_filters(vec!["b/#".to_string()]).await);
+  assert!(
+    bus.wants("a/x").await,
+    "the subscriber's hold was lost somewhere in the reloads"
+  );
+
+  // It is given back when that subscriber actually leaves, and not before.
+  assert!(bus.release_filter("a/#").await);
+  assert!(!bus.wants("a/x").await);
+}

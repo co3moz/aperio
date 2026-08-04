@@ -113,26 +113,39 @@ impl MessageBus {
     if before == topics {
       return false;
     }
-    // A filter a local subscriber is holding survives, whatever the file
-    // now says: an SSE connection or an MQTT session asked for it and is
-    // still there, and a reload is not a reason to stop delivering to it.
-    let held: Vec<Filter> = filters
-      .drain(..)
-      .filter(|f| f.holders > 0 && !topics.contains(&f.pattern))
-      .map(|f| Filter {
-        from_config: false,
-        ..f
-      })
-      .collect();
-    *filters = topics
-      .into_iter()
-      .map(|pattern| Filter {
+    // A local subscriber's hold is not part of what the file asked for, so it
+    // survives the file changing, whichever way. Two ways to lose it, and the
+    // first release only closed one of them: a filter the new configuration
+    // *drops* has to keep its holders, and so does one the new configuration
+    // still *names*, which was being rebuilt from scratch with `holders: 0`.
+    // That second one is the quieter of the two, because nothing goes wrong
+    // until a later reload drops the filter and the subscriber that is still
+    // there stops receiving.
+    let mut previous: Vec<Filter> = filters.drain(..).collect();
+    let mut next: Vec<Filter> = Vec::with_capacity(topics.len() + previous.len());
+    for pattern in topics {
+      let holders = previous
+        .iter()
+        .position(|f| f.pattern == pattern)
+        .map(|at| previous.remove(at).holders)
+        .unwrap_or(0);
+      next.push(Filter {
         pattern,
         from_config: true,
-        holders: 0,
-      })
-      .chain(held)
-      .collect();
+        holders,
+      });
+    }
+    // What the file no longer names, kept only while somebody holds it.
+    next.extend(
+      previous
+        .into_iter()
+        .filter(|f| f.holders > 0)
+        .map(|f| Filter {
+          from_config: false,
+          ..f
+        }),
+    );
+    *filters = next;
     true
   }
 
