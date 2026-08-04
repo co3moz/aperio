@@ -10,7 +10,7 @@ backends. See the [root README](../README.md) for the big picture and
 ```bash
 cargo build -p aperio-client            # binary: target/debug/aperio-client
 cargo test -p aperio-client             # unit tests
-bash ../tests/e2e.sh                    # full end-to-end suite (needs debug binaries)
+npm --prefix ../tests/e2e test         # full end-to-end suite (needs debug binaries)
 ```
 
 ## Source map

@@ -1,6 +1,6 @@
-# End-to-end suite (Node)
+# End-to-end suite
 
-The same ground `tests/e2e.sh` covers, as classes.
+The real binaries, driven from the outside over HTTP, as classes.
 
 ```bash
 cd tests/e2e-node
@@ -77,9 +77,21 @@ chain.
 its tunnel by `Host`, so use `server._fetch()` (which is `node:http` under
 `lib/http.ts`), never global `fetch`.
 
-## Against the bash suite
+## What replaced what
 
-Both cover the same seventeen phases. This one runs them in about a third of
-the time because it can run them at once, and every phase can be run on its
-own, which six of the bash phases cannot: they depend on a backend that
-`a-base.sh` starts.
+This was a shell suite until it wasn't: `tests/e2e.sh` sourced a harness and
+seventeen phase files, about 3,700 lines, with nineteen Python servers living
+inside heredocs. It covered the same ground and its coverage of the Rust code
+was the same to within a tenth of a point.
+
+Three things are better here and they are worth knowing, because they are
+what the next person should not give back:
+
+- **Every phase runs on its own.** Six of the shell phases could not; they
+  used a backend the first phase started, so looking at one meant running the
+  ones before it.
+- **Ports are per instance.** Nothing is pinned, so phases do not contend and
+  `--concurrency` works: about 94 seconds became about 27.
+- **The lifecycle belongs to the runner.** The old config phase carried a
+  comment explaining that a forgotten `stop_server` took down the *next*
+  phase. `cleanUp` cannot forget.

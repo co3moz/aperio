@@ -77,7 +77,7 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Install Node.js (dashboard build)
+      - name: Install Node.js (the E2E suite runs on it)
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -92,12 +92,12 @@ jobs:
 
       # Line/region coverage of the whole workspace via rustc's LLVM
       # source-based instrumentation, merging the unit tests AND the E2E
-      # integration run into one report: `show-env` points CARGO_TARGET_DIR
-      # at the instrumented build, which tests/e2e.sh picks up, and the
-      # server/client write their profile data on the graceful SIGTERM
-      # exit, so the tunnel/proxy runtime paths count too. Reported, not
-      # gated: the table lands in the job summary, the full HTML report as
-      # a downloadable artifact.
+      # integration run into one report: `show-env` points the build at the
+      # instrumented artifacts, which the E2E suite picks up from
+      # `target/debug`, and the server/client write their profile data on
+      # the graceful SIGTERM exit, so the tunnel/proxy runtime paths count
+      # too. Reported, not gated: the table lands in the job summary, the
+      # full HTML report as a downloadable artifact.
       - name: Measure coverage (unit tests + e2e)
         # Test-only scaffolding (`*_tests.rs`, the shared `test_support.rs`
         # fixture) is excluded from the report, it is not shipped code and
@@ -111,8 +111,9 @@ jobs:
           # before later crates' tests emit their profraw (which would silently
           # understate coverage). The real pass/fail gate is the `build` job.
           cargo test --workspace --no-fail-fast
-          cargo build -p aperio-server -p aperio-client
-          bash tests/e2e.sh
+          cargo build -p aperio-server -p aperio-client -p mock-h2
+          npm --prefix tests/e2e ci
+          npm --prefix tests/e2e test
           cargo llvm-cov report --html --output-dir coverage-html --ignore-filename-regex "$COV_IGNORE"
           echo '## Coverage (unit tests + e2e)' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -224,7 +225,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Node.js (dashboard build)
+      - name: Install Node.js (the E2E suite runs on it)
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -233,12 +234,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build server and client binaries
-        run: cargo build -p aperio-server -p aperio-client
+        run: cargo build -p aperio-server -p aperio-client -p mock-h2
 
-      # Real integration test: aperio-server + aperio-client + mock backend,
+      - name: Install the E2E suite's dependencies
+        run: npm --prefix tests/e2e ci
+
+      # Real integration test: aperio-server + aperio-client + mock backends,
       # exercising proxying, dashboard APIs, and the programmatic tunnels API.
+      # Every phase gets its own server on its own port, so they run four at
+      # a time.
       - name: Run E2E integration test
-        run: bash tests/e2e.sh
+        run: npm --prefix tests/e2e test
 
   # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.

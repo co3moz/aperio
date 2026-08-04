@@ -12,7 +12,7 @@ user-facing documentation.
 cargo build -p aperio-server            # also builds + embeds the dashboard (needs Node.js)
 APERIO_SKIP_DASHBOARD_BUILD=1 cargo build -p aperio-server   # reuse aperio-dashboard/dist/
 cargo test -p aperio-server
-bash ../tests/e2e.sh
+npm --prefix ../tests/e2e test
 ```
 
 Debug builds read `aperio-dashboard/dist/` from disk at runtime, so a

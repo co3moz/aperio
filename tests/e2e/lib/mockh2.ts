@@ -27,6 +27,15 @@ export function MockH2Base(options: Parameters<typeof Test>[0] = {}) {
     _proc?: ChildProcess
 
     async hookStart() {
+      // Built on demand, the way the bash phase built it: it is a helper
+      // crate, not a workspace default, so a fresh checkout has the server
+      // and the client but not this. Without it the spawn below fails and
+      // the failure reads as "the backend never came up".
+      if (!existsSync(mockH2Bin())) {
+        await run('cargo', ['build', '-p', 'mock-h2'], {
+          cwd: join(import.meta.dirname, '..', '..', '..'),
+        })
+      }
       this._port = await freePort()
       this._proc = spawn(mockH2Bin(), ['server', String(this._port)], {
         stdio: ['ignore', 'ignore', 'ignore'],

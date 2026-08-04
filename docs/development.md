@@ -25,7 +25,7 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 ## Tests & end-to-end suite
 
-`cargo test --all` runs the unit tests. `bash tests/e2e.sh` runs the end-to-end suite, a real `aperio-server`, several `aperio-client` processes, and stdlib-only Python mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
+`cargo test --all` runs the unit tests. `npm --prefix tests/e2e test` runs the end-to-end suite: a real `aperio-server`, several `aperio-client` processes, and mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). Each phase gets its own server on its own port, so they run four at a time and any one of them can be run alone. CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
 
 ### Protocol fuzzing
 
@@ -51,7 +51,7 @@ cargo llvm-cov --workspace          # per-file summary table
 cargo llvm-cov --workspace --open   # line-by-line HTML report in the browser
 ```
 
-CI goes further and merges the E2E integration run into the same report (instrumented binaries driven by `tests/e2e.sh`), publishing it as a `coverage-report` artifact on every run, that merged number is the real one, since the tunnel/proxy runtime paths are mostly exercised end-to-end rather than by unit tests. Note that the e2e merge relies on graceful SIGTERM handling to flush profile data, so it only works on Unix (CI/WSL); a local Windows run reports the unit-test-only number.
+CI goes further and merges the E2E integration run into the same report (instrumented binaries driven by `tests/e2e`), publishing it as a `coverage-report` artifact on every run, that merged number is the real one, since the tunnel/proxy runtime paths are mostly exercised end-to-end rather than by unit tests. Note that the e2e merge relies on graceful SIGTERM handling to flush profile data, so it only works on Unix (CI/WSL); a local Windows run reports the unit-test-only number.
 
 ## Releases
 
