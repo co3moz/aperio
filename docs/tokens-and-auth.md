@@ -10,6 +10,8 @@ Aperio has several independent auth layers. They answer different questions, *wh
 
 ## Dynamic tokens
 
+![The API Tokens page: scoped credentials with their permissions, limits and expiry](images/dashboard-tokens.png)
+
 Minted from the dashboard's *API Tokens* section, each token is scoped and revocable:
 
 - **Hostnames**, which hostname binds the token may claim (`*` = any). Specific entries are **auto-bound** on connect, so the client doesn't even need `--host`.

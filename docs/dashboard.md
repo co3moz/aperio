@@ -83,6 +83,8 @@ Admins see every live dashboard session on the Users page, who is signed in, fro
 
 ## Maintenance mode
 
+![Maintenance: the per-hostname 503 switch, with each flag's reason and when it lifts](images/dashboard-maintenance.png)
+
 Put a hostname into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
 
 Four shapes are accepted, the same three an organization's hostname allowlist is written in plus the server-wide one:
@@ -122,6 +124,8 @@ A subdomain wildcard is the answer to "take everything under this domain down": 
 When the built-in `aperio` super-admin is signed in, an **organization picker** appears at the top of the sidebar and an **Organizations** page (create / delete child organizations, with live user and token counts) is available. Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant. Named users don't see the picker: they are pinned to their own organization. See [Organizations](organizations.md).
 
 ## Settings dialog
+
+![The settings dialog, open over the page underneath rather than replacing it](images/dashboard-settings.png)
 
 The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users**, **Webhooks** and **Webhook Inbox**; each is still reachable by role (a viewer sees the webhook panes only, organizations and server settings are the master super-admin's).
 
@@ -165,6 +169,8 @@ The two long rings are written to the store on the same flush as the persistent 
 Both are organization-scoped, like every other traffic view. Refusals count too: a chart that leaves out the 429s shows a quiet server at the moment it is turning everything away.
 
 ## Explain a request
+
+![Explain: the decision chain for a request nobody sent, with the deciding stage marked](images/dashboard-explain.png)
 
 The **Topology** page carries a box that answers the question a dashboard could never answer before: *why would a request to this hostname get that answer*. Type a hostname (or paste a URL) and the server walks the same decisions the proxy makes, in the same order, and marks the one that decides:
 

@@ -154,6 +154,9 @@ createServer((req, res) => {
       // not something a deployment with real visitors would hit.
       APERIO_IP_LIMIT_MAX: '100000',
       APERIO_IP_LIMIT_REFILL: '10000',
+      // The autoscaling screen is a list of armed records, so the feature has
+      // to be on for the client's declaration to be honored at all.
+      APERIO_SCALING: '1',
     },
   })
   await waitFor('the server', async () => (await api('/aperio/auth')).ok)
@@ -170,6 +173,11 @@ services:
     custom_name: "Checkout API"
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: api.example.com
+scaling:
+  url: https://api.provider.example/apps/checkout/scale
+  min: 0
+  max: 8
+  cold_start: 45s
 tunnels:
   - name: pg_main
     custom_name: "Primary Postgres"
@@ -187,6 +195,10 @@ tunnels:
     const stats = await res.json()
     return stats.connected_clients_count > 0
   })
+
+  // A screen with an empty state says nothing about the product, so the few
+  // rows these pages are *for* are created here rather than left to chance.
+  await seed(session)
 
   await driveTraffic()
   // Said out loud: a capture of an idle-looking dashboard is the failure mode
@@ -243,6 +255,50 @@ tunnels:
   }
 
   await browser.close()
+}
+
+/** Creates the handful of rows the token, maintenance and share screens show.
+ *
+ *  Each is the ordinary API call the dashboard itself makes, so a capture
+ *  cannot drift from what a real operator would end up looking at. */
+async function seed(session) {
+  // A seed that fails quietly leaves a screen showing its empty state, which
+  // is indistinguishable from a successful capture until someone opens the
+  // PDF. So a refusal stops the run and says which call was refused.
+  const post = async (path, body) => {
+    const res = await api(path, {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      throw new Error(`seeding ${path} failed: HTTP ${res.status} ${await res.text()}`)
+    }
+  }
+
+  await post('/aperio/api/tokens', {
+    name: 'ci_previews',
+    hostnames: ['preview.example.com'],
+    paths: [],
+    max_rps: 50,
+    ttl_seconds: 30 * 24 * 3600,
+  })
+  await post('/aperio/api/tokens', {
+    name: 'checkout_api',
+    hostnames: ['api.example.com'],
+    paths: [],
+  })
+  await post('/aperio/api/maintenance', {
+    hostname: 'legacy.example.com',
+    enabled: true,
+    reason: 'database migration',
+    ttl_seconds: 3600,
+  })
+  await post('/aperio/api/share', {
+    hostname: 'api.example.com',
+    path: '/docs',
+    ttl_seconds: 86400,
+  })
 }
 
 /** Signs in as the built-in master admin and returns the session cookie. */
@@ -313,7 +369,7 @@ async function driveTraffic() {
   }
 }
 
-/** The five figures the docs embed, in the order they appear. */
+/** The figures the docs and the guide embed, in the order they appear. */
 const SHOTS = [
   // `ready` is a selector that only exists once the screen has its data, so a
   // capture is never of a skeleton or an empty state that is about to fill.
@@ -352,6 +408,32 @@ const SHOTS = [
       await page.locator('table tbody tr').first().click()
       await page.locator('[role="dialog"]').first().waitFor({ timeout: 15_000 })
     },
+  },
+  { name: 'dashboard-breakdown', tab: 'breakdown', ready: 'text=api.example.com' },
+  { name: 'dashboard-tunnels', tab: 'tunnels', ready: 'text=pg_main' },
+  { name: 'dashboard-tokens', tab: 'tokens', ready: 'text=ci_previews' },
+  { name: 'dashboard-maintenance', tab: 'maintenance', ready: 'text=database migration' },
+  { name: 'dashboard-scaling', tab: 'scaling', ready: 'text=api.example.com' },
+  {
+    // The one screen that has to be driven rather than merely visited: the
+    // report does not exist until somebody asks for a hostname and a path.
+    name: 'dashboard-explain',
+    tab: 'topology',
+    ready: 'svg',
+    prepare: async (page) => {
+      const box = page.getByPlaceholder(/example\.com/).first()
+      await box.waitFor({ timeout: 15_000 })
+      await box.fill('api.example.com/v1/items')
+      await box.press('Enter')
+      await page.getByText('Routing').first().waitFor({ timeout: 15_000 })
+      await box.scrollIntoViewIfNeeded()
+    },
+  },
+  {
+    // A dialog over whatever page was underneath, which is the point of it.
+    name: 'dashboard-settings',
+    tab: 'settings',
+    ready: '[role="dialog"]',
   },
 ]
 

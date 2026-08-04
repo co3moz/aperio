@@ -21,7 +21,7 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 **Brand lockup.** `npm run export:brand` renders the mark and the APERIO wordmark, in the dashboard's own Michroma webfont, to `docs/images/aperio-lockup.png`, which is what the book's title page includes. Re-run it if the mark or the wordmark font changes.
 
-**Screenshots.** The images in `README.md` and [Dashboard](dashboard.md) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape, the first set went stale within two releases because refreshing them was a manual afternoon.
+**Screenshots.** The images in `README.md`, the [docs pages](dashboard.md) and the [guide](book/aperio.tex) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape, the first set went stale within two releases because refreshing them was a manual afternoon. Adding a figure means adding an entry to `SHOTS`: a `tab`, and a `ready` selector that only the *populated* screen has. That last part is the whole discipline, a screen captured before its data arrives is an empty state, and an empty state looks exactly like a successful capture until somebody opens the PDF.
 
 ## Tests & end-to-end suite
 

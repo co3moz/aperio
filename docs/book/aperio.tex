@@ -40,6 +40,17 @@
 % Both spellings, so the book builds from its own directory and from the
 % repository root (`tectonic docs/book/aperio.tex`) alike.
 \graphicspath{{../images/}{docs/images/}}
+% One shape for every screenshot: full text width, a hairline frame so a dark
+% capture does not bleed into the page, and a caption that says what the
+% reader is looking at rather than repeating the section heading.
+\newcommand{\screenshot}[2]{%
+  \begin{figure}[htbp]
+  \centering
+  {\setlength{\fboxsep}{0pt}\fbox{\includegraphics[width=0.985\linewidth]{#1}}}
+  \caption{#2}
+  \end{figure}%
+}
+
 \usepackage{colortbl}
 \usepackage{tcolorbox}
 \tcbuselibrary{listings, skins, breakable}
@@ -1640,6 +1651,10 @@ into the server binary; there is nothing extra to deploy. Sign in as
 \code{aperio} with the master token, with a separate dashboard password,
 as a named user, or through OIDC.
 
+\screenshot{dashboard-overview.png}{Overview: the live request rate, the
+counters, and the connected clients. The chart's four ranges are the same
+data at four resolutions.}
+
 \section{What each screen is for}
 
 \begin{description}[leftmargin=1.6em,style=nextline]
@@ -1694,6 +1709,43 @@ as a named user, or through OIDC.
         the API endpoint behind it.
 \end{description}
 
+\screenshot{dashboard-clients.png}{Clients: every connection with its binds,
+health, version and flags. The kill switch and the bind overrule are here,
+and the uptime panel underneath tracks availability per service.}
+
+\screenshot{dashboard-tunnels.png}{Tunnels: the private services clients
+declare for \code{--bind-tunnels}, each named \code{<org>@<name>} with the
+client that declared it, and a copy button that hands over a ready
+\code{bind-tunnels:} block.}
+
+\screenshot{dashboard-traffic.png}{Live Traffic: requests as they complete,
+over a server-sent event stream rather than a poll. The latency percentiles
+and the status mix sit on the same feed.}
+
+\screenshot{dashboard-breakdown.png}{Breakdown: traffic by token and by
+hostname, with the per-route trend bars and the per-stage latency table that
+makes a regression attributable to one hop.}
+
+\screenshot{dashboard-topology.png}{Topology: routes, clients and backends as
+a live map, including the routing that exists with no client at all, so a
+service that should be up and is not is visible at a glance.}
+
+\screenshot{dashboard-explain.png}{Explain, on the same page: the decision
+chain for a request nobody sent, with the stage that would answer marked. It
+spends no rate limit and wakes nothing.}
+
+\screenshot{dashboard-tokens.png}{Tokens: the scoped credentials handed to
+clients, each with its hostname and path permissions, its limits, and its
+expiry.}
+
+\screenshot{dashboard-maintenance.png}{Maintenance: the per-hostname 503
+switch, with the reason the visitor sees and the window after which it lifts
+by itself.}
+
+\screenshot{dashboard-scaling.png}{Autoscaling: the records clients have
+armed, with the live utilisation of each pool measured against what the
+clients announced they can take.}
+
 \section{Two dialogs, not eight pages}
 
 The screens above are places you go and stay. The rest are not, and they
@@ -1742,6 +1794,11 @@ when that value is an override rather than the environment default;
 picking one opens the pane, expands the group and scrolls to it. Values
 are shown to the master super-admin alone, since only they may read them.
 
+\screenshot{dashboard-settings.png}{The settings dialog: server settings,
+organisations, users and webhooks, opened over the page underneath rather
+than replacing it. Everything on it applies to the running server without a
+restart.}
+
 \section{The request inspector}
 
 Any captured request can be opened to see headers, body, the response,
@@ -1752,6 +1809,10 @@ recognises. From there the request can be replayed through
 the tunnel, copied as cURL, or downloaded as HAR. Secrets are redacted in
 all three (see Chapter~\ref{ch:threat}), while replay still sends the
 original bytes.
+
+\screenshot{dashboard-inspector.png}{The request inspector: headers, bodies,
+which client served it, and the microsecond timeline as a waterfall. Replay,
+cURL and HAR are one click from here, all three redacted.}
 
 \chapter{The admin API and CLI}
 \label{ch:api-cli}

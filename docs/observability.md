@@ -6,6 +6,8 @@ Aperio exposes what it is doing through five channels: metrics for dashboards an
 
 ## Prometheus metrics
 
+![The Breakdown page: traffic by token and hostname, route trends and per-stage latencies](images/dashboard-breakdown.png)
+
 Enable with `APERIO_METRICS=1`. The endpoint always requires a token: set `APERIO_METRICS_TOKEN`, or let the server generate one on first start (persisted in `APERIO_DATA_DIR/metrics_token`, printed to the log once).
 
 ```yaml

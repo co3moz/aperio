@@ -13,6 +13,8 @@ Scaling **in** works the same way as scaling out, one call with a *lower* desire
 
 ## Enabling it
 
+![The Autoscaling page: armed records with the live utilisation of each pool](images/dashboard-scaling.png)
+
 Autoscaling is off unless the operator turns it on. A client's declaration is ignored entirely without it:
 
 ```yaml
