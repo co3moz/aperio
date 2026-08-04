@@ -1,11 +1,17 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
-import { BaseServer, BaseBackend, BaseClient, HOST } from './fixtures.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class ProxyServer extends BaseServerFor() {}
+class ProxyBackend extends BaseBackendFor() {}
+class ProxyClient extends BaseClientFor(() => ProxyServer, () => ProxyBackend) {}
 
 /** What the server answers before anything is connected to it. */
 export class BareServerSpec extends Test({
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => ProxyServer },
 }) {
   async healthReportsWhatThisBuildSpeaks() {
     const health = await this.server._json<{
@@ -43,14 +49,14 @@ export class BareServerSpec extends Test({
 }
 
 export class ProxyingSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [BareServerSpec],
   timeout: 90_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => ProxyServer,
+    backend: () => ProxyBackend,
+    client: () => ProxyClient,
   },
 }) {
   async aGetIsProxiedWithItsQueryString() {
@@ -102,14 +108,14 @@ export class ProxyingSpec extends Test({
 }
 
 export class MaintenanceSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [ProxyingSpec],
   timeout: 60_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => ProxyServer,
+    backend: () => ProxyBackend,
+    client: () => ProxyClient,
   },
 }) {
   async _maintenance(enabled: boolean) {

@@ -4,15 +4,17 @@ import { readFile } from 'node:fs/promises'
 import { waitFor } from '../../lib/env.js'
 import { send, sendRaw } from '../../lib/http.js'
 import { totp } from '../../lib/totp.js'
-import { BaseServer, BaseBackend, BaseClient, HOST } from './fixtures.js'
-import { OrgLifecycleSpec } from './isolation.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class AdminServer extends BaseServerFor() {}
+class AdminBackend extends BaseBackendFor() {}
+class AdminClient extends BaseClientFor(() => AdminServer, () => AdminBackend) {}
 
 export class AuditApiSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [OrgLifecycleSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer, client: () => BaseClient },
+  dependencies: { server: () => AdminServer, client: () => AdminClient },
 }) {
   /** Makes its own event rather than leaning on another spec having made one:
    *  a class that only passes when its neighbours ran is a class nobody can
@@ -92,11 +94,11 @@ export class AuditApiSpec extends Test({
 }
 
 export class RoleBasedAccessSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [AuditApiSpec],
   timeout: 90_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => AdminServer },
 }) {
   async _signIn(user: string, password: string) {
     const cookies = await sendRaw(this.server._url, '/aperio/auth', {
@@ -165,11 +167,11 @@ export class RoleBasedAccessSpec extends Test({
 }
 
 export class TotpSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [RoleBasedAccessSpec],
   timeout: 90_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => AdminServer },
 }) {
   async _auth(headers: Record<string, string> = {}) {
     return send(this.server._url, '/aperio/auth', {
@@ -254,11 +256,11 @@ export class TotpSpec extends Test({
 }
 
 export class PasskeySurfaceSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [TotpSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => AdminServer },
 }) {
   async theCeremoniesAnswer501WithoutAnOrigin() {
     const probe = await this.server._json<{ available: boolean }>('/aperio/auth/passkey')
@@ -281,14 +283,14 @@ export class PasskeySurfaceSpec extends Test({
 }
 
 export class AccessLogSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [PasskeySurfaceSpec],
   timeout: 60_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => AdminServer,
+    backend: () => AdminBackend,
+    client: () => AdminClient,
   },
 }) {
   async itRecordsProxiedRequestsAndAttributesTheToken() {
@@ -303,11 +305,11 @@ export class AccessLogSpec extends Test({
 }
 
 export class TokenLifecycleSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [AccessLogSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => AdminServer },
 }) {
   async _status(path: string, method: string, body?: unknown): Promise<number> {
     const cookie = await this.server._login()
@@ -354,14 +356,14 @@ export class TokenLifecycleSpec extends Test({
 }
 
 export class ClientControlSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [TokenLifecycleSpec],
   timeout: 90_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => AdminServer,
+    backend: () => AdminBackend,
+    client: () => AdminClient,
   },
 }) {
   async _clientId(): Promise<string> {

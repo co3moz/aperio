@@ -1,7 +1,12 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
-import { BaseServer, BaseBackend, BaseClient, HOST } from './fixtures.js'
-import { MetricsSpec } from './dashboard.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class InspectorServer extends BaseServerFor() {}
+class InspectorBackend extends BaseBackendFor() {}
+class InspectorClient extends BaseClientFor(() => InspectorServer, () => InspectorBackend) {}
 
 interface LogRow {
   id: string
@@ -21,14 +26,11 @@ interface Timeline {
 }
 
 export class InspectorSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [MetricsSpec],
   timeout: 90_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => InspectorServer,
+    backend: () => InspectorBackend,
+    client: () => InspectorClient,
   },
 }) {
   async _captureOf(prefix: string): Promise<string> {

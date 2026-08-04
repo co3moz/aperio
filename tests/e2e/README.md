@@ -73,11 +73,20 @@ to yourself.
 
 ## Two things that will bite
 
-**Ports are per instance.** Nothing is pinned, so phases do not contend and
-`--concurrency` works. What still contends is several spec classes sharing one
-server *and changing it*: the base phase does, so its classes are chained with
-`after:` rather than left to overlap. If you add a spec there, put it on the
-chain.
+**Sharing a server means taking turns.** Nothing is pinned, so phases do not
+contend and `--concurrency` works. What contends is several spec classes
+sharing one server *and changing it*, and the answer is to share less rather
+than to queue: each file in the base phase declares its own server, backend
+and client from the factories in `specs/base/fixtures.ts`, so the files run at
+the same time and each one runs on its own. Inside a file the specs do share
+one server, so they are chained with `after:`; if you add a spec there, put it
+on the chain, or give it its own server and skip the chain.
+
+`after:` should say something true. "These would collide" is a reason to
+separate them; "this reads what that one wrote" is a reason to order them. A
+spec that only passes when its neighbour ran is a spec nobody can run alone to
+find out what broke, which is why the one that read another file's POST out of
+the request log now sends its own.
 
 **`fetch` silently drops the `Host` header.** Almost every assertion here picks
 its tunnel by `Host`, so use `server._fetch()` (which is `node:http` under
@@ -93,9 +102,9 @@ was the same to within a tenth of a point.
 Three things are better here and they are worth knowing, because they are
 what the next person should not give back:
 
-- **Every phase runs on its own.** Six of the shell phases could not; they
-  used a backend the first phase started, so looking at one meant running the
-  ones before it.
+- **Every phase runs on its own, and so does every file.** Six of the shell
+  phases could not; they used a backend the first phase started, so looking at
+  one meant running the ones before it.
 - **Ports are per instance.** Nothing is pinned, so phases do not contend and
   `--concurrency` works: about 94 seconds became about 27.
 - **The lifecycle belongs to the runner.** The old config phase carried a

@@ -2,8 +2,13 @@ import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { sendRaw } from '../../lib/http.js'
 import { ClientFor } from '../../lib/client.js'
-import { BaseServer, BaseBackend, BaseClient, HOST } from './fixtures.js'
-import { EdgeIntegrationSpec } from './webhooks.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class OrgsServer extends BaseServerFor() {}
+class OrgsBackend extends BaseBackendFor() {}
+class OrgsClient extends BaseClientFor(() => OrgsServer, () => OrgsBackend) {}
 
 interface Org {
   id: string
@@ -14,7 +19,7 @@ interface Org {
 }
 
 /** A client using a fenced organization's wildcard token. */
-export class FencedClient extends ClientFor(() => BaseServer, () => BaseBackend) {
+export class FencedClient extends ClientFor(() => OrgsServer, () => OrgsBackend) {
   _token = ''
   _autoStart() {
     return false
@@ -28,11 +33,8 @@ export class FencedClient extends ClientFor(() => BaseServer, () => BaseBackend)
 }
 
 export class OrganizationsApiSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [EdgeIntegrationSpec],
   timeout: 90_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => OrgsServer },
 }) {
   static acmeId = ''
 
@@ -91,14 +93,14 @@ export class OrganizationsApiSpec extends Test({
 }
 
 export class HostnameFenceSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [OrganizationsApiSpec],
   timeout: 120_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    main: () => BaseClient,
+    server: () => OrgsServer,
+    backend: () => OrgsBackend,
+    main: () => OrgsClient,
     fenced: () => FencedClient,
   },
 }) {
@@ -320,11 +322,11 @@ export class HostnameFenceSpec extends Test({
 
 /** Two organizations have to behave like two separate installations. */
 export class OrganizationIsolationSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [HostnameFenceSpec],
   timeout: 120_000,
-  dependencies: { server: () => BaseServer, client: () => BaseClient },
+  dependencies: { server: () => OrgsServer, client: () => OrgsClient },
 }) {
   async _select(id: string) {
     const cookie = await this.server._login()

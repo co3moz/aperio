@@ -5,11 +5,16 @@ import { join } from 'node:path'
 import { waitFor } from '../../lib/env.js'
 import { sendRaw } from '../../lib/http.js'
 import { ClientFor } from '../../lib/client.js'
-import { BaseServer, BaseBackend, BaseClient, HOST, METRICS_TOKEN } from './fixtures.js'
-import { MaintenanceSpec } from './proxy.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST, METRICS_TOKEN } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class DashboardServer extends BaseServerFor() {}
+class DashboardBackend extends BaseBackendFor() {}
+class DashboardClient extends BaseClientFor(() => DashboardServer, () => DashboardBackend) {}
 
 /** A client for the ephemeral tunnel the API mints. */
-export class EphemeralClient extends ClientFor(() => BaseServer, () => BaseBackend) {
+export class EphemeralClient extends ClientFor(() => DashboardServer, () => DashboardBackend) {
   _token = ''
   _autoStart() {
     return false
@@ -20,14 +25,11 @@ export class EphemeralClient extends ClientFor(() => BaseServer, () => BaseBacke
 }
 
 export class DashboardApiSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [MaintenanceSpec],
   timeout: 90_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => DashboardServer,
+    backend: () => DashboardBackend,
+    client: () => DashboardClient,
   },
 }) {
   async aBadPasswordIsRejected() {
@@ -102,6 +104,17 @@ export class DashboardApiSpec extends Test({
   }
 
   async theRequestLogCapturedTheProxiedPost() {
+    // Makes the request it then looks for. It used to read a POST another
+    // file had sent through the server they shared, which is why this is the
+    // one spec that noticed when they stopped sharing it.
+    const sent = await this.server._fetch('/submit', {
+      host: HOST,
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: 'payload-123',
+    })
+    assert.equal(sent.status, 200)
+
     const logs = await this.server._api<{ uri: string }[]>('/aperio/api/logs')
     assert.ok(logs.some((l) => l.uri.startsWith('/submit')))
     assert.equal((await this.server._fetch('/aperio/api/stats')).status, 302)
@@ -114,11 +127,11 @@ interface Settings {
 }
 
 export class SettingsApiSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [DashboardApiSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => DashboardServer },
 }) {
   async _put(body: unknown): Promise<number> {
     const cookie = await this.server._login()
@@ -171,13 +184,13 @@ export class SettingsApiSpec extends Test({
 }
 
 export class ProgrammaticTunnelsSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [SettingsApiSpec],
   timeout: 90_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
+    server: () => DashboardServer,
+    backend: () => DashboardBackend,
     ephemeral: () => EphemeralClient,
   },
 }) {
@@ -227,11 +240,11 @@ export class ProgrammaticTunnelsSpec extends Test({
 }
 
 export class MetricsSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [ProgrammaticTunnelsSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer, client: () => BaseClient },
+  dependencies: { server: () => DashboardServer, client: () => DashboardClient },
 }) {
   async aScrapeNeedsItsTokenAndAcceptsEitherForm() {
     assert.equal((await this.server._fetch('/aperio/metrics')).status, 401)

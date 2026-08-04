@@ -2,12 +2,17 @@ import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { waitFor } from '../../lib/env.js'
 import { ClientFor } from '../../lib/client.js'
-import { BaseServer, BaseBackend, BaseClient } from './fixtures.js'
-import { OrganizationIsolationSpec, OrganizationsApiSpec } from './orgs.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class IsolationServer extends BaseServerFor() {}
+class IsolationBackend extends BaseBackendFor() {}
+class IsolationClient extends BaseClientFor(() => IsolationServer, () => IsolationBackend) {}
 
 const ORG_HOST = 'orgtraffic.example.com'
 
-export class OrgTrafficClient extends ClientFor(() => BaseServer, () => BaseBackend) {
+export class OrgTrafficClient extends ClientFor(() => IsolationServer, () => IsolationBackend) {
   _token = ''
   _autoStart() {
     return false
@@ -22,11 +27,8 @@ export class OrgTrafficClient extends ClientFor(() => BaseServer, () => BaseBack
 
 /** Three views of one stream, not three samples of it. */
 export class ActivityRingsSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [OrganizationIsolationSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer, client: () => BaseClient },
+  dependencies: { server: () => IsolationServer, client: () => IsolationClient },
 }) {
   async everyRangeIsAboutSixtyContiguousCellsOfTheSameTraffic() {
     for (const [range, width, count] of [
@@ -59,11 +61,11 @@ export class ActivityRingsSpec extends Test({
 
 /** "Why would this be answered that way", without sending a request. */
 export class ExplainSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [ActivityRingsSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => IsolationServer },
 }) {
   async itNamesTheOutcomeAndEveryStage() {
     const explanation = await this.server._api<{
@@ -98,11 +100,11 @@ export class ExplainSpec extends Test({
 
 /** The dump carries what it is asked for, and no more. */
 export class ExportSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [ExplainSpec],
   timeout: 60_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => IsolationServer },
 }) {
   async theDefaultDumpIsTheConfigurationWithoutTheHistory() {
     const dump = await this.server._api<Record<string, unknown>>('/aperio/api/export')
@@ -135,14 +137,14 @@ export class ExportSpec extends Test({
 
 /** A child org's traffic is its own, in both directions. */
 export class TrafficIsolationSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [ExportSpec],
   timeout: 120_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    main: () => BaseClient,
+    server: () => IsolationServer,
+    backend: () => IsolationBackend,
+    main: () => IsolationClient,
     orgClient: () => OrgTrafficClient,
   },
 }) {
@@ -213,11 +215,11 @@ export class TrafficIsolationSpec extends Test({
 
 /** Cross-org lifecycle: what master may and may not do to a child. */
 export class OrgLifecycleSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [TrafficIsolationSpec],
   timeout: 90_000,
-  dependencies: { server: () => BaseServer },
+  dependencies: { server: () => IsolationServer },
 }) {
   async _status(path: string, method: string, body?: unknown): Promise<number> {
     const cookie = await this.server._login()
@@ -234,7 +236,22 @@ export class OrgLifecycleSpec extends Test({
   }
 
   async aNonEmptyChildOrgCannotBeDeletedAndAnEmptyOneCan() {
-    const acme = OrganizationsApiSpec.acmeId
+    // Makes the org it is about to delete rather than reaching for one
+    // another file created: a spec that only passes when its neighbour ran
+    // is a spec nobody can run on its own to find out what broke.
+    const acme = (
+      await this.server._api<{ id: string }>('/aperio/api/orgs', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'lifecycle' }),
+      })
+    ).id
+    await this._status('/aperio/api/orgs/select', 'POST', { id: acme })
+    await this.server._api('/aperio/api/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'lifecycle-token', hostnames: ['lifecycle.e2e.local'] }),
+    })
+    await this._status('/aperio/api/orgs/select', 'POST', { id: 'master' })
+
     assert.equal(await this._status(`/aperio/api/orgs/${acme}`, 'DELETE'), 409)
 
     // Empty it from inside, which is also where a cross-org by-id revoke from

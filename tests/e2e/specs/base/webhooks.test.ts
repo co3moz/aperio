@@ -1,8 +1,13 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { waitFor } from '../../lib/env.js'
-import { BaseServer, BaseBackend, BaseClient, EDGE_TOKEN, HOST } from './fixtures.js'
-import { InspectorSpec } from './inspector.test.js'
+import { BaseServerFor, BaseBackendFor, BaseClientFor, EDGE_TOKEN, HOST } from './fixtures.js'
+
+/** This file's own server: the specs below change it, so it is not
+ *  shared with another file. See `fixtures.ts`. */
+class WebhookServer extends BaseServerFor() {}
+class WebhookBackend extends BaseBackendFor() {}
+class WebhookClient extends BaseClientFor(() => WebhookServer, () => WebhookBackend) {}
 
 interface Webhook {
   id: string
@@ -19,11 +24,8 @@ interface Delivery {
 }
 
 export class WebhooksApiSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
-  after: () => [InspectorSpec],
   timeout: 90_000,
-  dependencies: { server: () => BaseServer, backend: () => BaseBackend },
+  dependencies: { server: () => WebhookServer, backend: () => WebhookBackend },
 }) {
   async _create(body: Record<string, unknown>) {
     return this.server._api<Webhook>('/aperio/api/webhooks', {
@@ -104,11 +106,11 @@ export class WebhooksApiSpec extends Test({
 }
 
 export class WebhookDeliverySpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [WebhooksApiSpec],
   timeout: 120_000,
-  dependencies: { server: () => BaseServer, backend: () => BaseBackend },
+  dependencies: { server: () => WebhookServer, backend: () => WebhookBackend },
 }) {
   static goodId = ''
 
@@ -183,14 +185,14 @@ export class WebhookDeliverySpec extends Test({
 
 /** Caddy's on-demand TLS contract and Traefik's provider document. */
 export class EdgeIntegrationSpec extends Test({
-  // Ordered rather than left to overlap: these specs share one
-  // server and change it, so under `--concurrency` they would contend.
+  // Ordered: this file's specs share one server and change it, so they
+  // take turns. Files do not, they have a server each.
   after: () => [WebhookDeliverySpec],
   timeout: 60_000,
   dependencies: {
-    server: () => BaseServer,
-    backend: () => BaseBackend,
-    client: () => BaseClient,
+    server: () => WebhookServer,
+    backend: () => WebhookBackend,
+    client: () => WebhookClient,
   },
 }) {
   async askAuthorizesOnlyHostnamesSomebodyServes() {

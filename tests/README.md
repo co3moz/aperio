@@ -15,7 +15,7 @@ own port.
 
 ## Phases
 
-Each is a directory under `e2e/specs/`, and each runs on its own.
+Each is a directory under `e2e/specs/`, and each runs on its own, as does each file within one.
 
 | Phase | Covers |
 | --- | --- |
