@@ -1,0 +1,19 @@
+{
+  "name": "aperio-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end suite, Node port. Runs beside tests/e2e.sh, not instead of it.",
+  "scripts": {
+    "test": "nole './specs/**/*.test.ts' --concurrency 4",
+    "test:serial": "nole './specs/**/*.test.ts'",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/ws": "^8.18.1",
+    "nole": "^3.4.0",
+    "tsx": "^4.23.5",
+    "typescript": "^7.0.2",
+    "ws": "^8.21.2"
+  }
+}
