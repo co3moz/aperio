@@ -1601,7 +1601,7 @@ the server accepts.
   \item Back the database up. \code{aperio-client api export} produces a
         JSON dump of tokens, webhooks, users, organisations and scaling
         records; \code{--include} adds the history the store also holds
-        (\code{statistics}, \code{uptime}, \code{inbox},
+        (\code{statistics}, \code{uptime}, \code{activity}, \code{inbox},
         \code{admin\_keys}) or narrows the dump to the sections named.
 \end{enumerate}
 
@@ -2993,7 +2993,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/api/openapi.json} & OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). & dashboard session \\
 \rowsep
-\code{GET /aperio/api/export} & Logical JSON dump, a failsafe for upgrades and migrations. \code{?include=} names the sections (\code{tokens}, \code{webhooks}, \code{users}, \code{organizations}, \code{scaling}, \code{settings\_overrides} by default, plus \code{statistics}, \code{uptime}, \code{inbox}, \code{admin\_keys}). Without \code{organizations}, only master's rows travel. Sessions and the audit log are never included. & master super-admin \\
+\code{GET /aperio/api/export} & Logical JSON dump, a failsafe for upgrades and migrations. \code{?include=} names the sections (\code{tokens}, \code{webhooks}, \code{users}, \code{organizations}, \code{scaling}, \code{settings\_overrides} by default, plus \code{statistics}, \code{uptime}, \code{activity}, \code{inbox}, \code{admin\_keys}). Without \code{organizations}, only master's rows travel. Sessions and the audit log are never included. & master super-admin \\
 \rowsep
 \code{POST /aperio/api/import} & Applies a dump; each present section \textbf{replaces} the corresponding store. & master super-admin \\
 \rowsep

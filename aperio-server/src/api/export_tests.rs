@@ -35,6 +35,7 @@ fn import_dump(
     scaling: None,
     statistics: None,
     uptime: None,
+    activity: None,
     inbox: None,
     admin_keys: None,
   })
@@ -258,7 +259,7 @@ async fn the_default_dump_is_the_configuration_sections() {
     assert!(!body[key].is_null(), "{key} missing from the default dump");
   }
   // And what it did not: history is opt-in.
-  for key in ["statistics", "uptime", "inbox", "admin_keys"] {
+  for key in ["statistics", "uptime", "activity", "inbox", "admin_keys"] {
     assert!(body[key].is_null(), "{key} should be opt-in");
   }
 }
@@ -541,4 +542,65 @@ async fn the_history_sections_travel_and_stay_org_fenced() {
   assert_eq!(target.uptime.lock().await.snapshot().len(), 2);
   assert_eq!(target.inbox_store.lock().await.list_all().len(), 2);
   assert_eq!(target.admin_key_store.lock().await.list().len(), 2);
+}
+
+#[tokio::test]
+async fn the_activity_rings_travel_with_a_dump() {
+  // They are history, like the statistics and the uptime beside them, and a
+  // restore that carries those and not this leaves the two-hour and one-day
+  // charts blank on a server whose every other number came across.
+  let state = Arc::new(test_state());
+  let now = crate::store::tokens::now_secs();
+  {
+    let mut activity = state.activity.lock().await;
+    activity.record(None, false, now);
+    activity.record(None, true, now);
+    activity.record(Some("acme"), false, now);
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(
+    export_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers,
+      include("activity, organizations"),
+    )
+    .await,
+  )
+  .await;
+  assert!(body["activity"].is_object(), "got {body}");
+
+  // Into a server that has served nothing.
+  let target = Arc::new(test_state());
+  let dump: ImportDump = serde_json::from_value(body).unwrap();
+  let headers = admin_headers(&target).await;
+  let resp = import_handler(
+    State(target.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Json(dump),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  let restored = target.activity.lock().await;
+  let totals = |org: Option<&str>| {
+    restored
+      .series(org, crate::state::ActivityRange::TwoHours, now)
+      .iter()
+      .map(|b| b.total)
+      .sum::<u32>()
+  };
+  assert_eq!(totals(None), 2, "master's traffic came across");
+  assert_eq!(totals(Some("acme")), 1, "and the organization's did too");
+  // The fine ring is deliberately not carried: fifteen minutes of five-second
+  // slices is the view of *right now*, which a dump cannot hold.
+  assert_eq!(
+    restored
+      .series(None, crate::state::ActivityRange::Quarter, now)
+      .iter()
+      .map(|b| b.total)
+      .sum::<u32>(),
+    0
+  );
 }

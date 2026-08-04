@@ -738,9 +738,31 @@ impl ActivityRing {
 /// when "right now" changed; restoring it would redraw the minutes before a
 /// deploy as if the new process had served them.
 #[derive(Default, Serialize, Deserialize)]
-struct PersistedActivity {
+pub(crate) struct PersistedActivity {
   coarse: ActivityRing,
   daily: ActivityRing,
+}
+
+impl PersistedActivity {
+  /// Drops every organization but master, for a dump that does not carry the
+  /// organizations themselves: a ring keyed by an org the target does not
+  /// have is an orphan, exactly as the other sections treat their rows.
+  pub(crate) fn retain_master_only(&mut self) {
+    for ring in [&mut self.coarse, &mut self.daily] {
+      ring.by_org.retain(|org, _| org.is_empty());
+    }
+  }
+
+  /// Organizations represented, for the dump's per-section count.
+  pub(crate) fn len(&self) -> usize {
+    self
+      .coarse
+      .by_org
+      .keys()
+      .chain(self.daily.by_org.keys())
+      .collect::<std::collections::HashSet<_>>()
+      .len()
+  }
 }
 
 /// Recent request volume in fixed slices, per organization, at three
@@ -846,6 +868,53 @@ impl Activity {
       ActivityRange::Day => &self.daily,
     };
     ring.series(&key, range.buckets(), now)
+  }
+
+  /// The coarse rings, for a dump. The fine one is not included for the same
+  /// reason it is not persisted: fifteen minutes of five-second slices is the
+  /// view of *right now*, and "now" is not a thing a dump can carry.
+  pub(crate) fn export(&self) -> PersistedActivity {
+    PersistedActivity {
+      coarse: ActivityRing {
+        width_secs: self.coarse.width_secs,
+        capacity: self.coarse.capacity,
+        by_org: self.coarse.by_org.clone(),
+      },
+      daily: ActivityRing {
+        width_secs: self.daily.width_secs,
+        capacity: self.daily.capacity,
+        by_org: self.daily.by_org.clone(),
+      },
+    }
+  }
+
+  /// Replaces the coarse rings from a dump, dropping what has aged out and
+  /// refusing a ring whose geometry this build no longer uses, exactly as
+  /// reading them back from the store does. Returns the organizations taken.
+  pub(crate) fn import(&mut self, dump: PersistedActivity, now: u64) -> usize {
+    let mut taken = 0;
+    if dump
+      .coarse
+      .matches(ACTIVITY_COARSE_SECS, ACTIVITY_COARSE_BUCKETS)
+    {
+      self.coarse = dump.coarse;
+      self
+        .coarse
+        .forget_before(now.saturating_sub(ACTIVITY_COARSE_SECS * ACTIVITY_COARSE_BUCKETS as u64));
+      taken += self.coarse.by_org.len();
+    }
+    if dump
+      .daily
+      .matches(ACTIVITY_DAILY_SECS, ACTIVITY_DAILY_BUCKETS)
+    {
+      self.daily = dump.daily;
+      self
+        .daily
+        .forget_before(now.saturating_sub(ACTIVITY_DAILY_SECS * ACTIVITY_DAILY_BUCKETS as u64));
+      taken = taken.max(self.daily.by_org.len());
+    }
+    self.dirty = true;
+    taken
   }
 
   /// Writes the coarse rings to the store, if anything was recorded since the

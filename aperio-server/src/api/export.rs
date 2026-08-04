@@ -9,7 +9,8 @@
 //! omitted, it means the configuration that rebuilds a deployment (tokens,
 //! webhooks, users, organizations, autoscaling, settings overrides), which
 //! is what this endpoint always dumped. The rest of what the store holds,
-//! the statistics, the uptime history, the webhook inbox and the admin keys,
+//! the statistics, the uptime history, the recent activity rings, the webhook
+//! inbox and the admin keys,
 //! is there for the asking: it is a migration's history, and refusing to
 //! carry it only means someone copies `aperio.db` and loses the schema
 //! tolerance that is the point of this format.
@@ -60,6 +61,7 @@ pub(crate) enum Section {
   Uptime,
   Inbox,
   AdminKeys,
+  Activity,
 }
 
 impl Section {
@@ -75,6 +77,7 @@ impl Section {
       Section::Uptime => "uptime",
       Section::Inbox => "inbox",
       Section::AdminKeys => "admin_keys",
+      Section::Activity => "activity",
     }
   }
 
@@ -84,12 +87,16 @@ impl Section {
   fn on_by_default(self) -> bool {
     !matches!(
       self,
-      Section::Statistics | Section::Uptime | Section::Inbox | Section::AdminKeys
+      Section::Statistics
+        | Section::Uptime
+        | Section::Inbox
+        | Section::AdminKeys
+        | Section::Activity
     )
   }
 }
 
-pub(crate) const ALL_SECTIONS: [Section; 10] = [
+pub(crate) const ALL_SECTIONS: [Section; 11] = [
   Section::Tokens,
   Section::Webhooks,
   Section::Users,
@@ -100,6 +107,7 @@ pub(crate) const ALL_SECTIONS: [Section; 10] = [
   Section::Uptime,
   Section::Inbox,
   Section::AdminKeys,
+  Section::Activity,
 ];
 
 /// `?include=tokens,users`. Absent means the default set; an empty value
@@ -137,7 +145,7 @@ fn requested(include: Option<&str>) -> (Vec<Section>, Vec<String>) {
 
 /// Returns the selected sections of the dump as a downloadable JSON document.
 #[utoipa::path(get, path = "/aperio/api/export", tag = "dashboard",
-  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, inbox, admin_keys); omitted, the six configuration sections. Admin only.",
+  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. Admin only.",
   params(("include" = Option<String>, Query, description = "Comma-separated section names; omitted = the configuration sections")),
   responses((status = 200, description = "The dump document", body = serde_json::Value), (status = 400, description = "Unknown section name")))]
 pub(crate) async fn export_handler(
@@ -333,6 +341,22 @@ pub(crate) async fn export_handler(
       serde_json::to_value(rows).unwrap_or_default(),
     );
   }
+  if wants(Section::Activity) {
+    // The two coarse rings behind the chart's long views. Kept out of the
+    // default set for the same reason the statistics are: it is history, not
+    // what rebuilds a deployment. Carrying it means a restored server's
+    // two-hour and one-day charts still show what the source served rather
+    // than starting blank.
+    let mut rings = state.activity.lock().await.export();
+    if !orgs_included {
+      rings.retain_master_only();
+    }
+    counts.push(format!("activity={}", rings.len()));
+    put(
+      Section::Activity,
+      serde_json::to_value(rings).unwrap_or_default(),
+    );
+  }
   if wants(Section::Inbox) {
     let rows: Vec<_> = state
       .inbox_store
@@ -412,6 +436,9 @@ pub(crate) struct ImportDump {
   /// Availability history, keyed by the entity it tracks.
   #[schema(value_type = Option<serde_json::Value>)]
   uptime: Option<std::collections::HashMap<String, crate::store::uptime::EntityUptime>>,
+  /// The coarse activity rings, the two-hour and one-day request volume.
+  #[schema(value_type = Option<serde_json::Value>)]
+  activity: Option<crate::state::PersistedActivity>,
   /// Captured inbound webhooks.
   #[schema(value_type = Option<Vec<serde_json::Value>>)]
   inbox: Option<Vec<crate::store::inbox::InboxEntry>>,
@@ -508,6 +535,11 @@ pub(crate) async fn import_handler(
     let orgs = statistics.by_org.len();
     state.persistent_stats.lock().await.import(statistics);
     counts.insert("statistics_orgs".into(), orgs.into());
+  }
+  if let Some(activity) = dump.activity {
+    let now = crate::store::tokens::now_secs();
+    let n = state.activity.lock().await.import(activity, now);
+    counts.insert("activity".into(), n.into());
   }
   if let Some(uptime) = dump.uptime {
     let n = state.uptime.lock().await.import(uptime);
