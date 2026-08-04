@@ -20,6 +20,7 @@ use axum::{
   response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -161,49 +162,102 @@ fn split_target(raw: &str) -> (String, Option<String>) {
   }
 }
 
+/// The name of the organization a client belongs to, as it is addressed.
+/// `None` is the master organization, which is spelled out rather than left
+/// blank: `master@axum` is an address, `@axum` is a typo.
+fn org_label(org_id: Option<&str>, names: &HashMap<String, String>) -> String {
+  org_id
+    .and_then(|id| names.get(id).cloned())
+    .unwrap_or_else(|| "master".to_string())
+}
+
+/// One connection, as far as this report is concerned.
+struct Conn {
+  id: String,
+  name: Option<String>,
+  org: Option<String>,
+}
+
 /// One line of the report: what a client is called, how many connections
 /// answer to that name, and which ones they are.
 struct Named {
-  label: String,
+  /// `org@name`, or `None` for a client the caller may not be told about.
+  label: Option<String>,
   count: usize,
+  /// Empty when the caller may not name the client: an id identifies it as
+  /// surely as a name does.
   ids: Vec<String>,
 }
 
 impl Named {
   /// The entry as it reads in `detail`: bare when it is one connection.
   fn text(&self) -> String {
+    let label = self
+      .label
+      .clone()
+      .unwrap_or_else(|| "another organization's client".to_string());
     if self.count == 1 {
-      self.label.clone()
+      label
     } else {
-      format!("{} \u{00d7}{}", self.label, self.count)
+      format!("{label} \u{00d7}{}", self.count)
     }
   }
 }
 
 /// Collapses the connections into the things a person would count.
 ///
-/// The id is unique and unreadable; the service name is readable and not
-/// unique, because `connections: 3` is one service holding three sockets.
-/// Listing them apart spells the same word three times and answers nothing,
-/// so equal names become one entry with a count. A client that announced no
-/// name is keyed by its id, which makes it a group of one.
-fn group(entries: &[(String, Option<String>)]) -> Vec<Named> {
+/// Two jobs, and they are the same walk. `connections: 3` is one service
+/// holding three sockets, so equal names become one entry with a count
+/// rather than the same word three times; and a client outside the caller's
+/// organization is counted without being named, because a hostname the
+/// caller's fence covers is not permission to learn who else serves it.
+///
+/// A client that announced no name is keyed by its id, which makes it a
+/// group of one. `viewer` of `None` is the master organization, which may
+/// see everything.
+fn group(
+  entries: &[Conn],
+  viewer: Option<&str>,
+  org_names: &HashMap<String, String>,
+) -> Vec<Named> {
   let mut out: Vec<Named> = Vec::new();
-  for (id, name) in entries {
-    let label = name.clone().unwrap_or_else(|| id.clone());
+  for conn in entries {
+    let may_name = viewer.is_none() || viewer == conn.org.as_deref();
+    let label = may_name.then(|| {
+      format!(
+        "{}@{}",
+        org_label(conn.org.as_deref(), org_names),
+        conn.name.clone().unwrap_or_else(|| conn.id.clone())
+      )
+    });
     match out.iter_mut().find(|n| n.label == label) {
       Some(existing) => {
         existing.count += 1;
-        existing.ids.push(id.clone());
+        if may_name {
+          existing.ids.push(conn.id.clone());
+        }
       }
       None => out.push(Named {
-        label,
         count: 1,
-        ids: vec![id.clone()],
+        ids: if may_name {
+          vec![conn.id.clone()]
+        } else {
+          Vec::new()
+        },
+        label,
       }),
     }
   }
   out
+}
+
+/// One grouped entry as the caller receives it.
+fn named_json(n: &Named) -> serde_json::Value {
+  match &n.label {
+    Some(label) => serde_json::json!({ "label": label, "count": n.count, "ids": n.ids }),
+    // No label, no ids: the count is the whole of what may be said.
+    None => serde_json::json!({ "label_code": "client.other_org", "count": n.count }),
+  }
 }
 
 /// Walks the proxy's decisions for a request nobody sends.
@@ -267,6 +321,17 @@ pub(crate) async fn explain_handler(
     )
       .into_response();
   }
+
+  // Read once: every client named below needs the name of its organization,
+  // and the report is one pass over the client map.
+  let org_names: HashMap<String, String> = state
+    .org_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .map(|o| (o.id.clone(), o.name.clone()))
+    .collect();
 
   let mut steps: Vec<Step> = Vec::new();
   let mut outcome: Option<Decision> = None;
@@ -547,18 +612,22 @@ pub(crate) async fn explain_handler(
     )
     .map(|(ids, _)| ids)
     .unwrap_or_default();
-    let pool: Vec<(String, Option<String>)> = pool
+    let pool: Vec<Conn> = pool
       .into_iter()
       .map(|id| {
-        let name = clients.get(&id).and_then(|c| c.display_name());
-        (id, name)
+        let handle = clients.get(&id);
+        Conn {
+          name: handle.and_then(|c| c.display_name()),
+          org: handle.and_then(|c| c.perms.org_id.clone()),
+          id,
+        }
       })
       .collect();
     // Every connected client that serves this hostname but would not take
     // the request, with the reason, which is the question behind most 504s.
-    let ineligible: Vec<(String, Option<String>, &'static str, &'static str)> = clients
+    let ineligible: Vec<(Conn, &'static str, &'static str)> = clients
       .iter()
-      .filter(|(id, c)| !pool.iter().any(|(p, _)| p == *id) && c.matches_host(&hostname))
+      .filter(|(id, c)| !pool.iter().any(|p| p.id == **id) && c.matches_host(&hostname))
       .map(|(id, c)| {
         let (why, code) = if !c.admin_enabled {
           ("disabled from the dashboard", "ineligible.disabled")
@@ -574,7 +643,15 @@ pub(crate) async fn explain_handler(
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };
-        (id.clone(), c.display_name(), why, code)
+        (
+          Conn {
+            id: id.clone(),
+            name: c.display_name(),
+            org: c.perms.org_id.clone(),
+          },
+          why,
+          code,
+        )
       })
       .collect();
     (pool, ineligible)
@@ -582,50 +659,46 @@ pub(crate) async fn explain_handler(
   // The same lists twice: once as a sentence for `detail`, once as data.
   // `label` is what a person reads and `id` is what addresses the client, so
   // both travel; the caller renders the first and can still act on the second.
-  let pool_named = group(&pool);
+  let pool_named = group(&pool, org.as_deref(), &org_names);
   let pool_text: Vec<String> = pool_named.iter().map(Named::text).collect();
-  let pool_data: Vec<serde_json::Value> = pool_named
-    .iter()
-    .map(|n| serde_json::json!({ "label": n.label, "count": n.count, "ids": n.ids }))
-    .collect();
+  let pool_data: Vec<serde_json::Value> = pool_named.iter().map(named_json).collect();
   // Grouped by reason as well as by name: one service can hold a draining
   // connection and an unhealthy one, and calling both "draining" would be a
   // lie told for the sake of a shorter list.
-  let mut ineligible_named: Vec<(Named, &'static str, &'static str)> = Vec::new();
-  for (id, name, why, code) in &ineligible {
-    let label = name.clone().unwrap_or_else(|| id.clone());
+  // A foreign client is counted without a reason as well as without a name:
+  // "draining" is a fact about someone else's deployment, and the caller
+  // asked why *their* request would not be served, which the count answers.
+  let mut ineligible_named: Vec<(Named, Option<(&'static str, &'static str)>)> = Vec::new();
+  for (conn, why, code) in &ineligible {
+    let grouped = group(std::slice::from_ref(conn), org.as_deref(), &org_names);
+    let one = grouped.into_iter().next().expect("one in, one out");
+    let reason = one.label.is_some().then_some((*why, *code));
     match ineligible_named
       .iter_mut()
-      .find(|(n, _, c)| n.label == label && c == code)
+      .find(|(n, r)| n.label == one.label && *r == reason)
     {
-      Some((n, _, _)) => {
+      Some((n, _)) => {
         n.count += 1;
-        n.ids.push(id.clone());
+        n.ids.extend(one.ids);
       }
-      None => ineligible_named.push((
-        Named {
-          label,
-          count: 1,
-          ids: vec![id.clone()],
-        },
-        why,
-        code,
-      )),
+      None => ineligible_named.push((one, reason)),
     }
   }
   let ineligible_text: Vec<String> = ineligible_named
     .iter()
-    .map(|(n, why, _)| format!("{} ({why})", n.text()))
+    .map(|(n, reason)| match reason {
+      Some((why, _)) => format!("{} ({why})", n.text()),
+      None => n.text(),
+    })
     .collect();
   let ineligible_data: Vec<serde_json::Value> = ineligible_named
     .iter()
-    .map(|(n, _, code)| {
-      serde_json::json!({
-        "label": n.label,
-        "count": n.count,
-        "ids": n.ids,
-        "reason": code,
-      })
+    .map(|(n, reason)| {
+      let mut value = named_json(n);
+      if let Some((_, code)) = reason {
+        value["reason"] = serde_json::json!(code);
+      }
+      value
     })
     .collect();
 

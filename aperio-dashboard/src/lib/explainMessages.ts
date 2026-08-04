@@ -69,6 +69,11 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
   'no_client.504': '504: nothing serves this route, and no fallbacks: rule covers it',
 
   'client.reached': 'the request reaches a tunnel client ({clients})',
+
+  // Not a step: what stands in a client list for a client the reader's
+  // organization is not entitled to be told about. It is still counted, so
+  // "something else serves this" stays answerable.
+  'client.other_org': "another organization's client",
 }
 
 /** Why a connected client was passed over, one reason per code. */

@@ -568,7 +568,7 @@ async fn the_values_a_sentence_interpolates_come_back_as_data() {
   assert_eq!(routing["code"], "routing.none_ineligible");
   let ineligible = routing["params"]["ineligible"].as_array().unwrap();
   assert_eq!(ineligible.len(), 1);
-  assert_eq!(ineligible[0]["label"], "c-drain");
+  assert_eq!(ineligible[0]["label"], "master@c-drain");
   assert_eq!(ineligible[0]["ids"][0], "c-drain");
   assert_eq!(ineligible[0]["reason"], "ineligible.draining");
 
@@ -622,10 +622,13 @@ async fn a_client_is_named_by_its_service_rather_than_its_id() {
   );
   // The id still travels, because it is what an action addresses.
   let clients = routing["params"]["clients"].as_array().unwrap();
-  assert_eq!(clients[0]["label"], "payments");
+  assert_eq!(clients[0]["label"], "master@payments");
   assert_eq!(clients[0]["count"], 1);
   assert_eq!(clients[0]["ids"][0], "11111111-aaaa");
-  assert_eq!(body["summary_params"]["clients"][0]["label"], "payments");
+  assert_eq!(
+    body["summary_params"]["clients"][0]["label"],
+    "master@payments"
+  );
 }
 
 #[tokio::test]
@@ -646,7 +649,7 @@ async fn two_connections_of_one_service_are_counted_not_repeated() {
   let routing = step(&body, "routing");
   let clients = routing["params"]["clients"].as_array().unwrap();
   assert_eq!(clients.len(), 1, "one service, one entry: {clients:?}");
-  assert_eq!(clients[0]["label"], "payments");
+  assert_eq!(clients[0]["label"], "master@payments");
   assert_eq!(clients[0]["count"], 2);
   // The ids are still all there, because they are what an action addresses.
   let ids: Vec<&str> = clients[0]["ids"]
@@ -664,7 +667,7 @@ async fn two_connections_of_one_service_are_counted_not_repeated() {
     routing["detail"]
       .as_str()
       .unwrap()
-      .contains("payments \u{00d7}2"),
+      .contains("master@payments \u{00d7}2"),
     "{routing}"
   );
 }
@@ -686,12 +689,117 @@ async fn an_ineligible_client_is_named_the_same_way() {
     routing["detail"]
       .as_str()
       .unwrap()
-      .contains("checkout (blue) (draining)"),
+      .contains("master@checkout (blue) (draining)"),
     "{routing}"
   );
   let first = &routing["params"]["ineligible"][0];
-  assert_eq!(first["label"], "checkout (blue)");
+  assert_eq!(first["label"], "master@checkout (blue)");
   assert_eq!(first["count"], 1);
   assert_eq!(first["ids"][0], "22222222-bbbb");
   assert_eq!(first["reason"], "ineligible.draining");
+}
+
+#[tokio::test]
+async fn a_tenant_is_not_told_who_else_serves_a_hostname_its_fence_covers() {
+  // The fence is on the hostname, and a wildcard fence can cover a name that
+  // somebody else's client also serves. Being allowed to ask about the
+  // hostname is not being allowed to learn whose deployment answers it: the
+  // client is counted, so the 504 still explains itself, and nothing else
+  // about it is said.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.example.com".into()], None)
+    .unwrap()
+    .id;
+  {
+    let mut clients = state.clients.write().await;
+    let mut foreign = mock_client(Some("app.example.com"), None, None, None);
+    foreign.service_name = Some("axum".to_string());
+    clients.insert("master-conn".to_string(), foreign);
+  }
+  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
+  let body =
+    json_body(explain(&state, cookie_headers(&token), q("app.example.com", None)).await).await;
+
+  let routing = step(&body, "routing");
+  let rendered = format!("{routing}{}", body["summary"]);
+  assert!(
+    !rendered.contains("axum"),
+    "the service name leaked: {rendered}"
+  );
+  assert!(
+    !rendered.contains("master-conn"),
+    "the connection id leaked: {rendered}"
+  );
+  let clients = routing["params"]["clients"].as_array().unwrap();
+  assert_eq!(clients.len(), 1);
+  assert_eq!(clients[0]["label_code"], "client.other_org");
+  assert_eq!(clients[0]["count"], 1);
+  assert!(clients[0]["label"].is_null() && clients[0]["ids"].is_null());
+}
+
+#[tokio::test]
+async fn a_foreign_client_that_cannot_serve_keeps_its_reason_to_itself() {
+  // "draining" is a fact about someone else's deployment. The caller asked
+  // why their own request would not be served, and the count answers that.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.example.com".into()], None)
+    .unwrap()
+    .id;
+  {
+    let mut clients = state.clients.write().await;
+    let mut foreign = mock_client(Some("app.example.com"), None, None, None);
+    foreign.draining = true;
+    foreign.service_name = Some("axum".to_string());
+    clients.insert("master-conn".to_string(), foreign);
+  }
+  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
+  let body =
+    json_body(explain(&state, cookie_headers(&token), q("app.example.com", None)).await).await;
+
+  let routing = step(&body, "routing");
+  let first = &routing["params"]["ineligible"][0];
+  assert_eq!(first["label_code"], "client.other_org");
+  assert!(first["reason"].is_null(), "the reason leaked: {routing}");
+  assert!(
+    !routing["detail"].as_str().unwrap().contains("draining"),
+    "{routing}"
+  );
+}
+
+#[tokio::test]
+async fn a_tenant_sees_its_own_clients_named_and_qualified() {
+  // The fence only hides what is somebody else's. Inside it the report is
+  // the report, and the name carries the organization for the same reason a
+  // tunnel handle does: it is unique in there and nowhere else.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["acme.example".into()], None)
+    .unwrap()
+    .id;
+  {
+    let mut clients = state.clients.write().await;
+    let mut mine = mock_client(Some("acme.example"), None, None, None);
+    mine.service_name = Some("axum".to_string());
+    mine.perms.org_id = Some(org.clone());
+    clients.insert("tenant-conn".to_string(), mine);
+  }
+  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
+  let body =
+    json_body(explain(&state, cookie_headers(&token), q("acme.example", None)).await).await;
+  let clients = step(&body, "routing")["params"]["clients"]
+    .as_array()
+    .unwrap();
+  assert_eq!(clients[0]["label"], "acme@axum");
+  assert_eq!(clients[0]["ids"][0], "tenant-conn");
 }

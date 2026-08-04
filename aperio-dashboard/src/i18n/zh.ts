@@ -1114,4 +1114,5 @@ export const zh: Record<string, string> = {
     'hostname/path 绑定',
   'Served by': '由谁提供',
   'Connection id: {id}': '连接 id ：{id}',
+  "another organization's client": '另一个组织的客户端',
 }

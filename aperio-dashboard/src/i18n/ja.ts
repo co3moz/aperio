@@ -1131,4 +1131,5 @@ export const ja: Record<string, string> = {
     'hostname/path バインド',
   'Served by': '配信元',
   'Connection id: {id}': '接続 id: {id}',
+  "another organization's client": '別の組織のクライアント',
 }

@@ -1135,4 +1135,5 @@ export const de: Record<string, string> = {
     'hostname/path-Bindungen',
   'Served by': 'Bedient von',
   'Connection id: {id}': 'Verbindungs-ID: {id}',
+  "another organization's client": 'der Client einer anderen Organisation',
 }

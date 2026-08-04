@@ -1133,4 +1133,5 @@ export const ru: Record<string, string> = {
     'привязки hostname/path',
   'Served by': 'Обслужил',
   'Connection id: {id}': 'Идентификатор соединения: {id}',
+  "another organization's client": 'клиент другой организации',
 }

@@ -1133,4 +1133,5 @@ export const fr: Record<string, string> = {
     'liens hostname/path',
   'Served by': 'Servi par',
   'Connection id: {id}': 'Id de connexion : {id}',
+  "another organization's client": "le client d'une autre organisation",
 }

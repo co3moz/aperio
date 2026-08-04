@@ -1137,4 +1137,5 @@ export const tr: Record<string, string> = {
     'hostname/path bağları',
   'Served by': 'Sunan',
   'Connection id: {id}': 'Bağlantı kimliği: {id}',
+  "another organization's client": 'başka bir organizasyonun istemcisi',
 }

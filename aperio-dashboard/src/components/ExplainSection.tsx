@@ -48,14 +48,18 @@ function say(
       vars[name] = value
         .map((item) => {
           if (item === null || typeof item !== 'object') return String(item)
-          const { label, count, reason } = item as {
+          const { label, label_code, count, reason } = item as {
             label?: string
+            label_code?: string
             count?: number
             reason?: string
           }
+          // A client outside the caller's organization arrives counted but
+          // not named, so what is shown is a code like everything else.
+          const name = label ?? (label_code ? t(EXPLAIN_MESSAGES[label_code] ?? label_code) : '')
           // `connections: 3` is one service holding three sockets, so it is
           // counted rather than spelled three times.
-          const shown = count && count > 1 ? `${label} ×${count}` : (label ?? '')
+          const shown = count && count > 1 ? `${name} ×${count}` : name
           if (!reason) return shown
           return `${shown} (${t(EXPLAIN_INELIGIBLE[reason] ?? reason)})`
         })
