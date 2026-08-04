@@ -20,7 +20,6 @@ use axum::{
   response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -173,28 +172,49 @@ fn display_name(client: &crate::state::ClientHandle) -> Option<String> {
     .or_else(|| client.service_name.clone())
 }
 
-/// What to call each client on screen.
-///
-/// The id is unique and unreadable; the service name is readable and not
-/// unique, since a client can hold several connections and two clients can
-/// serve one service. So a name is used as it stands when it belongs to one
-/// entry, and carries the head of its id when it does not, which is the only
-/// case where the id is worth the room it takes.
-fn labels(entries: &[(String, Option<String>)]) -> Vec<String> {
-  let mut seen: HashMap<&str, usize> = HashMap::new();
-  for (_, name) in entries {
-    if let Some(name) = name {
-      *seen.entry(name.as_str()).or_default() += 1;
+/// One line of the report: what a client is called, how many connections
+/// answer to that name, and which ones they are.
+struct Named {
+  label: String,
+  count: usize,
+  ids: Vec<String>,
+}
+
+impl Named {
+  /// The entry as it reads in `detail`: bare when it is one connection.
+  fn text(&self) -> String {
+    if self.count == 1 {
+      self.label.clone()
+    } else {
+      format!("{} \u{00d7}{}", self.label, self.count)
     }
   }
-  entries
-    .iter()
-    .map(|(id, name)| match name {
-      Some(name) if seen.get(name.as_str()) == Some(&1) => name.clone(),
-      Some(name) => format!("{name} ({})", &id[..id.len().min(8)]),
-      None => id.clone(),
-    })
-    .collect()
+}
+
+/// Collapses the connections into the things a person would count.
+///
+/// The id is unique and unreadable; the service name is readable and not
+/// unique, because `connections: 3` is one service holding three sockets.
+/// Listing them apart spells the same word three times and answers nothing,
+/// so equal names become one entry with a count. A client that announced no
+/// name is keyed by its id, which makes it a group of one.
+fn group(entries: &[(String, Option<String>)]) -> Vec<Named> {
+  let mut out: Vec<Named> = Vec::new();
+  for (id, name) in entries {
+    let label = name.clone().unwrap_or_else(|| id.clone());
+    match out.iter_mut().find(|n| n.label == label) {
+      Some(existing) => {
+        existing.count += 1;
+        existing.ids.push(id.clone());
+      }
+      None => out.push(Named {
+        label,
+        count: 1,
+        ids: vec![id.clone()],
+      }),
+    }
+  }
+  out
 }
 
 /// Walks the proxy's decisions for a request nobody sends.
@@ -573,36 +593,58 @@ pub(crate) async fn explain_handler(
   // The same lists twice: once as a sentence for `detail`, once as data.
   // `label` is what a person reads and `id` is what addresses the client, so
   // both travel; the caller renders the first and can still act on the second.
-  let pool_labels = labels(&pool);
-  let pool_data: Vec<serde_json::Value> = pool
+  let pool_named = group(&pool);
+  let pool_text: Vec<String> = pool_named.iter().map(Named::text).collect();
+  let pool_data: Vec<serde_json::Value> = pool_named
     .iter()
-    .zip(&pool_labels)
-    .map(|((id, _), label)| serde_json::json!({ "id": id, "label": label }))
+    .map(|n| serde_json::json!({ "label": n.label, "count": n.count, "ids": n.ids }))
     .collect();
-  let ineligible_labels = labels(
-    &ineligible
-      .iter()
-      .map(|(id, name, _, _)| (id.clone(), name.clone()))
-      .collect::<Vec<_>>(),
-  );
-  let ineligible_text: Vec<String> = ineligible
+  // Grouped by reason as well as by name: one service can hold a draining
+  // connection and an unhealthy one, and calling both "draining" would be a
+  // lie told for the sake of a shorter list.
+  let mut ineligible_named: Vec<(Named, &'static str, &'static str)> = Vec::new();
+  for (id, name, why, code) in &ineligible {
+    let label = name.clone().unwrap_or_else(|| id.clone());
+    match ineligible_named
+      .iter_mut()
+      .find(|(n, _, c)| n.label == label && c == code)
+    {
+      Some((n, _, _)) => {
+        n.count += 1;
+        n.ids.push(id.clone());
+      }
+      None => ineligible_named.push((
+        Named {
+          label,
+          count: 1,
+          ids: vec![id.clone()],
+        },
+        why,
+        code,
+      )),
+    }
+  }
+  let ineligible_text: Vec<String> = ineligible_named
     .iter()
-    .zip(&ineligible_labels)
-    .map(|((_, _, why, _), label)| format!("{label} ({why})"))
+    .map(|(n, why, _)| format!("{} ({why})", n.text()))
     .collect();
-  let ineligible_data: Vec<serde_json::Value> = ineligible
+  let ineligible_data: Vec<serde_json::Value> = ineligible_named
     .iter()
-    .zip(&ineligible_labels)
-    .map(
-      |((id, _, _, code), label)| serde_json::json!({ "id": id, "label": label, "reason": code }),
-    )
+    .map(|(n, _, code)| {
+      serde_json::json!({
+        "label": n.label,
+        "count": n.count,
+        "ids": n.ids,
+        "reason": code,
+      })
+    })
     .collect();
 
   if !pool.is_empty() {
     let detail = format!(
       "{} client(s) would take it: {}",
       pool.len(),
-      pool_labels.join(", ")
+      pool_text.join(", ")
     );
     if outcome.is_none() {
       decided(
@@ -610,7 +652,7 @@ pub(crate) async fn explain_handler(
         "client",
         format!(
           "the request reaches a tunnel client ({})",
-          pool_labels.join(", ")
+          pool_text.join(", ")
         ),
         "client.reached",
         Some(serde_json::json!({ "clients": pool_data })),
@@ -638,7 +680,8 @@ pub(crate) async fn explain_handler(
     steps.push(
       Step::new("routing", Verdict::Passes, code, detail)
         .with(serde_json::json!({
-          "count": ineligible_data.len(),
+          // Connections, matching the sentence, not groups.
+          "count": ineligible.len(),
           "ineligible": ineligible_data,
         }))
         .from_named("hostname/path binds", "setting.host_path_binds"),

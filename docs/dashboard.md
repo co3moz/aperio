@@ -178,7 +178,7 @@ It is a dry run in the strict sense: it spends no rate-limit token, moves no rou
 
 Each step is said twice. `detail` is a finished English sentence, which is what a script or the CLI wants; `code` names that sentence (`no_client.504`, `ineligible.draining`) and `params` carries the values it interpolates, which is what the dashboard renders, since the screen has eight languages and English prose cannot be translated after the fact. `summary` and `summary_code` are the same pair for the one-line answer. A consumer that does not care about the second half can keep reading `detail`; nothing about it changed.
 
-Clients are named the way the clients table names them: the `custom_name` if an operator set one, else the `name` of the `services:` entry, else the connection id. Both travel, `label` to read and `id` to act on. Two connections of one service would carry the same label, so those, and only those, also carry the head of their id.
+Clients are named the way the clients table names them: the `custom_name` if an operator set one, else the `name` of the `services:` entry, else the connection id. Connections that answer to the same name are one entry with a count, `axum ×2` rather than the word twice, since `connections: 3` is one service holding three sockets and listing them apart answers nothing. Each entry carries `label`, `count` and the `ids` behind it, so what is read is short and what an action addresses is still there. The ineligible list groups by reason as well as by name, because one service can hold a draining connection and an unhealthy one.
 
 ## Messages
 

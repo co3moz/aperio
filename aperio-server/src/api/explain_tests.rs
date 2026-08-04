@@ -568,7 +568,8 @@ async fn the_values_a_sentence_interpolates_come_back_as_data() {
   assert_eq!(routing["code"], "routing.none_ineligible");
   let ineligible = routing["params"]["ineligible"].as_array().unwrap();
   assert_eq!(ineligible.len(), 1);
-  assert_eq!(ineligible[0]["id"], "c-drain");
+  assert_eq!(ineligible[0]["label"], "c-drain");
+  assert_eq!(ineligible[0]["ids"][0], "c-drain");
   assert_eq!(ineligible[0]["reason"], "ineligible.draining");
 
   // Nothing serves it and no fallback covers it, so the 504 is the answer,
@@ -622,12 +623,13 @@ async fn a_client_is_named_by_its_service_rather_than_its_id() {
   // The id still travels, because it is what an action addresses.
   let clients = routing["params"]["clients"].as_array().unwrap();
   assert_eq!(clients[0]["label"], "payments");
-  assert_eq!(clients[0]["id"], "11111111-aaaa");
+  assert_eq!(clients[0]["count"], 1);
+  assert_eq!(clients[0]["ids"][0], "11111111-aaaa");
   assert_eq!(body["summary_params"]["clients"][0]["label"], "payments");
 }
 
 #[tokio::test]
-async fn two_connections_of_one_service_are_told_apart_by_id() {
+async fn two_connections_of_one_service_are_counted_not_repeated() {
   // A name is readable and not unique: `connections: 2` puts the same
   // service on the list twice, and "payments, payments" answers nothing.
   let state = Arc::new(test_state());
@@ -641,14 +643,30 @@ async fn two_connections_of_one_service_are_told_apart_by_id() {
   }
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
-  let labels: Vec<&str> = step(&body, "routing")["params"]["clients"]
+  let routing = step(&body, "routing");
+  let clients = routing["params"]["clients"].as_array().unwrap();
+  assert_eq!(clients.len(), 1, "one service, one entry: {clients:?}");
+  assert_eq!(clients[0]["label"], "payments");
+  assert_eq!(clients[0]["count"], 2);
+  // The ids are still all there, because they are what an action addresses.
+  let ids: Vec<&str> = clients[0]["ids"]
     .as_array()
     .unwrap()
     .iter()
-    .map(|c| c["label"].as_str().unwrap())
+    .map(|i| i.as_str().unwrap())
     .collect();
-  assert!(labels.contains(&"payments (aaaaaaaa)"), "{labels:?}");
-  assert!(labels.contains(&"payments (cccccccc)"), "{labels:?}");
+  assert!(
+    ids.contains(&"aaaaaaaabbbb") && ids.contains(&"ccccccccdddd"),
+    "{ids:?}"
+  );
+  // And the sentence counts rather than repeats.
+  assert!(
+    routing["detail"]
+      .as_str()
+      .unwrap()
+      .contains("payments \u{00d7}2"),
+    "{routing}"
+  );
 }
 
 #[tokio::test]
@@ -673,6 +691,7 @@ async fn an_ineligible_client_is_named_the_same_way() {
   );
   let first = &routing["params"]["ineligible"][0];
   assert_eq!(first["label"], "checkout (blue)");
-  assert_eq!(first["id"], "22222222-bbbb");
+  assert_eq!(first["count"], 1);
+  assert_eq!(first["ids"][0], "22222222-bbbb");
   assert_eq!(first["reason"], "ineligible.draining");
 }

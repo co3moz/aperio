@@ -48,12 +48,14 @@ function say(
       vars[name] = value
         .map((item) => {
           if (item === null || typeof item !== 'object') return String(item)
-          const { label, id, reason } = item as {
+          const { label, count, reason } = item as {
             label?: string
-            id?: string
+            count?: number
             reason?: string
           }
-          const shown = label ?? id ?? ''
+          // `connections: 3` is one service holding three sockets, so it is
+          // counted rather than spelled three times.
+          const shown = count && count > 1 ? `${label} ×${count}` : (label ?? '')
           if (!reason) return shown
           return `${shown} (${t(EXPLAIN_INELIGIBLE[reason] ?? reason)})`
         })
