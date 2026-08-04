@@ -223,6 +223,13 @@ pub(crate) struct CapturedRequest {
   /// High-resolution stage timeline (buffered responses of v2+ clients).
   #[serde(skip_serializing_if = "Option::is_none")]
   pub(crate) timeline: Option<RequestTimeline>,
+  /// Connection id of the client that served it. Unique and unreadable, so
+  /// it is what an action addresses rather than what the screen shows.
+  pub(crate) client_id: String,
+  /// What that client calls itself, if anything: the operator's
+  /// `custom_name`, else the `name` of its `services:` entry. `None` for a
+  /// client that declared neither, where the id is all there is.
+  pub(crate) client_name: Option<String>,
   /// Organization of the client that served the request (None = master). The
   /// inspector and replay are gated to the caller's effective org on this.
   #[serde(skip)]

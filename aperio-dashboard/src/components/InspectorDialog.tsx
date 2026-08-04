@@ -261,6 +261,24 @@ export function InspectorDialog({ id, onClose }: { id: string | null; onClose: (
           )}
           {detail && (
             <>
+              {detail.client_id && (
+                // Which client served it, named the way the clients table
+                // names it. The connection id is what a uuid is good for,
+                // addressing the thing, so it stays one hover away.
+                <div className="flex items-baseline gap-2 text-xs">
+                  <span className="font-semibold uppercase tracking-wider text-muted-foreground">
+                    {t('Served by')}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="cursor-default font-mono" />}>
+                      {detail.client_name ?? detail.client_id}
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t('Connection id: {id}', { id: detail.client_id })}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
               {detail.timeline && <TimelineWaterfall timeline={detail.timeline} />}
               <Section label={t('Request Headers')} content={formatHeaders(detail.req_headers)} />
               <Section

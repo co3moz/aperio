@@ -1131,4 +1131,6 @@ export const es: Record<string, string> = {
     'OIDC',
   'hostname/path binds':
     'enlaces hostname/path',
+  'Served by': 'Servido por',
+  'Connection id: {id}': 'Id de conexión: {id}',
 }

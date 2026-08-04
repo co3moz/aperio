@@ -146,6 +146,10 @@ export interface CapturedRequest {
   resp_streamed: boolean
   duration_ms: number
   timeline?: RequestTimeline
+  /** Connection id of the client that served it: what an action addresses. */
+  client_id: string
+  /** What that client calls itself, if anything: what a person reads. */
+  client_name: string | null
 }
 
 /** Microsecond offsets from the server first receiving the request; client

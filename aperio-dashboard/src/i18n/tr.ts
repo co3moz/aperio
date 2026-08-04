@@ -1135,4 +1135,6 @@ export const tr: Record<string, string> = {
     'OIDC',
   'hostname/path binds':
     'hostname/path bağları',
+  'Served by': 'Sunan',
+  'Connection id: {id}': 'Bağlantı kimliği: {id}',
 }

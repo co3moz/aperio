@@ -1131,4 +1131,6 @@ export const ru: Record<string, string> = {
     'OIDC',
   'hostname/path binds':
     'привязки hostname/path',
+  'Served by': 'Обслужил',
+  'Connection id: {id}': 'Идентификатор соединения: {id}',
 }

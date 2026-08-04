@@ -63,6 +63,8 @@ fn captured(id: &str, org: Option<&str>, truncated: bool) -> CapturedRequest {
     resp_streamed: false,
     duration_ms: 5,
     timeline: None,
+    client_id: "c1".to_string(),
+    client_name: None,
     org_id: org.map(|s| s.to_string()),
   }
 }

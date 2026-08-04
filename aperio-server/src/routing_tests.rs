@@ -863,3 +863,25 @@ async fn route_exists_is_false_without_a_serving_client() {
   let state = std::sync::Arc::new(crate::test_support::test_state());
   assert!(!route_exists(&state, "/", Some("app.example.com"), None).await);
 }
+
+#[tokio::test]
+async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
+  // The capture, and everything else that shows a client to a person, reads
+  // these off the selection rather than taking the clients lock again.
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
+  c.service_name = Some("web".to_string());
+  c.service_custom_name = Some("web (blue)".to_string());
+  state.clients.write().await.insert("a".to_string(), c);
+
+  match pick_proxy_client(&state, "/", Some("app.example.com"), None, None, None, None).await {
+    PickOutcome::Selected(c) => {
+      assert_eq!(c.service_name.as_deref(), Some("web"));
+      assert_eq!(c.service_custom_name.as_deref(), Some("web (blue)"));
+    }
+    other => panic!(
+      "expected a selection, got {:?}",
+      std::mem::discriminant(&other)
+    ),
+  }
+}

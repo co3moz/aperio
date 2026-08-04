@@ -2046,6 +2046,11 @@ async fn proxy_http_request(
             resp_streamed,
             duration_ms: duration.as_millis(),
             timeline: Some(timeline),
+            client_id: selected.id.clone(),
+            client_name: selected
+              .service_custom_name
+              .clone()
+              .or_else(|| selected.service_name.clone()),
             org_id: selected.org_id.clone(),
           });
         }

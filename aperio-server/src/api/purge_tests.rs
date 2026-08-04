@@ -42,6 +42,8 @@ fn capture(id: &str, headers: Vec<(&str, &str)>) -> CapturedRequest {
     resp_streamed: false,
     duration_ms: 1,
     timeline: None,
+    client_id: "c1".to_string(),
+    client_name: None,
     org_id: None,
   }
 }

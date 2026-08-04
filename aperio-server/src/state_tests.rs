@@ -1565,6 +1565,8 @@ fn capture_of(org: Option<&str>, id: &str) -> CapturedRequest {
     resp_streamed: false,
     duration_ms: 0,
     timeline: None,
+    client_id: "c1".to_string(),
+    client_name: None,
     org_id: org.map(str::to_string),
   }
 }

@@ -1112,4 +1112,6 @@ export const zh: Record<string, string> = {
     'OIDC',
   'hostname/path binds':
     'hostname/path 绑定',
+  'Served by': '由谁提供',
+  'Connection id: {id}': '连接 id ：{id}',
 }

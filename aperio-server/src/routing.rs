@@ -384,6 +384,9 @@ pub(crate) struct SelectedClient {
   pub(crate) webhook_inbox: bool,
   /// Service name announced via Ping (multi-service clients), for display.
   pub(crate) service_name: Option<String>,
+  /// The `custom_name` an operator gave the service, which wins over
+  /// `service_name` wherever a client is named for a person to read.
+  pub(crate) service_custom_name: Option<String>,
 }
 
 /// Returns the pool member matching an affinity value, either a client's
@@ -491,6 +494,7 @@ pub(crate) async fn pick_proxy_client(
       response_timeout: c.response_timeout,
       webhook_inbox: c.webhook_inbox,
       service_name: c.service_name.clone(),
+      service_custom_name: c.service_custom_name.clone(),
     })),
     None => PickOutcome::NoRoute,
   }

@@ -150,6 +150,19 @@ export class MultiServiceSpec extends Test({
     assert.ok(stats.active_clients.some((c) => c.service === 'web'))
   }
 
+  async aCaptureNamesTheServiceThatServedIt() {
+    // The inspector used to have only the connection id, which is a uuid:
+    // it names the thing that is wrong without saying what it is.
+    const logs = await this.server._api<{ id: string; host?: string | null }[]>('/aperio/api/logs')
+    const row = logs.find((l) => l.host === 'web.e2e.local')
+    assert.ok(row, 'no web.e2e.local request in the log')
+    const detail = await this.server._api<{ client_id: string; client_name: string | null }>(
+      `/aperio/api/requests/${row.id}`,
+    )
+    assert.equal(detail.client_name, 'web')
+    assert.ok(detail.client_id, 'the id still travels, since it is what an action addresses')
+  }
+
   async aSelectivePurgeRemovesOneHostnameAndLeavesTheOthers() {
     const before = await this.server._api<{ host?: string | null }[]>('/aperio/api/logs')
     assert.ok(before.some((l) => l.host === 'web.e2e.local'), 'the traffic log records the host')

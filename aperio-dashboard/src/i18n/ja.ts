@@ -1129,4 +1129,6 @@ export const ja: Record<string, string> = {
     'OIDC',
   'hostname/path binds':
     'hostname/path バインド',
+  'Served by': '配信元',
+  'Connection id: {id}': '接続 id: {id}',
 }
