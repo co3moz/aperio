@@ -1041,4 +1041,98 @@ export const tr: Record<string, string> = {
   'a {kind} name cannot be empty': '{kind} adı boş olamaz',
   '{kind} name is longer than {max} characters': '{kind} adı {max} karakterden uzun',
   "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} adı '{name}' yalnızca a-z, 0-9 ve _ içerebilir ('{suggestion}' olarak yazın)",
+  '503: a maintenance flag set by {actor} covers this hostname, until someone turns it off':
+    "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor, biri kapatana kadar",
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), until someone turns it off':
+    "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor ({reason}), biri kapatana kadar",
+  '503: a maintenance flag set by {actor} covers this hostname, lifting at unix {until}':
+    "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor, unix {until} anında kalkıyor",
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}':
+    "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor ({reason}), unix {until} anında kalkıyor",
+  'no maintenance flag covers this hostname':
+    "bu hostname'i kapsayan bir bakım işareti yok",
+  'no routes: rules configured':
+    'yapılandırılmış routes: kuralı yok',
+  '{status}: a routes: rule answers this path':
+    "{status}: bir routes: kuralı bu path'i yanıtlıyor",
+  '{status}: a routes: rule answers this path, to {location}':
+    "{status}: bir routes: kuralı bu path'i {location} adresine yönlendirerek yanıtlıyor",
+  'no routes: rule matches this hostname and path':
+    'bu hostname ve path ile eşleşen bir routes: kuralı yok',
+  '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
+    "200: /robots.txt'i preview_noindex kendisi yanıtlıyor, bu yüzden bu path hiçbir istemciye ulaşmaz",
+  'no waf: rules configured':
+    'yapılandırılmış waf: kuralı yok',
+  '403: blocked by a waf: rule ({reason})':
+    '403: bir waf: kuralı engelledi ({reason})',
+  'no waf: rule matches this method and path (header and body rules need a real request)':
+    'bu metod ve path ile eşleşen bir waf: kuralı yok (header ve gövde kuralları gerçek bir istek gerektirir)',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
+    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}); bu deneme çalıştırması ondan harcamaz",
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
+    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}, yalnızca {methods}); bu deneme çalıştırması ondan harcamaz",
+  'no rate_limits: rule covers this path':
+    "bu path'i kapsayan bir rate_limits: kuralı yok",
+  "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): hizmeti veren istemci bu rota için kendi ziyaretçi parolasını bildirdi, bu sunucunun kendi kapısının önüne geçer',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi kapısı açık ve OIDC yapılandırılmış',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi parolası ayarlı',
+  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
+  'this hostname is served without a visitor gate':
+    'bu hostname ziyaretçi kapısı olmadan sunuluyor',
+  '{count} client(s) would take it: {clients}':
+    '{count} istemci bunu alırdı: {clients}',
+  'no connected client serves this hostname and path':
+    "bu hostname ve path'i sunan bağlı bir istemci yok",
+  'no connected client serves this hostname and path, though {count} could: {ineligible}':
+    "bu hostname ve path'i sunan bağlı bir istemci yok, ancak {count} tanesi sunabilirdi: {ineligible}",
+  'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
+    'bu bağ için bir otomatik ölçekleme kaydı hazır, bu yüzden istek hemen yanıtlanmak yerine kapasite istenirken bekletilirdi',
+  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
+    '{status}: bu hostname için fallbacks: kuralı 504 yerine {url} adresine yönlendiriyor',
+  '504: nothing serves this route, and no fallbacks: rule covers it':
+    '504: bu rotayı hiçbir şey sunmuyor ve onu kapsayan bir fallbacks: kuralı da yok',
+  'the request reaches a tunnel client ({clients})':
+    'istek bir tünel istemcisine ulaşıyor ({clients})',
+  'disabled from the dashboard':
+    'panelden devre dışı bırakıldı',
+  'its backend health probe is failing':
+    'arka uç sağlık yoklaması başarısız',
+  'missed heartbeats':
+    'kaçırılmış kalp atışları',
+  'its path bind does not match':
+    'path bağı eşleşmiyor',
+  'Static route':
+    'Statik rota',
+  'Preview noindex':
+    'Preview noindex',
+  'WAF':
+    'WAF',
+  'Rate limit':
+    'Hız sınırı',
+  'Visitor gate':
+    'Ziyaretçi kapısı',
+  'Routing':
+    'Yönlendirme',
+  'Cold start':
+    'Soğuk başlangıç',
+  'Fallback':
+    'Geri düşüş',
+  'No client':
+    'İstemci yok',
+  'maintenance mode':
+    'bakım modu',
+  'auth: on the service':
+    'hizmetteki auth:',
+  'server_auth / OIDC':
+    'server_auth / OIDC',
+  'server_auth':
+    'server_auth',
+  'OIDC':
+    'OIDC',
+  'hostname/path binds':
+    'hostname/path bağları',
 }

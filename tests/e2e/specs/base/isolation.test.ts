@@ -69,7 +69,8 @@ export class ExplainSpec extends Test({
     const explanation = await this.server._api<{
       outcome: string
       summary: string
-      steps: { stage: string }[]
+      summary_code: string
+      steps: { stage: string; code: string; detail: string }[]
     }>('/aperio/api/explain?hostname=nothing.e2e.local')
     assert.equal(explanation.outcome, 'no_client')
     assert.ok(explanation.summary, 'the one-line answer somebody came for')
@@ -77,6 +78,13 @@ export class ExplainSpec extends Test({
       explanation.steps.some((s) => s.stage === 'maintenance'),
       'every stage is reported, not only the deciding one',
     )
+    // Said twice: an English sentence for a CLI, a code for a screen that
+    // has eight languages. A step with only the first ships untranslated.
+    assert.equal(explanation.summary_code, 'no_client.504')
+    for (const step of explanation.steps) {
+      assert.ok(step.detail, `${step.stage} has a sentence`)
+      assert.match(step.code, /^[a-z_]+\.[a-z_0-9]+$/, `${step.stage} has a code`)
+    }
   }
 
   async anUnusableHostnameIsRefused() {

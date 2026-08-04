@@ -447,12 +447,24 @@ export interface ActivitySeries {
   buckets: ActivityBucket[]
 }
 
-/** One decision in the proxy's chain, as the explain endpoint reports it. */
+/**
+ * One decision in the proxy's chain, as the explain endpoint reports it.
+ *
+ * Said twice: `detail` is a finished English sentence for an API or CLI
+ * caller, `code` + `params` are the same sentence as a name and its values,
+ * which is what a screen with eight languages can render.
+ */
 export interface ExplainStep {
   stage: string
   verdict: 'decides' | 'passes' | 'skipped'
   detail: string
+  /** Message name for `detail`; see `lib/explainMessages.ts`. */
+  code: string
+  /** The values `detail` interpolates. */
+  params?: Record<string, unknown>
   setting?: string
+  /** Set only when `setting` is prose rather than a config key. */
+  setting_code?: string
 }
 
 /** The dry-run answer for a request nobody sent. */
@@ -462,6 +474,8 @@ export interface Explanation {
   method: string
   outcome: string
   summary: string
+  summary_code: string
+  summary_params?: Record<string, unknown>
   steps: ExplainStep[]
 }
 

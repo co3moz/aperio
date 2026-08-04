@@ -532,3 +532,70 @@ fn an_armed_cold_start_and_a_fallback_are_reported_in_that_order() {
   assert!(fb.contains("302"), "{fb}");
   assert!(fb.contains("https://status.example.com"), "{fb}");
 }
+
+#[tokio::test]
+async fn every_step_carries_a_code_beside_its_sentence() {
+  // The dashboard renders the code, not the sentence, so a step that ships
+  // without one is a step that shows up untranslated.
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
+  assert!(!body["summary_code"].as_str().unwrap().is_empty());
+  for s in body["steps"].as_array().unwrap() {
+    let code = s["code"]
+      .as_str()
+      .unwrap_or_else(|| panic!("no code on {s}"));
+    // A code is a message name, not a sentence someone forgot to replace.
+    assert!(code.contains('.') && !code.contains(' '), "{code}");
+  }
+}
+
+#[tokio::test]
+async fn the_values_a_sentence_interpolates_come_back_as_data() {
+  // The point of the whole shape: a translator writes the sentence, the
+  // server supplies what goes in it, and neither has to parse the other.
+  let state = Arc::new(test_state());
+  {
+    let mut clients = state.clients.write().await;
+    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    draining.draining = true;
+    clients.insert("c-drain".to_string(), draining);
+  }
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com/x", None)).await).await;
+
+  let routing = step(&body, "routing");
+  assert_eq!(routing["code"], "routing.none_ineligible");
+  let ineligible = routing["params"]["ineligible"].as_array().unwrap();
+  assert_eq!(ineligible.len(), 1);
+  assert_eq!(ineligible[0]["id"], "c-drain");
+  assert_eq!(ineligible[0]["reason"], "ineligible.draining");
+
+  // Nothing serves it and no fallback covers it, so the 504 is the answer,
+  // and the summary says so in both registers.
+  assert_eq!(body["summary_code"], "no_client.504");
+  assert_eq!(step(&body, "no_client")["code"], "no_client.504");
+}
+
+#[tokio::test]
+async fn a_maintenance_flag_reports_its_actor_and_reason_as_fields() {
+  let state = Arc::new(test_state());
+  state.maintenance.lock().await.insert(
+    "app.example.com".to_string(),
+    MaintenanceFlag {
+      actor: "alice".into(),
+      reason: Some("db migration".into()),
+      until: Some(1_800_000_000),
+      ..MaintenanceFlag::default()
+    },
+  );
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+  let m = step(&body, "maintenance");
+  assert_eq!(m["code"], "maintenance.flagged_reason_until");
+  assert_eq!(m["params"]["actor"], "alice");
+  assert_eq!(m["params"]["reason"], "db migration");
+  assert_eq!(m["params"]["until"], 1_800_000_000_i64);
+  assert_eq!(body["summary_code"], "maintenance.flagged_reason_until");
+  assert_eq!(body["summary_params"]["actor"], "alice");
+}

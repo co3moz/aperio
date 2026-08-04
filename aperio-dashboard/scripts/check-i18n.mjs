@@ -182,7 +182,32 @@ function requiredKeys() {
   ]) {
     for (const key of tableStrings(file, properties)) keys.add(key)
   }
+  // Catalogues that are nothing *but* translatable text, keyed by a code the
+  // server sends. There is no property name to look for, the keys are the
+  // codes, so every string value in the file is required.
+  for (const key of everyStringValue(join(SRC, 'lib', 'explainMessages.ts'))) {
+    keys.add(key)
+  }
   return keys
+}
+
+/** Every string-literal property value in a file, whatever the key. */
+function everyStringValue(file) {
+  const out = new Set()
+  const sf = parse(file, readFileSync(file, 'utf8'))
+  const visit = (node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      (ts.isStringLiteral(node.initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(node.initializer))
+    ) {
+      out.add(node.initializer.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  if (out.size === 0) throw new Error(`no strings found in ${file}`)
+  return out
 }
 
 /**

@@ -6,7 +6,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { api, ApiError, type Explanation } from '@/lib/api'
-import { useI18n } from '@/i18n'
+import {
+  EXPLAIN_INELIGIBLE,
+  EXPLAIN_MESSAGES,
+  EXPLAIN_SETTINGS,
+  EXPLAIN_STAGES,
+} from '@/lib/explainMessages'
+import { useI18n, type TFn } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 /** One icon per verdict, so the deciding step is findable without reading. */
@@ -15,6 +21,44 @@ const MARK = {
   passes: { icon: CircleCheckIcon, className: 'text-emerald-600 dark:text-emerald-400' },
   skipped: { icon: MinusIcon, className: 'text-muted-foreground' },
 } as const
+
+/**
+ * One message, in the reader's language.
+ *
+ * `code` names the sentence and `params` carries its values, so nothing here
+ * parses English. A code the dashboard does not know, from a server newer
+ * than it, falls back to the server's own English `detail`: late is better
+ * than blank.
+ */
+function say(
+  t: TFn,
+  code: string,
+  fallback: string,
+  params?: Record<string, unknown>,
+): string {
+  const template = EXPLAIN_MESSAGES[code]
+  if (!template) return fallback
+  const vars: Record<string, string | number> = {}
+  for (const [name, value] of Object.entries(params ?? {})) {
+    if (Array.isArray(value)) {
+      // Two shapes reach here: a list of client ids, and a list of clients
+      // with the reason each was passed over. The reason is a code too.
+      vars[name] = value
+        .map((item) =>
+          item !== null && typeof item === 'object'
+            ? `${(item as { id: string }).id} (${t(
+                EXPLAIN_INELIGIBLE[(item as { reason: string }).reason] ??
+                  (item as { reason: string }).reason,
+              )})`
+            : String(item),
+        )
+        .join(', ')
+    } else if (value !== null && value !== undefined) {
+      vars[name] = value as string | number
+    }
+  }
+  return t(template, vars)
+}
 
 /**
  * Ask what would happen to a request, without sending one.
@@ -76,7 +120,7 @@ export function ExplainSection() {
                   {result.path}
                 </span>
                 <br />
-                {result.summary}
+                {say(t, result.summary_code, result.summary, result.summary_params)}
               </p>
               <ol className="flex flex-col gap-1.5">
                 {result.steps.map((step) => {
@@ -93,10 +137,17 @@ export function ExplainSection() {
                       <Icon className={cn('mt-0.5 size-4 shrink-0', mark.className)} />
                       <span className="flex flex-col gap-0.5">
                         <span className="font-mono text-xs text-muted-foreground">
-                          {step.stage}
-                          {step.setting && ` · ${step.setting}`}
+                          {EXPLAIN_STAGES[step.stage]
+                            ? t(EXPLAIN_STAGES[step.stage])
+                            : step.stage}
+                          {step.setting &&
+                            ` · ${
+                              step.setting_code && EXPLAIN_SETTINGS[step.setting_code]
+                                ? t(EXPLAIN_SETTINGS[step.setting_code])
+                                : step.setting
+                            }`}
                         </span>
-                        <span>{step.detail}</span>
+                        <span>{say(t, step.code, step.detail, step.params)}</span>
                       </span>
                     </li>
                   )

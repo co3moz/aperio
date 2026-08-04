@@ -1037,4 +1037,98 @@ export const ru: Record<string, string> = {
   'a {kind} name cannot be empty': 'Имя {kind} не может быть пустым',
   '{kind} name is longer than {max} characters': 'Имя {kind} длиннее {max} символов',
   "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "Имя {kind} '{name}' может содержать только a-z, 0-9 и _ (запишите как '{suggestion}')",
+  '503: a maintenance flag set by {actor} covers this hostname, until someone turns it off':
+    '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname, пока её кто-нибудь не снимет',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), until someone turns it off':
+    '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname ({reason}), пока её кто-нибудь не снимет',
+  '503: a maintenance flag set by {actor} covers this hostname, lifting at unix {until}':
+    '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname, снимается в unix {until}',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}':
+    '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname ({reason}), снимается в unix {until}',
+  'no maintenance flag covers this hostname':
+    'ни одна отметка обслуживания не покрывает этот hostname',
+  'no routes: rules configured':
+    'правила routes: не настроены',
+  '{status}: a routes: rule answers this path':
+    '{status}: правило routes: отвечает на этот path',
+  '{status}: a routes: rule answers this path, to {location}':
+    '{status}: правило routes: отвечает на этот path, перенаправляя на {location}',
+  'no routes: rule matches this hostname and path':
+    'ни одно правило routes: не подходит к этому hostname и path',
+  '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
+    '200: preview_noindex сам отвечает на /robots.txt, поэтому этот path никогда не доходит до клиента',
+  'no waf: rules configured':
+    'правила waf: не настроены',
+  '403: blocked by a waf: rule ({reason})':
+    '403: заблокировано правилом waf: ({reason})',
+  'no waf: rule matches this method and path (header and body rules need a real request)':
+    'ни одно правило waf: не подходит к этому методу и path (правила для header и тела требуют настоящего запроса)',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
+    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}); этот пробный прогон из него не расходует',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
+    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}, только {methods}); этот пробный прогон из него не расходует',
+  'no rate_limits: rule covers this path':
+    'ни одно правило rate_limits: не покрывает этот path',
+  "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: обслуживающий клиент объявил собственный пароль посетителя для этого маршрута, и он важнее собственной двери сервера',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: дверь для посетителей на сервере включена и настроен OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: на сервере задан пароль посетителя',
+  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
+  'this hostname is served without a visitor gate':
+    'этот hostname обслуживается без двери для посетителей',
+  '{count} client(s) would take it: {clients}':
+    'запрос взяли бы {count} клиент(ов): {clients}',
+  'no connected client serves this hostname and path':
+    'ни один подключённый клиент не обслуживает этот hostname и path',
+  'no connected client serves this hostname and path, though {count} could: {ineligible}':
+    'ни один подключённый клиент не обслуживает этот hostname и path, хотя {count} могли бы: {ineligible}',
+  'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
+    'для этой привязки взведена запись автомасштабирования, поэтому запрос удерживали бы, пока запрашивается мощность, вместо немедленного ответа',
+  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
+    '{status}: правило fallbacks: для этого hostname перенаправляет на {url} вместо 504',
+  '504: nothing serves this route, and no fallbacks: rule covers it':
+    '504: этот маршрут никто не обслуживает, и ни одно правило fallbacks: его не покрывает',
+  'the request reaches a tunnel client ({clients})':
+    'запрос доходит до туннельного клиента ({clients})',
+  'disabled from the dashboard':
+    'отключён из панели',
+  'its backend health probe is failing':
+    'его проверка здоровья бэкенда не проходит',
+  'missed heartbeats':
+    'пропущенные heartbeat',
+  'its path bind does not match':
+    'его привязка path не совпадает',
+  'Static route':
+    'Статический маршрут',
+  'Preview noindex':
+    'Preview noindex',
+  'WAF':
+    'WAF',
+  'Rate limit':
+    'Ограничение частоты',
+  'Visitor gate':
+    'Дверь для посетителей',
+  'Routing':
+    'Маршрутизация',
+  'Cold start':
+    'Холодный старт',
+  'Fallback':
+    'Запасной вариант',
+  'No client':
+    'Нет клиента',
+  'maintenance mode':
+    'режим обслуживания',
+  'auth: on the service':
+    'auth: у сервиса',
+  'server_auth / OIDC':
+    'server_auth / OIDC',
+  'server_auth':
+    'server_auth',
+  'OIDC':
+    'OIDC',
+  'hostname/path binds':
+    'привязки hostname/path',
 }

@@ -1037,4 +1037,98 @@ export const fr: Record<string, string> = {
   'a {kind} name cannot be empty': 'Un nom de {kind} ne peut pas être vide',
   '{kind} name is longer than {max} characters': 'Le nom de {kind} dépasse {max} caractères',
   "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "Le nom de {kind} '{name}' ne peut contenir que a-z, 0-9 et _ (écrivez-le '{suggestion}')",
+  '503: a maintenance flag set by {actor} covers this hostname, until someone turns it off':
+    "503 : un indicateur de maintenance posé par {actor} couvre ce hostname, jusqu'à ce que quelqu'un le retire",
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), until someone turns it off':
+    "503 : un indicateur de maintenance posé par {actor} couvre ce hostname ({reason}), jusqu'à ce que quelqu'un le retire",
+  '503: a maintenance flag set by {actor} covers this hostname, lifting at unix {until}':
+    '503 : un indicateur de maintenance posé par {actor} couvre ce hostname, levé à unix {until}',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}':
+    '503 : un indicateur de maintenance posé par {actor} couvre ce hostname ({reason}), levé à unix {until}',
+  'no maintenance flag covers this hostname':
+    'aucun indicateur de maintenance ne couvre ce hostname',
+  'no routes: rules configured':
+    'aucune règle routes: configurée',
+  '{status}: a routes: rule answers this path':
+    '{status} : une règle routes: répond à ce path',
+  '{status}: a routes: rule answers this path, to {location}':
+    '{status} : une règle routes: répond à ce path, vers {location}',
+  'no routes: rule matches this hostname and path':
+    'aucune règle routes: ne correspond à ce hostname et à ce path',
+  '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
+    "200 : preview_noindex répond lui-même à /robots.txt, ce path n'atteint donc jamais un client",
+  'no waf: rules configured':
+    'aucune règle waf: configurée',
+  '403: blocked by a waf: rule ({reason})':
+    '403 : bloqué par une règle waf: ({reason})',
+  'no waf: rule matches this method and path (header and body rules need a real request)':
+    'aucune règle waf: ne correspond à cette méthode et à ce path (les règles de header et de corps demandent une vraie requête)',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
+    "une règle rate_limits: couvre ce path ({rps} rps, rafale {burst}) ; cette simulation n'y puise rien",
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
+    "une règle rate_limits: couvre ce path ({rps} rps, rafale {burst}, {methods} uniquement) ; cette simulation n'y puise rien",
+  'no rate_limits: rule covers this path':
+    'aucune règle rate_limits: ne couvre ce path',
+  "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
+    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : le client qui sert a déclaré son propre mot de passe visiteur pour cette route, qui l'emporte sur la porte du serveur",
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
+    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : la porte visiteurs du serveur est active et OIDC est configuré",
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
+    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : le mot de passe visiteur du serveur est défini",
+  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
+    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : OIDC est configuré pour les visiteurs",
+  'this hostname is served without a visitor gate':
+    'ce hostname est servi sans porte visiteurs',
+  '{count} client(s) would take it: {clients}':
+    '{count} client(s) la prendraient : {clients}',
+  'no connected client serves this hostname and path':
+    'aucun client connecté ne sert ce hostname et ce path',
+  'no connected client serves this hostname and path, though {count} could: {ineligible}':
+    'aucun client connecté ne sert ce hostname et ce path, bien que {count} le pourraient : {ineligible}',
+  'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
+    "un enregistrement d'autoscaling est armé pour ce lien, la requête serait donc retenue le temps de demander de la capacité, au lieu d'être répondue tout de suite",
+  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
+    "{status} : la règle fallbacks: de ce hostname redirige vers {url} au lieu d'un 504",
+  '504: nothing serves this route, and no fallbacks: rule covers it':
+    '504 : rien ne sert cette route, et aucune règle fallbacks: ne la couvre',
+  'the request reaches a tunnel client ({clients})':
+    'la requête atteint un client de tunnel ({clients})',
+  'disabled from the dashboard':
+    'désactivé depuis le tableau de bord',
+  'its backend health probe is failing':
+    'sa sonde de santé du backend échoue',
+  'missed heartbeats':
+    'battements manqués',
+  'its path bind does not match':
+    'son lien de path ne correspond pas',
+  'Static route':
+    'Route statique',
+  'Preview noindex':
+    'Preview noindex',
+  'WAF':
+    'WAF',
+  'Rate limit':
+    'Limite de débit',
+  'Visitor gate':
+    'Porte visiteurs',
+  'Routing':
+    'Routage',
+  'Cold start':
+    'Démarrage à froid',
+  'Fallback':
+    'Repli',
+  'No client':
+    'Aucun client',
+  'maintenance mode':
+    'mode maintenance',
+  'auth: on the service':
+    'auth: sur le service',
+  'server_auth / OIDC':
+    'server_auth / OIDC',
+  'server_auth':
+    'server_auth',
+  'OIDC':
+    'OIDC',
+  'hostname/path binds':
+    'liens hostname/path',
 }

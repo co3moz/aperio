@@ -1035,4 +1035,98 @@ export const ja: Record<string, string> = {
   'a {kind} name cannot be empty': '{kind} 名は空にできません',
   '{kind} name is longer than {max} characters': '{kind} 名が {max} 文字を超えています',
   "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} 名 '{name}' に使えるのは a-z、0-9、_ のみです ('{suggestion}' と書いてください)",
+  '503: a maintenance flag set by {actor} covers this hostname, until someone turns it off':
+    '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています。誰かが解除するまで続きます',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), until someone turns it off':
+    '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています（{reason}）。誰かが解除するまで続きます',
+  '503: a maintenance flag set by {actor} covers this hostname, lifting at unix {until}':
+    '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています。unix {until} に解除されます',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}':
+    '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています（{reason}）。unix {until} に解除されます',
+  'no maintenance flag covers this hostname':
+    'この hostname を覆うメンテナンス表示はありません',
+  'no routes: rules configured':
+    'routes: ルールは設定されていません',
+  '{status}: a routes: rule answers this path':
+    '{status}: routes: ルールがこの path に応答します',
+  '{status}: a routes: rule answers this path, to {location}':
+    '{status}: routes: ルールがこの path に応答し、{location} へ送ります',
+  'no routes: rule matches this hostname and path':
+    'この hostname と path に一致する routes: ルールはありません',
+  '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
+    '200: preview_noindex が /robots.txt を自分で返すため、この path はクライアントに届きません',
+  'no waf: rules configured':
+    'waf: ルールは設定されていません',
+  '403: blocked by a waf: rule ({reason})':
+    '403: waf: ルールによって遮断されました（{reason}）',
+  'no waf: rule matches this method and path (header and body rules need a real request)':
+    'このメソッドと path に一致する waf: ルールはありません（ header と本文のルールには実際のリクエストが必要です）',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
+    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} ）。この試験実行はそこから消費しません',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
+    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} 、{methods} のみ）。この試験実行はそこから消費しません',
+  'no rate_limits: rule covers this path':
+    'この path を覆う rate_limits: ルールはありません',
+  "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 配信しているクライアントがこのルートに独自の訪問者パスワードを宣言しており、サーバー自身の関門に優先します',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者関門が有効で、OIDC も設定されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者パスワードが設定されています',
+  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
+  'this hostname is served without a visitor gate':
+    'この hostname は訪問者関門なしで配信されています',
+  '{count} client(s) would take it: {clients}':
+    '{count} 個のクライアントが受け取ります: {clients}',
+  'no connected client serves this hostname and path':
+    'この hostname と path を配信している接続中のクライアントはありません',
+  'no connected client serves this hostname and path, though {count} could: {ineligible}':
+    'この hostname と path を配信している接続中のクライアントはありません。{count} 個は可能でした: {ineligible}',
+  'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
+    'このバインドには自動スケーリングの記録が構えてあるため、リクエストは即座に応答されず、容量を要求する間だけ保留されます',
+  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
+    '{status}: この hostname の fallbacks: ルールが 504 の代わりに {url} へリダイレクトします',
+  '504: nothing serves this route, and no fallbacks: rule covers it':
+    '504: このルートを配信するものがなく、覆う fallbacks: ルールもありません',
+  'the request reaches a tunnel client ({clients})':
+    'リクエストはトンネルクライアントに届きます（{clients}）',
+  'disabled from the dashboard':
+    'ダッシュボードから無効化されています',
+  'its backend health probe is failing':
+    'バックエンドのヘルス調査が失敗しています',
+  'missed heartbeats':
+    '取りこぼしたハートビート',
+  'its path bind does not match':
+    'その path バインドが一致しません',
+  'Static route':
+    '静的ルート',
+  'Preview noindex':
+    'Preview noindex',
+  'WAF':
+    'WAF',
+  'Rate limit':
+    'レート制限',
+  'Visitor gate':
+    '訪問者関門',
+  'Routing':
+    'ルーティング',
+  'Cold start':
+    'コールドスタート',
+  'Fallback':
+    'フォールバック',
+  'No client':
+    'クライアントなし',
+  'maintenance mode':
+    'メンテナンスモード',
+  'auth: on the service':
+    'サービス側の auth:',
+  'server_auth / OIDC':
+    'server_auth / OIDC',
+  'server_auth':
+    'server_auth',
+  'OIDC':
+    'OIDC',
+  'hostname/path binds':
+    'hostname/path バインド',
 }

@@ -55,25 +55,73 @@ pub(crate) struct Step {
   /// Stable machine-readable stage name.
   pub(crate) stage: &'static str,
   pub(crate) verdict: Verdict,
-  /// One sentence for a person.
+  /// One sentence for a person, in English.
+  ///
+  /// Kept for everything that reads this endpoint without a phrasebook: the
+  /// `api` commands, a script, a dashboard whose locale has no entry yet. A
+  /// caller that can render `code` should prefer it, and fall back here.
   pub(crate) detail: String,
+  /// What `detail` says, as something other than English.
+  ///
+  /// A stage has several possible messages, so this names the message rather
+  /// than the stage: `maintenance.flagged` and `maintenance.none` are both
+  /// `stage: "maintenance"`. Stable, like `stage` and `verdict`.
+  pub(crate) code: &'static str,
+  /// The values `detail` interpolates, unformatted: numbers as numbers, lists
+  /// as lists. A renderer needs the parts, not a sentence it has to take
+  /// apart again.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) params: Option<serde_json::Value>,
   /// Where the rule behind it lives, when it has a home an operator edits.
+  ///
+  /// A literal config key (`routes:`, `waf:`) where there is one, and a
+  /// `setting_code` beside it where the answer is prose rather than a key.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub(crate) setting: Option<&'static str>,
+  /// Set when `setting` names something in prose rather than a config key, so
+  /// a dashboard can translate it. Absent means `setting` is the key itself.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) setting_code: Option<&'static str>,
 }
 
 impl Step {
-  fn new(stage: &'static str, verdict: Verdict, detail: impl Into<String>) -> Self {
+  fn new(
+    stage: &'static str,
+    verdict: Verdict,
+    code: &'static str,
+    detail: impl Into<String>,
+  ) -> Self {
     Step {
       stage,
       verdict,
       detail: detail.into(),
+      code,
+      params: None,
       setting: None,
+      setting_code: None,
     }
   }
 
+  /// The values behind the sentence.
+  fn with(mut self, params: serde_json::Value) -> Self {
+    self.params = Some(params);
+    self
+  }
+
+  /// A config key, which is the same word in every language.
   fn from(mut self, setting: &'static str) -> Self {
     self.setting = Some(setting);
+    self
+  }
+
+  /// A place named in prose, which is not.
+  // `from_*` usually means a constructor; here it is the same builder as
+  // `from` above with a second name, and reading `.from_named(...)` next to
+  // `.from(...)` is worth more than the convention.
+  #[allow(clippy::wrong_self_convention)]
+  fn from_named(mut self, setting: &'static str, code: &'static str) -> Self {
+    self.setting = Some(setting);
+    self.setting_code = Some(code);
     self
   }
 }
@@ -86,8 +134,13 @@ pub(crate) struct Explanation {
   pub(crate) method: String,
   /// The stage that decides, or `none` when the request would reach a client.
   pub(crate) outcome: String,
-  /// The one-line answer, the thing someone came here to read.
+  /// The one-line answer, the thing someone came here to read, in English.
   pub(crate) summary: String,
+  /// The same answer as a message name, for a caller that renders its own.
+  pub(crate) summary_code: &'static str,
+  /// The values `summary` interpolates.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) summary_params: Option<serde_json::Value>,
   pub(crate) steps: Vec<Step>,
 }
 
@@ -171,13 +224,18 @@ pub(crate) async fn explain_handler(
   }
 
   let mut steps: Vec<Step> = Vec::new();
-  let mut outcome: Option<(String, String)> = None;
+  let mut outcome: Option<Decision> = None;
   // Once something decides, later stages still report what they see, marked
   // as not reached: half the value here is "the route is fine, the
   // maintenance flag is what is answering".
-  let decided = |outcome: &mut Option<(String, String)>, stage: &str, summary: String| {
+  type Decision = (String, String, &'static str, Option<serde_json::Value>);
+  let decided = |outcome: &mut Option<Decision>,
+                 stage: &str,
+                 summary: String,
+                 code: &'static str,
+                 params: Option<serde_json::Value>| {
     if outcome.is_none() {
-      *outcome = Some((stage.to_string(), summary));
+      *outcome = Some((stage.to_string(), summary, code, params));
     }
   };
   let cfg = state.config();
@@ -196,12 +254,34 @@ pub(crate) async fn explain_handler(
         Some(until) => detail.push_str(&format!(", lifting at unix {until}")),
         None => detail.push_str(", until someone turns it off"),
       }
-      decided(&mut outcome, "maintenance", detail.clone());
-      steps.push(Step::new("maintenance", Verdict::Decides, detail).from("maintenance mode"));
+      let code = match (flag.reason.is_some(), flag.until.is_some()) {
+        (true, true) => "maintenance.flagged_reason_until",
+        (true, false) => "maintenance.flagged_reason",
+        (false, true) => "maintenance.flagged_until",
+        (false, false) => "maintenance.flagged",
+      };
+      let params = serde_json::json!({
+        "actor": flag.actor,
+        "reason": flag.reason,
+        "until": flag.until,
+      });
+      decided(
+        &mut outcome,
+        "maintenance",
+        detail.clone(),
+        code,
+        Some(params.clone()),
+      );
+      steps.push(
+        Step::new("maintenance", Verdict::Decides, code, detail)
+          .with(params)
+          .from_named("maintenance mode", "setting.maintenance_mode"),
+      );
     }
     None => steps.push(Step::new(
       "maintenance",
       Verdict::Passes,
+      "maintenance.none",
       "no maintenance flag covers this hostname",
     )),
   }
@@ -211,6 +291,7 @@ pub(crate) async fn explain_handler(
     steps.push(Step::new(
       "static_route",
       Verdict::Skipped,
+      "static_route.none_configured",
       "no routes: rules configured",
     ));
   } else if let Some(answer) = cfg.static_routes.answer(Some(&hostname), &path, None) {
@@ -222,12 +303,32 @@ pub(crate) async fn explain_handler(
       .map(|l| format!(" to {l}"))
       .unwrap_or_default();
     let detail = format!("{status}: a routes: rule answers this path{location}");
-    decided(&mut outcome, "static_route", detail.clone());
-    steps.push(Step::new("static_route", Verdict::Decides, detail).from("routes:"));
+    let target = answer
+      .headers()
+      .get("location")
+      .and_then(|v| v.to_str().ok());
+    let code = match target {
+      Some(_) => "static_route.answers_location",
+      None => "static_route.answers",
+    };
+    let params = serde_json::json!({ "status": status.as_u16(), "location": target });
+    decided(
+      &mut outcome,
+      "static_route",
+      detail.clone(),
+      code,
+      Some(params.clone()),
+    );
+    steps.push(
+      Step::new("static_route", Verdict::Decides, code, detail)
+        .with(params)
+        .from("routes:"),
+    );
   } else {
     steps.push(Step::new(
       "static_route",
       Verdict::Passes,
+      "static_route.no_match",
       "no routes: rule matches this hostname and path",
     ));
   }
@@ -241,8 +342,22 @@ pub(crate) async fn explain_handler(
       .is_some_and(|pattern| crate::routing::host_matches_random_pattern(&hostname, pattern));
   if noindex {
     let detail = "200: a disallow-all robots.txt, because this is a random-subdomain host and preview_noindex is on".to_string();
-    decided(&mut outcome, "preview_noindex", detail.clone());
-    steps.push(Step::new("preview_noindex", Verdict::Decides, detail).from("preview_noindex"));
+    decided(
+      &mut outcome,
+      "preview_noindex",
+      detail.clone(),
+      "preview_noindex.robots",
+      None,
+    );
+    steps.push(
+      Step::new(
+        "preview_noindex",
+        Verdict::Decides,
+        "preview_noindex.robots",
+        detail,
+      )
+      .from("preview_noindex"),
+    );
   }
 
   // 4. WAF deny rules. Header rules cannot be judged without a real request,
@@ -251,17 +366,30 @@ pub(crate) async fn explain_handler(
     steps.push(Step::new(
       "waf",
       Verdict::Skipped,
+      "waf.none_configured",
       "no waf: rules configured",
     ));
   } else if let Some(reason) = cfg.waf.deny_reason(&method, &path, &HeaderMap::new()) {
     let detail = format!("403: blocked by a waf: rule ({reason})");
-    decided(&mut outcome, "waf", detail.clone());
-    steps.push(Step::new("waf", Verdict::Decides, detail).from("waf:"));
+    let params = serde_json::json!({ "reason": reason });
+    decided(
+      &mut outcome,
+      "waf",
+      detail.clone(),
+      "waf.denied",
+      Some(params.clone()),
+    );
+    steps.push(
+      Step::new("waf", Verdict::Decides, "waf.denied", detail)
+        .with(params)
+        .from("waf:"),
+    );
   } else {
     steps.push(
       Step::new(
         "waf",
         Verdict::Passes,
+        "waf.no_match",
         "no waf: rule matches this method and path (header and body rules need a real request)",
       )
       .from("waf:"),
@@ -275,6 +403,10 @@ pub(crate) async fn explain_handler(
       Step::new(
         "route_rate_limit",
         Verdict::Passes,
+        match rule.methods.as_ref() {
+          Some(_) => "route_rate_limit.covered_methods",
+          None => "route_rate_limit.covered",
+        },
         format!(
           "a rate_limits: rule covers this path ({} rps, burst {}{}); this dry run does not spend from it",
           rule.rps,
@@ -285,11 +417,17 @@ pub(crate) async fn explain_handler(
           }
         ),
       )
+      .with(serde_json::json!({
+        "rps": rule.rps,
+        "burst": rule.burst,
+        "methods": rule.methods.as_ref().map(|m| m.join("/")),
+      }))
       .from("rate_limits"),
     ),
     None => steps.push(Step::new(
       "route_rate_limit",
       Verdict::Skipped,
+      "route_rate_limit.none",
       "no rate_limits: rule covers this path",
     )),
   }
@@ -302,35 +440,51 @@ pub(crate) async fn explain_handler(
   let server_gate = cfg.auth_credentials.is_some();
   let oidc_gate = state.oidc.is_some();
   if client_gate || server_gate || oidc_gate {
-    let (why, setting) = if client_gate {
+    let (why, code, setting, setting_code) = if client_gate {
       (
         "the serving client declared a visitor password for this route, which supersedes the server's own gate",
+        "visitor_gate.client_password",
         "auth: on the service",
+        "setting.service_auth",
       )
     } else if server_gate && oidc_gate {
       (
         "the server's visitor gate is on, and OIDC is configured",
+        "visitor_gate.server_password_and_oidc",
         "server_auth / OIDC",
+        "setting.server_auth_oidc",
       )
     } else if server_gate {
-      ("the server's visitor password is set", "server_auth")
+      (
+        "the server's visitor password is set",
+        "visitor_gate.server_password",
+        "server_auth",
+        "setting.server_auth",
+      )
     } else {
-      ("OIDC is configured for visitors", "OIDC")
+      (
+        "OIDC is configured for visitors",
+        "visitor_gate.oidc",
+        "OIDC",
+        "setting.oidc",
+      )
     };
     steps.push(
       Step::new(
         "visitor_gate",
         Verdict::Passes,
+        code,
         format!(
           "visitors must sign in (or carry a share link) before this reaches a client: {why}"
         ),
       )
-      .from(setting),
+      .from_named(setting, setting_code),
     );
   } else {
     steps.push(Step::new(
       "visitor_gate",
       Verdict::Skipped,
+      "visitor_gate.open",
       "this hostname is served without a visitor gate",
     ));
   }
@@ -350,26 +504,38 @@ pub(crate) async fn explain_handler(
     .unwrap_or_default();
     // Every connected client that serves this hostname but would not take
     // the request, with the reason, which is the question behind most 504s.
-    let ineligible: Vec<String> = clients
+    let ineligible: Vec<(String, &'static str, &'static str)> = clients
       .iter()
       .filter(|(id, c)| !pool.contains(id) && c.matches_host(&hostname))
       .map(|(id, c)| {
-        let why = if !c.admin_enabled {
-          "disabled from the dashboard"
+        let (why, code) = if !c.admin_enabled {
+          ("disabled from the dashboard", "ineligible.disabled")
         } else if c.draining {
-          "draining"
+          ("draining", "ineligible.draining")
         } else if !c.backend_healthy {
-          "its backend health probe is failing"
+          (
+            "its backend health probe is failing",
+            "ineligible.backend_unhealthy",
+          )
         } else if !c.is_healthy(down_threshold) {
-          "missed heartbeats"
+          ("missed heartbeats", "ineligible.missed_heartbeats")
         } else {
-          "its path bind does not match"
+          ("its path bind does not match", "ineligible.path_mismatch")
         };
-        format!("{id} ({why})")
+        (id.clone(), why, code)
       })
       .collect();
     (pool, ineligible)
   };
+  // The same list twice: once as a sentence for `detail`, once as data.
+  let ineligible_text: Vec<String> = ineligible
+    .iter()
+    .map(|(id, why, _)| format!("{id} ({why})"))
+    .collect();
+  let ineligible_data: Vec<serde_json::Value> = ineligible
+    .iter()
+    .map(|(id, _, code)| serde_json::json!({ "id": id, "reason": code }))
+    .collect();
 
   if !pool.is_empty() {
     let detail = format!(
@@ -382,19 +548,37 @@ pub(crate) async fn explain_handler(
         &mut outcome,
         "client",
         format!("the request reaches a tunnel client ({})", pool.join(", ")),
+        "client.reached",
+        Some(serde_json::json!({ "clients": pool })),
       );
     }
-    steps.push(Step::new("routing", Verdict::Passes, detail).from("hostname/path binds"));
+    steps.push(
+      Step::new("routing", Verdict::Passes, "routing.candidates", detail)
+        .with(serde_json::json!({ "count": pool.len(), "clients": pool }))
+        .from_named("hostname/path binds", "setting.host_path_binds"),
+    );
   } else {
     let mut detail = String::from("no connected client serves this hostname and path");
     if !ineligible.is_empty() {
       detail.push_str(&format!(
         ", though {} could: {}",
         ineligible.len(),
-        ineligible.join(", ")
+        ineligible_text.join(", ")
       ));
     }
-    steps.push(Step::new("routing", Verdict::Passes, detail).from("hostname/path binds"));
+    let code = if ineligible.is_empty() {
+      "routing.none"
+    } else {
+      "routing.none_ineligible"
+    };
+    steps.push(
+      Step::new("routing", Verdict::Passes, code, detail)
+        .with(serde_json::json!({
+          "count": ineligible_data.len(),
+          "ineligible": ineligible_data,
+        }))
+        .from_named("hostname/path binds", "setting.host_path_binds"),
+    );
 
     // 8. What answers instead: a cold start, a fallback, or the 504.
     let armed = {
@@ -409,6 +593,7 @@ pub(crate) async fn explain_handler(
         Step::new(
           "cold_start",
           Verdict::Passes,
+          "cold_start.armed",
           "an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once",
         )
         .from("scaling:"),
@@ -420,19 +605,46 @@ pub(crate) async fn explain_handler(
         if rule.permanent { 301 } else { 302 },
         rule.url
       );
-      decided(&mut outcome, "fallback", detail.clone());
-      steps.push(Step::new("fallback", Verdict::Decides, detail).from("fallbacks:"));
+      let params = serde_json::json!({
+        "status": if rule.permanent { 301 } else { 302 },
+        "url": rule.url,
+      });
+      decided(
+        &mut outcome,
+        "fallback",
+        detail.clone(),
+        "fallback.redirect",
+        Some(params.clone()),
+      );
+      steps.push(
+        Step::new("fallback", Verdict::Decides, "fallback.redirect", detail)
+          .with(params)
+          .from("fallbacks:"),
+      );
     } else {
       let detail = "504: nothing serves this route, and no fallbacks: rule covers it".to_string();
-      decided(&mut outcome, "no_client", detail.clone());
-      steps.push(Step::new("no_client", Verdict::Decides, detail));
+      decided(
+        &mut outcome,
+        "no_client",
+        detail.clone(),
+        "no_client.504",
+        None,
+      );
+      steps.push(Step::new(
+        "no_client",
+        Verdict::Decides,
+        "no_client.504",
+        detail,
+      ));
     }
   }
 
-  let (outcome, summary) = outcome.unwrap_or_else(|| {
+  let (outcome, summary, summary_code, summary_params) = outcome.unwrap_or_else(|| {
     (
       "client".to_string(),
       "the request reaches a tunnel client".to_string(),
+      "client.reached",
+      None,
     )
   });
   Json(Explanation {
@@ -441,6 +653,8 @@ pub(crate) async fn explain_handler(
     method,
     outcome,
     summary,
+    summary_code,
+    summary_params,
     steps,
   })
   .into_response()

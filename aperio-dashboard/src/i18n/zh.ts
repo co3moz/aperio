@@ -1018,4 +1018,98 @@ export const zh: Record<string, string> = {
   'a {kind} name cannot be empty': '{kind} 名称不能为空',
   '{kind} name is longer than {max} characters': '{kind} 名称超过 {max} 个字符',
   "{kind} name '{name}' may only contain a-z, 0-9 and _ (write it as '{suggestion}')": "{kind} 名称 '{name}' 只能包含 a-z、0-9 和 _ (请写作 '{suggestion}')",
+  '503: a maintenance flag set by {actor} covers this hostname, until someone turns it off':
+    '503：{actor} 设置的维护标记覆盖了这个 hostname ，直到有人关闭它',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), until someone turns it off':
+    '503：{actor} 设置的维护标记覆盖了这个 hostname （{reason}），直到有人关闭它',
+  '503: a maintenance flag set by {actor} covers this hostname, lifting at unix {until}':
+    '503：{actor} 设置的维护标记覆盖了这个 hostname ，将在 unix {until} 解除',
+  '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}':
+    '503：{actor} 设置的维护标记覆盖了这个 hostname （{reason}），将在 unix {until} 解除',
+  'no maintenance flag covers this hostname':
+    '没有维护标记覆盖这个 hostname',
+  'no routes: rules configured':
+    '没有配置 routes: 规则',
+  '{status}: a routes: rule answers this path':
+    '{status}：一条 routes: 规则回应这个 path',
+  '{status}: a routes: rule answers this path, to {location}':
+    '{status}：一条 routes: 规则回应这个 path ，转到 {location}',
+  'no routes: rule matches this hostname and path':
+    '没有 routes: 规则匹配这个 hostname 和 path',
+  '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
+    '200：preview_noindex 自己回应 /robots.txt ，所以这个 path 永远不会到达客户端',
+  'no waf: rules configured':
+    '没有配置 waf: 规则',
+  '403: blocked by a waf: rule ({reason})':
+    '403：被一条 waf: 规则拦截（{reason}）',
+  'no waf: rule matches this method and path (header and body rules need a real request)':
+    '没有 waf: 规则匹配这个方法和 path （header 和请求体规则需要一个真实请求）',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
+    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}）；这次试运行不会消耗其中的额度',
+  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
+    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}，仅限 {methods}）；这次试运行不会消耗其中的额度',
+  'no rate_limits: rule covers this path':
+    '没有 rate_limits: 规则覆盖这个 path',
+  "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
+    '访客必须先登录（或带着分享链接）才能到达客户端：提供服务的客户端为这条路由声明了自己的访客密码，它优先于服务器自身的门禁',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
+    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客门禁已开启，并且配置了 OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
+    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客密码已设置',
+  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
+    '访客必须先登录（或带着分享链接）才能到达客户端：已为访客配置 OIDC',
+  'this hostname is served without a visitor gate':
+    '这个 hostname 在没有访客门禁的情况下提供服务',
+  '{count} client(s) would take it: {clients}':
+    '{count} 个客户端会接收它：{clients}',
+  'no connected client serves this hostname and path':
+    '没有已连接的客户端提供这个 hostname 和 path',
+  'no connected client serves this hostname and path, though {count} could: {ineligible}':
+    '没有已连接的客户端提供这个 hostname 和 path ，尽管有 {count} 个本可以：{ineligible}',
+  'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
+    '这个绑定上有一条自动伸缩记录处于待命状态，所以请求会在申请容量期间被挂起，而不是立刻得到回应',
+  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
+    '{status}：这个 hostname 的 fallbacks: 规则重定向到 {url} ，而不是返回 504',
+  '504: nothing serves this route, and no fallbacks: rule covers it':
+    '504：没有任何东西提供这条路由，也没有 fallbacks: 规则覆盖它',
+  'the request reaches a tunnel client ({clients})':
+    '请求到达了一个隧道客户端（{clients}）',
+  'disabled from the dashboard':
+    '已在仪表板中停用',
+  'its backend health probe is failing':
+    '它的后端健康探测正在失败',
+  'missed heartbeats':
+    '错过的心跳',
+  'its path bind does not match':
+    '它的 path 绑定不匹配',
+  'Static route':
+    '静态路由',
+  'Preview noindex':
+    'Preview noindex',
+  'WAF':
+    'WAF',
+  'Rate limit':
+    '速率限制',
+  'Visitor gate':
+    '访客门禁',
+  'Routing':
+    '路由',
+  'Cold start':
+    '冷启动',
+  'Fallback':
+    '回退',
+  'No client':
+    '没有客户端',
+  'maintenance mode':
+    '维护模式',
+  'auth: on the service':
+    '服务上的 auth:',
+  'server_auth / OIDC':
+    'server_auth / OIDC',
+  'server_auth':
+    'server_auth',
+  'OIDC':
+    'OIDC',
+  'hostname/path binds':
+    'hostname/path 绑定',
 }
