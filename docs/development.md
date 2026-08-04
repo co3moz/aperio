@@ -25,7 +25,7 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 ## Tests & end-to-end suite
 
-`cargo test --all` runs the unit tests. `npm --prefix tests/e2e test` runs the end-to-end suite: a real `aperio-server`, several `aperio-client` processes, and mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). Each phase gets its own server on its own port, so they run four at a time and any one of them can be run alone. CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
+`cargo test --all` runs the unit tests. `npm --prefix tests/e2e test` runs the end-to-end suite: a real `aperio-server`, several `aperio-client` processes, and mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). Each phase gets its own server on its own port, and so does each file within a phase, so they run four at a time and any one of them, phase or file, can be run alone. CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
 
 ### Protocol fuzzing
 

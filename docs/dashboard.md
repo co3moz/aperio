@@ -115,7 +115,7 @@ maintenance_windows:
 
 While a window is running, matching hostnames answer exactly as a flag would, reason and all, with `Retry-After` pointing at the end of the window. `to` earlier than `from` wraps past midnight, and `days` then names the day the window **starts**: `22:00` to `02:00` on `[sat]` runs Saturday night into Sunday morning. Use a named zone rather than a fixed offset, so 02:00 stays 02:00 across a daylight-saving change. A malformed entry refuses startup rather than being skipped, because a window that silently never fires is a deploy nobody stopped.
 
-A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it.
+A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it. A flag also cannot be raised over a hostname a client of *another* organization is currently serving, whatever the fence says: coverage is a claim over a name, not over somebody else's live service. See [Organizations](organizations.md).
 
 ## Organizations
 
@@ -172,7 +172,7 @@ maintenance flag → `routes:` rule → preview `robots.txt` → `waf:` deny →
 
 Every stage reports, not only the deciding one, which is the point: "the route is fine, a maintenance flag someone else set is what is answering" is a different fix from "no client is connected". When nothing serves the route, the report also names the clients that *could* have and why they did not, draining, disabled, failing their backend probe, missed heartbeats, or a path bind that does not match.
 
-It is a dry run in the strict sense: it spends no rate-limit token, moves no round-robin cursor, and does not wake a scaled-to-zero service. Where a real check would be destructive (the route rate limit) it reports the rule instead of the outcome, and says so. Operator role and up, and an organization may only ask about hostnames its own fence admits, since the answer names the clients serving them.
+It is a dry run in the strict sense: it spends no rate-limit token, moves no round-robin cursor, and does not wake a scaled-to-zero service. Where a real check would be destructive (the route rate limit) it reports the rule instead of the outcome, and says so. Operator role and up, and an organization may only ask about hostnames its own fence admits.
 
 `GET /aperio/api/explain?hostname=&path=&method=` is the same thing from a script.
 

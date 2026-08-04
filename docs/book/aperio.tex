@@ -1550,7 +1550,17 @@ hostname can be claimed, not once:
         minted before the fence existed cannot bind past it;
   \item ephemeral tunnel provisioning refuses an out-of-fence hostname;
   \item the dashboard bind override refuses one too, the single place a
-        bind is set with no token permission behind it.
+        bind is set with no token permission behind it;
+  \item \textbf{maintenance flags and share links} need the fence
+        \emph{and} a second condition: the hostname must not be served
+        right now by a client of another organisation. Coverage alone is
+        not enough, because the master token is never fenced, so a master
+        client can be serving a name inside an organisation's fence, and
+        coverage by itself would let that organisation 503 it or hand out
+        a link past its visitor gate. A name nobody serves stays
+        actionable, which is what keeps a fence usable before the first
+        client connects: putting up a maintenance page is most wanted
+        precisely when nothing is up.
 \end{itemize}
 
 A server-assigned random subdomain is exempt: the tenant cannot influence
@@ -1650,7 +1660,15 @@ as a named user, or through OIDC.
         order, and marks the one that would answer. It sends nothing, so
         it spends no rate limit and wakes no scaled-to-zero service; when
         nothing serves the route it names the clients that could have and
-        why they did not.
+        why they did not. Clients read \code{<org>@<name>}, the address
+        form used everywhere else, and connections answering to one name
+        are counted rather than repeated. A client belonging to another
+        organisation is counted without being named: the fence is on the
+        hostname, and being allowed to ask about a name is not being
+        allowed to learn whose deployment answers it. Every step is
+        reported twice, as an English sentence and as a message code with
+        its values, so a dashboard renders it in the reader's language
+        and a script keeps reading the sentence.
   \item[Maintenance] The per-hostname 503 switch. An entry is a hostname,
         a \code{*.example.com} subdomain wildcard (every subdomain, not the
         apex, so an operator who wants both lists both), a partial leftmost
@@ -1716,7 +1734,10 @@ are shown to the master super-admin alone, since only they may read them.
 \section{The request inspector}
 
 Any captured request can be opened to see headers, body, the response,
-and a per-stage timing breakdown. From there it can be replayed through
+which client served it, and a per-stage timing breakdown. The client is
+named the way the clients table names it, with the connection id a hover
+away: the id is what an action addresses, and the name is what a person
+recognises. From there the request can be replayed through
 the tunnel, copied as cURL, or downloaded as HAR. Secrets are redacted in
 all three (see Chapter~\ref{ch:threat}), while replay still sends the
 original bytes.
@@ -2153,8 +2174,9 @@ expose:
 A tunnel name is unique inside an organization and nowhere else, which is
 why the organization is part of the claim; omitting it means the master
 organization. The same \code{<org>@<name>} spelling works as a
-\code{bind-tunnels:} key and is how the dashboard shows a tunnel, so one
-address form reads everywhere. An organization name may not contain
+\code{bind-tunnels:} key, is how the dashboard shows a tunnel and the
+client that declared it, and is how a client is named wherever the
+server reports one, so one address form reads everywhere. An organization name may not contain
 \code{@}, which is what keeps it unambiguous.
 
 \code{token:} was the earlier spelling and still works unchanged. It is
@@ -2682,6 +2704,8 @@ overrides win over both. Generated from the reference tables in
 \rowsep
 \code{APERIO\_OTEL\_ENDPOINT} & OTLP/HTTP collector base URL (\code{/v1/traces} is appended if absent). Falls back to the standard \code{OTEL\_EXPORTER\_OTLP\_ENDPOINT}. & \code{http://localhost:4318} \\
 \rowsep
+\code{APERIO\_OTEL\_PROTOCOL} & OTLP transport: \code{http} (protobuf over HTTP, the spec spelling \code{http/protobuf} is also accepted) or \code{grpc}. Falls back to the standard \code{OTEL\_EXPORTER\_OTLP\_TRACES\_PROTOCOL} / \code{OTEL\_EXPORTER\_OTLP\_PROTOCOL}. Unset, the endpoint's port decides: 4317 is gRPC, anything else HTTP. A collector answering the other protocol drops every span in silence, so the startup probe checks the transport actually chosen and warns when the port contradicts it. & port-derived \\
+\rowsep
 \code{APERIO\_OTEL\_SERVICE\_NAME} & \code{service.name} reported on exported spans. Falls back to \code{OTEL\_SERVICE\_NAME}. & \code{aperio-server} \\
 \rowsep
 \code{APERIO\_OTEL\_SAMPLE\_RATE} & Fraction of requests traced, \code{0.0} to \code{1.0}. At the default every request builds a span tree and hands it to the exporter, which is the cost that shows up in a benchmark; \code{0.01} answers the same questions about latency and error shape for a hundredth of it. The decision is made once at the root of a request and every span of that request follows it, so a sampled trace is whole rather than a fragment. & \code{1.0} \\
@@ -2847,19 +2871,19 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver; anything on the edge host exports to it with one environment variable. & \code{127.0.0.1:4318} \\
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver, \code{127.0.0.1:4318} by default; anything on the edge host exports to it with one environment variable. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_LISTEN\_GRPC} &  & \code{otel\_bridge.listen\_grpc} & Address for the OTLP/gRPC receiver. Unset = no gRPC listener. &  \\
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN\_GRPC} &  & \code{otel\_bridge.listen\_grpc} & Address for the OTLP/gRPC receiver. Unset, the default, means no gRPC listener. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_TRANSPORT} &  & \code{otel\_bridge.transport} & \code{tunnel} sends exports on the WebSocket the client already holds; \code{https} posts them to the server's endpoint. & \code{tunnel} \\
+\code{APERIO\_OTEL\_BRIDGE\_TRANSPORT} &  & \code{otel\_bridge.transport} & \code{tunnel}, the default, sends exports on the WebSocket the client already holds; \code{https} posts them to the server's endpoint. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_QUEUE} &  & \code{otel\_bridge.queue} & Exports held when the far end is not keeping up; past this the newest is dropped and counted, never waited on. & \code{256} \\
+\code{APERIO\_OTEL\_BRIDGE\_QUEUE} &  & \code{otel\_bridge.queue} & Exports held when the far end is not keeping up, \code{256} by default; past this the newest is dropped and counted, never waited on. \\
 \rowsep
-\code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. & \code{0} \\
+\code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, \code{0} by default, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. \\
 \rowsep
-\code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit. A pid file that cannot be written is a warning, not a refusal to start. &  \\
+\code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit. Unset by default. A pid file that cannot be written is a warning, not a refusal to start. \\
 \rowsep
-\code{APERIO\_ADAPTIVE\_CONCURRENCY} &  & \code{adaptive\_concurrency} & Move the announced \code{max\_concurrent} with backend pressure: halve it while requests queue waiting for a local permit, climb back one at a time when they stop. Needs \code{max\_concurrent} set, and never leaves the band \code{1..=max\_concurrent}. & \code{false} \\
+\code{APERIO\_ADAPTIVE\_CONCURRENCY} &  & \code{adaptive\_concurrency} & Off by default. Moves the announced \code{max\_concurrent} with backend pressure: halves it while requests queue waiting for a local permit, climbs back one at a time when they stop. Needs \code{max\_concurrent} set, and never leaves the band \code{1..=max\_concurrent}. \\
 \rowsep
 \code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & Seconds to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service. Unset = only the whole-request budget applies. \\
 \rowsep
@@ -2922,6 +2946,36 @@ settings are required: the token, the server URL, and the target.
 \code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
 \rowsep
 \code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback by default, with the same warning. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS} &  & \code{security\_headers} & The security response-header preset: HSTS, \code{X-Frame-Options: DENY}, \code{X-Content-Type-Options: nosniff} and \code{Referrer-Policy: strict-origin-when-cross-origin}. Explicit \code{headers:} rules always win over it. Off by default. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_HSTS} &  & \code{security\_headers.hsts} & Inject \code{Strict-Transport-Security} on its own. Only meaningful behind HTTPS. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_HSTS\_MAX\_AGE} &  & \code{security\_headers.hsts\_max\_age} & HSTS \code{max-age} in seconds. Default \code{63072000}, two years. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_FRAME\_OPTIONS} &  & \code{security\_headers.frame\_options} & \code{X-Frame-Options} value to inject. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_NOSNIFF} &  & \code{security\_headers.nosniff} & Inject \code{X-Content-Type-Options: nosniff}. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_REFERRER\_POLICY} &  & \code{security\_headers.referrer\_policy} & \code{Referrer-Policy} value to inject. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_CSP} &  & \code{security\_headers.csp} & \code{Content-Security-Policy} value to inject. No default: a policy is application-specific, and a wrong one breaks the page. \\
+\rowsep
+\code{APERIO\_SCALING\_URL} &  & \code{scaling.url} & Endpoint the server POSTs to when a service of this client needs capacity. HTTPS and public addresses only, unless the operator opened those (see \emph{Autoscaling}). Without it there is nothing to call, so the declaration is off. \\
+\rowsep
+\code{APERIO\_SCALING\_SECRET} &  & \code{scaling.secret} & Sent as \code{Authorization: Bearer} on that call. Write-only: never echoed back, never logged. \\
+\rowsep
+\code{APERIO\_SCALING\_MIN} &  & \code{scaling.min} & Instances that should always be running. \code{0}, the default, opts into scale-to-zero: a request for an unserved hostname cold-starts instead of answering 504. \\
+\rowsep
+\code{APERIO\_SCALING\_MAX} &  & \code{scaling.max} & Ceiling the server will never ask to exceed. \code{0}, the default, means cold starts only, no scale-out. \\
+\rowsep
+\code{APERIO\_SCALING\_COLD\_START} &  & \code{scaling.cold\_start} & How long a visitor request may be held while a cold start completes, e.g. \code{45s}, which is the default. \code{0} answers immediately instead of holding. \\
+\rowsep
+\code{APERIO\_SCALING\_TARGET\_UTILIZATION} &  & \code{scaling.target\_utilization} & Pool utilisation above which the server asks for one more instance, between 0 and 1. Default \code{0.8}. \\
+\rowsep
+\code{APERIO\_SCALING\_WINDOW} &  & \code{scaling.window} & How long utilisation must stay above the target before scaling out, e.g. \code{15s}, the default. Guards against reacting to a single spike. \\
+\rowsep
+\code{APERIO\_SCALING\_COOLDOWN} &  & \code{scaling.cooldown} & Minimum gap between two calls for one bind, default \code{60s}. A new instance needs time to appear; without this the server would ask again while it is still starting. \\
 \rowsep
 \code{LOG\_LEVEL} &  &, & Log verbosity. \\
 \rowsep
