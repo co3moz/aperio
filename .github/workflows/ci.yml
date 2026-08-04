@@ -112,8 +112,10 @@ jobs:
           # understate coverage). The real pass/fail gate is the `build` job.
           cargo test --workspace --no-fail-fast
           cargo build -p aperio-server -p aperio-client -p mock-h2
-          npm --prefix tests/e2e ci
-          npm --prefix tests/e2e test
+          # A subshell rather than `working-directory:`, which would apply to
+          # the whole block and take the cargo commands with it. The suite
+          # inherits the instrumented environment sourced above.
+          (cd tests/e2e && npm ci && npm run test:ci)
           cargo llvm-cov report --html --output-dir coverage-html --ignore-filename-regex "$COV_IGNORE"
           echo '## Coverage (unit tests + e2e)' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -233,18 +235,26 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Build server and client binaries
+      # `npm test` builds these too, through its `pretest`. Doing it here as
+      # well costs a no-op cargo invocation and buys a build failure that
+      # says "build", instead of one buried in the test step's output.
+      - name: Build the binaries the suite drives
         run: cargo build -p aperio-server -p aperio-client -p mock-h2
 
       - name: Install the E2E suite's dependencies
-        run: npm --prefix tests/e2e ci
+        working-directory: tests/e2e
+        run: npm ci
 
       # Real integration test: aperio-server + aperio-client + mock backends,
       # exercising proxying, dashboard APIs, and the programmatic tunnels API.
-      # Every phase gets its own server on its own port, so they run four at
-      # a time.
+      #
+      # `test:ci` runs two phases at a time rather than the four a developer
+      # machine takes: a phase is a server, a client or three and a backend,
+      # so four of them is a dozen processes competing for a runner's few
+      # cores, and half of what this suite asserts is a timeout.
       - name: Run E2E integration test
-        run: npm --prefix tests/e2e test
+        working-directory: tests/e2e
+        run: npm run test:ci
 
   # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.

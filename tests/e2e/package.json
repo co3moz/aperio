@@ -6,6 +6,8 @@
   "scripts": {
     "pretest": "cargo build --manifest-path ../../Cargo.toml -p aperio-server -p aperio-client -p mock-h2",
     "test": "nole './specs/**/*.test.ts' --concurrency 4",
+    "pretest:ci": "npm run pretest",
+    "test:ci": "nole './specs/**/*.test.ts' --concurrency 2",
     "pretest:serial": "npm run pretest",
     "test:serial": "nole './specs/**/*.test.ts'",
     "typecheck": "tsc -b"
