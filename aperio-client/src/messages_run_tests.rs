@@ -339,3 +339,45 @@ async fn a_timed_out_command_does_not_leave_its_pipeline_running() {
   );
   let _ = std::fs::remove_file(&marker);
 }
+
+#[tokio::test]
+async fn a_dispatcher_hears_what_arrives_before_its_task_first_runs() {
+  // `spawn` used to take its broadcast receiver inside the spawned task, so
+  // it heard nothing until the runtime got round to polling it. On a reload
+  // the previous dispatcher is stopped and a new one started, and every
+  // delivery in that window reached neither: a message that should have run
+  // a command ran nothing, silently.
+  let bus = MessageBus::new(vec!["things/#".to_string()]);
+  let marker = std::env::temp_dir().join(format!("aperio-gap-{}", uuid::Uuid::new_v4()));
+  let runner = Runner::new(
+    "things/#".to_string(),
+    format!("touch {}", marker.display()),
+    Some(5),
+    Some(1),
+    Vec::new(),
+  );
+
+  let handle = spawn(bus.clone(), vec![runner]);
+  // Delivered immediately, with no await in between: the task has certainly
+  // not been polled yet.
+  bus.deliver(Delivery {
+    topic: "things/x".to_string(),
+    payload: b"hi".to_vec(),
+    id: None,
+  });
+
+  for _ in 0..100 {
+    if marker.exists() {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+  assert!(
+    marker.exists(),
+    "the delivery fell in the gap between subscribing and being polled"
+  );
+  let _ = std::fs::remove_file(&marker);
+  if let Some(h) = handle {
+    h.abort();
+  }
+}

@@ -1586,10 +1586,17 @@ impl ProcessFacilities {
         })
       })
       .collect();
+    // Subscribe the replacement before stopping the incumbent, so nothing
+    // delivered in between falls between the two: a broadcast receiver only
+    // sees what is sent after it exists, and `spawn` takes its receiver on
+    // the calling thread for exactly this reason. The overlap is the safe
+    // direction, since a message the old dispatcher is already handling is
+    // not re-delivered to the new one.
+    let replacement = crate::messages_run::spawn(shared.messages.clone(), runners);
     if let Some(task) = self.runners.take() {
       task.abort();
     }
-    self.runners = crate::messages_run::spawn(shared.messages.clone(), runners);
+    self.runners = replacement;
 
     // The OTel bridge is the one facility a reload cannot rebuild: its
     // receiving end is held by whichever tunnel connection is live, and

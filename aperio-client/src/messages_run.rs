@@ -87,8 +87,14 @@ pub(crate) fn spawn(
     );
   }
   let runners = Arc::new(runners);
+  // Subscribed here, not inside the task. A broadcast receiver only sees what
+  // is sent after it exists, and the task does not exist until the runtime
+  // gets round to it: on a reload, where the previous dispatcher has already
+  // been stopped, everything delivered in that gap reached nobody. Taking the
+  // receiver on this line closes the gap to the caller's own ordering, which
+  // it can control.
+  let mut deliveries = bus.listen();
   Some(tokio::spawn(async move {
-    let mut deliveries = bus.listen();
     loop {
       match deliveries.recv().await {
         Ok(delivery) => {
