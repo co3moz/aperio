@@ -66,9 +66,12 @@ pub(crate) async fn share_create_handler(
 
   // Isolation: a share link may only be minted for a hostname the caller's own
   // organization serves, so one org cannot hand out access to another's site.
+  // The link is redeemed by hostname and path alone, so this gate is the
+  // whole of it, and it asks who serves the name rather than only whose
+  // fence covers it.
   let org = crate::auth::effective_org(&state, &headers).await;
   if !state
-    .org_may_claim_hostname(org.as_deref(), &hostname)
+    .org_may_act_on_hostname(org.as_deref(), &hostname)
     .await
   {
     return (

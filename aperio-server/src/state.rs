@@ -2951,6 +2951,35 @@ impl AppState {
     }
   }
 
+  /// True when `org` may *act* on `target`: not only whether its fence
+  /// covers the name, but whether the name is somebody else's right now.
+  ///
+  /// [`Self::org_may_claim_hostname`] answers the first question, which is
+  /// the right one for "may this name be bound" and for a read-only report:
+  /// an organization has to be able to name a hostname before any of its
+  /// clients has connected. It is not enough for an action. The master token
+  /// is never fenced, so a master client can be serving a name inside an
+  /// organization's fence, and coverage alone let that organization 503 it or
+  /// mint a share link into it, which is the thing the fence exists to stop.
+  ///
+  /// So this adds the second half: nothing may be done to a hostname a client
+  /// of a *different* organization is currently serving. A name nobody serves
+  /// is still actionable, which is what keeps a fence usable before the first
+  /// client connects.
+  pub(crate) async fn org_may_act_on_hostname(&self, org: Option<&str>, target: &str) -> bool {
+    if !self.org_may_claim_hostname(org, target).await {
+      return false;
+    }
+    let clients = self.clients.read().await;
+    !clients.values().any(|c| {
+      c.perms.org_id.as_deref() != org
+        && c
+          .effective_hostnames()
+          .into_iter()
+          .any(|h| crate::store::orgs::pattern_covers_pattern(target, h))
+    })
+  }
+
   /// One beat of the background garbage collector: sweeps the per-IP and
   /// per-route rate buckets and the expired sessions.
   ///

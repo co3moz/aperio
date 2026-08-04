@@ -131,12 +131,14 @@ pub(crate) async fn maintenance_set_handler(
     )
       .into_response();
   }
-  // A specific hostname may only be toggled by the organization that may serve
-  // it, so one org cannot 503 another org's site.
+  // A specific hostname may only be toggled by the organization it belongs
+  // to, so one org cannot 503 another org's site. Coverage is not enough:
+  // the master token is never fenced, so a master client can be serving a
+  // name inside an organization's fence.
   if payload.enabled
     && hostname != "*"
     && !state
-      .org_may_claim_hostname(org.as_deref(), &hostname)
+      .org_may_act_on_hostname(org.as_deref(), &hostname)
       .await
   {
     return (

@@ -620,3 +620,89 @@ async fn an_absurd_window_is_refused() {
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
   assert!(state.maintenance.lock().await.is_empty());
 }
+
+#[tokio::test]
+async fn a_fenced_org_cannot_flag_a_hostname_a_master_client_serves() {
+  // The master token is never fenced, so a master client can be serving a
+  // name inside an organization's fence. Coverage alone let that
+  // organization 503 somebody else's site, which is the one thing the fence
+  // is there to stop.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.example.com".into()], None)
+    .unwrap()
+    .id;
+  state.clients.write().await.insert(
+    "master-conn".to_string(),
+    mock_client(Some("app.example.com"), None, None, None),
+  );
+  let headers = master_with_org(&state, &org).await;
+
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req("app.example.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(
+    state
+      .maintenance_for(Some("app.example.com"))
+      .await
+      .is_none()
+  );
+
+  // The wildcard shape is the same question asked more broadly, and gets the
+  // same answer: it covers the name that client is serving.
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    req("*.example.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+  // A name inside the fence that nobody serves is still the org's to flag:
+  // a fence has to be usable before the first client connects.
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("other.example.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn an_org_may_still_flag_a_hostname_its_own_client_serves() {
+  // The rule is about *whose* client, not about there being one.
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.example.com".into()], None)
+    .unwrap()
+    .id;
+  {
+    let mut clients = state.clients.write().await;
+    let mut mine = mock_client(Some("app.example.com"), None, None, None);
+    mine.perms.org_id = Some(org.clone());
+    clients.insert("acme-conn".to_string(), mine);
+  }
+  let headers = master_with_org(&state, &org).await;
+  let resp = maintenance_set_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    req("app.example.com", true),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}

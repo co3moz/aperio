@@ -400,3 +400,58 @@ async fn share_create_rejects_excessive_ttl() {
   .await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn share_create_refuses_a_hostname_another_organization_serves() {
+  // A share link is redeemed by hostname and path alone, so the gate that
+  // mints it is the whole of the isolation. The master token is never
+  // fenced, so a master client can be serving a name inside an
+  // organization's fence, and coverage alone let that organization hand out
+  // access to it.
+  let state = std::sync::Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.example.com".into()], None)
+    .unwrap()
+    .id;
+  state.clients.write().await.insert(
+    "master-conn".to_string(),
+    mock_client(Some("app.example.com"), None, None, None),
+  );
+  let token = seed_session(
+    &state,
+    crate::store::users::Role::Admin,
+    None,
+    Some(org.clone()),
+  )
+  .await;
+
+  let resp = share_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    Json(ShareCreateRequest {
+      hostname: "app.example.com".to_string(),
+      path: None,
+      ttl_seconds: None,
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+  // A name inside its fence that nobody serves is still its own to share.
+  let resp = share_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    Json(ShareCreateRequest {
+      hostname: "other.example.com".to_string(),
+      path: None,
+      ttl_seconds: None,
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
