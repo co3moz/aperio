@@ -81,7 +81,7 @@ export const tr: Record<string, string> = {
   'Clipboard unavailable': 'Pano kullanılamıyor',
   Close: 'Kapat',
   'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    "Cloudflare kısayolu: CF-Connecting-IP başlığına güven",
+    "Cloudflare kısayolu: CF-Connecting-IP header'ına güven",
   'Connect a new client': 'Yeni istemci bağla',
   'Connected & Active': 'Bağlı ve Aktif',
   'Connected For': 'Bağlantı Süresi',
@@ -193,7 +193,7 @@ export const tr: Record<string, string> = {
   'Bandwidth': 'Bant Genişliği',
   'Daily': 'Günlük',
   'Monthly': 'Aylık',
-  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'Token ve sunucu adı başına tünelden geçen baytlar, gönderilen/alınan dağılımı için hücrenin üzerine gelin.',
+  'Bytes through the tunnel per token and hostname, hover a cell for the sent/received split.': 'Token ve hostname başına tünelden geçen baytlar, gönderilen/alınan dağılımı için hücrenin üzerine gelin.',
   'No traffic recorded for this window yet.': 'Bu pencere için henüz trafik kaydı yok.',
   'Total': 'Toplam',
   'Slowest Endpoints': "En Yavaş Endpoint'ler",
@@ -644,14 +644,14 @@ export const tr: Record<string, string> = {
   'New Organization': 'Yeni Organizasyon',
   'Create organization': 'Organizasyon oluştur',
   'Tokens and users you create while an organization is selected belong only to it, its members never see another org’s clients or tokens.':
-    'Bir organizasyon seçiliyken oluşturduğunuz token ve kullanıcılar yalnızca ona aittir, üyeleri asla başka bir organizasyonun clientlerini veya tokenlarını görmez.',
+    'Bir organizasyon seçiliyken oluşturduğunuz token ve kullanıcılar yalnızca ona aittir, üyeleri asla başka bir organizasyonun istemcilerini veya tokenlarını görmez.',
   'Organization "{name}" created': '"{name}" organizasyonu oluşturuldu',
   'Organization "{name}" deleted': '"{name}" organizasyonu silindi',
   'Delete organization "{name}"?': '"{name}" organizasyonu silinsin mi?',
   'This cannot be undone. An organization can only be deleted once all its users and tokens are removed.':
     'Bu geri alınamaz. Bir organizasyon ancak tüm kullanıcıları ve tokenları kaldırıldıktan sonra silinebilir.',
   'Isolated tenants. Switch into an organization from the sidebar to manage its own tokens, users, and clients. The master organization is implicit, everything created without an organization belongs to it.':
-    'İzole kiracılar. Kendi token, kullanıcı ve clientlerini yönetmek için kenar çubuğundan bir organizasyona geçin. Master organizasyon örtüktür, organizasyon olmadan oluşturulan her şey ona aittir.',
+    'İzole kiracılar. Kendi token, kullanıcı ve istemcilerini yönetmek için kenar çubuğundan bir organizasyona geçin. Master organizasyon örtüktür, organizasyon olmadan oluşturulan her şey ona aittir.',
   'No organizations yet': 'Henüz organizasyon yok',
   'master': 'master',
   'Switch organization': 'Organizasyon değiştir',
@@ -662,7 +662,7 @@ export const tr: Record<string, string> = {
   'Requests in real time, table or console': 'Gerçek zamanlı istekler, tablo veya konsol',
   'no client': 'istemci yok',
   'offline': 'çevrimdışı',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, kehribar = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok. --bind-tunnels ile bir tüneli çeviren başka bir makine kehribar bir düğüm olarak çizilir; çevirdiği adresle tanımlanır, yani tek adresin arkasındaki birden çok süreç tek düğüm görünür.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, sarı = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok. --bind-tunnels ile bir tüneli çeviren başka bir makine sarı bir düğüm olarak çizilir; çevirdiği adresle tanımlanır, yani tek adresin arkasındaki birden çok süreç tek düğüm görünür.',
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
