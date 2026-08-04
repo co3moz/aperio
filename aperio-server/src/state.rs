@@ -1363,6 +1363,18 @@ impl ClientHandle {
     set
   }
 
+  /// What this client calls itself, if it says anything.
+  ///
+  /// The order the clients table uses, and every other place a client is
+  /// shown to a person: the `custom_name` an operator gave the service, else
+  /// the `name` of its `services:` entry. `None` leaves only the id.
+  pub(crate) fn display_name(&self) -> Option<String> {
+    self
+      .service_custom_name
+      .clone()
+      .or_else(|| self.service_name.clone())
+  }
+
   pub(crate) fn matches_host(&self, host: &str) -> bool {
     self
       .effective_hostnames()

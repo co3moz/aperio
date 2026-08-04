@@ -121,6 +121,9 @@ pub(crate) struct TunnelView {
   /// connection happened to be visited first, so it could change between two
   /// calls that describe the same tunnel.
   pub(crate) client_id: Option<String>,
+  /// What that client calls itself, when it named a service. Shown instead
+  /// of the id, which is a uuid unless an operator wrote `client_id:`.
+  pub(crate) client_name: Option<String>,
   /// How many connections of that process announce this tunnel.
   pub(crate) paths: usize,
   /// True when at least one of those paths can serve a bind right now.
@@ -321,6 +324,7 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
           .instance_group
           .clone()
           .or_else(|| handle.reported_instance_id.clone()),
+        client_name: handle.display_name(),
         paths: 1,
         available: usable,
         encrypt: decl.encrypt,

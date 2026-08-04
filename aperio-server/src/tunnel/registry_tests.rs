@@ -389,3 +389,35 @@ async fn an_older_client_still_reports_an_id() {
   let listed = visible(&state, &ClientPerms::master()).await;
   assert_eq!(listed[0].client_id.as_deref(), Some("legacy-id"));
 }
+
+#[tokio::test]
+async fn the_listing_names_the_declaring_client() {
+  // The Client column showed the raw id, which is a uuid unless an operator
+  // happened to write `client_id:`. The service name is the thing that is
+  // recognized; the id stays for what addresses the connection.
+  let state = Arc::new(test_state());
+  insert(&state, "conn-a", |c| {
+    c.tunnels = vec![decl("postgres", "tcp")];
+    c.instance_group = Some("group-1".to_string());
+    c.service_name = Some("db".to_string());
+    c.service_custom_name = Some("db (primary)".to_string());
+  })
+  .await;
+
+  let listed = visible(&state, &ClientPerms::master()).await;
+  assert_eq!(listed[0].client_name.as_deref(), Some("db (primary)"));
+  assert_eq!(listed[0].client_id.as_deref(), Some("group-1"));
+}
+
+#[tokio::test]
+async fn a_client_that_named_no_service_has_no_name_to_show() {
+  let state = Arc::new(test_state());
+  insert(&state, "conn-a", |c| {
+    c.tunnels = vec![decl("postgres", "tcp")];
+    c.instance_group = Some("group-1".to_string());
+  })
+  .await;
+
+  let listed = visible(&state, &ClientPerms::master()).await;
+  assert_eq!(listed[0].client_name, None, "the id is then all there is");
+}

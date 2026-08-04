@@ -741,6 +741,8 @@ export interface DeclaredTunnel {
   /** Address the declaring client dials locally. */
   target: string
   client_id: string | null
+  /** What that client calls itself, when it named a service. */
+  client_name?: string | null
   /** How many connections of that client process announce it. */
   paths: number
   /** True when at least one of them can serve a bind right now. */

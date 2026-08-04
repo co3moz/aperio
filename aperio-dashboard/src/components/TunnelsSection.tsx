@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, type DeclaredTunnel } from '@/lib/api'
 import { NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -156,7 +157,24 @@ export function TunnelsSection() {
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
-                  {tunnel.client_id ?? NO_VALUE}
+                  {/* Same address shape as the tunnel's own name above: a
+                      service name is unique inside an organization and
+                      nowhere else, so `org@name` is the whole address. The
+                      connection id is a uuid unless an operator wrote
+                      `client_id:`, so it goes in the tooltip. */}
+                  {tunnel.client_name ? (
+                    <Tooltip>
+                      <TooltipTrigger render={<span className="cursor-default" />}>
+                        <span className="text-muted-foreground">{tunnel.org ?? 'master'}@</span>
+                        {tunnel.client_name}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t('Connection id: {id}', { id: tunnel.client_id ?? NO_VALUE })}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    (tunnel.client_id ?? NO_VALUE)
+                  )}
                   {tunnel.token_name && (
                     <span className="ml-2 font-sans">{tunnel.token_name}</span>
                   )}

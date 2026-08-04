@@ -161,17 +161,6 @@ fn split_target(raw: &str) -> (String, Option<String>) {
   }
 }
 
-/// What a client's own configuration calls it, if it says anything.
-///
-/// The same order the clients table uses: the `custom_name` an operator gave
-/// it, else the `name` of its `services:` entry.
-fn display_name(client: &crate::state::ClientHandle) -> Option<String> {
-  client
-    .service_custom_name
-    .clone()
-    .or_else(|| client.service_name.clone())
-}
-
 /// One line of the report: what a client is called, how many connections
 /// answer to that name, and which ones they are.
 struct Named {
@@ -561,7 +550,7 @@ pub(crate) async fn explain_handler(
     let pool: Vec<(String, Option<String>)> = pool
       .into_iter()
       .map(|id| {
-        let name = clients.get(&id).and_then(display_name);
+        let name = clients.get(&id).and_then(|c| c.display_name());
         (id, name)
       })
       .collect();
@@ -585,7 +574,7 @@ pub(crate) async fn explain_handler(
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };
-        (id.clone(), display_name(c), why, code)
+        (id.clone(), c.display_name(), why, code)
       })
       .collect();
     (pool, ineligible)

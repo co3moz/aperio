@@ -36,7 +36,7 @@ A config with only `tunnels:` (no `target`, no `services:`) is valid: the connec
 
 ## Finding what you can bind
 
-`GET /aperio/tunnels`, with a tunnel token, lists every tunnel that token may bind: name, protocol, target, the declaring client, how many connections can serve it, and whether any of them can right now. The dashboard's **Tunnels** page is the same list, and its copy button hands you a ready `bind-tunnels:` block.
+`GET /aperio/tunnels`, with a tunnel token, lists every tunnel that token may bind: name, protocol, target, the declaring client, how many connections can serve it, and whether any of them can right now. The declaring client is named the way the tunnel itself is, `org@name`, since a service name is unique inside an organization and nowhere else; `client_name` is that name and `client_id` the connection behind it, which the dashboard keeps one hover away. A client that named no service shows its id, which is then all there is. The dashboard's **Tunnels** page is the same list, and its copy button hands you a ready `bind-tunnels:` block.
 
 This is what makes a name usable as an address. Without it you had to already know a client id before you could ask anything at all.
 
