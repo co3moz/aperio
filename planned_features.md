@@ -19,38 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#2 Speed up the Windows release build without vendoring OpenSSL from
-  source.** *Parked, not refused.* The `x86_64-pc-windows-msvc` release job
-  spends several minutes compiling OpenSSL from source via
-  `aperio-server/vendored-openssl` (needed because webauthn-rs pulls in
-  openssl). Dropping vendored on Windows and linking the runner's system
-  OpenSSL would cut that, but naively it breaks the self-contained `.exe`:
-  dynamic linking makes the binary depend on `libssl`/`libcrypto` DLLs at
-  runtime, and MSVC static linking hits the classic CRT (MT vs MD) mismatch.
-  Hunting a reliably-static, ABI-compatible prebuilt OpenSSL is a known dead
-  end; the version worth doing is the other one in the original note, **a
-  webauthn crypto path that needs no openssl at all**, which removes the
-  dependency instead of packaging it. That is a dependency swap with its own
-  risk, and the cost it saves is CI minutes on a job the default-branch release
-  cache (ci.yml `warm-release-cache`) already warms. Left open so the option is
-  recorded; not worth starting while the cache holds.
-
-- [ ] **#40 Mutual TLS on the tunnel connection.** (triage 45) A client
-  authenticates with a bearer token, optionally pinned and IP-fenced. Some
-  deployments want a client certificate as well, so a leaked token alone is not
-  enough. Rustls supports it on both sides; the work is less in the handshake
-  than in the operational surface: where certificates come from, how they are
-  rotated, and what the server does with the identity once verified (map it to
-  a token, or to an organization).
-
-- [ ] **#43 Shadow traffic to a second backend.** (triage 45) Send a copy of a
-  route's requests to a staging service and discard its answer, so a new
-  version sees production traffic before it serves any. `shadow: {target}`
-  under a route. What makes it more than a fan-out: the shadow must never
-  affect the visitor (no waiting on it, no error from it), must be bounded so
-  it cannot double the client's concurrency budget, and needs an explicit
-  answer for request bodies, which have to be buffered to be sent twice.
-
 - [ ] **#45 A notification centre in the dashboard.** (triage 40) Token expiry,
   a client that dropped, maintenance left on, an alert that fired: all of these
   are already events on the `$aperio/` bus, and all of them are currently found
@@ -108,40 +76,17 @@ readable without scrolling past what is already done.
   faster for the small-service-count case that most deployments are. The mode
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
+
 - [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
   store are written in the clear, and that store holds hashed credentials,
   sessions and organization data. AES-256-GCM with the key from an environment
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#67 Chunked transfer fidelity.** (triage 30) `Transfer-Encoding` is
-  stripped and the body is re-framed by our own streaming, which is correct for
-  every case we know of but means a backend's chunk boundaries are not the
-  visitor's chunk boundaries. It matters for protocols where a chunk is a
-  message. Worth a written answer even if the answer stays "we re-frame".
-
-- [ ] **#71 TLS termination on an `expose:` port.** (triage 25) Exposed ports
-  carry raw TCP or an end-to-end encrypted stream, so a service that wants TLS
-  in front of it has to terminate it itself. Per-port `tls_cert` / `tls_key`.
-  Modest value: the fronting proxy that most deployments already have does this.
-
 - [ ] **#72 Configurable TLS floor and cipher list for the tunnel.** (triage 25)
   Rustls defaults are used as they come, which is the right default and an
   awkward answer to a compliance questionnaire that wants the floor pinned to
   1.3 in writing. Cheap, and mostly a documentation feature.
-
-- [ ] **#73 `permessage-deflate` instead of application-level compression.**
-  (triage 25) Tunnel compression is negotiated and applied by us, one message at
-  a time. The RFC 7692 extension does it in the transport with context takeover
-  across messages, which compresses better on streams of similar frames. Worth
-  it only if a measurement shows the ratio difference matters, and note the v7
-  finding that compression is a loss for payloads that are already compressed.
-
-- [ ] **#74 Forwarding the client's own logs.** (triage 20) Streaming the
-  client's stderr to the server, or to syslog, so a fleet's logs land in one
-  place. Low because every container runtime and init system already does this,
-  and because client logs can contain backend URLs and header values, which
-  makes shipping them somewhere new a decision rather than a convenience.
 
 - [ ] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
   `TokenStore::create` now takes fourteen positional arguments and `update`
@@ -155,6 +100,107 @@ readable without scrolling past what is already done.
   set and makes a new field cost nothing at the sites that do not care. Purely
   internal, no config or API surface moves, which is what keeps it low: it
   buys clarity and future edits, not behavior.
+
+### The road to 1.0
+
+The eleven entries above are features. These are not: they are what turns a
+feature-complete project into one an operator can bet a deployment on. The
+feature backlog reached the point where the next useful work is a promise
+about compatibility, a way to install the thing, evidence that the release
+artifact is the one we built, and validation from someone other than our own
+test suite.
+
+- [ ] **#89 A written client/server compatibility promise, and a matrix that
+  proves it.** The tunnel protocol reached v7 in a single cycle and `#46` would
+  make it v8, but nothing in the repository states which client versions a
+  given server accepts. Operators upgrade the two sides at different times,
+  always: the server is one box and the clients are a fleet. The work is a
+  documented support window (at minimum N-1 in both directions), the version
+  handshake that enforces it, and a CI job that runs a slice of the e2e suite
+  with a *previous* release's client binary against `HEAD`'s server, and the
+  reverse. Until this exists, the compatibility story is whatever the code
+  happens to do this week. See also the CLAUDE.md rule on protocol changes,
+  which is the other half: a break has to be approved before it is written, and
+  a broken pairing has to be refused at connect time with a message that says
+  so, rather than failing somewhere deeper.
+
+- [ ] **#90 A post-release compatibility report over the real released
+  clients.** `#89` covers N-1 as a gate. This is the wider, non-blocking half:
+  after a release is published, fetch the `aperio-client` binaries of every
+  previous release from GitHub, run the e2e suite against the newly released
+  server once per client version, and publish the result as a table. The suite
+  has to take the client binary as a parameter for this to be possible, which
+  is the only real code in the entry. It must **not** fail the release: an
+  old client failing against a new server is information, not a regression,
+  and the point is to be able to say "0.11.0's server was tested against
+  clients 0.6 through 0.11, and these are the ones that worked" instead of
+  guessing.
+
+- [ ] **#91 An upgrade test that actually fires `CONFIG_CHANGES`.** The compat
+  mechanism in `aperio-config/src/compat.rs` is the thing that lets someone
+  upgrade blind, and it is currently only tested against its own entries. The
+  missing test is end to end: keep a config file as written for an old
+  version in the repository, start today's binary against it, and assert the
+  exact set of notices it produces, including that a `Security` entry refuses
+  to start. A mechanism whose whole job is to fire on a file nobody has tested
+  it against is a mechanism nobody has tested.
+
+- [ ] **#92 Native packages and a service unit.** A release publishes tarballs
+  and container images; installing on an ordinary Linux box means
+  `install.sh` and then writing your own unit file. `.deb` and `.rpm` built in
+  the release job (nfpm reads the binaries that are already there), each
+  carrying a hardened `aperio-server.service` and `aperio-client@.service`,
+  a config at `/etc/aperio/`, and a `sysusers`/`tmpfiles` drop-in so the
+  service does not run as root. The unit file is the part with actual content:
+  `DynamicUser`, `ProtectSystem=strict`, `NoNewPrivileges`, a
+  `ReadWritePaths` for the data directory only.
+
+- [ ] **#93 Homebrew tap and a Windows package.** A tap repository with a
+  formula for both binaries, updated by the release workflow, plus a Scoop
+  manifest or a winget submission for the Windows side. Mechanical work whose
+  value is entirely in reach: `brew install` is how a large share of the
+  audience expects to try a tool at all, and a client nobody can install in
+  one line is a client nobody evaluates.
+
+- [ ] **#94 A Helm chart, and the Kubernetes story around it.** The largest
+  population of self-hosted deployments is on Kubernetes, and there is
+  currently no supported way in: a chart for the server (Deployment or
+  StatefulSet with a PVC for the SQLite store, Service, Ingress, a Secret for
+  the master token, and the probe endpoints from `#61` already wired), and a
+  chart or a sidecar pattern for the client. The chart's values file is the
+  interesting design: it has to map cleanly onto the yaml config surface
+  rather than inventing a second one, which is the trap every chart falls
+  into.
+
+- [ ] **#96 WebSocket conformance for the relay arms, with Autobahn.** The WS
+  relay re-frames traffic through the tunnel, and its correctness is currently
+  asserted by tests we wrote against our own understanding. The Autobahn test
+  suite is the standard external answer: several hundred cases covering
+  fragmentation, close codes, UTF-8 validity in text frames and ping/pong
+  behaviour. Run it against a relayed endpoint, publish the report, and treat
+  a non-informational failure as a bug. This is the highest-value entry in its
+  group because a proxy's conformance is exactly the thing a user cannot
+  verify for themselves before adopting it.
+
+- [ ] **#97 HTTP/2 conformance for the `h2://` path, with h2spec.** The same
+  argument, one layer down and smaller in scope, since the HTTP/2 surface is a
+  backend transport rather than something a visitor speaks to us.
+
+- [ ] **#98 A scheduled soak run that reports the memory curve.** `tests/soak.js`
+  exists and is run by hand, which means it is run when someone suspects
+  something, which is after the fact. Weekly, against a stack the workflow
+  brings up itself, recording RSS for both binaries over the plateau and
+  failing only on a *trend*, not on a threshold. The README claims memory does
+  not grow with request count; this is the only thing that would keep that
+  claim true.
+
+- [ ] **#99 Chaos cases in the e2e suite.** Everything the suite exercises is a
+  happy path with a clean shutdown. The failures that actually reach operators
+  are the other kind: the server restarting while a response is streaming, the
+  tunnel dropping mid-upload, a backend that accepts a connection and then
+  goes silent, packet loss and latency on the tunnel link, a disk that fills
+  under the SQLite store. Each is a phase in the existing harness rather than
+  new infrastructure, and each pins down behaviour that is currently a belief.
 
 ## Withdrawn
 
@@ -327,6 +373,76 @@ nothing reuses them.
   The lesson is the same one #84 records: the triage scored this from the
   proposal's description of `run:` without opening the file. Reading what a
   name refers to is part of scoring it.
+
+- **#2 Speed up the Windows release build without vendoring OpenSSL from
+  source.** Withdrawn 2026-08-06. It stayed open for a year as "parked, not
+  refused", which is the state an entry should not be in: the cheap version
+  (link the runner's system OpenSSL) is a known dead end, because dynamic
+  linking breaks the self-contained `.exe` and MSVC static linking hits the
+  CRT mismatch, and the version worth doing is a different change entirely, a
+  webauthn crypto path with no openssl dependency at all. That is a dependency
+  swap with its own risk, and what it buys is CI minutes on a job the
+  default-branch release cache already warms. If it comes back it comes back
+  as "remove openssl from the webauthn path", scored on its own terms, not as
+  a build-time optimization.
+
+- **#40 Mutual TLS on the tunnel connection.** Withdrawn 2026-08-06, by
+  decision, nothing was built. The handshake side is small (rustls does it on
+  both ends); everything expensive is the surface around it, where certificates
+  come from, how they rotate, what happens to a fleet when one expires, and how
+  a verified certificate maps to a token or an organization. That is a PKI to
+  operate, permanently, and it is bought for a threat the current design
+  already narrows: a tunnel token can be pinned to a device key and fenced to
+  an IP range, so a leaked token alone is not enough today either. Revisit only
+  if a deployment arrives with a certificate authority it already runs and a
+  written reason the pin and the fence are insufficient.
+
+- **#43 Shadow traffic to a second backend.** Withdrawn 2026-08-06, by
+  decision, nothing was built. The idea is sound and the implementation is not
+  cheap: the copy must never delay or fail the visitor's request, must not
+  spend the client's concurrency budget, and needs request bodies buffered to
+  be sent twice, which is a memory cost on exactly the requests where buffering
+  hurts most. It is also the one item in its group that a fronting proxy
+  genuinely does better, since a mirror at the edge is not on the tunnel's
+  critical path at all. Weighted routing and header-based canaries (`#51`) ship
+  and cover most of what people reach for shadowing to get.
+
+- **#67 Chunked transfer fidelity.** Withdrawn 2026-08-06. The entry's own
+  framing was that it wanted "a written answer even if the answer stays 'we
+  re-frame'", and the answer is that we re-frame: `Transfer-Encoding` is
+  stripped and the body is streamed through the tunnel in our own chunks,
+  which is correct for HTTP, since chunk boundaries are explicitly not
+  semantic there. The protocols where a chunk *is* a message are WebSocket and
+  gRPC, and both have their own relay path that preserves message boundaries.
+  Preserving a backend's HTTP chunk boundaries end to end would mean carrying
+  framing we deliberately do not carry, to serve a case that has not appeared.
+  Documented in `docs/tunnel-protocol.md` rather than implemented.
+
+- **#71 TLS termination on an `expose:` port.** Withdrawn 2026-08-06. Exposed
+  ports carry raw TCP or an end-to-end encrypted stream, and terminating TLS on
+  one would mean per-port certificate paths, reload on renewal, and a second
+  certificate lifecycle in a product that already tells operators to put a
+  proxy in front. Every deployment that wants TLS on an exposed port already
+  has the thing that does it.
+
+- **#73 `permessage-deflate` instead of application-level compression.**
+  Withdrawn 2026-08-06. It was conditional on a measurement from the start, and
+  the measurement that exists points the other way: the v7 work found
+  compression is a *loss* for payloads that are already compressed, which is
+  most of what flows through a tunnel. Context takeover across messages would
+  improve the ratio on streams of similar frames, at the cost of per-connection
+  compressor state that scales with connection count, on a server whose
+  selling point is that it idles at 14 MB. Reopen only with a profile from a
+  deployment where tunnel compression ratio is the bottleneck.
+
+- **#74 Forwarding the client's own logs.** Withdrawn 2026-08-06. Every
+  container runtime and init system already collects a process's stderr, so
+  this competes with something the operator has and did not ask us to replace.
+  The part that made it worse than merely redundant is that client logs carry
+  backend URLs and header values, so shipping them to the server would move
+  data across a trust boundary as a side effect of a convenience feature. The
+  observability answer stays the OpenTelemetry bridge (`#85`), which exports
+  what was chosen for export.
 
 ## Completed
 
