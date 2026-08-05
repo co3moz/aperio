@@ -4,7 +4,6 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { client } from '../../lib/cli.js'
-import { waitFor } from '../../lib/env.js'
 import {
   FeatureServer,
   MainBackend,
