@@ -8,6 +8,35 @@ import { send } from './http.js'
 import { READY_PATH } from './backend.js'
 
 /**
+ * Ends a spawned process and waits for it, the one way this suite does it.
+ *
+ * A free function rather than a method, because the rule has to reach the
+ * call sites that do not go through [`AperioClientBase`]: a spec that spawns
+ * a client itself, which the scaling phase does when its scale hook has to
+ * cold-start one, never inherited this and leaked a process per run for as
+ * long as the phase existed.
+ */
+export async function terminate(proc: ChildProcess | undefined): Promise<void> {
+  if (!proc?.pid) return
+  // A process that has already gone will never emit `exit` again, so waiting
+  // for it hangs until the class timeout. That is not academic: a client
+  // whose configuration is wrong exits on its own within a second, and then
+  // a *failing* test turned into a minute of cleanup and a second,
+  // misleading failure on the teardown.
+  if (proc.exitCode !== null || proc.signalCode !== null) return
+  // SIGTERM, not SIGKILL, and this is not politeness. Under a coverage build
+  // the profile data is written by an exit handler, so a killed process
+  // contributes nothing and leaves a truncated file that makes the whole
+  // merge fail. The bash harness signalled the same way.
+  proc.kill('SIGTERM')
+  const exited = await Promise.race([
+    new Promise((r) => proc.once('exit', () => r(true))),
+    new Promise((r) => setTimeout(() => r(false), 5_000)),
+  ])
+  if (!exited) proc.kill('SIGKILL')
+}
+
+/**
  * One `aperio-client` process.
  *
  * Three things this phase needed that the cache phase did not, and all three
@@ -205,23 +234,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     async _kill(): Promise<void> {
       const proc = this._proc
       this._proc = undefined
-      if (!proc?.pid) return
-      // A process that has already gone will never emit `exit` again, so
-      // waiting for it hangs until the class timeout. That is not academic:
-      // a client whose configuration is wrong exits on its own within a
-      // second, and then a *failing* test turned into a minute of cleanup
-      // and a second, misleading failure on the teardown.
-      if (proc.exitCode !== null || proc.signalCode !== null) return
-      // SIGTERM, not SIGKILL, and this is not politeness. Under a coverage
-      // build the profile data is written by an exit handler, so a killed
-      // process contributes nothing and leaves a truncated file that makes
-      // the whole merge fail. The bash harness signals the same way.
-      proc.kill('SIGTERM')
-      const exited = await Promise.race([
-        new Promise((r) => proc.once('exit', () => r(true))),
-        new Promise((r) => setTimeout(() => r(false), 5_000)),
-      ])
-      if (!exited) proc.kill('SIGKILL')
+      await terminate(proc)
     }
 
     async cleanUp() {

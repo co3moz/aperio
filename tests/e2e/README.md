@@ -88,6 +88,16 @@ spec that only passes when its neighbour ran is a spec nobody can run alone to
 find out what broke, which is why the one that read another file's POST out of
 the request log now sends its own.
 
+**A process a spec spawns itself is a process nothing will stop.** Every
+resource in `lib/` ends its child in `cleanUp`, so a client declared as a
+dependency is always cleaned up. A spec that spawns one directly is outside
+that, and the scaling phase does exactly this: its scale hook has to
+cold-start a client, because that is what the feature under test asks a
+provider to do. Whatever starts a process owns it, so the hook keeps the
+child and ends it in its own `cleanUp`, through the shared `terminate()` in
+`lib/client.ts` rather than a second copy of the SIGTERM-then-SIGKILL rule.
+It leaked one client per run until it did.
+
 **`fetch` silently drops the `Host` header.** Almost every assertion here picks
 its tunnel by `Host`, so use `server._fetch()` (which is `node:http` under
 `lib/http.ts`), never global `fetch`.

@@ -1,10 +1,10 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { AperioServerBase } from '../../lib/server.js'
 import { StandardBackendBase } from '../../lib/backend.js'
-import { AperioClientBase } from '../../lib/client.js'
+import { AperioClientBase, terminate } from '../../lib/client.js'
 import { CLIENT_BIN, freePort, waitFor } from '../../lib/env.js'
 
 /**
@@ -22,8 +22,12 @@ export class ScaleHook extends Test({
   _port = 0
   _calls: Record<string, unknown>[] = []
   _server?: Server
-  _startClient: (() => void) | null = null
+  /** What a cold start runs. Returns the process it started, so this class
+   *  can stop it: a hook that starts a client and forgets it leaks one per
+   *  run, which is exactly what this used to do. */
+  _startClient: (() => ChildProcess) | null = null
   private _started = false
+  private _spawned: ChildProcess[] = []
 
   async hookListen() {
     this._port = await freePort()
@@ -40,7 +44,7 @@ export class ScaleHook extends Test({
         // exactly one anyway; this keeps the test honest if it does not.
         if (!this._started && this._startClient) {
           this._started = true
-          this._startClient()
+          this._spawned.push(this._startClient())
         }
         res.writeHead(200, { 'content-length': '2' }).end('ok')
       })
@@ -53,6 +57,10 @@ export class ScaleHook extends Test({
   }
 
   async cleanUp() {
+    // The clients this hook cold-started first: they hold a tunnel to a
+    // server that is about to go away, and nobody else knows they exist.
+    await Promise.all(this._spawned.map(terminate))
+    this._spawned = []
     await new Promise<void>((resolve) => {
       if (!this._server) return resolve()
       this._server.closeAllConnections()
@@ -177,7 +185,7 @@ export class ColdStartSpec extends Test({
 
   async anArmedRecordOutlivesTheClientThatArmedIt() {
     // What the hook starts when the server asks for capacity.
-    this.hook._startClient = () => {
+    this.hook._startClient = () =>
       spawn(CLIENT_BIN, {
         env: {
           ...process.env,
@@ -189,7 +197,6 @@ export class ColdStartSpec extends Test({
         },
         stdio: ['ignore', 'ignore', 'ignore'],
       })
-    }
 
     await this.arming._start()
     await this.arming._waitRoutable('scale.e2e.local', '/hello')
