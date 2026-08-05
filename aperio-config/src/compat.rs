@@ -197,8 +197,31 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
-    // Version to confirm at release (CLAUDE.md rule 19): written before the
-    // number of the release carrying it was decided.
+    version: "0.9.0",
+    surface: ConfigSurface::Client,
+    // The removal the 0.6.0 entry below has been announcing. Breaking, and
+    // `WhenSet`: only a file that writes one of these keys is affected, and
+    // for that file nothing was translated, it is refused until it is edited.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &[
+      "target",
+      "serve",
+      "hostname",
+      "path",
+      "tcp_target",
+      "target_health",
+      "health.endpoint",
+    ],
+    summary: "a config file no longer accepts a service described at the top level; only \
+              `services:` entries are read",
+    action: "move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/\
+             `target_health:` (or `health.endpoint`) into one `services:` entry. The client \
+             refuses to start until you do, and names the keys it found. Single-service mode is \
+             unchanged on the command line and in the environment, and a top-level `health:` \
+             block without an `endpoint:` is still the default every entry inherits.",
+  },
+  ConfigChange {
     version: "0.9.0",
     surface: ConfigSurface::Client,
     // Breaking rather than Migration: a sequence that used to be literal text
@@ -223,8 +246,6 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
              or a header value needs the same treatment.",
   },
   ConfigChange {
-    // Version to confirm at release (CLAUDE.md rule 19): written before the
-    // number of the release carrying it was decided.
     version: "0.9.0",
     surface: ConfigSurface::Server,
     // Migration rather than Breaking: nothing stops working and no key
@@ -322,8 +343,8 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
       "target_health",
       "health.endpoint",
     ],
-    summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.9.0 a config file will only accept `services:`. Single-service mode is unaffected on the command line and in the environment.",
-    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` (or `health.endpoint`) into one `services:` entry. The file behaves the same either way until 0.9.0.",
+    summary: "Describing a single service at the top level of `aperio.yaml` is deprecated; from 0.9.0 a config file only accepts `services:`. Single-service mode is unaffected on the command line and in the environment.",
+    action: "Move the top-level `target:`/`serve:`/`hostname:`/`path:`/`tcp_target:`/`target_health:` (or `health.endpoint`) into one `services:` entry. The file behaves the same either way until 0.9.0, which refuses it.",
   },
   ConfigChange {
     version: "0.6.0",

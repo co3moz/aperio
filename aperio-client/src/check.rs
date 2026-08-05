@@ -109,7 +109,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       warn(
         "single-service keys",
         format!(
-          "`{}` are ignored while a services: list exists, the entries below are what runs. Move them into an entry (they are deprecated and removed in 0.9.0 anyway).",
+          "`{}` come from the command line or the environment and are ignored while a services: list exists, the entries below are what runs. A config file no longer accepts them at all.",
           shadowed.join("`, `")
         ),
       );

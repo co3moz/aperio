@@ -138,6 +138,7 @@ export class HomeConfigClient extends FeatureClient {
       USERPROFILE: this._home,
       APERIO_TARGET: this.backend._url,
       APERIO_HOSTNAME: 'home.e2e.local',
+      APERIO_TARGET_HEALTH: '/health',
       // Deliberately unset, so what reaches the server proves the home file
       // was read.
       APERIO_SERVER_URL: '',

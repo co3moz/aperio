@@ -222,7 +222,7 @@
        \includegraphics[width=0.62\linewidth]{aperio-lockup.png}\\[0.9cm]
        \LARGE\sffamily The Complete Guide\\[0.8cm]
        \large\sffamily Reverse tunnelling, routing, and operations}
-\author{\sffamily Version 0.8.0}
+\author{\sffamily Version 0.9.0}
 \date{}
 
 \begin{document}
@@ -591,10 +591,12 @@ max_concurrent: 8          # what one instance of the backend can take
 A file describes its backends under \code{services:}, even when there is
 one of them. Naming a single backend at the top level instead
 (\code{target:}, \code{serve:}, \code{hostname:}, \code{path:},
-\code{tcp\_target:}, \code{target\_health:}) still works and is
-deprecated: it is removed in 0.9.0, and until then a client that finds it
-says so at startup. Single-service mode itself is unaffected where it
-belongs, on the command line and in the environment.
+\code{tcp\_target:}, \code{target\_health:}) was deprecated from 0.6.0
+and removed in 0.9.0: a client that finds one refuses to start and names
+the keys, rather than running while the file says something it is not
+doing. Single-service mode itself is unaffected where it belongs, on the
+command line and in the environment, and a top-level \code{health:} block
+without an \code{endpoint:} is still the defaults every entry inherits.
 
 The file is watched: editing it re-resolves the whole configuration and
 respawns the services, so every setting takes effect without a restart.

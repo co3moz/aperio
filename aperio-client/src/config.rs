@@ -280,12 +280,18 @@ fn cli_to_args(cli: Cli) -> CliArgs {
 /// Folds a freshly parsed file's grouped blocks into the flat fields the
 /// resolver reads, and warns about any deprecated flat key it still uses so
 /// the operator can move the file over without reading a changelog.
-fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
+///
+/// Refuses a file that describes a service at the top level. Announced since
+/// 0.6.0 and carried out in 0.9.0: a file has one shape, `services:`, so
+/// there is one place to look for what a client runs. Refused rather than
+/// ignored, because a file that says `target:` and is silently not serving it
+/// is the worst of the three possible behaviors.
+fn fold_and_warn(cfg: &mut FileConfig, path: &str) -> Result<(), String> {
   // Before folding: this reports what the *file* writes, and folding rewrites
   // some of those keys into others.
   let single = cfg.single_service_keys();
   if !single.is_empty() {
-    // One key or several: "`hostname` describe a single service" is what the
+    // One key or several: "`hostname` describes a single service" is what the
     // operator actually reads most of the time, since a file usually carries
     // one of these.
     let (verb, subject) = if single.len() == 1 {
@@ -293,11 +299,12 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
     } else {
       ("describe", "them")
     };
-    warn!(
-      "{}: `{}` {verb} a single service at the top level. A config file will only accept `services:` from 0.9.0, move {subject} into one entry now; nothing changes yet. Single-service mode stays on the command line and in the environment.",
-      path,
+    return Err(format!(
+      "`{}` {verb} a single service at the top level, which a config file no longer accepts. \
+       Move {subject} into one `services:` entry. Single-service mode is unchanged on the \
+       command line and in the environment.",
       single.join("`, `")
-    );
+    ));
   }
   for key in cfg.fold_groups() {
     warn!(
@@ -305,6 +312,7 @@ fn fold_and_warn(cfg: &mut FileConfig, path: &str) {
       path, key.old, key.new
     );
   }
+  Ok(())
 }
 
 /// How deep an `include:` chain may go. Deep enough for the layouts anyone
@@ -492,7 +500,8 @@ pub(crate) fn parse_config_tree(path: &Path) -> Result<(FileConfig, Vec<PathBuf>
   warn_unknown_keys(&merged, &path.display().to_string());
   let mut cfg: FileConfig = serde_yaml::from_value(serde_yaml::Value::Mapping(merged))
     .map_err(|e| format!("{}: {e}", path.display()))?;
-  fold_and_warn(&mut cfg, &path.display().to_string());
+  fold_and_warn(&mut cfg, &path.display().to_string())
+    .map_err(|e| format!("{}: {e}", path.display()))?;
   Ok((cfg, seen))
 }
 
@@ -544,8 +553,14 @@ pub(crate) fn load_home_config() -> FileConfig {
   match std::fs::read_to_string(&path) {
     Ok(raw) => match serde_yaml::from_str::<FileConfig>(&raw) {
       Ok(mut cfg) => {
+        // The user-level file is a layer of defaults, not the deployment, so a
+        // service described in it is dropped with a warning rather than
+        // stopping a client whose own file is fine.
+        if let Err(e) = fold_and_warn(&mut cfg, &path.to_string_lossy()) {
+          warn!("Ignoring {:?}: {}", path, e);
+          return FileConfig::default();
+        }
         info!("Loaded user configuration from {:?}", path);
-        fold_and_warn(&mut cfg, &path.to_string_lossy());
         cfg
       }
       Err(e) => {

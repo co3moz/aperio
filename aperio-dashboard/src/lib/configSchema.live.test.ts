@@ -117,21 +117,30 @@ describe('every setting reaches an editor', () => {
     ])
 
   it('has only the known map-of-scalar holes', () => {
-    // All five are `map of name → scalar`, which has no editor yet; the map
+    // Every one is `map of name → scalar`, which has no editor yet; the map
     // of name → *object* does, which is how `bind-tunnels` itself is edited.
+    // The list grows when a setting of that shape is added: `metrics_labels`
+    // and `subscribe.env` joined it this cycle, and went unnoticed until the
+    // snapshot was regenerated, which is the failure mode this test has.
     expect(unsupported(clientFields).sort()).toEqual([
       'bind-tunnels.override',
       'headers.request.add',
       'headers.response.add',
+      'metrics_labels',
       'services.headers.request',
       'services.headers.response',
+      'services.metrics_labels',
+      'subscribe.env',
     ])
   })
 
-  it('has only the same two holes in the server schema', () => {
+  it('has only the same holes in the server schema', () => {
+    // `routes.headers.*` is the same shape reached through a policy rule.
     expect(unsupported(serverFields).sort()).toEqual([
       'headers.request.add',
       'headers.response.add',
+      'routes.headers.request',
+      'routes.headers.response',
     ])
   })
 })

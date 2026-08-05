@@ -136,13 +136,17 @@ fn test_parse_config_tree_folds_groups() {
   // The reload path must apply the same folding pass as the initial load: a
   // file written in the grouped `health:` form used to lose the whole block
   // on reload, silently turning health probing off.
+  // A top-level `health:` block still carries the defaults every entry
+  // inherits; what it may no longer carry is an `endpoint:`, since that
+  // describes one service. The entry's own block is folded the same way.
   let dir = config_dir(&[(
     "aperio.yaml",
-    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n",
+    "health:\n  interval: 7\nservices:\n  - target: http://localhost:3000\n    health:\n      endpoint: /healthz\n",
   )]);
   let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
-  assert_eq!(cfg.target_health.as_deref(), Some("/healthz"));
   assert_eq!(cfg.health_interval, Some(7));
+  let entry = &cfg.services.as_ref().unwrap()[0];
+  assert_eq!(entry.target_health.as_deref(), Some("/healthz"));
   assert_eq!(files.len(), 1, "one file contributed");
 
   // Unparseable input reports the error instead of panicking, so the
@@ -604,4 +608,55 @@ fn a_real_cycle_is_still_refused() {
   let _ = std::fs::remove_dir_all(&dir);
   let err = parsed.err().expect("a cycle is refused");
   assert!(err.contains("cycle"), "{err}");
+}
+
+// --- the top-level single-service keys, removed in 0.9.0 --------------------
+
+#[test]
+fn a_file_describing_a_service_at_the_top_level_is_refused() {
+  // Announced from 0.6.0 and carried out here. Refused rather than ignored:
+  // a file that says `target:` while the client serves nothing is the one
+  // outcome an operator cannot debug from what they are looking at.
+  for body in [
+    "target: http://localhost:3000\n",
+    "serve: ./dist\n",
+    "hostname: app.example.com\nservices:\n  - target: http://localhost:3000\n",
+    "tcp_target: 127.0.0.1:5432\n",
+    "health:\n  endpoint: /healthz\n",
+  ] {
+    let dir = config_dir(&[("aperio.yaml", body)]);
+    let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
+      panic!("accepted a top-level service: {body:?}");
+    };
+    assert!(err.contains("no longer accepts"), "{err}");
+    // The message has to name the key, since that is the edit to make.
+    assert!(
+      err.contains("services:") && err.contains("command line"),
+      "the message says where to move it and what still works: {err}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+}
+
+#[test]
+fn the_same_file_written_under_services_is_accepted() {
+  let dir = config_dir(&[(
+    "aperio.yaml",
+    "services:\n  - target: http://localhost:3000\n    hostname: app.example.com\n    health:\n      endpoint: /healthz\n",
+  )]);
+  let (cfg, _) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  let entry = &cfg.services.as_ref().unwrap()[0];
+  assert_eq!(entry.target.as_deref(), Some("http://localhost:3000"));
+  assert_eq!(entry.target_health.as_deref(), Some("/healthz"));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_home_file_describing_a_service_is_dropped_rather_than_fatal() {
+  // `~/.aperio.yaml` is a layer of defaults for every project on the machine.
+  // One stale service in it must not stop a client whose own file is fine.
+  let mut cfg: FileConfig =
+    serde_yaml::from_str("target: http://localhost:3000\nserver:\n  url: https://x.example\n")
+      .unwrap();
+  assert!(fold_and_warn(&mut cfg, "~/.aperio.yaml").is_err());
 }

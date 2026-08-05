@@ -287,8 +287,11 @@ export class HomeConfigSpec extends Test({
         'server:',
         `  url: ${this.server._url}`,
         `  token: ${this.server._token}`,
+        // The cadence is a genuine default every service inherits, so it
+        // belongs in a user-level file. The endpoint is not: it names one
+        // backend, and a config file has not described a service at the top
+        // level since 0.9.0, so it comes from the environment below.
         'health:',
-        '  endpoint: /health',
         '  interval: 1',
         '  timeout: 1',
         '  threshold: 2',

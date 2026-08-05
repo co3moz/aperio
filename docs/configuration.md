@@ -209,7 +209,7 @@ priority: 0                  # 0 = primary, higher = standby tier
 health_interval: 10
 ```
 
-**A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint`) is deprecated: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. The rest of the `health:` block stays where it is: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. They all still work exactly as before and **will be removed in 0.9.0**; a client that finds one says so at startup, and a file declaring `version:` gets the same notice through the [upgrade report](upgrade-guide.md). Migrating is mechanical: indent them under one `services:` entry.
+**A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint`) was deprecated from 0.6.0 and removed in 0.9.0: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. The rest of the `health:` block stays where it is: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. **A file has not accepted them since 0.9.0**: a client that finds one refuses to start and names the keys, rather than running while the file says something it is not doing. Migrating is mechanical, indent them under one `services:` entry. Single-service mode is unchanged where it belongs, on the command line and in the environment.
 
 Single-service mode itself is not going away, it moves to where a one-liner belongs, the command line and the environment:
 
@@ -303,9 +303,11 @@ More connections is not automatically faster: each one costs a reader and a writ
 `${NAME}` and `${NAME:-default}` in a client config file are expanded from the environment before the yaml is parsed, so one file can serve several environments instead of being copied per environment, which is how two files drift:
 
 ```yaml
-hostname: ${ENV:-dev}.example.com
 server:
   token: ${APERIO_TOKEN}
+services:
+  - target: http://localhost:3000
+    hostname: ${ENV:-dev}.example.com
 ```
 
 Only this spelling is expanded. A bare `$NAME` is left exactly as written, because `$` appears in generated passwords, regular expressions and the shell snippets inside `run:` commands, and a config loader that rewrote those would corrupt files that work today. A variable that is not set and has no default is an error naming the variable, not an empty string: substituting nothing produces a file that still parses and means something else (`hostname: .example.com`, or an empty token), which then fails somewhere unrelated. Expansion happens per file, so an included fragment reports its own name.
