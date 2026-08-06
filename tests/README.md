@@ -36,6 +36,7 @@ Each is a directory under `e2e/specs/`, and each runs on its own, as does each f
 | `api-cli` | the `aperio-client api …` admin commands |
 | `scaling` | cold start from zero, single-flight scaling calls, the SSRF fence |
 | `messages` | publish/subscribe between clients, the local HTTP and MQTT faces, QoS 1, subscription commands, messaging metrics |
+| `chaos` | interruptions: a server restart under a streaming response, an upload whose client dies mid-body, a backend that dies mid-stream, one that accepts and never answers, and a tunnel link with latency that then disappears and returns |
 
 ## Running
 

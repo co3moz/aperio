@@ -98,6 +98,16 @@ child and ends it in its own `cleanUp`, through the shared `terminate()` in
 `lib/client.ts` rather than a second copy of the SIGTERM-then-SIGKILL rule.
 It leaked one client per run until it did.
 
+**A small body is not a stream, however slowly it is written.** The client
+buffers a response body up to its streaming threshold (256 KB, 32 KB for a
+binary one) and only switches to chunked streaming past it. So a backend that
+dribbles out a few bytes a second produces one finished response at the very
+end, and a test that interrupts it is interrupting nothing. The chaos phase
+writes 128 KB a piece for exactly this reason. The same trap has an upload
+half: `send({ body })` hands the whole body to the socket at once, so it is
+delivered before a test can do anything to it, and `bodyStream` is what keeps
+a request genuinely open.
+
 **`fetch` silently drops the `Host` header.** Almost every assertion here picks
 its tunnel by `Host`, so use `server._fetch()` (which is `node:http` under
 `lib/http.ts`), never global `fetch`.

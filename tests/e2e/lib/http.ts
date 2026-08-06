@@ -1,4 +1,4 @@
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type ClientRequest } from 'node:http'
 
 export interface Fetched {
   status: number
@@ -13,6 +13,25 @@ export interface Options {
   host?: string
   headers?: Record<string, string>
   body?: string | Buffer
+  /**
+   * A body delivered in pieces, over time, rather than all at once.
+   *
+   * `body` hands the whole thing to `node:http`, which writes it as fast as
+   * the socket takes it, so an "upload interrupted halfway" test using it
+   * interrupts nothing: the request is already complete before the test can
+   * do anything to it. This keeps the request open, which is the state some
+   * assertions are entirely about. Set `content-length` yourself, or a
+   * chunked request is what gets sent.
+   */
+  bodyStream?: AsyncIterable<Buffer>
+}
+
+/** A body of `total` bytes, `chunk` at a time, `gapMs` apart. */
+export async function* slowBody(total: number, chunk: number, gapMs: number): AsyncIterable<Buffer> {
+  for (let sent = 0; sent < total; sent += chunk) {
+    yield Buffer.alloc(Math.min(chunk, total - sent), 0x61)
+    await new Promise((r) => setTimeout(r, gapMs))
+  }
 }
 
 /**
@@ -61,8 +80,110 @@ export function send(base: string, path: string, options: Options = {}): Promise
       },
     )
     req.on('error', reject)
-    if (options.body) req.write(options.body)
-    req.end()
+    writeBody(req, options)
+  })
+}
+
+/** Writes whatever body the options describe, then ends the request. */
+function writeBody(req: ClientRequest, options: Options): void {
+  if (options.bodyStream) {
+    void (async () => {
+      try {
+        for await (const chunk of options.bodyStream!) {
+          if (req.destroyed || req.writableEnded) return
+          req.write(chunk)
+        }
+        req.end()
+      } catch {
+        req.destroy()
+      }
+    })()
+    return
+  }
+  if (options.body) req.write(options.body)
+  req.end()
+}
+
+/** A response being read chunk by chunk, rather than as a finished body. */
+export interface Streamed {
+  status: number
+  /** Resolves with the next chunk, or `null` once the response ends. A
+   *  rejection is the connection failing, which is itself an outcome the
+   *  chaos phase asserts on. */
+  next(): Promise<Buffer | null>
+  close(): void
+}
+
+/**
+ * Opens a request and hands back the response as it arrives.
+ *
+ * [`send`] buffers to the last byte, which is exactly what a test about
+ * *interruption* cannot use: "the visitor was already reading when the server
+ * went away" is a statement about the middle of a response, and a helper that
+ * only returns at the end can only say whether the whole thing arrived.
+ */
+export function stream(base: string, path: string, options: Options = {}): Promise<Streamed> {
+  const url = new URL(path, base)
+  const headers: Record<string, string> = { ...options.headers }
+  if (options.host) headers.host = options.host
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method: options.method ?? 'GET',
+        headers,
+      },
+      (res) => {
+        const queued: Buffer[] = []
+        let waiting: ((v: Buffer | null) => void) | undefined
+        let failed: ((e: Error) => void) | undefined
+        let ended = false
+        let error: Error | undefined
+        res.on('data', (c: Buffer) => {
+          if (waiting) {
+            const w = waiting
+            waiting = undefined
+            failed = undefined
+            w(c)
+          } else queued.push(c)
+        })
+        const finish = (e?: Error) => {
+          ended = true
+          error = e
+          if (e && failed) {
+            const f = failed
+            waiting = undefined
+            failed = undefined
+            f(e)
+          } else if (waiting) {
+            const w = waiting
+            waiting = undefined
+            failed = undefined
+            w(null)
+          }
+        }
+        res.on('end', () => finish())
+        res.on('error', (e) => finish(e as Error))
+        res.on('aborted', () => finish(new Error('response aborted')))
+        resolve({
+          status: res.statusCode ?? 0,
+          next: () =>
+            new Promise<Buffer | null>((ok, no) => {
+              const queuedChunk = queued.shift()
+              if (queuedChunk) return ok(queuedChunk)
+              if (error) return no(error)
+              if (ended) return ok(null)
+              waiting = ok
+              failed = no
+            }),
+          close: () => req.destroy(),
+        })
+      },
+    )
+    req.on('error', reject)
+    writeBody(req, options)
   })
 }
 

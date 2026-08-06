@@ -188,13 +188,19 @@ test suite.
   not grow with request count; this is the only thing that would keep that
   claim true.
 
-- [ ] **#99 Chaos cases in the e2e suite.** Everything the suite exercises is a
-  happy path with a clean shutdown. The failures that actually reach operators
-  are the other kind: the server restarting while a response is streaming, the
-  tunnel dropping mid-upload, a backend that accepts a connection and then
-  goes silent, packet loss and latency on the tunnel link, a disk that fills
-  under the SQLite store. Each is a phase in the existing harness rather than
-  new infrastructure, and each pins down behaviour that is currently a belief.
+- [ ] **#100 A disk that fills under the SQLite store.** Split out of `#99`
+  when the rest of it shipped. The other chaos cases are interruptions of
+  something in flight, which a test harness can cause honestly on any
+  platform. This one is a *storage* failure, and every portable way to
+  simulate it is a different failure wearing its clothes: a read-only data
+  directory blocks creating files but not writing to ones SQLite already
+  holds open, a small tmpfs needs root, and a full disk on the runner takes
+  the runner with it. Worth doing with a real mechanism (a loopback
+  filesystem sized to fill, on Linux only, skipped elsewhere), and worth
+  leaving open rather than approximating: the property to pin down is that a
+  failed persistence write does not stop the server from proxying, and a test
+  that fails to actually fill anything would assert that on a path nothing
+  went wrong on.
 
 ## Withdrawn
 
@@ -439,6 +445,35 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#99 Chaos cases in the e2e suite.** Everything the suite exercises is a
+  happy path with a clean shutdown. The failures that actually reach operators
+  are the other kind: the server restarting while a response is streaming, the
+  tunnel dropping mid-upload, a backend that accepts a connection and then
+  goes silent, packet loss and latency on the tunnel link, a disk that fills
+  under the SQLite store. Each is a phase in the existing harness rather than
+  new infrastructure, and each pins down behaviour that is currently a belief.
+
+  shipped: a `chaos` phase with five cases, each asserting the same two
+  things, that the interruption settles in a bounded time with an answer, and
+  that the system still serves afterwards. The second half is the point; any
+  proxy can return 502. Three additions to `lib/` carried it: `stream()` and
+  `bodyStream`/`slowBody` in `http.ts`, because a helper that buffers to the
+  last byte cannot describe the *middle* of a transfer, `_rawRoutes()` on the
+  mock backend, because "never answers" is about when bytes are written and a
+  returned value cannot express it, and `FlakyLinkBase`, a TCP proxy the
+  client dials instead of the server so a test can add latency or cut the
+  link without touching either process. Deliberately not packet loss: on TCP
+  that is corruption rather than weather, and the honest simulation is delay
+  and disconnection.
+
+  Two things the first run taught, both now written down in the suite's
+  README because both make a test silently assert nothing: a response under
+  the client's 256 KB streaming threshold is buffered whole, so a slow
+  trickle is not a stream however slowly it is written, and `send({ body })`
+  hands the whole body to the socket at once, so an "upload interrupted
+  halfway" test using it interrupts a request that was already finished. The
+  disk-full case was split out as `#100` rather than approximated.
 
 - [x] **#95 Supply-chain trust: signed releases, provenance, an SBOM, and the
   files a contributor looks for first.** A project that tells people to run a

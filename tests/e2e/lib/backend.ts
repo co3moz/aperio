@@ -35,6 +35,18 @@ export function MockBackendBase(options: Parameters<typeof Test>[0] = {}) {
       return {}
     }
 
+    /** Paths this backend answers by driving the response itself.
+     *
+     *  A [`Route`] returns a finished reply, which is the right shape for
+     *  almost everything and the wrong one for the two cases the chaos phase
+     *  is about: a response that arrives in pieces over seconds, and a
+     *  response that never arrives at all. Both are about *when* bytes are
+     *  written, which a value cannot express. Checked before `_routes()`.
+     */
+    _rawRoutes(): Record<string, (req: IncomingMessage, res: ServerResponse) => void> {
+      return {}
+    }
+
     async hookListen() {
       this._port = await freePort()
       await this._listen()
@@ -80,6 +92,12 @@ export function MockBackendBase(options: Parameters<typeof Test>[0] = {}) {
       // a hand-written `/count` route in each backend for the same reason.
       if (url.pathname === READY_PATH) {
         res.writeHead(200, { 'cache-control': 'no-store', 'content-length': '5' }).end('ready')
+        return
+      }
+      const raw = this._rawRoutes()[url.pathname]
+      if (raw) {
+        this._hits.push(url.pathname)
+        raw(req, res)
         return
       }
       const route = routes[url.pathname] ?? routes['*']
