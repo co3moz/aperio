@@ -178,6 +178,59 @@ test suite.
   not grow with request count; this is the only thing that would keep that
   claim true.
 
+- [ ] **#101 An embedded profile of the tunnel protocol, and a reference C
+  client for it.** An ESP32 cannot run `aperio-client`: the binary is about
+  6 MB against a few hundred kilobytes of usable RAM and a flash budget in the
+  low megabytes, and the reason is not the tunnel. It is TLS with a root
+  store, a full HTTP client, yaml plus a JSON Schema, the admin CLI, the
+  messaging faces, the OTel bridge, the health prober and the autoscaling
+  hooks: roughly sixteen thousand lines and forty direct dependencies, almost
+  none of which a sensor needs. Porting is the wrong verb. What is missing is
+  a **written minimum**: which messages a device must speak, which it may
+  ignore, and a guarantee that the server will not send it anything else.
+
+  **The subset is already small.** `Ping`/`Pong` and either `Request`/
+  `Response` or the streamed `RequestStart`/`Chunk`/`End` trio is a serving
+  client. Compression is negotiated (`CompressionStart`/`Ack`) and can simply
+  never be accepted. The WS, TCP and UDP relay messages only arrive for a
+  client that declared those targets. Messaging is opt-in. What a device
+  cannot ignore is flow control (`StreamPause`/`StreamResume`) and the body
+  encoding: JSON with base64 payloads costs 1.33x in a buffer that has to
+  exist all at once, which is exactly the wrong shape for 300 KB of RAM, so
+  the v2 binary frames matter far more here than they do on a laptop.
+
+  **Shape: a capability, not a transport.** The device announces an embedded
+  profile in its handshake, and the server undertakes to stay inside the
+  subset for that connection: no compression, chunk sizes under a declared
+  ceiling, `max_concurrent: 1`, no relay message types. This is an additive
+  optional field and a server-side gate, so it is a change that keeps every
+  existing peer working, which is what makes it worth doing at all. Plus a
+  reference client in C against ESP-IDF's `esp_websocket_client` and mbedtls,
+  and, more importantly than the code, a conformance answer for it: a device
+  client that silently mishandles one message type is an outage nobody can
+  debug from the device end.
+
+  **Not a second HTTP transport.** Replacing the WebSocket with keep-alive
+  polling was considered and is a downgrade for this case, see the note under
+  `#102`.
+
+- [ ] **#102 (note, not a feature) Why the embedded client keeps the
+  WebSocket.** Recorded so the question is not re-opened from memory. The
+  appeal of an HTTP long-poll transport is that it sounds smaller than a
+  WebSocket, and on an ESP32 it is not: both need one TCP socket and one TLS
+  session, and WS framing is a few kilobytes of code on top, which every
+  ESP-IDF build already has available as a component. What polling adds is
+  worse: a request is delivered on one connection and its response has to go
+  back on another, or on the next poll, so a device with four usable sockets
+  spends two per in-flight request; every request costs a poll round trip in
+  latency; and the TLS handshake, which is the single most expensive thing an
+  ESP32 does here, gets repeated unless the connection is held open, at which
+  point it is a persistent connection with worse framing. It would also be a
+  second transport for the server to carry forever. The saving is real only
+  if the device cannot hold a connection at all, which is a *power* problem
+  (a battery sensor waking once an hour), and the answer to that one is not a
+  transport, it is for the device to be behind something that can.
+
 - [ ] **#100 A disk that fills under the SQLite store.** Split out of `#99`
   when the rest of it shipped. The other chaos cases are interruptions of
   something in flight, which a test harness can cause honestly on any
