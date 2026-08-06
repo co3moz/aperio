@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Added
+
+- **A notification bell in the dashboard, so a client dropping is something you are told rather than something you notice.** Token expiry, a client that connected or disconnected, maintenance left on, an alert that fired: all of these were already events, delivered to webhooks and published on the `$aperio/` topics, and the only way to find out from the dashboard was to spot a changed row in a table. They now also arrive on the dashboard's existing Server-Sent Events stream (`/aperio/api/stream`, `notification` frames) and collect behind a bell in the header, newest first, with an unread count that survives a reload and a coloured dot matching the green/red/amber of the chat-service webhook cards. The events are fenced to the caller's organization by the server, exactly as live traffic is, so a child organization's dashboard never sees master's events or another organization's. The event name is shown untranslated on purpose: it is the identifier a webhook subscribes to and the audit log filters by. Nothing is stored server-side and nothing is kept for a tab that was closed, the record of what happened stays the audit log.
+
 ## [0.9.0] - 2026-08-05
 
 ### Security

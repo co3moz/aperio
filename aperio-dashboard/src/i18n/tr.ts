@@ -184,6 +184,9 @@ export const tr: Record<string, string> = {
   Live: 'Canlı',
   'Live Request Activity': 'Canlı İstek Aktivitesi',
   'Live Traffic': 'Canlı Trafik',
+  'Nothing yet. Events show up here as they happen.': 'Henüz bir şey yok. Olaylar gerçekleştikçe burada görünür.',
+  'Notifications': 'Bildirimler',
+  'Notifications, {count} unread': 'Bildirimler, {count} okunmamış',
   'Route Trends': 'Rota Trendleri',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Son 30 dakikada dakika başına bir çubuk, en kötü durum sınıfına göre renkli, hangi rotanın ne zaman hata vermeye başladığını görün.',
   'Last 30 minutes': 'Son 30 dakika',
@@ -449,6 +452,7 @@ export const tr: Record<string, string> = {
   'Custom range': 'Özel aralık',
   'From date': 'Başlangıç tarihi',
   'To date': 'Bitiş tarihi',
+  '{count} new': '{count} yeni',
   '{requests} requests, {bytes} transferred in this range': 'Bu aralıkta {requests} istek, {bytes} aktarım',
   'Generic JSON': 'Genel JSON',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':

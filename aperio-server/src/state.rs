@@ -166,6 +166,29 @@ pub(crate) struct EnhancedServerStats {
   pub(crate) today: stats::PeriodStats,
 }
 
+/// One server event on its way to the dashboard's notification bell.
+///
+/// The same events that feed webhooks and the `$aperio/` topics, carried on a
+/// broadcast channel so an open dashboard hears about a client dropping, a
+/// token about to expire or an alert firing without polling a table for it.
+/// `org` is the organization the event belongs to (`None` = master) and is
+/// what the SSE handler filters on, so an event never leaves its own org.
+#[derive(Serialize, Clone, utoipa::ToSchema)]
+pub(crate) struct ServerEvent {
+  /// Event name, as webhooks receive it (`client_disconnected`, ...).
+  pub(crate) event: String,
+  /// When it happened, RFC 3339 in the server's local zone, the same format
+  /// the webhook payload and the audit log use.
+  pub(crate) timestamp: String,
+  /// The event's own fields, verbatim from the webhook payload.
+  pub(crate) data: serde_json::Value,
+  /// Owning organization; `None` is master. Not serialized to the dashboard,
+  /// which only ever receives the events of its own org anyway.
+  #[serde(skip)]
+  #[schema(ignore)]
+  pub(crate) org: Option<String>,
+}
+
 /// Structure representing a logged HTTP transaction.
 #[derive(Serialize, Clone, utoipa::ToSchema)]
 pub(crate) struct RequestLog {
@@ -2225,6 +2248,11 @@ pub(crate) struct AppState {
   /// any connected dashboard SSE subscribers (`/aperio/api/stream`). Dropped
   /// when there are no subscribers.
   pub(crate) traffic_tx: broadcast::Sender<RequestLog>,
+  /// Live server-event fan-out: every event that reaches a webhook or the
+  /// `$aperio/` bus is also broadcast here, for the dashboard's notification
+  /// bell (`/aperio/api/stream`, `notification` events). Dropped when there
+  /// are no subscribers, exactly like [`AppState::traffic_tx`].
+  pub(crate) events_tx: broadcast::Sender<ServerEvent>,
   /// Live server configuration. Dashboard-editable settings swap in a new
   /// `Arc<ServerConfig>`; every access takes a cheap read-lock snapshot via
   /// [`AppState::config`].
@@ -2685,7 +2713,21 @@ impl AppState {
       self.webhook_deliveries.clone(),
       self.config().outbound_policy.clone(),
     );
+    self.broadcast_event(event, &data, &org);
     self.publish_event_topic(event, data, org).await;
+  }
+
+  /// Fans an event out to the dashboards of its own organization.
+  ///
+  /// `send` fails only when nobody is subscribed, which is the normal state of
+  /// a server with no dashboard open, so the result is deliberately dropped.
+  fn broadcast_event(&self, event: &str, data: &serde_json::Value, org: &Option<String>) {
+    let _ = self.events_tx.send(ServerEvent {
+      event: event.to_string(),
+      timestamp: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+      data: data.clone(),
+      org: org.clone(),
+    });
   }
 
   /// Mirrors a server event onto its `$aperio/` topic, so a client can react

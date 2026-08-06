@@ -256,6 +256,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     }),
     recent_logs: Mutex::new(VecDeque::new()),
     traffic_tx: tokio::sync::broadcast::channel(16).0,
+    events_tx: tokio::sync::broadcast::channel(16).0,
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
     config_env_defaults: Arc::new(config),
     settings_overrides: Mutex::new(SettingsOverrides::default()),

@@ -184,6 +184,9 @@ export const ru: Record<string, string> = {
   Live: 'Онлайн',
   'Live Request Activity': 'Активность запросов в реальном времени',
   'Live Traffic': 'Живой трафик',
+  'Nothing yet. Events show up here as they happen.': 'Пока ничего. События появляются здесь по мере возникновения.',
+  'Notifications': 'Уведомления',
+  'Notifications, {count} unread': 'Уведомления, непрочитанных: {count}',
   'Route Trends': 'Тренды маршрутов',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Один столбик на минуту за последние 30 минут, цвет, по худшему классу статуса: видно, какой маршрут и когда начал ошибаться.',
   'Last 30 minutes': 'Последние 30 минут',
@@ -449,6 +452,7 @@ export const ru: Record<string, string> = {
   'Custom range': 'Произвольный диапазон',
   'From date': 'Дата начала',
   'To date': 'Дата окончания',
+  '{count} new': 'новых: {count}',
   '{requests} requests, {bytes} transferred in this range': '{requests} запросов, передано {bytes} за этот период',
   'Generic JSON': 'Обычный JSON',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':

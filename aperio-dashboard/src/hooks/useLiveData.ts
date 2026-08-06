@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type RequestLog, type ServerStats } from '../lib/api'
+import type { ServerNotification } from '../lib/notifications'
 
 // Keep a bounded live window on the client so a long-lived stream can't grow
 // unbounded; the traffic table only renders the newest slice anyway.
 const MAX_LOGS = 500
+// The bell keeps far fewer: it is a list somebody reads, and what falls off
+// the end of it is in the audit log, which is the record.
+const MAX_NOTIFICATIONS = 50
 // Fallback polling cadence used only while the SSE stream is unavailable.
 const FALLBACK_POLL_MS = 3000
 
 export interface LiveData {
   logs: RequestLog[] | null
   stats: ServerStats | null
+  /** Server events for the notification bell, newest last. */
+  notifications: ServerNotification[]
   /** True while the live stream is down and the fallback poll is active. */
   error: boolean
   /** Force an immediate stats refetch (e.g. right after a dashboard mutation). */
@@ -19,13 +25,19 @@ export interface LiveData {
 /**
  * Single live feed for the dashboard backed by the `/aperio/api/stream` SSE
  * endpoint: `traffic` events append to the request log, `stats` events replace
- * the stats snapshot (pushed every 2s and once on connect). Seeds from the REST
- * endpoints and, if the stream can't be established, transparently falls back to
- * polling both, so nothing goes stale.
+ * the stats snapshot (pushed every 2s and once on connect), and `notification`
+ * events accumulate for the bell. Seeds from the REST endpoints and, if the
+ * stream can't be established, transparently falls back to polling both, so
+ * nothing goes stale.
+ *
+ * Notifications have no polling fallback and no seed, deliberately: they are a
+ * live signal, and the record of what happened while the tab was closed is the
+ * audit log, which has its own screen and its own retention.
  */
 export function useLiveData(): LiveData {
   const [logs, setLogs] = useState<RequestLog[] | null>(null)
   const [stats, setStats] = useState<ServerStats | null>(null)
+  const [notifications, setNotifications] = useState<ServerNotification[]>([])
   const [error, setError] = useState(false)
 
   const refreshStats = useCallback(() => {
@@ -40,6 +52,7 @@ export function useLiveData(): LiveData {
   useEffect(() => {
     let cancelled = false
     let pollTimer: ReturnType<typeof setInterval> | undefined
+    let seq = 0
 
     const seedLogs = () =>
       api
@@ -96,6 +109,21 @@ export function useLiveData(): LiveData {
         // Ignore malformed frames.
       }
     })
+    es.addEventListener('notification', (e) => {
+      try {
+        const ev = JSON.parse((e as MessageEvent).data) as Omit<ServerNotification, 'id'>
+        // The wire carries no id, and two events can share a timestamp (it is
+        // second-resolution), so the id is minted here: a duplicate key would
+        // make React reuse the wrong row.
+        setNotifications((cur) => {
+          const id = `${ev.timestamp}-${seq++}`
+          const next = [...cur, { ...ev, id }]
+          return next.length > MAX_NOTIFICATIONS ? next.slice(-MAX_NOTIFICATIONS) : next
+        })
+      } catch {
+        // Ignore malformed frames.
+      }
+    })
     es.onerror = () => startFallback()
 
     return () => {
@@ -105,5 +133,5 @@ export function useLiveData(): LiveData {
     }
   }, [])
 
-  return { logs, stats, error, refreshStats }
+  return { logs, stats, notifications, error, refreshStats }
 }

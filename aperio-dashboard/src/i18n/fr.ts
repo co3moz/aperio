@@ -184,6 +184,9 @@ export const fr: Record<string, string> = {
   Live: 'En direct',
   'Live Request Activity': 'Activité des requêtes en direct',
   'Live Traffic': 'Trafic en direct',
+  'Nothing yet. Events show up here as they happen.': "Rien pour l'instant. Les événements apparaissent ici dès qu'ils se produisent.",
+  'Notifications': 'Notifications',
+  'Notifications, {count} unread': 'Notifications, {count} non lues',
   'Route Trends': 'Tendances des routes',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Une barre par minute sur les 30 dernières minutes, colorée selon la pire classe de statut, repérez quelle route a commencé à échouer, et quand.',
   'Last 30 minutes': '30 dernières minutes',
@@ -449,6 +452,7 @@ export const fr: Record<string, string> = {
   'Custom range': 'Plage personnalisée',
   'From date': 'Date de début',
   'To date': 'Date de fin',
+  '{count} new': '{count} nouvelles',
   '{requests} requests, {bytes} transferred in this range': '{requests} requêtes, {bytes} transférés sur cette plage',
   'Generic JSON': 'JSON générique',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':

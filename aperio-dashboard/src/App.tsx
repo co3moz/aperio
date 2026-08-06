@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar, PAGES, ROLE_ORDER, pagesForRole, type Page } from './components/AppSidebar'
 import { AppearanceControls } from './components/AppearanceControls'
+import { NotificationsBell } from './components/NotificationsBell'
 import {
   SETTINGS_PANES,
   SettingsDialog,
@@ -173,7 +174,7 @@ function loadHistory(): number[] {
 export default function App() {
   // Traffic and stats are pushed live over one SSE stream (with a polling
   // fallback if it drops); only the session lifetime is still polled.
-  const { logs, stats, error: statsError, refreshStats } = useLiveData()
+  const { logs, stats, notifications, error: statsError, refreshStats } = useLiveData()
   const { data: session, refresh: refreshSession } = usePoll(api.session, 60_000)
   const [totpOpen, setTotpOpen] = useState(false)
   const [passkeysOpen, setPasskeysOpen] = useState(false)
@@ -492,6 +493,7 @@ export default function App() {
                 ⌘K
               </kbd>
             </Button>
+            <NotificationsBell notifications={notifications} />
             <AppearanceControls />
             {session && (
               <Badge variant="outline" className="hidden gap-1.5 rounded-full px-2.5 py-1 lg:inline-flex">

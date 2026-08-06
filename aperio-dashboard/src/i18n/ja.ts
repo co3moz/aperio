@@ -182,6 +182,9 @@ export const ja: Record<string, string> = {
   Live: 'ライブ',
   'Live Request Activity': 'ライブリクエストアクティビティ',
   'Live Traffic': 'ライブトラフィック',
+  'Nothing yet. Events show up here as they happen.': 'まだ何もありません。イベントは発生し次第ここに表示されます。',
+  'Notifications': '通知',
+  'Notifications, {count} unread': '通知、未読 {count} 件',
   'Route Trends': 'ルートトレンド',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': '直近 30 分を 1 分ごとのバーで表示、最悪のステータスクラスで着色、どのルートがいつエラーを出し始めたか一目で分かります。',
   'Last 30 minutes': '直近 30 分',
@@ -447,6 +450,7 @@ export const ja: Record<string, string> = {
   'Custom range': 'カスタム範囲',
   'From date': '開始日',
   'To date': '終了日',
+  '{count} new': '新着 {count} 件',
   '{requests} requests, {bytes} transferred in this range': 'この範囲で{requests}件のリクエスト、{bytes}を転送',
   'Generic JSON': '汎用 JSON',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':

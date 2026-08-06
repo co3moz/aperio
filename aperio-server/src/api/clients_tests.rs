@@ -828,6 +828,58 @@ async fn live_stream_emits_stats_traffic_and_ends_on_shutdown() {
 }
 
 #[tokio::test]
+async fn live_stream_fences_notifications_to_the_subscriber_org() {
+  use axum::response::IntoResponse;
+  use futures_util::StreamExt;
+  use std::time::Duration;
+  use tokio::time::timeout;
+
+  let state = Arc::new(test_state());
+  // A viewer session scoped to the master org (None).
+  let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
+  let headers = cookie_headers(&token);
+
+  let sse = live_stream_handler(State(state.clone()), headers).await;
+  let resp = sse.into_response();
+  let mut body = resp.into_body().into_data_stream();
+
+  // Drain the immediate `stats` frame.
+  let _ = timeout(Duration::from_secs(2), body.next())
+    .await
+    .expect("stats frame in time");
+
+  let ev = |event: &str, org: Option<&str>| crate::state::ServerEvent {
+    event: event.to_string(),
+    timestamp: "2026-08-06T00:00:00+03:00".to_string(),
+    data: serde_json::json!({"id": "t1"}),
+    org: org.map(str::to_string),
+  };
+  // Another org's event first: it must not reach this subscriber, so the
+  // frame that does arrive is the master one behind it.
+  let _ = state.events_tx.send(ev("token_revoked", Some("acme")));
+  let _ = state.events_tx.send(ev("client_disconnected", None));
+
+  let mut seen: Option<String> = None;
+  for _ in 0..4 {
+    let frame = timeout(Duration::from_secs(3), body.next())
+      .await
+      .expect("frame in time");
+    let Some(Ok(bytes)) = frame else { break };
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    if text.contains("event: notification") {
+      seen = Some(text);
+      break;
+    }
+  }
+  let seen = seen.expect("the master-org notification streamed");
+  assert!(seen.contains("client_disconnected"), "got: {seen}");
+  assert!(
+    !seen.contains("token_revoked"),
+    "another org's event leaked: {seen}"
+  );
+}
+
+#[tokio::test]
 async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   let state = Arc::new(test_state());
   // A fenced org, a client in it, and an admin session that has selected it.

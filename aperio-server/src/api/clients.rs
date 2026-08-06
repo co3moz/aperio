@@ -488,12 +488,14 @@ pub(crate) async fn logs_handler(
 }
 
 /// Server-Sent Events stream powering the dashboard's live view, so it doesn't
-/// poll: named `traffic` events (one per proxied request, as it completes) and
+/// poll: named `traffic` events (one per proxied request, as it completes),
 /// periodic `stats` events (the same snapshot as `/api/stats`, pushed every 2s
-/// and once immediately on connect). A subscriber that falls behind the traffic
-/// buffer skips the lagged span rather than closing the stream.
+/// and once immediately on connect), and `notification` events (every server
+/// event that also feeds webhooks, for the notification bell). A subscriber
+/// that falls behind either buffer skips the lagged span rather than closing
+/// the stream.
 #[utoipa::path(get, path = "/aperio/api/stream", tag = "dashboard",
-  description = "Server-Sent Events stream: named `traffic` events (one per proxied request) and periodic `stats` events.",
+  description = "Server-Sent Events stream: named `traffic` events (one per proxied request), periodic `stats` events, and `notification` events (server events, as webhooks receive them).",
   responses((status = 200, description = "SSE stream (text/event-stream)")))]
 pub(crate) async fn live_stream_handler(
   State(state): State<Arc<AppState>>,
@@ -506,13 +508,14 @@ pub(crate) async fn live_stream_handler(
   // The caller's effective org is fixed for the life of the connection.
   let org = crate::auth::effective_org(&state, &headers).await;
   let rx = state.traffic_tx.subscribe();
+  let events = state.events_tx.subscribe();
   let shutdown = state.shutdown.subscribe();
   let mut interval = tokio::time::interval(Duration::from_secs(2));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let stream = futures_util::stream::unfold(
-    (state, rx, interval, shutdown, org, headers),
-    |(state, mut rx, mut interval, mut shutdown, org, headers)| async move {
+    (state, rx, events, interval, shutdown, org, headers),
+    |(state, mut rx, mut events, mut interval, mut shutdown, org, headers)| async move {
       loop {
         tokio::select! {
           // The first tick fires immediately, seeding the initial snapshot.
@@ -532,7 +535,7 @@ pub(crate) async fn live_stream_handler(
               .event("stats")
               .json_data(&snapshot)
               .unwrap_or_else(|_| Event::default());
-            return Some((Ok(event), (state, rx, interval, shutdown, org, headers)));
+            return Some((Ok(event), (state, rx, events, interval, shutdown, org, headers)));
           }
           recv = rx.recv() => match recv {
             Ok(log) => {
@@ -544,11 +547,27 @@ pub(crate) async fn live_stream_handler(
                 .event("traffic")
                 .json_data(&log)
                 .unwrap_or_else(|_| Event::default());
-              return Some((Ok(event), (state, rx, interval, shutdown, org, headers)));
+              return Some((Ok(event), (state, rx, events, interval, shutdown, org, headers)));
             }
             // Slow subscriber: drop the missed span and keep streaming.
             Err(RecvError::Lagged(_)) => continue,
             // Sender gone: end the stream.
+            Err(RecvError::Closed) => return None,
+          },
+          recv = events.recv() => match recv {
+            Ok(ev) => {
+              // Same fence as traffic: an event belongs to one organization
+              // and is only ever seen by dashboards of that organization.
+              if ev.org != org {
+                continue;
+              }
+              let event = Event::default()
+                .event("notification")
+                .json_data(&ev)
+                .unwrap_or_else(|_| Event::default());
+              return Some((Ok(event), (state, rx, events, interval, shutdown, org, headers)));
+            }
+            Err(RecvError::Lagged(_)) => continue,
             Err(RecvError::Closed) => return None,
           },
           // Server shutting down: end the stream so graceful shutdown can

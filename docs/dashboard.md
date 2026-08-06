@@ -6,7 +6,15 @@ The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a nam
 
 ![Overview: stat tiles and the live request-rate chart](images/dashboard-overview.png)
 
-Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s) and `traffic` events (one per request) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
+Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s), `traffic` events (one per request) and `notification` events (see below) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
+
+## Notifications
+
+The **bell** in the header carries the server's own events as they happen: a client that connected or dropped, a token about to expire, maintenance left on, an alert that fired. These are the same events that feed [webhooks](observability.md#webhooks) and the `$aperio/` topics, arriving on the SSE stream above as `notification` frames, and they are fenced to the caller's organization by the server exactly as traffic is: a child org's dashboard never sees master's events or another org's.
+
+Each row shows the event name, its fields, and how long ago it happened, with a coloured dot for its nature, the same green/red/amber the chat-service webhook cards use. The event name is deliberately **not** translated: it is the identifier you subscribe a webhook to and filter the audit log by, and it should read the same on all three screens.
+
+The count clears when the panel is closed, and what has been read survives a reload. Notifications are a live signal, not a record: nothing is kept for a tab that was closed, and the last 50 are held in the browser. The record of what happened is the [audit log](observability.md#audit-log), which has its own retention.
 
 ## Clients table
 

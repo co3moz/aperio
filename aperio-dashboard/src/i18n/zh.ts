@@ -180,6 +180,9 @@ export const zh: Record<string, string> = {
   Live: '实时',
   'Live Request Activity': '实时请求活动',
   'Live Traffic': '实时流量',
+  'Nothing yet. Events show up here as they happen.': '暂无内容。事件发生时会显示在这里。',
+  'Notifications': '通知',
+  'Notifications, {count} unread': '通知，{count} 条未读',
   'Route Trends': '路由趋势',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': '最近 30 分钟每分钟一根柱，按最差状态类着色，一眼看出哪条路由何时开始出错。',
   'Last 30 minutes': '最近 30 分钟',
@@ -436,6 +439,7 @@ export const zh: Record<string, string> = {
   'Custom range': '自定义范围',
   'From date': '开始日期',
   'To date': '结束日期',
+  '{count} new': '{count} 条新消息',
   '{requests} requests, {bytes} transferred in this range': '此范围内 {requests} 个请求，传输 {bytes}',
   'Generic JSON': '通用 JSON',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':

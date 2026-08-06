@@ -19,12 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#45 A notification centre in the dashboard.** (triage 40) Token expiry,
-  a client that dropped, maintenance left on, an alert that fired: all of these
-  are already events on the `$aperio/` bus, and all of them are currently found
-  by noticing something in a table. A bell with unread state, fed from the
-  existing SSE stream, org-scoped like everything else.
-
 - [ ] **#46 One WebSocket for several services of the same client process,
   as an opt-in mode.** (triage 40) Each service opens its own tunnel
   connection, so a client with five services pays five readers, five writers,
@@ -445,6 +439,28 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#45 A notification centre in the dashboard.** Token expiry, a client
+  that dropped, maintenance left on, an alert that fired: all of these are
+  already events on the `$aperio/` bus, and all of them are currently found by
+  noticing something in a table. A bell with unread state, fed from the
+  existing SSE stream, org-scoped like everything else.
+
+  shipped: `emit_event_in` is the one choke point every server event passes
+  through on its way to a webhook and to `$aperio/`, so the fan-out hangs
+  there: one more broadcast channel next to `traffic_tx`, and the dashboard's
+  existing SSE endpoint grows a third frame type, `notification`, fenced by
+  the same org comparison traffic already used. The bell keeps the last 50 in
+  the browser and nothing on the server, which is the deliberate half of the
+  design: notifications are a live signal and the audit log is the record, so
+  a tab that was closed missed nothing that is not still on the audit screen.
+  Read state is a single timestamp in `localStorage` rather than a set of ids,
+  since the ids are minted per session and mean nothing after a reload.
+  Severity mirrors the chat-card colours in `store/webhooks.rs`, with an
+  unknown event falling through to neutral so a newer server's event does not
+  read as an alarm in an older dashboard. The event *name* is not translated,
+  matching the audit log's filter and the webhook subscription, which is the
+  same decision the i18n rules already make for `hostname` and `token`.
 
 - [x] **#87 Activity chart: 1m / 15m / 2h / 1d, with the bucket width scaled
   to each.** The chart offers 60 s, 5 min and 15 min. Drop the 5-minute view

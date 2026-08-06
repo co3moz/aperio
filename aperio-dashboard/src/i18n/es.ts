@@ -184,6 +184,9 @@ export const es: Record<string, string> = {
   Live: 'En vivo',
   'Live Request Activity': 'Actividad de peticiones en vivo',
   'Live Traffic': 'Tráfico en vivo',
+  'Nothing yet. Events show up here as they happen.': 'Nada todavía. Los eventos aparecen aquí en cuanto ocurren.',
+  'Notifications': 'Notificaciones',
+  'Notifications, {count} unread': 'Notificaciones, {count} sin leer',
   'Route Trends': 'Tendencias de rutas',
   'One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.': 'Una barra por minuto de los últimos 30 minutos, coloreada por la peor clase de estado, detecta qué ruta empezó a fallar y cuándo.',
   'Last 30 minutes': 'Últimos 30 minutos',
@@ -449,6 +452,7 @@ export const es: Record<string, string> = {
   'Custom range': 'Rango personalizado',
   'From date': 'Fecha de inicio',
   'To date': 'Fecha de fin',
+  '{count} new': '{count} nuevas',
   '{requests} requests, {bytes} transferred in this range': '{requests} solicitudes, {bytes} transferidos en este rango',
   'Generic JSON': 'JSON genérico',
   'Generic sends the raw event JSON; the chat formats send a ready-made message for the incoming-webhook URL of that service.':
