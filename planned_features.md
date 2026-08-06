@@ -166,16 +166,6 @@ test suite.
   rather than inventing a second one, which is the trap every chart falls
   into.
 
-- [ ] **#96 WebSocket conformance for the relay arms, with Autobahn.** The WS
-  relay re-frames traffic through the tunnel, and its correctness is currently
-  asserted by tests we wrote against our own understanding. The Autobahn test
-  suite is the standard external answer: several hundred cases covering
-  fragmentation, close codes, UTF-8 validity in text frames and ping/pong
-  behaviour. Run it against a relayed endpoint, publish the report, and treat
-  a non-informational failure as a bug. This is the highest-value entry in its
-  group because a proxy's conformance is exactly the thing a user cannot
-  verify for themselves before adopting it.
-
 - [ ] **#97 HTTP/2 conformance for the `h2://` path, with h2spec.** The same
   argument, one layer down and smaller in scope, since the HTTP/2 surface is a
   backend transport rather than something a visitor speaks to us.
@@ -445,6 +435,41 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#96 WebSocket conformance for the relay arms, with Autobahn.** The WS
+  relay re-frames traffic through the tunnel, and its correctness is currently
+  asserted by tests we wrote against our own understanding. The Autobahn test
+  suite is the standard external answer: several hundred cases covering
+  fragmentation, close codes, UTF-8 validity in text frames and ping/pong
+  behaviour. Run it against a relayed endpoint, publish the report, and treat
+  a non-informational failure as a bug. This is the highest-value entry in its
+  group because a proxy's conformance is exactly the thing a user cannot
+  verify for themselves before adopting it.
+
+  shipped: `tests/conformance/`, a new home for suites run *against* Aperio
+  rather than written for it, kept out of the e2e suite because it needs
+  Docker and takes minutes. `autobahn.mjs` brings up the whole path, a `ws`
+  echo backend, a server, a client, and points the fuzzingclient at the far
+  end, so every frame crosses the relay twice. The backend is `ws` precisely
+  because it passes the suite on its own, which is what makes a failure a
+  statement about the relay. `FAILED`/`WRONG CODE`/`UNCLEAN` fails the run on
+  either grade, frames *and* close handshake, since a relay that carries the
+  data and mangles the close code is the bug worth catching; `NON-STRICT` is
+  reported and counted rather than failed on. The `12.*`/`13.*` compression
+  groups are excluded by name, since `permessage-deflate` is deliberately not
+  negotiated (`#73`, withdrawn), so the report says what was actually run.
+  A weekly `conformance.yml` runs it and uploads the report either way.
+
+  The one decision worth keeping: the tunnel is bound on a **path**, not a
+  hostname. Autobahn dials a URL and that URL's authority is the `Host` the
+  server routes on, and the address that reaches the host differs between a
+  Linux container sharing the host namespace and Docker Desktop. A hostname
+  bind would have meant getting an `/etc/hosts` entry right on two platforms;
+  bound on `/`, what the machine is called stops mattering.
+
+  Everything except the Docker step was verified locally (the harness brings
+  the path up and proxies through it); the container run itself was left to
+  CI by the owner's decision rather than starting Docker on this machine.
 
 - [x] **#99 Chaos cases in the e2e suite.** Everything the suite exercises is a
   happy path with a clean shutdown. The failures that actually reach operators

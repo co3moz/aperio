@@ -1,0 +1,13 @@
+{
+  "name": "aperio-conformance",
+  "private": true,
+  "type": "module",
+  "description": "External protocol conformance runs. Not part of the e2e suite: these need Docker and take minutes.",
+  "scripts": {
+    "pretest": "cargo build --manifest-path ../../Cargo.toml -p aperio-server -p aperio-client",
+    "test": "node autobahn.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.2"
+  }
+}

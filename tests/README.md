@@ -11,6 +11,9 @@ own port.
   together and the two things that will bite you.
 - `mock-h2/`, the HTTP/2 (`h2c`) echo backend and client used by the h2 phase.
   Built on demand; it is not a workspace default.
+- `conformance/`, external suites run *against* Aperio rather than written
+  for it, starting with [Autobahn](conformance/README.md) over the WebSocket
+  relay. Needs Docker, runs weekly in CI, not part of the e2e suite.
 - `soak.js`, a k6 load profile. Not run in CI, and not part of the suite.
 
 ## Phases

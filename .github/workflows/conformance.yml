@@ -1,0 +1,71 @@
+name: Conformance
+
+# External test suites, run against the product rather than written for it.
+#
+# Weekly and on demand rather than per push: this is minutes of work and what
+# it checks, the WebSocket relay's conformance to RFC 6455, changes rarely. A
+# failure here is a bug in the relay, not a flaky test, which is also why it
+# is not allowed to fail quietly.
+on:
+  schedule:
+    # Monday morning, before anyone is looking at it.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  # So a change to the relay or to the runner itself can be checked without
+  # waiting a week for the schedule.
+  push:
+    paths:
+      - "aperio-server/src/proxy/ws.rs"
+      - "aperio-client/src/proxy/ws.rs"
+      - "tests/conformance/**"
+      - ".github/workflows/conformance.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  autobahn:
+    name: Autobahn (WebSocket, RFC 6455)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # The dashboard is disabled for this run, but the server's build script
+      # embeds it regardless, so Node has to be present before the build.
+      - name: Build the binaries
+        run: cargo build --locked -p aperio-server -p aperio-client
+
+      - name: Install the echo backend's dependency
+        run: npm --prefix tests/conformance ci || npm --prefix tests/conformance install
+
+      - name: Pull the Autobahn image
+        run: docker pull crossbario/autobahn-testsuite:0.8.2
+
+      - name: Run the suite
+        run: node tests/conformance/autobahn.mjs
+
+      # Uploaded whether it passed or failed: the report is how a failure is
+      # read, and the pass is the artifact worth linking to when somebody asks
+      # whether the relay is conformant.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autobahn-report
+          path: tests/conformance/reports
+          retention-days: 30

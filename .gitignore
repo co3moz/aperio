@@ -40,3 +40,10 @@ docs/book/*.fls
 docs/book/*.fdb_latexmk
 docs/book/*.synctex.gz
 docs/book/*.pdf
+
+# Conformance run artefacts: the Autobahn HTML/JSON report, the generated
+# fuzzingclient config, and the throwaway data directory of the server it
+# brings up.
+tests/conformance/reports/
+tests/conformance/fuzzingclient.json
+tests/conformance/.data/
