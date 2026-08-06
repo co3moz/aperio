@@ -25,7 +25,7 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 ## Tests & end-to-end suite
 
-`cargo test --all` runs the unit tests. `npm --prefix tests/e2e test` runs the end-to-end suite: a real `aperio-server`, several `aperio-client` processes, and mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). Each phase gets its own server on its own port, and so does each file within a phase, so they run four at a time and any one of them, phase or file, can be run alone. CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, and a `cargo audit` scan of the dependency tree.
+`cargo test --all` runs the unit tests. `npm --prefix tests/e2e test` runs the end-to-end suite: a real `aperio-server`, several `aperio-client` processes, and mock backends, exercised phase by phase (proxying, dashboard APIs, auth, failover, load balancing, WebSocket pass-through, emergency tunnels, ...). Each phase gets its own server on its own port, and so does each file within a phase, so they run four at a time and any one of them, phase or file, can be run alone. CI runs both on every push and pull request, plus `cargo clippy -D warnings`, `cargo fmt --check`, a `cargo audit` scan of the dependency tree, and `cargo deny check licenses bans sources` ([deny.toml](../deny.toml)) for the questions `cargo audit` does not answer: which licenses end up in the shipped binaries, whether anything is fetched from outside crates.io, and whether a wildcard dependency is letting an arbitrary future version in.
 
 ### Protocol fuzzing
 
@@ -56,6 +56,8 @@ CI goes further and merges the E2E integration run into the same report (instrum
 ## Releases
 
 Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release, [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version. The versioned `aperio.yaml` and `aperio-server.yaml` JSON Schemas (`aperio-client.<tag>.json`, `aperio-server.<tag>.json`) are attached to the release too, along with [The Complete Guide](book/aperio.tex) as a PDF (`aperio-guide.<tag>.pdf`, plus a stable `aperio-guide.pdf` for `releases/latest/download`).
+
+Every release is also **signed and attested**. A `SHA256SUMS` manifest covering all assets is signed with [Sigstore](https://www.sigstore.dev/) keyless signing (`SHA256SUMS.sigstore.json` next to it), the archives and the container images carry [build provenance attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations), and an SPDX SBOM (`aperio.spdx.json`) is attached. None of it needs a repository secret: the workflow's own OIDC identity signs, so there is no key to rotate or leak. The verification commands are in [SECURITY.md](../SECURITY.md#verifying-a-release).
 
 The Windows leg of that matrix compiles OpenSSL from source, which is minutes of the run, so CI keeps it warm: a `warm-release-cache` job on the default branch builds the Windows target whenever `Cargo.lock`/`Cargo.toml` changed and saves the cache the tag build restores. Two things keep that useful, and a CI step (`scripts/check-release-cache.py`) enforces the first:
 

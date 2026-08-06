@@ -162,6 +162,29 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+  deny:
+    name: Licenses, Sources & Bans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      # The questions `cargo audit` does not answer: what licenses end up in
+      # the shipped binaries, whether anything is being fetched from outside
+      # crates.io, and whether a wildcard dependency is letting an arbitrary
+      # future version in. Advisories are deliberately left to the `audit` job
+      # so a known vulnerability fails one check rather than two. See deny.toml.
+      - name: Check licenses, sources and bans
+        run: cargo deny check licenses bans sources
+
   bench:
     name: Benchmarks (report)
     runs-on: ubuntu-latest

@@ -1,0 +1,87 @@
+name: Bug report
+description: Something behaves differently from what the docs say it does.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here.
+        Use [private reporting](https://github.com/co3moz/aperio/security/advisories/new) instead.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, what you got, and which of the two the documentation supports.
+      placeholder: |
+        Requests to app.example.com return 502 after the client reconnects,
+        even though the client logs say the tunnel is up and the backend
+        answers on localhost:3000.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Configuration
+      description: >
+        The `aperio.yaml` / `aperio-server.yaml` (or the flags and environment)
+        that reproduces it, trimmed to the part that matters. Redact tokens and
+        hostnames, but keep the shape: which keys are set is usually the answer.
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: What you did, in order. Include the request if one is involved.
+      placeholder: |
+        1. Start the server with the config above
+        2. Start the client, wait for it to connect
+        3. Restart the backend
+        4. curl -v https://app.example.com/health
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`aperio-server --version` and `aperio-client --version`, or the commit."
+      placeholder: server 0.9.0, client 0.9.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: side
+    attributes:
+      label: Which side
+      description: Where the wrong behaviour is visible. Pick both if the two disagree.
+      multiple: true
+      options:
+        - Server
+        - Client
+        - Dashboard
+        - CLI / config parsing
+        - Docs
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and architecture, and whether it runs in a container.
+      placeholder: Ubuntu 24.04 x86_64, ghcr.io image
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Relevant output from either side, ideally with `APERIO_LOG_LEVEL=debug`.
+        A tunnel bug is usually two logs, not one: what the server saw and what
+        the client saw at the same moment.
+      render: text

@@ -440,6 +440,26 @@ nothing reuses them.
 
 ## Completed
 
+- [x] **#95 Supply-chain trust: signed releases, provenance, an SBOM, and the
+  files a contributor looks for first.** A project that tells people to run a
+  binary on a public box had no `SECURITY.md`, no way to report a
+  vulnerability privately, no `CONTRIBUTING.md`, no issue templates, and
+  releases whose only integrity claim was a `.sha256` sitting next to the file
+  it described, which proves nothing an attacker who replaced both cannot
+  forge.
+
+  shipped: `SECURITY.md` (private reporting through GitHub advisories, scope
+  and out-of-scope drawn from `docs/threat-model.md`, and the verification
+  commands), `CONTRIBUTING.md` pointing at `docs/development.md` for the real
+  detail and carrying the rules whose absence has broken something before, two
+  issue forms and a PR checklist, `deny.toml` plus a `cargo deny check
+  licenses bans sources` CI job next to the existing `cargo audit`, and, in
+  the release workflow, a signed `SHA256SUMS` manifest (Sigstore keyless),
+  build provenance attestations for the archives and the container images, and
+  an SPDX SBOM. Two real gaps fell out of writing the policy rather than being
+  planned: the workspace crates carried no `license` field at all, and the two
+  binary crates were publishable to crates.io by accident.
+
 - [x] **#45 A notification centre in the dashboard.** Token expiry, a client
   that dropped, maintenance left on, an alert that fired: all of these are
   already events on the `$aperio/` bus, and all of them are currently found by

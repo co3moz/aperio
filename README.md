@@ -136,6 +136,12 @@ Full index: **[docs/](docs/README.md)**. Prefer one long read? [**The Complete G
 
 More: **[Tokens & Authentication](docs/tokens-and-auth.md)**, and the [Threat Model](docs/threat-model.md) for what each side is trusted to do.
 
+Releases are signed with [Sigstore](https://www.sigstore.dev/) and carry build provenance and an SBOM, so a downloaded binary can be verified rather than trusted, see [SECURITY.md](SECURITY.md#verifying-a-release). Found a vulnerability? [Report it privately](https://github.com/co3moz/aperio/security/advisories/new), never as a public issue.
+
+## Contributing
+
+Bug reports, reproductions and documentation fixes are as welcome as code. [CONTRIBUTING.md](CONTRIBUTING.md) is the front door, [docs/development.md](docs/development.md) the detail, and [planned_features.md](planned_features.md) what is planned, shipped, or dropped and why.
+
 ## License
 
 Open-source and free to use.

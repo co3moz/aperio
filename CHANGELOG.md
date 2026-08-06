@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- **Releases are now signed, carry their provenance, and ship an SBOM, so "I downloaded a binary from the internet" is something you can check rather than something you trust.** Every release gets a `SHA256SUMS` manifest covering all of its assets, signed with Sigstore keyless signing (no long-lived private key exists to be stolen), and the archives, the manifest and the published container images carry [build provenance attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations) naming the workflow, the commit and the runner that produced them: `gh attestation verify <file> --repo co3moz/aperio`. An SPDX SBOM (`aperio.spdx.json`) is attached as well, so anyone asking "are we affected by CVE-X" can answer it themselves instead of reading our lockfile. The exact verification commands are in the new [SECURITY.md](SECURITY.md).
+
 ### Added
 
 - **A notification bell in the dashboard, so a client dropping is something you are told rather than something you notice.** Token expiry, a client that connected or disconnected, maintenance left on, an alert that fired: all of these were already events, delivered to webhooks and published on the `$aperio/` topics, and the only way to find out from the dashboard was to spot a changed row in a table. They now also arrive on the dashboard's existing Server-Sent Events stream (`/aperio/api/stream`, `notification` frames) and collect behind a bell in the header, newest first, with an unread count that survives a reload and a coloured dot matching the green/red/amber of the chat-service webhook cards. The events are fenced to the caller's organization by the server, exactly as live traffic is, so a child organization's dashboard never sees master's events or another organization's. The event name is shown untranslated on purpose: it is the identifier a webhook subscribes to and the audit log filters by. Nothing is stored server-side and nothing is kept for a tab that was closed, the record of what happened stays the audit log.

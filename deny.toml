@@ -1,0 +1,63 @@
+# cargo-deny: the half of supply-chain review that `cargo audit` does not do.
+#
+# `cargo audit` answers "is anything in the tree known to be vulnerable". This
+# answers three other questions that only get expensive if nobody asks them
+# early: what licenses are we shipping under, is anything being pulled from
+# somewhere other than crates.io, and is a wildcard dependency letting an
+# arbitrary future version in. CI runs `cargo deny check licenses bans sources`
+# for exactly that reason, advisories are left to `cargo audit` so a known
+# vulnerability fails one job rather than two.
+
+[graph]
+all-features = true
+
+[licenses]
+# Every license currently present in the tree, and nothing else: a new
+# dependency arriving under something unlisted is supposed to stop CI and be a
+# decision, not a discovery made later by somebody's legal team.
+#
+# Aperio itself is MIT (see LICENSE), and it ships as static binaries, so what
+# matters here is what may be *linked into a distributed binary*, not what a
+# build tool happens to be written under.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-1-Clause",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "BSL-1.0",
+  "Unlicense",
+  # The ICU/unicode-org crates, pulled in through idna. A permissive license
+  # with an attribution requirement, satisfied by shipping the notice.
+  "Unicode-3.0",
+  # webpki-roots: the Mozilla CA bundle, which is data rather than code.
+  "CDLA-Permissive-2.0",
+  # webauthn-rs and its family. File-level copyleft: modifications to those
+  # files would have to be published, linking them into a larger work does not
+  # affect the rest. We do not modify them.
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions of a crate are a warning rather than an error: a
+# transitive tree this size always carries a few, and failing on them would
+# mean either pinning half the ecosystem or switching the check off, and the
+# second is what actually happens.
+multiple-versions = "warn"
+# A wildcard dependency accepts whatever the registry serves next, which is the
+# supply-chain hole this file exists to close.
+wildcards = "deny"
+# The workspace's own crates depend on each other by `path`, which carries no
+# version requirement and therefore reads as a wildcard. They are in this
+# repository and move with it, so there is nothing for a registry to substitute.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

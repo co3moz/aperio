@@ -1,0 +1,14 @@
+# A blank issue is almost never the right shape for this project: what makes a
+# tunnel bug reproducible is the configuration and which side saw it, and a
+# free-form box reliably omits both. The two forms ask for exactly that.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/co3moz/aperio/security/advisories/new
+    about: Report privately, never as a public issue. See SECURITY.md.
+  - name: Question or idea
+    url: https://github.com/co3moz/aperio/discussions
+    about: "\"How do I...\" and \"would you consider...\" belong in Discussions."
+  - name: Documentation
+    url: https://github.com/co3moz/aperio/tree/master/docs
+    about: Configuration reference, threat model, and the Complete Guide.
