@@ -95,7 +95,57 @@
 % Every literal goes through \code so the styling is uniform. Underscores
 % inside the argument are escaped at the call site (\_), which keeps this
 % macro usable in section titles and table cells where \verb is not.
-\newcommand{\code}[1]{\texttt{\small #1}}
+%
+% A name like APERIO_MAX_CONNECTIONS_PER_SERVICE is wider than the column
+% it sits in throughout the reference tables, and \texttt offers TeX no
+% breakpoint at all, so the name simply runs into the neighbouring cell.
+% Every literal is therefore allowed to break after an underscore. No
+% hyphen is inserted: a hyphen inside an environment-variable name would
+% read as part of the name, which is worse than the break it explains.
+% Robust, because \code appears in section titles, which are written to
+% the .aux file and read back.
+\newcommand{\aperiobreakableunderscore}{\textunderscore\allowbreak}
+
+% The other two separators an identifier is built from are the dot of a
+% grouped yaml key (`security_headers.referrer_policy`) and the slash of a
+% path, and unlike the underscore they arrive as ordinary characters,
+% tokenized long before \code sees them. XeTeX, the engine tectonic runs
+% and therefore the one the release builds the guide with, can still insert
+% a token between two characters at typesetting time, which is the only
+% remaining place to put a breakpoint. It is switched on inside \code and
+% nowhere else, so a sentence's full stops, a URL in the prose and every
+% code listing are set exactly as before.
+%
+% The dash is deliberately left out: it would have to carry a character
+% class document-wide, which breaks the `--` and `---` ligatures everywhere
+% to fix a handful of CLI flags, whose column is simply widened instead.
+% Under pdflatex none of this exists and the tables keep the underscore
+% breakpoints alone, which is why the columns are sized to survive without it.
+\ifdefined\XeTeXcharclass
+  \newXeTeXintercharclass\aperiosepclass
+  \XeTeXcharclass`\. =\aperiosepclass
+  \XeTeXcharclass`\/ =\aperiosepclass
+  \XeTeXinterchartoks \aperiosepclass 0 = {\allowbreak}
+  \XeTeXinterchartoks \aperiosepclass \aperiosepclass = {\allowbreak}
+  \newcommand{\aperiocodebreaks}{\XeTeXinterchartokenstate=1 }
+\else
+  \newcommand{\aperiocodebreaks}{}
+\fi
+\DeclareRobustCommand{\code}[1]{{\ttfamily\small\aperiocodebreaks
+  \let\_\aperiobreakableunderscore#1}}
+
+% --- Reference-table columns ----------------------------------------
+% Every column of every reference table is ragged right. A justified 3 cm
+% column of code literals is what produced most of the overfull lines in
+% this book: TeX has almost no stretch to work with there, so it either
+% pulls a line apart or lets it run past the column edge.
+\newcolumntype{R}[1]{>{\raggedright\arraybackslash}p{#1\linewidth}}
+
+% A last resort for the few paragraphs that are mostly literals with no
+% good breakpoint left, a run of event names or a sentence ending in a long
+% key. TeX may stretch the interword space of such a paragraph's last
+% resort pass rather than let a line run into the margin.
+\setlength{\emergencystretch}{2em}
 
 % --- Code listings --------------------------------------------------
 \lstdefinestyle{aperio}{
@@ -471,7 +521,7 @@ confusing them is a common source of unexpected \code{429}s:
 
 \section{Where state lives}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.62\linewidth}@{}}
+\begin{longtable}{@{}R{0.30}R{0.64}@{}}
 \toprule
 \textbf{State} & \textbf{Where it lives} \\
 \midrule
@@ -1115,7 +1165,7 @@ Four quantities can be watched. Each is something the alert loop already
 reads on its own 15-second tick, so a rule costs no new measurement and no
 new background task:
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.26\linewidth}>{\raggedright\arraybackslash}p{0.42\linewidth}>{\raggedright\arraybackslash}p{0.24\linewidth}@{}}
+\begin{longtable}{@{}R{0.26}R{0.42}R{0.24}@{}}
 \toprule
 \textbf{\code{metric:}} & \textbf{What it reads} & \textbf{Unit, and what it catches} \\
 \midrule
@@ -1137,7 +1187,7 @@ new background task:
 
 A rule is four keys, and it is deliberately not an expression language:
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}p{0.76\linewidth}@{}}
+\begin{longtable}{@{}R{0.16}R{0.76}@{}}
 \toprule
 \textbf{Key} & \textbf{Meaning} \\
 \midrule
@@ -1321,7 +1371,7 @@ happens inside that window.
 
 \section{Modes}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.20\linewidth}p{0.72\linewidth}@{}}
+\begin{longtable}{@{}R{0.20}R{0.74}@{}}
 \toprule
 \textbf{Mode} & \textbf{Behaviour} \\
 \midrule
@@ -1739,7 +1789,7 @@ hostname. The master organisation is never fenced.
 
 \section{What each side is trusted to do}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.18\linewidth}p{0.74\linewidth}@{}}
+\begin{longtable}{@{}R{0.18}R{0.76}@{}}
 \toprule
 \textbf{Actor} & \textbf{Assumption} \\
 \midrule
@@ -2388,7 +2438,9 @@ a command line, and joined with other handles to form an address
 (\code{payments@postgres}). Every character outside that set is a way for two
 people to write down what they think is the same name and be wrong:
 \code{Postgres} and \code{postgres}, \code{pg-main} and \code{pg\_main}, an
-\code{i} that is actually \code{ı}.
+% The dotless i is set in the body font on purpose: ec-lmtt10 has no glyph
+% for U+0131, so \code{} here would drop the very character being shown.
+\code{i} that is actually a dotless \textit{\i}.
 
 What is left out stays available as syntax \emph{around} a name rather than
 inside one: \code{@} already separates an organisation from a tunnel, and
@@ -2627,7 +2679,7 @@ broken connection.
 
 \section{A symptom-first runbook}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.62\linewidth}@{}}
+\begin{longtable}{@{}R{0.30}R{0.64}@{}}
 \toprule
 \textbf{Symptom} & \textbf{Where to look} \\
 \midrule
@@ -2703,7 +2755,7 @@ overrides win over both. These tables are maintained by hand alongside
 the machine-readable catalogue, which is the one that cannot drift.
 
 \section{Common settings}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2748,7 +2800,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Core}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2773,7 +2825,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Routing \& load balancing}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2816,7 +2868,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Limits \& protection}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2961,7 +3013,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Authentication \& dashboard}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -2994,7 +3046,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Autoscaling}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -3013,7 +3065,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{Edge proxy integration}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -3036,7 +3088,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \end{longtable}
 
 \section{OIDC / SSO}
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}p{0.54\linewidth}p{0.10\linewidth}@{}}
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
@@ -3065,7 +3117,7 @@ The client layers CLI arguments over \code{./aperio.yaml}, over the
 environment, over \code{\textasciitilde/.aperio.yaml}. Only three
 settings are required: the token, the server URL, and the target.
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.17\linewidth}p{0.15\linewidth}p{0.36\linewidth}@{}}
+\begin{longtable}{@{}R{0.21}R{0.18}R{0.15}R{0.36}@{}}
 \toprule
 \textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
 \midrule
@@ -3088,9 +3140,9 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. Files stream from disk, so memory does not scale with file size, and single-range \code{Range} requests are answered \code{206} with \code{Accept-Ranges}/\code{Content-Range} (\code{416} past the end), which is what video scrubbing and resumable downloads need. \\
 \rowsep
-\code{APERIO\_SERVE\_SPA} &  &  & \code{1} = a navigation (\code{Accept: text/html}) that resolves to no file falls back to the root \code{index.html} with status \code{200}, the single-page-app deployment. A missing hashed asset still \code{404}s. \\
+\code{APERIO\_SERVE\_SPA} &  & \code{serve\_spa} & \code{1} = a navigation (\code{Accept: text/html}) that resolves to no file falls back to the root \code{index.html} with status \code{200}, the single-page-app deployment. A missing hashed asset still \code{404}s. \\
 \rowsep
-\code{APERIO\_SERVE\_404} &  &  & Path to an HTML file served (status \code{404}) for misses the SPA fallback does not cover. \\
+\code{APERIO\_SERVE\_404} &  & \code{serve\_404} & Path to an HTML file served (status \code{404}) for misses the SPA fallback does not cover. \\
 \rowsep
 \code{APERIO\_TCP\_TARGET} &  & \code{tcp\_target} & Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's \code{/aperio/tcp} endpoint. \\
 \rowsep
@@ -3240,7 +3292,7 @@ including the per-resource ones this table folds into their group. The
 generated OpenAPI document at \code{GET /aperio/api/openapi.json} is the
 complete list, it is authoritative, and it always matches the running build.
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.36\linewidth}p{0.44\linewidth}p{0.16\linewidth}@{}}
+\begin{longtable}{@{}R{0.34}R{0.42}R{0.18}@{}}
 \toprule
 \textbf{Endpoint} & \textbf{Purpose} & \textbf{Auth} \\
 \midrule
@@ -3334,7 +3386,7 @@ whole when the connection negotiated compression, so a compressible
 protocol tunnelled over TCP with \code{tunnel\_compression} on now
 sends more bytes for less CPU than it did before v7.
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}p{0.12\linewidth}p{0.56\linewidth}@{}}
+\begin{longtable}{@{}R{0.24}R{0.12}R{0.58}@{}}
 \toprule
 \textbf{Message} & \textbf{From} & \textbf{Purpose} \\
 \midrule
