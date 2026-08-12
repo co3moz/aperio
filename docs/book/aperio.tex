@@ -2624,6 +2624,42 @@ requests, maintenance toggles and token lifecycle events arrive as
 messages, so a client can react to infrastructure without standing up
 an HTTP receiver for it.
 
+\subsection{Who receives them}
+
+Not everyone, and not across an organisation. The two questions this
+raises are worth answering separately, because they have different
+answers.
+
+\textbf{Asking for them is a token permission}, the same one as for any
+other topic: a subscription to \code{\$aperio/client/\#} is admitted only
+when the token's own \code{topics} list covers it, and a token with no
+\code{topics} cannot subscribe to anything at all. There is no separate
+"may read infrastructure events" flag. \textbf{With one consequence worth
+knowing:} a token granted \code{\#}, the "all topics" grant, covers the
+reserved namespace as well, so a token written that way carries the
+server's events whether or not that was the intention. A token that
+should signal on its own subtree should say so (\code{deploy/\#}) rather
+than being handed \code{\#}, which is the same advice as for any other
+permission, and here it is the difference between a tenant that can talk
+to its own fleet and one that is told when every token in its
+organisation is created.
+
+\textbf{Receiving them does not cross an organisation.} The fan-out is
+fenced on the subscriber's organisation against the organisation the
+event belongs to, exactly as an ordinary message is, and the master
+organisation is not a superset: a client of \code{acme} is told about
+\code{acme}'s clients connecting, its tokens, its maintenance windows and
+its hostnames, and never about another tenant's. Events that belong to
+the server rather than to any one tenant, an alert firing, a setting
+changed, a backup written, have no organisation and reach the un-fenced
+clients only.
+
+Within an organisation the payloads are the webhook payloads, so a
+subscriber sees its org-mates' client ids, source addresses and
+hostnames. That is the point of the feature, and it is also the reason
+the \code{topics} grant is the thing to be deliberate about: it is what
+decides who inside the organisation gets that view.
+
 \chapter{Performance and capacity}
 \label{ch:performance}
 
