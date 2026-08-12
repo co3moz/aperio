@@ -1094,6 +1094,7 @@ fallbacks:
 \end{codecard}
 
 \subsection{Alert rules}
+\label{sec:alert-rules}
 
 Two threshold rules are built in (error rate, client down). Anything else is
 written as a rule over a quantity the server already measures:
@@ -1102,16 +1103,66 @@ written as a rule over a quantity the server already measures:
 alert_rules:
   - name: disk-filling
     metric: store_bytes
-    above: 536870912
-    for: 300
+    above: 536870912          # 512 MB
+    for: 300                  # ... and has been for five minutes
+  - name: no-clients
+    metric: connected_clients
+    below: 1
+    for: 60
 \end{codecard}
 
-The metrics are \code{connected\_clients}, \code{pending\_requests},
-\code{store\_bytes} and \code{rss\_bytes} (Linux only, and reported at
-startup as unfirable elsewhere). \code{for} applies to firing \emph{and} to
-resolving, so a value resting on its threshold cannot alert every tick. Rules
-emit the same \code{alert\_triggered} / \code{alert\_resolved} events with
-\code{kind} set to the rule's name.
+Four quantities can be watched. Each is something the alert loop already
+reads on its own 15-second tick, so a rule costs no new measurement and no
+new background task:
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.26\linewidth}>{\raggedright\arraybackslash}p{0.42\linewidth}>{\raggedright\arraybackslash}p{0.24\linewidth}@{}}
+\toprule
+\textbf{\code{metric:}} & \textbf{What it reads} & \textbf{Unit, and what it catches} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{\code{metric:}} & \textbf{What it reads} & \textbf{Unit, and what it catches} \\
+\midrule
+\endhead
+\code{connected\_clients} \newline (alias \code{clients}) & Tunnel clients currently connected. & count. A fleet that walked off, with \code{below:}. \\
+\rowsep
+\code{pending\_requests} \newline (alias \code{pending}) & Proxied requests in flight right now. & count. A backend that stopped draining, before it becomes a timeout. \\
+\rowsep
+\code{store\_bytes} \newline (alias \code{disk\_bytes}) & On-disk size of \code{aperio.db} and its WAL/SHM sidecars. & bytes. The disk filling. Pairs with \code{APERIO\_DB\_MAX\_BYTES}. \\
+\rowsep
+\code{rss\_bytes} \newline (alias \code{memory\_bytes}) & Resident memory of the server process. \textbf{Linux only.} & bytes. Memory climbing across a week. Elsewhere the rule is reported unfirable at startup rather than sitting quiet. \\
+\rowsep
+\bottomrule
+\end{longtable}
+
+A rule is four keys, and it is deliberately not an expression language:
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}p{0.76\linewidth}@{}}
+\toprule
+\textbf{Key} & \textbf{Meaning} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Key} & \textbf{Meaning} \\
+\midrule
+\endhead
+\code{name} & Required, and unique across the list. It becomes the event's \code{kind}, which is what a webhook receiver switches on. \\
+\rowsep
+\code{metric} & Required. One of the four above, by either spelling. \\
+\rowsep
+\code{above} / \code{below} & Exactly one of the two, and it is the bound. \code{above: 100} fires strictly above 100. \\
+\rowsep
+\code{for} & Seconds the condition must hold. Applies to firing \emph{and} to resolving, so a value resting on its threshold cannot alert every tick. Omitted means the next tick. \\
+\rowsep
+\bottomrule
+\end{longtable}
+
+Rules emit the same \code{alert\_triggered} / \code{alert\_resolved} events
+as the built-in pair, with \code{kind} set to the rule's name, so they reach
+the webhooks and the audit log already configured for those. A malformed
+\code{alert\_rules:} section refuses startup and names the offending rule:
+a rule an operator believes is armed, silently dropped, is worse than no
+rule at all.
 
 \subsection{Route rate limits}
 
