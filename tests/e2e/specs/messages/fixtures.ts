@@ -69,6 +69,34 @@ export class ScopedClient extends MessageClient {
   }
 }
 
+/**
+ * A token carrying `#`, the "all topics" grant, asking for the server's own
+ * namespace on top of an ordinary topic. The wildcard is not supposed to reach
+ * it: the infrastructure feed is granted by name or not at all.
+ */
+export class WildcardTokenClient extends MessageClient {
+  _token = ''
+  _autoStart() {
+    return false
+  }
+  _serverToken() {
+    return this._token
+  }
+  _hostname() {
+    return 'msgwild.e2e.local'
+  }
+  _readyPath() {
+    return '/hello'
+  }
+  _env() {
+    return {
+      APERIO_HOSTNAME: 'msgwild.e2e.local',
+      APERIO_SUBSCRIBE: 'deploy/#,$aperio/#',
+      APERIO_MESSAGES_LISTEN: `127.0.0.1:${this._facePort}`,
+    }
+  }
+}
+
 class MqttFaceClient extends MessageClient {
   _autoStart() {
     return false

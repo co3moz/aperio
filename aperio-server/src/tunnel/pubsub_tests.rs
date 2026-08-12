@@ -410,6 +410,37 @@ fn a_token_may_only_use_the_topics_it_carries() {
 }
 
 #[test]
+fn a_wildcard_grant_does_not_reach_the_reserved_namespace() {
+  // The delivery half already refuses to let a leading wildcard match a
+  // `$aperio/` topic. The grant half has to agree, or "all topics", which is
+  // what an operator writes meaning "our own messages", also hands over every
+  // client connecting, every token minted and every maintenance window.
+  let everything = scoped(&["#"]);
+  assert!(may_use_topic(&everything, "deploy/web"));
+  assert!(!may_use_topic(&everything, "$aperio/#"));
+  assert!(!may_use_topic(&everything, "$aperio/client/connected"));
+  // A leading `+` is the other way in: it would otherwise stand for the
+  // `$aperio` level itself.
+  let one_level = scoped(&["+/client/connected"]);
+  assert!(may_use_topic(&one_level, "acme/client/connected"));
+  assert!(!may_use_topic(&one_level, "$aperio/client/connected"));
+
+  // Granted by name, it works, and only as far as it was named.
+  let events = scoped(&["$aperio/#"]);
+  assert!(may_use_topic(&events, "$aperio/client/#"));
+  assert!(may_use_topic(&events, "$aperio/maintenance/on"));
+  let clients_only = scoped(&["$aperio/client/#"]);
+  assert!(may_use_topic(&clients_only, "$aperio/client/connected"));
+  assert!(!may_use_topic(&clients_only, "$aperio/token/created"));
+  // ... and a grant into the namespace is not a grant outside it.
+  assert!(!may_use_topic(&events, "deploy/web"));
+
+  // Master is unrestricted here as everywhere else: these events are its own,
+  // and the dashboard is the reason the namespace exists.
+  assert!(may_use_topic(&ClientPerms::master(), "$aperio/#"));
+}
+
+#[test]
 fn a_granted_wildcard_covers_what_it_should_and_no_more() {
   let one_level = scoped(&["deploy/+/eu"]);
   assert!(may_use_topic(&one_level, "deploy/web/eu"));

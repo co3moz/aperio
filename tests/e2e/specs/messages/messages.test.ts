@@ -13,6 +13,7 @@ import {
   MessageBackend,
   SubscriberClient,
   ScopedClient,
+  WildcardTokenClient,
   MqttClientA,
   MqttClientB,
   RunnerClient,
@@ -164,6 +165,68 @@ export class ScopedTopicSpec extends Test({
 
   async after() {
     this._sse?.close()
+  }
+}
+
+/**
+ * The reserved namespace is granted by name or not at all: a wildcard token
+ * that would otherwise be told every client connecting, every token minted and
+ * every hostname put into maintenance.
+ */
+export class WildcardGrantSpec extends Test({
+  timeout: 120_000,
+  after: () => [PublishDeliverySpec],
+  dependencies: {
+    server: () => MessageServer,
+    backend: () => MessageBackend,
+    wild: () => WildcardTokenClient,
+  },
+}) {
+  _events!: SseStream
+  _ordinary!: SseStream
+
+  async before() {
+    const minted = await this.server._mintToken({
+      name: 'e2e-wildcard',
+      hostnames: ['*'],
+      paths: ['*'],
+      topics: ['#'],
+    })
+    this.wild._token = minted.token
+    await this.wild._start()
+    await waitFor(async () => (await send(this.wild._faceUrl(), '/')).status < 500, {
+      label: "the wildcard client's face",
+    })
+    this._events = await SseStream.open(this.wild._faceUrl(), '$aperio/#')
+    this._ordinary = await SseStream.open(this.wild._faceUrl(), 'deploy/#')
+    await sleep(500)
+  }
+
+  async theWildcardIsRefusedTheReservedNamespaceByName() {
+    // Not silent: a token that believes it holds everything has to be told
+    // which filter it did not get, or the events simply never arrive.
+    await this.wild._waitForLog("Not subscribed to '$aperio/#'")
+  }
+
+  async andReceivesNoServerEventsWhileTheOrdinaryTopicStillWorks() {
+    await this.server._mintToken({ name: 'e2e-wildcard-witness' })
+    await this.server._api('/aperio/api/publish', {
+      method: 'POST',
+      body: JSON.stringify({ topic: 'deploy/wild', payload: 'yes' }),
+    })
+    // The ordinary topic arriving is what makes the absence below evidence:
+    // the subscription set is live, it simply does not carry the namespace.
+    await waitFor(() => this._ordinary.count('deploy/wild') > 0, { label: 'the granted topic' })
+    assert.equal(
+      this._events.count('$aperio/token/created'),
+      0,
+      'a wildcard grant reached the reserved namespace',
+    )
+  }
+
+  async after() {
+    this._events?.close()
+    this._ordinary?.close()
   }
 }
 

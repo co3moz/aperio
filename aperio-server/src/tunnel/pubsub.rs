@@ -153,6 +153,16 @@ pub(crate) fn may_use_topic(perms: &ClientPerms, filter: &str) -> bool {
 /// itself. Anything the asked filter could reach beyond the granted one makes
 /// it a widening, which is refused.
 fn covers(granted: &str, asked: &str) -> bool {
+  // The reserved namespace has to be granted by name, the same way
+  // `topic_matches` refuses to let a leading wildcard sweep it up at delivery.
+  // Without this the two halves disagree: `#` would not *match* a `$aperio/`
+  // topic, but it would *cover* a `$aperio/#` subscription, so "all topics",
+  // which is what someone writes meaning "our own messages", quietly also
+  // authorized the infrastructure feed, every client connecting, every token
+  // minted, every hostname put into maintenance.
+  if asked.starts_with('$') && !granted.starts_with('$') {
+    return false;
+  }
   let mut g = granted.split('/');
   let mut a = asked.split('/');
   loop {
@@ -192,10 +202,17 @@ pub(crate) async fn set_subscriptions(
       continue;
     }
     if !may_use_topic(&handle.perms, &topic) {
-      refused.push((
-        topic,
-        "the token does not carry this topic; add it to the token's topics".to_string(),
-      ));
+      // The reserved namespace gets its own sentence: a token holding `#` is
+      // told it has everything, so "the token does not carry this topic" reads
+      // as a bug rather than as the one grant that has to be written out.
+      let why = if topic.starts_with(RESERVED_TOPIC_PREFIX) {
+        format!(
+          "`{RESERVED_TOPIC_PREFIX}` is the server's own event namespace and is not covered by a wildcard grant; add `{RESERVED_TOPIC_PREFIX}#` (or a narrower filter under it) to the token's topics"
+        )
+      } else {
+        "the token does not carry this topic; add it to the token's topics".to_string()
+      };
+      refused.push((topic, why));
       continue;
     }
     if handle.subscriptions.contains(&topic) {

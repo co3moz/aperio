@@ -27,7 +27,9 @@ subscribe:
     max_concurrent: 1     # runs at once; the rest are dropped, not queued
 
   # The server's own events, on the reserved namespace. A bare `#` above does
-  # not match these, so they have to be asked for by name.
+  # not match these, so they have to be asked for by name here, and the token
+  # has to carry `$aperio/client/#` in its `topics`: a wildcard grant does not
+  # reach the namespace either.
   - $aperio/client/#
 
 # Where an application on this machine attaches. Both may run at once and

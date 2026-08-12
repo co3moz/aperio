@@ -2634,15 +2634,14 @@ answers.
 other topic: a subscription to \code{\$aperio/client/\#} is admitted only
 when the token's own \code{topics} list covers it, and a token with no
 \code{topics} cannot subscribe to anything at all. There is no separate
-"may read infrastructure events" flag. \textbf{With one consequence worth
-knowing:} a token granted \code{\#}, the "all topics" grant, covers the
-reserved namespace as well, so a token written that way carries the
-server's events whether or not that was the intention. A token that
-should signal on its own subtree should say so (\code{deploy/\#}) rather
-than being handed \code{\#}, which is the same advice as for any other
-permission, and here it is the difference between a tenant that can talk
-to its own fleet and one that is told when every token in its
-organisation is created.
+"may read infrastructure events" flag, and there is no wildcard that
+reaches the namespace either: \code{\#}, the "all topics" grant, does not
+cover \code{\$aperio/\#}, exactly as it does not match a \code{\$aperio/}
+topic at delivery. It has to be written into the token on purpose,
+\code{topics: [\#, \$aperio/client/\#]} being a token that may talk on
+any topic of its own \emph{and} watch clients connect. A subscription
+refused for this reason says so by name, rather than looking like a
+message that never arrived.
 
 \textbf{Receiving them does not cross an organisation.} The fan-out is
 fenced on the subscriber's organisation against the organisation the

@@ -160,7 +160,9 @@ subscribe:
   - $aperio/client/#
 ```
 
-Two rules keep the namespace meaningful. A client cannot publish into it, so a `$aperio/` message always came from the server. And a bare `#` does **not** match it, so subscribing to everything while debugging does not enroll you in infrastructure events you never asked to parse; ask for them by name.
+Three rules keep the namespace meaningful. A client cannot publish into it, so a `$aperio/` message always came from the server. A bare `#` does **not** match it, so subscribing to everything while debugging does not enroll you in infrastructure events you never asked to parse. And a wildcard grant does not **cover** it either: a token holding `#` is refused a `$aperio/` subscription and told why, so the namespace has to be written into the token's `topics` on purpose. Ask for it by name in both places.
+
+Delivery is fenced on the organization exactly as an ordinary message is, and the master organization is not a superset of its children: a client of `acme` hears about `acme`'s clients, tokens, hostnames and maintenance windows, and never about another tenant's. Events that belong to the server rather than to any one tenant (`alert_triggered`, `settings_updated`, `db_backup`, `disk_pruned`) carry no organization and reach the un-fenced clients only. Inside an organization the payloads are the webhook payloads, so a subscriber sees its org-mates' client ids, source addresses and hostnames, which is what makes the `topics` grant the thing to be deliberate about.
 
 ## Who may use which topics
 
@@ -170,7 +172,7 @@ Messaging is a token capability, off unless the token carries it. A dynamic toke
 aperio-client api POST /tokens -d '{"name":"deploy-runner","topics":["deploy/#"]}'
 ```
 
-The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#`, otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything".
+The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#`, otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything". Neither `#` nor `*` reaches `$aperio/`, which is granted only by a filter that names it (`["#", "$aperio/client/#"]` is a token that may talk on any topic of its own *and* watch clients connect).
 
 The master token is unrestricted, like everywhere else. An ephemeral tunnel token carries no topics: it is a guest of the organization for one hostname and has no business signalling the rest of it.
 
