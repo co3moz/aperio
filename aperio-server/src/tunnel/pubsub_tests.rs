@@ -7,6 +7,12 @@ use axum::extract::ws::Message;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
+/// The key a pending queue is filed under: the organization the message was
+/// published in, and the process it went to.
+fn held(org: Option<&str>, process: &str) -> PendingKey {
+  (org.map(str::to_string), process.to_string())
+}
+
 /// Registers a subscriber and hands back the channel it will receive on.
 ///
 /// `process` is the instance group: two connections sharing one is one client
@@ -510,7 +516,10 @@ async fn a_qos_one_message_is_resent_until_it_is_acknowledged() {
   // Age it past the retry timeout by hand rather than sleeping for it.
   {
     let mut pending = state.pending_messages.lock().await;
-    for message in pending.get_mut("p").expect("held for the process") {
+    for message in pending
+      .get_mut(&held(None, "p"))
+      .expect("held for the process")
+    {
       message.last_sent -= ACK_TIMEOUT;
     }
   }
@@ -533,15 +542,78 @@ async fn a_qos_one_message_is_resent_until_it_is_acknowledged() {
   // The acknowledgement stops it.
   acknowledge(&state, "c", &id).await;
   assert!(
-    !state.pending_messages.lock().await.contains_key("p"),
+    !state
+      .pending_messages
+      .lock()
+      .await
+      .contains_key(&held(None, "p")),
     "nothing is held once it is acknowledged"
   );
   {
     let mut pending = state.pending_messages.lock().await;
-    pending.remove("p");
+    pending.remove(&held(None, "p"));
   }
   assert_eq!(sweep_pending(&state).await, (0, 0));
   assert!(drain(&mut sub).is_empty());
+}
+
+#[tokio::test]
+async fn a_resend_does_not_cross_an_organization_that_shares_an_instance_id() {
+  // The process half of a pending key is the `x-aperio-instance` header, which
+  // the client writes and nothing validates. Two tenants announcing the same
+  // instance id must still be two queues, and the resend has to pick its
+  // target by organization as well: a redelivery writes the already-serialized
+  // frame straight to the socket, so a wrong target does not even need a
+  // matching subscription to be handed another tenant's message.
+  let state = Arc::new(test_state());
+  let mut acme = subscriber(&state, "c-acme", Some("p"), Some("acme"), &["deploy/#"]).await;
+  let mut globex = subscriber(&state, "c-globex", Some("p"), Some("globex"), &["deploy/#"]).await;
+
+  publish(
+    &state,
+    Some("acme"),
+    "deploy/web",
+    b"go",
+    Publisher::Server,
+    1,
+  )
+  .await
+  .unwrap();
+  let first = drain(&mut acme);
+  assert_eq!(first.len(), 1);
+  assert!(drain(&mut globex).is_empty(), "the initial fan-out already");
+  let id = first[0].1.clone().expect("a qos 1 delivery is identified");
+
+  // The other tenant's acknowledgement is not this tenant's.
+  acknowledge(&state, "c-globex", &id).await;
+  assert!(
+    state
+      .pending_messages
+      .lock()
+      .await
+      .contains_key(&held(Some("acme"), "p")),
+    "an acknowledgement from another organization cleared the queue"
+  );
+
+  {
+    let mut pending = state.pending_messages.lock().await;
+    for message in pending.get_mut(&held(Some("acme"), "p")).unwrap() {
+      message.last_sent -= ACK_TIMEOUT;
+    }
+  }
+  assert_eq!(sweep_pending(&state).await, (1, 0));
+  assert_eq!(
+    drain(&mut acme).len(),
+    1,
+    "the resend went to its own tenant"
+  );
+  assert!(
+    drain(&mut globex).is_empty(),
+    "another organization received a resend"
+  );
+
+  acknowledge(&state, "c-acme", &id).await;
+  assert!(state.pending_messages.lock().await.is_empty());
 }
 
 #[tokio::test]
@@ -569,7 +641,7 @@ async fn an_unacknowledged_message_is_given_up_on_rather_than_kept() {
 
   {
     let mut pending = state.pending_messages.lock().await;
-    for message in pending.get_mut("p").unwrap() {
+    for message in pending.get_mut(&held(None, "p")).unwrap() {
       message.first_sent -= MAX_ACK_WAIT;
       message.last_sent -= MAX_ACK_WAIT;
     }
@@ -605,7 +677,7 @@ async fn a_client_that_stops_acknowledging_costs_a_bounded_amount() {
     .await
     .unwrap();
   }
-  let held = state.pending_messages.lock().await["p"].len();
+  let held = state.pending_messages.lock().await[&held(None, "p")].len();
   assert_eq!(held, MAX_PENDING_PER_PROCESS, "capped, not unbounded");
 }
 
@@ -630,7 +702,11 @@ async fn an_acknowledgement_counts_from_any_connection_of_the_process() {
 
   acknowledge(&state, "conn-2", &id).await;
   assert!(
-    !state.pending_messages.lock().await.contains_key("shared"),
+    !state
+      .pending_messages
+      .lock()
+      .await
+      .contains_key(&held(None, "shared")),
     "an acknowledgement on a sibling connection counts"
   );
 }

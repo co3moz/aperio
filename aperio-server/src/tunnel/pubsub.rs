@@ -58,6 +58,17 @@ pub(crate) const MAX_PENDING_PER_PROCESS: usize = 256;
 /// same thing rather than reporting success for a message about to be dropped.
 pub(crate) const MAX_PAYLOAD_BYTES: usize = aperio_config::MAX_MESSAGE_BYTES;
 
+/// Who a queue of un-acknowledged messages belongs to: the organization the
+/// message was published in, and the client process it was handed to.
+///
+/// The organization is half of the key rather than an afterthought because
+/// the other half is not ours. A process identifies itself with the
+/// `x-aperio-instance` header, which the client writes and nothing validates,
+/// so on the process alone two tenants can name the same queue. The
+/// organization is taken from the token instead, which is why pairing them
+/// makes the key sound.
+pub(crate) type PendingKey = (Option<String>, String);
+
 /// Where a published message came from, for the audit line and for the
 /// reserved-namespace rule.
 pub(crate) enum Publisher<'a> {
@@ -346,7 +357,9 @@ pub(crate) async fn publish(
     let now = Instant::now();
     let mut pending = state.pending_messages.lock().await;
     for process in delivered_to {
-      let queue = pending.entry(process).or_default();
+      let queue = pending
+        .entry((org.map(str::to_string), process))
+        .or_default();
       if queue.len() >= MAX_PENDING_PER_PROCESS {
         let dropped = queue.remove(0);
         tracing::warn!(
@@ -380,23 +393,28 @@ pub(crate) async fn publish(
 ///
 /// Keyed on the process, not the connection: the acknowledgement may come
 /// back on a different one of that process's connections than the delivery
-/// went out on, and it is the same subscriber either way.
+/// went out on, and it is the same subscriber either way. The organization
+/// comes from the acknowledging connection's own token, so an acknowledgement
+/// can only ever clear its own tenant's queue.
 pub(crate) async fn acknowledge(state: &AppState, connection_id: &str, id: &str) {
-  let process = {
+  let key: PendingKey = {
     let clients = state.clients.read().await;
     let Some(handle) = clients.get(connection_id) else {
       return;
     };
-    handle
-      .instance_group
-      .clone()
-      .unwrap_or_else(|| connection_id.to_string())
+    (
+      handle.perms.org_id.clone(),
+      handle
+        .instance_group
+        .clone()
+        .unwrap_or_else(|| connection_id.to_string()),
+    )
   };
   let mut pending = state.pending_messages.lock().await;
-  if let Some(queue) = pending.get_mut(&process) {
+  if let Some(queue) = pending.get_mut(&key) {
     queue.retain(|p| p.id != id);
     if queue.is_empty() {
-      pending.remove(&process);
+      pending.remove(&key);
     }
   }
 }
@@ -411,10 +429,10 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
   // Which processes have work due, decided under the pending lock alone. The
   // client map is locked afterwards, never both at once: two locks taken in
   // different orders in different places is how a deadlock gets written.
-  let due: Vec<(String, Vec<(String, String)>)> = {
+  let due: Vec<(PendingKey, Vec<(String, String)>)> = {
     let mut pending = state.pending_messages.lock().await;
     let mut out = Vec::new();
-    for (process, queue) in pending.iter_mut() {
+    for (key, queue) in pending.iter_mut() {
       let mut resend = Vec::new();
       for message in queue.iter_mut() {
         if now.duration_since(message.last_sent) < ACK_TIMEOUT {
@@ -425,26 +443,40 @@ pub(crate) async fn sweep_pending(state: &AppState) -> (usize, usize) {
         resend.push((message.id.clone(), message.frame.clone()));
       }
       if !resend.is_empty() {
-        out.push((process.clone(), resend));
+        out.push((key.clone(), resend));
       }
     }
     out
   };
 
   let mut resent = 0usize;
-  for (process, messages) in due {
-    // Any live connection of that process will do; they all reach it.
+  for ((org, process), messages) in due {
+    // Any live connection of that process, *in that organization*, will do;
+    // they all reach it. The organization is checked here and not only where
+    // the queue was filled, because the process half of the key is the
+    // client-chosen instance header: without this, a connection announcing
+    // another tenant's instance id would be handed that tenant's redeliveries,
+    // and it would not even need a matching subscription, since a resend
+    // writes the already-serialized frame straight to the socket.
     let target = {
       let clients = state.clients.read().await;
+      let in_org = |h: &&crate::state::ClientHandle| h.perms.org_id.as_deref() == org.as_deref();
       clients
         .values()
         .find(|h| {
-          h.instance_group
-            .as_deref()
-            .is_some_and(|group| group == process)
+          in_org(h)
+            && h
+              .instance_group
+              .as_deref()
+              .is_some_and(|group| group == process)
         })
         .map(|h| h.tx.clone())
-        .or_else(|| clients.get(&process).map(|h| h.tx.clone()))
+        .or_else(|| {
+          clients
+            .get(&process)
+            .filter(|h| in_org(h))
+            .map(|h| h.tx.clone())
+        })
     };
     let Some(tx) = target else {
       continue;

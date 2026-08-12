@@ -2226,10 +2226,17 @@ pub(crate) struct AppState {
   /// inline, so nothing is ever lost, only contended for the old way.
   pub(crate) telemetry_tx: tokio::sync::mpsc::Sender<TelemetryEvent>,
   /// QoS 1 messages handed to a client process and not yet acknowledged,
-  /// keyed by that process. Bounded in count and in age: it covers a
-  /// connection that died between the write and the acknowledgement, not a
-  /// subscriber that is away.
-  pub(crate) pending_messages: Mutex<HashMap<String, Vec<crate::tunnel::pubsub::Pending>>>,
+  /// keyed by that process *and its organization*. Bounded in count and in
+  /// age: it covers a connection that died between the write and the
+  /// acknowledgement, not a subscriber that is away.
+  ///
+  /// The organization is part of the key because the process half of it is
+  /// the `x-aperio-instance` header, which the client chooses. Keyed on the
+  /// process alone, two tenants announcing the same instance id would share
+  /// one queue, and a redelivery would go to whichever of them the client map
+  /// happened to yield first.
+  pub(crate) pending_messages:
+    Mutex<HashMap<crate::tunnel::pubsub::PendingKey, Vec<crate::tunnel::pubsub::Pending>>>,
   /// Counters for the messaging path, rendered by the metrics endpoint.
   pub(crate) message_metrics: crate::tunnel::pubsub::MessageMetrics,
   pub(crate) client_connected: watch::Sender<bool>,
