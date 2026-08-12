@@ -432,7 +432,7 @@ async fn token_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: 
 /// Edits an existing token's scope (name, hostnames, paths, allowed IPs,
 /// expiry) without changing the secret. Live connections are unaffected.
 #[utoipa::path(put, path = "/aperio/api/tokens/{id}", tag = "tokens",
-  description = "Edits a token's scope/limits/expiry in place without changing the secret.",
+  description = "Edits a token's scope/limits/expiry in place without changing the secret. A narrowed `topics` applies to the clients already connected under the token: every live subscription the new list no longer covers is withdrawn at once and reported to that client.",
   params(("id" = String, Path, description = "Token record id")),
   request_body = TokenUpdateRequest,
   responses((status = 200, description = "Updated record", body = serde_json::Value), (status = 404, description = "Unknown token id")))]
@@ -520,6 +520,19 @@ pub(crate) async fn tokens_update_handler(
 
   match updated {
     Some(record) => {
+      // A narrowed `topics` has to reach the connections already holding
+      // subscriptions under the old grant, or it only takes effect whenever
+      // each client next reconnects. Runs on any edit that names `topics`,
+      // including a widening, so the cached copy never drifts from the store.
+      if payload.topics.is_some() {
+        let withdrawn = state.apply_token_topics(&record.id, &record.topics).await;
+        if withdrawn > 0 {
+          info!(
+            "Token {} lost {} live subscription(s) to its narrowed topics",
+            record.id, withdrawn
+          );
+        }
+      }
       info!(
         "Dynamic token updated: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
         record.name,

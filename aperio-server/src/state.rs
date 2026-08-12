@@ -2826,6 +2826,69 @@ impl AppState {
     }
     dropped
   }
+
+  /// Applies a changed `topics` grant to that token's live tunnel
+  /// connections: each one's cached copy is refreshed, and every subscription
+  /// the new grant no longer covers is withdrawn and reported to the client.
+  /// Returns how many subscriptions were withdrawn.
+  ///
+  /// A subscription is the one messaging capability the server goes on
+  /// holding *for* a client between requests. A bind is checked when it is
+  /// declared and a publish when it is made, so narrowing either is felt at
+  /// the next attempt; a subscription, once admitted, keeps delivering on its
+  /// own. `ClientPerms` is a snapshot taken at connect, so without this,
+  /// taking a topic away only took effect the next time the client happened
+  /// to reconnect, and messages an operator had just revoked kept arriving
+  /// for as long as the process stayed up, which for a tunnel client is
+  /// measured in weeks.
+  ///
+  /// The connection is not dropped, unlike a revoked token or a hostname that
+  /// left its organization's fence. Nothing about it is wrong: it is serving
+  /// its routes under a grant that is still valid, and only one thing
+  /// changed. That one thing is reported as a `SubscribeRefused`, the frame
+  /// the client already logs by name for a filter it never got, so an
+  /// operator reading the client's output sees the withdrawal rather than
+  /// wondering why a topic went quiet.
+  pub(crate) async fn apply_token_topics(&self, token_id: &str, topics: &[String]) -> usize {
+    type Withdrawal = (mpsc::Sender<axum::extract::ws::Message>, Vec<String>);
+    let withdrawn: Vec<Withdrawal> = {
+      let mut clients = self.clients.write().await;
+      let mut out = Vec::new();
+      for handle in clients.values_mut() {
+        if handle.perms.token_id.as_deref() != Some(token_id) {
+          continue;
+        }
+        handle.perms.topics = topics.to_vec();
+        let held = std::mem::take(&mut handle.subscriptions);
+        let (kept, gone): (Vec<String>, Vec<String>) = held
+          .into_iter()
+          .partition(|filter| crate::tunnel::pubsub::may_use_topic(&handle.perms, filter));
+        handle.subscriptions = kept;
+        if !gone.is_empty() {
+          out.push((handle.tx.clone(), gone));
+        }
+      }
+      out
+    };
+
+    // Told outside the lock, as every other fan-out here is: the client map is
+    // on the path of every request, and a write lock is not the place to be
+    // walking channels.
+    let mut count = 0usize;
+    for (tx, filters) in withdrawn {
+      for filter in filters {
+        count += 1;
+        let frame = crate::protocol::TunnelMessage::SubscribeRefused {
+          topic: filter,
+          reason: "the token's topics no longer cover this filter".to_string(),
+        };
+        if let Ok(text) = serde_json::to_string(&frame) {
+          let _ = tx.try_send(axum::extract::ws::Message::Text(text.into()));
+        }
+      }
+    }
+    count
+  }
 }
 
 impl AppState {

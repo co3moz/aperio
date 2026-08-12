@@ -119,6 +119,7 @@ export class ScopedTopicSpec extends Test({
   },
 }) {
   _sse!: SseStream
+  _tokenId = ''
 
   async before() {
     const minted = await this.server._mintToken({
@@ -128,6 +129,7 @@ export class ScopedTopicSpec extends Test({
       topics: ['deploy/#'],
     })
     this.scoped._token = minted.token
+    this._tokenId = minted.id
     await this.scoped._start()
     await waitFor(async () => (await send(this.scoped._faceUrl(), '/')).status < 500, {
       label: "the scoped client's face",
@@ -161,6 +163,31 @@ export class ScopedTopicSpec extends Test({
       body: 'no',
     })
     await this.scoped._waitForLog("published on 'secrets/rotate' went nowhere")
+  }
+
+  /** Last, because it takes the client's only topic away from it. */
+  async narrowingTheTokenWithdrawsTheLiveSubscription() {
+    // The permissions a connection holds are a snapshot taken at connect. An
+    // edit that only applies at the next reconnect is an edit that has not
+    // happened: a tunnel client can stay up for weeks.
+    await this.server._api(`/aperio/api/tokens/${this._tokenId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ topics: ['metrics/#'] }),
+    })
+    await this.scoped._waitForLog("Not subscribed to 'deploy/#'")
+
+    const before = this._sse.count('deploy/withdrawn')
+    await this.server._api('/aperio/api/publish', {
+      method: 'POST',
+      body: JSON.stringify({ topic: 'deploy/withdrawn', payload: 'no' }),
+    })
+    await sleep(1_000)
+    assert.equal(
+      this._sse.count('deploy/withdrawn'),
+      before,
+      'a topic taken away from the token still arrived',
+    )
   }
 
   async after() {

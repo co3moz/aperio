@@ -2558,6 +2558,18 @@ that never arrived. The master token is unrestricted, and an ephemeral
 tunnel token carries no topics at all: it is a guest of the organisation
 for one hostname and has no business signalling the rest of it.
 
+Narrowing the list reaches the clients already connected under it, not
+only their next reconnect. A subscription is the one messaging
+capability the server goes on holding \emph{for} a client between
+requests: a bind is checked when it is declared and a publish when it is
+made, so narrowing either is felt at the next attempt, while a
+subscription, once admitted, keeps delivering on its own. An edit that
+waited for a reconnect would therefore keep delivering a revoked topic
+for as long as the process stayed up, which for a tunnel client is
+measured in weeks. Every subscription the new list no longer covers is
+withdrawn at once and reported to the client by name; the connection
+itself is left alone, since nothing else about it changed.
+
 A message never crosses an organisation, and the master organisation is
 not a superset of its children.
 

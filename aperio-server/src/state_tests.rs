@@ -1669,3 +1669,111 @@ fn a_tie_is_broken_by_age_and_not_by_hash_order() {
     assert_eq!(captured.front().unwrap().id, "s0");
   }
 }
+
+/// A connection holding `filters` under a token, ready to have its grant
+/// changed underneath it.
+async fn subscribed(
+  state: &std::sync::Arc<AppState>,
+  connection_id: &str,
+  token_id: &str,
+  granted: &[&str],
+  filters: &[&str],
+) -> tokio::sync::mpsc::Receiver<axum::extract::ws::Message> {
+  use crate::test_support::mock_client;
+  let (tx, rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(16);
+  let mut handle = mock_client(None, None, None, None);
+  handle.tx = tx;
+  handle.instance_group = Some(connection_id.to_string());
+  handle.perms = ClientPerms {
+    master: false,
+    token_id: Some(token_id.to_string()),
+    topics: granted.iter().map(|s| s.to_string()).collect(),
+    ..ClientPerms::master()
+  };
+  state
+    .clients
+    .write()
+    .await
+    .insert(connection_id.to_string(), handle);
+  let refused = crate::tunnel::pubsub::set_subscriptions(
+    state,
+    connection_id,
+    filters.iter().map(|s| s.to_string()).collect(),
+    true,
+  )
+  .await;
+  assert!(refused.is_empty(), "unexpected refusals: {refused:?}");
+  rx
+}
+
+/// The filters a connection is currently subscribed to.
+async fn subscriptions_of(state: &AppState, connection_id: &str) -> Vec<String> {
+  state.clients.read().await[connection_id]
+    .subscriptions
+    .clone()
+}
+
+#[tokio::test]
+async fn narrowing_a_tokens_topics_withdraws_the_subscriptions_it_no_longer_covers() {
+  // ClientPerms is a snapshot taken at connect. Without this, an edit in the
+  // dashboard only took effect the next time the client happened to
+  // reconnect, and a topic just taken away kept being delivered for as long
+  // as the process stayed up.
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  let mut rx = subscribed(
+    &state,
+    "c",
+    "tok",
+    &["deploy/#", "metrics/#"],
+    &["deploy/web", "metrics/cpu"],
+  )
+  .await;
+
+  let withdrawn = state
+    .apply_token_topics("tok", &["deploy/#".to_string()])
+    .await;
+  assert_eq!(withdrawn, 1);
+  assert_eq!(subscriptions_of(&state, "c").await, vec!["deploy/web"]);
+
+  // Told, not silently dropped: the client already logs this frame by name,
+  // so the withdrawal shows up where someone is looking.
+  let Ok(axum::extract::ws::Message::Text(text)) = rx.try_recv() else {
+    panic!("the client was not told which filter was withdrawn");
+  };
+  let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+  assert_eq!(parsed["type"], "SubscribeRefused");
+  assert_eq!(parsed["topic"], "metrics/cpu");
+  assert!(
+    rx.try_recv().is_err(),
+    "only the withdrawn filter is reported"
+  );
+
+  // The cached grant moved too, so the next Subscribe is judged by the new
+  // list rather than by the one the connection was born with.
+  let refused =
+    crate::tunnel::pubsub::set_subscriptions(&state, "c", vec!["metrics/cpu".to_string()], true)
+      .await;
+  assert_eq!(
+    refused.len(),
+    1,
+    "re-subscribing under the old grant worked"
+  );
+}
+
+#[tokio::test]
+async fn a_widened_grant_keeps_everything_and_leaves_other_tokens_alone() {
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  let mut mine = subscribed(&state, "c", "tok", &["deploy/#"], &["deploy/web"]).await;
+  let mut theirs = subscribed(&state, "other", "tok-2", &["deploy/#"], &["deploy/web"]).await;
+
+  let withdrawn = state
+    .apply_token_topics("tok", &["#".to_string(), "$aperio/client/#".to_string()])
+    .await;
+  assert_eq!(withdrawn, 0, "a widening withdraws nothing");
+  assert_eq!(subscriptions_of(&state, "c").await, vec!["deploy/web"]);
+  assert!(mine.try_recv().is_err());
+
+  // Another token's connection is not touched, however similar it looks.
+  assert_eq!(subscriptions_of(&state, "other").await, vec!["deploy/web"]);
+  assert!(theirs.try_recv().is_err());
+}

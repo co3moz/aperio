@@ -180,6 +180,8 @@ Note the convention differs from `hostnames` and `paths`, where an empty list me
 
 A refused subscription is reported by name in the client's log rather than dropped, so a token missing a topic looks like a missing permission and not like a message that never arrived.
 
+Narrowing `topics` on a token applies to the clients already connected under it, not only to their next reconnect. A subscription is the one messaging capability the server goes on holding *for* a client between requests, so an edit that waited for a reconnect would keep delivering a revoked topic for as long as the process stayed up, which for a tunnel client is measured in weeks. Every subscription the new list no longer covers is withdrawn at once and reported to the client as a refusal by name; the connection itself is left alone, since nothing else about it changed.
+
 ## Delivery
 
 `qos: 0`, the default, sends the message to whoever is connected and forgets it. That is the right choice for most signals: a client that was not there did not miss anything it can still act on.
