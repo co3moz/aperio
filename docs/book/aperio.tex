@@ -800,14 +800,98 @@ A client exposes exactly one of three things per service:
         \code{h2c://} or \code{h2://} for HTTP/2 and gRPC backends, and
         \code{unix:///var/run/app.sock} for a Unix domain socket.
   \item[A directory] \code{serve: ./dist} starts a built-in static file
-        server. Directories serve their \code{index.html};
-        \code{APERIO\_SERVE\_SPA=1} makes navigations fall back to the
-        root index, which is what a client-side router needs. Files are
+        server, so there is no backend process at all. Files are
         streamed rather than read into memory, and \code{Range} requests
         are answered, so a large download or a video behaves properly.
   \item[A raw TCP port] \code{tcp\_target:} and the \code{tunnels:} list,
         covered in Chapter~\ref{ch:emergency}.
 \end{description}
+
+The three read as three different files. What follows is one complete
+\code{aperio.yaml} per case, each the whole file rather than the
+interesting line out of it, since the question this section answers is
+usually "what do I actually write down".
+
+\subsection{An application server}
+
+The common case: something already listening on a port, and a name for it
+to answer on. The health probe is what tells the server to stop sending
+traffic here while the backend is restarting, so it is worth the one line
+even for a single instance.
+
+\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- a web app on port 3000}
+server:
+  url: https://tunnel.example.com
+  token: apr_xxxxxxxxxxxxxxxx
+
+target: http://localhost:3000
+hostname: app.example.com
+target_health: /health        # polled locally; failing means "do not route here"
+connections: 4                # parallel tunnel connections, no head-of-line stalls
+max_concurrent: 32            # what this backend can take at once
+\end{codecard}
+
+A gRPC or HTTP/2 backend is the same file with \code{h2c://localhost:50051}
+as the target, and a backend on a Unix socket is
+\code{unix:///var/run/app.sock}. Neither changes anything else here.
+
+\subsection{A built static site}
+
+No backend process at all: the client is the web server. This is the
+shape a documentation build, a landing page, or a preview of a front-end
+branch wants, and it removes an nginx from the picture.
+
+\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- ./dist, served directly}
+server:
+  url: https://tunnel.example.com
+  token: apr_xxxxxxxxxxxxxxxx
+
+serve: ./dist
+hostname: docs.example.com
+cache: true                   # let the server cache what the headers allow
+security_headers: true        # HSTS, nosniff, frame-options, referrer-policy
+\end{codecard}
+
+Files stream from disk rather than being read into memory, and \code{Range}
+requests are answered, so a video or a large download behaves. A
+single-page app needs one more line, \code{serve\_spa: true}
+(\code{APERIO\_SERVE\_SPA=1}), which makes a navigation that matches no
+file fall back to the root \code{index.html} instead of \code{404}ing,
+the behavior a client-side router depends on. It is process-wide rather
+than per-entry, which is why it is not in the file above.
+
+\subsection{A private port, reachable but not published}
+
+A database or an SSH daemon that should be reachable by a colleague, and
+by nobody on the web. Written as \code{tunnels:} rather than
+\code{target:}, these are never routed from a hostname: there is no URL
+that reaches them, only another client asking for them by name with a
+token permitted to bind them.
+
+\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- next to the private service}
+server:
+  url: https://tunnel.example.com
+  token: apr_xxxxxxxxxxxxxxxx
+
+tunnels:
+  - name: pg_main
+    target: 127.0.0.1:5432
+    encrypt: true
+    psk: a-long-random-string   # end-to-end; never sent to the server
+  - name: ssh_box
+    target: 127.0.0.1:22
+    protocol: tcp
+\end{codecard}
+
+\begin{codecard}[aperiosh]{From the other machine}
+aperio-client --bind-tunnels pg_main \
+  --server-url https://tunnel.example.com \
+  --server-token apr_yyyyyyyyyyyyyyyy
+\end{codecard}
+
+The three combine in one file when a machine hosts more than one of them:
+\code{services:} takes a list of the first two kinds (Section~\ref{sec:several-services}),
+and \code{tunnels:} sits beside it.
 
 \section{Binds: hostname and path}
 
@@ -828,6 +912,7 @@ A bind belongs to the service it binds, which is why it is written on the
 entry rather than beside it.
 
 \section{Several services from one process}
+\label{sec:several-services}
 
 Add an entry per backend and the client opens one tunnel connection per
 entry, each with its own binds, health probe and limits:
