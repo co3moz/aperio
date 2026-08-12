@@ -14,6 +14,10 @@ project follows semantic versioning per release tag.
 
 - **A notification bell in the dashboard, so a client dropping is something you are told rather than something you notice.** Token expiry, a client that connected or disconnected, maintenance left on, an alert that fired: all of these were already events, delivered to webhooks and published on the `$aperio/` topics, and the only way to find out from the dashboard was to spot a changed row in a table. They now also arrive on the dashboard's existing Server-Sent Events stream (`/aperio/api/stream`, `notification` frames) and collect behind a bell in the header, newest first, with an unread count that survives a reload and a coloured dot matching the green/red/amber of the chat-service webhook cards. The events are fenced to the caller's organization by the server, exactly as live traffic is, so a child organization's dashboard never sees master's events or another organization's. The event name is shown untranslated on purpose: it is the identifier a webhook subscribes to and the audit log filters by. Nothing is stored server-side and nothing is kept for a tab that was closed, the record of what happened stays the audit log.
 
+### Fixed
+
+- **The guide told readers to point their editor at `./schemas/`, a directory that only exists after a build.** The Complete Guide's *Editor support* section handed out a `.vscode/settings.json` with relative paths into the repository's own git-ignored build output, which is the right advice for someone hacking on Aperio and useless for everyone else: an operator writing an `aperio.yaml` against an installed binary has no such directory, and the block silently gave them no completion at all. It now points at the stable schema URLs every release publishes (`releases/latest/download/aperio-{client,server}.schema.json`), the same ones [docs/configuration.md](docs/configuration.md) already documented, mentions the per-tag copies for pinning to the version a deployment actually runs, and keeps the build-from-source route as the offline alternative it is.
+
 ## [0.9.0] - 2026-08-05
 
 ### Security

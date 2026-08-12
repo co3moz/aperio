@@ -760,18 +760,33 @@ differs from the client's \code{aperio.yaml} so the two are never confused.
 
 \section{Editor support}
 
-Building the client emits JSON Schemas for both config files into
-\code{schemas/}, so an editor with the YAML extension gives completion and
-inline validation for every key in this book:
+Every release attaches the JSON Schemas for both config files, under a
+stable name that always serves the newest release, so an editor with the
+YAML extension gives completion and inline validation for every key in
+this book without a checkout or a build:
 
 \begin{codecard}[aperiojson]{.vscode/settings.json}
 {
   "yaml.schemas": {
-    "./schemas/aperio-client.schema.json": ["aperio.yaml", "**/aperio.yaml"],
-    "./schemas/aperio-server.schema.json": ["aperio-server.yaml"]
+    "https://github.com/co3moz/aperio/releases/latest/download/aperio-client.schema.json":
+      ["aperio.yaml", "**/aperio.yaml", "~/.aperio.yaml"],
+    "https://github.com/co3moz/aperio/releases/latest/download/aperio-server.schema.json":
+      ["aperio-server.yaml", "**/aperio-server.yaml"]
   }
 }
 \end{codecard}
+
+Each release also carries a versioned copy of the same two documents,
+carrying the release tag in the file name where these carry the word
+\code{schema}. Point at those instead when the editor should validate
+against the version a deployment actually runs rather than against the
+newest one.
+
+Building from source is the offline equivalent: \code{cargo build -p
+aperio-client} writes both schemas into \code{schemas/}, and
+\code{aperio-server --print-schema} emits the server's own from an
+installed binary with no source tree. All three come from the same parser
+types, so none of them can drift from the code that reads the file.
 
 \chapter{Configuring the client}
 \label{ch:client-config}
