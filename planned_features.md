@@ -251,6 +251,16 @@ test suite.
   shape this entry defines, so this one lands first or the others each invent
   their own spelling.
 
+  **Shipped, and what is left.** The grammar itself is in: the three
+  spellings, the any-of list, the closed set with `none` and `basic`, the
+  startup refusal on an unknown method, and the compiled policy
+  (`aperio-server/src/visitor_auth.rs`) that the request path and the login
+  path both read. Two of the three cross-cutting rules below are not: **how a
+  refusal is expressed** arrives with the first method that answers 401, which
+  is #107, and **what a method produces** is #109. This entry stays open until
+  both are, since they are what make the grammar mean something rather than
+  just parse.
+
   **What the code says today, because the shape follows from it.** The whole
   gate is `check_visitor_gate` (`aperio-server/src/proxy.rs`) and its decision
   is two lines: if the server has neither `auth_credentials` nor OIDC, or the
