@@ -850,6 +850,48 @@ pub(crate) async fn validate_session(state: &AppState, headers: &HeaderMap) -> b
   matches!(session_scope(state, headers).await, Some(None))
 }
 
+/// Does this session get a visitor past the gate on `host`?
+///
+/// The dashboard and the visitor gate share one session store, and the gate
+/// used to ask only [`validate_session`], "is this a global session". That is
+/// the right question for the dashboard and the wrong one here: a session
+/// fixed to an organization, a per-organization SSO login or a named user of
+/// a child org, would walk past the gate on **every** hostname on the server,
+/// including hostnames served for other tenants and for master. A read-only
+/// Viewer of one organization could browse another's gated site.
+///
+/// So the organization is asked as well, with the same question the
+/// maintenance flag and share links already ask: not merely "does the fence
+/// cover this name" (the master token is never fenced, so a master client can
+/// be serving a name inside an organization's fence) but "is this the
+/// organization's to reach". Master sessions are unfenced, which is what they
+/// are everywhere else, so an operator's own dashboard login behaves exactly
+/// as it did.
+///
+/// This is the first half of separating the two planes
+/// (`planned_features.md` #106); the second is that they stop sharing a
+/// cookie at all.
+pub(crate) async fn validate_session_for_visitor(
+  state: &AppState,
+  headers: &HeaderMap,
+  host: Option<&str>,
+) -> bool {
+  if !validate_session(state, headers).await {
+    return false;
+  }
+  let Some(org) = caller_org(state, headers).await else {
+    // Master: unfenced here as everywhere else.
+    return true;
+  };
+  match host {
+    Some(host) => state.org_may_act_on_hostname(Some(&org), host).await,
+    // No `Host` to fence against. A fenced organization has no claim on a
+    // request that names nothing, and admitting it would be the whole hole
+    // wearing a missing header as a disguise.
+    None => false,
+  }
+}
+
 /// The organization the caller acts within: `None` = master (the built-in
 /// admin, master token, dashboard password, OIDC, or a named user whose
 /// `org_id` is None), `Some(id)` = the caller's child organization. Returns

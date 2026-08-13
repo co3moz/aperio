@@ -338,17 +338,27 @@ test suite.
   exist) cannot serve visitors: it produces an org-scoped *admin*, not a
   hostname's visitor identity.
 
-  **What it would take:** a distinct visitor session kind and cookie, a login
-  page that knows which plane it is serving, and the deliberate break that a
-  dashboard session no longer admits a visitor request. Once split, `oidc`
-  becomes a visitor method (#105's set) with the things a visitor gate needs
-  and an admin gate does not: a `client_id` per hostname, since ten sites
-  behind one IdP application is not the same as ten applications, and a group
-  or claim requirement beside the existing `allowed_emails`.
+  **Shipped: the half that was a hole rather than a wart.** The gate asked
+  only "is this a global session", so a session fixed to an organization, a
+  per-org SSO login or a named user of a child org, walked past the visitor
+  gate on *every* hostname on the server, another tenant's included; a
+  read-only Viewer of one organization could browse another's gated site.
+  The visitor path now asks the organization too, with the same rule
+  maintenance flags and share links use (covered by the fence *and* not
+  served by another organization's client), and master stays unfenced, so an
+  operator's own dashboard login is unchanged. It is a fix rather than a
+  break, which is why it went first and on its own.
 
-  This is the largest entry of the group and the one every other method is
-  cleaner after. It is also the one with a real migration story, so it should
-  not be started before #105 fixes the spelling.
+  **What is left is the structural half:** a distinct visitor session kind and
+  cookie, a login page that knows which plane it is serving, and the
+  deliberate break that a dashboard session no longer admits a visitor request
+  at all. That break is now an ergonomic one rather than a security one, which
+  changes how it should be staged: nobody is exposed while it waits, so it can
+  follow the pattern #108 used, a setting first and the default later. Once
+  split, `oidc` becomes a visitor method (#105's set) with the things a
+  visitor gate needs and an admin gate does not: a `client_id` per hostname,
+  since ten sites behind one IdP application is not the same as ten
+  applications, and a group or claim requirement beside `allowed_emails`.
 
 - [ ] **#107 A `bearer` method, and the `?aperio_token=` form beside it.**
   Today a machine can administer Aperio without a screen (admin API keys, the

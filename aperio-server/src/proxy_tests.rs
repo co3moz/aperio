@@ -1723,3 +1723,125 @@ async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
     VisitorGate::Allow => panic!("expected deny"),
   }
 }
+
+#[tokio::test]
+async fn a_session_from_one_organization_does_not_open_another_ones_gated_site() {
+  // The visitor gate and the dashboard share one session store, and the gate
+  // asked only "is this a global session". A session bound to `acme`, even a
+  // read-only one, therefore walked past the gate on every hostname on the
+  // server, including hostnames served for other tenants.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  let state = Arc::new(test_state_with(cfg));
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["acme.example.com".to_string()], None)
+    .expect("the organization");
+
+  // The shape a per-organization OIDC login produces: a global session that
+  // is fixed to one organization.
+  let token = uuid::Uuid::new_v4().to_string();
+  {
+    let now = crate::store::sessions::now_secs();
+    state.sessions.lock().await.insert(
+      &token,
+      crate::store::sessions::SessionInfo {
+        expires_at: now + 86400,
+        created_at: now,
+        ip: Some("127.0.0.1".to_string()),
+        user_agent: None,
+        scope_host: None,
+        username: Some("viewer@acme.example.com".to_string()),
+        role: crate::store::users::Role::Viewer,
+        selected_org: None,
+        bound_org: Some(org.id.clone()),
+      },
+    );
+  }
+  let headers = crate::test_support::cookie_headers(&token);
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+
+  // Its own organization's hostname: admitted, as it always was.
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("acme.example.com"),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow));
+
+  // Another tenant's: refused.
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("globex.example.com"),
+  )
+  .await;
+  assert!(
+    matches!(gate, VisitorGate::Deny(_)),
+    "an organization's session reached past another organization's gate"
+  );
+}
+
+#[tokio::test]
+async fn a_master_session_still_reaches_every_gated_site() {
+  // The fence is on the organization, and master has none. An operator's own
+  // dashboard login behaves exactly as it did, which is what keeps this a fix
+  // for the cross-tenant case rather than a change for everyone.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  let state = Arc::new(test_state_with(cfg));
+  let token =
+    crate::test_support::seed_session(&state, crate::store::users::Role::Admin, None, None).await;
+  let headers = crate::test_support::cookie_headers(&token);
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+
+  for host in ["acme.example.com", "globex.example.com", "anything.at.all"] {
+    let gate =
+      check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, Some(host)).await;
+    assert!(matches!(gate, VisitorGate::Allow), "{host}");
+  }
+}
+
+#[tokio::test]
+async fn a_fenced_session_without_a_host_header_is_refused() {
+  // A fenced organization has no claim on a request that names no hostname,
+  // and admitting it would be the same hole wearing a missing header.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  let state = Arc::new(test_state_with(cfg));
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["acme.example.com".to_string()], None)
+    .expect("the organization");
+  let token = uuid::Uuid::new_v4().to_string();
+  {
+    let now = crate::store::sessions::now_secs();
+    state.sessions.lock().await.insert(
+      &token,
+      crate::store::sessions::SessionInfo {
+        expires_at: now + 86400,
+        created_at: now,
+        ip: Some("127.0.0.1".to_string()),
+        user_agent: None,
+        scope_host: None,
+        username: Some("viewer@acme.example.com".to_string()),
+        role: crate::store::users::Role::Viewer,
+        selected_org: None,
+        bound_org: Some(org.id.clone()),
+      },
+    );
+  }
+  let headers = crate::test_support::cookie_headers(&token);
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+  let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
+  assert!(matches!(gate, VisitorGate::Deny(_)));
+}

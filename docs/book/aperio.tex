@@ -1652,6 +1652,13 @@ order of specificity:
         token allows that.
 \end{enumerate}
 
+A dashboard session carries its holder past the gate as well, since the
+two share one session store, and that is fenced by organization: a
+session fixed to a tenant admits only on hostnames that tenant serves,
+by the same rule maintenance flags and share links already use, covered
+by the fence \emph{and} not currently served by another organization's
+client. A master session is unfenced here as everywhere else.
+
 A service is only public when \emph{every} client in its serving pool
 agrees; a mixed pool falls back to the gate. The same all-must-agree rule
 applies to client-declared credentials, so a request can never be gated

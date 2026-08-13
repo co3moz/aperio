@@ -55,6 +55,7 @@ Per **effective organization**, a named user's own org, or the org the super-adm
 - **Maintenance mode**, a hostname can be put into maintenance only by the organization it belongs to, never one another organization's client is serving, and each flag is visible and clearable only within that org.
 - **Share links**, can only be minted for a hostname the caller's own organization serves.
 - **Audit log**, each event records the organization it belongs to; the log shows only the caller's org's events.
+- **The visitor gate**, a dashboard session gets its holder past the visitor login only on hostnames their own organization serves, by the same rule as maintenance and share links: covered by the fence *and* not currently served by another organization's client. Master sessions are unfenced here as everywhere else.
 
 ## What stays server-global (master-only)
 
@@ -114,7 +115,7 @@ Set it from the dashboard in Organizations → the gauge icon → *Allowed hostn
 
 ## Per-organization OIDC (SSO)
 
-An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The resulting session is **bound to that organization**, the user is an admin *within* their org (their tokens, users, and traffic) but never the master super-admin, and cannot switch to other orgs. Organizations without an override fall back to the global `APERIO_OIDC_*` (yaml `oidc_*`) settings.
+An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The resulting session is **bound to that organization**, the user is an admin *within* their org (their tokens, users, and traffic) but never the master super-admin, and cannot switch to other orgs. It is a dashboard identity: it also carries its holder past the visitor gate, but only on hostnames their own organization serves. Organizations without an override fall back to the global `APERIO_OIDC_*` (yaml `oidc_*`) settings.
 
 ## Runnable examples
 

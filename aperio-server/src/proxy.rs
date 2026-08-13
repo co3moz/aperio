@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 use tracing::{Instrument, error, warn};
 
 use crate::access_log::{log_request_failure, log_request_success};
-use crate::auth::{safe_redirect_path, validate_session, validate_session_for_host};
+use crate::auth::{safe_redirect_path, validate_session_for_host, validate_session_for_visitor};
 use crate::limits::{Limit, refuse};
 use crate::protocol::{FRAME_REQUEST_CHUNK, TunnelMessage, encode_binary_frame};
 use crate::routing::{
@@ -476,7 +476,7 @@ pub(crate) async fn check_visitor_gate(
     let gated = state.config().visitor_auth.gates()
       || state.oidc.is_some()
       || crate::routing::host_has_visitor_auth(state, host).await;
-    if !gated || validate_session(state, headers).await {
+    if !gated || validate_session_for_visitor(state, headers, host).await {
       return VisitorGate::Allow;
     }
     let login_path = if state.oidc.is_some() {
@@ -532,7 +532,7 @@ pub(crate) async fn check_visitor_gate(
     }
     return VisitorGate::Allow;
   }
-  if validate_session(state, headers).await {
+  if validate_session_for_visitor(state, headers, host).await {
     return VisitorGate::Allow;
   }
   // A credential carried by the request itself, which is the only way a
