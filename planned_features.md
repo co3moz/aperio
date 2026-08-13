@@ -245,6 +245,60 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
+- [ ] **#104 Forward-auth: a route may delegate its visitor gate to an
+  endpoint the operator runs.** The shape nginx spells `auth_request` and
+  Traefik spells ForwardAuth: before dispatching, the server asks a URL the
+  operator names, and a 2xx admits the request while anything else refuses it
+  with the answer the endpoint gave. Opened alongside #103, which withdrew a
+  WASM plugin host: authentication is the category of request-path
+  customisation that actually keeps arriving, and this covers it declaratively,
+  executing no operator code inside the server.
+
+  **What the code says today.** The visitor gate
+  (`proxy.rs`, `visitor_gate`) already has an ordered structure with room in
+  it: a path-traversal guard, then a client-declared per-service password that
+  supersedes the server's own, then the server's gate, which public routes
+  skip and which is `APERIO_SERVER_AUTH` or OIDC. What it cannot express is
+  "ask something else", and there is no JWT verification anywhere: the only
+  JWT-shaped thing in the codebase is a share link's own HMAC token.
+
+  **Where the key belongs.** `routes:` already separates *answer* rules
+  (`redirect`, `respond`) from *policy* rules that annotate proxied traffic
+  (`timeout`, `headers`, `rate_limit`, `canary`), and `forward_auth:` is
+  another policy of exactly that kind, so it inherits the hostname/path
+  matching, the startup validation and the hot reload without inventing a
+  second matcher. A hostname-wide spelling should follow the same layering the
+  rest of the file uses rather than being its own section.
+
+  **What to settle before building it, because these are the whole feature:**
+  - **Which headers cross, in both directions.** The subrequest should carry
+    the original method, path, host and the visitor's address, and the
+    operator names which request headers travel; the answer contributes a
+    named allowlist of headers to the upstream request (this is how the
+    pattern delivers identity, and it is also how it becomes a header
+    injection if the list is open).
+  - **Fail-open or fail-closed on a timeout**, and it has to be a written
+    default rather than an accident. Fail-closed is the honest one for an
+    auth gate, which means the endpoint's availability becomes the route's.
+  - **Caching the verdict**, keyed on whatever the operator says identifies a
+    session, or every request pays a round trip. Without this the feature is
+    unusable on anything busy, so it is not a later refinement.
+  - **The destination is an outbound callback.** `outbound.rs` and the
+    existing `APERIO_OUTBOUND_ALLOWLIST` / `APERIO_OUTBOUND_BLOCK_PRIVATE`
+    policy must apply to it exactly as they do to webhooks and scaling hooks,
+    or this becomes a way to make the server fetch arbitrary internal URLs on
+    a visitor's schedule.
+  - **How it composes with the gates already there:** whether a public route
+    still skips it (probably not, since a route naming a forward-auth is
+    saying the opposite), whether a share link satisfies it, and what happens
+    when a client also declared its own per-service password. Each needs an
+    answer in the doc comment, not a discovered behaviour.
+
+  **What it deliberately is not:** a way to run operator code in the server.
+  The endpoint is a separate process reached over HTTP, which is the shape
+  `run:`, webhooks and scaling hooks all already use, and it is the reason
+  this is a bounded feature where #103 was not.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
