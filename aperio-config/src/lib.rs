@@ -3122,6 +3122,14 @@ pub struct ServerFileConfig {
   /// visitor can never forge one (env: APERIO_IDENTITY_HEADERS).
   #[schemars(extend("examples" = [true]))]
   pub identity_headers: Option<bool>,
+  /// Announce to the backend who the *visitor* is, as `x-aperio-visitor-how`
+  /// (`session` / `bearer` / `share`) and `x-aperio-visitor-id` (the email or
+  /// username behind a session, where there is one). Off by default and the
+  /// same trust surface as `identity_headers`; an ungated or deliberately
+  /// open route identifies nobody and sends neither header
+  /// (env: APERIO_VISITOR_IDENTITY_HEADERS).
+  #[schemars(extend("examples" = [true]))]
+  pub visitor_identity_headers: Option<bool>,
   /// Fraction of *successful* requests that produce an access line, 0.0 to
   /// 1.0. Default `1.0` = every request, which is what this always did.
   /// Failures are never sampled out: a sampled-away error is the one line

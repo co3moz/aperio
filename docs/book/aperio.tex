@@ -1754,6 +1754,35 @@ readable. On the client side a policy saying more than the tunnel
 handshake can carry refuses the start, rather than announcing a gate
 weaker than the one written.
 
+\subsection{Telling the backend who came in}
+
+The gate has always been a wall: it decided whether a request continued
+and told the backend nothing, so an application behind a tunnel could not
+greet anyone without building a second login beside Aperio's.
+\code{visitor\_identity\_headers} adds two headers to the forwarded
+request: \code{x-aperio-visitor-how}, which is \code{session},
+\code{bearer} or \code{share}, and \code{x-aperio-visitor-id}, the email
+or username behind a session where there is one. A \code{bearer} secret
+identifies a caller rather than a person, so it carries no id.
+
+The secret itself does not travel. An \code{Authorization} header that
+opened Aperio's gate is stripped before the request is forwarded, on the
+same rule that already strips the \code{aperio\_session} and
+\code{aperio\_share} cookies while leaving every other cookie alone: a
+credential addressed to the gate is not addressed to what is behind it,
+and handing a backend a secret that opens every route the gate protects
+is worse than useless to it. An \code{Authorization} that did \emph{not}
+open the gate is the visitor's own and passes through untouched.
+
+Off by default, because it is the same new trust surface as
+\code{identity\_headers} and deserves the same deliberate adoption. A
+route that is open or ungated identifies nobody and sends neither header,
+since a value meaning "anonymous" is noise a backend has to learn to
+ignore. The forgery half is already done: inbound \code{x-aperio-*}
+headers are stripped from every proxied request whatever this is set to,
+so a visitor cannot claim an identity and a backend that trusts these
+need not check whether the announcement is even on.
+
 \subsection{Closed by default}
 \label{sec:default-access}
 
@@ -3005,6 +3034,8 @@ the machine-readable catalogue, which is the one that cannot drift.
 \midrule
 \endhead
 \code{APERIO\_REQUIRE\_HOSTNAME\_BIND} & \code{1} = clients without a hostname bind never receive traffic (strict multi-tenant mode). & \code{0} \\
+\rowsep
+\code{APERIO\_VISITOR\_IDENTITY\_HEADERS} & \code{1} = tell the backend who the visitor is, as \code{x-aperio-visitor-how} (\code{session} / \code{bearer} / \code{share}) and \code{x-aperio-visitor-id} (the email or username behind a session, where there is one). Off by default, the same new trust surface as \code{APERIO\_IDENTITY\_HEADERS}. An open or ungated route identifies nobody and sends neither header. & \code{0} \\
 \rowsep
 \code{APERIO\_DEFAULT\_ACCESS} & What a route nobody gated means: \code{allow}, which is what the server has always done, or \code{deny}, where a route is served because something declared it reachable rather than because nothing declared otherwise. An undeclared route is then refused with the answer an unclaimed hostname already gives, so its existence does not leak. A gated route is untouched either way. An unreadable value refuses the start rather than being guessed at. & \code{allow} \\
 \rowsep

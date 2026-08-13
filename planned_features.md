@@ -245,83 +245,6 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
-- [ ] **#105 One `auth:` grammar for the visitor gate, with a `method:` and a
-  closed method set.** The umbrella entry for the visitor-authentication work
-  (#104, #106 to #110): everything below is a method or a plane inside the
-  shape this entry defines, so this one lands first or the others each invent
-  their own spelling.
-
-  **Shipped, and what is left.** The grammar itself is in: the three
-  spellings, the any-of list, the closed set with `none` and `basic`, the
-  startup refusal on an unknown method, and the compiled policy
-  (`aperio-server/src/visitor_auth.rs`) that the request path and the login
-  path both read. Two of the three cross-cutting rules below are not: **how a
-  refusal is expressed** arrives with the first method that answers 401, which
-  is #107, and **what a method produces** is #109. This entry stays open until
-  both are, since they are what make the grammar mean something rather than
-  just parse.
-
-  **What the code says today, because the shape follows from it.** The whole
-  gate is `check_visitor_gate` (`aperio-server/src/proxy.rs`) and its decision
-  is two lines: if the server has neither `auth_credentials` nor OIDC, or the
-  route is public, allow. So `public:` is not an *opener*, it is an exemption
-  from a gate that may not exist, and with no server-wide credential
-  configured every route is open (that is #108). The methods available are one
-  server-wide `user:password` (`APERIO_SERVER_AUTH`, a flat scalar) and OIDC
-  (a block, but on the admin plane, see #106); a client may declare one
-  `user:password` of its own (`auth:` on a service, again a flat scalar).
-  Adding anything means another top-level key, which is why the surface feels
-  disconnected.
-
-  **The shape.** `auth:` on `aperio-server.yaml` is the default for every
-  route; `auth:` on a client's service overrides it for that service, which is
-  the precedence that already exists. Both accept the same grammar, and it is
-  a **list with any-of semantics**, not a single choice:
-
-  ```yaml
-  auth:
-    - method: oidc
-    - method: bearer
-      secret: ${API_SECRET}
-  ```
-
-  A list rather than one method because "a browser gets SSO, a script gets a
-  key" is the central real case and a one-of enum cannot say it; retrofitting
-  a list later would change every call site. The scalar spelling
-  `auth: "user:password"` keeps working as `[{method: basic, ...}]`: `cache:`,
-  `otel:`, `scaling:` and `dashboard:` are all already `#[serde(untagged)]`
-  scalar-or-block, so this is the file's own established pattern and nothing
-  written today breaks.
-
-  **The method set, closed on purpose** (#103 withdrew the open version):
-  `none` (deliberately open, the honest spelling of `public: true`), `basic`
-  (today's, plus multiple users and hashed storage, since Argon2id is already
-  in the tree for dashboard users), `bearer` (#107), `oidc` (#106), `jwt`
-  (#110), `forward` (#104). Deliberately **out**: `ldap` and `saml`, which are
-  protocol clients and permanent surface that a `forward` endpoint does better
-  out of process (#80's reasoning); visitor `mtls`, because Aperio almost
-  always sits behind a proxy that terminates TLS so no certificate reaches it,
-  and the realistic version is trusting a header, which is `bearer`; visitor
-  passkeys and TOTP, which exist on the admin plane and would drag the
-  per-hostname RP ID problem into the visitor one.
-
-  **Three rules that belong to this entry rather than to any method:**
-  - **How a refusal is expressed.** Today it is always a 302 to a login page
-    and there is not one `WWW-Authenticate` in the server. It has to become
-    per-method: `basic`/`bearer`/`jwt` answer 401 with a challenge, `oidc`
-    redirects, `forward` returns what the endpoint returned. With a list, the
-    request's own shape picks: a `GET` with `Accept: text/html` is a
-    navigation and prefers a redirecting method, anything else prefers a 401.
-    That signal is already how `serve_spa` distinguishes a navigation.
-  - **What a method produces.** Every one of them establishes an identity, and
-    that identity is what #109 forwards to the backend. A method that cannot
-    name who it admitted is not finished.
-  - **Disagreement between clients serving one route.** Today `route_is_public`
-    and `route_visitor_auth` both require unanimity and otherwise fall back to
-    the server's gate (`routing.rs`). That rule is right and stays; with a
-    richer grammar it has to be *written*, because "fall back to the strictest"
-    only means something once the strictest can be identified.
-
 - [ ] **#106 Separate the visitor plane from the admin plane.** There is one
   session store, one cookie and one login endpoint serving two unrelated jobs:
   administering Aperio, and viewing a site behind it. `/aperio/auth` accepts
@@ -428,21 +351,6 @@ test suite.
   since nothing that was protected stops being protected; what changes is
   availability, and calling it `Security` would refuse the start of every
   server in the range for a change that took nothing away.
-
-- [ ] **#109 Tell the backend who the visitor is.** Every method in #105
-  establishes an identity and the backend sees none of it, so the gate is a
-  wall rather than a sign-in: an application behind a tunnel cannot say
-  "welcome back" without implementing its own login next to Aperio's.
-  Forwarded opt-in as `x-aperio-visitor-*` (at least an id and the method that
-  admitted them; an email where the method has one), modelled on
-  `identity_headers`, which already answers the same question for the client,
-  organization and token and is off by default for the same reason: a new
-  trust surface should be adopted deliberately.
-
-  The forgery half is already done. Inbound `x-aperio-*` headers are stripped
-  from every proxied request whatever the setting, so a visitor cannot claim
-  an identity and a backend that trusts these need not check whether the
-  announcement is even on.
 
 - [ ] **#110 A `jwt` method: verify a bearer or cookie token against a JWKS.**
   Requires `iss`, `aud`, `exp` and whatever claims the operator names, with no
@@ -801,6 +709,43 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#105 One `auth:` grammar for the visitor gate, with a `method:` and a
+  closed method set.** shipped: `auth:` takes the scalar it always did, one
+  `{method: ...}` block, or a list of them with any-of semantics, the same
+  grammar on both sides of the tunnel, folding to one compiled policy
+  (`aperio-server/src/visitor_auth.rs`) that the request path and the login
+  path both read. The closed set landed as `none` and `basic` here and grew
+  `bearer` in #107; an unknown method refuses the start naming the ones that
+  exist. The three cross-cutting rules are all in: the refusal shape arrived
+  with #107 (401 and a challenge for a caller that speaks in headers, the
+  login page for a browser navigation, chosen by the request's own shape),
+  the identity a method produces with #109, and the unanimity rule between
+  clients of one route was preserved and written down.
+
+  Differed from the plan in one place worth recording: the entry assumed the
+  scalar and the compiled policy would sit beside each other on the
+  configuration. They did, briefly, and six tests that set only one of them
+  were the design saying that two fields describing one gate disagree, and
+  disagree exactly where the request path reads one and the login path reads
+  the other. There is one stored form now and the scalar the dashboard shows
+  is derived from it.
+
+- [x] **#109 Tell the backend who the visitor is.** shipped:
+  `visitor_identity_headers` (`APERIO_VISITOR_IDENTITY_HEADERS`, off by
+  default like `identity_headers`) adds `x-aperio-visitor-how` (`session` /
+  `bearer` / `share`) and `x-aperio-visitor-id` (the email or username behind
+  a session) to the forwarded request. A route that is open or ungated
+  identifies nobody and sends neither header, since a value meaning
+  "anonymous" is noise a backend has to learn to ignore.
+
+  Not in the plan, and found by the e2e phase written for it: the
+  `Authorization` header that opened Aperio's own gate was being forwarded to
+  the backend, so a backend and its logs learned a secret that opens every
+  route the gate protects. It is stripped now when it was the credential that
+  admitted the request, on the same rule that already strips the internal
+  cookies while leaving every other cookie alone. An `Authorization` that did
+  not open the gate is the visitor's own and still travels.
 
 - [x] **#96 WebSocket conformance for the relay arms, with Autobahn.** The WS
   relay re-frames traffic through the tunnel, and its correctness is currently

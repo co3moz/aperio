@@ -248,6 +248,11 @@ pub(crate) struct ServerConfig {
   pub(crate) denied_ips: crate::deny_list::DenyList,
   /// Announce the serving client, organization and token to the backend.
   pub(crate) identity_headers: bool,
+  /// Announce who the *visitor* is to the backend. The gate has always known
+  /// and never said, so an application behind a tunnel had to build a second
+  /// login beside Aperio's to greet anyone. Off by default, the same new
+  /// trust surface as `identity_headers` and adopted the same way, on purpose.
+  pub(crate) visitor_identity_headers: bool,
   /// Fraction of successful requests that produce an access line (1.0 =
   /// all). Failures are never sampled.
   pub(crate) access_log_sample_rate: f64,

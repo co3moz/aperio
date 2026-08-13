@@ -13,7 +13,9 @@ export class AuthServer extends AperioServerBase({
 
 /** A server whose gate is written as a list: a login for people, a key for
  *  scripts. The case the grammar exists for. */
-export class BearerServer extends AperioServerBase() {
+export class BearerServer extends AperioServerBase({
+  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+}) {
   _configFile() {
     return [
       'server:',
@@ -411,6 +413,21 @@ export class BearerMethodSpec extends Test({
     assert.equal(res.status, 302)
     assert.equal(res.headers['location'], '/hello?page=2')
     assert.match(res.headers['set-cookie'] ?? '', /aperio_share=/)
+  }
+
+  async theBackendIsToldWhoCameIn() {
+    // The gate knew and never said, which is why an application behind a
+    // tunnel had to build a second login to greet anyone.
+    const res = await this.server._fetch('/echo-headers', {
+      host: BEARER_HOST,
+      headers: { authorization: `Bearer ${BEARER_SECRET}` },
+    })
+    assert.equal(res.status, 200)
+    assert.match(res.body, /x-aperio-visitor-how: bearer/)
+    // A secret identifies a caller and not a person, so there is no id, and
+    // the secret itself never travels onward.
+    assert.doesNotMatch(res.body, /x-aperio-visitor-id/)
+    assert.doesNotMatch(res.body, new RegExp(BEARER_SECRET))
   }
 
   async theQueryFormServesANonNavigationDirectly() {

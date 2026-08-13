@@ -1041,6 +1041,26 @@ pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) ->
     .then_some(username)
 }
 
+/// The username behind a session cookie, whichever plane it was created on
+/// and whether or not it is host-scoped.
+///
+/// Broader than [`dashboard_username`] on purpose: this answers "who is this
+/// visitor" for the identity a backend may be told (`planned_features.md`
+/// #109), and a host-scoped session is exactly the kind that has a visitor
+/// behind it. It is never an authorization answer, only a name.
+pub(crate) async fn session_username_any_scope(
+  state: &AppState,
+  headers: &HeaderMap,
+) -> Option<String> {
+  let token = session_cookie(headers)?;
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(token)?;
+  if info.expires_at <= crate::store::sessions::now_secs() {
+    return None;
+  }
+  info.username.clone()
+}
+
 /// Validates the `aperio_session` cookie for a proxied request to `host`.
 /// Accepts a global session, or a session scoped to exactly this host.
 pub(crate) async fn validate_session_for_host(

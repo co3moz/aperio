@@ -307,10 +307,42 @@ fn is_websocket_upgrade(method: &Method, headers: &HeaderMap) -> bool {
   has_upgrade_header && has_connection_upgrade
 }
 
+/// Who the gate let in, when it knows.
+///
+/// The gate has always been a wall: it decided whether a request continued
+/// and told the backend nothing, so an application behind a tunnel could not
+/// say "welcome back" without building a second login next to Aperio's. This
+/// is what it knows at the moment it admits someone (`planned_features.md`
+/// #109), and it travels only where the operator asked for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VisitorIdentity {
+  /// How they were admitted: `session`, `bearer` or `share`.
+  pub(crate) how: &'static str,
+  /// Who they are, where that is a question with an answer: the email or
+  /// username behind a session, or a share link's own id. A `bearer` secret
+  /// identifies a caller and not a person, so it has none.
+  pub(crate) who: Option<String>,
+  /// True when the `Authorization` header was the credential that opened the
+  /// gate, and is therefore **Aperio's own** rather than the visitor's
+  /// message to the backend.
+  ///
+  /// It is then stripped before the request is forwarded, on the same rule
+  /// that already strips the `aperio_session` and `aperio_share` cookies
+  /// while leaving every other cookie alone: a credential addressed to the
+  /// gate is not addressed to what is behind it, and handing a backend a
+  /// secret that opens every route the gate protects is worse than useless to
+  /// it. An `Authorization` that did *not* open the gate is the visitor's own
+  /// and travels untouched.
+  pub(crate) consumed_authorization: bool,
+}
+
 /// Outcome of the visitor-auth gate for a proxied request.
 pub(crate) enum VisitorGate {
-  /// The visitor may proceed.
-  Allow,
+  /// The visitor may proceed, with what the gate learned about them. `None`
+  /// where nothing was asked of them: an ungated or deliberately open route
+  /// identifies nobody, and saying "anonymous" would be noise rather than
+  /// information.
+  Allow(Option<VisitorIdentity>),
   /// The visitor is not authorized; reply with this response (a login/OIDC
   /// redirect, or a share-link redirect).
   Deny(Response),
@@ -438,6 +470,16 @@ fn refuse_visitor(
   }
 }
 
+/// The identity behind a session cookie, for a request the gate has already
+/// admitted on the strength of it.
+async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<VisitorIdentity> {
+  Some(VisitorIdentity {
+    how: "session",
+    who: crate::auth::session_username_any_scope(state, headers).await,
+    consumed_authorization: false,
+  })
+}
+
 /// Applies the visitor-auth gate for a proxied request to (host, path), shared
 /// by the HTTP and WebSocket proxy paths.
 ///
@@ -476,8 +518,11 @@ pub(crate) async fn check_visitor_gate(
     let gated = state.config().visitor_auth.gates()
       || state.oidc.is_some()
       || crate::routing::host_has_visitor_auth(state, host).await;
-    if !gated || validate_session_for_visitor(state, headers, host).await {
-      return VisitorGate::Allow;
+    if !gated {
+      return VisitorGate::Allow(None);
+    }
+    if validate_session_for_visitor(state, headers, host).await {
+      return VisitorGate::Allow(session_identity(state, headers).await);
     }
     let login_path = if state.oidc.is_some() {
       "/aperio/oidc/login"
@@ -493,11 +538,15 @@ pub(crate) async fn check_visitor_gate(
     .is_some()
   {
     if validate_session_for_host(state, headers, host).await {
-      return VisitorGate::Allow;
+      return VisitorGate::Allow(session_identity(state, headers).await);
     }
     return match check_share_access(state, headers, uri, host) {
       Some(Some(redirect)) => VisitorGate::Deny(redirect),
-      Some(None) => VisitorGate::Allow,
+      Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
+        how: "share",
+        who: None,
+        consumed_authorization: false,
+      })),
       None => VisitorGate::Deny(login_redirect("/aperio/auth", &uri.to_string())),
     };
   }
@@ -510,7 +559,7 @@ pub(crate) async fn check_visitor_gate(
   // one sentence that opens a route under either posture, which is what makes
   // `deny` expressible at all rather than being a second, parallel switch.
   if crate::routing::route_is_public(state, path, host).await {
-    return VisitorGate::Allow;
+    return VisitorGate::Allow(None);
   }
   if !auth_configured {
     // Nothing gates this route. Under the default posture that has always
@@ -530,10 +579,10 @@ pub(crate) async fn check_visitor_gate(
         "504 Gateway Timeout - No client connected in time",
       ));
     }
-    return VisitorGate::Allow;
+    return VisitorGate::Allow(None);
   }
   if validate_session_for_visitor(state, headers, host).await {
-    return VisitorGate::Allow;
+    return VisitorGate::Allow(session_identity(state, headers).await);
   }
   // A credential carried by the request itself, which is the only way a
   // caller without a browser can get in: the session cookie is the whole of
@@ -542,7 +591,11 @@ pub(crate) async fn check_visitor_gate(
     && policy.admits_bearer(&presented.value, presented.from_query)
   {
     if !presented.from_query || !navigation {
-      return VisitorGate::Allow;
+      return VisitorGate::Allow(Some(VisitorIdentity {
+        how: "bearer",
+        who: None,
+        consumed_authorization: !presented.from_query,
+      }));
     }
     // A secret in the URL of a page load is turned into a cookie and the
     // visitor is sent to the clean address, so the page's own assets are not
@@ -558,11 +611,19 @@ pub(crate) async fn check_visitor_gate(
         &uri_without_token(uri),
       ));
     }
-    return VisitorGate::Allow;
+    return VisitorGate::Allow(Some(VisitorIdentity {
+      how: "bearer",
+      who: None,
+      consumed_authorization: !presented.from_query,
+    }));
   }
   match check_share_access(state, headers, uri, host) {
     Some(Some(redirect)) => VisitorGate::Deny(redirect),
-    Some(None) => VisitorGate::Allow,
+    Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
+      how: "share",
+      who: None,
+      consumed_authorization: false,
+    })),
     None => {
       let login_path = if state.oidc.is_some() {
         "/aperio/oidc/login"
@@ -897,7 +958,7 @@ async fn proxy_http_request(
 
   // 2. Visitor-auth gate: a client-declared per-service password (if any)
   // supersedes the server's own visitor password / OIDC; public routes skip it.
-  if let VisitorGate::Deny(resp) = check_visitor_gate(
+  let visitor = match check_visitor_gate(
     &state,
     &method,
     &headers,
@@ -906,8 +967,9 @@ async fn proxy_http_request(
   )
   .await
   {
-    return resp;
-  }
+    VisitorGate::Deny(resp) => return resp,
+    VisitorGate::Allow(identity) => identity,
+  };
 
   // Client-declared visitor IP allowlists are enforced per candidate during
   // client selection below: the request dispatches to any candidate whose
@@ -1543,6 +1605,12 @@ async fn proxy_http_request(
       if k.as_str().len() > 9 && k.as_str()[..9].eq_ignore_ascii_case("x-aperio-") {
         continue;
       }
+      // The credential that opened Aperio's own gate is Aperio's, not a
+      // message for the backend. Same rule as the internal cookies below.
+      if k.as_str() == "authorization" && visitor.as_ref().is_some_and(|v| v.consumed_authorization)
+      {
+        continue;
+      }
       if k.as_str() == "cookie" {
         let filtered: String = val_str
           .split(';')
@@ -1741,6 +1809,20 @@ async fn proxy_http_request(
           .clone()
           .unwrap_or_else(|| "master".to_string()),
       ));
+    }
+    // Who the gate let in. Separate from the switch above because the two
+    // answer different questions, which client is serving this and who is
+    // asking, and a backend may well want one without the other. Nothing is
+    // sent where nobody was identified: an open route has no visitor to name,
+    // and a header saying "anonymous" would be noise a backend has to learn
+    // to ignore.
+    if state.config().visitor_identity_headers
+      && let Some(ref visitor) = visitor
+    {
+      dispatch_headers.push(("x-aperio-visitor-how".to_string(), visitor.how.to_string()));
+      if let Some(ref who) = visitor.who {
+        dispatch_headers.push(("x-aperio-visitor-id".to_string(), who.clone()));
+      }
     }
     let dispatch_msg = if stream_request {
       TunnelMessage::RequestStart {

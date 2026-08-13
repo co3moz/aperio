@@ -365,7 +365,7 @@ async fn visitor_gate_allows_without_auth() {
     None,
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 #[tokio::test]
@@ -388,7 +388,7 @@ async fn visitor_gate_denies_when_auth_configured() {
       let loc = resp.headers().get("Location").unwrap().to_str().unwrap();
       assert!(loc.starts_with("/aperio/auth?redirect="));
     }
-    VisitorGate::Allow => panic!("expected deny"),
+    VisitorGate::Allow(_) => panic!("expected deny"),
   }
 }
 
@@ -437,7 +437,7 @@ async fn visitor_gate_per_route_visitor_auth() {
     HeaderValue::from_str(&format!("aperio_session={token}")).unwrap(),
   );
   let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 #[tokio::test]
@@ -457,7 +457,7 @@ async fn visitor_gate_admits_a_bearer_secret_from_a_header() {
     HeaderValue::from_static("Bearer 0123456789abcdef-secret"),
   );
   let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 
   let mut wrong = HeaderMap::new();
   wrong.insert("authorization", HeaderValue::from_static("Bearer nope"));
@@ -492,7 +492,7 @@ async fn a_caller_without_a_browser_is_refused_with_a_challenge_rather_than_a_re
         "the refusal has to say what to present"
       );
     }
-    VisitorGate::Allow => panic!("expected deny"),
+    VisitorGate::Allow(_) => panic!("expected deny"),
   }
 
   // The same gate, a browser navigation: still the login page, because that
@@ -502,7 +502,7 @@ async fn a_caller_without_a_browser_is_refused_with_a_challenge_rather_than_a_re
   let gate = check_visitor_gate(&state, &axum::http::Method::GET, &browser, &uri, None).await;
   match gate {
     VisitorGate::Deny(resp) => assert_eq!(resp.status(), StatusCode::FOUND),
-    VisitorGate::Allow => panic!("expected deny"),
+    VisitorGate::Allow(_) => panic!("expected deny"),
   }
 }
 
@@ -563,7 +563,7 @@ async fn a_page_opened_with_a_secret_in_its_url_is_sent_to_a_clean_address() {
       let cookie = resp.headers().get("Set-Cookie").unwrap().to_str().unwrap();
       assert!(cookie.starts_with("aperio_share="), "{cookie}");
     }
-    VisitorGate::Allow => panic!("expected the clean-address redirect"),
+    VisitorGate::Allow(_) => panic!("expected the clean-address redirect"),
   }
 
   // A non-navigation with the same secret is simply admitted: there is no
@@ -576,7 +576,7 @@ async fn a_page_opened_with_a_secret_in_its_url_is_sent_to_a_clean_address() {
     Some("app.example.com"),
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 // --- stale_cache_response ----------------------------------------------------
@@ -1118,7 +1118,7 @@ async fn visitor_gate_traversal_allowed_without_gate() {
     None,
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 // --- SWR, denial, preview, limiter, coalescing ------------------------------
@@ -1658,7 +1658,7 @@ async fn closed_by_default_refuses_a_route_nothing_declares_open() {
        existence of something here does not leak to a caller who was never \
        going to be let in"
     ),
-    VisitorGate::Allow => panic!("expected the closed-by-default refusal"),
+    VisitorGate::Allow(_) => panic!("expected the closed-by-default refusal"),
   }
 
   // The same request under the default posture, which is unchanged.
@@ -1671,7 +1671,7 @@ async fn closed_by_default_refuses_a_route_nothing_declares_open() {
     None,
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 #[tokio::test]
@@ -1694,7 +1694,7 @@ async fn closed_by_default_still_serves_what_declares_itself_open() {
     None,
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 #[tokio::test]
@@ -1720,7 +1720,7 @@ async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
       StatusCode::FOUND,
       "a gated route still sends the visitor somewhere they can act"
     ),
-    VisitorGate::Allow => panic!("expected deny"),
+    VisitorGate::Allow(_) => panic!("expected deny"),
   }
 }
 
@@ -1772,7 +1772,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
     Some("acme.example.com"),
   )
   .await;
-  assert!(matches!(gate, VisitorGate::Allow));
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 
   // Another tenant's: refused.
   let gate = check_visitor_gate(
@@ -1805,7 +1805,7 @@ async fn a_master_session_still_reaches_every_gated_site() {
   for host in ["acme.example.com", "globex.example.com", "anything.at.all"] {
     let gate =
       check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, Some(host)).await;
-    assert!(matches!(gate, VisitorGate::Allow), "{host}");
+    assert!(matches!(gate, VisitorGate::Allow(_)), "{host}");
   }
 }
 
@@ -1844,4 +1844,112 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
+}
+
+#[tokio::test]
+async fn the_gate_says_who_it_let_in() {
+  // The identity a backend may be told (#109). It is what the gate already
+  // knew at the moment it admitted someone and never said, which is why an
+  // application behind a tunnel had to build a second login to greet anyone.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\"}").unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items".parse().unwrap();
+
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_static("Bearer 0123456789abcdef-secret"),
+  );
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Allow(Some(id)) => {
+      assert_eq!(id.how, "bearer");
+      assert_eq!(id.who, None, "a secret identifies a caller, not a person");
+    }
+    _ => panic!("expected an admitted bearer caller"),
+  }
+
+  // A session carries the name behind it, which is the answer worth having.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  let state = Arc::new(test_state_with(cfg));
+  let token = crate::test_support::seed_session(
+    &state,
+    crate::store::users::Role::Admin,
+    Some("alice@example.com"),
+    None,
+  )
+  .await;
+  let headers = crate::test_support::cookie_headers(&token);
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Allow(Some(id)) => {
+      assert_eq!(id.how, "session");
+      assert_eq!(id.who.as_deref(), Some("alice@example.com"));
+    }
+    _ => panic!("expected an admitted session"),
+  }
+}
+
+#[tokio::test]
+async fn an_open_route_names_nobody() {
+  // Nothing was asked of this visitor, so there is nothing to announce, and
+  // a header saying "anonymous" would be noise a backend learns to ignore.
+  let state = Arc::new(test_state_with(test_config()));
+  let uri: axum::http::Uri = "/anything".parse().unwrap();
+  match check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await
+  {
+    VisitorGate::Allow(identity) => assert_eq!(identity, None),
+    VisitorGate::Deny(_) => panic!("expected allow"),
+  }
+}
+
+#[tokio::test]
+async fn the_credential_that_opened_the_gate_does_not_travel_to_the_backend() {
+  // The header that opened Aperio's gate is Aperio's, on the same rule that
+  // already strips the internal cookies: handing a backend a secret that
+  // opens every route the gate protects is worse than useless to it.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\", query: true}")
+      .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items".parse().unwrap();
+
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_static("Bearer 0123456789abcdef-secret"),
+  );
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Allow(Some(id)) => assert!(id.consumed_authorization),
+    _ => panic!("expected an admitted bearer caller"),
+  }
+
+  // The query form consumes no header, so an `Authorization` the visitor
+  // happened to be sending is theirs and reaches the backend untouched.
+  let query: axum::http::Uri = "/api/items?aperio_token=0123456789abcdef-secret"
+    .parse()
+    .unwrap();
+  match check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &query,
+    None,
+  )
+  .await
+  {
+    VisitorGate::Allow(Some(id)) => assert!(!id.consumed_authorization),
+    _ => panic!("expected an admitted query caller"),
+  }
 }

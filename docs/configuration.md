@@ -460,6 +460,19 @@ The scalar keeps working everywhere it worked, and it is still what `APERIO_SERV
 
 A client refuses to start when its `auth:` says more than the tunnel handshake can carry, rather than announcing a weaker gate than the one written.
 
+#### Telling the backend who came in
+
+The gate has always been a wall: it decided whether a request continued and told the backend nothing, so an application behind a tunnel could not greet anyone without building a second login next to Aperio's. `visitor_identity_headers` (`APERIO_VISITOR_IDENTITY_HEADERS`) turns on two headers on the forwarded request:
+
+| Header | Value |
+| --- | --- |
+| `x-aperio-visitor-how` | `session`, `bearer` or `share`, how they were admitted. |
+| `x-aperio-visitor-id` | The email or username behind a session. Absent for `bearer`, which identifies a caller rather than a person. |
+
+The secret itself does not travel: an `Authorization` header that opened Aperio's gate is stripped before the request is forwarded, on the same rule that already strips the `aperio_session` and `aperio_share` cookies while leaving every other cookie alone. A credential addressed to the gate is not addressed to what is behind it. An `Authorization` header that did *not* open the gate is the visitor's own and passes through untouched.
+
+Off by default: it is the same new trust surface as `identity_headers` and should be adopted as deliberately. A route that is open or ungated identifies nobody and sends neither header, since a value meaning "anonymous" is noise a backend has to learn to ignore. The forgery half is already done, inbound `x-aperio-*` headers are stripped from every proxied request whatever this is set to.
+
 #### Closed by default
 
 `default_access` (`APERIO_DEFAULT_ACCESS`) says what a route **nobody gated** means:
@@ -766,6 +779,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | Variable | Description | Default |
 | --- | --- | --- |
 | `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
+| `APERIO_VISITOR_IDENTITY_HEADERS` | `1` = tell the backend who the visitor is: `x-aperio-visitor-how` (`session` / `bearer` / `share`) and `x-aperio-visitor-id` (the email or username behind a session, where there is one). Off by default, the same new trust surface as `APERIO_IDENTITY_HEADERS` and adopted the same way. An open or ungated route identifies nobody and sends neither header. Inbound `x-aperio-*` is stripped from every proxied request regardless, so a visitor cannot forge one. | `0` |
 | `APERIO_DEFAULT_ACCESS` | What a route nobody gated means: `allow` (today's behaviour) or `deny`, where a route is served because something declared it reachable rather than because nothing declared otherwise. See [Closed by default](#closed-by-default). | `allow` |
 | `APERIO_RANDOM_SUBDOMAIN` | Pattern with a `*` placeholder in the leftmost label, every connecting client gets the pattern with `*` replaced by a random label, in addition to its other binds. `example.com` ≡ `*.example.com`; `*-test.example.com` yields `<random>-test.example.com` (stays on the same subdomain level, so one wildcard TLS cert covers it). |  |
 | `APERIO_PREVIEW_NOINDEX` | `1` = services reached through their random subdomain answer with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt`, so preview environments never end up in search engines. Also live-editable from the dashboard. | `0` |

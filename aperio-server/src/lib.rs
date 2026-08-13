@@ -1211,6 +1211,9 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     identity_headers: std::env::var("APERIO_IDENTITY_HEADERS")
       .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
       .unwrap_or(false),
+    visitor_identity_headers: std::env::var("APERIO_VISITOR_IDENTITY_HEADERS")
+      .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+      .unwrap_or(false),
     request_id_enabled: std::env::var("APERIO_REQUEST_ID")
       .map(|v| !matches!(v.trim(), "0" | "false" | "no"))
       .unwrap_or(true),

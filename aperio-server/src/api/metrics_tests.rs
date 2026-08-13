@@ -78,6 +78,7 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     alert_rules: Default::default(),
     denied_ips: Default::default(),
     identity_headers: false,
+    visitor_identity_headers: false,
     access_log_sample_rate: 1.0,
     alternate_servers: Vec::new(),
     max_streams_per_ip: 0,
