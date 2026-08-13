@@ -250,6 +250,63 @@ test suite.
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
 nothing reuses them.
 
+- **#103 A WebAssembly plugin host (wasmtime) on the server, for operator code
+  on the request path.** Withdrawn 2026-08-13, from a design discussion,
+  nothing was built. The idea: embed a WASM runtime so an operator can run
+  their own logic per request, custom authentication, a routing decision taken
+  from a body field or a cookie, a rate-limit key derived from a header, the
+  transformations `headers:` and `routes:` cannot express.
+
+  **What it would genuinely unlock, stated first because it is real.** Every
+  piece of operator code today runs *outside* the process: a webhook receiver,
+  a scaling hook, a `run:` on a client. None of them can hold a request open
+  and decide about it. A plugin could, it would let someone customise the
+  request path without forking the server or putting a proxy in front, and it
+  would move at the operator's cadence rather than the release's.
+
+  Four reasons it was dropped, in the order that decided it:
+
+  1. **The sandbox has no buyer here.** WASM's only real advantage over a
+     native plugin or a subprocess is isolating code you do not trust. An
+     Aperio plugin is written by the operator, who already runs the binary and
+     holds the master token; isolating code from someone with root on the box
+     buys nothing. The isolation is the product in the model where a *tenant*
+     deploys code to somebody else's edge, and that is not the tenant story
+     here: a tenant gets a token, not a machine. Giving one code execution on
+     the shared front door is the opposite direction from the work spent
+     narrowing what a tenant token can hear.
+  2. **The expensive part is the host interface, not the runtime.** What does
+     a plugin see and mutate, headers only or the body too, may it call out,
+     may it hold state between requests, may it block? Every answer is a
+     permanent API, and it is a worse compatibility promise than the tunnel
+     protocol: there both ends are ours, here the other end is third-party
+     code. Same shape as #40, where the handshake was small and the surface
+     around it was the whole cost.
+  3. **It contradicts the design taste already written down.**
+     `aperio-server/src/alert_rules.rs` says a rule is deliberately not an
+     expression language, because that is "a thing to maintain, document and
+     get wrong at 3am"; a WASM host is the maximal version of it. #78 withdrew
+     body rewriting because buffering undoes the streaming path, and a plugin
+     touching bodies has the identical problem with the buffering now in code
+     we did not write. #80 withdrew three ideas for re-implementing a layer
+     that already exists underneath, and the layer here is the fronting proxy
+     the docs already tell operators to run (see #71).
+  4. **The cost lands on a number we advertise.** wasmtime carries Cranelift, a
+     JIT: a large permanent dependency with its own CVE stream, on a server
+     whose README second bullet is a 14 MB binary idling at 14 MB RSS. How much
+     it would add is **unmeasured** and no number is claimed here, but the
+     category is not "a few hundred KB", and per-request instantiation is on
+     the hot path however it is pooled.
+
+  **What would justify revisiting is a product change, not a request.** If
+  Aperio became a multi-tenant edge platform where tenants deploy code, the
+  isolation becomes the product and the whole calculation inverts. Short of
+  that, the answer to "I need X on the request path" is: name X. The category
+  that keeps arriving is authentication, and that is #104, which covers it
+  declaratively and executes nothing. Anything left after #104 should be an
+  out-of-process hook with a request/response contract, the shape `run:`,
+  webhooks and scaling hooks all already use, rather than an in-process JIT.
+
 - **#8 Pool Unix-domain-socket backend connections.** Withdrawn 2026-07-31. It
   would break a documented behaviour to buy an unmeasured saving:
   `docs/configuration.md` promises that a `unix://` target "dials the socket
