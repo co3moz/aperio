@@ -1747,6 +1747,32 @@ readable. On the client side a policy saying more than the tunnel
 handshake can carry refuses the start, rather than announcing a gate
 weaker than the one written.
 
+\subsection{Closed by default}
+\label{sec:default-access}
+
+\code{default\_access} says what a route \textbf{nobody gated} means.
+\code{allow} is what the server has always done: with no \code{auth:}
+anywhere, every route serves everyone. \code{deny} inverts it, so a route
+is served because something said so, an \code{auth:} policy that admits
+the visitor or an explicit \code{method: none} / \code{public: true}, and
+not because nothing said otherwise.
+
+This is the setting that makes a throwaway \code{auth: DUMMY:DUMMY}
+unnecessary. Writing one was the only way to say "not public" while
+\code{public:} was an exemption from a gate that might not exist, which is
+a configuration language admitting it cannot express \emph{closed}.
+
+An undeclared route under \code{deny} is refused with the same answer an
+unclaimed hostname gives, so the existence of something there never leaks
+to a caller who was not going to be let in. A route that \emph{is} gated
+is untouched: the posture decides what an unstated route means and
+nothing else.
+
+The default stays \code{allow} for now, and while it does, a client
+connecting with a service nothing gates logs a warning once, naming what
+to write. The eventual flip should not be the first time anyone hears
+about it.
+
 \section{OIDC}
 
 Point Aperio at an identity provider and unauthenticated visitors are
@@ -2972,6 +2998,8 @@ the machine-readable catalogue, which is the one that cannot drift.
 \midrule
 \endhead
 \code{APERIO\_REQUIRE\_HOSTNAME\_BIND} & \code{1} = clients without a hostname bind never receive traffic (strict multi-tenant mode). & \code{0} \\
+\rowsep
+\code{APERIO\_DEFAULT\_ACCESS} & What a route nobody gated means: \code{allow}, which is what the server has always done, or \code{deny}, where a route is served because something declared it reachable rather than because nothing declared otherwise. An undeclared route is then refused with the answer an unclaimed hostname already gives, so its existence does not leak. A gated route is untouched either way. An unreadable value refuses the start rather than being guessed at. & \code{allow} \\
 \rowsep
 \code{APERIO\_RANDOM\_SUBDOMAIN} & Pattern with a \code{*} placeholder in the leftmost label, every connecting client gets the pattern with \code{*} replaced by a random label, in addition to its other binds. \code{example.com} $\equiv$ \code{*.example.com}; \code{*-test.example.com} yields \code{<random>-test.example.com} (stays on the same subdomain level, so one wildcard TLS cert covers it). &  \\
 \rowsep

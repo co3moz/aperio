@@ -460,6 +460,21 @@ The scalar keeps working everywhere it worked, and it is still what `APERIO_SERV
 
 A client refuses to start when its `auth:` says more than the tunnel handshake can carry, rather than announcing a weaker gate than the one written.
 
+#### Closed by default
+
+`default_access` (`APERIO_DEFAULT_ACCESS`) says what a route **nobody gated** means:
+
+| Value | Meaning |
+| --- | --- |
+| `allow` (default) | What the server has always done: with no `auth:` anywhere, every route serves everyone. |
+| `deny` | A route is served because something said so, an `auth:` policy that admits the visitor or an explicit `method: none` / `public: true`, and not because nothing said otherwise. |
+
+Under `deny` an undeclared route is refused with the same answer an unclaimed hostname gives, so the existence of something there does not leak to a caller who was never going to be let in. A route that *is* gated is untouched: the posture decides what an unstated route means, nothing else.
+
+This is the setting that makes `auth: DUMMY:DUMMY` unnecessary. It was the only way to say "not public" while `public:` was an exemption from a gate that might not exist.
+
+The default stays `allow` for now. While it does, a client connecting with a service that nothing gates logs a warning once naming what to write, so the eventual flip is not the first time anyone hears about it. An unreadable value refuses the start rather than being guessed at: `off`, `false` and `no` could each mean either side of this.
+
 ### Editor autocompletion (JSON Schema)
 
 Building the client emits JSON Schemas for both config files to `schemas/` (git-ignored build artifacts, regenerated from the parser types so they never drift): `aperio-client.schema.json` for `aperio.yaml` and `aperio-server.schema.json` for `aperio-server.yaml`. Point your editor's YAML extension at them for completion, hover docs, and validation:
@@ -751,6 +766,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | Variable | Description | Default |
 | --- | --- | --- |
 | `APERIO_REQUIRE_HOSTNAME_BIND` | `1` = clients without a hostname bind never receive traffic (strict multi-tenant mode). | `0` |
+| `APERIO_DEFAULT_ACCESS` | What a route nobody gated means: `allow` (today's behaviour) or `deny`, where a route is served because something declared it reachable rather than because nothing declared otherwise. See [Closed by default](#closed-by-default). | `allow` |
 | `APERIO_RANDOM_SUBDOMAIN` | Pattern with a `*` placeholder in the leftmost label, every connecting client gets the pattern with `*` replaced by a random label, in addition to its other binds. `example.com` ≡ `*.example.com`; `*-test.example.com` yields `<random>-test.example.com` (stays on the same subdomain level, so one wildcard TLS cert covers it). |  |
 | `APERIO_PREVIEW_NOINDEX` | `1` = services reached through their random subdomain answer with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt`, so preview environments never end up in search engines. Also live-editable from the dashboard. | `0` |
 | `APERIO_CLIENT_DOWN_THRESHOLD` | Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). | `15` |

@@ -400,11 +400,20 @@ test suite.
   **The flip is a breaking change and this is the case rule 23 exists for.**
   Nothing on the wire changes (`public` is already announced in the
   handshake), but a server upgrade would take an older fleet dark: every
-  client that never said `public` stops serving. So it is staged. First an
-  explicit `auth.default: allow | deny` whose default is today's behaviour,
-  and a startup warning naming each route that is reachable because nothing
-  gates it. Then the default flips in a major release, with a `CONFIG_CHANGES`
-  entry of severity **`Breaking`** and `applies: Always`: a changed *default*
+  client that never said `public` stops serving. So it is staged.
+
+  **Stage one shipped:** `default_access: allow | deny`
+  (`APERIO_DEFAULT_ACCESS`), defaulting to today's behaviour, with `deny`
+  fully working, and a warning logged once per connection when a client
+  serves something nothing gates. It is spelled `default_access` rather than
+  the `auth.default` this entry first guessed at, because `auth:` is the
+  policy grammar and a `default:` key inside it would sit beside `method:`
+  meaning something entirely different. The warning is per connection rather
+  than at startup for a better reason than convenience: at startup the server
+  knows no routes at all, they arrive when clients declare their binds.
+
+  **Stage two is the flip**, in a major release, with a `CONFIG_CHANGES` entry
+  of severity **`Breaking`** and `applies: Always`: a changed *default*
   affects precisely the operators who never wrote the key. Not `Security`,
   since nothing that was protected stops being protected; what changes is
   availability, and calling it `Security` would refuse the start of every

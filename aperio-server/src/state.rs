@@ -1171,6 +1171,11 @@ pub(crate) struct ClientHandle {
   /// Ensures the "visitor_auth requested but not permitted/invalid" warning
   /// logs once per connection.
   pub(crate) visitor_auth_denied_warned: bool,
+  /// Ensures the "nothing gates this service" warning fires once per client
+  /// connection rather than on every heartbeat. It is the nudge before the
+  /// default flips (`planned_features.md` #108), so it names the thing to
+  /// write rather than only the state it found.
+  pub(crate) ungated_warned: bool,
   /// Ensures the "allowed_ips entry invalid" warning fires once per client
   /// connection, not on every heartbeat.
   pub(crate) allowed_ips_invalid_warned: bool,

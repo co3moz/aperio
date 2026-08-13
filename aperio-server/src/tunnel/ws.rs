@@ -1424,6 +1424,25 @@ impl ConnCtx {
             );
           }
         }
+        // The service nothing gates. Said once per connection, and only
+        // while the server is still open by default, because that is the
+        // configuration where an ungated service is reachable by anyone and
+        // nothing in the file says so: it is open because nothing closed it.
+        // Under `default_access: deny` this is not a warning but the stated
+        // policy, and the route is simply refused (planned_features #108).
+        if !handle.ungated_warned
+          && handle.visitor_auth.is_none()
+          && !handle.public
+          && !state.config().visitor_auth.gates()
+          && state.oidc.is_none()
+          && state.config().default_access == crate::settings::DefaultAccess::Allow
+        {
+          handle.ungated_warned = true;
+          warn!(
+            "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
+            client_id
+          );
+        }
         // Client-declared visitor IP allowlist. Purely restrictive
         // (it can only narrow who reaches the client), so no token
         // permission is required; invalid entries are dropped so a
@@ -2241,6 +2260,7 @@ pub(crate) async fn handle_socket(
         public_denied_warned: false,
         visitor_auth: None,
         visitor_auth_denied_warned: false,
+        ungated_warned: false,
         allowed_ips: Vec::new(),
         allowed_ips_invalid_warned: false,
         scaling_invalid_warned: false,

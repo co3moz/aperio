@@ -1633,3 +1633,93 @@ fn the_aperio_header_namespace_is_recognised_case_insensitively() {
     "a different namespace that starts alike"
   );
 }
+
+#[tokio::test]
+async fn closed_by_default_refuses_a_route_nothing_declares_open() {
+  // The posture, and the whole of what it changes: with no `auth:` anywhere,
+  // a route used to be served because nothing said otherwise.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/anything".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  match gate {
+    VisitorGate::Deny(resp) => assert_eq!(
+      resp.status(),
+      StatusCode::GATEWAY_TIMEOUT,
+      "the refusal is the answer an unclaimed route already gives, so the \
+       existence of something here does not leak to a caller who was never \
+       going to be let in"
+    ),
+    VisitorGate::Allow => panic!("expected the closed-by-default refusal"),
+  }
+
+  // The same request under the default posture, which is unchanged.
+  let state = Arc::new(test_state_with(test_config()));
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow));
+}
+
+#[tokio::test]
+async fn closed_by_default_still_serves_what_declares_itself_open() {
+  // `public: true` is the sentence that opens a route, which is what makes
+  // the posture expressible rather than being a second, parallel switch.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(None, None, None, None);
+  c.public = true;
+  state.clients.write().await.insert("c1".to_string(), c);
+
+  let uri: axum::http::Uri = "/anything".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow));
+}
+
+#[tokio::test]
+async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
+  // The posture decides what an *unstated* route means. A route with a gate
+  // has stated something, so nothing about it changes.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  match gate {
+    VisitorGate::Deny(resp) => assert_eq!(
+      resp.status(),
+      StatusCode::FOUND,
+      "a gated route still sends the visitor somewhere they can act"
+    ),
+    VisitorGate::Allow => panic!("expected deny"),
+  }
+}

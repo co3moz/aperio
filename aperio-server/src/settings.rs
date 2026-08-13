@@ -75,6 +75,15 @@ pub(crate) struct ServerConfig {
   /// hostname bind participate in load balancing. Clients without a hostname
   /// bind never receive proxied traffic.
   pub(crate) require_hostname_bind: bool,
+  /// What a route nobody gated means (`planned_features.md` #108).
+  ///
+  /// `Allow` is what the server has always done and stays the default: with
+  /// no `auth:` anywhere, every route serves everyone. `Deny` inverts it, so
+  /// a route is reachable because something said so rather than because
+  /// nothing said otherwise, and `public: true` / `method: none` become the
+  /// sentence that opens one rather than an exemption from a gate that may
+  /// not exist.
+  pub(crate) default_access: DefaultAccess,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   pub(crate) metrics_token: Option<String>,
   /// Honor `scaling:` blocks announced by clients. Off disables the whole
@@ -778,6 +787,29 @@ pub(crate) fn config_reload_diff(old: &ServerConfig, new: &ServerConfig) -> Vec<
     }
   }
   diffs
+}
+
+/// What happens to a proxied route that no `auth:` policy covers.
+///
+/// Two values and deliberately no third: this is a posture, and the moment it
+/// grows a middle setting it stops being answerable with "is this route
+/// reachable, yes or no".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum DefaultAccess {
+  /// Serve it. What the server has always done.
+  #[default]
+  Allow,
+  /// Refuse it, indistinguishably from a route nobody serves.
+  Deny,
+}
+
+/// Parses an `APERIO_DEFAULT_ACCESS` value.
+pub(crate) fn parse_default_access(raw: &str) -> Option<DefaultAccess> {
+  match raw.trim().to_ascii_lowercase().as_str() {
+    "" | "allow" | "open" => Some(DefaultAccess::Allow),
+    "deny" | "closed" => Some(DefaultAccess::Deny),
+    _ => None,
+  }
 }
 
 /// Load-balancing behavior applied after routing narrows the candidate pool.

@@ -22,6 +22,7 @@ fn base_config() -> ServerConfig {
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
     require_hostname_bind: false,
+    default_access: crate::settings::DefaultAccess::Allow,
     metrics_token: None,
     scaling_enabled: false,
     scaling_allow_http: false,
@@ -517,5 +518,24 @@ fn the_live_file_layer_agrees_with_the_table() {
       fields.iter().any(|f| f == key),
       "{setting} is offered as `{key}:`, which the file layer does not read"
     );
+  }
+}
+
+#[test]
+fn the_default_access_posture_is_parsed_from_the_words_an_operator_writes() {
+  for (raw, want) in [
+    ("allow", DefaultAccess::Allow),
+    ("open", DefaultAccess::Allow),
+    ("", DefaultAccess::Allow),
+    ("deny", DefaultAccess::Deny),
+    ("closed", DefaultAccess::Deny),
+    (" DENY ", DefaultAccess::Deny),
+  ] {
+    assert_eq!(parse_default_access(raw), Some(want), "{raw:?}");
+  }
+  // Anything else is refused rather than guessed at: this decides whether a
+  // route is reachable, and "off"/"false"/"no" could each mean either side.
+  for raw in ["off", "false", "no", "1", "strict"] {
+    assert_eq!(parse_default_access(raw), None, "{raw:?}");
   }
 }

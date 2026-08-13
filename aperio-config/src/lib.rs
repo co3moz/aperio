@@ -2958,6 +2958,14 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = ["info", "debug"]))]
   pub log_level: Option<String>,
 
+  /// What a route nobody gated means: `allow` (today's behaviour, and the
+  /// default) or `deny`. With `deny` a route is reachable because something
+  /// said so, an `auth:` policy that admits the visitor or an explicit
+  /// `method: none` / `public: true`, rather than because nothing said
+  /// otherwise (env: APERIO_DEFAULT_ACCESS). Default: `allow`.
+  #[schemars(extend("examples" = ["deny"]))]
+  pub default_access: Option<String>,
+
   // --- Routing & load balancing ---
   /// Require every client to carry a hostname bind
   /// (env: APERIO_REQUIRE_HOSTNAME_BIND). Default: `false`.

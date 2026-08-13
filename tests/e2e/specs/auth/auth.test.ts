@@ -423,3 +423,59 @@ export class BearerMethodSpec extends Test({
     assert.equal(res.body, `backend ${this.backend._port} GET /hello`)
   }
 }
+
+/** A server that serves what is declared reachable, and nothing else. */
+export class ClosedServer extends AperioServerBase({
+  env: { APERIO_DEFAULT_ACCESS: 'deny' },
+}) {}
+
+export class ClosedBackend extends StandardBackendBase() {}
+
+/** Declares nothing: under `deny` this is exactly what is refused. */
+export class UndeclaredClient extends ClientFor(() => ClosedServer, () => ClosedBackend) {
+  _hostname() {
+    return ''
+  }
+  _env() {
+    return { APERIO_HOSTNAME: 'undeclared.e2e.local' }
+  }
+}
+
+/** Says it is open, which is the sentence that serves a route under `deny`. */
+export class DeclaredOpenClient extends ClientFor(() => ClosedServer, () => ClosedBackend) {
+  _hostname() {
+    return 'declared.e2e.local'
+  }
+  _readyPath() {
+    return '/hello'
+  }
+  _env() {
+    return { APERIO_HOSTNAME: 'declared.e2e.local', APERIO_PUBLIC: '1' }
+  }
+}
+
+export class ClosedByDefaultSpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => ClosedServer,
+    backend: () => ClosedBackend,
+    undeclared: () => UndeclaredClient,
+    declared: () => DeclaredOpenClient,
+  },
+}) {
+  async whatDeclaresItselfOpenIsServed() {
+    const res = await this.server._fetch('/hello', { host: 'declared.e2e.local' })
+    assert.equal(res.status, 200)
+    assert.equal(res.body, `backend ${this.backend._port} GET /hello`)
+  }
+
+  async whatDeclaresNothingIsRefusedIndistinguishablyFromAnUnclaimedRoute() {
+    // Both answers are the same on purpose: a caller who was never going to
+    // be let in learns nothing about whether anything is there.
+    const undeclared = await this.server._fetch('/hello', { host: 'undeclared.e2e.local' })
+    const nobody = await this.server._fetch('/hello', { host: 'nothing-here.e2e.local' })
+    assert.equal(undeclared.status, 504)
+    assert.equal(undeclared.status, nobody.status)
+    assert.equal(undeclared.body, nobody.body)
+  }
+}

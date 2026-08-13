@@ -506,7 +506,30 @@ pub(crate) async fn check_visitor_gate(
   let config = state.config();
   let policy = &config.visitor_auth;
   let auth_configured = policy.gates() || state.oidc.is_some();
-  if !auth_configured || crate::routing::route_is_public(state, path, host).await {
+  // Declared open, by every client that could serve this route. This is the
+  // one sentence that opens a route under either posture, which is what makes
+  // `deny` expressible at all rather than being a second, parallel switch.
+  if crate::routing::route_is_public(state, path, host).await {
+    return VisitorGate::Allow;
+  }
+  if !auth_configured {
+    // Nothing gates this route. Under the default posture that has always
+    // meant "serve it"; under `deny` it means the route was never declared
+    // reachable, and the answer is the one an unclaimed hostname already
+    // gives, so the existence of something here does not leak to a caller who
+    // was never going to be let in.
+    if config.default_access == crate::settings::DefaultAccess::Deny {
+      tracing::debug!(
+        "Refusing {} on {}: closed by default and nothing declares this route open",
+        path,
+        host.unwrap_or("-")
+      );
+      return VisitorGate::Deny(gateway_timeout_response(
+        state,
+        host,
+        "504 Gateway Timeout - No client connected in time",
+      ));
+    }
     return VisitorGate::Allow;
   }
   if validate_session(state, headers).await {

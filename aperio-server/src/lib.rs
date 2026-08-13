@@ -705,6 +705,25 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
 
+  // What a route nobody gated means. An unreadable value refuses the start
+  // rather than falling back: this decides whether a route is open, and
+  // guessing at it is the one thing a posture setting must never do.
+  let default_access = match std::env::var("APERIO_DEFAULT_ACCESS") {
+    Ok(raw) => match settings::parse_default_access(&raw) {
+      Some(v) => v,
+      None => {
+        error!("APERIO_DEFAULT_ACCESS: `{raw}` is not `allow` or `deny`");
+        std::process::exit(1);
+      }
+    },
+    Err(_) => settings::DefaultAccess::Allow,
+  };
+  if default_access == settings::DefaultAccess::Deny {
+    info!(
+      "Closed by default: a proxied route is served only where an `auth:` policy admits the visitor, or where it is declared open (`method: none` / `public: true`)"
+    );
+  }
+
   // Prometheus metrics endpoint (default: disabled). Auth is always required:
   // either APERIO_METRICS_TOKEN, or a random token generated once and
   // persisted in the data directory (a truly public metrics endpoint brings
@@ -1065,6 +1084,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     admin_allowed_ips,
     secure_cookies,
     require_hostname_bind,
+    default_access,
     metrics_token,
     scaling_enabled,
     scaling_allow_http,
@@ -2580,6 +2600,7 @@ pub mod testkit {
         public_denied_warned: false,
         visitor_auth: None,
         visitor_auth_denied_warned: false,
+        ungated_warned: false,
         allowed_ips: Vec::new(),
         allowed_ips_invalid_warned: false,
         scaling_invalid_warned: false,
