@@ -327,6 +327,117 @@ fn login_redirect(login_path: &str, uri_str: &str) -> Response {
     .unwrap()
 }
 
+/// The bearer secret a request presents, and where it presented it.
+///
+/// Two forms, and the difference matters beyond parsing: the header form is
+/// invisible to logs, the query form is not, which is why a method has to opt
+/// into the second and why a browser navigation carrying one is redirected to
+/// a clean URL before anything records it.
+struct PresentedSecret {
+  value: String,
+  from_query: bool,
+}
+
+/// Reads a bearer secret off a request: `Authorization: Bearer <secret>`
+/// first, then `?aperio_token=` when some method in `policy` accepts it.
+///
+/// The header is preferred whatever the query says, so a caller that can set
+/// one is never talked into the form that ends up in logs.
+fn presented_secret(
+  headers: &HeaderMap,
+  uri: &axum::http::Uri,
+  policy: &crate::visitor_auth::Policy,
+) -> Option<PresentedSecret> {
+  if let Some(secret) = headers
+    .get("authorization")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.strip_prefix("Bearer "))
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+  {
+    return Some(PresentedSecret {
+      value: secret.to_string(),
+      from_query: false,
+    });
+  }
+  if !policy.accepts_query_token() {
+    return None;
+  }
+  query_token(uri).map(|value| PresentedSecret {
+    value,
+    from_query: true,
+  })
+}
+
+/// The `aperio_token=` value in a URI's query string, if there is one.
+///
+/// Named like `aperio_share`, which it sits beside in the same query string
+/// and is treated by the same rule: an `aperio_`-prefixed parameter belongs to
+/// the gate and never reaches the backend.
+fn query_token(uri: &axum::http::Uri) -> Option<String> {
+  uri.query()?.split('&').find_map(|pair| {
+    pair
+      .strip_prefix(concat!("aperio_token", "="))
+      .filter(|v| !v.is_empty())
+      .map(|v| v.to_string())
+  })
+}
+
+/// The same URI without its `aperio_token=` parameter.
+fn uri_without_token(uri: &axum::http::Uri) -> String {
+  let path = uri.path();
+  let Some(query) = uri.query() else {
+    return path.to_string();
+  };
+  let rest: Vec<&str> = query
+    .split('&')
+    .filter(|pair| !pair.starts_with(concat!("aperio_token", "=")) && !pair.is_empty())
+    .collect();
+  if rest.is_empty() {
+    path.to_string()
+  } else {
+    format!("{}?{}", path, rest.join("&"))
+  }
+}
+
+/// Is this request a browser navigation, rather than a call from something
+/// that speaks in headers?
+///
+/// The signal is the one `serve_spa` already uses for the same question. It
+/// decides two things here: whether a refusal is a redirect to a login page or
+/// a `401` the caller can answer, and whether a secret in the URL is turned
+/// into a cookie so the page's own assets load.
+fn is_navigation(method: &axum::http::Method, headers: &HeaderMap) -> bool {
+  method == axum::http::Method::GET
+    && headers
+      .get("accept")
+      .and_then(|v| v.to_str().ok())
+      .is_some_and(|v| v.contains("text/html"))
+}
+
+/// Refuses a gated request in the shape its caller can act on.
+///
+/// A browser is sent to a login page, as it always was. Anything else, when
+/// the gate has a method that lives on the request itself, gets `401` with a
+/// `WWW-Authenticate` challenge: redirecting a script to an HTML login form
+/// answers a question it did not ask, and it is why a gated route could not
+/// be reached with `curl` at all.
+fn refuse_visitor(
+  policy: &crate::visitor_auth::Policy,
+  navigation: bool,
+  login_path: &str,
+  uri_str: &str,
+) -> Response {
+  match policy.challenge() {
+    Some(scheme) if !navigation && policy.has_direct_method() => Response::builder()
+      .status(StatusCode::UNAUTHORIZED)
+      .header("WWW-Authenticate", scheme)
+      .body(Body::empty())
+      .unwrap(),
+    _ => login_redirect(login_path, uri_str),
+  }
+}
+
 /// Applies the visitor-auth gate for a proxied request to (host, path), shared
 /// by the HTTP and WebSocket proxy paths.
 ///
@@ -340,14 +451,21 @@ fn login_redirect(login_path: &str, uri_str: &str) -> Response {
 ///    always uses the password form (never OIDC), since the credentials are the
 ///    client's.
 /// 2. Otherwise the server's own gate applies: public routes skip it; a
-///    configured server password / OIDC requires a global session or a share.
+///    configured server password / OIDC requires a global session or a share,
+///    and a `bearer` method may also be satisfied by the request itself.
+///
+/// `method` is here only to tell a browser navigation from a call by
+/// something that speaks in headers, which decides the shape of a refusal and
+/// what happens to a secret presented in the URL.
 pub(crate) async fn check_visitor_gate(
   state: &Arc<AppState>,
+  method: &axum::http::Method,
   headers: &HeaderMap,
   uri: &axum::http::Uri,
   host: Option<&str>,
 ) -> VisitorGate {
   let path = uri.path();
+  let navigation = is_navigation(method, headers);
 
   // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
   // bind, but a backend that resolves `..` serves `/b`, so such a path is
@@ -385,11 +503,38 @@ pub(crate) async fn check_visitor_gate(
   }
 
   // 2. Server's own visitor gate.
-  let auth_configured = state.config().visitor_auth.gates() || state.oidc.is_some();
+  let config = state.config();
+  let policy = &config.visitor_auth;
+  let auth_configured = policy.gates() || state.oidc.is_some();
   if !auth_configured || crate::routing::route_is_public(state, path, host).await {
     return VisitorGate::Allow;
   }
   if validate_session(state, headers).await {
+    return VisitorGate::Allow;
+  }
+  // A credential carried by the request itself, which is the only way a
+  // caller without a browser can get in: the session cookie is the whole of
+  // what the gate used to look at.
+  if let Some(presented) = presented_secret(headers, uri, policy)
+    && policy.admits_bearer(&presented.value, presented.from_query)
+  {
+    if !presented.from_query || !navigation {
+      return VisitorGate::Allow;
+    }
+    // A secret in the URL of a page load is turned into a cookie and the
+    // visitor is sent to the clean address, so the page's own assets are not
+    // each a second request carrying the secret, and so the address that
+    // reaches the access log, the `Referer` of every outbound link and the
+    // browser's history has no secret in it. Exactly what a share link does
+    // on its first click, and it reuses that cookie rather than inventing a
+    // second one: the scope is the same question and it already has an answer.
+    if let Some(host) = host {
+      return VisitorGate::Deny(crate::share::grant_cookie_and_redirect(
+        state,
+        host,
+        &uri_without_token(uri),
+      ));
+    }
     return VisitorGate::Allow;
   }
   match check_share_access(state, headers, uri, host) {
@@ -401,7 +546,12 @@ pub(crate) async fn check_visitor_gate(
       } else {
         "/aperio/auth"
       };
-      VisitorGate::Deny(login_redirect(login_path, &uri.to_string()))
+      VisitorGate::Deny(refuse_visitor(
+        policy,
+        navigation,
+        login_path,
+        &uri.to_string(),
+      ))
     }
   }
 }
@@ -699,7 +849,12 @@ async fn proxy_http_request(
   trace_headers: Vec<(String, String)>,
 ) -> Response {
   let method_str = method.to_string();
-  let uri_str = uri.to_string();
+  // The gate's own query parameter is stripped before anything downstream
+  // sees it: it is a credential for Aperio, and a backend has no more business
+  // reading it than it has reading the session cookie, which is stripped for
+  // the same reason. The access log already keeps only the path, and the
+  // inspector masks the value, so this closes the last place it travelled.
+  let uri_str = uri_without_token(&uri);
   let start_time = Instant::now();
 
   // 1. Per-IP Rate Limiting (Token Bucket)
@@ -721,6 +876,7 @@ async fn proxy_http_request(
   // supersedes the server's own visitor password / OIDC; public routes skip it.
   if let VisitorGate::Deny(resp) = check_visitor_gate(
     &state,
+    &method,
     &headers,
     &uri,
     extract_request_host(&headers).as_deref(),

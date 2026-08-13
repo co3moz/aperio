@@ -90,6 +90,9 @@ pub(crate) async fn handle_ws_proxy(
   // it. A share cookie set during the page load also covers its WebSockets.
   if let crate::proxy::VisitorGate::Deny(resp) = crate::proxy::check_visitor_gate(
     &state,
+    // An upgrade is never a navigation: a browser opening a socket cannot be
+    // sent to a login page, and a 401 is the only answer it can act on.
+    &axum::http::Method::CONNECT,
     &headers,
     &uri,
     extract_request_host(&headers).as_deref(),

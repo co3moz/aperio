@@ -107,3 +107,68 @@ fn the_open_gate_admits_without_a_credential_and_carries_none() {
   assert_eq!(p.as_single_credential(), None);
   assert!(!p.admits_credential("anything:atall"));
 }
+
+#[test]
+fn a_bearer_secret_opens_its_gate_and_nothing_else_does() {
+  let p = policy("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  assert!(p.gates());
+  assert!(p.admits_bearer("0123456789abcdef-secret", false));
+  assert!(!p.admits_bearer("something-else-entirely", false));
+  // A bearer gate has no `user:password` half, so the login form cannot open
+  // it and the scalar surfaces cannot describe it.
+  assert!(!p.admits_credential("0123456789abcdef-secret"));
+  assert_eq!(p.as_single_credential(), None);
+  assert_eq!(p.method_names(), vec!["bearer"]);
+}
+
+#[test]
+fn the_query_form_is_off_until_a_method_asks_for_it() {
+  // The query string is the form that reaches logs and history, so it is a
+  // decision per gate rather than a property of the secret.
+  let header_only = policy("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  assert!(header_only.admits_bearer("0123456789abcdef-secret", false));
+  assert!(
+    !header_only.admits_bearer("0123456789abcdef-secret", true),
+    "the same secret in a URL must not open a gate that never asked for it"
+  );
+  assert!(!header_only.accepts_query_token());
+
+  let opted_in = policy("{method: bearer, secret: \"0123456789abcdef-secret\", query: true}");
+  assert!(opted_in.admits_bearer("0123456789abcdef-secret", true));
+  assert!(opted_in.accepts_query_token());
+}
+
+#[test]
+fn several_secrets_are_alternatives_so_a_key_can_be_rotated() {
+  let p = policy("{method: bearer, secret: [\"0123456789abcdef-new\", \"0123456789abcdef-old\"]}");
+  assert!(p.admits_bearer("0123456789abcdef-new", false));
+  assert!(p.admits_bearer("0123456789abcdef-old", false));
+  assert!(!p.admits_bearer("0123456789abcdef-gone", false));
+}
+
+#[test]
+fn a_gate_answers_in_the_shape_its_caller_can_act_on() {
+  // What decides between a 401 and a login redirect: whether the gate has
+  // anything a caller could present on the request itself.
+  let bearer = policy("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  assert!(bearer.has_direct_method());
+  assert_eq!(bearer.challenge(), Some("Bearer"));
+
+  let basic = policy("{method: basic, users: \"a:b\"}");
+  assert!(
+    !basic.has_direct_method(),
+    "basic is a login form; there is nothing to answer a 401 with"
+  );
+  assert_eq!(basic.challenge(), None);
+
+  // A route offering both answers a script and a browser each in their own
+  // shape, which is the whole reason the policy is a list.
+  let both = policy(
+    "[{method: basic, users: \"a:b\"}, {method: bearer, secret: \"0123456789abcdef-secret\"}]",
+  );
+  assert!(both.gates());
+  assert!(both.admits_credential("a:b"));
+  assert!(both.admits_bearer("0123456789abcdef-secret", false));
+  assert_eq!(both.challenge(), Some("Bearer"));
+  assert_eq!(both.method_names(), vec!["basic", "bearer"]);
+}

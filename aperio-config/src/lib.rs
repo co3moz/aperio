@@ -2453,6 +2453,19 @@ pub struct AuthMethodSpec {
   #[serde(default)]
   #[schemars(extend("examples" = ["admin:s3cret", ["admin:s3cret", "ops:hunter2"]]))]
   pub users: Option<Credentials>,
+  /// `bearer`: the secret a caller presents as `Authorization: Bearer <secret>`.
+  /// One or a list, all alternatives on the same gate, so a key can be
+  /// rotated by adding the new one before withdrawing the old.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["${API_SECRET}", ["${API_SECRET}", "${API_SECRET_PREVIOUS}"]]))]
+  pub secret: Option<Credentials>,
+  /// `bearer`: also accept the secret as `?aperio_token=`, for the callers
+  /// that cannot set a header. **Off by default**: a query string reaches the
+  /// access log, the `Referer` header, browser history and every proxy in
+  /// front, so this is a trade an operator makes on purpose.
+  #[serde(default)]
+  #[schemars(extend("examples" = [true]))]
+  pub query: Option<bool>,
 }
 
 /// A `basic` method's credentials: one `user:password` or a list of them.
@@ -2485,6 +2498,8 @@ impl AuthSetting {
       AuthSetting::Credentials(creds) => vec![AuthMethodSpec {
         method: "basic".to_string(),
         users: Some(Credentials::One(creds.clone())),
+        secret: None,
+        query: None,
       }],
       AuthSetting::One(spec) => vec![spec.clone()],
       AuthSetting::Any(specs) => specs.clone(),
@@ -2530,7 +2545,16 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer"];
+
+/// Shortest `bearer` secret accepted.
+///
+/// A bearer secret is one opaque string compared verbatim: unlike a
+/// `user:password` there is no second half, no login form, and no lockout in
+/// front of it, so its length is the whole of its strength. Operators reach
+/// for short strings while testing and leave them in, which is the failure
+/// this refuses at the point it is written.
+pub const MIN_BEARER_SECRET_LEN: usize = 16;
 
 /// Is this a `basic` credential the login path could ever match?
 ///
@@ -2577,13 +2601,48 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
     }
     match name.as_str() {
       "none" => {
-        if spec.users.is_some() {
+        if spec.users.is_some() || spec.secret.is_some() {
           return Err(at(
-            "`method: none` is the open gate and takes no `users:`".to_string(),
+            "`method: none` is the open gate and takes no credentials".to_string(),
           ));
         }
       }
+      "bearer" => {
+        if spec.users.is_some() {
+          return Err(at(
+            "`method: bearer` takes `secret:`, not `users:`; it has no user half".to_string(),
+          ));
+        }
+        let Some(secrets) = spec.secret.as_ref() else {
+          return Err(at(
+            "`method: bearer` needs `secret:`, the value a caller presents as `Authorization: Bearer`"
+              .to_string(),
+          ));
+        };
+        if secrets.as_slice().is_empty() {
+          return Err(at("`secret:` is empty".to_string()));
+        }
+        for secret in secrets.as_slice() {
+          if secret.trim().is_empty() {
+            return Err(at(
+              "a blank `secret:` would be a gate that opens for an empty header".to_string(),
+            ));
+          }
+          if secret.len() < MIN_BEARER_SECRET_LEN {
+            return Err(at(format!(
+              "this `secret:` is {} characters; a bearer secret is compared verbatim and has no user half to slow a guess down, so it carries the whole of the gate and needs at least {MIN_BEARER_SECRET_LEN}",
+              secret.len()
+            )));
+          }
+        }
+      }
       "basic" => {
+        if spec.secret.is_some() {
+          return Err(at(
+            "`method: basic` takes `users:`, not `secret:`; `secret:` belongs to `bearer`"
+              .to_string(),
+          ));
+        }
         let Some(users) = spec.users.as_ref() else {
           return Err(at(
             "`method: basic` needs `users:`, one or more `user:password`".to_string(),

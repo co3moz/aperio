@@ -29,6 +29,15 @@ pub(crate) enum Method {
   /// A `user:password` login. Several credentials may open one gate; they are
   /// alternatives, not a sequence.
   Basic { users: Vec<String> },
+  /// An opaque secret presented as `Authorization: Bearer <secret>`, and,
+  /// when `query` says so, as `?aperio_token=<secret>`.
+  ///
+  /// The secret is held and compared verbatim rather than hashed, which is
+  /// deliberate and worth the sentence: it is a high-entropy value the
+  /// operator generated, so there is no dictionary to defend against, and it
+  /// has to be comparable against whatever they wrote in the file. That is a
+  /// different shape from `basic`, whose password is chosen by a person.
+  Bearer { secrets: Vec<String>, query: bool },
 }
 
 /// A route's visitor gate: the methods that may admit a visitor, in the order
@@ -68,6 +77,14 @@ impl Policy {
               .as_ref()
               .map(|u| u.as_slice().to_vec())
               .unwrap_or_default(),
+          }),
+          "bearer" => Some(Method::Bearer {
+            secrets: spec
+              .secret
+              .as_ref()
+              .map(|s| s.as_slice().to_vec())
+              .unwrap_or_default(),
+            query: spec.query.unwrap_or(false),
           }),
           _ => None,
         },
@@ -144,8 +161,63 @@ impl Policy {
       .map(|m| match m {
         Method::Open => "none",
         Method::Basic { .. } => "basic",
+        Method::Bearer { .. } => "bearer",
       })
       .collect()
+  }
+
+  /// Does a presented bearer secret open this gate?
+  ///
+  /// `from_query` is true when the secret arrived in the URL rather than in a
+  /// header, and a method that did not opt into that is not consulted: the
+  /// query form is a per-method decision because it is the form that ends up
+  /// in logs, so a gate that never asked for it must not be openable by it.
+  ///
+  /// Every candidate is compared without an early exit, so the answer takes
+  /// the same time whichever secret matched.
+  pub(crate) fn admits_bearer(&self, presented: &str, from_query: bool) -> bool {
+    let mut ok = false;
+    for method in &self.methods {
+      if let Method::Bearer { secrets, query } = method {
+        if from_query && !query {
+          continue;
+        }
+        for candidate in secrets {
+          ok |= constant_time_eq_str(presented, candidate);
+        }
+      }
+    }
+    ok
+  }
+
+  /// True when some method here accepts a secret in the URL, which is what
+  /// decides whether the query parameter is looked at (and then stripped)
+  /// for this route at all.
+  pub(crate) fn accepts_query_token(&self) -> bool {
+    self
+      .methods
+      .iter()
+      .any(|m| matches!(m, Method::Bearer { query: true, .. }))
+  }
+
+  /// True when some method here can be satisfied by a credential presented on
+  /// the request itself, rather than by a session cookie. Such a request is
+  /// answered `401` with a challenge instead of being redirected to a login
+  /// page, because a caller that speaks in headers has no browser to send.
+  pub(crate) fn has_direct_method(&self) -> bool {
+    self
+      .methods
+      .iter()
+      .any(|m| matches!(m, Method::Bearer { .. }))
+  }
+
+  /// The `WWW-Authenticate` value for a refusal, when this policy has
+  /// something for a caller to answer with.
+  pub(crate) fn challenge(&self) -> Option<&'static str> {
+    self.methods.iter().find_map(|m| match m {
+      Method::Bearer { .. } => Some("Bearer"),
+      _ => None,
+    })
   }
 }
 

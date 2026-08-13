@@ -11,6 +11,36 @@ export class AuthServer extends AperioServerBase({
   env: { APERIO_SERVER_AUTH: 'demo:secret123' },
 }) {}
 
+/** A server whose gate is written as a list: a login for people, a key for
+ *  scripts. The case the grammar exists for. */
+export class BearerServer extends AperioServerBase() {
+  _configFile() {
+    return [
+      'server:',
+      '  auth:',
+      '    - method: basic',
+      '      users: "demo:secret123"',
+      '    - method: bearer',
+      '      secret: "0123456789abcdef-e2e-secret"',
+      '      query: true',
+      '',
+    ].join('\n')
+  }
+}
+
+export class BearerBackend extends StandardBackendBase() {}
+
+export class BearerClient extends ClientFor(() => BearerServer, () => BearerBackend) {
+  /** No routability wait: every path on this host is gated, so the 401 the
+   *  gate answers is what a probe would see. The first phase waits instead. */
+  _hostname() {
+    return ''
+  }
+  _env() {
+    return { APERIO_HOSTNAME: 'bearer.e2e.local' }
+  }
+}
+
 export class AuthBackend extends StandardBackendBase() {}
 
 class AuthClient extends ClientFor(() => AuthServer, () => AuthBackend) {}
@@ -312,5 +342,84 @@ export class AuthMethodGrammarSpec extends Test({
     // never be left with no gate and no reason.
     await this.unknown._waitForLog('is not a method')
     await this.unknown._waitForLog('basic')
+  }
+}
+
+const BEARER_SECRET = '0123456789abcdef-e2e-secret'
+const BEARER_HOST = 'bearer.e2e.local'
+
+/** The gate a script can reach, which is the case that had no answer at all. */
+export class BearerMethodSpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => BearerServer,
+    backend: () => BearerBackend,
+    client: () => BearerClient,
+  },
+}) {
+  async aScriptPresentsTheSecretInAHeaderAndIsServed() {
+    await waitFor(
+      async () => {
+        const res = await this.server._fetch('/hello', {
+          host: BEARER_HOST,
+          headers: { authorization: `Bearer ${BEARER_SECRET}` },
+        })
+        return res.body === `backend ${this.backend._port} GET /hello`
+      },
+      { label: 'the bearer gate to admit the secret' },
+    )
+  }
+
+  async aScriptWithoutTheSecretIsToldWhatToPresent() {
+    // Not a redirect to an HTML login form: that is what made a gated route
+    // unreachable with curl in the first place.
+    const res = await this.server._fetch('/hello', { host: BEARER_HOST })
+    assert.equal(res.status, 401)
+    assert.equal(res.headers['www-authenticate'], 'Bearer')
+
+    const wrong = await this.server._fetch('/hello', {
+      host: BEARER_HOST,
+      headers: { authorization: 'Bearer not-the-secret-at-all' },
+    })
+    assert.equal(wrong.status, 401)
+  }
+
+  async aBrowserOnTheSameGateStillGetsTheLoginPage() {
+    const res = await this.server._fetch('/hello', {
+      host: BEARER_HOST,
+      headers: { accept: 'text/html' },
+    })
+    assert.equal(res.status, 302)
+    assert.match(res.headers['location'] ?? '', /\/aperio\/auth/)
+  }
+
+  async theListStillAdmitsThePersonWithAPassword() {
+    // Any-of, in practice: the same route, the other method.
+    const res = await this.server._fetch('/aperio/auth?redirect=/hello', {
+      host: BEARER_HOST,
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from('demo:secret123').toString('base64')}` },
+    })
+    assert.ok(res.status < 400, `the password should log in, got ${res.status}`)
+  }
+
+  async aPageOpenedWithTheSecretInItsUrlIsSentToACleanAddress() {
+    const res = await this.server._fetch(`/hello?aperio_token=${BEARER_SECRET}&page=2`, {
+      host: BEARER_HOST,
+      headers: { accept: 'text/html' },
+    })
+    assert.equal(res.status, 302)
+    assert.equal(res.headers['location'], '/hello?page=2')
+    assert.match(res.headers['set-cookie'] ?? '', /aperio_share=/)
+  }
+
+  async theQueryFormServesANonNavigationDirectly() {
+    // An <img src> or a sender that cannot set headers: no redirect, and the
+    // parameter never reaches the backend, which echoes what it was asked for.
+    const res = await this.server._fetch(`/hello?aperio_token=${BEARER_SECRET}`, {
+      host: BEARER_HOST,
+    })
+    assert.equal(res.status, 200)
+    assert.equal(res.body, `backend ${this.backend._port} GET /hello`)
   }
 }

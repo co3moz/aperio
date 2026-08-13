@@ -1684,7 +1684,52 @@ line already written. Two methods exist today:
         \code{public: true}, and it needs the same token permission.
   \item[\code{basic}] A \code{user:password} login. \code{users:} takes
         one credential or a list, all alternatives on one gate.
+  \item[\code{bearer}] An opaque secret presented as
+        \code{Authorization: Bearer <secret>}. \code{secret:} takes one
+        or a list, so a key rotates by adding the new one before
+        withdrawing the old. Server-side for now: the handshake carries a
+        client's gate as one \code{user:password}, so a client declaring
+        it refuses to start rather than announcing something weaker.
 \end{description}
+
+\subsection{The shape of a refusal}
+
+A browser navigation, a \code{GET} carrying \code{Accept: text/html}, is
+sent to the login page as it always was. Anything else, where the gate
+has a \code{bearer} method, is answered \code{401} with
+\code{WWW-Authenticate}. Redirecting a script to an HTML form answers a
+question it did not ask, and it is the reason a gated route could not be
+reached with \code{curl} at all: the gate read the session cookie and
+nothing else, so a caller with no browser had no way in.
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+auth:
+  - method: basic                  # a person, in a browser
+    users: "admin:s3cret"
+  - method: bearer                 # a script, with no browser
+    secret: ${API_SECRET}
+    query: true                    # ... and, optionally, in the URL
+\end{codecard}
+
+\code{query: true} additionally accepts the secret as
+\code{?aperio\_token=}, for the callers that cannot set a header: an
+\code{<img src>}, a link in an email, a sender with a fixed request
+shape. It is \textbf{off by default}, because a query string reaches the
+\code{Referer} header, browser history and every proxy in front. What
+Aperio itself records stays clean: the access log has only ever kept the
+path, the inspector masks the value, the parameter is stripped before the
+request reaches the backend, and a \emph{page load} carrying one is
+answered with a redirect to the clean address plus a short-lived cookie,
+so the secret is not repeated on every asset of that page. The last move
+is what a share link already does on its first click, and it reuses the
+same cookie rather than inventing a second one.
+
+A \code{bearer} secret is compared verbatim rather than hashed, unlike a
+\code{basic} password. That is deliberate: it is a high-entropy value the
+operator generated, so there is no dictionary to defend against and no
+user half to slow a guess down. It is also why one shorter than sixteen
+characters is refused where it is written, since its length is the whole
+of its strength.
 
 The set is closed on purpose rather than being an extension point, and a
 \code{method:} this build does not know \textbf{refuses the start},

@@ -206,6 +206,50 @@ pub(crate) fn sign_share_claims(claims: &ShareClaims, key: &[u8]) -> String {
   format!("{payload}.{sig}")
 }
 
+/// How long the cookie minted for a `?aperio_token=` page load lasts.
+///
+/// Short on purpose. It exists so a page opened with a secret in its URL can
+/// load its own stylesheet, not so a browser keeps standing access: the
+/// durable credential is the secret, which the caller still holds.
+const QUERY_TOKEN_COOKIE_SECS: u64 = 3600;
+
+/// Mints a share cookie scoped to `host` and redirects to `clean_url`.
+///
+/// The move a share link already makes on its first click, reused by the
+/// `bearer` method's query form (`planned_features.md` #107) so that a secret
+/// in a URL is turned into a cookie once and never travels again: not in the
+/// access log, not in `Referer`, not in browser history, and not on each of
+/// the page's own assets.
+pub(crate) fn grant_cookie_and_redirect(state: &AppState, host: &str, clean_url: &str) -> Response {
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_secs();
+  let claims = ShareClaims {
+    host: host.to_string(),
+    path: None,
+    exp: Some(now + QUERY_TOKEN_COOKIE_SECS),
+    id: uuid::Uuid::new_v4().to_string(),
+  };
+  let token = sign_share_claims(&claims, &share_signing_key(&state.config().token));
+  let secure_flag = if state.config().secure_cookies {
+    "; Secure"
+  } else {
+    ""
+  };
+  let cookie = format!(
+    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
+    SHARE_COOKIE, token, QUERY_TOKEN_COOKIE_SECS, secure_flag
+  );
+  info!("Query token accepted for {host}, redirected to a clean address");
+  Response::builder()
+    .status(StatusCode::FOUND)
+    .header("Location", clean_url)
+    .header("Set-Cookie", cookie)
+    .body(Body::empty())
+    .unwrap()
+}
+
 /// Verifies signature and expiry; returns the claims when the token is valid.
 pub(crate) fn verify_share_token(token: &str, key: &[u8]) -> Option<ShareClaims> {
   use base64::prelude::*;

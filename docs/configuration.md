@@ -437,8 +437,24 @@ The list is **any-of**: a visitor is admitted by the first method that admits th
 | --- | --- |
 | `none` | Deliberately open. The long spelling of `public: true` on a client, and it needs the same token permission. |
 | `basic` | A `user:password` login. `users:` takes one credential or a list of them, all alternatives on the same gate. |
+| `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key can be rotated by adding the new one before withdrawing the old. Server-side only for now: the tunnel handshake carries a client's gate as one `user:password`, so a client declaring `bearer` refuses to start rather than announcing a weaker gate. |
 
-Further methods (`bearer`, `oidc`, `jwt`, `forward`) are each their own piece of work; the set is closed on purpose rather than being a plugin interface. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
+Further methods (`oidc`, `jwt`, `forward`) are each their own piece of work; the set is closed on purpose rather than being a plugin interface. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
+
+**A refusal now has a shape.** A browser navigation (`GET` with `Accept: text/html`) is still redirected to the login page. Anything else, when the gate has a `bearer` method, gets `401` with `WWW-Authenticate: Bearer`: redirecting a script to an HTML form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all.
+
+```yaml
+auth:
+  - method: basic                  # a person, in a browser
+    users: "admin:s3cret"
+  - method: bearer                 # a script, with no browser
+    secret: ${API_SECRET}
+    query: true                    # ... and, optionally, in the URL
+```
+
+`query: true` also accepts the secret as `?aperio_token=<secret>`, for the callers that cannot set a header: an `<img src>`, a link in an email, a sender with a fixed request shape. **Off by default**, because a query string reaches the `Referer` header, browser history and every proxy in front. Aperio keeps its own record clean: the access log has only ever stored the path, the inspector masks the value, the parameter is stripped before the request reaches the backend, and a *page load* carrying one is answered with a redirect to the clean address plus a short-lived cookie, so the secret is not repeated on each of the page's assets. That last move is what a share link already does on its first click, and it reuses the same cookie.
+
+A `bearer` secret is compared verbatim rather than hashed, unlike a `basic` password: it is a high-entropy value the operator generated, so there is no dictionary to defend against and no user half to slow a guess down. That is also why one shorter than 16 characters is refused where it is written.
 
 The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since those surfaces are single values. A policy written in the file that a single credential cannot express (several users, or `method: none`) shows as empty in that field; `GET /aperio/api/settings` carries `visitor_auth_methods` beside it so what is actually in force is still readable.
 

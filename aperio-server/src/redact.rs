@@ -111,9 +111,9 @@ fn field_is_sensitive(name: &str) -> bool {
 
 /// Masks the values of sensitive query parameters in a request URI, so secrets
 /// carried in the query string (`?api_key=`, `?access_token=`, an OAuth
-/// `?code=`, and Aperio's own signed `?aperio_share=` token) never reach the
-/// inspector, the HAR download, or copy-as-cURL. The path and non-sensitive
-/// parameters are preserved.
+/// `?code=`, and Aperio's own `?aperio_share=` / `?aperio_token=`) never reach
+/// the inspector, the HAR download, or copy-as-cURL. The path and
+/// non-sensitive parameters are preserved.
 pub(crate) fn redact_uri(uri: &str) -> String {
   let Some((path, query)) = uri.split_once('?') else {
     return uri.to_string();
@@ -124,6 +124,7 @@ pub(crate) fn redact_uri(uri: &str) -> String {
       Some((k, _))
         if field_is_sensitive(k)
           || k.eq_ignore_ascii_case("aperio_share")
+          || k.eq_ignore_ascii_case("aperio_token")
           || k.eq_ignore_ascii_case("code")
           || k.eq_ignore_ascii_case("sig")
           || k.eq_ignore_ascii_case("signature") =>

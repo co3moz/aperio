@@ -357,7 +357,14 @@ fn cache_hit_if_range_mismatch_serves_full() {
 async fn visitor_gate_allows_without_auth() {
   let state = Arc::new(test_state_with(test_config()));
   let uri: axum::http::Uri = "/anything".parse().unwrap();
-  let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
   assert!(matches!(gate, VisitorGate::Allow));
 }
 
@@ -367,7 +374,14 @@ async fn visitor_gate_denies_when_auth_configured() {
   cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
-  let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
   match gate {
     VisitorGate::Deny(resp) => {
       assert_eq!(resp.status(), StatusCode::FOUND);
@@ -384,7 +398,14 @@ async fn visitor_gate_traversal_requires_session() {
   cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
-  let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
 }
 
@@ -397,7 +418,14 @@ async fn visitor_gate_per_route_visitor_auth() {
   c.visitor_auth = Some("pw".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let uri: axum::http::Uri = "/svc".parse().unwrap();
-  let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
 
   // A valid session for the host unlocks it.
@@ -408,7 +436,146 @@ async fn visitor_gate_per_route_visitor_auth() {
     "cookie",
     HeaderValue::from_str(&format!("aperio_session={token}")).unwrap(),
   );
-  let gate = check_visitor_gate(&state, &headers, &uri, None).await;
+  let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
+  assert!(matches!(gate, VisitorGate::Allow));
+}
+
+#[tokio::test]
+async fn visitor_gate_admits_a_bearer_secret_from_a_header() {
+  // The case that had no answer at all: a caller with no browser reaching a
+  // gated route. The session cookie was the whole of what the gate looked at.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\"}").unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items".parse().unwrap();
+
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_static("Bearer 0123456789abcdef-secret"),
+  );
+  let gate = check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await;
+  assert!(matches!(gate, VisitorGate::Allow));
+
+  let mut wrong = HeaderMap::new();
+  wrong.insert("authorization", HeaderValue::from_static("Bearer nope"));
+  let gate = check_visitor_gate(&state, &axum::http::Method::GET, &wrong, &uri, None).await;
+  assert!(matches!(gate, VisitorGate::Deny(_)));
+}
+
+#[tokio::test]
+async fn a_caller_without_a_browser_is_refused_with_a_challenge_rather_than_a_redirect() {
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\"}").unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items".parse().unwrap();
+
+  // No `Accept: text/html`: a script, which cannot act on an HTML login page.
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  match gate {
+    VisitorGate::Deny(resp) => {
+      assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+      assert_eq!(
+        resp.headers().get("WWW-Authenticate").unwrap(),
+        "Bearer",
+        "the refusal has to say what to present"
+      );
+    }
+    VisitorGate::Allow => panic!("expected deny"),
+  }
+
+  // The same gate, a browser navigation: still the login page, because that
+  // is the shape a browser can act on.
+  let mut browser = HeaderMap::new();
+  browser.insert("accept", HeaderValue::from_static("text/html"));
+  let gate = check_visitor_gate(&state, &axum::http::Method::GET, &browser, &uri, None).await;
+  match gate {
+    VisitorGate::Deny(resp) => assert_eq!(resp.status(), StatusCode::FOUND),
+    VisitorGate::Allow => panic!("expected deny"),
+  }
+}
+
+#[tokio::test]
+async fn a_secret_in_the_url_opens_nothing_unless_the_gate_asked_for_that_form() {
+  let header_only = "{method: bearer, secret: \"0123456789abcdef-secret\"}";
+  let mut cfg = test_config();
+  cfg.visitor_auth =
+    crate::visitor_auth::Policy::compile(&serde_yaml::from_str(header_only).unwrap());
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items?aperio_token=0123456789abcdef-secret"
+    .parse()
+    .unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  assert!(
+    matches!(gate, VisitorGate::Deny(_)),
+    "the query form is opt-in, and this gate did not opt in"
+  );
+}
+
+#[tokio::test]
+async fn a_page_opened_with_a_secret_in_its_url_is_sent_to_a_clean_address() {
+  // Otherwise the secret is in the browser's history, in the `Referer` of
+  // every outbound link, and on each of the page's own assets.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\", query: true}")
+      .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/report?aperio_token=0123456789abcdef-secret&page=2"
+    .parse()
+    .unwrap();
+  let mut browser = HeaderMap::new();
+  browser.insert("accept", HeaderValue::from_static("text/html"));
+
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &browser,
+    &uri,
+    Some("app.example.com"),
+  )
+  .await;
+  match gate {
+    VisitorGate::Deny(resp) => {
+      assert_eq!(resp.status(), StatusCode::FOUND);
+      let location = resp.headers().get("Location").unwrap().to_str().unwrap();
+      assert_eq!(location, "/report?page=2", "the other parameters survive");
+      assert!(!location.contains("aperio_token"));
+      let cookie = resp.headers().get("Set-Cookie").unwrap().to_str().unwrap();
+      assert!(cookie.starts_with("aperio_share="), "{cookie}");
+    }
+    VisitorGate::Allow => panic!("expected the clean-address redirect"),
+  }
+
+  // A non-navigation with the same secret is simply admitted: there is no
+  // page whose assets need a cookie, and a redirect would break the call.
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some("app.example.com"),
+  )
+  .await;
   assert!(matches!(gate, VisitorGate::Allow));
 }
 
@@ -943,7 +1110,14 @@ async fn visitor_gate_traversal_allowed_without_gate() {
   // allowed straight through.
   let state = Arc::new(test_state_with(test_config()));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
-  let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
   assert!(matches!(gate, VisitorGate::Allow));
 }
 

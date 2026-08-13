@@ -1341,3 +1341,46 @@ fn case_and_whitespace_around_a_method_name_do_not_change_it() {
     assert_eq!(policy.as_single_credential(), Some("a:b"), "{spelling}");
   }
 }
+
+#[test]
+fn a_bearer_gate_is_refused_when_it_could_not_hold_the_whole_of_itself() {
+  let good = auth_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  assert!(validate_auth_setting(&good).is_ok());
+
+  let cases = [
+    ("{method: bearer}", "no secret at all"),
+    ("{method: bearer, secret: []}", "an empty list"),
+    ("{method: bearer, secret: \"   \"}", "a blank secret"),
+    (
+      "{method: bearer, secret: \"short\"}",
+      "below the length floor",
+    ),
+    (
+      "{method: bearer, users: \"a:b\"}",
+      "credentials, which bearer has no half for",
+    ),
+    (
+      "{method: basic, users: \"a:b\", secret: \"0123456789abcdef\"}",
+      "a secret on basic",
+    ),
+    (
+      "{method: none, secret: \"0123456789abcdef\"}",
+      "a secret on the open gate",
+    ),
+  ];
+  for (yaml, why) in cases {
+    validate_auth_setting(&auth_of(yaml)).expect_err(&format!("{why} should be refused: {yaml}"));
+  }
+
+  // The length floor says the number, so the fix does not need the source.
+  let err = validate_auth_setting(&auth_of("{method: bearer, secret: \"short\"}")).unwrap_err();
+  assert!(err.contains(&MIN_BEARER_SECRET_LEN.to_string()), "{err}");
+}
+
+#[test]
+fn a_bearer_gate_is_not_expressible_as_the_one_scalar_the_old_surfaces_carry() {
+  // Whatever else changes, this is what keeps a gate from travelling as
+  // something weaker than it is.
+  let p = auth_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  assert_eq!(p.as_single_credential(), None);
+}
