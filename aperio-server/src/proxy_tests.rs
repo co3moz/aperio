@@ -364,7 +364,7 @@ async fn visitor_gate_allows_without_auth() {
 #[tokio::test]
 async fn visitor_gate_denies_when_auth_configured() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("secret".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
@@ -381,7 +381,7 @@ async fn visitor_gate_denies_when_auth_configured() {
 #[tokio::test]
 async fn visitor_gate_traversal_requires_session() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("secret".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
   let gate = check_visitor_gate(&state, &HeaderMap::new(), &uri, None).await;
@@ -1266,7 +1266,7 @@ async fn handler_mirrors_h2_authority_to_host() {
 #[tokio::test]
 async fn handler_visitor_gate_denies_with_302() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("secret".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
   let state = connected(cfg);
   mark_connected(&state).await;
   let _rx = insert_live_client(&state, "c1").await;

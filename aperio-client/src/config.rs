@@ -669,8 +669,10 @@ pub(crate) struct ClientSettings {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
-  /// Per-service visitor login as `user:password` (None = no override).
-  pub(crate) visitor_auth: Option<String>,
+  /// This service's visitor gate: the `user:password` scalar that predates
+  /// the grammar, one `{method: ...}` block, or a list of them
+  /// (None = no override, the server's own gate applies).
+  pub(crate) visitor_auth: Option<aperio_config::AuthSetting>,
   /// Visitor IPs/CIDRs allowed to reach the exposed service (empty = everyone).
   pub(crate) allowed_ips: Vec<String>,
   /// Header add/remove rules for proxied traffic (config files only;
@@ -1393,13 +1395,17 @@ pub(crate) fn resolve_settings(
     .max(1),
     public: o.public
       || layered(None, local.public, env_bool("APERIO_PUBLIC"), home.public).unwrap_or(false),
+    // The CLI flag and the environment variable are scalars, so they can only
+    // ever mean `basic` with one credential; a file may say more than that.
     visitor_auth: layered(
-      o.visitor_auth.clone(),
+      o.visitor_auth
+        .clone()
+        .map(aperio_config::AuthSetting::Credentials),
       local.auth.clone(),
-      env_str("APERIO_VISITOR_AUTH"),
+      env_str("APERIO_VISITOR_AUTH").map(aperio_config::AuthSetting::Credentials),
       home.auth.clone(),
     )
-    .and_then(nonempty),
+    .filter(|a| !matches!(a, aperio_config::AuthSetting::Credentials(c) if c.trim().is_empty())),
     allowed_ips: layered(
       o.allowed_ips.clone().map(|s| split_ip_list(&s)),
       local.allowed_ips.clone(),

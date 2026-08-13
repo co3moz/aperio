@@ -901,9 +901,10 @@ pub struct ServiceEntry {
   /// Serve this service without the server's visitor login (needs a token that allows it).
   #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
-  /// Gate this service behind your own `user:password` login instead of the server's.
-  #[schemars(extend("examples" = ["admin:s3cret"]))]
-  pub auth: Option<String>,
+  /// Gate this service behind your own visitor login instead of the server's.
+  /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
+  #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]
+  pub auth: Option<AuthSetting>,
   /// Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR
   /// ranges); empty/unset = everyone. Enforced by the server before dispatch.
   #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
@@ -1305,9 +1306,10 @@ pub struct FileConfig {
   /// Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
-  /// Gate this client behind your own `user:password` login instead of the server's.
-  #[schemars(extend("examples" = ["admin:s3cret"]))]
-  pub auth: Option<String>,
+  /// Gate this client behind your own visitor login instead of the server's.
+  /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
+  #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]
+  pub auth: Option<AuthSetting>,
   /// Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR
   /// ranges); empty/unset = everyone. Enforced by the server before dispatch.
   #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
@@ -2294,9 +2296,10 @@ pub struct ServerCredentials {
   /// Master token; also the fallback dashboard password.
   #[schemars(extend("examples" = ["change-me-to-a-long-random-string"]))]
   pub token: Option<String>,
-  /// Visitor auth `user:password` gate.
-  #[schemars(extend("examples" = ["admin:s3cret"]))]
-  pub auth: Option<String>,
+  /// The server's default visitor gate: a `user:password` scalar, one
+  /// `{method: ...}` block, or a list of them, any of which admits a visitor.
+  #[schemars(extend("examples" = ["admin:s3cret", [{"method": "basic", "users": ["admin:s3cret"]}]]))]
+  pub auth: Option<AuthSetting>,
 }
 
 /// Where the server may send outbound callbacks (webhook deliveries,
@@ -2407,6 +2410,200 @@ pub struct OtelBridge {
   /// telemetry must never be the reason a tunnel stalls. Default: `256`.
   #[schemars(extend("examples" = [256]))]
   pub queue: Option<usize>,
+}
+
+/// How a visitor gate is written, on either side of the tunnel.
+///
+/// Three spellings of one thing. The scalar `auth: "user:password"` predates
+/// the grammar and keeps working, folding to a single `basic` method; one
+/// block names a method with its settings; a list is admitted when **any** of
+/// its methods admits the visitor, which is what "a browser signs in, a script
+/// presents a key" needs and what a single choice cannot say.
+///
+/// The variants are ordered for `untagged`: a YAML scalar can only be the
+/// first, a mapping only the second, a sequence only the third, so a value is
+/// never read as the wrong shape.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum AuthSetting {
+  /// `auth: "user:password"`, the spelling that predates the method grammar.
+  Credentials(String),
+  /// One method: `auth: {method: none}`.
+  One(AuthMethodSpec),
+  /// Several methods, any one of which admits the visitor.
+  Any(Vec<AuthMethodSpec>),
+}
+
+/// One entry of an `auth:` policy: which method gates the route, and the
+/// settings that method needs.
+///
+/// `method` is deliberately a string here rather than an enum: an unknown one
+/// should be refused by name, with the available methods listed, and a serde
+/// "unknown variant" error inside an untagged enum says only that nothing
+/// matched. The same reason `alert_rules` parses its `metric` by hand.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AuthMethodSpec {
+  /// The gate: `none` (deliberately open) or `basic` (a `user:password`
+  /// login). Further methods are their own backlog entries.
+  #[schemars(extend("examples" = ["basic", "none"]))]
+  pub method: String,
+  /// `basic`: the credentials that open this gate, each `user:password`.
+  /// A single value or a list.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["admin:s3cret", ["admin:s3cret", "ops:hunter2"]]))]
+  pub users: Option<Credentials>,
+}
+
+/// A `basic` method's credentials: one `user:password` or a list of them.
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum Credentials {
+  /// A single `user:password`.
+  One(String),
+  /// Several, any of which opens the gate.
+  Many(Vec<String>),
+}
+
+impl Credentials {
+  /// The credentials as a list, whichever way they were written.
+  pub fn as_slice(&self) -> &[String] {
+    match self {
+      Credentials::One(one) => std::slice::from_ref(one),
+      Credentials::Many(many) => many,
+    }
+  }
+}
+
+impl AuthSetting {
+  /// The policy as a list of method entries, whichever way it was written.
+  ///
+  /// The scalar spelling becomes exactly what it has always meant: one
+  /// `basic` method carrying that one `user:password`.
+  pub fn methods(&self) -> Vec<AuthMethodSpec> {
+    match self {
+      AuthSetting::Credentials(creds) => vec![AuthMethodSpec {
+        method: "basic".to_string(),
+        users: Some(Credentials::One(creds.clone())),
+      }],
+      AuthSetting::One(spec) => vec![spec.clone()],
+      AuthSetting::Any(specs) => specs.clone(),
+    }
+  }
+
+  /// The single `user:password` this policy is equivalent to, when it is
+  /// equivalent to one.
+  ///
+  /// This is what travels to a server that predates the grammar, and what the
+  /// existing scalar surfaces (`APERIO_SERVER_AUTH`, the dashboard's editable
+  /// value) still read. `None` means the policy says something the scalar
+  /// cannot: no credential at all, several of them, or another method.
+  pub fn as_single_credential(&self) -> Option<&str> {
+    match self {
+      AuthSetting::Credentials(creds) => Some(creds.as_str()),
+      AuthSetting::One(spec) => spec.single_credential(),
+      AuthSetting::Any(specs) => match specs.as_slice() {
+        [only] => only.single_credential(),
+        _ => None,
+      },
+    }
+  }
+}
+
+impl AuthMethodSpec {
+  /// The one `user:password` this entry is equivalent to, if it is a `basic`
+  /// method carrying exactly one.
+  fn single_credential(&self) -> Option<&str> {
+    if !self.method.trim().eq_ignore_ascii_case("basic") {
+      return None;
+    }
+    match self.users.as_ref()?.as_slice() {
+      [only] => Some(only.as_str()),
+      _ => None,
+    }
+  }
+}
+
+/// The methods a visitor gate may name today, in the order they are listed
+/// back to an operator who names one that does not exist.
+///
+/// Deliberately a closed set: the open version was considered and withdrawn
+/// (`planned_features.md` #103). Further methods each arrive as their own
+/// entry rather than as a plugin interface.
+pub const AUTH_METHODS: &[&str] = &["none", "basic"];
+
+/// Is this a `basic` credential the login path could ever match?
+///
+/// A value without the separator, or with an empty half, is refused where it
+/// is written rather than at the moment a visitor fails to get in: a gate
+/// nobody can open looks exactly like a gate that is broken.
+fn credential_is_usable(raw: &str) -> bool {
+  match raw.split_once(':') {
+    Some((user, password)) => !user.is_empty() && !password.is_empty(),
+    None => false,
+  }
+}
+
+/// Validates a visitor-auth policy, naming what is wrong and where.
+///
+/// Called from both sides: the client refuses to start on its own `auth:`,
+/// and the server refuses to start on the file's. A policy that parses but
+/// cannot admit anybody is the failure worth catching here, since it presents
+/// as "the password does not work" hours later.
+pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
+  let methods = setting.methods();
+  if methods.is_empty() {
+    return Err("`auth:` is an empty list; remove it, or write `{method: none}` to say the route is deliberately open".to_string());
+  }
+  if methods.len() > 1
+    && methods
+      .iter()
+      .any(|m| m.method.trim().eq_ignore_ascii_case("none"))
+  {
+    return Err(
+      "`method: none` admits everyone, so listing it beside another method makes that method unreachable; keep one or the other"
+        .to_string(),
+    );
+  }
+  for (i, spec) in methods.iter().enumerate() {
+    let at = |what: String| format!("`auth:` entry #{}: {}", i + 1, what);
+    let name = spec.method.trim().to_ascii_lowercase();
+    if !AUTH_METHODS.contains(&name.as_str()) {
+      return Err(at(format!(
+        "`{}` is not a method ({})",
+        spec.method,
+        AUTH_METHODS.join(", ")
+      )));
+    }
+    match name.as_str() {
+      "none" => {
+        if spec.users.is_some() {
+          return Err(at(
+            "`method: none` is the open gate and takes no `users:`".to_string(),
+          ));
+        }
+      }
+      "basic" => {
+        let Some(users) = spec.users.as_ref() else {
+          return Err(at(
+            "`method: basic` needs `users:`, one or more `user:password`".to_string(),
+          ));
+        };
+        if users.as_slice().is_empty() {
+          return Err(at("`users:` is empty".to_string()));
+        }
+        for cred in users.as_slice() {
+          if !credential_is_usable(cred) {
+            return Err(at(format!(
+              "`{cred}` is not `user:password`; a value without both halves can never be logged in with"
+            )));
+          }
+        }
+      }
+      _ => unreachable!("method checked against AUTH_METHODS above"),
+    }
+  }
+  Ok(())
 }
 
 /// `shutdown_drain:` as a number of seconds, or the word `auto`.
@@ -3037,7 +3234,7 @@ pub struct ServerFileConfig {
 
   // --- Auth, dashboard & SSO ---
   /// Deprecated spelling of `server.auth` (env: APERIO_SERVER_AUTH).
-  pub server_auth: Option<String>,
+  pub server_auth: Option<AuthSetting>,
   /// Public dashboard URL enabling passkeys; its domain is the RP ID (env: APERIO_WEBAUTHN_ORIGIN).
   #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
   pub webauthn_origin: Option<String>,

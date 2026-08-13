@@ -337,7 +337,7 @@ async fn the_preview_robots_txt_is_named_when_it_would_answer() {
 #[tokio::test]
 async fn the_visitor_gate_is_reported_when_one_is_configured() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("user:password".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:password");
   let state = Arc::new(test_state_with(cfg));
   state.clients.write().await.insert(
     "c1".to_string(),
@@ -429,7 +429,7 @@ fn a_waf_that_matches_nothing_passes_with_the_caveat() {
 #[tokio::test]
 async fn the_visitor_gate_names_the_servers_password() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("user:pw".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:pw");
   let state = Arc::new(test_state_with(cfg));
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;

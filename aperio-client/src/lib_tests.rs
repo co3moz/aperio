@@ -1218,7 +1218,9 @@ fn test_log_spec_all_branches() {
     connections: Some(aperio_config::Connections::Fixed(4)),
     tcp_target: Some("127.0.0.1:5432".to_string()),
     public: Some(true),
-    auth: Some("user:pass".to_string()),
+    auth: Some(aperio_config::AuthSetting::Credentials(
+      "user:pass".to_string(),
+    )),
     ..Default::default()
   }];
   settings.tunnels = vec![tcp_tunnel("127.0.0.1:6000")];

@@ -30,7 +30,16 @@ pub(crate) struct ServerConfig {
   pub(crate) access_events: bool,
   pub(crate) ip_limit_max: f64,
   pub(crate) ip_limit_refill: f64,
-  pub(crate) auth_credentials: Option<String>,
+  /// The `auth:` block or list as the file wrote it, when it wrote one.
+  /// `None` means the scalar spellings (`APERIO_SERVER_AUTH`, the dashboard's
+  /// editable field) are the whole of what was configured.
+  pub(crate) visitor_auth_block: Option<aperio_config::AuthSetting>,
+  /// The visitor gate in force. **The only stored form of it**: the scalar
+  /// `auth_credentials` the dashboard shows is derived from this rather than
+  /// held beside it, because two fields describing one gate can disagree, and
+  /// the way they disagree is that the request path reads one of them and the
+  /// login path reads the other.
+  pub(crate) visitor_auth: crate::visitor_auth::Policy,
   /// When true, the server trusts `X-Forwarded-For` / `X-Real-IP` headers for
   /// client IP resolution. Only enable when running behind a trusted reverse
   /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
@@ -605,13 +614,6 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
       Some(html.clone())
     };
   }
-  if let Some(ref creds) = o.auth_credentials {
-    c.auth_credentials = if creds.is_empty() {
-      None
-    } else {
-      Some(creds.clone())
-    };
-  }
   if let Some(v) = o.cache_enabled {
     c.cache_enabled = v;
   }
@@ -664,6 +666,20 @@ pub(crate) fn apply_settings_overrides(base: &ServerConfig, o: &SettingsOverride
   if let Some(v) = o.preview_noindex {
     c.preview_noindex = v;
   }
+  // Derived last, and here rather than at each of the places above, because
+  // every effective configuration in the process comes through this function:
+  // startup, a hot reload and a dashboard edit alike. A gate computed at only
+  // some of them is a gate that is right until someone changes a setting.
+  //
+  // The dashboard edits the scalar, so an edit that clears or sets it wins
+  // over a block the file wrote: the operator changing it is looking at the
+  // field they changed, and silently keeping a file's block would make the
+  // dashboard lie about what is in force.
+  if let Some(ref creds) = o.auth_credentials {
+    c.visitor_auth = crate::visitor_auth::Policy::from_credentials(creds);
+  } else if let Some(ref block) = c.visitor_auth_block {
+    c.visitor_auth = crate::visitor_auth::Policy::compile(block);
+  }
   c
 }
 
@@ -699,7 +715,12 @@ pub(crate) fn settings_view(c: &ServerConfig) -> serde_json::Value {
     "random_subdomain_suffix": c.random_subdomain_suffix,
     "custom_504_page": c.custom_504_page,
     "custom_503_page": c.custom_503_page,
-    "auth_credentials": c.auth_credentials,
+    // The scalar spelling of the gate, which is what the dashboard's text
+    // field edits. `null` when the gate is off *and* when it says something a
+    // single credential cannot carry, so the methods travel beside it: a
+    // field showing nothing while a gate is in force would read as "no gate".
+    "auth_credentials": c.visitor_auth.as_single_credential(),
+    "visitor_auth_methods": c.visitor_auth.method_names(),
     "cache_enabled": c.cache_enabled,
     "cache_max_bytes": c.cache_max_bytes,
     "cache_max_stale": c.cache_max_stale,

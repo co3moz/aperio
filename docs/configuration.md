@@ -121,7 +121,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_TRIM_BIND` |  | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
 | `APERIO_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
 | `APERIO_PUBLIC` | `--public` | `public` | Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). | `0` |
-| `APERIO_VISITOR_AUTH` | `--visitor-auth` | `auth` | `user:password`, gate this service behind a client-set visitor login, superseding the server's own `APERIO_SERVER_AUTH` for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as `public`; ignored if the server sets `APERIO_IGNORE_CLIENT_AUTH`. Per `services:` entry via `auth:`. |  |
+| `APERIO_VISITOR_AUTH` | `--visitor-auth` | `auth` | Gate this service behind a client-set visitor login, superseding the server's own `APERIO_SERVER_AUTH` for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as `public`; ignored if the server sets `APERIO_IGNORE_CLIENT_AUTH`. Per `services:` entry via `auth:`. In yaml this is either the `user:password` scalar or a method block, `auth: {method: basic, users: "admin:s3cret"}` and `auth: {method: none}` (the long spelling of `public: true`); the CLI flag and the environment variable are scalars, so they always mean `basic`. See [Visitor authentication](#visitor-authentication). |  |
 | `APERIO_ALLOWED_IPS` | `--allowed-ips` | `allowed_ips` | Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. `203.0.113.7,10.0.0.0/8`). Enforced by the server **per candidate, before dispatch**, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (**union semantics**, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level `allowed_ips` for route-wide lockdown). A visitor every candidate rejects gets the `denied:` redirect of the most-primary declaring candidate, or, without one, a **stealth answer identical to an unclaimed route** (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Per `services:` entry via `allowed_ips:`. | everyone |
 | `APERIO_DENIED` |  | `denied` | Absolute http(s) URL a fully rejected visitor (see `allowed_ips`) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. Per `services:` entry via `denied:`. | stealth |
 | `APERIO_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `APERIO_LB_STRATEGY=primary-standby`). | `0` |
@@ -419,6 +419,31 @@ Preset headers replace whatever the backend sent for the same name, but explicit
 
 The preset has environment spellings too, for a client with no file: `APERIO_SECURITY_HEADERS` (the whole preset on or off) and the granular `APERIO_SECURITY_HEADERS_HSTS`, `APERIO_SECURITY_HEADERS_HSTS_MAX_AGE`, `APERIO_SECURITY_HEADERS_FRAME_OPTIONS`, `APERIO_SECURITY_HEADERS_NOSNIFF`, `APERIO_SECURITY_HEADERS_REFERRER_POLICY` and `APERIO_SECURITY_HEADERS_CSP`, each read on its own so one of them can be overridden without restating the rest.
 
+### Visitor authentication
+
+`auth:` is the same grammar on both sides of the tunnel: on the server it is the default gate for every route, on a client's service it overrides that gate for the traffic routed there. Three spellings of one thing.
+
+```yaml
+auth: "admin:s3cret"                              # the scalar, unchanged
+auth: { method: basic, users: "admin:s3cret" }    # one method
+auth:                                             # several: any one admits
+  - method: basic
+    users: [admin:s3cret, ops:hunter2]
+```
+
+The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key" once the methods for it exist. Two methods exist today:
+
+| `method:` | What it does |
+| --- | --- |
+| `none` | Deliberately open. The long spelling of `public: true` on a client, and it needs the same token permission. |
+| `basic` | A `user:password` login. `users:` takes one credential or a list of them, all alternatives on the same gate. |
+
+Further methods (`bearer`, `oidc`, `jwt`, `forward`) are each their own piece of work; the set is closed on purpose rather than being a plugin interface. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
+
+The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since those surfaces are single values. A policy written in the file that a single credential cannot express (several users, or `method: none`) shows as empty in that field; `GET /aperio/api/settings` carries `visitor_auth_methods` beside it so what is actually in force is still readable.
+
+A client refuses to start when its `auth:` says more than the tunnel handshake can carry, rather than announcing a weaker gate than the one written.
+
 ### Editor autocompletion (JSON Schema)
 
 Building the client emits JSON Schemas for both config files to `schemas/` (git-ignored build artifacts, regenerated from the parser types so they never drift): `aperio-client.schema.json` for `aperio.yaml` and `aperio-server.schema.json` for `aperio-server.yaml`. Point your editor's YAML extension at them for completion, hover docs, and validation:
@@ -679,7 +704,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `HOST` / `PORT` | Bind address and listen port. | `0.0.0.0` / `8080` |
 | `APERIO_DATA_DIR` | Directory for persisted state. **Mount a volume here in Docker.** | `./data` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` / `trace`. | `info` |
-| `APERIO_SERVER_AUTH` | `user:password` visitor login in front of all proxied traffic. |  |
+| `APERIO_SERVER_AUTH` | The default visitor gate in front of all proxied traffic: `user:password`. In yaml `server.auth` also takes a method block or a list of them. See [Visitor authentication](#visitor-authentication). |  |
 | `APERIO_TRUST_PROXY` + `APERIO_TRUSTED_PROXIES` | Trust `X-Forwarded-For` behind your reverse proxy / CDN, and which hops to trust. | `0` |
 | `APERIO_RANDOM_SUBDOMAIN` | Auto-assign every client a random subdomain from a `*` pattern. |  |
 | `APERIO_LB_STRATEGY` | Load balancing: `round-robin`, `primary-standby`, or `sticky`. | `round-robin` |
@@ -806,7 +831,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `APERIO_SERVER_AUTH` | `user:password`, a visitor login form in front of all proxied traffic. |  |
+| `APERIO_SERVER_AUTH` | The default visitor gate in front of all proxied traffic: `user:password`. In yaml `server.auth` also takes a method block or a list of them. See [Visitor authentication](#visitor-authentication). |  |
 | `APERIO_WEBAUTHN_ORIGIN` | Public dashboard URL enabling passkey (WebAuthn) sign-in for named users; its domain becomes the RP ID. | passkeys off |
 | `APERIO_WEBAUTHN_RP_ID` | Override the passkey RP ID with a parent registrable domain (e.g. `robogon.com`) so one passkey works across **all** its subdomains (`aperio.robogon.com`, `test-aperio.robogon.com`, ...), instead of only the exact host of `APERIO_WEBAUTHN_ORIGIN`. Must be that host or a parent of it, and never a public suffix (`com`). Ceremonies from any subdomain of it are then accepted. Changing it invalidates passkeys enrolled under the previous RP ID (users re-enroll). | origin's host |
 | `APERIO_IGNORE_CLIENT_AUTH` | `1` = ignore any client-declared per-service visitor password (see the client `auth` setting) and keep sole control of the visitor gate with `APERIO_SERVER_AUTH` / OIDC. | `0` |

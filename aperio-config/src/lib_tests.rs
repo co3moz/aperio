@@ -1251,3 +1251,93 @@ fn connections_never_reads_as_zero() {
   let zero_range: Connections = serde_yaml::from_str("{min: 0, max: 0}").unwrap();
   assert_eq!((zero_range.min(), zero_range.max()), (1, 1));
 }
+
+/// Parses a `auth:` value the way a config file would carry it.
+fn auth_of(yaml: &str) -> AuthSetting {
+  serde_yaml::from_str(yaml).expect("a valid auth: value")
+}
+
+#[test]
+fn the_three_spellings_of_a_visitor_gate_mean_the_same_thing() {
+  // The scalar predates the grammar and has to keep meaning exactly what it
+  // meant, or every file written before this change quietly changes behaviour.
+  let scalar = auth_of("\"admin:s3cret\"");
+  let block = auth_of("{method: basic, users: \"admin:s3cret\"}");
+  let list = auth_of("[{method: basic, users: [\"admin:s3cret\"]}]");
+  for policy in [&scalar, &block, &list] {
+    assert_eq!(policy.as_single_credential(), Some("admin:s3cret"));
+    let methods = policy.methods();
+    assert_eq!(methods.len(), 1);
+    assert_eq!(methods[0].method, "basic");
+    assert!(validate_auth_setting(policy).is_ok());
+  }
+}
+
+#[test]
+fn a_policy_the_scalar_cannot_carry_says_so_rather_than_losing_half_of_itself() {
+  // `as_single_credential` is what travels to a server that predates the
+  // grammar. Anything it cannot express must answer None, or the far side
+  // would be handed a gate weaker than the one written.
+  assert_eq!(
+    auth_of("{method: none}").as_single_credential(),
+    None,
+    "an open gate is not a credential"
+  );
+  assert_eq!(
+    auth_of("{method: basic, users: [\"a:b\", \"c:d\"]}").as_single_credential(),
+    None,
+    "two credentials are not one"
+  );
+  assert_eq!(
+    auth_of("[{method: basic, users: \"a:b\"}, {method: basic, users: \"c:d\"}]")
+      .as_single_credential(),
+    None,
+    "two methods are not one"
+  );
+}
+
+#[test]
+fn a_gate_nobody_could_open_is_refused_where_it_is_written() {
+  // Each of these parses. The point of validation is that none of them
+  // reaches a visitor as "the password does not work".
+  let cases = [
+    ("[]", "empty list"),
+    ("{method: ldap}", "not a method"),
+    ("{method: basic}", "basic without users"),
+    ("{method: basic, users: []}", "basic with an empty list"),
+    ("{method: basic, users: \"nocolon\"}", "no separator"),
+    ("{method: basic, users: \"user:\"}", "empty password"),
+    ("{method: basic, users: \":pw\"}", "empty user"),
+    (
+      "{method: none, users: \"a:b\"}",
+      "an open gate with credentials",
+    ),
+    (
+      "[{method: none}, {method: basic, users: \"a:b\"}]",
+      "none beside another method",
+    ),
+  ];
+  for (yaml, why) in cases {
+    let err =
+      validate_auth_setting(&auth_of(yaml)).expect_err(&format!("{why} should be refused: {yaml}"));
+    assert!(!err.is_empty(), "the refusal has to say something");
+  }
+
+  // The message names the methods that do exist, so the fix is in the error.
+  let err = validate_auth_setting(&auth_of("{method: ldap}")).unwrap_err();
+  for method in AUTH_METHODS {
+    assert!(
+      err.contains(method),
+      "the refusal should list `{method}`: {err}"
+    );
+  }
+}
+
+#[test]
+fn case_and_whitespace_around_a_method_name_do_not_change_it() {
+  for spelling in ["Basic", " basic ", "BASIC"] {
+    let policy = auth_of(&format!("{{method: \"{spelling}\", users: \"a:b\"}}"));
+    assert!(validate_auth_setting(&policy).is_ok(), "{spelling}");
+    assert_eq!(policy.as_single_credential(), Some("a:b"), "{spelling}");
+  }
+}

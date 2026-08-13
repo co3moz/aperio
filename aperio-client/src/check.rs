@@ -58,9 +58,10 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       &mut failures,
     ),
   }
-  // Visitor-auth overrides must be "user:password", a value without the
-  // colon separator would be silently unusable at login time.
-  let auth_probes: Vec<(String, &String)> = settings
+  // Every visitor gate is checked here rather than at the moment a visitor
+  // fails to get in: a method that does not exist, or a credential missing
+  // half of itself, presents hours later as "the password does not work".
+  let auth_probes: Vec<(String, &aperio_config::AuthSetting)> = settings
     .visitor_auth
     .iter()
     .map(|a| ("visitor auth".to_string(), a))
@@ -72,15 +73,16 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }))
     .collect();
   for (label, auth) in auth_probes {
-    match auth.split_once(':') {
-      Some((user, pass_part)) if !user.is_empty() && !pass_part.is_empty() => {
-        pass(&label, "user:password format valid".to_string())
+    match aperio_config::validate_auth_setting(auth) {
+      Ok(()) => {
+        let methods: Vec<String> = auth
+          .methods()
+          .iter()
+          .map(|m| m.method.trim().to_ascii_lowercase())
+          .collect();
+        pass(&label, format!("method(s): {}", methods.join(", ")))
       }
-      _ => fail(
-        &label,
-        "must be \"user:password\" with a non-empty user and password".to_string(),
-        &mut failures,
-      ),
+      Err(why) => fail(&label, why, &mut failures),
     }
   }
 

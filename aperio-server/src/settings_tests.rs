@@ -13,7 +13,8 @@ fn base_config() -> ServerConfig {
     access_events: true,
     ip_limit_max: 100.0,
     ip_limit_refill: 10.0,
-    auth_credentials: None,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
@@ -160,7 +161,7 @@ fn config_reload_diff_reports_changes_and_masks_secrets() {
   let mut new = base_config();
   new.max_tunnels = 20;
   new.lb_strategy = LbStrategy::Sticky;
-  new.auth_credentials = Some("alice:hunter2".to_string());
+  new.visitor_auth = crate::visitor_auth::Policy::from_credentials("alice:hunter2");
 
   let diff = config_reload_diff(&old, &new);
   let joined = diff.join(" | ");
@@ -237,7 +238,7 @@ fn apply_settings_overrides_covers_every_field() {
   );
   assert_eq!(c.custom_504_page.as_deref(), Some("<h1>504</h1>"));
   assert_eq!(c.custom_503_page.as_deref(), Some("<h1>503</h1>"));
-  assert_eq!(c.auth_credentials.as_deref(), Some("bob:s3cret"));
+  assert_eq!(c.visitor_auth.as_single_credential(), Some("bob:s3cret"));
   assert!(c.cache_enabled);
   assert_eq!(c.cache_max_bytes, 128 * 1024 * 1024);
   assert_eq!(c.cache_max_stale, 7200);
@@ -286,7 +287,7 @@ fn apply_settings_overrides_skips_out_of_range_and_clears_empties() {
   base.random_subdomain_suffix = Some("*.old.example.com".to_string());
   base.custom_504_page = Some("<old504>".to_string());
   base.custom_503_page = Some("<old503>".to_string());
-  base.auth_credentials = Some("old:creds".to_string());
+  base.visitor_auth = crate::visitor_auth::Policy::from_credentials("old:creds");
 
   let o = SettingsOverrides {
     // Non-positive rate values are rejected, keeping the base. Zero matters as
@@ -332,7 +333,7 @@ fn apply_settings_overrides_skips_out_of_range_and_clears_empties() {
   );
   assert!(c.custom_504_page.is_none());
   assert!(c.custom_503_page.is_none());
-  assert!(c.auth_credentials.is_none());
+  assert!(!c.visitor_auth.gates());
 }
 
 #[test]

@@ -355,7 +355,7 @@ pub(crate) async fn check_visitor_gate(
   // scope (share checks reject it too), and when any gate could apply on this
   // host it requires a full (global) session.
   if crate::routing::request_path_has_traversal(path) {
-    let gated = state.config().auth_credentials.is_some()
+    let gated = state.config().visitor_auth.gates()
       || state.oidc.is_some()
       || crate::routing::host_has_visitor_auth(state, host).await;
     if !gated || validate_session(state, headers).await {
@@ -385,7 +385,7 @@ pub(crate) async fn check_visitor_gate(
   }
 
   // 2. Server's own visitor gate.
-  let auth_configured = state.config().auth_credentials.is_some() || state.oidc.is_some();
+  let auth_configured = state.config().visitor_auth.gates() || state.oidc.is_some();
   if !auth_configured || crate::routing::route_is_public(state, path, host).await {
     return VisitorGate::Allow;
   }

@@ -286,13 +286,14 @@ pub(crate) async fn auth_login_handler(
       {
         scope = Some(Some(h.clone()));
       }
-      // Server visitor password -> full access, but only when the route is not
-      // under a client override (an override supersedes the server's own creds
-      // for that route).
+      // Server visitor gate -> full access, but only when the route is not
+      // under a client override (an override supersedes the server's own gate
+      // for that route). The policy is asked rather than one credential
+      // compared, so a `basic` method naming several users admits any of them
+      // and the scalar spelling behaves exactly as it always did.
       if scope.is_none()
         && custom_creds.is_none()
-        && let Some(ref creds) = cfg.auth_credentials
-        && constant_time_eq_str(&decoded_str, creds)
+        && cfg.visitor_auth.admits_credential(&decoded_str)
       {
         scope = Some(None);
       }

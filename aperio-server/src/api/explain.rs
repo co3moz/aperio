@@ -547,7 +547,7 @@ pub(crate) async fn explain_handler(
   // password and OIDC are the operator's, and they are configured in
   // different places.
   let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
-  let server_gate = cfg.auth_credentials.is_some();
+  let server_gate = cfg.visitor_auth.gates();
   let oidc_gate = state.oidc.is_some();
   if client_gate || server_gate || oidc_gate {
     let (why, code, setting, setting_code) = if client_gate {

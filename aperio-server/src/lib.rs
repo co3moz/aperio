@@ -55,6 +55,7 @@ mod supervise;
 mod telemetry;
 mod totp;
 mod tunnel;
+mod visitor_auth;
 mod waf;
 mod webauthn;
 
@@ -568,8 +569,19 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     .filter(|v| v.is_finite() && *v > 0.0)
     .unwrap_or(5.0);
 
-  // Optional Basic Auth credentials for proxied requests ("username:password")
-  let auth_credentials = std::env::var("APERIO_SERVER_AUTH").ok();
+  // The server's default visitor gate. Two spellings reach here: the scalar
+  // `user:password` that the environment variable, the dashboard field and
+  // every file written before the grammar carry, and the `auth:` block or
+  // list a file may write instead (planned_features #105). The block wins
+  // where it is present, and `auth_credentials` keeps holding whatever of it
+  // the scalar surfaces can still show.
+  let visitor_auth_block = visitor_auth::block_from_config_file();
+  let visitor_auth = match visitor_auth_block {
+    Some(ref block) => visitor_auth::Policy::compile(block),
+    None => std::env::var("APERIO_SERVER_AUTH")
+      .map(|creds| visitor_auth::Policy::from_credentials(&creds))
+      .unwrap_or_default(),
+  };
 
   // Trust proxy headers (X-Forwarded-For / X-Real-IP) for client IP resolution.
   // Only enable when running behind a trusted reverse proxy that overwrites
@@ -1044,7 +1056,8 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     access_events,
     ip_limit_max,
     ip_limit_refill,
-    auth_credentials,
+    visitor_auth_block,
+    visitor_auth,
     trust_proxy,
     ignore_client_auth,
     real_ip_header,

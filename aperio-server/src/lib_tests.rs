@@ -66,7 +66,8 @@ async fn test_rate_limiting() {
     access_events: true,
     ip_limit_max: 2.0,
     ip_limit_refill: 0.0, // No refill for testing strict burst limit
-    auth_credentials: None,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
@@ -243,7 +244,8 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     access_events: true,
     ip_limit_max: 100.0,
     ip_limit_refill: 10.0,
-    auth_credentials: None,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
@@ -442,7 +444,8 @@ async fn test_proxy_handler_success() {
     access_events: true,
     ip_limit_max: 100.0,
     ip_limit_refill: 10.0,
-    auth_credentials: None,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
@@ -1089,7 +1092,8 @@ fn test_apply_settings_overrides() {
     access_events: true,
     ip_limit_max: 100.0,
     ip_limit_refill: 5.0,
-    auth_credentials: None,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
     real_ip_header: None,
@@ -1177,7 +1181,7 @@ fn test_apply_settings_overrides() {
   assert_eq!(c.failover_mode, FailoverMode::RetryWait);
   assert_eq!(c.random_subdomain_suffix.as_deref(), Some("*.e2e.local"));
   assert_eq!(c.custom_504_page.as_deref(), Some("<h1>down</h1>"));
-  assert_eq!(c.auth_credentials.as_deref(), Some("user:pass"));
+  assert_eq!(c.visitor_auth.as_single_credential(), Some("user:pass"));
   // Untouched fields keep the base values; the token never changes.
   assert_eq!(c.max_body_size, base.max_body_size);
   assert_eq!(c.token, "t");
@@ -1189,7 +1193,7 @@ fn test_apply_settings_overrides() {
     ..Default::default()
   };
   let c2 = apply_settings_overrides(&c, &clearing);
-  assert_eq!(c2.auth_credentials, None);
+  assert!(!c2.visitor_auth.gates(), "an emptied credential is no gate");
   assert_eq!(c2.lb_strategy, c.lb_strategy);
 
   assert_eq!(

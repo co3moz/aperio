@@ -283,11 +283,15 @@ async fn drive(scenario: &str) -> ! {
       s.token = Some("tok".to_string());
       s.target = Some(http.clone());
       s.target_health = Some("/h".to_string());
-      s.visitor_auth = Some("user:pw".to_string());
+      s.visitor_auth = Some(aperio_config::AuthSetting::Credentials(
+        "user:pw".to_string(),
+      ));
       s.services = vec![ServiceEntry {
         name: Some("svc".to_string()),
         target: Some(http.clone()),
-        auth: Some("admin:s3cret".to_string()),
+        auth: Some(aperio_config::AuthSetting::Credentials(
+          "admin:s3cret".to_string(),
+        )),
         ..Default::default()
       }];
       s.tcp_target = Some(addr.clone());
@@ -308,7 +312,9 @@ async fn drive(scenario: &str) -> ! {
     "services" => {
       let port = spawn_mock(MockCfg::default());
       let http = format!("http://127.0.0.1:{port}");
-      s.visitor_auth = Some("nocolon".to_string()); // invalid: no separator
+      s.visitor_auth = Some(aperio_config::AuthSetting::Credentials(
+        "nocolon".to_string(),
+      )); // invalid: no separator
       s.services = vec![
         ServiceEntry {
           name: Some("api".to_string()),
@@ -322,7 +328,7 @@ async fn drive(scenario: &str) -> ! {
           // auth; health endpoint is unreachable too (Err branch).
           target: Some("http://127.0.0.1:1".to_string()),
           target_health: Some("/h".to_string()),
-          auth: Some("x".to_string()),
+          auth: Some(aperio_config::AuthSetting::Credentials("x".to_string())),
           ..Default::default()
         },
         ServiceEntry {

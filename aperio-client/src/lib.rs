@@ -872,6 +872,45 @@ async fn serve_port(
   Ok(port)
 }
 
+/// Resolves a service's visitor gate into the two things the tunnel handshake
+/// carries: whether the service declares itself open, and the one
+/// `user:password` its `visitor_auth` field can hold.
+///
+/// The handshake predates the `auth:` grammar, so a policy saying more than
+/// those two can express is refused here rather than sent in a shape the
+/// server would read as *weaker* than what was written. A gate that quietly
+/// becomes a different gate is the failure this whole area exists to avoid,
+/// and it is why the check is on this side: the client knows what it meant.
+/// (planned_features #105; the wire grows when a method that needs it lands.)
+///
+/// `method: none` is the deliberate open gate, which the handshake already
+/// spells as `public`, so it resolves to that and inherits its token
+/// permission rather than becoming a second way to say the same thing.
+fn resolve_visitor_gate(
+  label: &str,
+  policy: Option<&aperio_config::AuthSetting>,
+  public: bool,
+) -> Result<(bool, Option<String>), String> {
+  let Some(policy) = policy else {
+    return Ok((public, None));
+  };
+  aperio_config::validate_auth_setting(policy).map_err(|why| format!("{label}: {why}"))?;
+  if policy
+    .methods()
+    .iter()
+    .all(|m| m.method.trim().eq_ignore_ascii_case("none"))
+  {
+    return Ok((true, None));
+  }
+  match policy.as_single_credential() {
+    Some(creds) => Ok((public, Some(creds.to_string()))),
+    None => Err(format!(
+      "{label}: this build can announce one `basic` credential to the server and nothing \
+       further, so `auth:` here says more than the tunnel handshake can carry"
+    )),
+  }
+}
+
 /// Validates the resolved settings and builds the runnable service specs.
 ///
 /// Single-service mode uses the top-level `target`; a non-empty `services:`
@@ -1116,6 +1155,8 @@ fn build_specs(
     };
     let (connections_min, connections) =
       clamp_connections(settings.connections.as_ref(), "the service");
+    let (top_public, top_visitor_auth) =
+      resolve_visitor_gate("auth", settings.visitor_auth.as_ref(), settings.public)?;
     let mut specs = vec![ServiceSpec {
       name: None,
       custom_name: settings.custom_name.clone(),
@@ -1167,8 +1208,8 @@ fn build_specs(
       health_interval: settings.health_interval,
       health_timeout: settings.health_timeout,
       health_threshold: settings.health_threshold,
-      public: settings.public,
-      visitor_auth: settings.visitor_auth.clone(),
+      public: top_public,
+      visitor_auth: top_visitor_auth,
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
       capture: settings.capture,
@@ -1222,6 +1263,11 @@ fn build_specs(
       let declared_connections = entry.connections.as_ref().or(settings.connections.as_ref());
       let (connections_min, connections) =
         clamp_connections(declared_connections, &format!("service '{}'", describe()));
+      let (entry_public, entry_visitor_auth) = resolve_visitor_gate(
+        &format!("auth for service '{}'", describe()),
+        entry.auth.as_ref().or(settings.visitor_auth.as_ref()),
+        entry.public.unwrap_or(settings.public),
+      )?;
       Ok(ServiceSpec {
         name: entry.name.clone(),
         custom_name: entry
@@ -1341,12 +1387,8 @@ fn build_specs(
           .health_threshold
           .unwrap_or(settings.health_threshold)
           .max(1),
-        public: entry.public.unwrap_or(settings.public),
-        visitor_auth: entry
-          .auth
-          .clone()
-          .filter(|s| !s.trim().is_empty())
-          .or_else(|| settings.visitor_auth.clone()),
+        public: entry_public,
+        visitor_auth: entry_visitor_auth,
         allowed_ips: entry
           .allowed_ips
           .clone()

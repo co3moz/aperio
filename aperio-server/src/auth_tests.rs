@@ -625,7 +625,7 @@ async fn login_totp_recovery_code_consumed() {
 #[tokio::test]
 async fn login_server_visitor_password_global() {
   let mut cfg = test_config();
-  cfg.auth_credentials = Some("visitor:pass".to_string());
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
   let state = Arc::new(test_state_with(cfg));
   // No client override on this route -> the server password unlocks it.
   let res = call_login(

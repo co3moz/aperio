@@ -1657,6 +1657,51 @@ agrees; a mixed pool falls back to the gate. The same all-must-agree rule
 applies to client-declared credentials, so a request can never be gated
 by, or slip past, an override that only some pool members set.
 
+\section{How a gate is written}
+\label{sec:visitor-auth}
+
+\code{auth:} is one grammar on both sides of the tunnel: on the server it
+is the default for every route, on a client's service it overrides that
+default for the traffic routed there. Three spellings of the same thing,
+and the first one is what every file written so far already says.
+
+\begin{codecard}[aperioyaml]{Either file}
+auth: "admin:s3cret"                            # the scalar, unchanged
+auth: { method: basic, users: "admin:s3cret" }  # one method
+auth:                                           # several: any one admits
+  - method: basic
+    users: [admin:s3cret, ops:hunter2]
+\end{codecard}
+
+A list is \textbf{any-of}: the first method that admits the visitor
+admits them. That is the shape "a browser signs in, a script presents a
+key" needs, and it is why this is a list rather than a choice, since a
+single choice cannot be widened into one later without changing every
+line already written. Two methods exist today:
+
+\begin{description}[leftmargin=1.6em,style=nextline]
+  \item[\code{none}] Deliberately open. The long spelling of a client's
+        \code{public: true}, and it needs the same token permission.
+  \item[\code{basic}] A \code{user:password} login. \code{users:} takes
+        one credential or a list, all alternatives on one gate.
+\end{description}
+
+The set is closed on purpose rather than being an extension point, and a
+\code{method:} this build does not know \textbf{refuses the start},
+naming the ones it does. An operator who wrote a gate should never be
+given no gate, which is exactly what accepting an unknown method and
+ignoring it would produce.
+
+The scalar keeps working wherever it worked, and it is still what
+\code{APERIO\_SERVER\_AUTH}, \code{APERIO\_VISITOR\_AUTH},
+\code{--visitor-auth} and the dashboard's visitor-password field carry,
+since each of those is a single value. A policy the scalar cannot express
+shows as empty there, so \code{GET /aperio/api/settings} reports
+\code{visitor\_auth\_methods} beside it and what is in force stays
+readable. On the client side a policy saying more than the tunnel
+handshake can carry refuses the start, rather than announcing a gate
+weaker than the one written.
+
 \section{OIDC}
 
 Point Aperio at an identity provider and unauthenticated visitors are
@@ -2819,7 +2864,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{LOG\_LEVEL} & \code{error} / \code{warn} / \code{info} / \code{debug} / \code{trace}. & \code{info} \\
 \rowsep
-\code{APERIO\_SERVER\_AUTH} & \code{user:password} visitor login in front of all proxied traffic. &  \\
+\code{APERIO\_SERVER\_AUTH} & The default visitor gate in front of all proxied traffic, \code{user:password}. In yaml \code{server.auth} also takes a method block or a list of them (Section~\ref{sec:visitor-auth}). &  \\
 \rowsep
 \code{APERIO\_TRUST\_PROXY} + \code{APERIO\_TRUSTED\_PROXIES} & Trust \code{X-Forwarded-For} behind your reverse proxy / CDN, and which hops to trust. & \code{0} \\
 \rowsep
@@ -3069,7 +3114,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \textbf{Variable} & \textbf{Description} & \textbf{Default} \\
 \midrule
 \endhead
-\code{APERIO\_SERVER\_AUTH} & \code{user:password}, a visitor login form in front of all proxied traffic. &  \\
+\code{APERIO\_SERVER\_AUTH} & The default visitor gate in front of all proxied traffic, \code{user:password}. In yaml \code{server.auth} also takes a method block or a list of them (Section~\ref{sec:visitor-auth}). &  \\
 \rowsep
 \code{APERIO\_WEBAUTHN\_ORIGIN} & Public dashboard URL enabling passkey (WebAuthn) sign-in for named users; its domain becomes the RP ID. & passkeys off \\
 \rowsep
@@ -3203,7 +3248,7 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_PUBLIC} & \code{--public} & \code{public} & Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). \\
 \rowsep
-\code{APERIO\_VISITOR\_AUTH} & \code{--visitor-auth} & \code{auth} & \code{user:password}, gate this service behind a client-set visitor login, superseding the server's own \code{APERIO\_SERVER\_AUTH} for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as \code{public}; ignored if the server sets \code{APERIO\_IGNORE\_CLIENT\_AUTH}. Per \code{services:} entry via \code{auth:}. \\
+\code{APERIO\_VISITOR\_AUTH} & \code{--visitor-auth} & \code{auth} & Gate this service behind a client-set visitor login, superseding the server's own \code{APERIO\_SERVER\_AUTH} for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as \code{public}; ignored if the server sets \code{APERIO\_IGNORE\_CLIENT\_AUTH}. Per \code{services:} entry via \code{auth:}. In yaml this is the \code{user:password} scalar or a method block (Section~\ref{sec:visitor-auth}); the flag and the environment variable are scalars, so they always mean \code{basic}. \\
 \rowsep
 \code{APERIO\_ALLOWED\_IPS} & \code{--allowed-ips} & \code{allowed\_ips} & Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. \code{203.0.113.7,10.0.0.0/8}). Enforced by the server \textbf{per candidate, before dispatch}, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (\textbf{union semantics}, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level \code{allowed\_ips} for route-wide lockdown). A visitor every candidate rejects gets the \code{denied:} redirect of the most-primary declaring candidate, or, without one, a \textbf{stealth answer identical to an unclaimed route} (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Per \code{services:} entry via \code{allowed\_ips:}. \\
 \rowsep
