@@ -2350,6 +2350,19 @@ pub struct BackupGroup {
   /// without it (and a nonzero `interval`) no snapshots are taken.
   #[schemars(extend("examples" = ["/var/backups/aperio"]))]
   pub dir: Option<String>,
+  /// Encryption key for snapshots, as 64 hex characters or base64 of 32
+  /// bytes. Unset writes snapshots in the clear, as before. Prefer
+  /// `key_file`: a key written here is a key in a config file, which backups
+  /// and configuration management copy around
+  /// (env: APERIO_BACKUP_KEY).
+  #[schemars(extend("examples" = ["${APERIO_BACKUP_KEY}"]))]
+  pub key: Option<String>,
+  /// File holding the encryption key, which is what a secret manager mounts.
+  /// Refused when it is inside `dir`: whoever has the backups would have the
+  /// key, which is the one arrangement encryption cannot survive
+  /// (env: APERIO_BACKUP_KEY_FILE).
+  #[schemars(extend("examples" = ["/etc/aperio/backup.key"]))]
+  pub key_file: Option<String>,
   /// Snapshots to keep; older ones are pruned. Default: `7`.
   #[schemars(extend("examples" = [7]))]
   pub keep: Option<u64>,
@@ -3381,6 +3394,12 @@ pub struct ServerFileConfig {
   /// Flat spelling of `backup.keep` (env: APERIO_BACKUP_KEEP).
   #[schemars(extend("examples" = [7]))]
   pub backup_keep: Option<u64>,
+  /// Flat spelling of `backup.key` (env: APERIO_BACKUP_KEY).
+  #[schemars(extend("examples" = ["${APERIO_BACKUP_KEY}"]))]
+  pub backup_key: Option<String>,
+  /// Flat spelling of `backup.key_file` (env: APERIO_BACKUP_KEY_FILE).
+  #[schemars(extend("examples" = ["/etc/aperio/backup.key"]))]
+  pub backup_key_file: Option<String>,
 
   // --- Process & startup ---
   /// Watch the config file and apply live-editable changes without a restart

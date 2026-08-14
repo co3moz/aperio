@@ -126,7 +126,7 @@ fn write_snapshot_produces_self_contained_db() {
   let db_path = data_dir.join("aperio.db");
 
   let backup_dir = temp_dir();
-  let (snap, size) = write_snapshot(&db_path, &backup_dir).expect("snapshot");
+  let (snap, size) = write_snapshot(&db_path, &backup_dir, None).expect("snapshot");
   assert!(snap.exists());
   assert!(size > 0);
   // A VACUUM INTO snapshot has no WAL/SHM sidecars.
@@ -147,7 +147,7 @@ fn write_snapshot_errors_when_backup_dir_cannot_be_created() {
   std::fs::write(&blocker, b"x").unwrap();
   let bad_dir = blocker.join("sub");
 
-  let err = write_snapshot(&db_path, &bad_dir).expect_err("dir creation must fail");
+  let err = write_snapshot(&db_path, &bad_dir, None).expect_err("dir creation must fail");
   assert!(err.contains("cannot create backup dir"), "got: {err}");
 
   let _ = std::fs::remove_dir_all(&data_dir);
@@ -245,4 +245,68 @@ async fn spawn_writes_a_snapshot_on_startup() {
 
   let _ = std::fs::remove_dir_all(&data_dir);
   let _ = std::fs::remove_dir_all(&backup_dir);
+}
+
+/// An encrypted snapshot lands under a different name, leaves no plaintext
+/// behind, and comes back byte for byte.
+#[test]
+fn an_encrypted_snapshot_replaces_the_plaintext_one() {
+  let root = crate::test_support::test_temp_root().join(format!("bkenc-{}", uuid::Uuid::new_v4()));
+  let data = root.join("data");
+  let backups = root.join("backups");
+  std::fs::create_dir_all(&data).unwrap();
+  let db_path = data.join("aperio.db");
+  let conn = rusqlite::Connection::open(&db_path).unwrap();
+  conn
+    .execute("CREATE TABLE t (id TEXT PRIMARY KEY, data TEXT)", [])
+    .unwrap();
+  conn
+    .execute("INSERT INTO t VALUES ('1', 'a recognisable row')", [])
+    .unwrap();
+  drop(conn);
+
+  let key = crate::backup_crypto::BackupKey::parse(&"3c".repeat(32)).unwrap();
+  let (snap, size) = write_snapshot(&db_path, &backups, Some(&key)).expect("snapshot");
+
+  assert!(
+    snap.to_string_lossy().ends_with(".db.enc"),
+    "an encrypted snapshot says so in its name: {snap:?}"
+  );
+  assert!(size > 0);
+  let plaintext_left: Vec<_> = std::fs::read_dir(&backups)
+    .unwrap()
+    .flatten()
+    .map(|e| e.file_name().to_string_lossy().into_owned())
+    .filter(|n| n.ends_with(".db"))
+    .collect();
+  assert!(
+    plaintext_left.is_empty(),
+    "the intermediate plaintext snapshot is gone: {plaintext_left:?}"
+  );
+  let bytes = std::fs::read(&snap).unwrap();
+  assert!(
+    !bytes.windows(18).any(|w| w == b"a recognisable row"),
+    "and the row is not readable in the file"
+  );
+
+  // And it is still a database when it comes back, which is the only claim
+  // that matters about a backup.
+  let restored = root.join("restored.db");
+  crate::backup_crypto::decrypt_file(&key, &snap, &restored).expect("decrypt");
+  let conn = rusqlite::Connection::open(&restored).unwrap();
+  let row: String = conn
+    .query_row("SELECT data FROM t WHERE id = '1'", [], |r| r.get(0))
+    .unwrap();
+  assert_eq!(row, "a recognisable row");
+  let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Pruning has to see both spellings, or a directory written to before
+/// encryption was turned on keeps its old snapshots for ever.
+#[test]
+fn both_snapshot_names_are_pruned() {
+  assert_eq!(snapshot_ts("aperio-1700000000.db"), Some(1_700_000_000));
+  assert_eq!(snapshot_ts("aperio-1700000000.db.enc"), Some(1_700_000_000));
+  assert_eq!(snapshot_ts("aperio-notanumber.db.enc"), None);
+  assert_eq!(snapshot_ts("something-else.db"), None);
 }

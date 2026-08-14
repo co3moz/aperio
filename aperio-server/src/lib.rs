@@ -21,6 +21,7 @@ mod alerts;
 mod api;
 mod auth;
 mod backup;
+mod backup_crypto;
 mod cache;
 mod capacity;
 mod check_config;
@@ -146,6 +147,23 @@ pub fn run() {
   // variables, which is only sound while no other thread can read them.
   config_file::load();
 
+  // `aperio-server --decrypt-backup <in.db.enc> [out.db]` turns an encrypted
+  // snapshot back into a database, using the same key configuration the
+  // server writes them with. This is not a convenience: an encrypted backup
+  // nobody can open is worse than no backup, and the moment somebody needs it
+  // is the moment they are least able to write a decryption script.
+  //
+  // **Before the upgrade check, unlike every other subcommand**, and
+  // deliberately: that check exits on a security-relevant config change, and
+  // this is the one command that must still run during an emergency. Turning
+  // ciphertext back into bytes does not depend on what a config key means, so
+  // there is nothing for the verdict to protect here and a restore it blocked
+  // would be the worst possible time to find out. It runs after the file is
+  // loaded, so a key written in the `backup:` block still works.
+  if std::env::args().nth(1).as_deref() == Some("--decrypt-backup") {
+    std::process::exit(decrypt_backup());
+  }
+
   // Upgrade safety: compare the version the file declares against this build
   // and report every recorded config-format change in between. Runs before
   // the diagnostic subcommands so they inherit the same verdict, and before
@@ -179,6 +197,83 @@ pub fn run() {
     .build()
     .expect("failed to build the tokio runtime")
     .block_on(async_main());
+}
+
+/// Decrypts one snapshot, reading the key the same way the backup task does.
+///
+/// The key is taken from `APERIO_BACKUP_KEY` / `APERIO_BACKUP_KEY_FILE`, or
+/// from the `backup:` block of the configured server file, so restoring uses
+/// the configuration that produced the file rather than a second place to get
+/// it wrong. The "inside the backup directory" refusal applies here too: if
+/// the arrangement was never safe, saying so while restoring is the last
+/// chance to hear it.
+fn decrypt_backup() -> i32 {
+  let mut args = std::env::args().skip(2);
+  let Some(input) = args.next() else {
+    eprintln!(
+      "usage: aperio-server --decrypt-backup <snapshot{}> [output.db]",
+      backup_crypto::ENCRYPTED_SUFFIX
+    );
+    return 2;
+  };
+  let input = std::path::PathBuf::from(input);
+  let output = args
+    .next()
+    .map(std::path::PathBuf::from)
+    .unwrap_or_else(|| {
+      // `aperio-1700000000.db.enc` -> `aperio-1700000000.db`
+      let name = input.file_name().map(|n| n.to_string_lossy().into_owned());
+      match name.and_then(|n| {
+        n.strip_suffix(backup_crypto::ENCRYPTED_SUFFIX)
+          .map(str::to_string)
+      }) {
+        Some(stem) => input.with_file_name(format!("{stem}.db")),
+        None => input.with_extension("db"),
+      }
+    });
+
+  // The backup directory only matters for the refusal, and defaults to the
+  // snapshot's own directory, which is the right answer when someone is
+  // restoring from a copy rather than from where it was written.
+  let dir = std::env::var("APERIO_BACKUP_DIR")
+    .ok()
+    .map(std::path::PathBuf::from)
+    .unwrap_or_else(|| {
+      input
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+    });
+
+  let key = match backup_crypto::load_key(
+    std::env::var("APERIO_BACKUP_KEY").ok().as_deref(),
+    std::env::var("APERIO_BACKUP_KEY_FILE").ok().as_deref(),
+    &dir,
+  ) {
+    Ok(Some(key)) => key,
+    Ok(None) => {
+      eprintln!(
+        "No backup key configured. Set APERIO_BACKUP_KEY or APERIO_BACKUP_KEY_FILE \
+         to the key this snapshot was written with."
+      );
+      return 2;
+    }
+    Err(e) => {
+      eprintln!("{e}");
+      return 2;
+    }
+  };
+
+  match backup_crypto::decrypt_file(&key, &input, &output) {
+    Ok(size) => {
+      println!("{} ({} bytes)", output.display(), size);
+      0
+    }
+    Err(e) => {
+      eprintln!("{e}");
+      1
+    }
+  }
 }
 
 /// Installs a process-wide panic hook that logs every panic through `tracing`

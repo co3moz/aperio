@@ -3440,6 +3440,8 @@ the machine-readable catalogue, which is the one that cannot drift.
 \code{APERIO\_BACKUP\_DIR} & Destination directory for the automatic backups. Required to enable them. &  \\
 \rowsep
 \code{APERIO\_BACKUP\_KEEP} & How many timestamped backup snapshots to retain; older ones are pruned. & \code{7} \\
+\code{APERIO\_BACKUP\_KEY} & Encryption key for the snapshots, 64 hex characters or base64 of 32 bytes. Unset writes them in the clear; set, each snapshot is \code{aperio-<epoch>.db.enc} under AES-256-GCM. Prefer the key file. A key that cannot be used disables backups rather than falling back to plaintext. & off \\
+\code{APERIO\_BACKUP\_KEY\_FILE} & File holding that key. Refused when it is inside \code{APERIO\_BACKUP\_DIR}: whoever has the backups would have the key. Restore with \code{aperio-server --decrypt-backup}. & off \\
 \rowsep
 \code{APERIO\_WEBHOOK\_RETRY\_SCHEDULE} & Comma-separated backoff seconds between webhook redelivery attempts after a transport error / 5xx / 429 (attempt count = schedule length + 1). Empty = no retries. See \emph{Observability}. & \code{1,5,25,60} \\
 \rowsep

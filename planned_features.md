@@ -71,21 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
-  store are written in the clear, and that store holds hashed credentials,
-  sessions and organization data. AES-256-GCM with the key from an environment
-  reference. Worth doing only with a real answer for key handling, since a key
-  sitting next to the backup is decoration.
-
-### The road to 1.0
-
-The eleven entries above are features. These are not: they are what turns a
-feature-complete project into one an operator can bet a deployment on. The
-feature backlog reached the point where the next useful work is a promise
-about compatibility, a way to install the thing, evidence that the release
-artifact is the one we built, and validation from someone other than our own
-test suite.
-
 - [ ] **#94 A Helm chart, and the Kubernetes story around it.** The largest
   population of self-hosted deployments is on Kubernetes, and there is
   currently no supported way in: a chart for the server (Deployment or
@@ -538,6 +523,37 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
+  store were written in the clear, and that store holds hashed credentials,
+  sessions and organization data. Worth doing only with a real answer for key
+  handling, since a key sitting next to the backup is decoration.
+  shipped: `backup_crypto.rs`, AES-256-GCM through `ring` (already in the
+  binary via rustls, so no new crypto stack), `backup.key`/`backup.key_file`
+  with their env spellings, and `aperio-server --decrypt-backup` for the
+  restore. Unset leaves snapshots exactly as they were.
+  - **The key handling is the entry's condition, so it is enforced rather than
+    documented**: a key file *inside the backup directory* is refused by name,
+    two key sources at once are refused, and a key that cannot be used
+    disables backups instead of falling back to plaintext. Verified against
+    the real binary, not only in tests.
+  - The restore command runs **before** the config-version check, alone among
+    the subcommands: that check exits on a security-relevant change, and a
+    restore is exactly the moment that must not be blocked by one. It also
+    writes nothing at the output path unless the whole file decrypted, so a
+    wrong key or a truncated backup cannot leave a half-database to be
+    restored by mistake.
+  - The format is chunked, with each chunk's position, length and
+    end-of-file flag authenticated. The first version was wrong twice and both
+    were caught by tests written to the failure rather than to the happy path:
+    a short final chunk and the end marker landed in one read, so framing
+    became explicit and authenticated; and a truncated file decrypted to a
+    shorter database, so the output is now staged and renamed only on success.
+    A third test was passing for the wrong reason after the framing changed and
+    was rewritten to swap whole frames.
+  - `VACUUM INTO` needs a path, so an encrypted snapshot is written in the
+    clear first and encrypted after. The intermediate file is owner-only and
+    removed either way; that is documented rather than hidden.
 
 - [x] **#115 The same sweep over the other stores.** `#114` fixed the token
   store and counted the rest: about forty mutations across `users`, `orgs`,

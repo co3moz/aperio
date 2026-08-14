@@ -12,8 +12,18 @@
 //! - `APERIO_BACKUP_INTERVAL`, seconds between snapshots (0/unset = disabled)
 //! - `APERIO_BACKUP_DIR`, directory the snapshots are written to
 //! - `APERIO_BACKUP_KEEP`, snapshots to retain (default 7; 0 = keep all)
+//! - `APERIO_BACKUP_KEY` / `APERIO_BACKUP_KEY_FILE`, a 32-byte key that turns
+//!   the snapshots into `aperio-<epoch>.db.enc` (see `backup_crypto`). Unset
+//!   keeps writing them in the clear, exactly as before.
 //!
 //! Each snapshot records a `db_backup` audit event.
+//!
+//! **`VACUUM INTO` needs a path**, so an encrypted snapshot is written in the
+//! clear first and encrypted after. That intermediate file is created
+//! owner-only, lives in the backup directory for the length of one encryption,
+//! and is removed whether or not the encryption succeeded. It is worth knowing
+//! about rather than being surprised by: for the seconds it exists, the
+//! directory holds a plaintext copy.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,6 +39,8 @@ struct BackupConfig {
   dir: PathBuf,
   /// Snapshots to keep (0 = keep every snapshot).
   keep: usize,
+  /// `None` writes snapshots in the clear.
+  key: Option<Arc<crate::backup_crypto::BackupKey>>,
 }
 
 impl BackupConfig {
@@ -47,12 +59,35 @@ impl BackupConfig {
       .ok()
       .and_then(|v| v.trim().parse::<usize>().ok())
       .unwrap_or(7);
+    // A key that cannot be used is a refusal, not a fallback to plaintext:
+    // an operator who configured encryption and got clear snapshots has the
+    // opposite of what they asked for, and no way to notice from the files.
+    let key = match crate::backup_crypto::load_key(
+      env_nonempty("APERIO_BACKUP_KEY").as_deref(),
+      env_nonempty("APERIO_BACKUP_KEY_FILE").as_deref(),
+      &dir,
+    ) {
+      Ok(key) => key.map(Arc::new),
+      Err(e) => {
+        error!("Scheduled DB backups are disabled: {e}");
+        return None;
+      }
+    };
     Some(BackupConfig {
       interval: Duration::from_secs(interval_secs),
       dir,
       keep,
+      key,
     })
   }
+}
+
+/// A set, non-blank environment variable.
+fn env_nonempty(name: &str) -> Option<String> {
+  std::env::var(name)
+    .ok()
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty())
 }
 
 /// Prefix and suffix bounding a snapshot filename (`aperio-<epoch>.db`).
@@ -61,16 +96,22 @@ const SNAP_SUFFIX: &str = ".db";
 
 /// Extracts the epoch timestamp encoded in a snapshot filename, if it matches.
 fn snapshot_ts(name: &str) -> Option<u64> {
-  name
-    .strip_prefix(SNAP_PREFIX)?
-    .strip_suffix(SNAP_SUFFIX)?
-    .parse::<u64>()
-    .ok()
+  let rest = name.strip_prefix(SNAP_PREFIX)?;
+  // Both spellings, so a directory that was written to before encryption was
+  // turned on is still pruned rather than kept forever beside the new files.
+  let stamp = rest
+    .strip_suffix(crate::backup_crypto::ENCRYPTED_SUFFIX)
+    .or_else(|| rest.strip_suffix(SNAP_SUFFIX))?;
+  stamp.parse::<u64>().ok()
 }
 
 /// Writes one consolidated snapshot of `db_path` into `dir` and returns the
 /// snapshot path and its size in bytes.
-fn write_snapshot(db_path: &Path, dir: &Path) -> Result<(PathBuf, u64), String> {
+fn write_snapshot(
+  db_path: &Path,
+  dir: &Path,
+  key: Option<&crate::backup_crypto::BackupKey>,
+) -> Result<(PathBuf, u64), String> {
   std::fs::create_dir_all(dir).map_err(|e| format!("cannot create backup dir: {e}"))?;
   let ts = crate::store::tokens::now_secs();
   let target = dir.join(format!("{SNAP_PREFIX}{ts}{SNAP_SUFFIX}"));
@@ -84,8 +125,28 @@ fn write_snapshot(db_path: &Path, dir: &Path) -> Result<(PathBuf, u64), String> 
   conn
     .execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])
     .map_err(|e| format!("VACUUM INTO failed: {e}"))?;
-  let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
-  Ok((target, size))
+  let Some(key) = key else {
+    let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+    return Ok((target, size));
+  };
+
+  // The plaintext snapshot is the intermediate file the module doc warns
+  // about. It goes away whichever way the encryption ends.
+  let encrypted = dir.join(format!(
+    "{SNAP_PREFIX}{ts}{}",
+    crate::backup_crypto::ENCRYPTED_SUFFIX
+  ));
+  let result = crate::backup_crypto::encrypt_file(key, &target, &encrypted);
+  if let Err(e) = std::fs::remove_file(&target) {
+    warn!("Backup: could not remove the intermediate snapshot {target:?}: {e}");
+  }
+  match result {
+    Ok(size) => Ok((encrypted, size)),
+    Err(e) => {
+      let _ = std::fs::remove_file(&encrypted);
+      Err(e)
+    }
+  }
 }
 
 /// Deletes the oldest snapshots so at most `keep` remain (0 = keep all).
@@ -131,10 +192,15 @@ pub(crate) fn spawn(state: Arc<AppState>) {
     .unwrap_or_else(|| PathBuf::from("."))
     .join("aperio.db");
   info!(
-    "Scheduled DB backups enabled: every {}s into {:?} (keep {})",
+    "Scheduled DB backups enabled: every {}s into {:?} (keep {}, {})",
     cfg.interval.as_secs(),
     cfg.dir,
-    cfg.keep
+    cfg.keep,
+    if cfg.key.is_some() {
+      "encrypted"
+    } else {
+      "not encrypted"
+    }
   );
   crate::supervise::spawn_supervised("backup", move || {
     // Cloned per attempt rather than moved: the closure runs again after a
@@ -144,7 +210,7 @@ pub(crate) fn spawn(state: Arc<AppState>) {
       let mut interval = tokio::time::interval(cfg.interval);
       loop {
         interval.tick().await;
-        match write_snapshot(&db_path, &cfg.dir) {
+        match write_snapshot(&db_path, &cfg.dir, cfg.key.as_deref()) {
           Ok((path, size)) => {
             let pruned = prune_snapshots(&cfg.dir, cfg.keep);
             info!(

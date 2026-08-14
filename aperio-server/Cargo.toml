@@ -38,6 +38,10 @@ serde_yaml = "0.9"
 # Shared config schema: `--print-schema` emits the aperio-server.yaml JSON schema.
 aperio-config = { path = "../aperio-config" }
 base64 = "0.22"
+# The AES-256-GCM used for encrypted backups (`backup_crypto.rs`). Already in
+# this binary through rustls, so naming it here adds an algorithm rather than a
+# crypto stack, and keeps the "one provider" rule the notes below describe.
+ring = "0.17"
 # The shutdown integration test delivers a real SIGTERM to its own process.
 libc = "0.2"
 uuid = { version = "1.8", features = ["v4"] }
