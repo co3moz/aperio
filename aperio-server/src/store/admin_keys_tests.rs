@@ -17,12 +17,14 @@ fn test_create_verify_revoke_scope_persist() {
   let mut store = AdminKeyStore::load(&dir);
   assert!(store.list().is_empty());
 
-  let (rec, secret) = store.create(
-    "ci".to_string(),
-    Role::Operator,
-    Some("org-1".to_string()),
-    None,
-  );
+  let (rec, secret) = store
+    .create(
+      "ci".to_string(),
+      Role::Operator,
+      Some("org-1".to_string()),
+      None,
+    )
+    .expect("the test store can be written to");
   assert!(secret.starts_with("apk_"));
   let found = store.verify(&secret).unwrap();
   assert_eq!(found.id, rec.id);
@@ -46,7 +48,9 @@ fn test_create_verify_revoke_scope_persist() {
 fn test_expired_key_rejected() {
   let dir = temp_dir();
   let mut store = AdminKeyStore::load(&dir);
-  let (_, secret) = store.create("short".to_string(), Role::Admin, None, Some(0));
+  let (_, secret) = store
+    .create("short".to_string(), Role::Admin, None, Some(0))
+    .expect("the test store can be written to");
   assert!(store.verify(&secret).is_none());
   let _ = std::fs::remove_dir_all(&dir);
 }

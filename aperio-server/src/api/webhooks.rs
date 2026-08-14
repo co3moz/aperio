@@ -256,7 +256,7 @@ pub(crate) async fn webhooks_list_handler(
 #[utoipa::path(post, path = "/aperio/api/webhooks", tag = "webhooks",
   description = "Creates a webhook; an optional HMAC signing secret (16-128 chars) enables signed deliveries.",
   request_body = WebhookCreateRequest,
-  responses((status = 200, description = "Created webhook", body = serde_json::Value), (status = 400, description = "Invalid URL/secret")))]
+  responses((status = 200, description = "Created webhook", body = serde_json::Value), (status = 400, description = "Invalid URL/secret"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn webhooks_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -334,6 +334,9 @@ pub(crate) async fn webhooks_create_handler(
     .lock()
     .await
     .create(name, url, events, secret, format, org);
+  let Some(hook) = hook else {
+    return crate::api::tokens::not_persisted();
+  };
   info!("Webhook created: {} -> {}", hook.name, hook.url);
   state
     .audit_session(

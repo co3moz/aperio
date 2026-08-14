@@ -150,7 +150,8 @@ async fn create_enforces_org_user_quota() {
     .org_store
     .lock()
     .await
-    .set_quota(&org_id, None, None, Some(Some(1)), None);
+    .set_quota(&org_id, None, None, Some(Some(1)), None)
+    .expect("the test store can be written to");
   make_user(&state, "boss", Role::Admin, Some(&org_id)).await;
 
   // "boss" (org acme, at quota) tries to create another user → 403.

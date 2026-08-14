@@ -229,6 +229,8 @@ impl TokenStore {
   /// Writes the current token list back to the store (one transaction).
   /// Replaces every token record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, tokens: Vec<ApiToken>) -> usize {
     self.tokens = tokens;
     self.persist();

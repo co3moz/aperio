@@ -926,12 +926,17 @@ async fn caller_org_resolution() {
 #[tokio::test]
 async fn caller_org_from_admin_key() {
   let state = test_state();
-  let (_key, secret) = state.admin_key_store.lock().await.create(
-    "k".to_string(),
-    Role::Admin,
-    Some("keyorg".to_string()),
-    None,
-  );
+  let (_key, secret) = state
+    .admin_key_store
+    .lock()
+    .await
+    .create(
+      "k".to_string(),
+      Role::Admin,
+      Some("keyorg".to_string()),
+      None,
+    )
+    .expect("the test store can be written to");
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
   assert_eq!(caller_org(&state, &h).await, Some("keyorg".to_string()));
@@ -1102,12 +1107,12 @@ async fn dashboard_role_and_username() {
 #[tokio::test]
 async fn dashboard_role_from_admin_key() {
   let state = test_state();
-  let (_key, secret) =
-    state
-      .admin_key_store
-      .lock()
-      .await
-      .create("k".to_string(), Role::Viewer, None, None);
+  let (_key, secret) = state
+    .admin_key_store
+    .lock()
+    .await
+    .create("k".to_string(), Role::Viewer, None, None)
+    .expect("the test store can be written to");
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
   assert_eq!(dashboard_role(&state, &h).await, Some(Role::Viewer));

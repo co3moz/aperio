@@ -338,7 +338,8 @@ async fn create_respects_the_org_token_quota() {
     .org_store
     .lock()
     .await
-    .set_quota(&org_id, None, Some(Some(1)), None, None);
+    .set_quota(&org_id, None, Some(Some(1)), None, None)
+    .expect("the test store can be written to");
   let token = seed_session(&state, Role::Admin, None, Some(org_id)).await;
   let headers = cookie_headers(&token);
 

@@ -210,14 +210,19 @@ async fn create_rejects_bad_input() {
 async fn list_and_delete_are_org_scoped() {
   let state = Arc::new(test_state());
   // A webhook in a foreign org.
-  let hook = state.webhook_store.lock().await.create(
-    "foreign".to_string(),
-    "https://example.com".to_string(),
-    Vec::new(),
-    None,
-    WebhookFormat::Generic,
-    Some("other".to_string()),
-  );
+  let hook = state
+    .webhook_store
+    .lock()
+    .await
+    .create(
+      "foreign".to_string(),
+      "https://example.com".to_string(),
+      Vec::new(),
+      None,
+      WebhookFormat::Generic,
+      Some("other".to_string()),
+    )
+    .expect("the test store can be written to");
   let headers = admin_headers(&state).await; // master org
 
   // List excludes the foreign hook.
@@ -316,14 +321,19 @@ async fn redeliver_missing_webhook_is_404() {
 #[tokio::test]
 async fn redeliver_queues_when_webhook_present() {
   let state = Arc::new(test_state());
-  let hook = state.webhook_store.lock().await.create(
-    "hook".to_string(),
-    "https://127.0.0.1:1/never".to_string(),
-    Vec::new(),
-    None,
-    WebhookFormat::Generic,
-    None,
-  );
+  let hook = state
+    .webhook_store
+    .lock()
+    .await
+    .create(
+      "hook".to_string(),
+      "https://127.0.0.1:1/never".to_string(),
+      Vec::new(),
+      None,
+      WebhookFormat::Generic,
+      None,
+    )
+    .expect("the test store can be written to");
   state
     .webhook_deliveries
     .lock()
@@ -442,6 +452,7 @@ async fn a_test_fire_reaches_the_receiver_and_reports_what_it_answered() {
         crate::store::webhooks::WebhookFormat::Generic,
         None,
       )
+      .expect("the test store can be written to")
       .id
   };
 

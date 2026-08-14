@@ -89,6 +89,8 @@ impl WebhookStore {
 
   /// Replaces every webhook record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, webhooks: Vec<Webhook>) -> usize {
     self.webhooks = webhooks;
     self.persist();
@@ -118,7 +120,7 @@ impl WebhookStore {
     secret: Option<String>,
     format: WebhookFormat,
     org_id: Option<String>,
-  ) -> Webhook {
+  ) -> Option<Webhook> {
     let hook = Webhook {
       id: uuid::Uuid::new_v4().to_string(),
       name,
@@ -131,8 +133,14 @@ impl WebhookStore {
       org_id,
     };
     self.webhooks.push(hook.clone());
-    self.persist();
-    hook
+    if !self.persist() {
+      // The same reasoning as `delete` below: a webhook that is not written
+      // down stops existing at the next restart, and the operator was told it
+      // was created and will be waiting for deliveries from it.
+      self.webhooks.pop();
+      return None;
+    }
+    Some(hook)
   }
 
   /// Deletes a webhook by id. Returns true only when it was removed *and*
@@ -229,6 +237,8 @@ impl DeliveryLog {
     crate::store::replace_all(&mut self.conn, "webhook_deliveries", &rows);
   }
 
+  /// Bookkeeping: a failed write is logged, not rolled back. See
+  /// `store::replace_all`.
   pub fn record(&mut self, mut delivery: Delivery) {
     if delivery.body.len() > DELIVERY_BODY_CAP {
       delivery.body.truncate(DELIVERY_BODY_CAP);
@@ -243,6 +253,8 @@ impl DeliveryLog {
 
   /// Disk guard: drops the oldest deliveries so at most `keep` remain.
   /// Returns removed count.
+  /// Bookkeeping, and it runs *because* space is short. See
+  /// `store::replace_all`.
   pub fn truncate_oldest(&mut self, keep: usize) -> usize {
     if self.deliveries.len() <= keep {
       return 0;

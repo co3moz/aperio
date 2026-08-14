@@ -45,6 +45,16 @@ async fn org_member_counts(
 
 /// Lists organizations: the implicit master org first, then child orgs, each
 /// with its user and token counts.
+/// The response for a change to an organization that did not happen.
+fn org_error(e: crate::store::orgs::OrgError) -> axum::response::Response {
+  use crate::store::orgs::OrgError;
+  match e {
+    OrgError::NotSaved => crate::api::tokens::not_persisted(),
+    OrgError::NoSuchOrg => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    OrgError::Invalid(m) => (StatusCode::BAD_REQUEST, m).into_response(),
+  }
+}
+
 #[utoipa::path(get, path = "/aperio/api/orgs", tag = "orgs",
   description = "Lists organizations (master super-admin only): the implicit master org plus child orgs, with user/token counts.",
   responses((status = 200, description = "Organizations", body = serde_json::Value)))]
@@ -193,7 +203,7 @@ pub(crate) async fn orgs_select_handler(
 #[utoipa::path(post, path = "/aperio/api/orgs", tag = "orgs",
   description = "Creates a child organization (master super-admin only).",
   request_body = OrgCreateRequest,
-  responses((status = 200, description = "Created", body = serde_json::Value), (status = 400, description = "Invalid name")))]
+  responses((status = 200, description = "Created", body = serde_json::Value), (status = 400, description = "Invalid name"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -231,7 +241,7 @@ pub(crate) async fn orgs_create_handler(
       }))
       .into_response()
     }
-    Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    Err(e) => org_error(e),
   }
 }
 
@@ -258,7 +268,7 @@ pub(crate) struct OrgCustomNameRequest {
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/custom-name", tag = "dashboard",
   description = "Sets an organization's display name; the handle it is addressed by never changes (master admin).",
   request_body = OrgCustomNameRequest,
-  responses((status = 200, description = "Updated"), (status = 404, description = "No such organization")))]
+  responses((status = 200, description = "Updated"), (status = 404, description = "No such organization"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_custom_name_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -281,8 +291,8 @@ pub(crate) async fn orgs_custom_name_handler(
     .lock()
     .await
     .set_custom_name(&id, payload.custom_name.clone());
-  if !renamed {
-    return (StatusCode::NOT_FOUND, "No such organization").into_response();
+  if let Err(e) = renamed {
+    return org_error(e);
   }
   let ip = actor_ip(&state, &headers, addr);
   state
@@ -302,7 +312,7 @@ pub(crate) async fn orgs_custom_name_handler(
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/hostnames", tag = "orgs",
   description = "Replaces a child org's hostname allowlist (empty list = unrestricted).",
   request_body = OrgHostnamesRequest,
-  responses((status = 200, description = "Updated org"), (status = 400, description = "Invalid pattern"), (status = 404, description = "Unknown org")))]
+  responses((status = 200, description = "Updated org"), (status = 400, description = "Invalid pattern"), (status = 404, description = "Unknown org"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_hostnames_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -330,7 +340,7 @@ pub(crate) async fn orgs_hostnames_handler(
     .await
     .set_hostnames(&id, hostnames.clone());
   match updated {
-    Some(org) => {
+    Ok(org) => {
       // Push the new fence onto the org's live connections so it really does
       // apply at once, rather than at each client's next reconnect.
       let dropped = state.apply_org_hostnames(&id, &hostnames).await;
@@ -359,7 +369,7 @@ pub(crate) async fn orgs_hostnames_handler(
       }))
       .into_response()
     }
-    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+    Err(e) => org_error(e),
   }
 }
 
@@ -367,7 +377,7 @@ pub(crate) async fn orgs_hostnames_handler(
 /// (move or delete them first), so nothing is silently orphaned.
 #[utoipa::path(delete, path = "/aperio/api/orgs/{id}", tag = "orgs",
   description = "Deletes an empty child organization (master super-admin only); rejected while it still has users or tokens.",
-  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown org"), (status = 409, description = "Organization not empty")))]
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown org"), (status = 409, description = "Organization not empty"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_delete_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -397,8 +407,8 @@ pub(crate) async fn orgs_delete_handler(
     )
       .into_response();
   }
-  if !state.org_store.lock().await.delete(&id) {
-    return (StatusCode::NOT_FOUND, "unknown organization id").into_response();
+  if let Err(e) = state.org_store.lock().await.delete(&id) {
+    return org_error(e);
   }
   // Clear the maintenance flags it owns. Nothing else could: a flag is
   // cleared by the organization that set it, and that organization no longer
@@ -450,7 +460,7 @@ pub(crate) struct OrgQuotaRequest {
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/quota", tag = "orgs",
   description = "Sets a child org's quotas (max clients/tokens/users, monthly bytes).",
   request_body = OrgQuotaRequest,
-  responses((status = 200, description = "Updated org"), (status = 404, description = "Unknown org")))]
+  responses((status = 200, description = "Updated org"), (status = 404, description = "Unknown org"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_quota_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -478,7 +488,7 @@ pub(crate) async fn orgs_quota_handler(
     to_opt(payload.max_bytes_month),
   );
   match updated {
-    Some(org) => {
+    Ok(org) => {
       let ip = actor_ip(&state, &headers, addr);
       state
         .audit(
@@ -501,7 +511,7 @@ pub(crate) async fn orgs_quota_handler(
       }))
       .into_response()
     }
-    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+    Err(e) => org_error(e),
   }
 }
 
@@ -576,7 +586,7 @@ pub(crate) async fn orgs_oidc_handler(
   // Drop any cached runtime so the next login rebuilds from the new config.
   state.org_oidc.lock().await.remove(&id);
   match updated {
-    Some(_) => {
+    Ok(_) => {
       let ip = actor_ip(&state, &headers, addr);
       state
         .audit(
@@ -588,7 +598,7 @@ pub(crate) async fn orgs_oidc_handler(
         .await;
       Json(serde_json::json!({ "id": id, "configured": configured })).into_response()
     }
-    None => (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+    Err(e) => org_error(e),
   }
 }
 

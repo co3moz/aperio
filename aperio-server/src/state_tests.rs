@@ -609,13 +609,15 @@ async fn test_org_quotas() {
   let org_id = {
     let mut orgs = state.org_store.lock().await;
     let org = orgs.create("acme", Vec::new(), None).expect("org");
-    orgs.set_quota(
-      &org.id,
-      Some(Some(1)), // max_clients
-      Some(Some(1)), // max_tokens
-      Some(Some(1)), // max_users
-      Some(Some(50)),
-    );
+    orgs
+      .set_quota(
+        &org.id,
+        Some(Some(1)), // max_clients
+        Some(Some(1)), // max_tokens
+        Some(Some(1)), // max_users
+        Some(Some(50)),
+      )
+      .expect("the test store can be written to");
     org.id
   };
   assert!(state.org_quota(Some(&org_id)).await.is_some());

@@ -236,22 +236,6 @@ test suite.
     old, and what to upgrade. The failure to avoid is a connection that comes
     up and misbehaves three layers deeper.
 
-- [ ] **#115 The same sweep over the other stores.** `#114` fixed the token
-  store and, in doing so, counted the rest: about forty mutations across
-  `users`, `orgs`, `webhooks`, `inbox`, `scaling` and `admin_keys` still ignore
-  what `persist` returns, so each of them can report a success it did not save.
-  The instrument now exists, `TokenStore::commit` is eight lines and every
-  mutation in that file goes through it.
-  - **Not uniform in severity, so not one undifferentiated sweep.** A user
-    deleted, a passkey removed, a TOTP disabled and an organization deleted are
-    the `revoke` case: a false success is access that comes back from the dead.
-    A webhook delivery record or a pruned inbox entry is bookkeeping, where a
-    logged failure may well be the right answer and a rollback is noise.
-  - Each store's call sites answer an API caller, so this is the same
-    behaviour change as `#114` repeated: `200` becomes `500` where the disk is
-    failing. Worth doing store by store rather than in one commit nobody can
-    review.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -554,6 +538,36 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#115 The same sweep over the other stores.** `#114` fixed the token
+  store and counted the rest: about forty mutations across `users`, `orgs`,
+  `webhooks`, `inbox`, `scaling` and `admin_keys` that ignored what `persist`
+  returned, so each could report a success it did not save.
+  shipped: a `commit` helper per store for everything an API caller asked for,
+  rolled back and reported as `500`, with the status declared in the OpenAPI
+  document. `users::persist`, `orgs::persist`, `inbox::persist` and
+  `scaling::persist` did not even return the bool, so those stores were
+  structurally unable to notice; they do now.
+  - **The severity split held, and it is written down** above
+    `store::replace_all` rather than implied: a change somebody asked for is
+    rolled back and reported, bookkeeping the server does to itself keeps its
+    result and relies on the logged failure. Each of the seven remaining
+    ignores points at that note, so none of them reads as an oversight.
+  - Two cases came out sharper than expected. A recovery code that could not
+    be marked spent, and a TOTP step that could not be recorded, now **refuse
+    the login**: single use is a property of the record, not of the check, and
+    accepting leaves a code that still works.
+  - `ScalingStore::disown` is the one place where the two arguments point in
+    different directions and it is **deliberately not rolled back**: the row
+    survives on disk either way, so the only thing still in that method's gift
+    is whether the running server keeps calling a scaling endpoint for a
+    revoked token. It does not.
+  - Found a pre-existing bug of the same family: `users::update` applied the
+    role before validating the password, so a rejected password left a role
+    change in memory that was never saved and never undone. Rolling back on a
+    rejected change as well as on a failed write makes that unwritable.
+  - Eight new tests, each breaking writes by dropping the table so the failure
+    is deterministic, and each confirmed to fail with the rollback removed.
 
 - [x] **#114 `create` and `update` report success when the store could not be
   written.** Found by `#100`'s test. On a full disk, creating a token returned

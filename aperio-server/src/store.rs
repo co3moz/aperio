@@ -88,9 +88,26 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::
 }
 
 /// Atomically replaces every row of `table`. Returns `true` on success; on a
-/// write failure it logs and returns `false` so a caller performing a
-/// security-relevant mutation (token/session/webhook revoke) can report the
-/// failure instead of silently diverging from disk.
+/// write failure it logs and returns `false`.
+///
+/// **What a caller is expected to do with that `false`**, since the stores
+/// answer it in two different ways on purpose:
+///
+/// - **A change somebody asked for** (create a token, delete a user, move an
+///   organization's fence, spend a recovery code) is **rolled back**, so
+///   memory matches disk, and the failure is **reported**: the endpoint
+///   answers 500 rather than a success for a change that stops existing at the
+///   next restart. Each store has a `commit` helper for exactly this.
+/// - **Bookkeeping the server does to itself** (a retention sweep, a disk-cap
+///   truncation, an inbox insert, a dump import, a re-announced autoscaling
+///   record) keeps its in-memory result and relies on the log line above.
+///   Nobody is waiting for an answer, the next sweep will do it again, and
+///   rolling back would mean holding data the operator asked to be rid of, or
+///   refusing traffic over a counter.
+///
+/// The line between them is who is owed an answer, not how important the row
+/// looks. `ScalingStore::disown` carries the one case where the two arguments
+/// point in different directions, and says so where it is written.
 pub(crate) fn replace_all(conn: &mut Connection, table: &str, rows: &[(String, String)]) -> bool {
   let res = (|| -> rusqlite::Result<()> {
     let tx = conn.transaction()?;

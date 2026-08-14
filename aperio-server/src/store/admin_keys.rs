@@ -75,6 +75,8 @@ impl AdminKeyStore {
 
   /// Replaces the stored admin keys with an imported set. The records carry
   /// only hashes, like every other credential in a dump.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, keys: Vec<AdminKey>) -> usize {
     self.keys = keys;
     self.persist();
@@ -89,7 +91,7 @@ impl AdminKeyStore {
     role: Role,
     org_id: Option<String>,
     ttl_seconds: Option<u64>,
-  ) -> (AdminKey, String) {
+  ) -> Option<(AdminKey, String)> {
     let secret = format!(
       "apk_{}{}",
       uuid::Uuid::new_v4().simple(),
@@ -106,8 +108,14 @@ impl AdminKeyStore {
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
     };
     self.keys.push(record.clone());
-    self.persist();
-    (record, secret)
+    if !self.persist() {
+      // Rolled back for the reason `revoke` below reverts its removal: a key
+      // that exists only in memory is handed out, used, and then gone at the
+      // next restart, with nothing having said so.
+      self.keys.pop();
+      return None;
+    }
+    Some((record, secret))
   }
 
   /// Removes a key by ID. Returns true when a key was actually removed.

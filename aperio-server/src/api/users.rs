@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
-use crate::store::users::{Role, User};
+use crate::store::users::{Role, User, UserError};
 
 /// A user as exposed through the API (never includes the password hash).
 fn user_view(u: &User) -> serde_json::Value {
@@ -68,6 +68,19 @@ pub(crate) async fn users_list_handler(
   ))
 }
 
+/// The response for a change to a user that did not happen.
+///
+/// The three causes answer differently, and the middle one used to be found by
+/// comparing the error's *text* against "unknown user id". A rename of that
+/// string would have silently turned a 404 back into a 400.
+pub(crate) fn user_error(e: UserError) -> axum::response::Response {
+  match e {
+    UserError::NotSaved => crate::api::tokens::not_persisted(),
+    UserError::NoSuchUser => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    UserError::Invalid(m) => (StatusCode::BAD_REQUEST, m).into_response(),
+  }
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct UserCreateRequest {
   pub(crate) username: String,
@@ -80,7 +93,7 @@ pub(crate) struct UserCreateRequest {
 #[utoipa::path(post, path = "/aperio/api/users", tag = "users",
   description = "Creates a dashboard user with a role (admin only).",
   request_body = UserCreateRequest,
-  responses((status = 200, description = "Created user", body = serde_json::Value), (status = 400, description = "Invalid username/password/role")))]
+  responses((status = 200, description = "Created user", body = serde_json::Value), (status = 400, description = "Invalid username/password/role"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn users_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -141,7 +154,7 @@ pub(crate) async fn users_create_handler(
         .await;
       Json(user_view(&user)).into_response()
     }
-    Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    Err(e) => user_error(e),
   }
 }
 
@@ -219,15 +232,14 @@ pub(crate) async fn users_update_handler(
         .await;
       Json(user_view(&user)).into_response()
     }
-    Err(e) if e == "unknown user id" => (StatusCode::NOT_FOUND, e).into_response(),
-    Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    Err(e) => user_error(e),
   }
 }
 
 #[utoipa::path(delete, path = "/aperio/api/users/{id}", tag = "users",
   description = "Deletes a dashboard user (admin only). Live sessions of that user are dropped.",
   params(("id" = String, Path, description = "User record id")),
-  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown user id")))]
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown user id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn users_delete_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -246,7 +258,13 @@ pub(crate) async fn users_delete_handler(
   let Some(username) = username else {
     return (StatusCode::NOT_FOUND, "unknown user id").into_response();
   };
-  state.users.lock().await.delete(&id);
+  // A deletion that could not be written down did not happen, so the sessions
+  // must not be dropped either: the account still exists, and taking its
+  // sessions away would leave a user locked out of an account the store still
+  // has, with the operator told it was deleted.
+  if let Err(e) = state.users.lock().await.delete(&id) {
+    return user_error(e);
+  }
   // Deleting an account must end its live sessions too.
   state
     .sessions
@@ -294,7 +312,7 @@ fn now_secs() -> u64 {
 /// Starts TOTP enrollment for the signed-in user.
 #[utoipa::path(post, path = "/aperio/api/me/totp/setup", tag = "users",
   description = "Begins TOTP enrollment for the signed-in dashboard user: returns a fresh secret and otpauth:// URL. Enrollment takes effect only after /aperio/api/me/totp/enable verifies a code.",
-  responses((status = 200, description = "Pending secret and provisioning URL", body = serde_json::Value), (status = 400, description = "No user row (built-in admin)")))]
+  responses((status = 200, description = "Pending secret and provisioning URL", body = serde_json::Value), (status = 400, description = "No user row (built-in admin)"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn totp_setup_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
@@ -307,7 +325,7 @@ pub(crate) async fn totp_setup_handler(
     let mut users = state.users.lock().await;
     let secret = match users.totp_begin(&user_id) {
       Ok(s) => s,
-      Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+      Err(e) => return user_error(e),
     };
     let username = users
       .get(&user_id)
@@ -332,7 +350,7 @@ pub(crate) struct TotpCodeRequest {
 #[utoipa::path(post, path = "/aperio/api/me/totp/enable", tag = "users",
   description = "Completes TOTP enrollment by verifying a code against the pending secret. Returns the single-use recovery codes, shown exactly once.",
   request_body = TotpCodeRequest,
-  responses((status = 200, description = "Recovery codes", body = serde_json::Value), (status = 400, description = "Invalid code or no enrollment in progress")))]
+  responses((status = 200, description = "Recovery codes", body = serde_json::Value), (status = 400, description = "Invalid code or no enrollment in progress"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn totp_enable_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -361,7 +379,7 @@ pub(crate) async fn totp_enable_handler(
         .await;
       Json(serde_json::json!({ "recovery_codes": recovery_codes })).into_response()
     }
-    Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    Err(e) => user_error(e),
   }
 }
 
@@ -369,7 +387,7 @@ pub(crate) async fn totp_enable_handler(
 #[utoipa::path(delete, path = "/aperio/api/me/totp", tag = "users",
   description = "Disables TOTP for the signed-in user. Requires a currently valid authenticator code (or an unused recovery code).",
   request_body = TotpCodeRequest,
-  responses((status = 200, description = "Disabled"), (status = 400, description = "TOTP not enabled"), (status = 401, description = "Invalid code")))]
+  responses((status = 200, description = "Disabled"), (status = 400, description = "TOTP not enabled"), (status = 401, description = "Invalid code"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn totp_disable_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -407,7 +425,7 @@ pub(crate) async fn totp_disable_handler(
     return (StatusCode::UNAUTHORIZED, "Invalid code").into_response();
   }
   if let Err(e) = state.users.lock().await.totp_disable(&user_id) {
-    return (StatusCode::BAD_REQUEST, e).into_response();
+    return user_error(e);
   }
   let ip = actor_ip(&state, &headers, addr);
   state
@@ -425,7 +443,7 @@ pub(crate) async fn totp_disable_handler(
 #[utoipa::path(delete, path = "/aperio/api/users/{id}/totp", tag = "users",
   description = "Clears TOTP for a user (admin only), the escape hatch when someone loses their authenticator and recovery codes.",
   params(("id" = String, Path, description = "User id")),
-  responses((status = 200, description = "Cleared"), (status = 404, description = "Unknown user")))]
+  responses((status = 200, description = "Cleared"), (status = 404, description = "Unknown user"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn totp_admin_reset_handler(
   State(state): State<Arc<AppState>>,
   Path(id): Path<String>,
@@ -438,7 +456,7 @@ pub(crate) async fn totp_admin_reset_handler(
     return (StatusCode::NOT_FOUND, "Unknown user").into_response();
   }
   if let Err(e) = state.users.lock().await.totp_disable(&id) {
-    return (StatusCode::BAD_REQUEST, e).into_response();
+    return user_error(e);
   }
   let ip = actor_ip(&state, &headers, addr);
   state

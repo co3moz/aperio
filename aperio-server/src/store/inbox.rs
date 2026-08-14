@@ -64,7 +64,7 @@ impl InboxStore {
     }
   }
 
-  fn persist(&mut self) {
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .entries
       .iter()
@@ -74,10 +74,12 @@ impl InboxStore {
           .map(|json| (e.id.clone(), json))
       })
       .collect();
-    crate::store::replace_all(&mut self.conn, "inbox", &rows);
+    crate::store::replace_all(&mut self.conn, "inbox", &rows)
   }
 
   /// Appends one captured webhook, dropping the oldest entry past the cap.
+  /// Bookkeeping: a failed write is logged, not rolled back. See
+  /// `store::replace_all`.
   pub fn insert(&mut self, entry: InboxEntry) {
     if self.entries.len() >= INBOX_MAX_ENTRIES {
       self.entries.pop_front();
@@ -94,6 +96,8 @@ impl InboxStore {
 
   /// Replaces the inbox with an imported set, keeping it chronological and
   /// within the cap. Returns how many entries were kept.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, entries: Vec<InboxEntry>) -> usize {
     let mut entries = entries;
     entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
@@ -121,18 +125,33 @@ impl InboxStore {
   }
 
   /// Deletes one entry (org-gated). True when something was removed.
+  /// `false` when there was no such entry **and** when the removal could not
+  /// be saved: an entry the operator deleted must not come back at the next
+  /// restart with nothing having said so.
   pub fn delete(&mut self, id: &str, org: &Option<String>) -> bool {
+    let snapshot = self.entries.clone();
     let before = self.entries.len();
     self.entries.retain(|e| !(e.id == id && e.org_id == *org));
-    let removed = self.entries.len() != before;
-    if removed {
-      self.persist();
+    if self.entries.len() == before {
+      return false;
     }
-    removed
+    if self.persist() {
+      true
+    } else {
+      self.entries = snapshot;
+      false
+    }
   }
 
   /// Retention: drops entries older than `cutoff_ts` (unix seconds), across
   /// all organizations. Returns removed count.
+  ///
+  /// Not rolled back on a failed write, unlike `delete` and `clear`, and the
+  /// difference is who asked. This is the retention sweep talking to itself:
+  /// nobody is waiting for an answer, the entries are past their keep window
+  /// either way, and the next sweep will drop them again. `replace_all` has
+  /// already logged the failure. Rolling back here would only mean holding
+  /// data the operator asked to be rid of.
   pub fn prune_older_than(&mut self, cutoff_ts: u64) -> usize {
     let before = self.entries.len();
     self.entries.retain(|e| {
@@ -150,7 +169,9 @@ impl InboxStore {
   }
 
   /// Disk guard: drops the oldest entries so at most `keep` remain (across
-  /// all organizations). Returns removed count.
+  /// all organizations). Returns removed count. Not rolled back, for the
+  /// reason `prune_older_than` gives, and doubly so here: this runs
+  /// *because* space is short.
   pub fn truncate_oldest(&mut self, keep: usize) -> usize {
     let mut removed = 0usize;
     while self.entries.len() > keep {
@@ -163,13 +184,16 @@ impl InboxStore {
     removed
   }
 
-  /// Empties the caller's organization's inbox. Returns removed count.
+  /// Empties the caller's organization's inbox. Returns removed count, and
+  /// **zero when the write failed**, for the reason `delete` gives.
   pub fn clear(&mut self, org: &Option<String>) -> usize {
+    let snapshot = self.entries.clone();
     let before = self.entries.len();
     self.entries.retain(|e| e.org_id != *org);
     let removed = before - self.entries.len();
-    if removed > 0 {
-      self.persist();
+    if removed > 0 && !self.persist() {
+      self.entries = snapshot;
+      return 0;
     }
     removed
   }

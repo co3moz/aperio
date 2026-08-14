@@ -172,12 +172,12 @@ async fn select_without_session_cookie_is_401() {
   // Authenticated as a master-admin via a programmatic admin key (Bearer) so
   // require_master_admin passes but there is no session cookie to mutate.
   let state = Arc::new(test_state());
-  let (_key, secret) =
-    state
-      .admin_key_store
-      .lock()
-      .await
-      .create("k".into(), Role::Admin, None, None);
+  let (_key, secret) = state
+    .admin_key_store
+    .lock()
+    .await
+    .create("k".into(), Role::Admin, None, None)
+    .expect("the test store can be written to");
   let mut headers = HeaderMap::new();
   headers.insert(
     "authorization",
@@ -601,7 +601,8 @@ async fn usage_for_child_with_quota_and_members() {
     .org_store
     .lock()
     .await
-    .set_quota(&org_id, Some(Some(3)), Some(Some(7)), None, None);
+    .set_quota(&org_id, Some(Some(3)), Some(Some(7)), None, None)
+    .expect("the test store can be written to");
   state
     .users
     .lock()

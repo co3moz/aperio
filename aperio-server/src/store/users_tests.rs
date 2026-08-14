@@ -61,7 +61,7 @@ fn test_create_verify_update_delete_persist() {
   assert_eq!(verified.role, Role::Admin);
 
   // Delete.
-  assert!(store3.delete(&user.id));
+  assert!(store3.delete(&user.id).is_ok());
   assert!(store3.verify("alice", "new password!").is_none());
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -152,8 +152,12 @@ fn test_passkey_storage_lifecycle() {
   );
 
   // Removal by id; unknown ids are a no-op.
-  assert!(store.remove_passkey(&user.id, &stored.id));
-  assert!(!store.remove_passkey(&user.id, &stored.id));
+  assert!(store.remove_passkey(&user.id, &stored.id).is_ok());
+  assert_eq!(
+    store.remove_passkey(&user.id, &stored.id).err(),
+    Some(UserError::NoSuchUser),
+    "a passkey that is not there is not an error about saving"
+  );
   assert_eq!(store.get(&user.id).unwrap().passkeys.len(), 9);
 }
 
@@ -164,4 +168,133 @@ fn test_role_ordering_and_parse() {
   assert_eq!(Role::parse("ADMIN"), Some(Role::Admin));
   assert_eq!(Role::parse("operator"), Some(Role::Operator));
   assert_eq!(Role::parse("bogus"), None);
+}
+
+/// A store whose next write will fail, by taking its table away. The real
+/// cause is a full disk; see `store/tokens_tests.rs` for why this stands in
+/// for it.
+fn break_writes(store: &mut UserStore) {
+  store
+    .conn
+    .execute("DROP TABLE users", [])
+    .expect("the table exists until this point");
+}
+
+/// The six digits a given secret produces for a given moment, the same way the
+/// enrollment test above spells it.
+fn code_for(secret: &str, now: u64) -> String {
+  let decoded = crate::totp::base32_decode(secret).unwrap();
+  format!("{:06}", {
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha1::Sha1>::new_from_slice(&decoded).unwrap();
+    mac.update(&(now / 30).to_be_bytes());
+    let d = mac.finalize().into_bytes();
+    let o = (d[19] & 0x0f) as usize;
+    ((u32::from(d[o]) & 0x7f) << 24
+      | u32::from(d[o + 1]) << 16
+      | u32::from(d[o + 2]) << 8
+      | u32::from(d[o + 3]))
+      % 1_000_000
+  })
+}
+
+fn a_user(store: &mut UserStore, name: &str) -> User {
+  store
+    .create(name, "password1", Role::Admin, None)
+    .expect("the store works to begin with")
+}
+
+/// An account that could not be saved must not be reported as created: the
+/// operator would hand out a password for a login that stops existing at the
+/// next restart.
+#[test]
+fn a_user_that_cannot_be_saved_is_refused_rather_than_reported() {
+  let mut store = UserStore::load(&temp_dir());
+  a_user(&mut store, "alice");
+
+  break_writes(&mut store);
+  assert_eq!(
+    store.create("bob", "password1", Role::Viewer, None).err(),
+    Some(UserError::NotSaved)
+  );
+  assert_eq!(store.list().len(), 1, "the account was rolled back");
+  assert!(store.verify("bob", "password1").is_none());
+}
+
+/// **The pre-existing half of this.** `update` applied the role before
+/// validating the password, so a rejected password left a role change in
+/// memory that was never saved and never undone: the account was an admin
+/// until the process restarted, and the API had answered with an error.
+#[test]
+fn a_rejected_password_does_not_leave_a_role_change_behind() {
+  let mut store = UserStore::load(&temp_dir());
+  let user = store
+    .create("carol", "password1", Role::Viewer, None)
+    .expect("created");
+
+  let refused = store.update(&user.id, Some(Role::Admin), None, Some("short"));
+  assert!(matches!(refused, Err(UserError::Invalid(_))));
+  assert_eq!(
+    store.get(&user.id).unwrap().role,
+    Role::Viewer,
+    "the role is what it was, not what the rejected request asked for"
+  );
+}
+
+/// A deletion that was not written down did not happen, and the caller has to
+/// be told, or the account is gone from the dashboard and back after a restart.
+#[test]
+fn a_delete_that_cannot_be_saved_keeps_the_account() {
+  let mut store = UserStore::load(&temp_dir());
+  let user = a_user(&mut store, "dave");
+
+  break_writes(&mut store);
+  assert_eq!(store.delete(&user.id).err(), Some(UserError::NotSaved));
+  assert_eq!(store.list().len(), 1);
+  assert!(store.verify("dave", "password1").is_some());
+}
+
+/// The sharp one: a recovery code is single use, and single use is a property
+/// of the record. A code the store failed to spend must not sign anyone in,
+/// because it still works.
+#[test]
+fn a_recovery_code_that_cannot_be_spent_is_not_accepted() {
+  let mut store = UserStore::load(&temp_dir());
+  let user = a_user(&mut store, "erin");
+  let secret = store.totp_begin(&user.id).expect("enrollment starts");
+  let now = 1_700_000_000u64;
+  let codes = store
+    .totp_enable(&user.id, &code_for(&secret, now), now)
+    .expect("enrollment completes");
+
+  break_writes(&mut store);
+  assert!(
+    !store.consume_recovery(&user.id, &codes[0]),
+    "an unspendable code is refused rather than accepted and forgotten"
+  );
+  assert_eq!(
+    store.get(&user.id).unwrap().recovery_hashes.len(),
+    codes.len(),
+    "and it is still there, unspent, which is why refusing was right"
+  );
+}
+
+/// The same argument for the TOTP replay window: accepting a login whose step
+/// could not be recorded leaves that code replayable.
+#[test]
+fn a_totp_step_that_cannot_be_recorded_refuses_the_login() {
+  let mut store = UserStore::load(&temp_dir());
+  let user = a_user(&mut store, "frank");
+
+  assert!(store.totp_try_advance_step(&user.id, 100));
+  break_writes(&mut store);
+  assert!(
+    !store.totp_try_advance_step(&user.id, 101),
+    "a step that cannot be written down is not accepted"
+  );
+  assert_eq!(
+    store.get(&user.id).unwrap().totp_last_step,
+    Some(100),
+    "and the recorded window is unchanged"
+  );
 }

@@ -1545,7 +1545,8 @@ async fn handler_org_month_quota_returns_429() {
     .org_store
     .lock()
     .await
-    .set_quota(&org.id, None, None, None, Some(Some(1)));
+    .set_quota(&org.id, None, None, None, Some(Some(1)))
+    .expect("the test store can be written to");
   // Seed this month's usage for the org above the 1-byte cap.
   state.persistent_stats.lock().await.record_request_labeled(
     true,

@@ -225,7 +225,8 @@ async fn create_forbidden_when_org_quota_reached() {
     .org_store
     .lock()
     .await
-    .set_quota(&org_id, None, Some(Some(1)), None, None);
+    .set_quota(&org_id, None, Some(Some(1)), None, None)
+    .expect("the test store can be written to");
   let token = seed_session(&state, Role::Admin, None, Some(org_id.clone())).await;
   let headers = cookie_headers(&token);
 

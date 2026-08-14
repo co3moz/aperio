@@ -318,7 +318,7 @@ pub(crate) async fn passkey_register_finish_handler(
       .add_passkey(&user_id, &name, &serialized, payload.usernameless)
     {
       Ok(p) => p,
-      Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+      Err(e) => return crate::api::users::user_error(e),
     };
   let ip = crate::routing::extract_client_ip(
     &headers,
@@ -379,8 +379,15 @@ pub(crate) async fn passkey_delete_handler(
     Ok(u) => u,
     Err(resp) => return resp,
   };
-  if !state.users.lock().await.remove_passkey(&user_id, &id) {
-    return (StatusCode::NOT_FOUND, "Unknown passkey").into_response();
+  if let Err(e) = state.users.lock().await.remove_passkey(&user_id, &id) {
+    // `NoSuchUser` here means the passkey, which is what this endpoint is
+    // addressing; the store cannot tell the two apart and the caller can.
+    return match e {
+      crate::store::users::UserError::NoSuchUser => {
+        (StatusCode::NOT_FOUND, "Unknown passkey").into_response()
+      }
+      other => crate::api::users::user_error(other),
+    };
   }
   let ip = crate::routing::extract_client_ip(
     &headers,

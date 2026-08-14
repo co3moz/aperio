@@ -11,14 +11,16 @@ fn test_store_and_subscription() {
   let dir_str = dir.to_string_lossy().to_string();
 
   let mut store = WebhookStore::load(&dir_str);
-  let hook = store.create(
-    "notify".to_string(),
-    "http://127.0.0.1:1/hook".to_string(),
-    vec!["client_connected".to_string()],
-    None,
-    WebhookFormat::Generic,
-    None,
-  );
+  let hook = store
+    .create(
+      "notify".to_string(),
+      "http://127.0.0.1:1/hook".to_string(),
+      vec!["client_connected".to_string()],
+      None,
+      WebhookFormat::Generic,
+      None,
+    )
+    .expect("the test store can be written to");
   assert_eq!(store.subscribers("client_connected").len(), 1);
   assert_eq!(store.subscribers("token_created").len(), 0);
 
@@ -70,14 +72,16 @@ fn test_format_parse_and_persist() {
   std::fs::create_dir_all(&dir).unwrap();
   let dir_str = dir.to_string_lossy().to_string();
   let mut store = WebhookStore::load(&dir_str);
-  store.create(
-    "chat".to_string(),
-    "http://127.0.0.1:1/hook".to_string(),
-    vec![],
-    None,
-    WebhookFormat::Discord,
-    None,
-  );
+  store
+    .create(
+      "chat".to_string(),
+      "http://127.0.0.1:1/hook".to_string(),
+      vec![],
+      None,
+      WebhookFormat::Discord,
+      None,
+    )
+    .expect("the test store can be written to");
   let reloaded = WebhookStore::load(&dir_str);
   assert_eq!(reloaded.list()[0].format, WebhookFormat::Discord);
   let _ = std::fs::remove_dir_all(&dir);
@@ -235,14 +239,16 @@ fn test_secret_persists_across_reload() {
   let dir_str = dir.to_string_lossy().to_string();
 
   let mut store = WebhookStore::load(&dir_str);
-  store.create(
-    "signed".to_string(),
-    "http://127.0.0.1:1/hook".to_string(),
-    vec![],
-    Some("super-secret-key!".to_string()),
-    WebhookFormat::Slack,
-    None,
-  );
+  store
+    .create(
+      "signed".to_string(),
+      "http://127.0.0.1:1/hook".to_string(),
+      vec![],
+      Some("super-secret-key!".to_string()),
+      WebhookFormat::Slack,
+      None,
+    )
+    .expect("the test store can be written to");
   let reloaded = WebhookStore::load(&dir_str);
   assert_eq!(
     reloaded.list()[0].secret.as_deref(),

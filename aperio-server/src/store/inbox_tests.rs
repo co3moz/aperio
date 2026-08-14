@@ -115,3 +115,24 @@ fn insert_and_import_hold_the_cap() {
   assert_eq!(store.import(incoming), INBOX_MAX_ENTRIES);
   assert!(store.list_all().iter().all(|e| e.id != "i0"));
 }
+
+/// An entry the operator deleted must not come back at the next restart with
+/// nothing having said so, so a delete that could not be saved answers false.
+#[test]
+fn a_delete_that_cannot_be_saved_reports_false_and_keeps_the_entry() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("inbox-full-{}", uuid::Uuid::new_v4()));
+  let dir_str = dir.to_string_lossy().to_string();
+  let mut store = InboxStore::load(&dir_str);
+  store.insert(entry("one", None));
+  let id = store.list_all()[0].id.clone();
+
+  store
+    .conn
+    .execute("DROP TABLE inbox", [])
+    .expect("the table exists until this point");
+
+  assert!(!store.delete(&id, &None), "the removal was not saved");
+  assert_eq!(store.list_all().len(), 1, "so the entry is still there");
+  let _ = std::fs::remove_dir_all(&dir);
+}

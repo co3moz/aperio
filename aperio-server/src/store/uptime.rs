@@ -165,6 +165,8 @@ impl UptimeStore {
   }
 
   /// Replaces the recorded history with an imported one, and writes it out.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, entities: HashMap<String, EntityUptime>) -> usize {
     self.entities = entities;
     // `last_tick` stays where it is: it is a clock reading of *this* process,

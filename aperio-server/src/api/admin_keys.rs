@@ -79,7 +79,7 @@ pub(crate) struct AdminKeyCreateRequest {
 #[utoipa::path(post, path = "/aperio/api/admin-keys", tag = "admin-keys",
   description = "Creates a scoped admin key; the secret is returned once.",
   request_body = AdminKeyCreateRequest,
-  responses((status = 200, description = "Created key + secret", body = serde_json::Value), (status = 400, description = "Invalid role")))]
+  responses((status = 200, description = "Created key + secret", body = serde_json::Value), (status = 400, description = "Invalid role"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn admin_keys_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -127,12 +127,14 @@ pub(crate) async fn admin_keys_create_handler(
     return (StatusCode::BAD_REQUEST, "unknown organization").into_response();
   }
 
-  let (record, secret) =
-    state
-      .admin_key_store
-      .lock()
-      .await
-      .create(name, role, org_id, payload.ttl_seconds);
+  let created = state
+    .admin_key_store
+    .lock()
+    .await
+    .create(name, role, org_id, payload.ttl_seconds);
+  let Some((record, secret)) = created else {
+    return crate::api::tokens::not_persisted();
+  };
   info!(
     "Admin key created: {} (id={}, role={}, org={:?})",
     record.name,

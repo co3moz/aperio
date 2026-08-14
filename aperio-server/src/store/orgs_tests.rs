@@ -31,13 +31,21 @@ fn test_create_unique_and_reserved() {
     .create("payments", Vec::new(), Some("Ödeme Servisi".to_string()))
     .unwrap();
   assert_eq!(named.custom_name.as_deref(), Some("Ödeme Servisi"));
-  assert!(store.set_custom_name(&named.id, Some("  Ödeme  ".to_string())));
+  assert!(
+    store
+      .set_custom_name(&named.id, Some("  Ödeme  ".to_string()))
+      .is_ok()
+  );
   assert_eq!(
     store.find(&named.id).unwrap().custom_name.as_deref(),
     Some("Ödeme"),
     "trimmed"
   );
-  assert!(store.set_custom_name(&named.id, Some("   ".to_string())));
+  assert!(
+    store
+      .set_custom_name(&named.id, Some("   ".to_string()))
+      .is_ok()
+  );
   assert_eq!(
     store.find(&named.id).unwrap().custom_name,
     None,
@@ -48,7 +56,10 @@ fn test_create_unique_and_reserved() {
     "payments",
     "the handle never moves"
   );
-  assert!(!store.set_custom_name("no-such-org", None));
+  assert_eq!(
+    store.set_custom_name("no-such-org", None).err(),
+    Some(OrgError::NoSuchOrg)
+  );
 
   // Survives a reload (the two created above).
   let reloaded = OrgStore::load(&dir);
@@ -56,8 +67,8 @@ fn test_create_unique_and_reserved() {
 
   // Delete.
   let mut store = OrgStore::load(&dir);
-  assert!(store.delete(&a.id));
-  assert!(!store.delete(&a.id));
+  assert!(store.delete(&a.id).is_ok());
+  assert_eq!(store.delete(&a.id).err(), Some(OrgError::NoSuchOrg));
   assert_eq!(store.list().len(), 1);
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -203,13 +214,20 @@ fn test_lookups_on_missing_org_are_none() {
   let dir = temp_dir();
   let mut store = OrgStore::load(&dir);
   assert!(store.find("does-not-exist").is_none());
-  assert!(
+  assert_eq!(
     store
       .set_quota("does-not-exist", Some(Some(5)), None, None, None)
-      .is_none()
+      .err(),
+    Some(OrgError::NoSuchOrg)
   );
-  assert!(store.set_oidc("does-not-exist", None).is_none());
-  assert!(!store.delete("does-not-exist"));
+  assert_eq!(
+    store.set_oidc("does-not-exist", None).err(),
+    Some(OrgError::NoSuchOrg)
+  );
+  assert_eq!(
+    store.delete("does-not-exist").err(),
+    Some(OrgError::NoSuchOrg)
+  );
   let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -294,7 +312,10 @@ fn test_set_hostnames_persists_and_scopes_lookup() {
       .hostnames
       .is_empty()
   );
-  assert!(store.set_hostnames("does-not-exist", Vec::new()).is_none());
+  assert_eq!(
+    store.set_hostnames("does-not-exist", Vec::new()).err(),
+    Some(OrgError::NoSuchOrg)
+  );
   let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -493,4 +514,60 @@ fn the_fence_admits_the_fleet_and_refuses_the_domain_around_it() {
   ));
   assert!(!hostname_in_org_allowlist("a.test-pi.robogon.com", &fence));
   assert!(hostname_in_org_allowlist("TEST-PI.Robogon.com", &fence));
+}
+
+/// A store whose next write will fail. See `store/tokens_tests.rs`.
+fn break_writes(store: &mut OrgStore) {
+  store
+    .conn
+    .execute("DROP TABLE organizations", [])
+    .expect("the table exists until this point");
+}
+
+/// An organization that could not be saved must not be reported as created:
+/// its handle is what other people write in their configs.
+#[test]
+fn an_org_that_cannot_be_saved_is_refused_rather_than_reported() {
+  let dir = temp_dir();
+  let mut store = OrgStore::load(&dir);
+  store
+    .create("payments", Vec::new(), None)
+    .expect("the store works to begin with");
+
+  break_writes(&mut store);
+  assert_eq!(
+    store.create("billing", Vec::new(), None).err(),
+    Some(OrgError::NotSaved)
+  );
+  assert!(
+    store.list().iter().all(|o| o.name != "billing"),
+    "the organization was rolled back"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **The fence.** `hostnames` is what keeps one tenant off another's names, so
+/// a change to it that was not written down is the worst kind to report as
+/// done: the operator believes the fence moved and it did not.
+#[test]
+fn a_fence_that_cannot_be_saved_is_not_reported_as_moved() {
+  let dir = temp_dir();
+  let mut store = OrgStore::load(&dir);
+  let org = store
+    .create("tenant", vec!["a.example.com".to_string()], None)
+    .expect("created");
+
+  break_writes(&mut store);
+  assert_eq!(
+    store
+      .set_hostnames(&org.id, vec!["b.example.com".to_string()])
+      .err(),
+    Some(OrgError::NotSaved)
+  );
+  assert_eq!(
+    store.hostnames_of(Some(&org.id)),
+    vec!["a.example.com".to_string()],
+    "the fence is where it was"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
 }

@@ -258,7 +258,50 @@ pub struct OrgStore {
   orgs: Vec<Organization>,
 }
 
+/// Why a change to an organization did not happen. See `users::UserError`,
+/// which this mirrors: the request was wrong, no such organization, or the
+/// change was undone because it could not be saved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrgError {
+  Invalid(String),
+  NoSuchOrg,
+  NotSaved,
+}
+
+impl std::fmt::Display for OrgError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      OrgError::Invalid(m) => write!(f, "{m}"),
+      OrgError::NoSuchOrg => write!(f, "unknown organization id"),
+      OrgError::NotSaved => write!(
+        f,
+        "the change could not be saved to the store and was rolled back"
+      ),
+    }
+  }
+}
+
 impl OrgStore {
+  /// Runs `change`, saves, and puts the organizations back if either failed.
+  /// See `UserStore::commit`.
+  fn commit<R>(
+    &mut self,
+    change: impl FnOnce(&mut Self) -> Result<R, OrgError>,
+  ) -> Result<R, OrgError> {
+    let snapshot = self.orgs.clone();
+    match change(self) {
+      Ok(out) if self.persist() => Ok(out),
+      Ok(_) => {
+        self.orgs = snapshot;
+        Err(OrgError::NotSaved)
+      }
+      Err(e) => {
+        self.orgs = snapshot;
+        Err(e)
+      }
+    }
+  }
+
   pub fn load(data_dir: &str) -> Self {
     let conn = crate::store::open_db(data_dir);
     let orgs: Vec<Organization> = crate::store::load_all(&conn, "organizations");
@@ -268,16 +311,18 @@ impl OrgStore {
     OrgStore { conn, orgs }
   }
 
-  fn persist(&mut self) {
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .orgs
       .iter()
       .filter_map(|o| serde_json::to_string(o).ok().map(|j| (o.id.clone(), j)))
       .collect();
-    crate::store::replace_all(&mut self.conn, "organizations", &rows);
+    crate::store::replace_all(&mut self.conn, "organizations", &rows)
   }
 
   /// Replaces every org record (dump import) and persists.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, orgs: Vec<Organization>) -> usize {
     self.orgs = orgs;
     self.persist();
@@ -293,21 +338,25 @@ impl OrgStore {
     name: &str,
     hostnames: Vec<String>,
     custom_name: Option<String>,
-  ) -> Result<Organization, String> {
+  ) -> Result<Organization, OrgError> {
     let name = name.trim();
     if name.is_empty() {
-      return Err("organization name is required".into());
+      return Err(OrgError::Invalid("organization name is required".into()));
     }
     if name.eq_ignore_ascii_case("master") {
-      return Err("\"master\" is reserved for the built-in organization".into());
+      return Err(OrgError::Invalid(
+        "\"master\" is reserved for the built-in organization".into(),
+      ));
     }
     // The handle is an identifier, not a label: it is written in a server's
     // `expose:`, in a binder's config and in `payments@postgres`, by people
     // who are not looking at this screen. `custom_name` is where anything
     // human belongs.
-    aperio_config::validate_name("organization", name)?;
+    aperio_config::validate_name("organization", name).map_err(OrgError::Invalid)?;
     if self.orgs.iter().any(|o| o.name.eq_ignore_ascii_case(name)) {
-      return Err(format!("an organization named \"{name}\" already exists"));
+      return Err(OrgError::Invalid(format!(
+        "an organization named \"{name}\" already exists"
+      )));
     }
     let org = Organization {
       id: uuid::Uuid::new_v4().to_string(),
@@ -321,9 +370,10 @@ impl OrgStore {
       hostnames,
       oidc: None,
     };
-    self.orgs.push(org.clone());
-    self.persist();
-    Ok(org)
+    self.commit(|store| {
+      store.orgs.push(org.clone());
+      Ok(org)
+    })
   }
 
   /// Renames what the organization is *called*, never what it *is*.
@@ -332,24 +382,27 @@ impl OrgStore {
   /// `<org>@<tunnel>` written down elsewhere point at it, and none of those
   /// can be updated from here. `None` (or blank) goes back to showing the
   /// handle.
-  pub fn set_custom_name(&mut self, id: &str, custom_name: Option<String>) -> bool {
-    let Some(org) = self.orgs.iter_mut().find(|o| o.id == id) else {
-      return false;
-    };
-    org.custom_name = normalize_custom_name(custom_name);
-    self.persist();
-    true
+  pub fn set_custom_name(&mut self, id: &str, custom_name: Option<String>) -> Result<(), OrgError> {
+    self.commit(|store| {
+      let org = store
+        .orgs
+        .iter_mut()
+        .find(|o| o.id == id)
+        .ok_or(OrgError::NoSuchOrg)?;
+      org.custom_name = normalize_custom_name(custom_name);
+      Ok(())
+    })
   }
 
-  /// Removes an org by id. Returns whether one was removed.
-  pub fn delete(&mut self, id: &str) -> bool {
-    let before = self.orgs.len();
-    self.orgs.retain(|o| o.id != id);
-    let removed = self.orgs.len() != before;
-    if removed {
-      self.persist();
+  /// Removes an org by id.
+  pub fn delete(&mut self, id: &str) -> Result<(), OrgError> {
+    if !self.orgs.iter().any(|o| o.id == id) {
+      return Err(OrgError::NoSuchOrg);
     }
-    removed
+    self.commit(|store| {
+      store.orgs.retain(|o| o.id != id);
+      Ok(())
+    })
   }
 
   pub fn list(&self) -> &[Organization] {
@@ -370,33 +423,45 @@ impl OrgStore {
     max_tokens: Option<Option<u64>>,
     max_users: Option<Option<u64>>,
     max_bytes_month: Option<Option<u64>>,
-  ) -> Option<Organization> {
-    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
-    if let Some(v) = max_clients {
-      org.max_clients = v.filter(|n| *n > 0);
-    }
-    if let Some(v) = max_tokens {
-      org.max_tokens = v.filter(|n| *n > 0);
-    }
-    if let Some(v) = max_users {
-      org.max_users = v.filter(|n| *n > 0);
-    }
-    if let Some(v) = max_bytes_month {
-      org.max_bytes_month = v.filter(|n| *n > 0);
-    }
-    let updated = org.clone();
-    self.persist();
-    Some(updated)
+  ) -> Result<Organization, OrgError> {
+    self.commit(|store| {
+      let org = store
+        .orgs
+        .iter_mut()
+        .find(|o| o.id == id)
+        .ok_or(OrgError::NoSuchOrg)?;
+      if let Some(v) = max_clients {
+        org.max_clients = v.filter(|n| *n > 0);
+      }
+      if let Some(v) = max_tokens {
+        org.max_tokens = v.filter(|n| *n > 0);
+      }
+      if let Some(v) = max_users {
+        org.max_users = v.filter(|n| *n > 0);
+      }
+      if let Some(v) = max_bytes_month {
+        org.max_bytes_month = v.filter(|n| *n > 0);
+      }
+      Ok(org.clone())
+    })
   }
 
   /// Replaces an org's hostname allowlist (empty = unrestricted). Entries are
   /// expected to be normalized by the caller. Returns the updated record.
-  pub fn set_hostnames(&mut self, id: &str, hostnames: Vec<String>) -> Option<Organization> {
-    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
-    org.hostnames = hostnames;
-    let updated = org.clone();
-    self.persist();
-    Some(updated)
+  pub fn set_hostnames(
+    &mut self,
+    id: &str,
+    hostnames: Vec<String>,
+  ) -> Result<Organization, OrgError> {
+    self.commit(|store| {
+      let org = store
+        .orgs
+        .iter_mut()
+        .find(|o| o.id == id)
+        .ok_or(OrgError::NoSuchOrg)?;
+      org.hostnames = hostnames;
+      Ok(org.clone())
+    })
   }
 
   /// The hostname allowlist of an org (empty = unrestricted, and the master
@@ -408,12 +473,16 @@ impl OrgStore {
   }
 
   /// Sets or clears an org's OIDC override. Returns the updated record.
-  pub fn set_oidc(&mut self, id: &str, oidc: Option<OrgOidc>) -> Option<Organization> {
-    let org = self.orgs.iter_mut().find(|o| o.id == id)?;
-    org.oidc = oidc;
-    let updated = org.clone();
-    self.persist();
-    Some(updated)
+  pub fn set_oidc(&mut self, id: &str, oidc: Option<OrgOidc>) -> Result<Organization, OrgError> {
+    self.commit(|store| {
+      let org = store
+        .orgs
+        .iter_mut()
+        .find(|o| o.id == id)
+        .ok_or(OrgError::NoSuchOrg)?;
+      org.oidc = oidc;
+      Ok(org.clone())
+    })
   }
 }
 

@@ -564,6 +564,8 @@ impl StatsStore {
   /// Replaces every counter with an imported dump. Whole-store, like every
   /// other import: merging two histories would invent traffic that never
   /// happened on either server.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, dump: PersistedStats) {
     self.stats = dump.global;
     self.by_org = dump.by_org;

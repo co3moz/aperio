@@ -138,13 +138,13 @@ impl ScalingStore {
     ScalingStore { conn, records }
   }
 
-  fn persist(&mut self) {
+  fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
       .records
       .iter()
       .filter_map(|r| serde_json::to_string(r).ok().map(|j| (r.id.clone(), j)))
       .collect();
-    crate::store::replace_all(&mut self.conn, "scaling", &rows);
+    crate::store::replace_all(&mut self.conn, "scaling", &rows)
   }
 
   pub fn list(&self) -> &[ScalingRecord] {
@@ -168,6 +168,8 @@ impl ScalingStore {
   /// Arms or refreshes a record. An identical config only bumps `last_seen`
   /// and records the owner, so a fleet of replicas announcing the same block
   /// converges on one record without flapping.
+  /// Bookkeeping: this is a connecting client re-announcing itself, and it
+  /// will announce again. See `store::replace_all`.
   pub fn upsert(&mut self, mut record: ScalingRecord, owner: Option<&str>, now: u64) -> Upsert {
     record.config_hash = record.compute_hash();
     let outcome = match self.records.iter_mut().find(|r| r.id == record.id) {
@@ -209,19 +211,37 @@ impl ScalingStore {
   }
 
   /// Removes a record outright.
+  /// `false` when there was no such record **and** when the removal could not
+  /// be saved, so a record an operator disarmed does not come back armed at
+  /// the next restart.
   pub fn delete(&mut self, id: &str) -> bool {
+    let snapshot = self.records.clone();
     let before = self.records.len();
     self.records.retain(|r| r.id != id);
-    let removed = self.records.len() != before;
-    if removed {
-      self.persist();
+    if self.records.len() == before {
+      return false;
     }
-    removed
+    if self.persist() {
+      true
+    } else {
+      self.records = snapshot;
+      false
+    }
   }
 
   /// Drops an owner from every record and removes the records left with no
   /// owner at all. Called when a token is revoked or expires, so a record can
   /// never outlive the credential that armed it.
+  ///
+  /// **Deliberately not rolled back when the write fails**, which is the
+  /// opposite of `delete` two methods up, and the reason is that a rollback
+  /// would make it worse rather than better. If the write failed the record is
+  /// still on disk and will be back after a restart no matter what this does;
+  /// what is still in this method's gift is whether the *running* server keeps
+  /// calling a scaling endpoint on behalf of a credential that was just
+  /// revoked. It does not. `replace_all` logs the failed write, and the
+  /// surviving row is a real inconsistency, one this cannot fix and must not
+  /// make larger.
   pub fn disown(&mut self, token_id: &str) -> usize {
     let before = self.records.len();
     // A record armed through the admin API has no owners at all and must
@@ -238,7 +258,8 @@ impl ScalingStore {
     removed
   }
 
-  /// Drops records nothing has re-announced within `ttl_secs`.
+  /// Drops records nothing has re-announced within `ttl_secs`. Bookkeeping:
+  /// see `store::replace_all`.
   pub fn prune(&mut self, ttl_secs: u64, now: u64) -> usize {
     let before = self.records.len();
     self
@@ -252,6 +273,8 @@ impl ScalingStore {
   }
 
   /// Replaces every record (dump import) and persists.
+  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
+  /// import rather than on one row. See `store::replace_all`.
   pub fn import(&mut self, records: Vec<ScalingRecord>) -> usize {
     self.records = records;
     self.persist();
