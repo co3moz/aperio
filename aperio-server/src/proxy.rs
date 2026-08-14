@@ -506,6 +506,68 @@ async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<Visit
   })
 }
 
+/// Applies the methods that live on the request itself, `bearer` and `jwt`,
+/// and answers when one of them decides.
+///
+/// Shared by the client-declared gate and the server's own, because the same
+/// written policy must behave the same whichever side wrote it. It did not:
+/// the two branches ran the same helpers in two hand-written sequences, and a
+/// `bearer` with `query: true` got the clean-address redirect on one side and
+/// a bare admission on the other, so a page loaded through a client-declared
+/// gate rendered and then failed to fetch a single one of its own assets.
+async fn apply_request_methods(
+  state: &Arc<AppState>,
+  policy: &crate::visitor_auth::Policy,
+  headers: &HeaderMap,
+  uri: &axum::http::Uri,
+  host: Option<&str>,
+  navigation: bool,
+) -> Option<VisitorGate> {
+  if let Some(presented) = presented_secret(headers, uri, policy)
+    && policy.admits_bearer(&presented.value, presented.from_query)
+  {
+    if presented.from_query
+      && navigation
+      && let Some(host) = host
+    {
+      // A secret in the URL of a page load becomes a cookie and the visitor
+      // is sent to the clean address, so the page's own assets are not each a
+      // second request carrying it, and so the address reaching the access
+      // log, the `Referer` of every outbound link and the browser's history
+      // has no secret in it. What a share link does on its first click, and
+      // it reuses that cookie rather than inventing a second one.
+      return Some(VisitorGate::Deny(crate::share::grant_cookie_and_redirect(
+        state,
+        host,
+        &uri_without_token(uri),
+      )));
+    }
+    return Some(VisitorGate::Allow(Some(VisitorIdentity {
+      how: "bearer",
+      who: None,
+      extra_headers: Vec::new(),
+      consumed_authorization: !presented.from_query,
+    })));
+  }
+  for cfg in policy.jwt_methods() {
+    let Some(token) = jwt_token_from_request(headers, cfg) else {
+      continue;
+    };
+    if let Some(verified) = crate::jwt::verify(state, cfg, &token).await {
+      return Some(VisitorGate::Allow(Some(VisitorIdentity {
+        how: "jwt",
+        who: verified.who,
+        extra_headers: Vec::new(),
+        // Only where the bearer header carried it: a token in a cookie is the
+        // visitor's own, and stripping the cookie header would take the
+        // application's session with it.
+        consumed_authorization: cfg.cookie.is_none(),
+      })));
+    }
+  }
+  None
+}
+
 /// Applies the visitor-auth gate for a proxied request to (host, path), shared
 /// by the HTTP and WebSocket proxy paths.
 ///
@@ -576,28 +638,10 @@ pub(crate) async fn check_visitor_gate(
     if validate_session_for_host(state, headers, host).await {
       return VisitorGate::Allow(session_identity(state, headers).await);
     }
-    if let Some(presented) = presented_secret(headers, uri, &declared)
-      && declared.admits_bearer(&presented.value, presented.from_query)
+    if let Some(decided) =
+      apply_request_methods(state, &declared, headers, uri, host, navigation).await
     {
-      return VisitorGate::Allow(Some(VisitorIdentity {
-        how: "bearer",
-        who: None,
-        extra_headers: Vec::new(),
-        consumed_authorization: !presented.from_query,
-      }));
-    }
-    for cfg in declared.jwt_methods() {
-      let Some(token) = jwt_token_from_request(headers, cfg) else {
-        continue;
-      };
-      if let Some(verified) = crate::jwt::verify(state, cfg, &token).await {
-        return VisitorGate::Allow(Some(VisitorIdentity {
-          how: "jwt",
-          who: verified.who,
-          extra_headers: Vec::new(),
-          consumed_authorization: cfg.cookie.is_none(),
-        }));
-      }
+      return decided;
     }
     return match check_share_access(state, headers, uri, host) {
       Some(Some(redirect)) => VisitorGate::Deny(redirect),
@@ -669,59 +713,13 @@ pub(crate) async fn check_visitor_gate(
   if validate_session_for_visitor(state, headers, host).await {
     return VisitorGate::Allow(session_identity(state, headers).await);
   }
-  // A credential carried by the request itself, which is the only way a
-  // caller without a browser can get in: the session cookie is the whole of
-  // what the gate used to look at.
-  if let Some(presented) = presented_secret(headers, uri, policy)
-    && policy.admits_bearer(&presented.value, presented.from_query)
+  // The methods that live on the request itself, which is the only way a
+  // caller without a browser gets in: the session cookie is the whole of what
+  // the gate used to look at. The same call the client-declared branch above
+  // makes, so one written policy cannot behave two ways.
+  if let Some(decided) = apply_request_methods(state, policy, headers, uri, host, navigation).await
   {
-    if !presented.from_query || !navigation {
-      return VisitorGate::Allow(Some(VisitorIdentity {
-        how: "bearer",
-        who: None,
-        extra_headers: Vec::new(),
-        consumed_authorization: !presented.from_query,
-      }));
-    }
-    // A secret in the URL of a page load is turned into a cookie and the
-    // visitor is sent to the clean address, so the page's own assets are not
-    // each a second request carrying the secret, and so the address that
-    // reaches the access log, the `Referer` of every outbound link and the
-    // browser's history has no secret in it. Exactly what a share link does
-    // on its first click, and it reuses that cookie rather than inventing a
-    // second one: the scope is the same question and it already has an answer.
-    if let Some(host) = host {
-      return VisitorGate::Deny(crate::share::grant_cookie_and_redirect(
-        state,
-        host,
-        &uri_without_token(uri),
-      ));
-    }
-    return VisitorGate::Allow(Some(VisitorIdentity {
-      how: "bearer",
-      who: None,
-      extra_headers: Vec::new(),
-      consumed_authorization: !presented.from_query,
-    }));
-  }
-  // A token the visitor already holds, checked against keys the issuer
-  // publishes. Costs a signature verification and, at most, one cached fetch;
-  // no round trip per request, which is what separates it from `forward`.
-  for cfg in policy.jwt_methods() {
-    let Some(token) = jwt_token_from_request(headers, cfg) else {
-      continue;
-    };
-    if let Some(verified) = crate::jwt::verify(state, cfg, &token).await {
-      return VisitorGate::Allow(Some(VisitorIdentity {
-        how: "jwt",
-        who: verified.who,
-        extra_headers: Vec::new(),
-        // Only when it was the bearer header that carried it: a token in a
-        // cookie is the visitor's own, and stripping the whole cookie header
-        // would take the application's session with it.
-        consumed_authorization: cfg.cookie.is_none(),
-      }));
-    }
+    return decided;
   }
   // Delegated: an endpoint the operator runs is asked about this request.
   // Last of the methods, because it is the only one that costs a round trip,

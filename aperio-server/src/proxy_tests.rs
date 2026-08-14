@@ -2066,3 +2066,70 @@ async fn a_jwt_in_a_cookie_is_the_visitors_own_and_keeps_travelling() {
     _ => panic!("expected the cookie token to be admitted"),
   }
 }
+
+#[tokio::test]
+async fn one_written_policy_behaves_the_same_whichever_side_wrote_it() {
+  // The two branches of the gate, a client-declared policy and the server's
+  // own, ran the same helpers in two hand-written sequences, and they had
+  // drifted: a `bearer` with `query: true` got the clean-address redirect on
+  // the server side and a bare admission on the client side, so a page loaded
+  // through a client-declared gate rendered and then failed to fetch a single
+  // one of its own assets.
+  let yaml = "{method: bearer, secret: \"0123456789abcdef-secret\", query: true}";
+  let uri: axum::http::Uri = "/report?aperio_token=0123456789abcdef-secret&page=2"
+    .parse()
+    .unwrap();
+  let mut browser = HeaderMap::new();
+  browser.insert("accept", HeaderValue::from_static("text/html"));
+
+  // Written on the server.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(&serde_yaml::from_str(yaml).unwrap());
+  let server_side = Arc::new(test_state_with(cfg));
+
+  // Written on a client that serves the route.
+  let client_side = Arc::new(test_state_with(test_config()));
+  let mut c = mock_client(None, None, None, None);
+  c.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(yaml).unwrap(),
+  ));
+  client_side
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), c);
+
+  for (label, state) in [("server", &server_side), ("client", &client_side)] {
+    let gate = check_visitor_gate(
+      state,
+      &axum::http::Method::GET,
+      &browser,
+      &uri,
+      Some("app.example.com"),
+    )
+    .await;
+    match gate {
+      VisitorGate::Deny(resp) => {
+        assert_eq!(resp.status(), StatusCode::FOUND, "{label}");
+        assert_eq!(
+          resp.headers().get("Location").unwrap(),
+          "/report?page=2",
+          "{label}"
+        );
+        assert!(
+          resp
+            .headers()
+            .get("Set-Cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("aperio_share="),
+          "{label}"
+        );
+      }
+      VisitorGate::Allow(_) => {
+        panic!("{label}: a page load carrying the secret should be sent to a clean address")
+      }
+    }
+  }
+}
