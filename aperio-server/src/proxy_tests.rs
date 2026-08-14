@@ -1953,3 +1953,114 @@ async fn the_credential_that_opened_the_gate_does_not_travel_to_the_backend() {
     _ => panic!("expected an admitted query caller"),
   }
 }
+
+#[tokio::test]
+async fn a_jwt_gate_admits_the_token_a_visitor_already_holds() {
+  // No round trip per request, which is what separates this from `forward`,
+  // and the identity comes out of the token rather than out of a login.
+  let secret = "0123456789abcdef-jwt-gate-secret";
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!(
+      "{{method: jwt, hmac_secret: \"{secret}\", issuer: \"https://accounts.example.com\"}}"
+    ))
+    .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+
+  let exp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs()
+    + 600;
+  let good = jsonwebtoken::encode(
+    &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+    &serde_json::json!({
+      "sub": "u-1", "email": "alice@example.com",
+      "iss": "https://accounts.example.com", "exp": exp
+    }),
+    &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+  )
+  .unwrap();
+
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_str(&format!("Bearer {good}")).unwrap(),
+  );
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Allow(Some(id)) => {
+      assert_eq!(id.how, "jwt");
+      assert_eq!(id.who.as_deref(), Some("alice@example.com"));
+      assert!(
+        id.consumed_authorization,
+        "the header carried Aperio's credential, so it does not travel on"
+      );
+    }
+    _ => panic!("expected the token to be admitted"),
+  }
+
+  // A token for another issuer is refused, with the challenge a caller that
+  // speaks in headers can act on.
+  let wrong = jsonwebtoken::encode(
+    &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+    &serde_json::json!({"sub": "u-1", "iss": "https://somewhere.else", "exp": exp}),
+    &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+  )
+  .unwrap();
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_str(&format!("Bearer {wrong}")).unwrap(),
+  );
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Deny(resp) => {
+      assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+      assert_eq!(resp.headers().get("WWW-Authenticate").unwrap(), "Bearer");
+    }
+    VisitorGate::Allow(_) => panic!("expected deny"),
+  }
+}
+
+#[tokio::test]
+async fn a_jwt_in_a_cookie_is_the_visitors_own_and_keeps_travelling() {
+  // Where an identity-aware proxy in front puts it. Stripping the cookie
+  // header would take the application's own session with it, so unlike the
+  // bearer case nothing is consumed.
+  let secret = "0123456789abcdef-jwt-cookie-key";
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!(
+      "{{method: jwt, hmac_secret: \"{secret}\", cookie: CF_Authorization}}"
+    ))
+    .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let exp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs()
+    + 600;
+  let t = jsonwebtoken::encode(
+    &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+    &serde_json::json!({"sub": "u-9", "exp": exp}),
+    &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+  )
+  .unwrap();
+
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "cookie",
+    HeaderValue::from_str(&format!("other=1; CF_Authorization={t}")).unwrap(),
+  );
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+  match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+    VisitorGate::Allow(Some(id)) => {
+      assert_eq!(id.how, "jwt");
+      assert_eq!(id.who.as_deref(), Some("u-9"));
+      assert!(!id.consumed_authorization);
+    }
+    _ => panic!("expected the cookie token to be admitted"),
+  }
+}

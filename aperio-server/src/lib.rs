@@ -31,6 +31,7 @@ mod error_pages;
 mod expose;
 mod fallbacks;
 mod headers;
+mod jwt;
 mod limits;
 mod maintenance_windows;
 mod metrics_labels;
@@ -1336,6 +1337,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
+    jwks_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     dashboard_enabled,

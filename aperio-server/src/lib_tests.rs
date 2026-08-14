@@ -149,6 +149,7 @@ async fn test_rate_limiting() {
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
+    jwks_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {
@@ -329,6 +330,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
+    jwks_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {
@@ -531,6 +533,7 @@ async fn test_proxy_handler_success() {
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     telemetry_tx: tokio::sync::mpsc::channel(1).0,
     pending_messages: Mutex::new(HashMap::new()),
+    jwks_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {

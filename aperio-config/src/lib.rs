@@ -2428,8 +2428,11 @@ pub struct OtelBridge {
 pub enum AuthSetting {
   /// `auth: "user:password"`, the spelling that predates the method grammar.
   Credentials(String),
-  /// One method: `auth: {method: none}`.
-  One(AuthMethodSpec),
+  /// One method: `auth: {method: none}`. Boxed because a method entry grew
+  /// fields as methods were added, and an unboxed variant makes every
+  /// `AuthSetting`, including the one-word scalar, as large as the largest
+  /// method's settings.
+  One(Box<AuthMethodSpec>),
   /// Several methods, any one of which admits the visitor.
   Any(Vec<AuthMethodSpec>),
 }
@@ -2441,7 +2444,7 @@ pub enum AuthSetting {
 /// should be refused by name, with the available methods listed, and a serde
 /// "unknown variant" error inside an untagged enum says only that nothing
 /// matched. The same reason `alert_rules` parses its `metric` by hand.
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AuthMethodSpec {
   /// The gate: `none` (deliberately open) or `basic` (a `user:password`
@@ -2466,6 +2469,38 @@ pub struct AuthMethodSpec {
   #[serde(default)]
   #[schemars(extend("examples" = [true]))]
   pub query: Option<bool>,
+  /// `jwt`: URL of the issuer's JWKS, the public keys its tokens are signed
+  /// with. Fetched and cached, and re-fetched when a token names a key id
+  /// that is not in the cache. Subject to the server's outbound policy.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["https://accounts.example.com/.well-known/jwks.json"]))]
+  pub jwks_url: Option<String>,
+  /// `jwt`: shared secret for HMAC-signed tokens (`HS256`), for an issuer
+  /// that is your own service rather than a provider with public keys.
+  /// Mutually exclusive with `jwks_url`.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["${JWT_SECRET}"]))]
+  pub hmac_secret: Option<String>,
+  /// `jwt`: required `iss` claim. Strongly recommended: without it any issuer
+  /// whose key the JWKS happens to carry is accepted.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["https://accounts.example.com"]))]
+  pub issuer: Option<String>,
+  /// `jwt`: required `aud` claim, one or a list of accepted values.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["aperio", ["aperio", "internal-tools"]]))]
+  pub audience: Option<Credentials>,
+  /// `jwt`: further claims a token must carry, each as an exact value the
+  /// claim must equal (`{groups: engineering}`).
+  #[serde(default)]
+  #[schemars(extend("examples" = [{"groups": "engineering"}]))]
+  pub claims: Option<std::collections::BTreeMap<String, String>>,
+  /// `jwt`: read the token from this cookie instead of the `Authorization`
+  /// header, which is where an identity-aware proxy in front usually puts it
+  /// (Cloudflare Access writes `CF_Authorization`).
+  #[serde(default)]
+  #[schemars(extend("examples" = ["CF_Authorization"]))]
+  pub cookie: Option<String>,
 }
 
 /// A `basic` method's credentials: one `user:password` or a list of them.
@@ -2498,10 +2533,9 @@ impl AuthSetting {
       AuthSetting::Credentials(creds) => vec![AuthMethodSpec {
         method: "basic".to_string(),
         users: Some(Credentials::One(creds.clone())),
-        secret: None,
-        query: None,
+        ..Default::default()
       }],
-      AuthSetting::One(spec) => vec![spec.clone()],
+      AuthSetting::One(spec) => vec![spec.as_ref().clone()],
       AuthSetting::Any(specs) => specs.clone(),
     }
   }
@@ -2545,7 +2579,7 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt"];
 
 /// Shortest `bearer` secret accepted.
 ///
@@ -2601,7 +2635,11 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
     }
     match name.as_str() {
       "none" => {
-        if spec.users.is_some() || spec.secret.is_some() {
+        if spec.users.is_some()
+          || spec.secret.is_some()
+          || spec.jwks_url.is_some()
+          || spec.hmac_secret.is_some()
+        {
           return Err(at(
             "`method: none` is the open gate and takes no credentials".to_string(),
           ));
@@ -2633,6 +2671,48 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
               "this `secret:` is {} characters; a bearer secret is compared verbatim and has no user half to slow a guess down, so it carries the whole of the gate and needs at least {MIN_BEARER_SECRET_LEN}",
               secret.len()
             )));
+          }
+        }
+      }
+      "jwt" => {
+        if spec.users.is_some() || spec.secret.is_some() {
+          return Err(at(
+            "`method: jwt` verifies a signature; it takes `jwks_url:` or `hmac_secret:`, not `users:` / `secret:`".to_string(),
+          ));
+        }
+        match (spec.jwks_url.as_deref(), spec.hmac_secret.as_deref()) {
+          (None, None) => {
+            return Err(at(
+              "`method: jwt` needs `jwks_url:` (the issuer's public keys) or `hmac_secret:` (a shared secret)".to_string(),
+            ));
+          }
+          (Some(_), Some(_)) => {
+            return Err(at(
+              "`method: jwt` takes `jwks_url:` or `hmac_secret:`, not both: they are two different ways of knowing who signed a token".to_string(),
+            ));
+          }
+          (Some(url), None) => {
+            if !url.starts_with("https://") && !url.starts_with("http://") {
+              return Err(at(format!("`jwks_url:` is not a URL: `{url}`")));
+            }
+          }
+          (None, Some(secret)) => {
+            if secret.len() < MIN_BEARER_SECRET_LEN {
+              return Err(at(format!(
+                "this `hmac_secret:` is {} characters; it is the whole of what proves a token was not written by its bearer, so it needs at least {MIN_BEARER_SECRET_LEN}",
+                secret.len()
+              )));
+            }
+          }
+        }
+        if spec.issuer.as_deref().is_some_and(|i| i.trim().is_empty()) {
+          return Err(at("`issuer:` is blank".to_string()));
+        }
+        if let Some(claims) = spec.claims.as_ref() {
+          for key in claims.keys() {
+            if key.trim().is_empty() {
+              return Err(at("a claim requirement has a blank name".to_string()));
+            }
           }
         }
       }

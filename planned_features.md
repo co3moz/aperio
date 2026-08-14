@@ -352,57 +352,6 @@ test suite.
   availability, and calling it `Security` would refuse the start of every
   server in the range for a change that took nothing away.
 
-- [ ] **#110 A `jwt` method: verify a bearer or cookie token against a JWKS.**
-  Requires `iss`, `aud`, `exp` and whatever claims the operator names, with no
-  per-request round trip, which is the operational difference from `forward`
-  (#104) and the reason both belong in the set. It also subsumes a shelf of
-  vendor integrations that would otherwise arrive as their own methods:
-  Cloudflare Access, an ALB doing OIDC, and anyone who already runs an auth
-  service. That is the argument for `jwt` over anything vendor-shaped.
-
-  **Priced, 2026-08-14, and the answer decides the version.** The worry was a
-  third crypto stack: the tree already carries openssl transitively through
-  `webauthn-rs` and **#2 is about getting rid of exactly that**. It turns out
-  not to apply, but only to one version line.
-
-  `ring` is **already in the tree**, as rustls's crypto provider, reached
-  from `aperio-server` directly and from both `reqwest` versions. It
-  implements RSA-PKCS1-SHA256 and ECDSA-P256/P384-SHA256 verification, which
-  is the whole of what RS256/ES256 needs.
-
-  - **`jsonwebtoken` 9.3.1 builds on `ring`.** Adding it pulls three crates
-    and no crypto stack: `jsonwebtoken` itself, plus `pem` and `simple_asn1`,
-    both small and pure Rust. `base64`, `serde` and `serde_json` are already
-    here and `ring` unifies with rustls's copy at the same version. Checked:
-    it compiles into `aperio-server`, `cargo deny check licenses` and
-    `advisories` both pass, and JWKS needs nothing further, `jwk::JwkSet` and
-    `DecodingKey::from_jwk` are in the crate.
-  - **10 and 11 dropped `ring`.** With default features they pull no backend
-    at all (they compile, and cannot verify anything); a backend is opt-in as
-    either `aws-lc-rs`, a C-based stack with its own build requirements, or
-    `rust_crypto`, which is `rsa` + `p256` + `p384` + `sha2` +
-    `ed25519-dalek`, a second pure-Rust stack. Either is the third-stack
-    outcome this entry was written to avoid. 11 additionally wants rustc
-    1.88 against this workspace's 1.87.
-
-  So: **pin to 9**, and record that moving to 10+ is a crypto-backend
-  decision rather than a routine bump, since the bump is silent about it.
-  Worth weighing on the other side: 9 is two majors behind and will stop
-  getting fixes at some point, which is the cost of this choice and the thing
-  that would reopen it.
-
-  The build risk is the argument that settles it. The release cross-compiles
-  to musl (x86\_64, aarch64), macOS (both) and Windows MSVC; `ring` already
-  builds for every one of them, because rustls is already in every one of
-  those binaries. `aws-lc-rs` would be a new cross-compilation surface on
-  exactly the two targets (musl and Windows) that #2 records as the openssl
-  pain.
-
-  **Still unmeasured:** what it does to the 14 MB the README advertises.
-  Measuring it means two release builds for a number that does not change the
-  decision, so it was not measured, and the claim here is only about
-  dependencies, not size.
-
 - [ ] **#104 A `forward` method: a route delegates its gate to an endpoint the
   operator runs.** The shape nginx spells `auth_request` and Traefik spells
   ForwardAuth: before dispatching, the server asks a URL the operator names,
@@ -743,6 +692,32 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#110 A `jwt` method: verify a bearer or cookie token against a JWKS.**
+  shipped: `{method: jwt, jwks_url: ...}` or `hmac_secret:` for `HS256`, with
+  `issuer:`, `audience:`, arbitrary exact-match `claims:` and a `cookie:` for
+  the token an identity-aware proxy in front writes. Key sets are cached for
+  an hour and re-fetched when a token names an unknown `kid`, which is what a
+  rotation looks like from here, with a floor between fetches so a stream of
+  invented key ids cannot be aimed at the issuer through us; the URL goes
+  through the outbound policy like every other destination the server calls.
+  The identity is the `email` claim, else `sub`, which is what #109 forwards.
+
+  The dependency question this entry was opened with was answered first and
+  the answer is recorded above: `jsonwebtoken` is pinned to 9, which builds on
+  the `ring` that rustls already puts in every binary, and
+  `aperio-server/Cargo.toml` carries the reason so a future bump reads as the
+  crypto-backend decision it is.
+
+  Two things the tests forced out, both in the direction of admitting too
+  much. The library checks `iss` and `aud` only when a token happens to carry
+  them, so configuring an audience would have admitted a token carrying none,
+  precisely the token the requirement was written to keep out; both are named
+  as required claims now, and `exp` always is, since a token with no expiry
+  never stops working. And a key set with several keys and a token naming no
+  `kid` is refused rather than tried against each: guessing which key signed
+  something is how a verifier accepts a signature the issuer did not mean to
+  make.
 
 - [x] **#105 One `auth:` grammar for the visitor gate, with a `method:` and a
   closed method set.** shipped: `auth:` takes the scalar it always did, one

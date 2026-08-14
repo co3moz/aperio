@@ -104,6 +104,14 @@ http-body = "1"
 webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
 regex = "1.13.0"
 socket2 = "0.6.4"
+# Pinned to the 9 line on purpose, and moving off it is a crypto-backend
+# decision rather than a version bump (planned_features #110). 9 builds on
+# `ring`, which rustls already puts in every one of these binaries, so it adds
+# no crypto stack and no new cross-compilation surface. 10 and 11 dropped ring
+# for `aws-lc-rs` or the RustCrypto stack; either would be a third crypto
+# implementation here, and aws-lc-rs would be new build surface on musl and
+# Windows, the two targets #2 records as the openssl pain.
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
 
 [features]
 # Used by the release workflow: build OpenSSL from source for the target

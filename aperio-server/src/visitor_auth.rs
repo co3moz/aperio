@@ -6,11 +6,11 @@
 //! the gate never re-parses configuration per request and never has to know
 //! which of the three spellings produced it.
 //!
-//! Two methods exist today, `none` and `basic`. The set is closed on purpose:
-//! the open version was considered and withdrawn (#103). Each further method
-//! is its own entry (`bearer` #107, `oidc` #106, `jwt` #110, `forward` #104),
-//! and each lands here as another variant rather than as another top-level
-//! setting somewhere else in the file.
+//! Four methods exist today: `none`, `basic`, `bearer` (#107) and `jwt`
+//! (#110). The set is closed on purpose, the open version was considered and
+//! withdrawn (#103), and each further method (`oidc` #106, `forward` #104) is
+//! its own entry that lands here as another variant rather than as another
+//! top-level setting somewhere else in the file.
 //!
 //! **A policy of several methods admits on the first that admits.** That is
 //! what lets one route say "a browser signs in, a script presents a key", and
@@ -38,6 +38,11 @@ pub(crate) enum Method {
   /// has to be comparable against whatever they wrote in the file. That is a
   /// different shape from `basic`, whose password is chosen by a person.
   Bearer { secrets: Vec<String>, query: bool },
+  /// A token the visitor already holds, signed by an issuer whose keys the
+  /// server can check. Verified in [`crate::jwt`], which is where the fetch
+  /// and the cache live, because this is the one method whose answer needs
+  /// state and the network rather than only the request.
+  Jwt(Box<crate::jwt::JwtConfig>),
 }
 
 /// A route's visitor gate: the methods that may admit a visitor, in the order
@@ -78,6 +83,18 @@ impl Policy {
               .map(|u| u.as_slice().to_vec())
               .unwrap_or_default(),
           }),
+          "jwt" => Some(Method::Jwt(Box::new(crate::jwt::JwtConfig {
+            jwks_url: spec.jwks_url.clone(),
+            hmac_secret: spec.hmac_secret.clone(),
+            issuer: spec.issuer.clone(),
+            audience: spec
+              .audience
+              .as_ref()
+              .map(|a| a.as_slice().to_vec())
+              .unwrap_or_default(),
+            claims: spec.claims.clone().unwrap_or_default(),
+            cookie: spec.cookie.clone(),
+          }))),
           "bearer" => Some(Method::Bearer {
             secrets: spec
               .secret
@@ -162,6 +179,7 @@ impl Policy {
         Method::Open => "none",
         Method::Basic { .. } => "basic",
         Method::Bearer { .. } => "bearer",
+        Method::Jwt(_) => "jwt",
       })
       .collect()
   }
@@ -208,14 +226,22 @@ impl Policy {
     self
       .methods
       .iter()
-      .any(|m| matches!(m, Method::Bearer { .. }))
+      .any(|m| matches!(m, Method::Bearer { .. } | Method::Jwt(_)))
+  }
+
+  /// The `jwt` methods in force, in the order they were written.
+  pub(crate) fn jwt_methods(&self) -> impl Iterator<Item = &crate::jwt::JwtConfig> {
+    self.methods.iter().filter_map(|m| match m {
+      Method::Jwt(cfg) => Some(cfg.as_ref()),
+      _ => None,
+    })
   }
 
   /// The `WWW-Authenticate` value for a refusal, when this policy has
   /// something for a caller to answer with.
   pub(crate) fn challenge(&self) -> Option<&'static str> {
     self.methods.iter().find_map(|m| match m {
-      Method::Bearer { .. } => Some("Bearer"),
+      Method::Bearer { .. } | Method::Jwt(_) => Some("Bearer"),
       _ => None,
     })
   }

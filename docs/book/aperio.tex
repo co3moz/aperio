@@ -1691,6 +1691,11 @@ line already written. Two methods exist today:
         \code{public: true}, and it needs the same token permission.
   \item[\code{basic}] A \code{user:password} login. \code{users:} takes
         one credential or a list, all alternatives on one gate.
+  \item[\code{jwt}] A token the visitor already holds, verified against
+        keys the issuer publishes (\code{jwks\_url:}) or a shared secret
+        (\code{hmac\_secret:}). No round trip per request, which is the
+        operational difference from a future \code{forward}. Server-side
+        only, like \code{bearer}.
   \item[\code{bearer}] An opaque secret presented as
         \code{Authorization: Bearer <secret>}. \code{secret:} takes one
         or a list, so a key rotates by adding the new one before
@@ -1730,6 +1735,43 @@ answered with a redirect to the clean address plus a short-lived cookie,
 so the secret is not repeated on every asset of that page. The last move
 is what a share link already does on its first click, and it reuses the
 same cookie rather than inventing a second one.
+
+\subsection{Verifying a token the visitor already holds}
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+auth:
+  - method: jwt
+    jwks_url: https://accounts.example.com/.well-known/jwks.json
+    issuer: https://accounts.example.com
+    audience: aperio                 # one value or a list
+    claims: { groups: engineering }  # further claims, each an exact value
+    cookie: CF_Authorization         # where the token is, if not a bearer
+\end{codecard}
+
+One \code{jwt} method subsumes a shelf of provider integrations, since
+Cloudflare Access, an ALB doing OIDC and anybody's own auth service all
+hand out the same thing. That is the argument for it over anything
+vendor-shaped, and it is why the method set can stay closed.
+
+Two ways of knowing who signed a token, and exactly one of them per
+method. \code{jwks\_url:} is the issuer's public keys, fetched and cached
+for an hour and fetched again when a token names a key id the cache does
+not have, which is what a rotation looks like from here, so a rotation
+needs no restart. \code{hmac\_secret:} is for \code{HS256}, where the
+issuer is your own service. The key-set URL goes through the server's
+outbound policy like every other destination the server is told to call.
+
+\code{iss} and \code{aud} are checked only when the file asks, and asking
+means the claim must be \emph{present}. An unset \code{audience:} is not
+"accept any audience", and a configured one refuses a token carrying
+none, which is exactly the token the requirement was written to keep out.
+\code{exp} is required whatever the file says: a token with no expiry is
+one that never stops working.
+
+A token in the \code{Authorization} header is Aperio's credential and is
+stripped before the request is forwarded. One in a \code{cookie:} is the
+visitor's own and travels, since stripping the cookie header would take
+the application's own session with it.
 
 A \code{bearer} secret is compared verbatim rather than hashed, unlike a
 \code{basic} password. That is deliberate: it is a high-entropy value the

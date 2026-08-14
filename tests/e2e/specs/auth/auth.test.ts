@@ -4,6 +4,7 @@ import { AperioServerBase } from '../../lib/server.js'
 import { StandardBackendBase } from '../../lib/backend.js'
 import { ClientFor } from '../../lib/client.js'
 import { waitFor } from '../../lib/env.js'
+import { createHmac } from 'node:crypto'
 
 const HOST = 'app.e2e.local'
 
@@ -494,5 +495,120 @@ export class ClosedByDefaultSpec extends Test({
     assert.equal(undeclared.status, 504)
     assert.equal(undeclared.status, nobody.status)
     assert.equal(undeclared.body, nobody.body)
+  }
+}
+
+const JWT_SECRET = '0123456789abcdef-e2e-jwt-secret'
+const JWT_HOST = 'jwt.e2e.local'
+
+/** Minimal HS256 signing, so the suite needs no JWT library of its own. */
+function signHs256(claims: Record<string, unknown>): string {
+  const b64 = (buf: Buffer) => buf.toString('base64url')
+  const head = b64(Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })))
+  const body = b64(Buffer.from(JSON.stringify(claims)))
+  const mac = createHmac('sha256', JWT_SECRET).update(`${head}.${body}`).digest()
+  return `${head}.${body}.${b64(mac)}`
+}
+
+export class JwtServer extends AperioServerBase({
+  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+}) {
+  _configFile() {
+    return [
+      'server:',
+      '  auth:',
+      '    - method: jwt',
+      `      hmac_secret: "${JWT_SECRET}"`,
+      '      issuer: https://accounts.e2e.local',
+      '      audience: aperio',
+      '      claims: { groups: engineering }',
+      '',
+    ].join('\n')
+  }
+}
+
+export class JwtBackend extends StandardBackendBase() {}
+
+export class JwtClient extends ClientFor(() => JwtServer, () => JwtBackend) {
+  _hostname() {
+    return ''
+  }
+  _env() {
+    return { APERIO_HOSTNAME: JWT_HOST }
+  }
+}
+
+export class JwtMethodSpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => JwtServer,
+    backend: () => JwtBackend,
+    client: () => JwtClient,
+  },
+}) {
+  _exp = 0
+
+  async before() {
+    this._exp = Math.floor(Date.now() / 1000) + 600
+  }
+
+  _token(extra: Record<string, unknown> = {}) {
+    return signHs256({
+      sub: 'u-1',
+      email: 'alice@e2e.local',
+      iss: 'https://accounts.e2e.local',
+      aud: 'aperio',
+      groups: 'engineering',
+      exp: this._exp,
+      ...extra,
+    })
+  }
+
+  async aGoodTokenIsServedAndNamesItsHolder() {
+    await waitFor(
+      async () => {
+        const res = await this.server._fetch('/echo-headers', {
+          host: JWT_HOST,
+          headers: { authorization: `Bearer ${this._token()}` },
+        })
+        return res.status === 200
+      },
+      { label: 'the jwt gate to admit a good token' },
+    )
+    const res = await this.server._fetch('/echo-headers', {
+      host: JWT_HOST,
+      headers: { authorization: `Bearer ${this._token()}` },
+    })
+    assert.match(res.body, /x-aperio-visitor-how: jwt/)
+    assert.match(res.body, /x-aperio-visitor-id: alice@e2e\.local/)
+    // Aperio's credential does not travel on to the backend.
+    assert.doesNotMatch(res.body, /authorization:/)
+  }
+
+  async aTokenFailingAnyOneRuleIsRefused() {
+    for (const [why, extra] of [
+      ['a claim that does not match', { groups: 'sales' }],
+      ['another issuer', { iss: 'https://somewhere.else' }],
+      ['another audience', { aud: 'not-us' }],
+      ['an expiry in the past', { exp: Math.floor(Date.now() / 1000) - 3600 }],
+    ] as [string, Record<string, unknown>][]) {
+      const res = await this.server._fetch('/hello', {
+        host: JWT_HOST,
+        headers: { authorization: `Bearer ${this._token(extra)}` },
+      })
+      assert.equal(res.status, 401, why)
+      assert.equal(res.headers['www-authenticate'], 'Bearer', why)
+    }
+  }
+
+  async aTokenSignedBySomebodyElseIsRefused() {
+    const head = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+    const body = Buffer.from(JSON.stringify({ sub: 'u-1', exp: this._exp })).toString('base64url')
+    const forged = `${head}.${body}.${createHmac('sha256', 'not-the-secret').update(`${head}.${body}`).digest('base64url')}`
+    const res = await this.server._fetch('/hello', {
+      host: JWT_HOST,
+      headers: { authorization: `Bearer ${forged}` },
+    })
+    assert.equal(res.status, 401)
   }
 }

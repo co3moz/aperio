@@ -1384,3 +1384,54 @@ fn a_bearer_gate_is_not_expressible_as_the_one_scalar_the_old_surfaces_carry() {
   let p = auth_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
   assert_eq!(p.as_single_credential(), None);
 }
+
+#[test]
+fn a_jwt_gate_needs_exactly_one_way_of_knowing_who_signed_a_token() {
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: jwt, jwks_url: \"https://accounts.example.com/jwks\", issuer: \"https://accounts.example.com\"}"
+    ))
+    .is_ok()
+  );
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: jwt, hmac_secret: \"0123456789abcdef-secret\"}"
+    ))
+    .is_ok()
+  );
+
+  let cases = [
+    ("{method: jwt}", "neither key source"),
+    (
+      "{method: jwt, jwks_url: \"https://x/jwks\", hmac_secret: \"0123456789abcdef\"}",
+      "both key sources",
+    ),
+    (
+      "{method: jwt, jwks_url: \"not-a-url\"}",
+      "a jwks_url that is not one",
+    ),
+    (
+      "{method: jwt, hmac_secret: \"short\"}",
+      "a secret below the floor",
+    ),
+    (
+      "{method: jwt, jwks_url: \"https://x/jwks\", users: \"a:b\"}",
+      "users on jwt",
+    ),
+    (
+      "{method: jwt, jwks_url: \"https://x/jwks\", secret: \"0123456789abcdef\"}",
+      "secret on jwt",
+    ),
+    (
+      "{method: jwt, jwks_url: \"https://x/jwks\", issuer: \"  \"}",
+      "a blank issuer",
+    ),
+    (
+      "{method: none, jwks_url: \"https://x/jwks\"}",
+      "a key source on the open gate",
+    ),
+  ];
+  for (yaml, why) in cases {
+    validate_auth_setting(&auth_of(yaml)).expect_err(&format!("{why} should be refused: {yaml}"));
+  }
+}

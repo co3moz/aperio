@@ -2242,6 +2242,12 @@ pub(crate) struct AppState {
   /// happened to yield first.
   pub(crate) pending_messages:
     Mutex<HashMap<crate::tunnel::pubsub::PendingKey, Vec<crate::tunnel::pubsub::Pending>>>,
+  /// Public keys fetched for the `jwt` visitor-auth method, by JWKS URL.
+  ///
+  /// Cached because verifying a token must not be a request to somebody
+  /// else's server, and re-fetched when a token names a key id that is not
+  /// here, which is what a rotation looks like from this side.
+  pub(crate) jwks_cache: Mutex<HashMap<String, crate::jwt::CachedJwks>>,
   /// Counters for the messaging path, rendered by the metrics endpoint.
   pub(crate) message_metrics: crate::tunnel::pubsub::MessageMetrics,
   pub(crate) client_connected: watch::Sender<bool>,

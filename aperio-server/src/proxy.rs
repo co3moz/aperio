@@ -470,6 +470,28 @@ fn refuse_visitor(
   }
 }
 
+/// The token a `jwt` method should check, from wherever that method says it
+/// arrives: the `Authorization: Bearer` header by default, or the cookie an
+/// identity-aware proxy in front writes.
+fn jwt_token_from_request(headers: &HeaderMap, cfg: &crate::jwt::JwtConfig) -> Option<String> {
+  match cfg.cookie.as_deref() {
+    Some(name) => headers
+      .get("cookie")
+      .and_then(|v| v.to_str().ok())?
+      .split(';')
+      .filter_map(|part| part.trim().split_once('='))
+      .find(|(k, _)| *k == name)
+      .map(|(_, v)| v.to_string()),
+    None => headers
+      .get("authorization")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.strip_prefix("Bearer "))
+      .map(str::trim)
+      .filter(|s| !s.is_empty())
+      .map(str::to_string),
+  }
+}
+
 /// The identity behind a session cookie, for a request the gate has already
 /// admitted on the strength of it.
 async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<VisitorIdentity> {
@@ -616,6 +638,24 @@ pub(crate) async fn check_visitor_gate(
       who: None,
       consumed_authorization: !presented.from_query,
     }));
+  }
+  // A token the visitor already holds, checked against keys the issuer
+  // publishes. Costs a signature verification and, at most, one cached fetch;
+  // no round trip per request, which is what separates it from `forward`.
+  for cfg in policy.jwt_methods() {
+    let Some(token) = jwt_token_from_request(headers, cfg) else {
+      continue;
+    };
+    if let Some(verified) = crate::jwt::verify(state, cfg, &token).await {
+      return VisitorGate::Allow(Some(VisitorIdentity {
+        how: "jwt",
+        who: verified.who,
+        // Only when it was the bearer header that carried it: a token in a
+        // cookie is the visitor's own, and stripping the whole cookie header
+        // would take the application's session with it.
+        consumed_authorization: cfg.cookie.is_none(),
+      }));
+    }
   }
   match check_share_access(state, headers, uri, host) {
     Some(Some(redirect)) => VisitorGate::Deny(redirect),
